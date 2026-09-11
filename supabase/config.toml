@@ -9,3 +9,8 @@ verify_jwt = true
 # secure-signin is the auth endpoint itself — callers do not yet have a JWT.
 [functions.secure-signin]
 verify_jwt = false
+
+# exchange-rate-sync (bug 0722-156): sync mode has no caller auth at all (a future Railway
+# cron will invoke it with zero Supabase credentials); test mode is admin-gated in-handler.
+[functions.exchange-rate-sync]
+verify_jwt = false

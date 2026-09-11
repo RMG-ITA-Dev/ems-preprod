@@ -5150,6 +5150,86 @@ $$;
 
 
 --
+-- Name: sync_wo_payment_installments(uuid, uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_wo_payment_installments(p_plan_id uuid, p_wo_id uuid, p_installments jsonb) RETURNS SETOF public.wo_payment_installments
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_kept_ids uuid[];
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_payment_plan
+    WHERE plan_id = p_plan_id AND wo_id = p_wo_id
+  ) THEN
+    RAISE EXCEPTION 'PLAN_WO_MISMATCH: el plan de pagos indicado no pertenece a la orden de trabajo indicada';
+  END IF;
+
+  SELECT array_agg((row_data->>'installment_id')::uuid)
+  INTO v_kept_ids
+  FROM jsonb_array_elements(p_installments) AS row_data
+  WHERE row_data->>'installment_id' IS NOT NULL;
+
+  IF v_kept_ids IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.wo_payment_installments existing
+    WHERE existing.installment_id = ANY (v_kept_ids)
+      AND existing.plan_id <> p_plan_id
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_PLAN_MISMATCH: una o mas cuotas del payload no pertenecen al plan de pagos indicado';
+  END IF;
+
+  IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
+  ELSE
+    DELETE FROM public.wo_payment_installments
+    WHERE plan_id = p_plan_id;
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO public.wo_payment_installments AS w (
+    installment_id, plan_id, wo_id, installment_number,
+    agreed_invoice_date, agreed_payment_date,
+    collection_invoice_date, collection_payment_date, payment_date_actual,
+    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate
+  )
+  SELECT
+    COALESCE((row_data->>'installment_id')::uuid, gen_random_uuid()),
+    p_plan_id,
+    p_wo_id,
+    (row_data->>'installment_number')::integer,
+    (row_data->>'agreed_invoice_date')::date,
+    (row_data->>'agreed_payment_date')::date,
+    (row_data->>'collection_invoice_date')::date,
+    (row_data->>'collection_payment_date')::date,
+    (row_data->>'payment_date_actual')::date,
+    (row_data->>'percentage')::numeric,
+    (row_data->>'amount')::numeric,
+    row_data->>'status',
+    (row_data->>'invoice_exchange_rate')::numeric,
+    (row_data->>'payment_exchange_rate')::numeric
+  FROM jsonb_array_elements(p_installments) AS row_data
+  ON CONFLICT (installment_id) DO UPDATE SET
+    installment_number = EXCLUDED.installment_number,
+    agreed_invoice_date = EXCLUDED.agreed_invoice_date,
+    agreed_payment_date = EXCLUDED.agreed_payment_date,
+    collection_invoice_date = EXCLUDED.collection_invoice_date,
+    collection_payment_date = EXCLUDED.collection_payment_date,
+    payment_date_actual = EXCLUDED.payment_date_actual,
+    percentage = EXCLUDED.percentage,
+    amount = EXCLUDED.amount,
+    status = EXCLUDED.status,
+    invoice_exchange_rate = EXCLUDED.invoice_exchange_rate,
+    payment_exchange_rate = EXCLUDED.payment_exchange_rate
+  RETURNING w.*;
+END;
+$$;
+
+
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5586,6 +5666,304 @@ COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT
 
 
 --
+-- Name: wo_payment_installments_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+  v_exchange_rate_mode text;
+  v_plan_exchange_rate numeric;
+  v_plan_wo_id uuid;
+  v_legal_transition boolean;
+  v_is_accounting_or_admin boolean;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
+    END IF;
+
+    SELECT p.wo_id, p.exchange_rate_mode, p.exchange_rate, wo.approval_status
+    INTO v_plan_wo_id, v_exchange_rate_mode, v_plan_exchange_rate, v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+
+    IF v_plan_wo_id IS DISTINCT FROM NEW.wo_id THEN
+      RAISE EXCEPTION 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos';
+    END IF;
+
+    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
+    END IF;
+
+    IF v_exchange_rate_mode = 'fijo' AND (
+      NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+      OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+    ) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de una cuota nueva debe coincidir con el del plan';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.plan_id IS DISTINCT FROM OLD.plan_id OR NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'INSTALLMENT_PLAN_IMMUTABLE: una cuota no puede reasignarse a otro plan de pagos ni a otra orden de trabajo';
+  END IF;
+
+  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+    IF NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+       OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.percentage IS DISTINCT FROM OLD.percentage
+       OR NEW.amount IS DISTINCT FROM OLD.amount
+       OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+       OR NEW.created_at IS DISTINCT FROM OLD.created_at
+    THEN
+      RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
+    END IF;
+  END IF;
+
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    v_legal_transition := CASE OLD.status
+      WHEN 'Pending'   THEN NEW.status = 'Invoiced'
+      WHEN 'Overdue'   THEN NEW.status = 'Invoiced'
+      WHEN 'Invoiced'  THEN NEW.status IN ('Completed', 'Overdue')
+      ELSE false
+    END;
+    IF NOT v_legal_transition THEN
+      RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: % -> % no es una transicion de estado permitida', OLD.status, NEW.status;
+    END IF;
+
+    IF NOT public.is_admin() THEN
+      SELECT wo.approval_status INTO v_approval_status
+      FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      WHERE p.plan_id = NEW.plan_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
+  END IF;
+
+  IF NEW.collection_invoice_date IS DISTINCT FROM OLD.collection_invoice_date
+     OR NEW.collection_payment_date IS DISTINCT FROM OLD.collection_payment_date
+     OR NEW.payment_date_actual IS DISTINCT FROM OLD.payment_date_actual THEN
+    IF NOT public.is_admin() THEN
+      SELECT wo.approval_status INTO v_approval_status
+      FROM public.wo_payment_plan p
+      JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+      WHERE p.plan_id = NEW.plan_id;
+
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'INSTALLMENT_LOCKED: las fechas de cobranza de una cuota solo pueden registrarse con la orden de trabajo aprobada';
+      END IF;
+    END IF;
+  END IF;
+
+  IF OLD.status <> 'Pending' AND (
+    NEW.percentage IS DISTINCT FROM OLD.percentage
+    OR NEW.amount IS DISTINCT FROM OLD.amount
+    OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
+  ) THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede modificarse (porcentaje/monto/numero)';
+  END IF;
+
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate
+     OR NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    SELECT wo.approval_status, p.exchange_rate_mode, p.exchange_rate
+    INTO v_approval_status, v_exchange_rate_mode, v_plan_exchange_rate
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+  END IF;
+
+  IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
+    END IF;
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
+      END IF;
+    END IF;
+    IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
+    END IF;
+  END IF;
+
+  IF NEW.payment_exchange_rate IS DISTINCT FROM OLD.payment_exchange_rate THEN
+    IF OLD.status = 'Completed' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago de esta cuota ya esta congelado';
+    END IF;
+    IF v_exchange_rate_mode = 'variable' THEN
+      IF OLD.status = 'Pending' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez facturada la cuota';
+      END IF;
+      IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
+      END IF;
+      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      IF NOT v_is_accounting_or_admin THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
+      END IF;
+    END IF;
+    IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago de la cuota debe coincidir con el del plan';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_installments_guard_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_installments_guard_delete() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_plan_guard_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_plan_guard_exchange_rate() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_approval_status text;
+  v_has_locked_installment boolean;
+  v_is_manager_or_admin boolean;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = OLD.wo_id;
+
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede eliminar el plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
+    END IF;
+
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    SELECT approval_status INTO v_approval_status
+    FROM public.work_orders
+    WHERE wo_id = NEW.wo_id;
+
+    IF v_approval_status IN ('Approved', 'Pending_Approval') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: no se puede crear un plan de pagos: la orden de trabajo ya fue aprobada o esta en revision';
+    END IF;
+
+    SELECT is_admin() OR EXISTS (
+      SELECT 1 FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+      WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+    ) INTO v_is_manager_or_admin;
+
+    IF NOT v_is_manager_or_admin THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede crear el plan de pagos y su tipo de cambio inicial';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  IF NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
+    RAISE EXCEPTION 'WO_ID_IMMUTABLE: un plan de pagos no puede reasignarse a otra orden de trabajo';
+  END IF;
+
+  IF OLD.exchange_rate IS NOT NULL AND NEW.exchange_rate IS NULL THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede borrarse una vez establecido';
+  END IF;
+
+  IF NEW.exchange_rate IS NOT DISTINCT FROM OLD.exchange_rate
+     AND NEW.exchange_rate_mode IS NOT DISTINCT FROM OLD.exchange_rate_mode THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT is_admin() OR EXISTS (
+    SELECT 1 FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    WHERE wo.wo_id = NEW.wo_id AND e.manager_id = get_my_staff_id()
+  ) INTO v_is_manager_or_admin;
+
+  IF NOT v_is_manager_or_admin THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo el gerente del encargo (o un administrador) puede modificar el tipo de cambio inicial del plan de pagos';
+  END IF;
+
+  SELECT approval_status INTO v_approval_status
+  FROM public.work_orders
+  WHERE wo_id = NEW.wo_id;
+
+  IF v_approval_status = 'Approved' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: la orden de trabajo ya fue aprobada';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.wo_payment_installments
+    WHERE plan_id = NEW.plan_id AND status <> 'Pending'
+  ) INTO v_has_locked_installment;
+
+  IF v_has_locked_installment THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio del plan de pagos no puede modificarse: ya existe una cuota facturada con un tipo de cambio congelado';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: wo_payment_plan_sync_fixed_installments(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_payment_plan_sync_fixed_installments() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.exchange_rate_mode = 'fijo' AND NEW.exchange_rate IS NOT NULL AND (
+    NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
+    OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
+  ) THEN
+    UPDATE public.wo_payment_installments
+    SET invoice_exchange_rate = NEW.exchange_rate,
+        payment_exchange_rate = NEW.exchange_rate
+    WHERE plan_id = NEW.plan_id
+      AND status = 'Pending'
+      AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: activity_worksheet_cells; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5837,6 +6215,32 @@ CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
     approved_at,
     risk_status
    FROM public.work_orders;
+
+
+--
+-- Name: exchange_rate_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.exchange_rate_history (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    fecha_vigencia date NOT NULL,
+    compra numeric NOT NULL,
+    venta numeric NOT NULL,
+    moneda text DEFAULT 'USD/BOB'::text NOT NULL,
+    fuente text NOT NULL,
+    regimen text,
+    version_metodologia text,
+    canal text NOT NULL,
+    fecha_publicacion date,
+    actualizado_en timestamp with time zone NOT NULL,
+    estado text NOT NULL,
+    fetched_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT exchange_rate_history_canal_check CHECK ((canal = ANY (ARRAY['bcb-web'::text, 'bcb-soap'::text]))),
+    CONSTRAINT exchange_rate_history_compra_check CHECK ((compra > (0)::numeric)),
+    CONSTRAINT exchange_rate_history_estado_check CHECK ((estado = ANY (ARRAY['vigente'::text, 'stale'::text]))),
+    CONSTRAINT exchange_rate_history_venta_check CHECK ((venta > (0)::numeric))
+);
 
 
 --
@@ -6582,6 +6986,10 @@ CREATE TABLE public.wo_payment_installments (
     status text DEFAULT 'Pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    invoice_exchange_rate numeric,
+    payment_exchange_rate numeric,
+    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
 );
 
@@ -6596,7 +7004,9 @@ CREATE TABLE public.wo_payment_plan (
     exchange_rate numeric,
     payment_days integer DEFAULT 30 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    exchange_rate_mode text DEFAULT 'fijo'::text NOT NULL,
+    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text])))
 );
 
 
@@ -7682,6 +8092,34 @@ CREATE TRIGGER tr_fund_requests_touch BEFORE UPDATE ON public.fund_requests FOR 
 --
 
 CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_risk_approval();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE INSERT OR UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_guard_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_guard_delete BEFORE DELETE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_payment_installments_guard_delete();
+
+
+--
+-- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_guard_exchange_rate();
+
+
+--
+-- Name: wo_payment_plan trg_wo_payment_plan_sync_fixed_installments; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_sync_fixed_installments AFTER UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_sync_fixed_installments();
 
 
 --
@@ -9050,27 +9488,38 @@ CREATE POLICY "Team can manage expense budget" ON public.wo_expense_budget TO au
 
 
 --
--- Name: wo_payment_installments Team can manage payment installments; Type: POLICY; Schema: public; Owner: -
+-- Name: wo_payment_installments Accounting can update payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((EXISTS ( SELECT 1
+CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments FOR UPDATE TO authenticated USING ((public.current_role_key() = 'collections_analyst'::text)) WITH CHECK ((public.current_role_key() = 'collections_analyst'::text));
+
+
+--
+-- Name: wo_payment_installments Manager can manage payment installments; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Manager can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((EXISTS ( SELECT 1
    FROM (public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
+     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id))
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM (public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id))
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id())))));
 
 
 --
--- Name: wo_payment_plan Team can manage payment plans; Type: POLICY; Schema: public; Owner: -
+-- Name: wo_payment_plan Manager can manage payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((EXISTS ( SELECT 1
+   FROM (public.work_orders wo
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM (public.work_orders wo
+     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id())))));
 
 
 --

@@ -46,6 +46,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useLanguage } from "@/hooks/useLanguage";
@@ -74,6 +82,54 @@ interface RpcUpdateResult {
   updated?: number;
   error_code?: string;
   [key: string]: unknown;
+}
+
+interface ExchangeRateTestResult {
+  compra: number;
+  venta: number;
+  fecha_vigencia: string;
+  estado: string;
+  canal: string;
+  fuente: string;
+}
+
+// MUST FIX review iteracion 1 #8: fecha_vigencia llega como YYYY-MM-DD; toda la app usa
+// DD/MM/YYYY (mismo patron que formatEffectiveDate en ExchangeRateIndicator.tsx).
+function formatEffectiveDate(fechaVigencia: string): string {
+  const [y, m, d] = fechaVigencia.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// MUST FIX review iteracion 1 #10: los codigos de error del handler (exchange-rate-sync)
+// vienen en español fijo ("Campo 'fuente' invalido...") y no deben viajar tal cual a un
+// usuario en ingles. Solo los codigos reconocidos se traducen; cualquier otro (o un
+// error sin `code`, ej. de red antes de llegar al servidor) cae al mensaje generico.
+const KNOWN_EXCHANGE_RATE_ERROR_CODES = new Set([
+  "unauthorized",
+  "forbidden",
+  "missing_url",
+  "provider_error",
+  "invalid_payload",
+]);
+
+// MUST FIX review iteracion 10 #6: extraida de handleTestExchangeRate para que
+// handleSaveAndSeedExchangeRate (el "Guardar" del mismo modal) reuse el mismo mapeo de
+// codigo -> string traducido, en vez de mostrar error.message crudo (potencialmente en
+// ingles o con texto interno del handler) via un toast sin pasar por i18n.
+async function parseExchangeRateFunctionError(error: unknown): Promise<{ message: string; code: string | null }> {
+  let message = error instanceof Error ? error.message : String(error);
+  let code: string | null = null;
+  const context = (error as { context?: Response }).context;
+  if (context && typeof context.json === "function") {
+    try {
+      const body = await context.json();
+      message = body?.error?.message || message;
+      code = body?.error?.code ?? null;
+    } catch {
+      // keep the generic error.message
+    }
+  }
+  return { message, code };
 }
 
 const Settings = () => {
@@ -248,6 +304,13 @@ const Settings = () => {
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
   const [lockoutMinutes, setLockoutMinutes] = useState<string>("");
+  const [exchangeRateApiUrl, setExchangeRateApiUrl] = useState<string>("");
+  const [exchangeRateTestOpen, setExchangeRateTestOpen] = useState(false);
+  const [exchangeRateTestLoading, setExchangeRateTestLoading] = useState(false);
+  const [exchangeRateTestSaving, setExchangeRateTestSaving] = useState(false);
+  const [exchangeRateTestResult, setExchangeRateTestResult] = useState<ExchangeRateTestResult | null>(null);
+  const [exchangeRateTestErrorCode, setExchangeRateTestErrorCode] = useState<string | null>(null);
+  const [exchangeRateTestError, setExchangeRateTestError] = useState<string | null>(null);
 
   const getSetting = useCallback(
     (key: string) => settings?.find((s) => s.setting_key === key)?.setting_value || "",
@@ -282,6 +345,8 @@ const Settings = () => {
       if (maxAttemptsSetting) setMaxFailedAttempts(maxAttemptsSetting.setting_value);
       const lockoutMinutesSetting = settings.find((s) => s.setting_key === "AUTH_LOCKOUT_MINUTES");
       if (lockoutMinutesSetting) setLockoutMinutes(lockoutMinutesSetting.setting_value);
+      const exchangeRateApiUrlSetting = settings.find((s) => s.setting_key === "EXCHANGE_RATE_API_URL");
+      if (exchangeRateApiUrlSetting) setExchangeRateApiUrl(exchangeRateApiUrlSetting.setting_value);
     }
   }, [settings]);
 
@@ -301,6 +366,7 @@ const Settings = () => {
     const persistedHolidayEngagement = getSetting("HOLIDAY_ENGAGEMENT_ID") || "";
     const persistedMaxAttempts = getSetting("AUTH_MAX_FAILED_ATTEMPTS") || "5";
     const persistedLockoutMinutes = getSetting("AUTH_LOCKOUT_MINUTES") || "15";
+    const persistedExchangeRateApiUrl = getSetting("EXCHANGE_RATE_API_URL") || "";
 
     return (
       language !== persistedLang ||
@@ -308,6 +374,7 @@ const Settings = () => {
       compactFont !== persistedCompact ||
       allowedEmailDomain !== persistedDomain ||
       holidayEngagementId !== persistedHolidayEngagement ||
+      exchangeRateApiUrl !== persistedExchangeRateApiUrl ||
       (taxRate !== "" && taxRate !== persistedTax) ||
       (realizationLimit !== "" && realizationLimit !== persistedRealization) ||
       (dailyMin !== "" && dailyMin !== persistedDailyMin) ||
@@ -319,7 +386,7 @@ const Settings = () => {
     );
   }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
-      maxFailedAttempts, lockoutMinutes]);
+      maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -346,6 +413,7 @@ const Settings = () => {
     setWeeklyMax("");
     setMaxFailedAttempts("");
     setLockoutMinutes("");
+    setExchangeRateApiUrl(getSetting("EXCHANGE_RATE_API_URL") || "");
 
     setActiveTab("account");
   };
@@ -661,6 +729,33 @@ const Settings = () => {
         lockoutMinutesValue = val.toString();
       }
 
+      // Mandatory-HTTPS absolute-URL validation (bug 0722-156) — the same rule the
+      // "Probar"/"Guardar" flow relies on (fetchProviderRate rejects non-HTTPS server-side
+      // too), checked here so a bad value never reaches global_settings via plain Save.
+      // MUST FIX review iteracion 3 #3: `if (exchangeRateApiUrl)` truthy-check skipped the
+      // mutation entirely when the field was cleared, so an admin could never disable a
+      // configured provider URL through this control — compare against the persisted value
+      // instead (same pattern as holidayEngagementId below), so clearing it persists "".
+      const trimmedExchangeRateApiUrl = exchangeRateApiUrl.trim();
+      let exchangeRateApiUrlValue: string | null = null;
+      if (trimmedExchangeRateApiUrl) {
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(trimmedExchangeRateApiUrl);
+        } catch {
+          toast.error(t("settings.exchangeRateApiUrlInvalid"));
+          return;
+        }
+        if (parsedUrl.protocol !== "https:") {
+          toast.error(t("settings.exchangeRateApiUrlHttpsRequired"));
+          return;
+        }
+      }
+      const persistedExchangeRateApiUrl = getSetting("EXCHANGE_RATE_API_URL") || "";
+      if (trimmedExchangeRateApiUrl !== persistedExchangeRateApiUrl) {
+        exchangeRateApiUrlValue = trimmedExchangeRateApiUrl;
+      }
+
       if (taxRate) {
         await updateSettingMutation.mutateAsync({ key: "TAX_RATE", value: (parseFloat(taxRate) / 100).toString() });
       }
@@ -716,11 +811,70 @@ const Settings = () => {
       if (lockoutMinutesValue !== null) {
         await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: lockoutMinutesValue });
       }
+      if (exchangeRateApiUrlValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "EXCHANGE_RATE_API_URL", value: exchangeRateApiUrlValue });
+      }
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
       toast.success(t("messages.settingsSaved"));
       setActiveTab("account");
     } catch (error) {
       // Error handled by mutation
+    }
+  };
+
+  // BUG 0722-156 (Fase 1): "Probar" dry-runs the currently-typed URL (possibly unsaved) via
+  // exchange-rate-sync's admin-gated test mode — never writes to exchange_rate_history.
+  const handleTestExchangeRate = async () => {
+    setExchangeRateTestError(null);
+    setExchangeRateTestErrorCode(null);
+    setExchangeRateTestResult(null);
+    setExchangeRateTestLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("exchange-rate-sync", {
+        body: { mode: "test", url: exchangeRateApiUrl.trim() },
+      });
+      if (error) {
+        const { message, code } = await parseExchangeRateFunctionError(error);
+        setExchangeRateTestError(message);
+        setExchangeRateTestErrorCode(code);
+      } else if ((data as { error?: { message?: string; code?: string } } | null)?.error) {
+        const err = (data as { error: { message: string; code?: string } }).error;
+        setExchangeRateTestError(err.message);
+        setExchangeRateTestErrorCode(err.code ?? null);
+      } else {
+        setExchangeRateTestResult(data as ExchangeRateTestResult);
+      }
+    } catch (e) {
+      setExchangeRateTestError(e instanceof Error ? e.message : t("messages.error"));
+      setExchangeRateTestErrorCode(null);
+    } finally {
+      setExchangeRateTestLoading(false);
+      setExchangeRateTestOpen(true);
+    }
+  };
+
+  // "Guardar" inside the test modal: persists the URL, then re-invokes exchange-rate-sync in
+  // sync mode (server-side re-fetch of the just-saved URL — never the client-held payload
+  // above) so the navbar populates immediately instead of waiting for a future cron run.
+  const handleSaveAndSeedExchangeRate = async () => {
+    setExchangeRateTestSaving(true);
+    try {
+      await updateSettingMutation.mutateAsync({ key: "EXCHANGE_RATE_API_URL", value: exchangeRateApiUrl.trim() });
+      const { error } = await supabase.functions.invoke("exchange-rate-sync", { body: {} });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["exchange-rate", "latest"] });
+      toast.success(t("settings.exchangeRateSeeded"));
+      setExchangeRateTestOpen(false);
+    } catch (e) {
+      // MUST FIX review iteracion 10 #6: antes mostraba e.message crudo via toast (podia
+      // venir en ingles o con texto interno del handler) -- reusa el mismo mapeo de
+      // codigo -> string traducido que ya usa "Probar" (mismo Alert dentro del modal, no
+      // un toast aparte), en vez de un mensaje sin pasar por i18n.
+      const { message, code } = await parseExchangeRateFunctionError(e);
+      setExchangeRateTestError(message);
+      setExchangeRateTestErrorCode(code);
+    } finally {
+      setExchangeRateTestSaving(false);
     }
   };
 
@@ -1161,6 +1315,29 @@ const Settings = () => {
                       <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
                     </div>
 
+                    {/* Exchange Rate Microservice URL Setting (BUG 0722-156, Fase 1) */}
+                    <div className="space-y-2 py-4 border-b border-border">
+                      <Label htmlFor="exchangeRateApiUrl">{t("settings.exchangeRateApiUrl")}</Label>
+                      <div className="flex flex-col sm:flex-row gap-2 max-w-2xl">
+                        <Input
+                          id="exchangeRateApiUrl"
+                          value={exchangeRateApiUrl}
+                          onChange={(e) => setExchangeRateApiUrl(e.target.value)}
+                          placeholder={t("settings.exchangeRateApiUrlPlaceholder")}
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={exchangeRateTestLoading || !exchangeRateApiUrl.trim()}
+                          onClick={handleTestExchangeRate}
+                        >
+                          {exchangeRateTestLoading ? t("common.loading") : t("settings.testConnection")}
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{t("settings.exchangeRateApiUrlHelp")}</p>
+                    </div>
+
                     {/* Holiday Engagement Setting */}
                     <div className="space-y-2 py-4 border-b border-border">
                       <Label htmlFor="holidayEngagement">{t("settings.holidayEngagement")}</Label>
@@ -1363,6 +1540,46 @@ const Settings = () => {
         )}
       </Tabs>
       <LeavePageDialog blocker={blocker} isDirty={isGlobalDirty} />
+      <Dialog open={exchangeRateTestOpen} onOpenChange={setExchangeRateTestOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("settings.exchangeRateTestModalTitle")}</DialogTitle>
+            <DialogDescription>{t("settings.exchangeRateApiUrlHelp")}</DialogDescription>
+          </DialogHeader>
+          {exchangeRateTestError ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {exchangeRateTestErrorCode && KNOWN_EXCHANGE_RATE_ERROR_CODES.has(exchangeRateTestErrorCode)
+                  ? t(`settings.exchangeRateError.${exchangeRateTestErrorCode}`)
+                  : t("settings.exchangeRateError.generic")}
+              </AlertDescription>
+            </Alert>
+          ) : exchangeRateTestResult ? (
+            <div className="space-y-1 text-sm">
+              <p>{t("settings.exchangeRateTestCompra", { value: exchangeRateTestResult.compra })}</p>
+              <p>{t("settings.exchangeRateTestVenta", { value: exchangeRateTestResult.venta })}</p>
+              <p>{t("settings.exchangeRateTestEffectiveDate", { date: formatEffectiveDate(exchangeRateTestResult.fecha_vigencia) })}</p>
+              <p>
+                {t("settings.exchangeRateTestStatus", {
+                  value: t(`header.exchangeRate.status.${exchangeRateTestResult.estado}`),
+                })}
+              </p>
+              <p>{t("settings.exchangeRateTestChannel", { value: exchangeRateTestResult.canal })}</p>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExchangeRateTestOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            {exchangeRateTestResult && !exchangeRateTestError && (
+              <Button onClick={handleSaveAndSeedExchangeRate} disabled={exchangeRateTestSaving}>
+                {exchangeRateTestSaving ? t("common.saving") : t("settings.exchangeRateSaveAndSeed")}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };

@@ -16,6 +16,13 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+// WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
+// unrelated to this suite's Fase-1-and-earlier coverage, so stub it out with no data.
+vi.mock("@/hooks/useExchangeRate", () => ({
+  useLatestExchangeRate: () => ({ data: null }),
 }));
 
 // Radix Select requires PointerEvent APIs not available in jsdom
@@ -54,14 +61,16 @@ vi.mock("@/components/ui/numeric-input", () => ({
   NumericInput: ({
     value,
     onChange,
+    onBlur,
     disabled,
     decimals,
     locale,
     min,
     "data-testid": testId,
   }: {
-    value?: number;
+    value?: number | string;
     onChange?: (val: number) => void;
+    onBlur?: () => void;
     disabled?: boolean;
     decimals?: number;
     locale?: string;
@@ -78,6 +87,7 @@ vi.mock("@/components/ui/numeric-input", () => ({
       value={value}
       min={min}
       onChange={(e) => onChange?.(Number(e.target.value))}
+      onBlur={onBlur}
       disabled={disabled}
     />
   ),
@@ -131,6 +141,8 @@ function makeInstallment(overrides: Partial<PaymentInstallmentInput> = {}): Paym
     percentage:               100,
     amount:                   null,
     status:                   "Pending" as PaymentInstallmentStatus,
+    invoice_exchange_rate:    null,
+    payment_exchange_rate:    null,
     ...overrides,
   };
 }
@@ -146,6 +158,7 @@ function renderSection(overrides: Record<string, unknown> = {}) {
     isEditable:              true,
     isStatusEditable:        false,
     isAdminDateEditable:     false,
+    canEditPaymentPlan: true,
     onPlanChange:            vi.fn(),
     onInstallmentsChange:    vi.fn(),
     ...overrides,
@@ -227,10 +240,12 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", 
     );
   });
 
-  it("PP27: borrar la tasa a 0 la guarda como null", () => {
+  // Iteración 17/18 (decisión del operador 2026-09-10): NULL sigue siendo válido solo
+  // mientras el plan NUNCA tuvo un TC real -- una vez que tiene un valor real, no se
+  // permite borrarlo a NULL (reemplaza el comportamiento anterior, que sí lo permitía
+  // y podía dejar cuotas ya sincronizadas con un TC viejo desalineado del plan).
+  it("PP27: borrar a 0 una tasa YA real se ignora (no dispara onPlanChange)", () => {
     const onPlanChange = vi.fn();
-    // Hay que partir de una tasa no nula: el campo se pinta con
-    // `exchange_rate ?? 0`, asi que cambiar "0" -> "0" no dispara onChange.
     renderSection({
       currency: "USD",
       plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
@@ -241,9 +256,54 @@ describe("WorkOrderPaymentPlanSection — Tipo de Cambio precision (0722-161)", 
       target: { value: "0" },
     });
 
+    expect(onPlanChange).not.toHaveBeenCalled();
+  });
+
+  // review iteración 18 #2: antes de este fix, PP27 de arriba dejaba el input
+  // re-mostrando de inmediato el valor viejo (6.96) apenas se borraba -- la
+  // siguiente tecla se insertaba sobre ese valor en vez de reemplazarlo.
+  it("PP28: borrar una tasa YA real deja el campo vacío en pantalla (no reaparece el valor viejo)", () => {
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "0" } });
+
+    expect(input.value).toBe("");
+  });
+
+  it("PP29: escribir un valor nuevo justo después de borrar no se mezcla con el valor viejo", () => {
+    const onPlanChange = vi.fn();
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+      onPlanChange,
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate");
+
+    fireEvent.change(input, { target: { value: "0" } });
+    fireEvent.change(input, { target: { value: "7.02" } });
+
     expect(onPlanChange).toHaveBeenCalledWith(
-      expect.objectContaining({ exchange_rate: null }),
+      expect.objectContaining({ exchange_rate: 7.02 }),
     );
+  });
+
+  it("PP30: salir del campo sin terminar de escribir restaura el valor real en pantalla", () => {
+    renderSection({
+      currency: "USD",
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30 },
+    });
+    const input = screen.getByTestId("payment-plan-exchange-rate") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(input.value).toBe("");
+
+    fireEvent.blur(input);
+
+    expect(input.value).toBe("6.96");
   });
 });
 
@@ -306,6 +366,23 @@ describe("WorkOrderPaymentPlanSection — amounts and totals", () => {
     const spans = Array.from(container.querySelectorAll("span"));
     const totalSpan = spans.find(s => s.textContent?.trim() === "80%");
     expect(totalSpan?.className).toContain("text-destructive");
+  });
+
+  // review iteración 18 #3: antes de este fix, el TOTAL del footer recalculaba
+  // TODAS las cuotas con el feeWithTax actual (1000), incluida la ya facturada
+  // (50% × 1000 = 500) -- ignorando que su fila visible ya mostraba el monto
+  // congelado (380, de un fee distinto). El footer daba 500+500=1000, distinto de
+  // lo que se veía en las 2 filas (380+500=880).
+  it("PP31: TOTAL del footer respeta el monto congelado de una cuota ya facturada, no lo recalcula con el fee actual", () => {
+    const installments = [
+      makeInstallment({ installment_number: 1, percentage: 50, status: "Invoiced", amount: 380 }),
+      makeInstallment({ installment_number: 2, percentage: 50, status: "Pending", amount: null }),
+    ];
+    const container = renderSection({ feeWithTax: 1000, installments });
+    const tfoot = container.querySelector("tfoot");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).toContain("880");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).not.toContain("1.000");
+    expect(tfoot?.textContent?.replace(/\s/g, "")).not.toContain("1000");
   });
 });
 
@@ -413,5 +490,24 @@ describe("WorkOrderPaymentPlanSection — collection_invoice_date rendering", ()
     // Only 1 date input (agreed_invoice_date)
     expect(container.querySelectorAll('input[type="date"]')).toHaveLength(1);
     expect(screen.getByText("01/08/2026")).toBeInTheDocument();
+  });
+
+  // Reportado 2026-09-09 como bug ("sigue editable en Completado") y luego revertido
+  // el mismo dia tras confirmar que es intencional: preexistente a 0722-156b (commit
+  // 0253f93e, 2026-06-29), un mecanismo de CORRECCION admin/collections_analyst
+  // (dialogo + useUpdateCollectionDate) que la base de datos nunca bloquea por status
+  // -- a proposito, para poder corregir la fecha real de facturacion de Contabilidad
+  // aunque la cuota ya haya avanzado o se haya completado. Decision confirmada por el
+  // operador de mantener el comportamiento original (PP22 ya cubria el caso Pending).
+  it("PP23b: collection_invoice_date stays editable for a Completed cuota (intentional correction path, not frozen by status)", () => {
+    const installments = [makeInstallment({ status: "Completed", collection_invoice_date: "2026-08-01" })];
+    const container = renderSection({ installments, isStatusEditable: true });
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
+  });
+
+  it("PP23c: collection_invoice_date stays editable for an Invoiced (already-billed) cuota too", () => {
+    const installments = [makeInstallment({ status: "Invoiced", collection_invoice_date: "2026-08-01" })];
+    const container = renderSection({ installments, isStatusEditable: true });
+    expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
   });
 });

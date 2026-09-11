@@ -8,8 +8,14 @@ import {
   isAlertDue,
   getEffectiveInstallmentStatus,
   computeBillingIndicator,
+  isInvoiceRateEditable,
+  isPaymentRateEditable,
+  isPaymentRateCaptureEditable,
+  computeConvertedAmount,
+  applyExchangeRateMode,
+  isPaymentPlanRestDirty,
 } from "../workOrderPaymentPlan";
-import type { PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
+import type { PaymentInstallmentInput, PaymentPlanInput } from "@/types/workOrderPaymentPlan";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,6 +60,8 @@ function baseInstallment(overrides: Partial<PaymentInstallmentInput> = {}): Paym
     percentage: 100,
     amount: null,
     status: "Pending",
+    invoice_exchange_rate: null,
+    payment_exchange_rate: null,
     ...overrides,
   };
 }
@@ -161,6 +169,24 @@ describe("distributePercentages", () => {
       const sum = arr.reduce((a, b) => a + b, 0);
       expect(Math.abs(sum - 100)).toBeLessThanOrEqual(0.01);
     }
+  });
+
+  // review iteracion 2 #3: `total` opcional para redistribuir solo el porcentaje
+  // remanente cuando alguna cuota ya facturada queda excluida (no participa de esto).
+  describe("with an explicit `total` (review iteracion 2 #3)", () => {
+    it("distributes an arbitrary remaining total instead of 100", () => {
+      expect(distributePercentages(2, 60)).toEqual([30, 30]);
+    });
+
+    it("last row absorbs the rounding remainder against the given total", () => {
+      const arr = distributePercentages(3, 70);
+      const sum = arr.reduce((a, b) => a + b, 0);
+      expect(Math.abs(sum - 70)).toBeLessThanOrEqual(0.01);
+    });
+
+    it("count=0 returns empty regardless of total", () => {
+      expect(distributePercentages(0, 55)).toEqual([]);
+    });
   });
 });
 
@@ -471,5 +497,165 @@ describe("computeBillingIndicator", () => {
       ];
       expect(computeBillingIndicator(installments)).toBe("complete");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0722-156b (Fase 2): TC fijo/variable helpers
+// ---------------------------------------------------------------------------
+
+describe("isInvoiceRateEditable (persisted status only, never getEffectiveInstallmentStatus)", () => {
+  it("editable only while Pending", () => {
+    expect(isInvoiceRateEditable("Pending")).toBe(true);
+  });
+
+  it("frozen once Invoiced", () => {
+    expect(isInvoiceRateEditable("Invoiced")).toBe(false);
+  });
+
+  it("stays frozen after a manual revert to a persisted Overdue (only reachable from Invoiced)", () => {
+    expect(isInvoiceRateEditable("Overdue")).toBe(false);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isInvoiceRateEditable("Completed")).toBe(false);
+  });
+});
+
+describe("isPaymentRateEditable (persisted status only)", () => {
+  it("editable while Pending", () => {
+    expect(isPaymentRateEditable("Pending")).toBe(true);
+  });
+
+  it("editable while Invoiced", () => {
+    expect(isPaymentRateEditable("Invoiced")).toBe(true);
+  });
+
+  it("editable during a persisted post-invoice Overdue (operator decision: same window as Invoiced)", () => {
+    expect(isPaymentRateEditable("Overdue")).toBe(true);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isPaymentRateEditable("Completed")).toBe(false);
+  });
+});
+
+// Review iteracion 1 MUST FIX #1: distinta de isPaymentRateEditable de arriba (esa sigue
+// usandose tal cual para el re-sync de modo Fijo). Esta es la ventana de captura real
+// para el input de modo Variable — nunca antes de facturar.
+describe("isPaymentRateCaptureEditable (modo Variable — ventana de captura real)", () => {
+  it("NOT editable while still Pending (nothing invoiced yet)", () => {
+    expect(isPaymentRateCaptureEditable("Pending")).toBe(false);
+  });
+
+  it("editable once Invoiced", () => {
+    expect(isPaymentRateCaptureEditable("Invoiced")).toBe(true);
+  });
+
+  it("editable during a persisted post-invoice Overdue", () => {
+    expect(isPaymentRateCaptureEditable("Overdue")).toBe(true);
+  });
+
+  it("frozen once Completed", () => {
+    expect(isPaymentRateCaptureEditable("Completed")).toBe(false);
+  });
+});
+
+describe("computeConvertedAmount (derived Bs amount, never persisted)", () => {
+  it("multiplies amount by rate, rounded to 2 decimals", () => {
+    expect(computeConvertedAmount(500, 6.95)).toBe(3475);
+  });
+
+  it("returns null when amount is null (no invented conversion)", () => {
+    expect(computeConvertedAmount(null, 6.95)).toBeNull();
+  });
+
+  it("returns null when rate is null (exchange_rate_history empty -> no conversion shown)", () => {
+    expect(computeConvertedAmount(500, null)).toBeNull();
+  });
+});
+
+describe("applyExchangeRateMode (modo Fijo sync — no-op for an already-frozen field)", () => {
+  it("modo Variable: returns installments unchanged (independent per-cuota capture)", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", invoice_exchange_rate: 6.95, payment_exchange_rate: null }),
+    ];
+    expect(applyExchangeRateMode("variable", 7.0, installments)).toEqual(installments);
+  });
+
+  it("modo Fijo: syncs both TC columns to the plan rate for a still-editable (Pending) installment", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", invoice_exchange_rate: 6.95, payment_exchange_rate: 6.95 }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    expect(result[0].invoice_exchange_rate).toBe(7.0);
+    expect(result[0].payment_exchange_rate).toBe(7.0);
+  });
+
+  it("modo Fijo: leaves an already-frozen invoice_exchange_rate (Invoiced) untouched, syncs the still-editable payment_exchange_rate", () => {
+    const installments = [
+      baseInstallment({ status: "Invoiced", invoice_exchange_rate: 6.95, payment_exchange_rate: null }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    // Frozen: stays at its original value, never force-synced to the new plan rate —
+    // this is what makes the resulting batch upsert a no-op for the DB freeze trigger.
+    expect(result[0].invoice_exchange_rate).toBe(6.95);
+    expect(result[0].payment_exchange_rate).toBe(7.0);
+  });
+
+  it("modo Fijo: leaves an already-frozen payment_exchange_rate (Completed) untouched", () => {
+    const installments = [
+      baseInstallment({ status: "Completed", invoice_exchange_rate: 6.95, payment_exchange_rate: 6.98 }),
+    ];
+    const result = applyExchangeRateMode("fijo", 7.0, installments);
+    expect(result[0].invoice_exchange_rate).toBe(6.95);
+    expect(result[0].payment_exchange_rate).toBe(6.98);
+  });
+});
+
+// MUST FIX 0722-156b review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate
+// se guardan directo en su propio onBlur, no via el flujo de pagina -- no deben contar como
+// "el resto del plan tiene cambios sin guardar", o el propio tipeo del usuario bloquea su
+// propio guardado (bug real encontrado en WorkOrderEdit.tsx).
+describe("isPaymentPlanRestDirty (excluye invoice/payment_exchange_rate, que se auto-guardan)", () => {
+  function basePlan(overrides: Partial<PaymentPlanInput> = {}): PaymentPlanInput {
+    return {
+      plan_id: "plan-id",
+      wo_id: "wo-id",
+      exchange_rate: 6.95,
+      payment_days: 30,
+      exchange_rate_mode: "variable",
+      ...overrides,
+    };
+  }
+
+  it("is false when only invoice_exchange_rate changed (the field's own edit)", () => {
+    const original = [baseInstallment({ status: "Invoiced", invoice_exchange_rate: null })];
+    const edited = [baseInstallment({ status: "Invoiced", invoice_exchange_rate: 7.1 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
+  });
+
+  it("is false when only payment_exchange_rate changed (the field's own edit)", () => {
+    const original = [baseInstallment({ status: "Invoiced", payment_exchange_rate: null })];
+    const edited = [baseInstallment({ status: "Invoiced", payment_exchange_rate: 7.2 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
+  });
+
+  it("is true when percentage changed (a real pending change elsewhere in the row)", () => {
+    const original = [baseInstallment({ percentage: 100 })];
+    const edited = [baseInstallment({ percentage: 50 })];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(true);
+  });
+
+  it("is true when the plan itself changed (exchange_rate_mode)", () => {
+    const original = [baseInstallment()];
+    expect(
+      isPaymentPlanRestDirty(original, original, basePlan({ exchange_rate_mode: "fijo" }), basePlan()),
+    ).toBe(true);
+  });
+
+  it("is false when nothing changed", () => {
+    const original = [baseInstallment({ invoice_exchange_rate: 6.95, payment_exchange_rate: 6.95 })];
+    expect(isPaymentPlanRestDirty(original, original, basePlan(), basePlan())).toBe(false);
   });
 });

@@ -59,9 +59,12 @@ BEGIN
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
   -- solo engagement.create/read/update — el resto quedaría inutilizable, ver comentario de
-  -- esa migración sobre is_assigned_to_engagement()).
-  IF n <> 753 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 753, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 753 concesiones';
+  -- esa migración sobre is_assigned_to_engagement()) - 2 de
+  -- 20251204001004_cero_13_seed_authorization_rbac.sql (0722-156b review iteración 15: se
+  -- quitó work_order.create de senior_partner/partner — un socio nunca debió poder crear una
+  -- OT; ver plan_v2.md Amendment 2026-09-10 punto 1 y review.md Iteración 15).
+  IF n <> 751 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 751, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 751 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
@@ -79,8 +82,16 @@ BEGIN
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 19 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 19 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 19 claves';
+  IF n <> 20 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 20 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 20 claves';
+
+  -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
+  -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea
+  -- editable desde Configuración sin redeploy.
+  IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'EXCHANGE_RATE_API_URL') THEN
+    RAISE EXCEPTION 'FAIL — falta la clave EXCHANGE_RATE_API_URL (endpoint del microservicio TC Ruizmier)';
+  END IF;
+  RAISE NOTICE 'PASS — EXCHANGE_RATE_API_URL presente';
 
   -- LANGUAGE/ALLOW_WEEKEND_TRACKING (hallazgo de review de PR #310): Settings.handleSaveSettings
   -- las escribe siempre vía una mutación update-only — sin estas 2 filas, cualquier guardado de

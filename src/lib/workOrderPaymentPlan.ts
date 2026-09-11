@@ -1,5 +1,5 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
-import type { PaymentInstallmentInput, PaymentInstallmentStatus } from '@/types/workOrderPaymentPlan';
+import type { ExchangeRateMode, PaymentInstallmentInput, PaymentInstallmentStatus, PaymentPlanInput } from '@/types/workOrderPaymentPlan';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -32,13 +32,15 @@ export function addBusinessDays(start: Date, days: number): Date {
   return current;
 }
 
-// Returns an array of `count` percentages that sum exactly to 100.00 (2 decimal places).
-// The last row absorbs the rounding remainder.
-export function distributePercentages(count: number): number[] {
+// Returns an array of `count` percentages that sum exactly to `total` (default 100.00,
+// 2 decimal places). The last row absorbs the rounding remainder. `total` lets callers
+// redistribute only the REMAINING percentage when some rows are excluded (0722-156b
+// review iteracion 2 #3: cuotas ya facturadas no participan de la redistribucion).
+export function distributePercentages(count: number, total: number = 100): number[] {
   if (count <= 0) return [];
-  const base = Math.floor((100 / count) * 100) / 100;
+  const base = Math.floor((total / count) * 100) / 100;
   const result = Array(count).fill(base);
-  const remainder = parseFloat((100 - base * count).toFixed(2));
+  const remainder = parseFloat((total - base * count).toFixed(2));
   result[count - 1] = parseFloat((base + remainder).toFixed(2));
   return result;
 }
@@ -134,4 +136,84 @@ export function computeBillingIndicator(
     isPaymentDueSoonOrOverdue(installment, 7),
   );
   return hasPaymentAtRisk ? 'red' : 'green';
+}
+
+// 0722-156b (Fase 2): freeze windows for the two per-installment exchange rate
+// snapshots, based ONLY on the persisted `status` column — never on
+// getEffectiveInstallmentStatus's screen-only Overdue. A persisted 'Overdue' can only
+// be reached from 'Invoiced' (see STATUS_TRANSITIONS in WorkOrderPaymentPlanSection),
+// so "status left Pending" and "was ever Invoiced" are equivalent here.
+export function isInvoiceRateEditable(status: PaymentInstallmentStatus): boolean {
+  return status === 'Pending';
+}
+
+// "Not yet frozen for writes" — the broad not-Completed window used by the modo Fijo
+// resync (applyExchangeRateMode) and mirrored by the DB freeze trigger's unconditional
+// payment_exchange_rate guard. Deliberately NOT the same as the modo Variable capture
+// window below: Fijo's resync must still reach a Pending cuota (during Draft, every
+// cuota IS Pending — see isPaymentRateCaptureEditable for why Pending is excluded there).
+export function isPaymentRateEditable(status: PaymentInstallmentStatus): boolean {
+  return status !== 'Completed';
+}
+
+// Modo Variable UI capture window — MUST FIX 0722-156b review iteracion 1 #1: a payment
+// rate is an independent per-cuota capture only from the moment the cuota is actually
+// invoiced onward (Decision #4: "editable durante todo el tramo posterior a la
+// facturacion... hasta Completed"), never while still Pending (nothing has been billed
+// yet). Distinct from isPaymentRateEditable, which stays broader on purpose for the
+// modo Fijo resync above.
+export function isPaymentRateCaptureEditable(status: PaymentInstallmentStatus): boolean {
+  return status === 'Invoiced' || status === 'Overdue';
+}
+
+// Derived amount shown in Bs next to a cuota's invoice/payment cell — never persisted
+// (plan_v2.md Proposed Fix §3): `amount` (original currency) × the applicable TC.
+export function computeConvertedAmount(amount: number | null, rate: number | null): number | null {
+  if (amount == null || rate == null) return null;
+  return parseFloat((amount * rate).toFixed(2));
+}
+
+// MUST FIX 0722-156b review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate
+// (modo Variable) se guardan directo en su propio onBlur (Amendment 2026-09-07), sin pasar
+// por el flujo de "Guardar" de pagina -- son autonomos, no parte del "resto" del plan. Si
+// el guard que bloquea ese guardado directo cuando "el resto del plan tiene cambios sin
+// guardar" compara el array de cuotas completo, el propio cambio que el usuario esta
+// tipeando ya se refleja ahi (via onInstallmentsChange) antes de que el blur dispare el
+// guard, y el campo termina bloqueando su propio guardado. Comparar ignorando estos 2
+// campos evita ese autobloqueo, sin dejar de detectar cambios reales pendientes en el
+// resto de la fila (porcentaje, fechas via el batch, etc.).
+function withoutSelfSavingRateFields(inst: PaymentInstallmentInput): Omit<PaymentInstallmentInput, 'invoice_exchange_rate' | 'payment_exchange_rate'> {
+  const { invoice_exchange_rate, payment_exchange_rate, ...rest } = inst;
+  return rest;
+}
+
+export function isPaymentPlanRestDirty(
+  installments: PaymentInstallmentInput[],
+  originalInstallments: PaymentInstallmentInput[],
+  plan: PaymentPlanInput | null,
+  originalPlan: PaymentPlanInput | null,
+): boolean {
+  return (
+    JSON.stringify(installments.map(withoutSelfSavingRateFields)) !==
+      JSON.stringify(originalInstallments.map(withoutSelfSavingRateFields)) ||
+    JSON.stringify(plan) !== JSON.stringify(originalPlan)
+  );
+}
+
+// Modo Fijo: el TC de creacion del plan se aplica tal cual a las 2 columnas de TC de
+// TODAS las cuotas AUN EDITABLES (por estado persistido); una cuota ya congelada
+// conserva su valor guardado sin cambios, para que el UPDATE sincronizado sea un no-op
+// para el trigger de freeze (nunca reintenta reescribir un TC ya congelado con un valor
+// distinto). Modo Variable: cada cuota mantiene su captura independiente, sin cambios.
+export function applyExchangeRateMode(
+  mode: ExchangeRateMode,
+  planExchangeRate: number | null,
+  installments: PaymentInstallmentInput[],
+): PaymentInstallmentInput[] {
+  if (mode !== 'fijo') return installments;
+  return installments.map((inst) => ({
+    ...inst,
+    invoice_exchange_rate: isInvoiceRateEditable(inst.status) ? planExchangeRate : inst.invoice_exchange_rate,
+    payment_exchange_rate: isPaymentRateEditable(inst.status) ? planExchangeRate : inst.payment_exchange_rate,
+  }));
 }

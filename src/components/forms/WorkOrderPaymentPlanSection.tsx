@@ -24,18 +24,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useUpdateInstallmentStatus, useUpdateCollectionDate } from "@/hooks/mutations";
+import { useUpdateInstallmentStatus, useUpdateCollectionDate, useUpdateInstallmentExchangeRate } from "@/hooks/mutations";
+import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import {
   distributePercentages,
   computeAmount,
   computePaymentDate,
   isAlertDue,
   getEffectiveInstallmentStatus,
+  isInvoiceRateEditable,
+  isPaymentRateEditable,
+  isPaymentRateCaptureEditable,
+  computeConvertedAmount,
+  applyExchangeRateMode,
 } from "@/lib/workOrderPaymentPlan";
 import type {
   PaymentPlanInput,
   PaymentInstallmentInput,
   PaymentInstallmentStatus,
+  ExchangeRateMode,
 } from "@/types/workOrderPaymentPlan";
 
 interface WorkOrderPaymentPlanSectionProps {
@@ -47,6 +54,15 @@ interface WorkOrderPaymentPlanSectionProps {
   isEditable: boolean;
   isStatusEditable: boolean;
   isAdminDateEditable: boolean;
+  // Decision del operador 2026-09-10 (ampliada el mismo dia): solo el gerente del
+  // encargo (o un admin) puede editar el plan de pagos -- TC inicial, toggle
+  // Fijo/Variable, dias habiles, cuotas y sus fechas/porcentajes. Un socio (partner_id),
+  // pese a seguir siendo team member para el resto de la OT, ya NO puede escribir nada
+  // de esta seccion -- reemplaza la primera version de esta decision, que dejaba
+  // payment_days/cuotas/fechas abiertos a todo el equipo bajo isEditable solo. Reflejado
+  // tambien en la policy RLS "Manager can manage payment plans/installments"
+  // (20260908150000_0722-156b_plan_insert_guard.sql).
+  canEditPaymentPlan: boolean;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -89,6 +105,7 @@ export function WorkOrderPaymentPlanSection({
   isEditable,
   isStatusEditable,
   isAdminDateEditable,
+  canEditPaymentPlan,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -97,6 +114,9 @@ export function WorkOrderPaymentPlanSection({
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const updateStatus = useUpdateInstallmentStatus();
   const updateCollectionDate = useUpdateCollectionDate();
+  const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
+  const latestRate = useLatestExchangeRate();
+  const latestBuyRate = latestRate.data?.compra ?? null;
   const [pendingChange, setPendingChange] = useState<{
     idx: number;
     newStatus: "Invoiced" | "Completed" | "Overdue";
@@ -105,10 +125,32 @@ export function WorkOrderPaymentPlanSection({
     installmentId: string;
     newDate: string;
   } | null>(null);
+  // Iteración 18 #2: el TC de creación no persiste NULL sobre un valor ya real
+  // (Iteración 17 #3), pero eso dejaba el campo re-mostrando el valor viejo de
+  // inmediato al borrarlo -- la tecla siguiente se insertaba sobre ese valor en vez
+  // de reemplazarlo. Este flag deja el input visualmente vacío mientras el usuario
+  // escribe el valor nuevo, sin tocar el modelo real hasta que entra un número > 0;
+  // si el usuario sale del campo sin terminar de escribir, vuelve a mostrar el
+  // valor real (ver onBlur del input).
+  const [rateInputBlank, setRateInputBlank] = useState(false);
 
-  const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30 };
+  const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+
+  // MUST FIX review iteracion 2 #1/#3 (decision del operador 2026-09-07: "si una cuota
+  // ya esta facturada, no se puede modificar o eliminar de ninguna manera"): una cuota
+  // con status <> 'Pending' nunca participa de la redistribucion de porcentaje/monto,
+  // nunca se renumera, y nunca puede quedar excluida al reducir la cantidad de cuotas.
+  // Declarado antes del efecto de feeWithTax (0722-156b review iteracion 4 #4) porque
+  // ese efecto tambien necesita excluir estas cuotas del recalculo de amount.
+  const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
+
+  const formatRate = (rate: number) =>
+    Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    });
 
   const getEffectiveStatus = getEffectiveInstallmentStatus;
 
@@ -118,8 +160,12 @@ export function WorkOrderPaymentPlanSection({
   const percentageSumDisplay = parseFloat(percentageSum.toFixed(2));
   const percentageValid = Math.abs(percentageSum - 100) <= 0.01;
 
+  // Iteración 18 #3: debe sumar exactamente lo que se ve en cada fila (línea ~751)
+  // -- una cuota isLocked muestra su inst.amount congelado, no el recálculo con el
+  // fee actual; antes de este fix el total del footer sí lo recalculaba para TODAS
+  // las cuotas, divergiendo del monto real si el fee cambiaba tras facturar.
   const totalAmount = installments.reduce((s, i) => {
-    return s + computeAmount(i.percentage, feeWithTax);
+    return s + (isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax));
   }, 0);
 
   // ----- Plan header handlers -----
@@ -137,20 +183,187 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
+  // Iteración 17/18 (decisión del operador 2026-09-10): NULL sigue siendo un valor
+  // válido solo mientras el plan NUNCA tuvo un TC real (exchange_rate_history vacía,
+  // Decisión #7 de plan_v2.md) -- pero una vez que el campo tiene un valor real, no se
+  // permite borrarlo a NULL (para corregirlo se tipea el número nuevo encima). Sin
+  // esto, un plan con cuotas ya sincronizadas a un TC podía quedar en NULL mientras las
+  // cuotas se quedaban con el TC viejo -- ver review.md, hallazgo cerrado reemplazando
+  // el fix original (propagar NULL en el trigger de re-sync) por esta prevención en el
+  // origen, replicada también en la base de datos (wo_payment_plan_guard_exchange_rate).
   const handleExchangeRateChange = (val: number) => {
-    onPlanChange({ ...currentPlan, exchange_rate: val > 0 ? val : null });
+    if (val <= 0 && currentPlan.exchange_rate != null) {
+      setRateInputBlank(true);
+      return;
+    }
+    setRateInputBlank(false);
+    const updatedPlan = { ...currentPlan, exchange_rate: val > 0 ? val : null };
+    onPlanChange(updatedPlan);
+    // Modo Fijo: el TC de creacion se re-sincroniza a las 2 columnas de TC de toda
+    // cuota aun editable (una ya congelada conserva su valor guardado sin cambios).
+    if (updatedPlan.exchange_rate_mode === "fijo") {
+      onInstallmentsChange(applyExchangeRateMode("fijo", updatedPlan.exchange_rate, installments));
+    }
+  };
+
+  // 0722-156b: cambiar de modo re-sincroniza (Fijo) o inicializa los campos aun sin
+  // valor (Variable, con el ultimo TC de compra conocido — nunca pisa un valor ya
+  // capturado por el usuario o ya congelado).
+  //
+  // MUST FIX review iteracion 21 #2 (codex): mismo bug que la iteracion 20 #2 (el
+  // efecto de "resolucion tardia" del TC), pero en este otro code path -- cambiar
+  // el modo a Variable rellenaba invoice_exchange_rate de una cuota YA guardada
+  // (installment_id real) con TC null, y el trigger rechaza (EXCHANGE_RATE_LOCKED)
+  // ese cambio mientras la OT no este Aprobada, bloqueando el guardado del cambio
+  // de modo. Mismo guard: solo filas todavia sin persistir se autocompletan.
+  const handleModeChange = (mode: ExchangeRateMode) => {
+    const updatedPlan = { ...currentPlan, exchange_rate_mode: mode };
+    onPlanChange(updatedPlan);
+    if (mode === "fijo") {
+      onInstallmentsChange(applyExchangeRateMode("fijo", updatedPlan.exchange_rate, installments));
+    } else {
+      onInstallmentsChange(
+        installments.map((inst) => ({
+          ...inst,
+          invoice_exchange_rate:
+            !inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+              ? latestBuyRate
+              : inst.invoice_exchange_rate,
+          payment_exchange_rate:
+            !inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
+              ? latestBuyRate
+              : inst.payment_exchange_rate,
+        })),
+      );
+    }
   };
 
   // Auto-initialize to 1 installment only for brand-new WOs (woId is empty string).
   // For existing WOs (woId is a UUID), data comes from DB hydration — don't override.
   useEffect(() => {
-    if (!woId && installments.length === 0 && isEditable) {
+    if (!woId && installments.length === 0 && isEditable && canEditPaymentPlan) {
       handleNumInstallmentsChange(1);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Autocompleta el TC de creacion con el ultimo TC de compra conocido mientras este
+  // vacio y editable. Sin ref de "una sola vez": ese candado permanente se quedaba
+  // trabado si corria antes de que useLatestExchangeRate resolviera, o si una
+  // rehidratacion posterior del work order (useWorkOrderById) volvia a pisar el plan
+  // local con el valor null que todavia esta en la DB (BUG reportado 2026-09-05: la
+  // caja de creacion se quedaba en 0 pese a que la referencia ya mostraba el TC
+  // vigente). El propio chequeo `exchange_rate != null` ya evita reintentos una vez
+  // que hay un valor (autocompletado o tecleado por el usuario).
+  //
+  // MUST FIX 0722-156b review iteracion 4 #5: este efecto no chequeaba
+  // installments.length -- en una OT existente en Draft (USD/USDT) que todavia no
+  // tiene NINGUN plan de pagos configurado, currentPlan es el objeto de fallback
+  // (plan == null); apenas resolvia el TC de compra, este efecto llamaba a
+  // onPlanChange y volvia "sucia" la pagina (WorkOrderEdit.tsx compara paymentPlan
+  // contra originalPaymentPlan) sin que el usuario hubiera tocado nada -- y como
+  // persistNonRiskChanges solo actua con installments.length > 0 o con un plan_id ya
+  // existente, ese plan sintetico no se podia ni guardar ni descartar. Exigir al
+  // menos 1 cuota antes de autocompletar evita crear un plan "fantasma".
+  //
+  // MUST FIX 0722-156b review iteracion 10 #5: tampoco chequeaba currency !== "BOB"
+  // -- el TC (Decision #8 de plan_v2.md) solo aplica a USD/USDT, nunca a BOB, pero
+  // useLatestExchangeRate() no esta filtrado por moneda de la OT, asi que este efecto
+  // igual autocompletaba exchange_rate en una OT en BOB con al menos 1 cuota. Como
+  // WorkOrderEdit.tsx compara paymentPlan contra originalPaymentPlan con un
+  // JSON.stringify crudo (no el mas cuidadoso isPaymentPlanRestDirty), esto marcaba
+  // "sin guardar" a CUALQUIER OT en BOB abierta para editar, sin que el usuario
+  // tocara nada.
+  //
+  // Decision del operador 2026-09-10: mismo riesgo con canEditPaymentPlan -- si un
+  // socio (no gerente del encargo) abre la OT, este efecto no debe autocompletar un
+  // valor que ese usuario no podria guardar (el trigger lo rechazaria con
+  // EXCHANGE_RATE_FORBIDDEN, y ahora ademas la RLS "Manager can manage payment plans"
+  // rechazaria el UPDATE completo), dejando la pagina "sucia" sin que haya tocado nada.
+  useEffect(() => {
+    if (currency === "BOB") return;
+    if (currentPlan.exchange_rate != null) return;
+    if (!isEditable || !canEditPaymentPlan || latestBuyRate == null || installments.length === 0) return;
+    onPlanChange({ ...currentPlan, exchange_rate: latestBuyRate });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, currentPlan.exchange_rate, isEditable, canEditPaymentPlan, latestBuyRate, installments.length]);
+
+  // MUST FIX 0722-156b review iteracion 1 #2: el efecto de arriba solo autocompleta
+  // plan.exchange_rate — nunca re-sincronizaba las cuotas ya creadas cuando
+  // useLatestExchangeRate resuelve DESPUES de que las filas ya existian con TC null
+  // (ej. el plan se crea con handleNumInstallmentsChange antes de que la query
+  // resuelva). Sin esto, esas cuotas se quedaban mostrando "—" para siempre. En Fijo,
+  // re-sincroniza con applyExchangeRateMode en cuanto haya TC de creacion; en
+  // Variable, rellena solo los campos aun editables que sigan en null, igual que
+  // handleModeChange ya hace al cambiar de modo.
+  //
+  // MUST FIX 0722-156b review iteracion 10 #5: mismo gate de currency !== "BOB" que
+  // el efecto de arriba -- ver ese comentario.
+  //
+  // Decision del operador 2026-09-10: mismo gate de canEditPaymentPlan que el efecto
+  // de arriba -- sin esto, un socio que solo puede VER una OT Draft ajena (via "Team
+  // can view payment plans", que si lo sigue permitiendo) veria el plan marcarse
+  // "sucio" apenas resuelve el TC de compra, sin poder ni guardarlo ni descartarlo.
+  useEffect(() => {
+    if (currency === "BOB") return;
+    if (latestBuyRate == null || !isEditable || !canEditPaymentPlan || installments.length === 0) return;
+    if (currentPlan.exchange_rate_mode === "fijo") {
+      if (currentPlan.exchange_rate == null) return;
+      const needsSync = installments.some(
+        (inst) =>
+          (isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
+          (isPaymentRateEditable(inst.status) && inst.payment_exchange_rate == null),
+      );
+      if (needsSync) {
+        onInstallmentsChange(applyExchangeRateMode("fijo", currentPlan.exchange_rate, installments));
+      }
+    } else {
+      // MUST FIX review iteracion 20 #2 (codex): en modo Variable, el TC por cuota
+      // es una captura independiente que el trigger (Iteracion 13) solo acepta con
+      // la OT Aprobada -- una cuota que YA se guardo (tiene installment_id real)
+      // con este campo en null (porque exchange_rate_history estaba vacia al
+      // crearla) no debe autocompletarse mas tarde solo porque latestBuyRate
+      // resolvio: si la OT sigue Draft/en revision, sync_wo_payment_installments
+      // reenvia TODAS las cuotas en cada guardado, y el trigger rechaza (
+      // EXCHANGE_RATE_LOCKED) ese cambio -- bloqueando CUALQUIER guardado
+      // posterior del plan, no solo el de esta cuota. Decision del operador: una
+      // vez guardada/enviada, se muestra el valor que ya tiene (aunque sea null),
+      // nunca uno autocompletado nuevo. Este autocompletado solo debe alcanzar a
+      // filas todavia sin persistir (installment_id ausente -- mismo criterio ya
+      // usado por handleNumInstallmentsChange al crearlas, y por PEM17 para
+      // "no persiste al hacer blur en una fila nueva").
+      const needsInit = installments.some(
+        (inst) =>
+          (!inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null) ||
+          (!inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null),
+      );
+      if (needsInit) {
+        onInstallmentsChange(
+          installments.map((inst) => ({
+            ...inst,
+            invoice_exchange_rate:
+              !inst.installment_id && isInvoiceRateEditable(inst.status) && inst.invoice_exchange_rate == null
+                ? latestBuyRate
+                : inst.invoice_exchange_rate,
+            payment_exchange_rate:
+              !inst.installment_id && isPaymentRateCaptureEditable(inst.status) && inst.payment_exchange_rate == null
+                ? latestBuyRate
+                : inst.payment_exchange_rate,
+          })),
+        );
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency, latestBuyRate, isEditable, canEditPaymentPlan, currentPlan.exchange_rate_mode, currentPlan.exchange_rate, installments.length]);
+
   // When feeWithTax changes (e.g. adjustment edited), recompute stored amounts so
   // the saved value matches what the table displays. Guard via ref to avoid loops.
+  //
+  // MUST FIX 0722-156b review iteracion 4 #4: este recalculo tocaba `amount` de TODAS
+  // las cuotas sin filtrar por status -- el trigger de freeze (INSTALLMENT_LOCKED)
+  // rechaza cualquier cambio de amount en una cuota no-Pending, asi que revertir una
+  // OT aprobada con una cuota ya facturada y corregir el ajuste/presupuesto despues
+  // hacia fallar el guardado completo del plan. Las cuotas bloqueadas (isLocked)
+  // conservan su amount ya congelado, igual que ya hace el guard de DB.
   const prevFeeWithTax = useRef(feeWithTax);
   useEffect(() => {
     if (prevFeeWithTax.current === feeWithTax || installments.length === 0) {
@@ -159,67 +372,90 @@ export function WorkOrderPaymentPlanSection({
     }
     prevFeeWithTax.current = feeWithTax;
     onInstallmentsChange(
-      installments.map((inst) => ({
-        ...inst,
-        amount: computeAmount(inst.percentage, feeWithTax),
-      })),
+      installments.map((inst) =>
+        isLocked(inst) ? inst : { ...inst, amount: computeAmount(inst.percentage, feeWithTax) },
+      ),
     );
   }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ----- Installment count handler -----
 
+  // MUST FIX review iteracion 2 #4 (decision del operador: bloquear): si ya existe
+  // alguna cuota facturada, el TC/modo del plan tampoco se puede tocar, aunque la OT
+  // haya vuelto a Draft (revertir aprobacion + cambiar de modo dejaria el TC "oficial"
+  // del plan desalineado del TC realmente aplicado a esa cuota). El trigger de DB
+  // (wo_payment_plan_guard_exchange_rate) es la garantia real; esto es solo UX.
+  const planLocked = installments.some(isLocked);
+
   const handleNumInstallmentsChange = (count: number) => {
     if (count < 0 || count > 24) return;
-    // count === 0 clears all installments (user removes the plan)
-    if (count === 0) {
-      onInstallmentsChange([]);
-      return;
-    }
     const current = installments.length;
     if (count === current) return;
 
+    const lockedCount = installments.filter(isLocked).length;
+    if (count < lockedCount) {
+      toast.error(t("workOrders.paymentPlan.validationCannotRemoveInvoiced"));
+      return;
+    }
+
+    const lockedPercentageSum = installments
+      .filter(isLocked)
+      .reduce((s, i) => s + i.percentage, 0);
+    const unlockedTargetCount = count - lockedCount;
+    const unlockedPercentages = distributePercentages(unlockedTargetCount, 100 - lockedPercentageSum);
+
+    let unlockedIdx = 0;
+    const redistribute = (inst: PaymentInstallmentInput): PaymentInstallmentInput => {
+      if (isLocked(inst)) return inst;
+      const pct = unlockedPercentages[unlockedIdx++];
+      return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+    };
+
     if (count > current) {
-      const percentages = distributePercentages(count);
-      const added: PaymentInstallmentInput[] = Array.from(
-        { length: count - current },
-        (_, i) => ({
+      const addedCount = count - current;
+      const initialRate = currentPlan.exchange_rate_mode === "fijo" ? currentPlan.exchange_rate : latestBuyRate;
+      const nextNumber = Math.max(0, ...installments.map((i) => i.installment_number)) + 1;
+      const redistributed = installments.map(redistribute);
+      const added: PaymentInstallmentInput[] = Array.from({ length: addedCount }, (_, i) => {
+        const pct = unlockedPercentages[unlockedIdx++];
+        return {
           wo_id: woId,
           plan_id: plan?.plan_id,
-          installment_number: current + i + 1,
+          installment_number: nextNumber + i,
           agreed_invoice_date: null,
           agreed_payment_date: null,
           collection_invoice_date: null,
           collection_payment_date: null,
           payment_date_actual: null,
-          percentage: percentages[current + i],
-          amount: computeAmount(percentages[current + i], feeWithTax),
+          percentage: pct,
+          amount: computeAmount(pct, feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
-        }),
-      );
-      // Redistribute existing percentages and append new ones
-      const newPercentages = distributePercentages(count);
-      const updated = [
-        ...installments.map((inst, idx) => ({
-          ...inst,
-          percentage: newPercentages[idx],
-          amount: computeAmount(newPercentages[idx], feeWithTax),
-        })),
-        ...added.map((inst, i) => ({
-          ...inst,
-          percentage: newPercentages[current + i],
-          amount: computeAmount(newPercentages[current + i], feeWithTax),
-        })),
-      ];
-      onInstallmentsChange(updated);
+          invoice_exchange_rate: initialRate,
+          // MUST FIX review iteracion 21 #1 (codex): en modo Variable,
+          // payment_exchange_rate nunca deberia tener valor mientras la cuota
+          // sigue Pending -- isPaymentRateCaptureEditable la excluye a proposito
+          // (es una captura independiente de contabilidad que arranca recien al
+          // facturar, Decision #4). En Fijo si debe reflejar el TC del plan
+          // desde la creacion, igual que invoice_exchange_rate -- ahi ambos son
+          // siempre un espejo del mismo TC, nunca una captura independiente.
+          payment_exchange_rate: currentPlan.exchange_rate_mode === "fijo" ? initialRate : null,
+        };
+      });
+      onInstallmentsChange([...redistributed, ...added]);
     } else {
-      // Reducing: redistribute percentages for remaining rows
-      const newPercentages = distributePercentages(count);
+      // Reducing: drop Pending rows starting from the END of the array (matches the
+      // prior tail-drop behavior when nothing is locked); a locked row is never a
+      // candidate for dropping — already guaranteed by the lockedCount guard above.
+      let pendingToDrop = current - count;
+      const dropAt = new Set<number>();
+      for (let i = installments.length - 1; i >= 0 && pendingToDrop > 0; i--) {
+        if (!isLocked(installments[i])) {
+          dropAt.add(i);
+          pendingToDrop--;
+        }
+      }
       onInstallmentsChange(
-        installments.slice(0, count).map((inst, idx) => ({
-          ...inst,
-          percentage: newPercentages[idx],
-          amount: computeAmount(newPercentages[idx], feeWithTax),
-        })),
+        installments.filter((_, i) => !dropAt.has(i)).map(redistribute),
       );
     }
   };
@@ -244,6 +480,40 @@ export function WorkOrderPaymentPlanSection({
           ? { ...inst, percentage: val, amount: computeAmount(val, feeWithTax) }
           : inst,
       ),
+    );
+  };
+
+  // MUST FIX review iteracion 6 #3: onChange (via onInstallmentsChange, que vive en el
+  // padre) actualiza el estado de forma asincrona; el onBlur de mas abajo, que persiste
+  // el valor con updateInstallmentExchangeRate.mutate(...), corre en el MISMO tick que
+  // un onChange de normalizacion disparado por numeric-input.tsx al perder foco (ej.
+  // limpiar un separador decimal colgado como "7,") -- si el onBlur lee `inst.*` del
+  // closure del ultimo render, todavia no ve ese valor recien normalizado y persiste el
+  // anterior. Este ref se actualiza de forma sincrona en el mismo evento, asi que el
+  // onBlur siempre puede leer el valor mas reciente sin depender de que el re-render ya
+  // haya ocurrido.
+  const pendingRateEditsRef = useRef<Record<string, { invoice?: number | null; payment?: number | null }>>({});
+
+  // 0722-156b: solo relevantes en modo Variable (en Fijo la celda es de solo lectura,
+  // reflejando el TC de creacion) — el freeze real lo aplica el trigger de DB sobre
+  // la columna status persistida, `disabled` aca es solo UX.
+  const handleInvoiceRateChange = (idx: number, val: number) => {
+    const inst = installments[idx];
+    const normalized = val > 0 ? val : null;
+    const key = inst.installment_id ?? String(idx);
+    pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], invoice: normalized };
+    onInstallmentsChange(
+      installments.map((i, idx2) => (idx2 === idx ? { ...i, invoice_exchange_rate: normalized } : i)),
+    );
+  };
+
+  const handlePaymentRateChange = (idx: number, val: number) => {
+    const inst = installments[idx];
+    const normalized = val > 0 ? val : null;
+    const key = inst.installment_id ?? String(idx);
+    pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], payment: normalized };
+    onInstallmentsChange(
+      installments.map((i, idx2) => (idx2 === idx ? { ...i, payment_exchange_rate: normalized } : i)),
     );
   };
 
@@ -287,24 +557,41 @@ export function WorkOrderPaymentPlanSection({
         prevStatus: inst.status as PaymentInstallmentStatus,
         woId,
         paymentDays: currentPlan.payment_days,
+        // 0722-156b: snapshot atomico del TC vigente en el local state al momento
+        // de confirmar la transicion — el trigger de freeze evalua OLD.status, asi
+        // que esto sigue permitido en la MISMA transicion que congela la cuota.
+        invoiceExchangeRate: newStatus === "Invoiced" ? inst.invoice_exchange_rate : undefined,
+        paymentExchangeRate: newStatus === "Completed" ? inst.payment_exchange_rate : undefined,
       });
     }
   };
 
   const handleDeleteRow = (idx: number) => {
+    // MUST FIX review iteracion 2 #1 (decision del operador): una cuota ya facturada no
+    // se puede eliminar de ninguna manera — el trigger BEFORE DELETE de la migracion es
+    // la garantia real; esto evita el viaje redondo innecesario al servidor.
+    if (isLocked(installments[idx])) {
+      toast.error(t("workOrders.paymentPlan.validationCannotRemoveInvoiced"));
+      return;
+    }
     const remaining = installments.filter((_, i) => i !== idx);
     if (remaining.length === 0) {
       onInstallmentsChange([]);
       return;
     }
-    const newPercentages = distributePercentages(remaining.length);
+    const lockedPercentageSum = remaining.filter(isLocked).reduce((s, i) => s + i.percentage, 0);
+    const unlockedCount = remaining.filter((inst) => !isLocked(inst)).length;
+    const unlockedPercentages = distributePercentages(unlockedCount, 100 - lockedPercentageSum);
+    let unlockedIdx = 0;
+    // installment_number deliberately left untouched (including for surviving unlocked
+    // rows) — the visible "N°" column already uses array position, not this field, and
+    // leaving it alone avoids ever touching a locked row's data.
     onInstallmentsChange(
-      remaining.map((inst, i) => ({
-        ...inst,
-        installment_number: i + 1,
-        percentage: newPercentages[i],
-        amount: computeAmount(newPercentages[i], feeWithTax),
-      })),
+      remaining.map((inst) => {
+        if (isLocked(inst)) return inst;
+        const pct = unlockedPercentages[unlockedIdx++];
+        return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+      }),
     );
   };
 
@@ -317,6 +604,11 @@ export function WorkOrderPaymentPlanSection({
       maximumFractionDigits: 2,
     });
   };
+
+  // Los importes derivados de facturacion/pago SIEMPRE estan en Bs (el TC convierte a
+  // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
+  const formatBob = (amount: number) =>
+    Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
     <>
@@ -340,7 +632,7 @@ export function WorkOrderPaymentPlanSection({
       <CardContent className="space-y-4">
         {/* Header fields */}
         <div className="flex flex-wrap gap-4">
-          {/* Tipo de Cambio — only for non-BOB currencies */}
+          {/* Tipo de Cambio (creacion) — only for non-BOB currencies */}
           {currency !== "BOB" && (
             <div className="flex flex-col gap-1 min-w-[150px]">
               <Label>{t("workOrders.paymentPlan.exchangeRate")}</Label>
@@ -348,12 +640,49 @@ export function WorkOrderPaymentPlanSection({
                 decimals={6}
                 locale={numericLocale}
                 min={0}
-                value={currentPlan.exchange_rate ?? 0}
+                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? 0)}
                 onChange={handleExchangeRateChange}
-                disabled={!isEditable}
+                onBlur={() => setRateInputBlank(false)}
+                disabled={!isEditable || planLocked || !canEditPaymentPlan}
                 className="w-full"
                 data-testid="payment-plan-exchange-rate"
               />
+              {latestBuyRate != null && (
+                <p className="text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.currentBuyRateReference", { value: formatRate(latestBuyRate) })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Modo TC (Fijo/Variable) — only for non-BOB currencies */}
+          {currency !== "BOB" && (
+            <div className="flex flex-col gap-1 min-w-[220px]">
+              <Label>{t("workOrders.paymentPlan.exchangeRateMode")}</Label>
+              <div role="group" aria-label={t("workOrders.paymentPlan.exchangeRateMode")} className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={currentPlan.exchange_rate_mode === "fijo" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleModeChange("fijo")}
+                  disabled={!isEditable || planLocked || !canEditPaymentPlan}
+                  data-testid="payment-plan-exchange-rate-mode-fijo"
+                  aria-pressed={currentPlan.exchange_rate_mode === "fijo"}
+                >
+                  {t("workOrders.paymentPlan.exchangeRateModeFijo")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={currentPlan.exchange_rate_mode === "variable" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleModeChange("variable")}
+                  disabled={!isEditable || planLocked || !canEditPaymentPlan}
+                  data-testid="payment-plan-exchange-rate-mode-variable"
+                  aria-pressed={currentPlan.exchange_rate_mode === "variable"}
+                >
+                  {t("workOrders.paymentPlan.exchangeRateModeVariable")}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -363,7 +692,7 @@ export function WorkOrderPaymentPlanSection({
             <NumericInput
               value={currentPlan.payment_days}
               onChange={handlePaymentDaysChange}
-              disabled={!isEditable}
+              disabled={!isEditable || !canEditPaymentPlan}
               decimals={0}
               min={1}
               className="w-full"
@@ -380,7 +709,8 @@ export function WorkOrderPaymentPlanSection({
                 size="icon"
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments - 1)}
-                disabled={!isEditable || numInstallments <= 0}
+                disabled={!isEditable || !canEditPaymentPlan || numInstallments <= 0}
+                data-testid="payment-plan-installments-minus"
               >
                 <Minus className="h-4 w-4" />
               </Button>
@@ -393,7 +723,8 @@ export function WorkOrderPaymentPlanSection({
                 size="icon"
                 className="h-10 w-10 shrink-0"
                 onClick={() => handleNumInstallmentsChange(numInstallments + 1)}
-                disabled={!isEditable || numInstallments >= 24}
+                disabled={!isEditable || !canEditPaymentPlan || numInstallments >= 24}
+                data-testid="payment-plan-installments-plus"
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -422,12 +753,27 @@ export function WorkOrderPaymentPlanSection({
                   <th rowSpan={2} className="text-right py-3 px-3 font-medium min-w-[115px] align-bottom border-b">
                     {t("workOrders.paymentPlan.amount")} ({currency})
                   </th>
+                  {currency !== "BOB" && (
+                    <th colSpan={2} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
+                      {t("workOrders.paymentPlan.exchangeRate")}
+                    </th>
+                  )}
                   <th colSpan={3} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
                     {t("workOrders.paymentPlan.collectionTitle")}
                   </th>
                   <th rowSpan={2} className="w-8 border-b" />
                 </tr>
                 <tr className="text-muted-foreground">
+                  {currency !== "BOB" && (
+                    <>
+                      <th className="text-left py-2 px-3 font-medium text-xs min-w-[130px] border-b border-l border-border/50 bg-muted/10">
+                        {t("workOrders.paymentPlan.invoiceExchangeRate")}
+                      </th>
+                      <th className="text-left py-2 px-3 font-medium text-xs min-w-[130px] border-b border-r border-border/50 bg-muted/10">
+                        {t("workOrders.paymentPlan.paymentExchangeRate")}
+                      </th>
+                    </>
+                  )}
                   <th className="text-left py-2 px-3 font-medium text-xs min-w-[120px] border-b border-l border-border/50 bg-muted/10">
                     {t("workOrders.paymentPlan.collectionInvoiceDate")}
                   </th>
@@ -441,8 +787,17 @@ export function WorkOrderPaymentPlanSection({
               </thead>
               <tbody>
                 {installments.map((inst, idx) => {
-                  const instAmount = computeAmount(inst.percentage, feeWithTax);
-                  const dateEditable = isEditable || isAdminDateEditable;
+                  // MUST FIX review iteracion 6 #5: una cuota bloqueada conserva su
+                  // `amount` congelado (ver el efecto de feeWithTax mas arriba) -- pero
+                  // este monto de pantalla se recalculaba igual desde el fee ACTUAL,
+                  // asi que la conversion a Bs (y la columna de monto) de una cuota ya
+                  // facturada podia divergir del monto realmente congelado tras un
+                  // cambio de fee tardio.
+                  const instAmount = isLocked(inst) ? inst.amount : computeAmount(inst.percentage, feeWithTax);
+                  // isAdminDateEditable es un bypass aparte (admin corrigiendo fuera de
+                  // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
+                  // QUIEN puede editar el tramo normal (isEditable) del plan.
+                  const dateEditable = (isEditable && canEditPaymentPlan) || isAdminDateEditable;
                   const effectiveStatus = getEffectiveStatus(inst);
                   const availableOptions = STATUS_TRANSITIONS[effectiveStatus];
 
@@ -454,6 +809,7 @@ export function WorkOrderPaymentPlanSection({
                       <td className="py-3 px-3 border-b border-border/50">
                         <Input
                           type="date"
+                          lang="es-BO"
                           value={inst.agreed_invoice_date ?? ""}
                           onChange={(e) => handleInvoiceDateChange(idx, e.target.value)}
                           disabled={!dateEditable}
@@ -468,7 +824,7 @@ export function WorkOrderPaymentPlanSection({
                           locale={numericLocale}
                           value={inst.percentage}
                           onChange={(val) => handlePercentageChange(idx, val)}
-                          disabled={!isEditable}
+                          disabled={!isEditable || !canEditPaymentPlan}
                           min={0}
                           max={100}
                           className="w-full h-8"
@@ -477,11 +833,144 @@ export function WorkOrderPaymentPlanSection({
                       <td className="py-3 px-3 text-right font-mono border-b border-border/50">
                         {formatAmount(instAmount)}
                       </td>
+                      {/* Tipo de Cambio group — only for non-BOB currencies */}
+                      {currency !== "BOB" && (
+                        <>
+                          <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
+                            {currentPlan.exchange_rate_mode === "fijo" ? (
+                              <span className="text-muted-foreground font-mono text-xs" data-testid="installment-invoice-rate-readonly">
+                                {inst.invoice_exchange_rate != null ? formatRate(inst.invoice_exchange_rate) : "—"}
+                              </span>
+                            ) : (
+                              <NumericInput
+                                decimals={6}
+                                locale={numericLocale}
+                                min={0}
+                                value={inst.invoice_exchange_rate ?? 0}
+                                onChange={(val) => handleInvoiceRateChange(idx, val)}
+                                onBlur={() => {
+                                  // Guardado directo e inmediato (0722-156b Amendment 2026-09-07):
+                                  // este campo solo se habilita con la OT ya Aprobada, momento en el
+                                  // que WorkOrderForm ya no ofrece un boton "Guardar" de pagina --
+                                  // sin esto el valor quedaba atrapado en memoria para siempre.
+                                  // MUST FIX review iteracion 2 #13: mismo guard que ya usa la fecha
+                                  // de cobro -- no guardar directo si el resto del plan tiene cambios
+                                  // sin guardar todavia (evita que el batch-save posterior pise esto).
+                                  if (inst.installment_id) {
+                                    if (isPaymentPlanDirty) {
+                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                      return;
+                                    }
+                                    const pending = pendingRateEditsRef.current[inst.installment_id];
+                                    const value = pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate;
+                                    // MUST FIX review iteracion 12 #3: pendingRateEditsRef nunca se
+                                    // limpiaba -- un blur sin edicion nueva (ej. foco+blur accidental)
+                                    // sobre una fila cuyo prop se refresco con un valor mas reciente
+                                    // (otra pestana ya guardo uno distinto) volvia a leer el valor
+                                    // viejo del ref y lo repersistia, pisando el mas nuevo en
+                                    // silencio. Se borra la entrada apenas se lee, para que un blur
+                                    // posterior sin edicion caiga al valor fresco de inst.*.
+                                    if (pending) delete pending.invoice;
+                                    updateInstallmentExchangeRate.mutate({
+                                      installmentId: inst.installment_id,
+                                      field: "invoice_exchange_rate",
+                                      value,
+                                      woId,
+                                    });
+                                  }
+                                }}
+                                disabled={!isStatusEditable || !isInvoiceRateEditable(inst.status)}
+                                className="w-full h-8"
+                                data-testid="installment-invoice-rate"
+                              />
+                            )}
+                            {latestBuyRate != null && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
+                              </p>
+                            )}
+                            {inst.invoice_exchange_rate != null && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {t("workOrders.paymentPlan.invoiceAmountBob", {
+                                  value: formatBob(computeConvertedAmount(instAmount, inst.invoice_exchange_rate) ?? 0),
+                                })}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 border-b border-r border-border/50 bg-muted/10">
+                            {currentPlan.exchange_rate_mode === "fijo" ? (
+                              <span className="text-muted-foreground font-mono text-xs" data-testid="installment-payment-rate-readonly">
+                                {inst.payment_exchange_rate != null ? formatRate(inst.payment_exchange_rate) : "—"}
+                              </span>
+                            ) : (
+                              <NumericInput
+                                decimals={6}
+                                locale={numericLocale}
+                                min={0}
+                                value={inst.payment_exchange_rate ?? 0}
+                                onChange={(val) => handlePaymentRateChange(idx, val)}
+                                onBlur={() => {
+                                  if (inst.installment_id) {
+                                    if (isPaymentPlanDirty) {
+                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                      return;
+                                    }
+                                    const pending = pendingRateEditsRef.current[inst.installment_id];
+                                    const value = pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate;
+                                    // MUST FIX review iteracion 12 #3: ver el mismo fix en el onBlur
+                                    // del TC de facturacion, arriba.
+                                    if (pending) delete pending.payment;
+                                    updateInstallmentExchangeRate.mutate({
+                                      installmentId: inst.installment_id,
+                                      field: "payment_exchange_rate",
+                                      value,
+                                      woId,
+                                    });
+                                  }
+                                }}
+                                disabled={!isStatusEditable || !isPaymentRateCaptureEditable(inst.status)}
+                                className="w-full h-8"
+                                data-testid="installment-payment-rate"
+                              />
+                            )}
+                            {latestBuyRate != null && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
+                              </p>
+                            )}
+                            {inst.payment_exchange_rate != null && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {t("workOrders.paymentPlan.paymentAmountBob", {
+                                  value: formatBob(computeConvertedAmount(instAmount, inst.payment_exchange_rate) ?? 0),
+                                })}
+                              </p>
+                            )}
+                          </td>
+                        </>
+                      )}
                       {/* Cobranza group */}
+                      {/* Reportado 2026-09-09 como bug ("sigue editable en Completado") y
+                         corregido con !isLocked(inst) -- REVERTIDO el mismo dia tras
+                         verificar que esto es intencional, no un descuido: preexistente a
+                         0722-156b (commit 0253f93e, "agregar la funcionalidad de
+                         actualizacion de la fecha de cobro", 2026-06-29), con su propio
+                         dialogo de CORRECCION (no de captura -- ver el Dialog de
+                         pendingCollectionDate mas abajo, "admin direct-save") y su propia
+                         mutacion dedicada (useUpdateCollectionDate). A diferencia de
+                         percentage/amount/installment_number/TC (congelados desde la
+                         Iteracion 2), el trigger de la base de datos NUNCA bloquea
+                         collection_invoice_date/collection_payment_date por status --
+                         confirmado leyendo wo_payment_installments_guard_exchange_rate
+                         completo. Es decir, la base de datos permite a proposito corregir
+                         esta fecha en cualquier momento (la fecha registrada al marcar
+                         "Facturado" es cuando alguien toco el boton, no necesariamente la
+                         fecha real de emision de Contabilidad) -- decision confirmada por
+                         el operador de mantener este comportamiento tal como estaba. */}
                       <td className="py-3 px-3 border-b border-l border-border/50 bg-muted/10">
                         {isStatusEditable ? (
                           <Input
                             type="date"
+                            lang="es-BO"
                             value={inst.collection_invoice_date ?? ""}
                             onChange={(e) => {
                               if (inst.installment_id && e.target.value) {
@@ -554,13 +1043,14 @@ export function WorkOrderPaymentPlanSection({
                         )}
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
-                        {isEditable && installments.length > 1 && (
+                        {isEditable && canEditPaymentPlan && installments.length > 1 && !isLocked(inst) && (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
                             onClick={() => handleDeleteRow(idx)}
                             type="button"
+                            data-testid={`installment-delete-${idx}`}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -588,7 +1078,7 @@ export function WorkOrderPaymentPlanSection({
                   <td className="py-3 px-3 text-right font-mono">
                     {formatAmount(totalAmount)}
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={currency !== "BOB" ? 6 : 4} />
                 </tr>
               </tfoot>
             </table>
@@ -608,8 +1098,8 @@ export function WorkOrderPaymentPlanSection({
           </DialogTitle>
           <DialogDescription className="pt-2 space-y-2">
             <span className="block">
-              {pendingChange?.newStatus === "Invoiced" && t("workOrders.paymentPlan.confirmInvoicedDesc", { date: today })}
-              {pendingChange?.newStatus === "Completed" && t("workOrders.paymentPlan.confirmCompletedDesc", { date: today })}
+              {pendingChange?.newStatus === "Invoiced" && t("workOrders.paymentPlan.confirmInvoicedDesc", { date: fmtDate(today) })}
+              {pendingChange?.newStatus === "Completed" && t("workOrders.paymentPlan.confirmCompletedDesc", { date: fmtDate(today) })}
               {pendingChange?.newStatus === "Overdue" && t("workOrders.paymentPlan.confirmOverdueDesc")}
             </span>
             {pendingChange?.newStatus !== "Overdue" && (

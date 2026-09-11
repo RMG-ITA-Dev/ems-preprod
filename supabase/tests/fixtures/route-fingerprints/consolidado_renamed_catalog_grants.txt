@@ -498,6 +498,34 @@
  public       | service_role  | engagements                                    | TRIGGER
  public       | service_role  | engagements                                    | TRUNCATE
  public       | service_role  | engagements                                    | UPDATE
+ public       | anon          | exchange_rate_history                          | DELETE
+ public       | anon          | exchange_rate_history                          | INSERT
+ public       | anon          | exchange_rate_history                          | REFERENCES
+ public       | anon          | exchange_rate_history                          | SELECT
+ public       | anon          | exchange_rate_history                          | TRIGGER
+ public       | anon          | exchange_rate_history                          | TRUNCATE
+ public       | anon          | exchange_rate_history                          | UPDATE
+ public       | authenticated | exchange_rate_history                          | DELETE
+ public       | authenticated | exchange_rate_history                          | INSERT
+ public       | authenticated | exchange_rate_history                          | REFERENCES
+ public       | authenticated | exchange_rate_history                          | SELECT
+ public       | authenticated | exchange_rate_history                          | TRIGGER
+ public       | authenticated | exchange_rate_history                          | TRUNCATE
+ public       | authenticated | exchange_rate_history                          | UPDATE
+ public       | postgres      | exchange_rate_history                          | DELETE
+ public       | postgres      | exchange_rate_history                          | INSERT
+ public       | postgres      | exchange_rate_history                          | REFERENCES
+ public       | postgres      | exchange_rate_history                          | SELECT
+ public       | postgres      | exchange_rate_history                          | TRIGGER
+ public       | postgres      | exchange_rate_history                          | TRUNCATE
+ public       | postgres      | exchange_rate_history                          | UPDATE
+ public       | service_role  | exchange_rate_history                          | DELETE
+ public       | service_role  | exchange_rate_history                          | INSERT
+ public       | service_role  | exchange_rate_history                          | REFERENCES
+ public       | service_role  | exchange_rate_history                          | SELECT
+ public       | service_role  | exchange_rate_history                          | TRIGGER
+ public       | service_role  | exchange_rate_history                          | TRUNCATE
+ public       | service_role  | exchange_rate_history                          | UPDATE
  public       | anon          | expense_types                                  | DELETE
  public       | anon          | expense_types                                  | INSERT
  public       | anon          | expense_types                                  | REFERENCES
@@ -1619,5 +1647,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1619 rows)
+(1647 rows)
 
