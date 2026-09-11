@@ -1725,7 +1725,9 @@
           "changed_unassigned": "Te dieron de baja del encargo {{engagement_name}}",
           "changed_team_assigned": "Asignaron a {{staff_name}} al encargo",
           "changed_team_unassigned": "Dieron de baja a {{staff_name}} del encargo"
-        }
+        },
+        "ending_soon": "El encargo termina en {{days_left}} días",
+        "ending_soon_last_day": "El encargo termina mañana"
       },
       "wo": {
         "submitted_partner": "OT enviada a tu aprobación",

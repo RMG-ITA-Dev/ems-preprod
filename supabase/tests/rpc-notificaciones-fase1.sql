@@ -1,4 +1,4 @@
--- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.h (16 grupos)
+-- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.h (17 grupos)
 -- (20260911100000_..._01_catalogo.sql + 20260911100100_..._02_seed.sql +
 --  20260911100200_..._03_disparadores.sql).
 --
@@ -236,13 +236,13 @@ BEGIN
   IF v_types <> 71 THEN
     RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 71 (¿corriste el parser?)', v_types;
   END IF;
-  IF v_grants <> 416 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 416', v_grants;
+  IF v_grants <> 419 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 419', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 71 tipos, 416 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 71 tipos, 419 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -297,12 +297,18 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — un type_key inexistente devuelve NULL sin romper al llamante';
 
-  -- 1.e Tipo inactivo (??.sqr.pendiente, D-11 sin definir): sembrado pero no entregable.
-  v_id := public.notify_staff('??.sqr.pendiente',
+  -- 1.e Tipo inactivo: sembrado pero no entregable. Se desactiva uno de verdad dentro de la
+  -- transaccion (que hace ROLLBACK) en vez de depender de que el catalogo tenga alguno: el
+  -- unico que habia, `??.sqr.pendiente`, se retiro al cerrar D-11.
+  UPDATE public.notification_types SET is_active = false
+   WHERE type_key = 'engagement.deleted';
+  v_id := public.notify_staff('engagement.deleted',
                               '59f00000-0000-4000-8000-000000000002', NULL, '{}'::jsonb);
   IF v_id IS NOT NULL THEN
     RAISE EXCEPTION 'TEST FAIL — un tipo con is_active=false entregó una notificación';
   END IF;
+  UPDATE public.notification_types SET is_active = true
+   WHERE type_key = 'engagement.deleted';
   RAISE NOTICE 'PASS — un tipo inactivo está en el catálogo pero no entrega';
 
   -- 1.f Staff sin cuenta vinculada: sin rol no hay elegibilidad que evaluar.
@@ -2347,6 +2353,111 @@ BEGIN
       v_agg->'scheduler.coverage_gap'->>'count';
   END IF;
   RAISE NOTICE 'PASS - un encargo cerrado no reclama cobertura';
+
+END $$;
+
+-- -- Grupo 16 -- D-05: aviso previo a la fecha fin del encargo ------------------
+-- El segundo cron del catalogo, y el mismo patron que el plazo de emergencia (D-09): UN tipo
+-- con DOS disparos (7 dias y 1 dia), distinguidos por `days_left`, e idempotente por
+-- destinatario para que correrlo dos veces el mismo dia no duplique.
+DO $$
+DECLARE
+  v_eng  uuid := 'e9f00000-0000-4000-8000-00000000000a';
+  v_n    int;
+  v_sent int;
+  c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_adm  constant uuid := '59f00000-0000-4000-8000-000000000006';  -- ADM (alcance firm)
+  c_stf  constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST (staffing)
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  partner_id, manager_id, created_by_staff_id, fecha_cierre,
+                                  society_id, end_date)
+  VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Encargo Diez', '9F10',
+          c_part, c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1),
+          (now() AT TIME ZONE 'America/La_Paz')::date + 7);
+
+  -- El staffing del encargo NO recibe este aviso (a diferencia de `finalized`): un asistente
+  -- no decide una prorroga.
+  INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
+                                             start_date, end_date, status)
+  VALUES (v_eng, c_stf, 'c9f00000-0000-4000-8000-0000000000c1',
+          CURRENT_DATE, CURRENT_DATE + 30, 'CONFIRMED');
+
+  DELETE FROM public.notifications;
+
+  -- 16.a A 7 dias: conduccion + ADM, con days_left en el payload.
+  v_sent := public.notif_engagement_daily_scheduled();
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon'
+     AND recipient_staff_id IN (c_part, c_mgr, c_adm)
+     AND payload->>'days_left' = '7'
+     AND payload->>'engagement_code' = '9F10';
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso a 7 dias no llego a Socio, Gerente y ADM (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon' AND recipient_staff_id = c_stf;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso previo bajo al staffing, que no decide prorrogas';
+  END IF;
+  RAISE NOTICE 'PASS - a 7 dias avisa a la conduccion y al ADM, no al staffing';
+
+  -- Correrlo otra vez el mismo dia no duplica.
+  PERFORM public.notif_engagement_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon' AND payload->>'days_left' = '7';
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron duplico el aviso de 7 dias (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - re-ejecutar el cron el mismo dia no duplica';
+
+  -- 16.b A 1 dia: segundo disparo del MISMO tipo, con su propia redaccion.
+  UPDATE public.engagements
+     SET end_date = (now() AT TIME ZONE 'America/La_Paz')::date + 1
+   WHERE engagement_id = v_eng;
+
+  PERFORM public.notif_engagement_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon'
+     AND recipient_staff_id = c_mgr
+     AND payload->>'days_left' = '1'
+     AND payload->>'context' = 'last_day';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - falto el aviso del ultimo dia (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el ultimo dia es un segundo disparo del mismo tipo';
+
+  -- 16.c A 3 dias no avisa: solo 7 y 1.
+  DELETE FROM public.notifications;
+  UPDATE public.engagements
+     SET end_date = (now() AT TIME ZONE 'America/La_Paz')::date + 3
+   WHERE engagement_id = v_eng;
+
+  PERFORM public.notif_engagement_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron aviso a 3 dias (hubo %)', v_n;
+  END IF;
+
+  -- Y un encargo ya finalizado tampoco, aunque su fecha caiga en la ventana.
+  UPDATE public.engagements
+     SET end_date = (now() AT TIME ZONE 'America/La_Paz')::date + 7,
+         engagement_state_override = 7
+   WHERE engagement_id = v_eng;
+
+  PERFORM public.notif_engagement_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.ending_soon';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - un encargo finalizado recibio el aviso previo (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - solo 7 y 1 dia, y solo sobre encargos vivos';
 
   RAISE NOTICE 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED (rolled back)';
 END $$;

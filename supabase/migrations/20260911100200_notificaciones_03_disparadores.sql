@@ -9,7 +9,7 @@
 --
 --   PARTE 1  Solicitudes de Fondos   (Fase 3.a)  2 triggers, 14 eventos
 --   PARTE 2  Órdenes de Trabajo      (Fase 3.b)  2 triggers + 1 cron, 15 eventos
---   PARTE 3  Encargos                (Fase 3.c)  2 triggers, 7 eventos
+--   PARTE 3  Encargos                (Fase 3.c)  2 triggers + 1 cron, 8 eventos
 --   PARTE 4  Tiempos                 (Fase 3.d)  3 triggers, 7 eventos
 --                                                (timesheets + aprobaciones + tracker)
 --   PARTE 5  Cuentas / Auth          (Fase 3.e)  3 triggers, 8 eventos
@@ -17,6 +17,9 @@
 --   PARTE 6  Clientes                (Fase 3.f)  1 trigger, 3 eventos
 --   PARTE 7  Hojas de Trabajo        (Fase 3.g)  1 trigger, 1 evento (sin via en el
 --                                                producto todavia: D-38)
+--
+-- El aviso previo a la fecha fin del encargo (D-05) se agrego al final, despues de la
+-- PARTE 7: necesita `notif_engagement_owners()`, que se define en la PARTE 3.
 --
 -- REGLAS QUE VALEN PARA LOS TRES:
 --   * Se dispara por TRIGGER, no desde el frontend: así el aviso sale venga la transición de
@@ -1952,3 +1955,100 @@ DROP TRIGGER IF EXISTS tr_notify_worksheet ON public.activity_worksheets;
 CREATE TRIGGER tr_notify_worksheet
   AFTER UPDATE ON public.activity_worksheets
   FOR EACH ROW EXECUTE FUNCTION public.notify_worksheet_events();
+
+
+-- =====================================================================
+-- PARTE 3 bis) Encargos — aviso previo a la fecha fin (D-05)
+-- =====================================================================
+--
+-- `engagement.finalized` avisa que el encargo TERMINO; éste avisa que ESTA POR TERMINAR, y
+-- son dos hechos distintos: uno se comunica, el otro se acciona (cerrar pendientes, pedir
+-- prórroga). Por eso es un tipo aparte y no un `context` del otro.
+--
+-- No puede ser un trigger: nadie escribe en la fila el día que faltan 7 días. Va por el cron,
+-- con el mismo patrón del plazo de emergencia (D-09): UN tipo, DOS disparos —a 7 días y a 1
+-- día— distinguidos por `days_left` en el payload, e idempotente por destinatario contra
+-- `public.notifications` para que re-ejecutarlo el mismo día no duplique.
+--
+-- Audiencia: la conducción + ADM. NO baja al staffing, a diferencia de `finalized`: un
+-- asistente no decide una prórroga.
+
+DROP FUNCTION IF EXISTS public.notif_engagement_daily_scheduled();
+
+CREATE FUNCTION public.notif_engagement_daily_scheduled() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  FOR v_rec IN
+    SELECT e.engagement_id, e.end_date,
+           COALESCE(e.engagement_code, '') AS engagement_code,
+           COALESCE(e.engagement_name, '') AS engagement_name,
+           (e.end_date - v_today) AS days_left,
+           r.staff_id
+      FROM public.engagements e
+      CROSS JOIN LATERAL (
+        SELECT staff_id FROM public.notif_engagement_owners(e.engagement_id)
+        UNION
+        SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+      ) r
+     WHERE e.end_date IS NOT NULL
+       AND (e.end_date - v_today) IN (7, 1)
+       -- Un encargo ya finalizado, cancelado o rechazado no tiene fecha fin que avisar. El
+       -- mismo criterio de `finalize_due_engagements()`: sólo los estados que siguen vivos.
+       AND (e.engagement_state_override IS NULL
+            OR e.engagement_state_override NOT IN (6, 7, 8))
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM public.notifications n
+       WHERE n.type_key = 'engagement.ending_soon'
+         AND n.entity_id = v_rec.engagement_id::text
+         AND n.recipient_staff_id = v_rec.staff_id
+         AND n.payload->>'days_left' = v_rec.days_left::text
+    ) THEN
+      IF public.notify_staff('engagement.ending_soon', v_rec.staff_id,
+           v_rec.engagement_id::text,
+           jsonb_build_object('engagement_id',   v_rec.engagement_id,
+                              'engagement_code', v_rec.engagement_code,
+                              'engagement_name', v_rec.engagement_name,
+                              'end_date',        v_rec.end_date,
+                              'days_left',       v_rec.days_left)
+           -- El último día no se anuncia como "quedan 1 días": `context` de i18next le da su
+           -- propia redacción sin gastar un tipo del catálogo.
+           || CASE WHEN v_rec.days_left = 1
+                   THEN jsonb_build_object('context', 'last_day')
+                   ELSE '{}'::jsonb END) IS NOT NULL THEN
+        v_sent := v_sent + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_engagement_daily_scheduled() IS
+  'FASE 3.c (D-05): aviso previo a la fecha fin del encargo, a 7 dias y a 1 dia, a la conduccion + ADM. Idempotente por destinatario y por days_left contra public.notifications. Devuelve cuantas notificaciones emitio.';
+
+REVOKE ALL ON FUNCTION public.notif_engagement_daily_scheduled() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.notif_engagement_daily_scheduled() TO service_role;
+
+-- Mismo guard de pg_cron y misma hora que `notif-wo-daily`: '0 12 * * *' UTC ≈ 08:00
+-- America/La_Paz, para que los avisos de plazo lleguen al empezar la jornada.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-engagement-daily') THEN
+      PERFORM cron.unschedule('notif-engagement-daily');
+    END IF;
+    PERFORM cron.schedule(
+      'notif-engagement-daily',
+      '0 12 * * *',
+      $cron$SELECT public.notif_engagement_daily_scheduled();$cron$
+    );
+  END IF;
+END $$;

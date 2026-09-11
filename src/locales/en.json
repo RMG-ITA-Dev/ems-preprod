@@ -1725,7 +1725,9 @@
           "changed_unassigned": "You were removed from engagement {{engagement_name}}",
           "changed_team_assigned": "{{staff_name}} was staffed on the engagement",
           "changed_team_unassigned": "{{staff_name}} was removed from the engagement"
-        }
+        },
+        "ending_soon": "Engagement ends in {{days_left}} days",
+        "ending_soon_last_day": "Engagement ends tomorrow"
       },
       "wo": {
         "submitted_partner": "Work order sent for your approval",
