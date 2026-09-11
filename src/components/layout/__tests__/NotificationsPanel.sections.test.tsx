@@ -106,6 +106,32 @@ describe("NotificationsPanel — gateo de secciones", () => {
     ).toBeInTheDocument();
   });
 
+  it("muestra Capacitacion cuando llega su contador (FASE 3.d)", async () => {
+    setup({ aggregates: { "approval.training_pending": { count: 2 } } });
+    await openPanel();
+
+    expect(
+      screen.getByText("notifications.sections.training"),
+    ).toBeInTheDocument();
+    const row = screen
+      .getByText("notifications.alarms.approval.training_pending")
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/timesheet/approvals");
+  });
+
+  it("a Talento Humano el contador de capacitacion le llega sin enlace (FASE 3.d)", async () => {
+    // hr_manager/hr_analyst reciben el contador pero no tienen timesheet_approval.read.
+    mockCan.mockImplementation((p: string) => p !== "timesheet_approval.read");
+    setup({ aggregates: { "approval.training_pending": { count: 2 } } });
+    await openPanel();
+
+    const label = screen.getByText(
+      "notifications.alarms.approval.training_pending",
+    );
+    expect(label).toBeInTheDocument();
+    expect(label.closest("a")).toBeNull();
+  });
+
   it("muestra Encargos Generados cuando llegan sus contadores", async () => {
     setup({
       aggregates: {
@@ -146,10 +172,13 @@ describe("NotificationsPanel — gateo de secciones", () => {
   });
 
   it("sin contadores no se muestra ninguna seccion, pero el feed legacy sigue vivo", async () => {
+    // La fila legacy tiene que ser una de ESTADO VIVO: las informativas
+    // (new_user_registered, engagement_created) ya tienen emisor propio en el catalogo, y el
+    // panel las descarta para no pintar la misma novedad dos veces (FASE 3.e).
     setup({}, [
       {
-        alert_type: "new_user_registered",
-        entity_id: "s1",
+        alert_type: "work_order_pending_approval",
+        entity_id: "wo-1",
         staff_id: "me",
         priority_level: "medium",
         detected_at: "2026-09-08T10:00:00Z",
@@ -164,9 +193,9 @@ describe("NotificationsPanel — gateo de secciones", () => {
     expect(
       screen.queryByText("notifications.sections.engagement_status"),
     ).not.toBeInTheDocument();
-    // new_user_registered no se pierde al reestructurar el panel.
+    // La alerta legacy no se pierde al reestructurar el panel.
     expect(
-      screen.getByText(/notifications\.types\.new_user_registered/),
+      screen.getByText(/notifications\.types\.work_order_pending_approval/),
     ).toBeInTheDocument();
   });
 });
@@ -197,8 +226,8 @@ describe("NotificationsPanel — contadores y badge", () => {
       },
       [
         {
-          alert_type: "new_user_registered",
-          entity_id: "s1",
+          alert_type: "work_order_pending_approval",
+          entity_id: "wo-1",
           staff_id: "me",
           priority_level: "low",
         },
@@ -241,8 +270,8 @@ describe("NotificationsPanel — contadores y badge", () => {
       },
       [
         {
-          alert_type: "new_user_registered",
-          entity_id: "s1",
+          alert_type: "work_order_pending_approval",
+          entity_id: "wo-1",
           staff_id: "me",
           priority_level: "low",
         },
@@ -259,15 +288,15 @@ describe("NotificationsPanel — el contador baja", () => {
   it("una alerta legacy ya vista NO suma al badge, pero sigue listada", async () => {
     setup({}, [
       {
-        alert_type: "new_user_registered",
-        entity_id: "s1",
+        alert_type: "work_order_pending_approval",
+        entity_id: "wo-1",
         staff_id: "me",
         priority_level: "low",
         seen_at: "2026-09-09T10:00:00Z",
       },
       {
-        alert_type: "new_user_registered",
-        entity_id: "s2",
+        alert_type: "work_order_pending_approval",
+        entity_id: "wo-2",
         staff_id: "me",
         priority_level: "low",
         seen_at: null,
@@ -279,28 +308,38 @@ describe("NotificationsPanel — el contador baja", () => {
     expect(screen.queryByText("2")).not.toBeInTheDocument();
 
     await openPanel();
-    // La informativa ya vista desaparece; solo queda la no vista.
+    // Las dos siguen listadas: son estado vivo, y el "visto" solo baja el badge.
     expect(
-      screen.getAllByText(/notifications\.types\.new_user_registered/),
-    ).toHaveLength(1);
+      screen.getAllByText(/notifications\.types\.work_order_pending_approval/),
+    ).toHaveLength(2);
   });
 
-  it("con las informativas vistas el panel queda vacio de verdad", async () => {
+  it("las alertas que ya tienen emisor propio no se pintan (FASE 3.e)", async () => {
+    // El ADM veia la misma alta dos veces: la fila legacy y el evento
+    // auth.user.registered del catalogo. El feed legacy cede la suya.
     setup({}, [
       {
         alert_type: "new_user_registered",
         entity_id: "s1",
         staff_id: "me",
         priority_level: "low",
-        seen_at: "2026-09-09T10:00:00Z",
+        seen_at: null,
+      },
+      {
+        alert_type: "engagement_created",
+        entity_id: "e1",
+        staff_id: "me",
+        priority_level: "low",
+        seen_at: null,
       },
     ]);
     await openPanel();
 
-    // Es el caso del admin con 23 altas ya vistas: la lista se vacia.
-    expect(screen.queryByText("1")).not.toBeInTheDocument();
     expect(
       screen.queryByText(/notifications\.types\.new_user_registered/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/notifications\.types\.engagement_created/),
     ).not.toBeInTheDocument();
     expect(screen.getByText("notifications.allClear")).toBeInTheDocument();
   });
@@ -329,15 +368,15 @@ describe("NotificationsPanel — el contador baja", () => {
   it("markSeen solo recibe las NO vistas, y al cerrar el panel", async () => {
     setup({}, [
       {
-        alert_type: "new_user_registered",
-        entity_id: "s1",
+        alert_type: "work_order_pending_approval",
+        entity_id: "wo-1",
         staff_id: "me",
         priority_level: "low",
         seen_at: "2026-09-09T10:00:00Z",
       },
       {
-        alert_type: "new_user_registered",
-        entity_id: "s2",
+        alert_type: "work_order_pending_approval",
+        entity_id: "wo-2",
         staff_id: "me",
         priority_level: "low",
         seen_at: null,
@@ -354,7 +393,7 @@ describe("NotificationsPanel — el contador baja", () => {
       Array<Record<string, unknown>>,
     ];
     expect(rows).toHaveLength(1);
-    expect(rows[0].entity_id).toBe("s2");
+    expect(rows[0].entity_id).toBe("wo-2");
   });
 
   it("un fallo del RPC de notificaciones se muestra, no deja el panel en blanco", async () => {
@@ -423,8 +462,8 @@ describe("NotificationsPanel — regresiones de 'visto'", () => {
       { aggregates: { "timesheet.overdue": { count: 3 } } },
       [
         {
-          alert_type: "new_user_registered",
-          entity_id: "s1",
+          alert_type: "work_order_pending_approval",
+          entity_id: "wo-1",
           staff_id: "me",
           priority_level: "low",
           seen_at: null,
@@ -441,8 +480,8 @@ describe("NotificationsPanel — regresiones de 'visto'", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({
       staff_id: "me",
-      entity_id: "s1",
-      alert_type: "new_user_registered",
+      entity_id: "wo-1",
+      alert_type: "work_order_pending_approval",
     });
     // Un agregado no tiene entity_id: si entrara aca romperia el onConflict de
     // staff_alert_seen (staff_id, entity_id, alert_type).
@@ -704,14 +743,14 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
   });
 
   it("un evento de un modulo sin destino se renderiza sin enlace", async () => {
-    // Tracker no tiene disparadores todavia: mandar a una ruta inventada es peor que no
-    // linkear, asi que la fila se pinta como texto.
+    // Hojas de Trabajo no tiene disparadores todavia: mandar a una ruta inventada es peor
+    // que no linkear, asi que la fila se pinta como texto.
     setup({
       events: [
         fundEvent({
-          type_key: "tracker.timer.auto_stopped",
-          module_key: "tracker" as const,
-          label_key: "notifications.types.tracker.timer.auto_stopped",
+          type_key: "worksheet.sent_to_quality",
+          module_key: "worksheet" as const,
+          label_key: "notifications.types.worksheet.sent_to_quality",
           payload: {},
         }),
       ],
@@ -719,9 +758,162 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
     await openPanel();
 
     const row = screen
-      .getByText("notifications.types.tracker.timer.auto_stopped")
+      .getByText("notifications.types.worksheet.sent_to_quality")
       .closest("a");
     expect(row).toBeNull();
+  });
+
+  it("el acuse de la boleta propia lleva a la hoja de tiempo (FASE 3.d)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "timesheet.own_submit_confirmed",
+          module_key: "timesheet" as const,
+          label_key: "notifications.types.timesheet.own_submit_confirmed",
+          entity_id: "per-1",
+          payload: { context: "submitted", week_start: "2026-09-07" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.timesheet\.own_submit_confirmed/)
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/timesheet");
+  });
+
+  it("la boleta de otro lleva al detalle de aprobacion de su periodo (FASE 3.d)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "timesheet.team_submitted_for_approval",
+          module_key: "timesheet" as const,
+          label_key: "notifications.types.timesheet.team_submitted_for_approval",
+          entity_id: "per-1",
+          payload: { staff_name: "Juan Perez" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.timesheet\.team_submitted_for_approval/)
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/timesheet/approvals/per-1");
+  });
+
+  it("sin timesheet_approval.read la boleta ajena no navega (FASE 3.d)", async () => {
+    // El permiso del TIPO pisa al del modulo: el resto del modulo Timesheets va a la hoja
+    // propia (timesheet.read), pero estos dos avisos caen en la pantalla de aprobaciones.
+    mockCan.mockImplementation((p: string) => p !== "timesheet_approval.read");
+    setup({
+      events: [
+        fundEvent({
+          type_key: "timesheet.weekly_submitted",
+          module_key: "timesheet" as const,
+          label_key: "notifications.types.timesheet.weekly_submitted",
+          entity_id: "per-1",
+          payload: { staff_name: "Juan Perez" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.timesheet\.weekly_submitted/)
+      .closest("a");
+    expect(row).toBeNull();
+  });
+
+  it("el veredicto de una linea lleva a la hoja de tiempo propia (FASE 3.d)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "approval.line_rejected",
+          module_key: "timesheet_approval" as const,
+          label_key: "notifications.types.approval.line_rejected",
+          entity_id: "appr-9",
+          payload: { engagement_code: "9F06", activity_code: "9F1",
+                     reviewer: "Ana", notes: "faltan detalles" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.approval\.line_rejected/)
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/timesheet");
+    // El encargo y la actividad bajan a chips: sin la actividad, dos lineas del mismo
+    // encargo se leen iguales.
+    expect(screen.getByText("9F06")).toBeInTheDocument();
+    expect(screen.getByText("9F1")).toBeInTheDocument();
+  });
+
+  it("el cambio de rol pinta los dos roles como badges, no en el texto (FASE 3.e)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "auth.role.changed",
+          module_key: "auth" as const,
+          label_key: "notifications.types.auth.role.changed",
+          entity_id: "st-7",
+          payload: {
+            staff_id: "st-7",
+            staff_name: "Giovanna Callizaya",
+            role_key: "senior",
+            previous_role_key: "semisenior",
+          },
+        }),
+      ],
+    });
+    await openPanel();
+
+    // Los role_key crudos no se pintan: se traducen con authz.role.<key>.
+    expect(screen.getByText("authz.role.semisenior")).toBeInTheDocument();
+    expect(screen.getByText("authz.role.senior")).toBeInTheDocument();
+    const row = screen
+      .getByText(/notifications\.types\.auth\.role\.changed/)
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/staff/st-7");
+  });
+
+  it("el nombre de la competencia va al chip (FASE 3.e)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "staff.competency.assigned",
+          module_key: "auth" as const,
+          label_key: "notifications.types.staff.competency.assigned",
+          entity_id: "st-7",
+          payload: { staff_id: "st-7", skill_name: "Claude para Excel" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    expect(screen.getByText("Claude para Excel")).toBeInTheDocument();
+  });
+
+  it("el timer cerrado solo lleva a ESE registro del tracker (FASE 3.d)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "tracker.timer.auto_stopped",
+          module_key: "tracker" as const,
+          label_key: "notifications.types.tracker.timer.auto_stopped",
+          entity_id: "timer-4",
+          payload: { duration_minutes: 480 },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.tracker\.timer\.auto_stopped/)
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/tracker/timer-4");
   });
 });
 

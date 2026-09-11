@@ -154,7 +154,9 @@ export type PendingSectionKey =
   | "time_control"
   | "engagement_status"
   | "fund_request"
-  | "payment_plan";
+  | "payment_plan"
+  | "training"
+  | "coverage";
 
 export interface AlarmSpec {
   typeKey: string;
@@ -177,9 +179,8 @@ export interface AlarmSpec {
  * Orden FIJO por criticidad (mejora D), no por contador: que las filas no salten de lugar
  * entre refrescos es más importante que ver primero la más numerosa.
  *
- * Sólo están las 5 del packet 0601-130 porque son los únicos `aggregate` que
- * `get_my_notification_aggregates()` calcula hoy. Los otros 7 de la matriz (cuotas,
- * liquidaciones, desembolsos, entrenamientos, gaps) se agregan acá cuando llegue su módulo.
+ * Cubre los 13 `aggregate` de la matriz — todos los que `get_my_notification_aggregates()`
+ * calcula.
  */
 export const PENDING_ALARMS: readonly AlarmSpec[] = [
   { typeKey: "timesheet.overdue", section: "time_control", route: "/timesheet", permission: "timesheet.read" },
@@ -204,7 +205,35 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
   // destino. Si algun dia el listado toma query params, aca se afina.
   { typeKey: "wo.installment.overdue", section: "payment_plan", route: "/work-orders", permission: "work_order.read" },
   { typeKey: "wo.installment.due_this_week", section: "payment_plan", route: "/work-orders", permission: "work_order.read" },
+  // FASE 3.d — capacitacion. Va ultimo: es la cola de UN area (ADM y Talento Humano), no
+  // algo del usuario, y no compite en criticidad con lo propio.
+  //
+  // Ojo con el permiso: hr_manager/hr_analyst NO tienen `timesheet_approval.read`, asi que
+  // a Talento Humano —el destinatario natural del contador— la fila le aparece sin enlace.
+  // Es el mecanismo de D-29 funcionando, no un olvido: mandarlos a la pantalla de
+  // aprobaciones seria mandarlos a "Sin acceso". Concederles el permiso es un cambio de
+  // RBAC, ajeno a esta fase.
+  { typeKey: "approval.training_pending", section: "training", route: "/timesheet/approvals", permission: "timesheet_approval.read" },
+  // FASE 3.h — cobertura. El destino es el Scheduler, que es donde se asigna gente, y no la
+  // pantalla de gaps (que muestra otra cosa: los 4 gaps analiticos de la edge function).
+  //
+  // `scheduler.view` no es un permiso del catalogo RBAC: es un pseudo-permiso que el panel
+  // resuelve como "el modulo esta habilitado Y el usuario puede ver encargos". Con
+  // VITE_SCHEDULER_ENABLED apagado la ruta /scheduler no existe en App.tsx, asi que la fila
+  // se pinta sin enlace en vez de mandar a un 404.
+  { typeKey: "scheduler.coverage_gap", section: "coverage", route: "/scheduler", permission: "scheduler.view" },
 ];
+
+/**
+ * Permiso sintetico del contador de cobertura. Vive aca —y no en el panel— para que el
+ * predicado sea testeable sin render: el panel solo compone `can` con esto.
+ */
+export function canOpenScheduler(
+  schedulerEnabled: boolean,
+  can: (permission: string) => boolean,
+): boolean {
+  return schedulerEnabled && can("engagement.read");
+}
 
 export interface PendingAlarm extends Omit<AlarmSpec, "route"> {
   count: number;
@@ -311,21 +340,23 @@ export function alarmEngagements(
  * ------------------------------------------------------------------------- */
 
 /**
- * Tipos del feed legacy que son puramente INFORMATIVOS: comunican que algo paso y no piden
- * ninguna accion. Una vez vistos no tienen nada mas que aportar, asi que desaparecen.
+ * Tipos del feed legacy que el catalogo nuevo YA emite, y que por lo tanto no deben pintarse
+ * dos veces. Se descartan siempre, vistos o no.
  *
- * Los que NO estan aca se DERIVAN DE ESTADO VIVO: `work_order_pending_approval` existe
- * mientras la OT siga en `Pending_Approval`, y `timesheet_pending_approval` mientras haya
- * lineas sin aprobar. Descartarlos por "vistos" esconderia trabajo que sigue pendiente, asi
- * que se listan siempre — hayan sido vistos o no.
+ * `engagement_created` lo cubre `engagement.created` desde la Fase 3.c; `new_user_registered`
+ * lo cubre `auth.user.registered` desde la 3.e. Los dos que quedan en la vista
+ * (`work_order_pending_approval`, `timesheet_pending_approval`) se DERIVAN DE ESTADO VIVO:
+ * existen mientras la OT siga en `Pending_Approval` o queden lineas sin aprobar, asi que no
+ * se descartan por "vistos" — eso esconderia trabajo que sigue pendiente.
  *
  * Es el mismo eje que separa `event` de `aggregate` en el catalogo nuevo: informativa = una
  * transicion que se lee una vez; estado vivo = un backlog que persiste hasta resolverse. El
- * feed legacy mezcla las dos porque nacio antes de esa distincion.
+ * feed legacy mezcla las dos porque nacio antes de esa distincion, y se vacia a medida que
+ * cada fila gana su emisor.
  */
-export const INFORMATIONAL_LEGACY_ALERTS: readonly string[] = [
-  "new_user_registered",
+export const SUPERSEDED_LEGACY_ALERTS: readonly string[] = [
   "engagement_created",
+  "new_user_registered",
 ];
 
 /** Forma minima que necesita el filtro; la vista trae mas columnas. */
@@ -334,20 +365,18 @@ export interface LegacyAlertLike {
   seen_at?: string | null;
 }
 
-/** ¿Esta alerta ya cumplio su proposito y se puede sacar de la lista? */
-export function isDismissedLegacyAlert(alert: LegacyAlertLike): boolean {
-  if (!alert.seen_at) return false;
-  return INFORMATIONAL_LEGACY_ALERTS.includes(alert.alert_type ?? "");
-}
-
 /**
- * Las alertas legacy que siguen mereciendo un lugar en el panel: todas las no vistas, mas las
- * accionables aunque ya se hayan visto.
+ * Las alertas legacy que siguen mereciendo un lugar en el panel: las que ningun disparador
+ * del catalogo emite todavia. `seen_at` no entra en la decision — las que sobreviven son
+ * accionables y siguen pendientes, asi que ocultarlas por vistas seria enganoso; el "visto"
+ * solo baja el badge.
  */
 export function visibleLegacyAlerts<T extends LegacyAlertLike>(
   alerts: T[],
 ): T[] {
-  return alerts.filter((a) => !isDismissedLegacyAlert(a));
+  return alerts.filter(
+    (a) => !SUPERSEDED_LEGACY_ALERTS.includes(a.alert_type ?? ""),
+  );
 }
 
 /* ------------------------------------------------------------------------- *
@@ -415,6 +444,30 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
   fund_request: "fund_request.read",
   work_order: "work_order.read",
   engagement: "engagement.read",
+  // El destino de estos tres es la pantalla del PROPIO usuario (su hoja de tiempo, su
+  // cronometro), no una bandeja de otros: por eso `timesheet.read` / `time_entry.read`, que
+  // los 17 roles que reportan horas tienen con alcance `own`.
+  timesheet: "timesheet.read",
+  timesheet_approval: "timesheet.read",
+  tracker: "time_entry.read",
+  client: "client.read",
+  // FASE 3.e. El modulo `auth` cubre cuentas Y personal, y las dos mitades terminan en la
+  // misma pantalla: la ficha de staff.
+  auth: "staff.read",
+};
+
+/**
+ * Tipos que se apartan del permiso de su modulo, porque su destino es otra pantalla.
+ *
+ * Los dos eventos de envio AJENO del modulo Timesheets llevan al detalle de aprobacion
+ * (`/timesheet/approvals/:periodId`), que exige `timesheet_approval.read` — un permiso que
+ * NO tienen los seniors, semis ni asistentes. Sin esta excepcion, el modulo entero se
+ * gatearia por `timesheet.read` y esas personas terminarian en "Sin acceso" si algun dia la
+ * matriz les concede uno de estos dos tipos.
+ */
+const TYPE_ROUTE_PERMISSION: Record<string, string> = {
+  "timesheet.weekly_submitted": "timesheet_approval.read",
+  "timesheet.team_submitted_for_approval": "timesheet_approval.read",
 };
 
 /**
@@ -434,7 +487,9 @@ export function notificationRoute(
   event: NotificationEvent,
   can?: (permission: string) => boolean,
 ): string | null {
-  const permission = MODULE_ROUTE_PERMISSION[event.module_key];
+  const permission =
+    TYPE_ROUTE_PERMISSION[event.type_key] ??
+    MODULE_ROUTE_PERMISSION[event.module_key];
   if (can && permission && !can(permission)) return null;
 
   switch (event.module_key) {
@@ -471,6 +526,39 @@ export function notificationRoute(
       // lo recibe el admin, y la pantalla de detalle es donde va a mirar que paso.
       return event.entity_id ? `/engagements/${event.entity_id}` : null;
     }
+    case "timesheet": {
+      // Dos destinos, segun de quien sea la boleta. El acuse propio va a MI hoja de tiempo
+      // (`/timesheet` no toma la semana por URL: TimeSheet.tsx no lee searchParams, asi que
+      // el destino es la pantalla y punto). Los dos avisos sobre la boleta de OTRO van al
+      // detalle de aprobacion de ese periodo, que si lo toma por ruta.
+      if (event.type_key === "timesheet.own_submit_confirmed") return "/timesheet";
+      return event.entity_id
+        ? `/timesheet/approvals/${event.entity_id}`
+        : null;
+    }
+    case "timesheet_approval": {
+      // El veredicto es sobre una linea MIA: el destino es mi hoja de tiempo, no la bandeja
+      // de aprobaciones. `entity_id` es el approval_id, que no es parametro de ninguna ruta.
+      return "/timesheet";
+    }
+    case "tracker": {
+      // entity_id = timer_id, que es justo el parametro de /tracker/:id (TrackerEdit): el
+      // cronometro que se cerro solo es lo primero que el usuario va a querer corregir.
+      return event.entity_id ? `/tracker/${event.entity_id}` : null;
+    }
+    case "client": {
+      // entity_id = client_id, que es el parametro de /clients/:id (ClientEdit).
+      return event.entity_id ? `/clients/${event.entity_id}` : null;
+    }
+    case "auth": {
+      // Se rutea por `payload.staff_id` y no por entity_id: los eventos de CUENTA
+      // (registro, cambio de rol, borrado) nacen en `user_roles`, donde lo que hay es un
+      // user_id. El disparador resuelve la ficha cuando existe y la deja en el payload; sin
+      // ficha no hay pantalla a la que ir — es el caso del borrado de cuenta, que solo
+      // ocurre cuando NO queda staff vinculado.
+      const staffId = event.payload?.staff_id;
+      return typeof staffId === "string" && staffId ? `/staff/${staffId}` : null;
+    }
     default:
       return null;
   }
@@ -490,9 +578,43 @@ export function notificationRoute(
 export function notificationMeta(event: NotificationEvent): string[] {
   const p = event.payload ?? {};
   const out: string[] = [];
-  for (const key of ["request_number", "engagement_code", "cot"]) {
+  // `activity_code` lo traen los eventos de la Fase 3.d: una linea de timesheet se identifica
+  // por el par encargo + actividad, y sin el codigo de actividad dos filas del mismo encargo
+  // se ven idénticas en el panel.
+  //
+  // `skill_name` (3.e) no es un codigo sino texto libre; entra igual porque cumple la misma
+  // funcion —sacar el identificador DEL TEXTO— y el panel decide la tipografia por la forma
+  // del valor, no por la clave.
+  for (const key of ["request_number", "engagement_code", "activity_code", "cot", "skill_name"]) {
     const raw = p[key];
     if (typeof raw === "string" && raw.trim()) out.push(raw.trim());
   }
   return out;
+}
+
+/** ¿El chip es un codigo (COT, actividad, numero de solicitud) o texto libre? */
+export function isCodeMeta(value: string): boolean {
+  return /^[\w.\-/]+$/.test(value);
+}
+
+/**
+ * El cambio de rol de un evento `auth.role.changed`, para pintarlo como badges en vez de
+ * incrustarlo en el texto.
+ *
+ * Sin esto la fila decia "Cambio el rol de Giovanna Callizaya: semisenior -> senior" y partia
+ * en dos renglones; ademas mostraba el `role_key` crudo, que es una clave interna. El panel
+ * traduce cada uno con `authz.role.<role_key>`, que ya existe para los 23 roles.
+ */
+export function notificationRoleChange(
+  event: NotificationEvent,
+): { from: string | null; to: string } | null {
+  if (event.type_key !== "auth.role.changed") return null;
+  const p = event.payload ?? {};
+  const to = p.role_key;
+  if (typeof to !== "string" || !to) return null;
+  const from = p.previous_role_key;
+  return {
+    from: typeof from === "string" && from ? from : null,
+    to,
+  };
 }

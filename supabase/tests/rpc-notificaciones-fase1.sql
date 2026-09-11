@@ -1,4 +1,4 @@
--- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.c (11 grupos)
+-- Tests transaccionales del catálogo de notificaciones — Fases 1 a 3.h (16 grupos)
 -- (20260911100000_..._01_catalogo.sql + 20260911100100_..._02_seed.sql +
 --  20260911100200_..._03_disparadores.sql).
 --
@@ -20,9 +20,22 @@
 --   U_ACCT   / S_ACCT     accounting_manager — NO reporta horas: sin contadores de timesheet
 --   U_PARTNER/ S_PARTNER  partner   — recibe la pista del Socio y el plan de pagos (3.b)
 --   U_RISK   / S_RISK     risk_supervisor — la cola de Riesgos (3.b)
+--   U_RPART  / S_RPART    risk_partner — el UNICO destinatario de wo.emergency.step1_done
+--   U_HR     / S_HR       hr_manager — el contador de capacitacion (3.d)
+--   U_SENIOR / S_SENIOR   senior — Encargado del encargo y dueno de la boleta (3.c/3.d)
+--   U_SPART  / S_SPART    senior_partner — el alcance `global` del modulo Clientes (3.f)
 --   S_ORPHAN              staff sin auth_user_id — nadie puede notificarle
 --   E_ONE                 encargo con COT '9F01' y dos actividades pendientes (dedup de COT)
 --   E_TWO                 encargo con COT '9F02', con Socio Y Gerente — el mundo de la 3.b
+--   E_FOUR..E_SEVEN       uno por grupo desde el 7: `work_orders` es UNIQUE por encargo, asi
+--                         que dos grupos no pueden compartirlo
+--
+-- CON QUE SESION CORRE CADA COSA. El harness corre como DUENO de las tablas, y varios guards
+-- del esquema exigen permisos en cuanto hay `auth.uid()` (fondos, pista de Riesgos, alta de
+-- encargos). Por eso cada grupo declara su sesion: `pg_temp.impersonate(<sub>)` para actuar
+-- como alguien, y `set_config('request.jwt.claims','',true)` para cargar fixtures "sin
+-- sesion", que es como los escribe el seed (service_role). RLS, en cambio, NO se evalua para
+-- el dueno: el unico chequeo que la necesita baja a `authenticated` a mano (Grupo 3).
 
 BEGIN;
 
@@ -39,6 +52,29 @@ BEGIN
            '{}'::jsonb, '{}'::jsonb
       FROM generate_series(1, 6) n
     ON CONFLICT (id) DO NOTHING;
+
+    -- Los dos actores que se sumaron con la FASE 3.d y con el Socio de Riesgos. Van con id
+    -- explicito y fuera de la serie para no correr la numeracion de los seis de arriba, que
+    -- esta cableada en las aserciones de todos los grupos.
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    VALUES ('a9f00000-0000-4000-8000-000000000008',
+            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-8@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+           ('a9f00000-0000-4000-8000-00000000000a',
+            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-a@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+           ('a9f00000-0000-4000-8000-00000000000b',
+            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-b@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+           ('a9f00000-0000-4000-8000-00000000000c',
+            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-c@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb),
+           ('a9f00000-0000-4000-8000-00000000000f',
+            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-f@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
 
@@ -52,7 +88,21 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a9f00000-0000-4000-8000-000000000005', 'staff',   'risk_supervisor'),
   -- FASE 3.c. `role = 'admin'` ademas del role_key: los eventos de auditoria del modulo
   -- Encargos (borrado, cambio de responsables) van al alcance `firm` de ADM.
-  ('a9f00000-0000-4000-8000-000000000006', 'admin',   'admin')
+  ('a9f00000-0000-4000-8000-000000000006', 'admin',   'admin'),
+  -- Socio de Riesgos: es el UNICO que la matriz pone en `wo.emergency.step1_done`, asi que
+  -- sin el ese evento no tenia destinatario posible y la asercion no podia pasar.
+  ('a9f00000-0000-4000-8000-000000000008', 'partner', 'risk_partner'),
+  -- FASE 3.d: Talento Humano recibe el contador de capacitacion (alcance `department`).
+  ('a9f00000-0000-4000-8000-00000000000a', 'staff',   'hr_manager'),
+  -- Senior: es el rol que la matriz habilita como ENCARGADO del encargo
+  -- (`engagement.encargado_assigned` no llega a un Asistente) y el que reporta horas en la
+  -- FASE 3.d.
+  ('a9f00000-0000-4000-8000-00000000000b', 'senior',  'senior'),
+  -- Seguridad TI: es el UNICO destinatario de `auth.account.deleted` (al ADM la matriz no
+  -- se lo da), y comparte con el ADM la auditoria de cambios de rol (D-17).
+  ('a9f00000-0000-4000-8000-00000000000c', 'staff',   'it_security_manager'),
+  -- Senior Partner: el alcance `global` del modulo Clientes (alta e inactivacion) es suyo.
+  ('a9f00000-0000-4000-8000-00000000000f', 'partner', 'senior_partner')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
@@ -82,6 +132,26 @@ VALUES
    'NOTIF', 'Risk', true,
    (SELECT practica_id FROM public.practicas WHERE code = 1),
    (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+  ('59f00000-0000-4000-8000-000000000008', 'a9f00000-0000-4000-8000-000000000008',
+   'NOTIF', 'RiskPartner', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+  ('59f00000-0000-4000-8000-00000000000a', 'a9f00000-0000-4000-8000-00000000000a',
+   'NOTIF', 'HrManager', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+  ('59f00000-0000-4000-8000-00000000000f', 'a9f00000-0000-4000-8000-00000000000f',
+   'NOTIF', 'SeniorPartner', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+  ('59f00000-0000-4000-8000-00000000000c', 'a9f00000-0000-4000-8000-00000000000c',
+   'NOTIF', 'ItSec', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+  ('59f00000-0000-4000-8000-00000000000b', 'a9f00000-0000-4000-8000-00000000000b',
+   'NOTIF', 'Senior', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
   -- S_ORPHAN: sin cuenta vinculada. Mismo criterio que get_engagement_team_candidates().
   ('59f00000-0000-4000-8000-000000000009', NULL,
    'NOTIF', 'Orphan', true,
@@ -91,22 +161,36 @@ VALUES
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c9f00000-0000-4000-8000-000000000001', 'NOTIF Cliente SA', 'NOTIF-9F01');
 
+-- Una categoria: `engagement_assignments.category_id` es NOT NULL y el harness arranca con
+-- la tabla vacia (en un ambiente con el seed real ya existirian las 9). El Grupo 10 la
+-- buscaba con `LIMIT 1` y se llevaba un NULL.
+-- Una competencia: la FASE 3.e notifica altas y bajas de `staff_skills`, que apunta aca.
+INSERT INTO public.skills (skill_id, name, category)
+VALUES ('c9f00000-0000-4000-8000-0000000000b1', 'NOTIF Competencia', 'tool');
+
+INSERT INTO public.categories (category_id, category_name, practica_id, display_order)
+VALUES ('c9f00000-0000-4000-8000-0000000000c1', 'NOTIF Categoria',
+        (SELECT practica_id FROM public.practicas WHERE code = 1), 1);
+
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
-                                manager_id, created_by_staff_id, fecha_cierre)
+                                manager_id, created_by_staff_id, fecha_cierre, society_id)
 VALUES ('e9f00000-0000-4000-8000-000000000001', 'c9f00000-0000-4000-8000-000000000001',
         'NOTIF Encargo Uno', '9F01',
         '59f00000-0000-4000-8000-000000000002',
-        '59f00000-0000-4000-8000-000000000002', '2026-12-31');
+        '59f00000-0000-4000-8000-000000000002', '2026-12-31',
+        (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 -- E_TWO: encargo aparte para la FASE 3.b, con Socio Y Gerente. No se le agrega partner_id a
 -- E_ONE para no mover el piso de los grupos 3 y 5, que ya cuentan sobre ese encargo.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
-                                partner_id, manager_id, created_by_staff_id, fecha_cierre)
+                                partner_id, manager_id, created_by_staff_id, fecha_cierre,
+                                society_id)
 VALUES ('e9f00000-0000-4000-8000-000000000002', 'c9f00000-0000-4000-8000-000000000001',
         'NOTIF Encargo Dos', '9F02',
         '59f00000-0000-4000-8000-000000000004',
         '59f00000-0000-4000-8000-000000000002',
-        '59f00000-0000-4000-8000-000000000002', '2026-12-31');
+        '59f00000-0000-4000-8000-000000000002', '2026-12-31',
+        (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 INSERT INTO public.activity_codes (activity_id, activity_code, description, is_system)
 VALUES ('79f00000-0000-4000-8000-000000000001', '9F1', 'NOTIF Actividad Uno', true),
@@ -149,8 +233,8 @@ BEGIN
   SELECT COUNT(*) INTO v_grants FROM public.notification_role_types;
   SELECT COUNT(DISTINCT role_key) INTO v_roles FROM public.notification_role_types;
 
-  IF v_types <> 70 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 70 (¿corriste el parser?)', v_types;
+  IF v_types <> 71 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 71 (¿corriste el parser?)', v_types;
   END IF;
   IF v_grants <> 416 THEN
     RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 416', v_grants;
@@ -158,7 +242,7 @@ BEGIN
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 70 tipos, 416 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 71 tipos, 416 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -295,8 +379,23 @@ BEGIN
 
   -- El caso que justifica todo el diseño: el assistant NO tiene engagement.read, así que
   -- un SELECT directo a engagements no le devuelve nada...
+  --
+  -- DOS COSAS QUE HAY QUE FORZAR PARA QUE ESTE CHEQUEO SIGNIFIQUE ALGO, y las dos son del
+  -- entorno, no del diseño:
+  --   1. `SET LOCAL ROLE authenticated` — RLS no se evalúa para el dueño de las tablas, que
+  --      es con quien corre el harness (y el SQL Editor del proyecto). Se baja sólo acá y se
+  --      vuelve enseguida: el resto de la suite escribe fixtures y necesita al dueño.
+  --   2. `ENABLE ROW LEVEL SECURITY` — `engagements` es una de las 18 tablas que quedaron con
+  --      RLS APAGADO por el drift de `20260115000154` (docs/hallazgo-rls-drift-ruta-a.md):
+  --      tiene políticas y no las aplica. En una base con el drift, el SELECT devuelve la
+  --      fila y esta aserción acusaba un cambio de premisa que no existía. Se enciende dentro
+  --      de la transacción —que termina en ROLLBACK—, así que en un entorno ya arreglado es
+  --      un no-op y en uno con drift prueba lo que dice probar.
+  ALTER TABLE public.engagements ENABLE ROW LEVEL SECURITY;
+  SET LOCAL ROLE authenticated;
   SELECT COUNT(*) INTO v_visible FROM public.engagements
    WHERE engagement_id = 'e9f00000-0000-4000-8000-000000000001';
+  RESET ROLE;
   IF v_visible <> 0 THEN
     RAISE EXCEPTION 'TEST FAIL — el assistant VE engagements por RLS; la premisa del diseño cambió (revisar el seed de engagement.read)';
   END IF;
@@ -403,6 +502,7 @@ DECLARE
   v_wo   uuid;
   v_fre  uuid;
   v_n    int;
+  v_prev int;
 BEGIN
   -- Una OT aprobada del encargo del fixture: fr_wo_validate_approved() la exige.
   INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
@@ -498,6 +598,14 @@ BEGIN
   RAISE NOTICE 'PASS - la decision del gerente vuelve al solicitante, con la decision en el payload';
 
   -- 5.c Desembolso, liquidacion y cierre: hitos por timestamp, no por status.
+  --
+  -- Estas tres columnas las gatea `fr_guard_accounting_cols`, que exige
+  -- `fund_disbursement.update` / `expense_settlement.update`: hay que ponerse en la piel de
+  -- Contabilidad para escribirlas, igual que en la aplicacion. Sin esto el harness moria con
+  -- "Solo contabilidad (desembolso) puede modificar estos campos" — el guard funcionando,
+  -- no un bug de notificaciones.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');  -- accounting_manager
+
   UPDATE public.fund_requests
      SET disbursed_at = now(), total_disbursed_amount = 500, status = 'fondos_entregados'
    WHERE fund_request_id = v_fr;
@@ -515,11 +623,16 @@ BEGIN
   RAISE NOTICE 'PASS - desembolso, liquidacion y cierre notifican al solicitante';
 
   -- Repetir el UPDATE no re-notifica: los hitos miran la transicion NULL -> not null.
+  -- Se compara ANTES contra DESPUES en vez de fijar un numero: el cierre le llega al
+  -- solicitante Y a los gerentes de sus OT (OBS 2026-09-09, "cierre del circulo"), asi que
+  -- el total depende de la audiencia. Lo que se prueba aca es que no CREZCA.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications
+   WHERE type_key = 'fund.request.closed';
   UPDATE public.fund_requests SET closed_at = now() WHERE fund_request_id = v_fr;
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'fund.request.closed';
-  IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - re-guardar duplico la notificacion de cierre (hubo %)', v_n;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - re-guardar duplico la notificacion de cierre (% -> %)', v_prev, v_n;
   END IF;
   RAISE NOTICE 'PASS - re-guardar sin cambiar el hito no duplica la notificacion';
 
@@ -558,12 +671,23 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - los disparadores respetan la matriz: notify_staff sigue filtrando';
 
-  -- 5.g Los contadores del area de Contabilidad cuentan.
+  -- 5.g Los contadores del area de Contabilidad siguen el estado real, no el historial.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');
-  IF (public.get_my_notification_aggregates()->'fund.request.closure_pending'->>'count')::int < 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - la solicitud liquidada y cerrada no aparece en closure_pending';
+
+  -- La solicitud de este grupo quedo CERRADA, y "por cerrar" mide lo contrario (liquidada y
+  -- sin cerrar): con el cierre puesto el contador tiene que estar en cero. La version
+  -- anterior de esta asercion pedia >= 1 sobre una solicitud ya cerrada, que es justo lo que
+  -- el contador NO debe contar.
+  IF (public.get_my_notification_aggregates()->'fund.request.closure_pending'->>'count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una solicitud ya cerrada sigue contando como "por cerrar"';
   END IF;
-  RAISE NOTICE 'PASS - los contadores de Fondos llegan al area de Contabilidad';
+
+  -- Y al reabrirla —lo que hace Contabilidad si se cerro por error— vuelve a aparecer.
+  UPDATE public.fund_requests SET closed_at = NULL WHERE fund_request_id = v_fr;
+  IF (public.get_my_notification_aggregates()->'fund.request.closure_pending'->>'count')::int < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la solicitud liquidada y SIN cerrar no aparece en closure_pending';
+  END IF;
+  RAISE NOTICE 'PASS - el contador de cierres pendientes de Contabilidad sigue el estado real';
 END $$;
 
 -- -- Grupo 6 -- set_fund_request_number(): lpad truncaba y duplicaba -----------
@@ -634,29 +758,45 @@ DECLARE
   v_e1    uuid;
   v_e2    uuid;
   v_n     int;
-  v_acan  uuid := '59f00000-0000-4000-8000-000000000004';  -- accounting_analyst
+  v_acan  uuid := '59f00000-0000-4000-8000-000000000007';  -- accounting_analyst (id propio: el ...004 ya es S_PARTNER)
 BEGIN
   -- Un Analista de Contabilidad, que el fixture base no tiene.
   IF to_regclass('auth.users') IS NOT NULL THEN
     INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
                             email_confirmed_at, created_at, updated_at,
                             raw_app_meta_data, raw_user_meta_data)
-    VALUES ('a9f00000-0000-4000-8000-000000000004',
+    VALUES ('a9f00000-0000-4000-8000-000000000007',
             '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-            'notif-test-4@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+            'notif-test-7@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
     ON CONFLICT (id) DO NOTHING;
   END IF;
   INSERT INTO public.user_roles (user_id, role, role_key)
-  VALUES ('a9f00000-0000-4000-8000-000000000004', 'senior', 'accounting_analyst')
+  VALUES ('a9f00000-0000-4000-8000-000000000007', 'senior', 'accounting_analyst')
   ON CONFLICT DO NOTHING;
   INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
                             practica_id, society_id, weekly_capacity_hours, hire_date, city)
-  VALUES (v_acan, 'a9f00000-0000-4000-8000-000000000004', 'NOTIF', 'AcAnalyst', true,
+  VALUES (v_acan, 'a9f00000-0000-4000-8000-000000000007', 'NOTIF', 'AcAnalyst', true,
           (SELECT practica_id FROM public.practicas WHERE code = 1),
           (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz');
 
+  -- Los fixtures se cargan SIN sesion, igual que los del arranque del archivo: los guards de
+  -- `engagements` (enforce_engagement_profile_scope) y de fondos exigen permisos en cuanto
+  -- hay `auth.uid()`, y el grupo anterior dejo puesto al Gerente de Contabilidad. Sin
+  -- sesion equivale a service_role, que es como los crea el seed.
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  -- Encargo propio del grupo: `work_orders` es UNIQUE por engagement_id y el Grupo 5 ya le
+  -- puso una OT a E_ONE. Mismo gerente (S_MGR), que es quien tiene que recibir todo esto.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  manager_id, created_by_staff_id, fecha_cierre, society_id)
+  VALUES ('e9f00000-0000-4000-8000-000000000004', 'c9f00000-0000-4000-8000-000000000001',
+          'NOTIF Encargo Cuatro', '9F04',
+          '59f00000-0000-4000-8000-000000000002',
+          '59f00000-0000-4000-8000-000000000002', '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
   INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
-  VALUES ('e9f00000-0000-4000-8000-000000000001', 'BOB', 'High', 'Approved')
+  VALUES ('e9f00000-0000-4000-8000-000000000004', 'BOB', 'High', 'Approved')
   RETURNING wo_id INTO v_wo;
 
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
@@ -674,6 +814,12 @@ BEGIN
                                             currency, status)
   VALUES (v_fr, v_wo, CURRENT_DATE, 200, 'BOB', 'pendiente_aprobacion')
   RETURNING fre_id INTO v_e2;
+
+  -- Piso limpio para este grupo (mismo patron que el Grupo 10): sus aserciones cuentan por
+  -- tipo + destinatario sobre TODA la tabla, y el Grupo 5 ya le dejo al mismo gerente un
+  -- `fund.expense.submitted_for_approval` de su propio gasto. Sin esto, "no notifico de
+  -- mas" fallaba contando la fila de otro grupo.
+  DELETE FROM public.notifications;
 
   -- 7.a El gerente aprueba: la bandeja de revision va al Analista Y al Gerente de Contabilidad.
   UPDATE public.fund_request_expenses SET status = 'aprobado_gerente' WHERE fre_id = v_e1;
@@ -758,7 +904,13 @@ BEGIN
   RAISE NOTICE 'PASS - un gasto rechazado (aun corregible) no dispara el consolidado';
 
   -- 7.f Con el ULTIMO revisado, el consolidado sale UNA vez y va al gerente de la OT.
-  UPDATE public.fund_request_expenses SET status = 'revisado_asistente' WHERE fre_id = v_e2;
+  --
+  -- El gasto rechazado NO salta directo a revisado: `fre_validate_transition` solo admite
+  -- rechazado -> pendiente_aprobacion (el solicitante corrige y reenvia) -> aprobado_gerente
+  -- -> revisado_asistente. Se recorre el camino legal, que es tambien el real.
+  UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion' WHERE fre_id = v_e2;
+  UPDATE public.fund_request_expenses SET status = 'aprobado_gerente'     WHERE fre_id = v_e2;
+  UPDATE public.fund_request_expenses SET status = 'revisado_asistente'   WHERE fre_id = v_e2;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'fund.expenses.all_reviewed'
@@ -801,7 +953,16 @@ DECLARE
   c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
   c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
   c_risk constant uuid := '59f00000-0000-4000-8000-000000000005';  -- S_RISK (risk_supervisor)
+  c_rpart constant uuid := '59f00000-0000-4000-8000-000000000008'; -- S_RPART (risk_partner)
 BEGIN
+  -- Toda la pista de Riesgos esta gateada por `wo_guard_risk_approval` (can_approve_wo_risk):
+  -- escribir `risk_status`, `risk_approved_by` o las firmas de emergencia exige una sesion
+  -- autorizada. Se impersona al ADMIN, que pasa el guard y es ademas quien revierte
+  -- aprobaciones (8.f). Sin esto el harness moria en 8.c con "Solo un aprobador de Riesgos
+  -- autorizado puede aprobar o rechazar la seccion de Riesgos de esta OT" — el guard
+  -- funcionando, no un bug de notificaciones.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000006');  -- S_ADMIN
+
   INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
   VALUES ('e9f00000-0000-4000-8000-000000000002', 'BOB', 'High', 'Draft')
   RETURNING wo_id INTO v_wo;
@@ -943,13 +1104,21 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - el rechazo del Socio llega al Gerente con el motivo';
 
-  -- 8.h Emergencia: paso 1 a Riesgos, paso 2 (que enciende el plazo) al Gerente.
+  -- 8.h Emergencia: paso 1 al SOCIO de Riesgos, paso 2 (que enciende el plazo) al Gerente.
+  -- El paso 1 es el unico evento del modulo que la matriz le da SOLO a `risk_partner` (el
+  -- Supervisor no lo tiene): es el aviso de "falta tu firma", y quien firma el paso 2 es el
+  -- Socio. Por eso se verifica sobre c_rpart y no sobre c_risk.
   UPDATE public.work_orders SET emergency_review_by = c_risk, emergency_review_at = now()
    WHERE wo_id = v_wo;
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'wo.emergency.step1_done' AND recipient_staff_id = c_risk;
+   WHERE type_key = 'wo.emergency.step1_done' AND recipient_staff_id = c_rpart;
   IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - Riesgos no recibio wo.emergency.step1_done';
+    RAISE EXCEPTION 'TEST FAIL - el Socio de Riesgos no recibio wo.emergency.step1_done';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.step1_done' AND recipient_staff_id = c_risk;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Supervisor de Riesgos recibio un aviso que la matriz no le da';
   END IF;
 
   UPDATE public.work_orders
@@ -1043,8 +1212,20 @@ DECLARE
   c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';
   c_acct constant uuid := '59f00000-0000-4000-8000-000000000003';
 BEGIN
+  -- Encargo propio, con Socio y Gerente: `work_orders` es UNIQUE por engagement_id y el
+  -- Grupo 8 ya le puso su OT a E_TWO. Sin sesion, como el resto de los fixtures (el guard
+  -- de `engagements` exige engagement.create en cuanto hay auth.uid()).
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  partner_id, manager_id, created_by_staff_id, fecha_cierre,
+                                  society_id)
+  VALUES ('e9f00000-0000-4000-8000-000000000005', 'c9f00000-0000-4000-8000-000000000001',
+          'NOTIF Encargo Cinco', '9F05', c_part, c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
   INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
-  VALUES ('e9f00000-0000-4000-8000-000000000002', 'BOB', 'High', 'Draft')
+  VALUES ('e9f00000-0000-4000-8000-000000000005', 'BOB', 'High', 'Draft')
   RETURNING wo_id INTO v_wo;
 
   INSERT INTO public.wo_payment_plan (wo_id, payment_days)
@@ -1199,9 +1380,18 @@ DECLARE
   v_eng  uuid := 'e9f00000-0000-4000-8000-000000000003';
   v_asg  uuid;
   v_n    int;
+  v_prev int;
   c_part constant uuid := '59f00000-0000-4000-8000-000000000004';
   c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';
-  c_sen  constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST (assistant)
+  -- El Encargado tiene que ser un SENIOR: `engagement.encargado_assigned` no llega a un
+  -- Asistente (la matriz se lo da a Senior y Semi Senior, D-02). Con S_ASSIST aca, la
+  -- asercion del alta no podia pasar nunca.
+  c_sen  constant uuid := '59f00000-0000-4000-8000-00000000000b';  -- S_SENIOR (senior)
+  -- El STAFFING lo lleva otra persona (el Asistente): el Encargado es uno de los 6 cargos
+  -- del encargo, asi que recibe la finalizacion por conduccion y no por staffing. Con la
+  -- misma persona en los dos papeles, "un staffing borrado no recibe la finalizacion" era
+  -- imposible de probar.
+  c_stf  constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST (assistant)
   c_adm  constant uuid := '59f00000-0000-4000-8000-000000000006';
 BEGIN
   DELETE FROM public.notifications;
@@ -1209,9 +1399,10 @@ BEGIN
   -- 10.a Alta con Socio, Gerente y Encargado ya elegidos.
   INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                   partner_id, manager_id, encargado_id, created_by_staff_id,
-                                  fecha_cierre)
+                                  fecha_cierre, society_id)
   VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Encargo Tres', '9F03',
-          c_part, c_mgr, c_sen, c_mgr, '2026-12-31');
+          c_part, c_mgr, c_sen, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'engagement.created' AND recipient_staff_id IN (c_part, c_mgr);
@@ -1249,25 +1440,29 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - el cambio de responsables audita y avisa al asignado';
 
-  -- Un UPDATE que no toca ningun responsable no vuelve a avisar.
+  -- Un UPDATE que no toca ningun responsable no vuelve a avisar. Se compara ANTES contra
+  -- DESPUES: el cambio de responsables avisa al Admin (auditoria) Y a la conduccion
+  -- resultante, asi que el total depende de la audiencia y fijarlo en 1 era contar de menos.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications
+   WHERE type_key = 'engagement.owners.changed';
   UPDATE public.engagements SET engagement_name = 'NOTIF Encargo Tres bis'
    WHERE engagement_id = v_eng;
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'engagement.owners.changed';
-  IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - renombrar el encargo conto como cambio de responsables (hubo %)', v_n;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - renombrar el encargo conto como cambio de responsables (% -> %)', v_prev, v_n;
   END IF;
   RAISE NOTICE 'PASS - renombrar el encargo no es un cambio de responsables';
 
   -- 10.c Staffing: el afectado y su gerente reciben el MISMO tipo con distinta redaccion.
   INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
                                              start_date, end_date, status)
-  VALUES (v_eng, c_sen, (SELECT category_id FROM public.categories LIMIT 1),
+  VALUES (v_eng, c_stf, (SELECT category_id FROM public.categories LIMIT 1),
           CURRENT_DATE, CURRENT_DATE + 30, 'CONFIRMED')
   RETURNING assignment_id INTO v_asg;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf
      AND payload->>'context' = 'assigned';
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - el asignado no recibio su aviso de staffing (hubo %)', v_n;
@@ -1285,7 +1480,7 @@ BEGIN
   UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf
      AND payload->>'context' = 'unassigned';
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - la baja logica no aviso al desasignado (hubo %)', v_n;
@@ -1295,18 +1490,18 @@ BEGIN
   -- Y los cambios de fechas/horas NO avisan: el Scheduler los reescribe seguido.
   UPDATE public.engagement_assignments SET hours_per_week = 20 WHERE assignment_id = v_asg;
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen;
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf;
   IF v_n <> 2 THEN
     RAISE EXCEPTION 'TEST FAIL - cambiar las horas de la asignacion notifico (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - mover horas o fechas de la asignacion no avisa';
 
   -- 10.e Finalizacion: baja hasta el staffing VIGENTE. La asignacion de arriba quedo borrada,
-  -- asi que el asistente NO debe recibirla; se le devuelve la asignacion para comprobar que
+  -- asi que el staffing NO debe recibirla; se le devuelve la asignacion para comprobar que
   -- con staffing vivo si le llega.
   UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_sen;
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_stf;
   IF v_n <> 0 THEN
     RAISE EXCEPTION 'TEST FAIL - un staffing borrado recibio la finalizacion';
   END IF;
@@ -1320,7 +1515,7 @@ BEGIN
   UPDATE public.engagements SET engagement_state_override = NULL WHERE engagement_id = v_eng;
   UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_sen;
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_stf;
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - con staffing vigente el asistente no recibio la finalizacion (hubo %)', v_n;
   END IF;
@@ -1336,11 +1531,822 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el Admin no recibio engagement.deleted (hubo %)', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.deleted' AND recipient_staff_id IN (c_part, c_mgr, c_sen);
+   WHERE type_key = 'engagement.deleted' AND recipient_staff_id IN (c_part, c_mgr, c_sen, c_stf);
   IF v_n <> 0 THEN
     RAISE EXCEPTION 'TEST FAIL - el borrado del encargo aviso a alguien fuera de auditoria';
   END IF;
   RAISE NOTICE 'PASS - el borrado del encargo es solo auditoria del Admin';
+
+END $$;
+
+-- -- Grupo 11 -- FASE 3.d: envio de boleta y veredictos sobre sus lineas -------
+-- Las cuatro cosas que este grupo fija, y que son las que costaban un bug:
+--   1. UN envio, TRES audiencias disjuntas: dueno / aprobador / conduccion (D-12);
+--   2. la AUTOAPROBACION no notifica: `approved_by` = el dueno (D-30);
+--   3. `rejected -> pending` (reenvio) NO es una solicitud de revision; `approved -> pending`
+--      si lo es (D-33);
+--   4. el retiro de la boleta es asunto del dueno y de nadie mas.
+DO $$
+DECLARE
+  v_eng    uuid := 'e9f00000-0000-4000-8000-000000000006';
+  v_per    uuid := '79f00000-0000-4000-8000-0000000000f2';
+  v_appr   uuid;
+  v_week   date := date_trunc('week', CURRENT_DATE)::date - 7;
+  v_n      int;
+  v_prev   int;
+  c_own  constant uuid := '59f00000-0000-4000-8000-00000000000b';  -- S_SENIOR, dueno de la boleta
+  c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER (conduccion)
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR (aprobador real)
+  c_act  constant uuid := '79f00000-0000-4000-8000-000000000001';
+BEGIN
+  -- Fixtures sin sesion, como el resto del archivo.
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  -- Encargo propio con Socio Y Gerente: el reparto del envio se juega justamente entre esos
+  -- dos papeles. `work_order_required = false` para que `check_wo_approved` deje cargar
+  -- horas sin una OT aprobada, que no es lo que se prueba aca.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  partner_id, manager_id, created_by_staff_id, fecha_cierre,
+                                  society_id, work_order_required)
+  VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Encargo Seis', '9F06',
+          c_part, c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), false);
+
+  -- El feriado se limpia para esta fecha: `enforce_holiday_blocking` manda las horas de un
+  -- feriado al encargo de feriados, y aca se necesita una hora comun. La transaccion termina
+  -- en ROLLBACK, asi que no toca los feriados de nadie.
+  DELETE FROM public.holidays WHERE holiday_date = v_week + 1;
+
+  INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number,
+                                        year, total_hours)
+  VALUES (v_per, c_own, v_week, 2, 2026, 40);
+
+  INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked,
+                                   hours_logged, period_id, is_forecast)
+  VALUES (c_own, v_eng, c_act, v_week + 1, 8, v_per, false);
+
+  DELETE FROM public.notifications;
+
+  -- 11.a Envio: el dueno recibe SU acuse, con el contexto del envio.
+  UPDATE public.timesheet_periods SET submitted_at = now() WHERE period_id = v_per;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'timesheet.own_submit_confirmed' AND recipient_staff_id = c_own
+     AND payload->>'context' = 'submitted';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el dueno no recibio el acuse de su envio (hubo %)', v_n;
+  END IF;
+
+  -- El aprobador REAL (get_timesheet_approvers: gerente del encargo CON
+  -- timesheet_approval.approve) recibe el aviso accionable.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'timesheet.team_submitted_for_approval' AND recipient_staff_id = c_mgr;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aprobador no recibio la boleta enviada (hubo %)', v_n;
+  END IF;
+
+  -- Y el Socio —conduccion del encargo, pero sin permiso de aprobar horas— recibe el
+  -- informativo. Es el alcance `assigned` que reemplazo al `firm` de la matriz (D-12).
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'timesheet.weekly_submitted' AND recipient_staff_id = c_part
+     AND payload->>'staff_name' <> '';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Socio no recibio el informativo de envio (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - un envio reparte tres avisos distintos: dueno, aprobador y conduccion';
+
+  -- Nadie recibe DOS filas por el mismo envio: al aprobador no le llega el informativo, y al
+  -- dueno tampoco (su celda `propio` salio de la matriz al cerrar D-12).
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'timesheet.weekly_submitted'
+     AND recipient_staff_id IN (c_mgr, c_own);
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el informativo se solapo con el acuse o con la aprobacion (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_own;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el dueno recibio % filas por un solo envio', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - un envio deja como maximo UNA fila por persona';
+
+  -- 11.b Un UPDATE que no toca `submitted_at` no vuelve a avisar.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications;
+  UPDATE public.timesheet_periods SET total_hours = 41 WHERE period_id = v_per;
+  SELECT COUNT(*) INTO v_n FROM public.notifications;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - tocar las horas del periodo notifico (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - guardar el periodo sin enviarlo no avisa';
+
+  -- 11.c AUTOAPROBACION (D-30): la linea nace aprobada y firmada por el propio dueno, como
+  -- la escribe submit_timesheet_safe en un encargo sin aprobacion. No debe avisar nada.
+  INSERT INTO public.timesheet_line_approvals (period_id, engagement_id, activity_id, status,
+                                               approved_by, approved_at)
+  VALUES (v_per, v_eng, c_act, 'approved', c_own, now())
+  RETURNING approval_id INTO v_appr;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'approval.line_approved' AND recipient_staff_id = c_own;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la autoaprobacion aviso al dueno (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - la autoaprobacion no notifica: approved_by es el propio dueno';
+
+  -- 11.d Solicitud de revision (D-33): approved -> pending, con la nota.
+  UPDATE public.timesheet_line_approvals
+     SET status = 'pending', approved_by = NULL, approved_at = NULL,
+         review_notes = 'corregi las horas del jueves'
+   WHERE approval_id = v_appr;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'approval.revision_requested' AND recipient_staff_id = c_own
+     AND payload->>'notes' = 'corregi las horas del jueves'
+     AND payload->>'engagement_code' = '9F06'
+     AND payload->>'activity_code' <> '';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la solicitud de revision no llego con nota, COT y actividad (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - approved -> pending es solicitud de revision, con la nota en el payload';
+
+  -- 11.e Rechazo: al dueno, con el motivo.
+  UPDATE public.timesheet_line_approvals
+     SET status = 'rejected', approved_by = c_mgr, approved_at = now(),
+         review_notes = 'faltan detalles'
+   WHERE approval_id = v_appr;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'approval.line_rejected' AND recipient_staff_id = c_own
+     AND payload->>'notes' = 'faltan detalles'
+     AND payload->>'reviewer' <> '';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el rechazo no llego al dueno con motivo y revisor (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el rechazo de una linea llega al dueno con el motivo y quien la reviso';
+
+  -- 11.f REENVIO tras corregir (D-33): rejected -> pending es lo que hace
+  -- submit_timesheet_safe, y NO es una solicitud de revision.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications
+   WHERE type_key = 'approval.revision_requested';
+  UPDATE public.timesheet_line_approvals
+     SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = NULL
+   WHERE approval_id = v_appr;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'approval.revision_requested';
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - el reenvio tras corregir conto como revision (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - rejected -> pending es el reenvio del usuario, no una revision';
+
+  -- 11.g Aprobacion de verdad: la firma OTRA persona.
+  UPDATE public.timesheet_line_approvals
+     SET status = 'approved', approved_by = c_mgr, approved_at = now()
+   WHERE approval_id = v_appr;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'approval.line_approved' AND recipient_staff_id = c_own;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la aprobacion de un tercero no aviso al dueno (hubo %)', v_n;
+  END IF;
+  -- Y el veredicto es solo del dueno: el aprobador no se avisa a si mismo.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key IN ('approval.line_approved','approval.line_rejected',
+                      'approval.revision_requested')
+     AND recipient_staff_id <> c_own;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - un veredicto de linea salio del dueno de la boleta (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el veredicto de una linea es solo para el dueno de la boleta';
+
+  -- 11.h Retiro de la boleta: acuse al dueno con el otro contexto, y a nadie mas.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications
+   WHERE recipient_staff_id IN (c_mgr, c_part);
+  UPDATE public.timesheet_periods SET submitted_at = NULL WHERE period_id = v_per;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'timesheet.own_submit_confirmed' AND recipient_staff_id = c_own
+     AND payload->>'context' = 'withdrawn';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el retiro no le aviso al dueno (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id IN (c_mgr, c_part);
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - el retiro aviso al aprobador o a la conduccion (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el retiro es asunto del dueno: no despierta al aprobador ni a la conduccion';
+
+  -- 11.i El porton sigue mandando: el Gerente de Contabilidad no reporta horas y no tiene
+  -- ninguno de estos tipos en la matriz.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = '59f00000-0000-4000-8000-000000000003';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - un rol fuera de la matriz recibio avisos de timesheet (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - los disparadores de tiempos respetan la matriz';
+END $$;
+
+-- -- Grupo 12 -- FASE 3.d: cierre automatico del timer y cola de capacitacion --
+-- Dos hechos que no nacen de una decision humana:
+--   * el cronometro que se cierra solo a las 8 h (D-32), detectado por su MARCA;
+--   * el contador de capacitacion (D-31), que mide la cola de un area y no algo del usuario.
+DO $$
+DECLARE
+  v_eng    uuid := 'e9f00000-0000-4000-8000-000000000007';
+  v_per    uuid := '79f00000-0000-4000-8000-0000000000f3';
+  v_timer  uuid;
+  v_week   date := date_trunc('week', CURRENT_DATE)::date - 21;
+  v_n      int;
+  v_agg    jsonb;
+  c_own  constant uuid := '59f00000-0000-4000-8000-00000000000b';  -- S_SENIOR
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_hr   constant uuid := '59f00000-0000-4000-8000-00000000000a';  -- S_HR (hr_manager)
+  c_act  constant uuid := '79f00000-0000-4000-8000-000000000002';
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- 12.a Cierre AUTOMATICO: `finalize_all_stale_timers()` cierra a las 8 h exactas y esa
+  -- igualdad es la marca que el disparador mira. Se usa la funcion real, no un UPDATE a
+  -- mano: si alguien cambia como cierra el cron, este test se cae.
+  INSERT INTO public.timer_entries (staff_id, engagement_id, activity_id, started_at,
+                                    description)
+  VALUES (c_own, 'e9f00000-0000-4000-8000-000000000001', c_act,
+          now() - interval '9 hours', 'timer olvidado')
+  RETURNING timer_id INTO v_timer;
+
+  PERFORM public.finalize_all_stale_timers();
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'tracker.timer.auto_stopped' AND recipient_staff_id = c_own
+     AND entity_id = v_timer::text
+     AND (payload->>'duration_minutes')::int = 480;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cierre automatico del timer no aviso a su dueno (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el timer cerrado por el cron avisa a su dueno, con el timer en entity_id';
+
+  -- Y es solo del dueno: nadie mas se entera de un cronometro ajeno.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'tracker.timer.auto_stopped' AND recipient_staff_id <> c_own;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cierre del timer aviso a alguien mas (hubo %)', v_n;
+  END IF;
+
+  -- 12.b Cierre MANUAL: `stop_timer_entry` pone `now()`, que nunca cae exactamente en las
+  -- 8 h, asi que no lleva la marca y no debe avisar.
+  INSERT INTO public.timer_entries (staff_id, engagement_id, activity_id, started_at,
+                                    description)
+  VALUES (c_own, 'e9f00000-0000-4000-8000-000000000001', c_act,
+          now() - interval '2 hours', 'timer cerrado a mano')
+  RETURNING timer_id INTO v_timer;
+
+  UPDATE public.timer_entries
+     SET ended_at = now(), duration_minutes = 120
+   WHERE timer_id = v_timer;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'tracker.timer.auto_stopped';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - un cierre manual se conto como automatico (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - cerrar el cronometro a mano no dispara el aviso de cierre automatico';
+
+  -- 12.c El contador de capacitacion (D-31): lineas pendientes de un encargo con
+  -- funcion = 2, sobre un periodo YA ENVIADO.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  manager_id, created_by_staff_id, fecha_cierre, society_id,
+                                  funcion, work_order_required)
+  VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Capacitacion', '9F07',
+          c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 2, false);
+
+  INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number,
+                                        year, total_hours, submitted_at)
+  VALUES (v_per, c_own, v_week, 3, 2026, 40, now());
+
+  INSERT INTO public.timesheet_line_approvals (period_id, engagement_id, activity_id, status)
+  VALUES (v_per, v_eng, c_act, 'pending');
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-00000000000a');  -- Talento Humano
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'approval.training_pending'->>'count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Talento Humano ve % capacitaciones por aprobar, se esperaba 1',
+      v_agg->'approval.training_pending'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - el contador de capacitacion cuenta las lineas pendientes de funcion = 2';
+
+  -- Una linea de un encargo de CLIENTE no entra en ese contador: si entrara, Talento Humano
+  -- veria la cola de aprobaciones de toda la firma.
+  INSERT INTO public.timesheet_line_approvals (period_id, engagement_id, activity_id, status)
+  VALUES (v_per, 'e9f00000-0000-4000-8000-000000000001', c_act, 'pending');
+
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'approval.training_pending'->>'count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - una linea de encargo de cliente entro al contador de capacitacion (%)',
+      v_agg->'approval.training_pending'->>'count';
+  END IF;
+
+  -- Y al retirar la boleta deja de contar: una linea pendiente de un periodo sin enviar no
+  -- espera a nadie (unsubmit_timesheet_safe borra las aprobadas y deja las pendientes).
+  UPDATE public.timesheet_periods SET submitted_at = NULL WHERE period_id = v_per;
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'approval.training_pending'->>'count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una boleta retirada sigue contando como capacitacion pendiente (%)',
+      v_agg->'approval.training_pending'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - el contador solo mira encargos de capacitacion y periodos enviados';
+
+  -- 12.d El porton, del lado de los contadores: el dueno de las horas NO recibe el contador
+  -- de capacitacion (la matriz lo da solo a ADM y Talento Humano).
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-00000000000b');  -- S_SENIOR
+  v_agg := public.get_my_notification_aggregates();
+  IF v_agg ? 'approval.training_pending' THEN
+    RAISE EXCEPTION 'TEST FAIL - el contador de capacitacion llego a un rol fuera de la matriz';
+  END IF;
+  RAISE NOTICE 'PASS - el contador de capacitacion esta gateado por la matriz, como los eventos';
+
+END $$;
+
+-- -- Grupo 13 -- FASE 3.e: cuentas, personal y competencias -------------------
+-- Las cuatro cosas que fija este grupo:
+--   1. las senales viven en `public` (user_roles / staff / staff_skills), no en `auth` (D-34);
+--   2. alta y baja de personal combinan alcance `firm` con `practica` — un gerente de OTRA
+--      linea de servicio no se entera;
+--   3. la baja tiene tres formas y las tres cuentan una sola vez (D-35);
+--   4. el borrado de cuenta es de Seguridad TI y NO del ADM: es la unica fila del catalogo
+--      donde el ADM queda afuera.
+DO $$
+DECLARE
+  v_new     uuid := '59f00000-0000-4000-8000-00000000000d';
+  v_newuser uuid := 'a9f00000-0000-4000-8000-00000000000d';
+  v_n       int;
+  v_prev    int;
+  c_adm   constant uuid := '59f00000-0000-4000-8000-000000000006';
+  c_itsec constant uuid := '59f00000-0000-4000-8000-00000000000c';
+  c_hr    constant uuid := '59f00000-0000-4000-8000-00000000000a';
+  c_mgr   constant uuid := '59f00000-0000-4000-8000-000000000002';
+  c_own   constant uuid := '59f00000-0000-4000-8000-00000000000b';  -- S_SENIOR
+  c_acct  constant uuid := '59f00000-0000-4000-8000-000000000003';  -- fuera de la matriz
+  c_skill constant uuid := 'c9f00000-0000-4000-8000-0000000000b1';
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- 13.a Alta de personal: ADM y Talento Humano por `firm`, el Gerente por `practica`.
+  INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
+                            practica_id, society_id, weekly_capacity_hours, hire_date, city)
+  VALUES (v_new, NULL, 'NOTIF', 'Nuevo', true,
+          (SELECT practica_id FROM public.practicas WHERE code = 1),
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2026-01-01', 'La Paz');
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.created' AND recipient_staff_id IN (c_adm, c_hr, c_mgr);
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta de personal no llego a ADM, TH y Gerente (hubo %)', v_n;
+  END IF;
+
+  -- Ni al recien creado ni a un rol fuera de la matriz.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.created' AND recipient_staff_id IN (v_new, c_acct);
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta aviso a quien no le toca (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el alta de personal combina alcance firm (ADM/TH) con practica (Gerente)';
+
+  -- El alcance `practica` es de verdad: un gerente de OTRA linea no lo recibe. Se mueve al
+  -- nuevo a una practica distinta y se da de alta otro para comprobarlo.
+  INSERT INTO public.practicas (practica_id, name, code, abbreviation)
+  VALUES ('5e000000-0000-4000-8000-000000000009', 'NOTIF Otra Practica', 9, 'OTR')
+  ON CONFLICT (code) DO NOTHING;
+
+  DELETE FROM public.notifications;
+  INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
+                            practica_id, society_id, weekly_capacity_hours, hire_date, city)
+  VALUES ('59f00000-0000-4000-8000-00000000000e', NULL, 'NOTIF', 'OtraPractica', true,
+          (SELECT practica_id FROM public.practicas WHERE code = 9),
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2026-01-01', 'La Paz');
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.created' AND recipient_staff_id = c_mgr;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Gerente recibio el alta de otra linea de servicio';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.created' AND recipient_staff_id IN (c_adm, c_hr);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - ADM y TH deberian recibir cualquier alta (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - `practica` limita al gerente de esa linea; `firm` no';
+
+  -- 13.b Baja: las tres senales en un solo UPDATE dejan UNA notificacion (D-35).
+  DELETE FROM public.notifications;
+  UPDATE public.staff
+     SET termination_date = CURRENT_DATE, is_active = false, deleted_at = now()
+   WHERE staff_id = v_new;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.terminated' AND recipient_staff_id = c_adm;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la baja dejo % avisos al ADM, se esperaba 1', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - fecha de baja, desactivacion y borrado logico son UN evento';
+
+  -- 13.c Bloqueo de cuenta: ADM y Seguridad TI. Al bloqueado no (D-36).
+  DELETE FROM public.notifications;
+  UPDATE public.staff SET is_blocked = true WHERE staff_id = c_own;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.account.blocked' AND recipient_staff_id IN (c_adm, c_itsec);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el bloqueo no llego a ADM y Seguridad TI (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.account.blocked' AND recipient_staff_id = c_own;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - se le aviso del bloqueo al propio bloqueado';
+  END IF;
+
+  -- Y el desbloqueo no emite: la matriz no le dio tipo.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications;
+  UPDATE public.staff SET is_blocked = false WHERE staff_id = c_own;
+  SELECT COUNT(*) INTO v_n FROM public.notifications;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - el desbloqueo emitio algo (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el bloqueo es auditoria de ADM/Seguridad TI; el desbloqueo no avisa';
+
+  -- 13.d Alta de cuenta: INSERT en user_roles, auditoria del ADM (D-34).
+  DELETE FROM public.notifications;
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    VALUES (v_newuser, '00000000-0000-0000-0000-000000000000', 'authenticated',
+            'authenticated', 'notif-test-d@ruizmier.com', 'x', now(), now(), now(),
+            '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+  INSERT INTO public.user_roles (user_id, role, role_key)
+  VALUES (v_newuser, 'staff', 'assistant');
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.user.registered' AND recipient_staff_id = c_adm;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el ADM no recibio el alta de cuenta (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.user.registered' AND recipient_staff_id = c_itsec;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - Seguridad TI recibio un alta que la matriz no le da';
+  END IF;
+  RAISE NOTICE 'PASS - el alta de cuenta se lee del INSERT de user_roles, sin tocar auth.users';
+
+  -- 13.e Cambio de rol: al afectado con context=own, y a la auditoria sin duplicar.
+  DELETE FROM public.notifications;
+  UPDATE public.user_roles SET role_key = 'semisenior'
+   WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';   -- S_SENIOR
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.role.changed' AND recipient_staff_id = c_own
+     AND payload->>'context' = 'own'
+     AND payload->>'previous_role_key' = 'senior'
+     AND payload->>'role_key' = 'semisenior';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el afectado no recibio su cambio de rol con el rol anterior (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.role.changed' AND recipient_staff_id IN (c_adm, c_itsec);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la auditoria de rol no llego a ADM y Seguridad TI (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el cambio de rol avisa al afectado y a la auditoria, una vez a cada uno';
+
+  -- Un UPDATE que no toca el rol no avisa.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications;
+  UPDATE public.user_roles SET created_at = created_at
+   WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';
+  SELECT COUNT(*) INTO v_n FROM public.notifications;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - un UPDATE sin cambio de rol notifico (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - tocar user_roles sin cambiar el rol no avisa';
+
+  -- Se devuelve el rol: la suite es UNA transaccion y los grupos siguientes cuentan con que
+  -- S_SENIOR siga siendo `senior` (el modulo Hojas de Trabajo se lo concede, `semisenior` no).
+  UPDATE public.user_roles SET role_key = 'senior'
+   WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';
+
+  -- 13.f Eliminacion de cuenta: SOLO Seguridad TI.
+  DELETE FROM public.notifications;
+  DELETE FROM public.user_roles WHERE user_id = v_newuser;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.account.deleted' AND recipient_staff_id = c_itsec;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Seguridad TI no recibio la eliminacion de cuenta (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.account.deleted' AND recipient_staff_id = c_adm;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el ADM recibio la eliminacion, y la matriz se la da solo a Seguridad TI';
+  END IF;
+  RAISE NOTICE 'PASS - la eliminacion de cuenta es la unica fila donde el ADM queda afuera';
+
+  -- 13.g Competencias: dos tipos distintos (D-03), solo al afectado.
+  DELETE FROM public.notifications;
+  INSERT INTO public.staff_skills (staff_id, skill_id, proficiency_level)
+  VALUES (c_own, c_skill, 'Intermediate');
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.competency.assigned' AND recipient_staff_id = c_own
+     AND payload->>'skill_name' = 'NOTIF Competencia'
+     AND payload->>'proficiency_level' = 'Intermediate';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta de competencia no llego con nombre y nivel (hubo %)', v_n;
+  END IF;
+
+  -- Subir el nivel de una competencia que ya tenia NO avisa.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications;
+  UPDATE public.staff_skills SET proficiency_level = 'Advanced'
+   WHERE staff_id = c_own AND skill_id = c_skill;
+  SELECT COUNT(*) INTO v_n FROM public.notifications;
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - reevaluar el nivel notifico (% -> %)', v_prev, v_n;
+  END IF;
+
+  DELETE FROM public.staff_skills WHERE staff_id = c_own AND skill_id = c_skill;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'staff.competency.removed' AND recipient_staff_id = c_own;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la baja de competencia no aviso (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key LIKE 'staff.competency.%' AND recipient_staff_id <> c_own;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una competencia ajena le llego a alguien mas (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - competencia: alta y baja son tipos distintos, y solo del afectado';
+
+END $$;
+
+-- -- Grupo 14 -- FASE 3.f: modulo Clientes -------------------------------------
+-- Las tres cosas que fija este grupo:
+--   1. el alta le llega al Senior Partner Y al creador, porque `asignados` esta vacio el dia
+--      del alta: el cliente todavia no tiene encargos (D-37);
+--   2. "asignado a un cliente" se resuelve dando la vuelta por sus encargos;
+--   3. la inactivacion NO cuenta ademas como edicion, aunque las dos sean el mismo UPDATE.
+DO $$
+DECLARE
+  v_cli  uuid := 'c9f00000-0000-4000-8000-000000000002';
+  v_eng  uuid := 'e9f00000-0000-4000-8000-000000000008';
+  v_n    int;
+  v_prev int;
+  c_spart constant uuid := '59f00000-0000-4000-8000-00000000000f';  -- S_SPART (senior_partner)
+  c_mgr   constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_part  constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+BEGIN
+  -- Este grupo corre CON sesion, y no sin ella como los demas: `created_by_staff_id` no la
+  -- escribe el INSERT sino el trigger `set_client_created_by`, que la saca de
+  -- get_my_staff_id(). Sin sesion la columna queda NULL y el aviso al creador —que es el
+  -- punto de D-37— no tendria a quien ir.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
+  DELETE FROM public.notifications;
+
+  -- 14.a Alta: Senior Partner (global) + el creador (D-37). El Gerente lo recibe por CREADOR,
+  -- no por asignado: el cliente todavia no tiene ningun encargo suyo.
+  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  VALUES (v_cli, 'NOTIF Cliente Dos', 'NOTIF-9F02');
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'client.created' AND recipient_staff_id = c_spart;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Senior Partner no recibio el alta de cliente (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'client.created' AND recipient_staff_id = c_mgr
+     AND payload->>'unique_tax_id' = 'NOTIF-9F02';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el creador no recibio el alta de su propio cliente (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el alta llega al Senior Partner y al creador, aun sin encargos';
+
+  -- 14.b Edicion sin encargos: nadie esta asignado todavia, asi que no hay a quien avisar.
+  DELETE FROM public.notifications;
+  UPDATE public.clients SET contact_phone = '77712345' WHERE client_id = v_cli;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la edicion aviso sin que nadie tenga encargos del cliente (hubo %)', v_n;
+  END IF;
+
+  -- El encargo se crea SIN sesion: `enforce_engagement_profile_scope` exige que sociedad,
+  -- practica y oficina del encargo coincidan con la ficha del creador, y este fixture no
+  -- llena esas tres columnas. Es un guard de otro modulo, no lo que se prueba aca.
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  -- Con un encargo del cliente, el Gerente pasa a estar asignado y SI recibe la edicion.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  partner_id, manager_id, created_by_staff_id, fecha_cierre,
+                                  society_id)
+  VALUES (v_eng, v_cli, 'NOTIF Encargo Ocho', '9F08', c_part, c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
+  DELETE FROM public.notifications;
+  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'client.updated' AND recipient_staff_id = c_mgr;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente del cliente no recibio la edicion (hubo %)', v_n;
+  END IF;
+  -- Y el Socio no: la matriz da `client.updated` solo a los gerentes.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'client.updated' AND recipient_staff_id = c_part;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Socio recibio una edicion que la matriz no le da';
+  END IF;
+  RAISE NOTICE 'PASS - la edicion llega a los gerentes del cliente, y solo con encargo de por medio';
+
+  -- 14.c Un UPDATE que no cambia nada no avisa.
+  SELECT COUNT(*) INTO v_prev FROM public.notifications WHERE type_key = 'client.updated';
+  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
+  IF v_n <> v_prev THEN
+    RAISE EXCEPTION 'TEST FAIL - guardar sin cambiar nada conto como edicion (% -> %)', v_prev, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - re-guardar la ficha sin tocar nada no es una edicion';
+
+  -- 14.d Inactivacion: al Senior Partner y a los asignados, y NO cuenta como edicion.
+  DELETE FROM public.notifications;
+  UPDATE public.clients SET is_active = false WHERE client_id = v_cli;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'client.deactivated' AND recipient_staff_id IN (c_spart, c_part, c_mgr);
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - la inactivacion no llego a Senior Partner, Socio y Gerente (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la inactivacion conto ademas como edicion (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - la inactivacion avisa a mas gente y no duplica con la edicion';
+
+  -- 14.e El porton: un rol fuera de la matriz no recibe nada del modulo.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key LIKE 'client.%'
+     AND recipient_staff_id = '59f00000-0000-4000-8000-000000000003';  -- accounting_manager
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad recibio eventos del modulo Clientes (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - los eventos de Clientes respetan la matriz';
+
+END $$;
+
+-- -- Grupo 15 -- FASES 3.g y 3.h: Hojas de Trabajo y cobertura del Scheduler ---
+-- Los dos modulos que cierran el catalogo, y los dos con una particularidad:
+--   * la hoja de trabajo tiene disparador pero el producto todavia no lo dispara (D-38):
+--     aca se ejercita la transicion a mano, que es la unica forma de probarlo hoy;
+--   * el gap de cobertura es la resta entre lo que la OT aprobada pidio y el staffing
+--     vigente, con TRES alcances distintos segun el rol (D-40).
+DO $$
+DECLARE
+  v_eng   uuid := 'e9f00000-0000-4000-8000-000000000009';
+  v_wo    uuid;
+  v_ws    uuid := 'a7f00000-0000-4000-8000-000000000001';
+  v_cat   uuid := 'c9f00000-0000-4000-8000-0000000000c1';
+  v_asg   uuid;
+  v_n     int;
+  v_agg   jsonb;
+  c_part  constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER (socio)
+  c_mgr   constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_sen   constant uuid := '59f00000-0000-4000-8000-00000000000b';  -- S_SENIOR (SQR del encargo)
+  c_adm   constant uuid := '59f00000-0000-4000-8000-000000000006';  -- ADM (alcance firm)
+  c_acct  constant uuid := '59f00000-0000-4000-8000-000000000003';  -- fuera de la matriz
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- Encargo propio con Socio, Gerente y SQR: los tres alcances del contador se juegan sobre
+  -- los cargos del encargo.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  partner_id, manager_id, sqr_id, created_by_staff_id,
+                                  fecha_cierre, society_id)
+  VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Encargo Nueve', '9F09',
+          c_part, c_mgr, c_sen, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
+  -- 15.a Hoja de trabajo: la transicion draft -> approved avisa a la conduccion (D-38).
+  INSERT INTO public.activity_worksheets (id, engagement_id, status, created_by_staff_id)
+  VALUES (v_ws, v_eng, 'draft', c_mgr);
+
+  DELETE FROM public.notifications;
+  UPDATE public.activity_worksheets SET status = 'approved' WHERE id = v_ws;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'worksheet.sent_to_quality' AND recipient_staff_id IN (c_part, c_sen)
+     AND payload->>'engagement_code' = '9F09';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la hoja enviada a calidad no llego al Socio y al SQR (hubo %)', v_n;
+  END IF;
+  -- El Gerente NO: la matriz da esta fila a los cinco roles que pueden ocupar la funcion SQR,
+  -- y el Gerente no es uno de ellos.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'worksheet.sent_to_quality' AND recipient_staff_id IN (c_mgr, c_acct);
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la hoja aviso a un rol que la matriz no incluye (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - la hoja enviada a calidad avisa a quien la revisa, y a nadie mas';
+
+  -- Volver a guardar la hoja ya aprobada no vuelve a avisar.
+  UPDATE public.activity_worksheets SET notes = 'revisada' WHERE id = v_ws;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'worksheet.sent_to_quality';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - editar la hoja ya aprobada volvio a avisar (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - solo la transicion a approved avisa, no cada guardado';
+
+  -- 15.b Cobertura: la OT aprobada pide 3 de una categoria y no hay nadie asignado (D-40).
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
+  VALUES (v_eng, 'BOB', 'High', 'Approved')
+  RETURNING wo_id INTO v_wo;
+
+  INSERT INTO public.wo_staffing_requirements (wo_id, category_id, staff_count)
+  VALUES (v_wo, v_cat, 3);
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR (assigned)
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente ve % posiciones sin cubrir, se esperaban 3',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - sin nadie asignado, el gap es todo lo que pidio la OT';
+
+  -- Con una persona asignada a esa categoria, el gap baja a 2.
+  PERFORM set_config('request.jwt.claims', '', true);
+  INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
+                                             start_date, end_date, status)
+  VALUES (v_eng, '59f00000-0000-4000-8000-000000000001', v_cat,
+          CURRENT_DATE, CURRENT_DATE + 30, 'CONFIRMED')
+  RETURNING assignment_id INTO v_asg;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - con una persona asignada el gap quedo en %, se esperaba 2',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+
+  -- Y el COT viaja en `items` para pintarse como chip (alcance `assigned`).
+  IF (v_agg->'scheduler.coverage_gap'->'items'->0->>'engagement_code') <> '9F09' THEN
+    RAISE EXCEPTION 'TEST FAIL - el contador no devolvio el COT del encargo con gap';
+  END IF;
+  RAISE NOTICE 'PASS - cada persona asignada baja el gap, y el COT viaja como chip';
+
+  -- Una asignacion dada de baja NO cubre: el gap vuelve a 3.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - una asignacion borrada siguio cubriendo (gap %)',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - el staffing borrado deja de cubrir la posicion';
+
+  -- 15.c Los tres alcances. El ADM lo tiene por `firm` y ve el mismo gap sin estar asignado.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000006');  -- ADM
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int < 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el ADM no ve el gap de un encargo ajeno (alcance firm)';
+  END IF;
+  -- En `firm` no viajan items: la lista puede ser de cientos y el numero manda a la pantalla.
+  IF jsonb_array_length(v_agg->'scheduler.coverage_gap'->'items') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alcance firm devolvio items, que pueden ser cientos';
+  END IF;
+  RAISE NOTICE 'PASS - `firm` ve toda la firma y sin lista de encargos';
+
+  -- Y el porton sigue mandando: Contabilidad no tiene el contador en la matriz.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');  -- accounting_manager
+  v_agg := public.get_my_notification_aggregates();
+  IF v_agg ? 'scheduler.coverage_gap' THEN
+    RAISE EXCEPTION 'TEST FAIL - el contador de cobertura llego a un rol fuera de la matriz';
+  END IF;
+  RAISE NOTICE 'PASS - el contador de cobertura esta gateado por la matriz';
+
+  -- 15.d Un encargo finalizado deja de reclamar cobertura.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - un encargo finalizado sigue reclamando cobertura (gap %)',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - un encargo cerrado no reclama cobertura';
 
   RAISE NOTICE 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED (rolled back)';
 END $$;

@@ -1,5 +1,20 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Bell, ChevronRight } from "lucide-react";
+import {
+  Bell,
+  Briefcase,
+  Building2,
+  CalendarRange,
+  CheckCheck,
+  ChevronRight,
+  ClipboardList,
+  Clock,
+  GraduationCap,
+  Table2,
+  Timer,
+  UserCog,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { format } from "date-fns";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -12,6 +27,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useStaffingAlerts } from "@/hooks/useStaffingAlerts";
 import { useMarkAlertsSeen } from "@/hooks/useMarkAlertsSeen";
 import {
@@ -23,8 +39,11 @@ import {
   alarmEngagements,
   bellCount,
   buildPendingSections,
+  canOpenScheduler,
   groupEventsByModule,
+  isCodeMeta,
   notificationMeta,
+  notificationRoleChange,
   notificationRoute,
   notificationState,
   notificationStateTone,
@@ -32,8 +51,10 @@ import {
   unreadIds,
   visibleLegacyAlerts,
   type NotificationEvent,
+  type NotificationModule,
   type NotificationStateTone,
   type PendingAlarm,
+  type PendingSectionKey,
 } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
@@ -46,10 +67,13 @@ import { cn } from "@/lib/utils";
  *    packet. Responden "que me falta". No tienen leido: bajan cuando el usuario resuelve lo
  *    que los produjo.
  * 2. Novedades — eventos (delivery = 'event') agrupados por modulo. Responden "que paso".
- *    Se marcan leidos al abrir el panel. Hoy llega vacio: los disparadores son Fase 3.
- * 3. Alertas de staffing — el feed historico de vw_staffing_alerts, intacto. Es lo que
- *    mantiene vivo new_user_registered y engagement_created mientras no tengan disparador en
- *    el catalogo nuevo.
+ *    Se marcan leidos al CERRAR el panel. Hoy los alimentan los disparadores de Fondos
+ *    (3.a), Ordenes de Trabajo (3.b), Encargos (3.c), Tiempos (3.d), Cuentas/Auth (3.e),
+ *    Clientes (3.f) y Hojas de Trabajo (3.g, todavia sin via en el producto).
+ * 3. Alertas de staffing — lo que queda del feed historico de vw_staffing_alerts. Cada fila
+ *    que gana emisor propio en el catalogo sale de aca (visibleLegacyAlerts): desde la 3.e
+ *    ya no se pintan new_user_registered ni engagement_created. Siguen saliendo de la vista
+ *    work_order_pending_approval y timesheet_pending_approval.
  *
  * Las alarmas en cero no se pintan y una seccion sin alarmas activas desaparece entera
  * (decision de UX 2026-09-08): la campana se escanea en un segundo, y cada fila en (0)
@@ -79,17 +103,49 @@ function alarmLabelKey(typeKey: string): string {
   return `notifications.alarms.${typeKey}`;
 }
 
+/**
+ * Icono por modulo y por seccion de Pendientes. Con cuatro o cinco encabezados apilados, el
+ * texto en mayusculas solo no alcanza para escanear: el icono es el ancla visual.
+ *
+ * Los dos mapas son `Partial`: un modulo o una seccion sin icono cae al generico en vez de
+ * romper el render, que es lo que hace falta cuando el catalogo suma una fase nueva.
+ */
+const MODULE_ICON: Partial<Record<NotificationModule, LucideIcon>> = {
+  auth: UserCog,
+  client: Building2,
+  engagement: Briefcase,
+  worksheet: Table2,
+  work_order: ClipboardList,
+  fund_request: Wallet,
+  timesheet: Clock,
+  timesheet_approval: CheckCheck,
+  tracker: Timer,
+  scheduler: CalendarRange,
+};
+
+const SECTION_ICON: Partial<Record<PendingSectionKey, LucideIcon>> = {
+  time_control: Clock,
+  engagement_status: Briefcase,
+  fund_request: Wallet,
+  payment_plan: Wallet,
+  training: GraduationCap,
+  coverage: CalendarRange,
+};
+
 function SectionHeading({
   children,
   total,
+  icon: Icon,
 }: {
   children: string;
   total: number;
+  icon?: LucideIcon;
 }) {
   return (
-    <div className="flex items-center justify-between px-4 pt-3 pb-1">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {children}
+    <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1">
+      <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+        <span className="truncate">{children}</span>
       </span>
       {/* Mejora E: subtotal de la seccion. */}
       <span className="text-xs font-medium text-muted-foreground tabular-nums">
@@ -173,11 +229,13 @@ function AlarmRow({
     </>
   );
 
-  const className =
-    "block px-4 py-2.5" +
-    (alarm.route
-      ? " transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
-      : "");
+  // `last:border-b-0`: la separacion va entre filas, no debajo de la ultima — ahi ya separa
+  // el <Separator /> de la zona siguiente y dos lineas juntas se ven como un error.
+  const className = cn(
+    "block border-b border-border/60 px-4 py-2.5 last:border-b-0",
+    alarm.route &&
+      "transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
+  );
 
   return alarm.route ? (
     <Link to={alarm.route} onClick={onNavigate} className={className}>
@@ -220,6 +278,12 @@ function EventRow({
   // agregaba un tercer renglon por fila y la lista se volvia el doble de alta.
   const meta = notificationMeta(event);
 
+  // El cambio de rol se pinta como `anterior -> nuevo` en badges traducidos, en vez de
+  // incrustar los role_key crudos en el texto (que ademas partia la fila en dos renglones).
+  const roleChange = notificationRoleChange(event);
+  const roleLabel = (key: string) =>
+    t(`authz.role.${key}`, { defaultValue: key });
+
   // Dos lineas fijas: accion + fecha arriba, identificadores + estado abajo. Antes el texto
   // llevaba el numero de solicitud incrustado, no entraba en el ancho y partia en dos
   // renglones por su cuenta; asi cada fila tiene una altura predecible.
@@ -236,17 +300,48 @@ function EventRow({
           {format(new Date(event.created_at), "dd/MM/yyyy")}
         </span>
       </div>
-      {(meta.length > 0 || state) && (
-        <div className="mt-1 flex items-center gap-1.5">
+      {(meta.length > 0 || state || roleChange) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {meta.map((m) => (
             <Badge
               key={m}
               variant="secondary"
-              className="px-1.5 py-0 font-mono text-[10px]"
+              className={cn(
+                "px-1.5 py-0 text-[10px]",
+                // Monoespaciado solo para codigos (COT, actividad, FR-xxxx). Un nombre de
+                // competencia en mono se lee como si fuera un identificador.
+                isCodeMeta(m) ? "font-mono" : "max-w-[12rem] truncate",
+              )}
             >
               {m}
             </Badge>
           ))}
+          {roleChange && (
+            <span className="flex items-center gap-1">
+              {roleChange.from && (
+                <>
+                  <Badge
+                    variant="outline"
+                    className="px-1.5 py-0 text-[10px] font-medium text-muted-foreground"
+                  >
+                    {roleLabel(roleChange.from)}
+                  </Badge>
+                  <span aria-hidden="true" className="text-[10px] text-muted-foreground">
+                    →
+                  </span>
+                </>
+              )}
+              <Badge
+                variant="outline"
+                className={cn(
+                  "px-1.5 py-0 text-[10px] font-medium",
+                  STATE_TONE_CLASS.neutral,
+                )}
+              >
+                {roleLabel(roleChange.to)}
+              </Badge>
+            </span>
+          )}
           {state && (
             <Badge
               variant="outline"
@@ -264,7 +359,7 @@ function EventRow({
   );
 
   const className = cn(
-    "block px-4 py-2.5",
+    "block border-b border-border/60 px-4 py-2.5 last:border-b-0",
     !event.read_at && "bg-primary/5",
     route && "transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
   );
@@ -341,9 +436,20 @@ export function NotificationsPanel() {
   // de permisos son independientes y hoy se contradicen en varios pares rol/pantalla.
   const { can } = useAuthorization();
 
+  // `scheduler.view` no existe en el catalogo RBAC: es el pseudo-permiso del contador de
+  // cobertura, que ademas del permiso exige que el modulo este encendido. Con el flag
+  // apagado la ruta /scheduler no esta montada en App.tsx y el enlace llevaria a un 404.
+  const canWithScheduler = useMemo(
+    () => (permission: string) =>
+      permission === "scheduler.view"
+        ? canOpenScheduler(isSchedulerEnabled(), can)
+        : can(permission),
+    [can],
+  );
+
   const pendingSections = useMemo(
-    () => buildPendingSections(payload.aggregates, can),
-    [payload.aggregates, can],
+    () => buildPendingSections(payload.aggregates, canWithScheduler),
+    [payload.aggregates, canWithScheduler],
   );
   const eventGroups = useMemo(
     () => groupEventsByModule(payload.events),
@@ -462,7 +568,10 @@ export function NotificationsPanel() {
               </div>
               {pendingSections.map((section) => (
                 <div key={section.section}>
-                  <SectionHeading total={section.total}>
+                  <SectionHeading
+                    total={section.total}
+                    icon={SECTION_ICON[section.section]}
+                  >
                     {t(`notifications.sections.${section.section}`)}
                   </SectionHeading>
                   {section.alarms.map((alarm) => (
@@ -488,7 +597,10 @@ export function NotificationsPanel() {
               </div>
               {eventGroups.map((group) => (
                 <div key={group.module}>
-                  <SectionHeading total={group.events.length}>
+                  <SectionHeading
+                    total={group.events.length}
+                    icon={MODULE_ICON[group.module]}
+                  >
                     {t(`notifications.modules.${group.module}`)}
                   </SectionHeading>
                   {group.events.map((event) => (

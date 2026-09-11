@@ -1759,6 +1759,53 @@
         "client": {
           "billing_week": "Client billing week — installment {{installment_number}}"
         }
+      },
+      "timesheet": {
+        "weekly_submitted": "{{staff_name}} submitted their weekly timesheet",
+        "own_submit_confirmed": "Your weekly timesheet changed status",
+        "own_submit_confirmed_submitted": "You submitted your weekly timesheet",
+        "own_submit_confirmed_withdrawn": "You withdrew your weekly timesheet",
+        "team_submitted_for_approval": "{{staff_name}} submitted a timesheet for your approval"
+      },
+      "tracker": {
+        "timer": {
+          "auto_stopped": "Your timer closed itself on reaching 8 hours"
+        }
+      },
+      "approval": {
+        "line_approved": "{{reviewer}} approved your time line",
+        "line_rejected": "{{reviewer}} rejected your time line",
+        "revision_requested": "A revision was requested on your time line",
+        "training_pending": "Training approvals pending"
+      },
+      "auth": {
+        "user": {
+          "registered": "New user registered: {{email}}"
+        },
+        "role": {
+          "changed": "{{staff_name}} changed role",
+          "changed_own": "Your role changed"
+        },
+        "account": {
+          "blocked": "Account blocked for security: {{staff_name}}",
+          "deleted": "Account {{email}} was deleted"
+        }
+      },
+      "staff": {
+        "created": "New staff member: {{staff_name}}",
+        "terminated": "Staff member terminated: {{staff_name}}",
+        "competency": {
+          "assigned": "You were given a new competency",
+          "removed": "A competency was removed from you"
+        }
+      },
+      "client": {
+        "created": "New client: {{client_legal_name}}",
+        "updated": "{{client_legal_name}} details were edited",
+        "deactivated": "Client deactivated: {{client_legal_name}}"
+      },
+      "scheduler": {
+        "coverage_gap": "Positions to cover"
       }
     },
     "pending": "Pending",
@@ -1769,7 +1816,9 @@
       "time_control": "Time Control",
       "engagement_status": "Generated Engagements Status",
       "fund_request": "Fund Requests",
-      "payment_plan": "Payment Plan"
+      "payment_plan": "Payment Plan",
+      "training": "Training",
+      "coverage": "Coverage"
     },
     "alarms": {
       "timesheet": {
@@ -1800,6 +1849,12 @@
           "overdue": "Overdue Installments",
           "due_this_week": "Installments Due This Week"
         }
+      },
+      "approval": {
+        "training_pending": "Training Approvals"
+      },
+      "scheduler": {
+        "coverage_gap": "Positions to Cover"
       }
     },
     "missingHours": "{{hours}} h missing",

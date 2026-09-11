@@ -10,11 +10,14 @@ import {
   unreadEvents,
   unreadIds,
   visibleLegacyAlerts,
-  isDismissedLegacyAlert,
   notificationState,
   notificationStateTone,
   notificationRoute,
   notificationMeta,
+  notificationRoleChange,
+  isCodeMeta,
+  canOpenScheduler,
+  alarmEngagements,
   type NotificationEvent,
   type NotificationModule,
 } from "../notifications";
@@ -244,6 +247,52 @@ describe("buildPendingSections", () => {
     expect(result[0].alarms[0].items).toHaveLength(1);
   });
 
+  it("arma la seccion Capacitacion con su contador (FASE 3.d)", () => {
+    const result = buildPendingSections({
+      "approval.training_pending": { count: 3 },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].section).toBe("training");
+    expect(result[0].alarms[0].route).toBe("/timesheet/approvals");
+  });
+
+  it("a Talento Humano el contador de capacitacion le llega SIN enlace", () => {
+    // hr_manager/hr_analyst reciben el contador pero no tienen timesheet_approval.read: el
+    // backlog se muestra igual y la fila no navega (mecanismo de D-29).
+    const result = buildPendingSections(
+      { "approval.training_pending": { count: 3 } },
+      (p) => p !== "timesheet_approval.read",
+    );
+    expect(result[0].alarms[0].count).toBe(3);
+    expect(result[0].alarms[0].route).toBeNull();
+  });
+
+  it("arma la seccion Cobertura con su contador (FASE 3.h)", () => {
+    const result = buildPendingSections({
+      "scheduler.coverage_gap": {
+        count: 3,
+        items: [{ engagement_id: "eng-9", engagement_code: "9F09" }],
+      },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].section).toBe("coverage");
+    expect(result[0].alarms[0].route).toBe("/scheduler");
+    // El COT llega como item para pintarse de chip.
+    expect(alarmEngagements(result[0].alarms[0])).toEqual([
+      { id: "eng-9", code: "9F09" },
+    ]);
+  });
+
+  it("con el Scheduler apagado, el contador de cobertura no navega (FASE 3.h)", () => {
+    // /scheduler no esta montada en App.tsx si VITE_SCHEDULER_ENABLED no es "true".
+    const result = buildPendingSections(
+      { "scheduler.coverage_gap": { count: 3 } },
+      (p) => (p === "scheduler.view" ? canOpenScheduler(false, () => true) : true),
+    );
+    expect(result[0].alarms[0].count).toBe(3);
+    expect(result[0].alarms[0].route).toBeNull();
+  });
+
   it("cada alarma del catalogo declara seccion, ruta y permiso", () => {
     // Una alarma sin ruta rompe el <Link> del panel en tiempo de render, no de tipos; una
     // sin permiso manda al usuario a un 403 en vez de no navegar.
@@ -281,17 +330,19 @@ describe("visibleLegacyAlerts", () => {
 
   it("conserva todo lo no visto", () => {
     const rows = [
-      alert("new_user_registered"),
-      alert("engagement_created"),
       alert("work_order_pending_approval"),
+      alert("timesheet_pending_approval"),
     ];
-    expect(visibleLegacyAlerts(rows)).toHaveLength(3);
+    expect(visibleLegacyAlerts(rows)).toHaveLength(2);
   });
 
-  it("descarta las informativas ya vistas", () => {
+  it("descarta las que el catalogo nuevo ya emite, vistas o no (FASE 3.e)", () => {
+    // engagement_created lo cubre engagement.created desde 3.c; new_user_registered lo
+    // cubre auth.user.registered desde 3.e. Pintarlas seria duplicar la misma novedad.
     const rows = [
       alert("new_user_registered", true),
-      alert("engagement_created", true),
+      alert("new_user_registered", false),
+      alert("engagement_created", false),
     ];
     expect(visibleLegacyAlerts(rows)).toEqual([]);
   });
@@ -305,16 +356,15 @@ describe("visibleLegacyAlerts", () => {
     expect(visibleLegacyAlerts(rows)).toHaveLength(2);
   });
 
-  it("mezcla: solo caen las informativas vistas", () => {
+  it("mezcla: caen las superadas, queda el estado vivo", () => {
     const rows = [
       alert("new_user_registered", true),
       alert("new_user_registered", false),
       alert("work_order_pending_approval", true),
     ];
     const result = visibleLegacyAlerts(rows);
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(1);
     expect(result.map((r) => r.alert_type)).toEqual([
-      "new_user_registered",
       "work_order_pending_approval",
     ]);
   });
@@ -324,17 +374,17 @@ describe("visibleLegacyAlerts", () => {
     expect(visibleLegacyAlerts([alert("tipo_futuro", true)])).toHaveLength(1);
   });
 
-  it("isDismissedLegacyAlert no descarta nada sin seen_at", () => {
-    expect(isDismissedLegacyAlert({ alert_type: "new_user_registered" })).toBe(
-      false,
-    );
+  it("el `visto` ya no oculta nada: solo baja el badge (FASE 3.e)", () => {
+    // Las dos filas informativas del feed tienen emisor propio y se descartan siempre; las
+    // que sobreviven son de estado vivo y deben listarse aunque esten vistas.
     expect(
-      isDismissedLegacyAlert({
-        alert_type: "new_user_registered",
-        seen_at: "2026-09-09T10:00:00Z",
-      }),
-    ).toBe(true);
+      visibleLegacyAlerts([
+        alert("work_order_pending_approval", true),
+        alert("timesheet_pending_approval", true),
+      ]),
+    ).toHaveLength(2);
   });
+
 });
 
 describe("notificationState / notificationStateTone", () => {
@@ -440,6 +490,74 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e, (p) => p === "engagement.read")).toBe("/engagements/eng-3");
   });
 
+  it("el acuse de la boleta propia lleva a MI hoja de tiempo (FASE 3.d)", () => {
+    const e = { ...event("n1", "timesheet"), type_key: "timesheet.own_submit_confirmed",
+                entity_id: "per-1" };
+    expect(notificationRoute(e)).toBe("/timesheet");
+  });
+
+  it("la boleta de OTRO lleva al detalle de aprobacion de ese periodo (FASE 3.d)", () => {
+    const enviada = { ...event("n1", "timesheet"), type_key: "timesheet.weekly_submitted",
+                      entity_id: "per-1" };
+    const aprobar = { ...event("n2", "timesheet"),
+                      type_key: "timesheet.team_submitted_for_approval",
+                      entity_id: "per-1" };
+    expect(notificationRoute(enviada)).toBe("/timesheet/approvals/per-1");
+    expect(notificationRoute(aprobar)).toBe("/timesheet/approvals/per-1");
+  });
+
+  it("la boleta ajena exige timesheet_approval.read, no timesheet.read (FASE 3.d)", () => {
+    // Los dos avisos sobre la boleta de otro caen en la pantalla de aprobaciones, que
+    // seniors/semis/asistentes no pueden abrir: el permiso del tipo pisa al del modulo.
+    const e = { ...event("n1", "timesheet"), type_key: "timesheet.team_submitted_for_approval",
+                entity_id: "per-1" };
+    expect(notificationRoute(e, (p) => p === "timesheet.read")).toBeNull();
+    expect(notificationRoute(e, (p) => p === "timesheet_approval.read"))
+      .toBe("/timesheet/approvals/per-1");
+  });
+
+  it("un veredicto sobre mi linea lleva a mi hoja de tiempo (FASE 3.d)", () => {
+    // entity_id es el approval_id, que no es parametro de ninguna ruta.
+    const e = { ...event("n1", "timesheet_approval"), type_key: "approval.line_rejected",
+                entity_id: "appr-9" };
+    expect(notificationRoute(e)).toBe("/timesheet");
+    expect(notificationRoute(e, (p) => p === "timesheet.read")).toBe("/timesheet");
+    expect(notificationRoute(e, () => false)).toBeNull();
+  });
+
+  it("el timer cerrado solo lleva a ESE registro del tracker (FASE 3.d)", () => {
+    const e = { ...event("n1", "tracker"), type_key: "tracker.timer.auto_stopped",
+                entity_id: "timer-4" };
+    expect(notificationRoute(e)).toBe("/tracker/timer-4");
+    expect(notificationRoute(e, (p) => p === "time_entry.read")).toBe("/tracker/timer-4");
+    expect(notificationRoute({ ...e, entity_id: null })).toBeNull();
+  });
+
+  it("un evento de cliente lleva a su ficha (FASE 3.f)", () => {
+    const e = { ...event("n1", "client"), type_key: "client.deactivated",
+                entity_id: "cli-3", payload: { client_legal_name: "ACME SA" } };
+    expect(notificationRoute(e)).toBe("/clients/cli-3");
+    expect(notificationRoute(e, (p) => p === "client.read")).toBe("/clients/cli-3");
+    expect(notificationRoute(e, () => false)).toBeNull();
+  });
+
+  it("un evento de cuenta o de personal lleva a la ficha de staff (FASE 3.e)", () => {
+    // Se rutea por payload.staff_id: los eventos de cuenta nacen en user_roles, donde solo
+    // hay un user_id, y el disparador resuelve la ficha cuando existe.
+    const e = { ...event("n1", "auth"), type_key: "auth.role.changed",
+                entity_id: "st-7", payload: { staff_id: "st-7", role_key: "senior" } };
+    expect(notificationRoute(e)).toBe("/staff/st-7");
+    expect(notificationRoute(e, (p) => p === "staff.read")).toBe("/staff/st-7");
+    expect(notificationRoute(e, () => false)).toBeNull();
+  });
+
+  it("una cuenta sin ficha de staff no rutea (FASE 3.e)", () => {
+    // Caso real del borrado: manage-auth-user solo borra cuentas SIN staff vinculado.
+    const e = { ...event("n1", "auth"), type_key: "auth.account.deleted",
+                entity_id: "user-9", payload: { user_id: "user-9", email: "x@y.com" } };
+    expect(notificationRoute(e)).toBeNull();
+  });
+
   it("sin `can` se rutea igual: los tests y el render sin sesion no deben perder el enlace", () => {
     const e = { ...event("n1", "work_order"), type_key: "wo.approved_partner",
                 entity_id: "wo-7" };
@@ -447,7 +565,7 @@ describe("notificationRoute", () => {
   });
 
   it("un modulo sin destino todavia devuelve null en vez de inventar una ruta", () => {
-    expect(notificationRoute(event("n2", "auth"))).toBeNull();
+    expect(notificationRoute(event("n2", "worksheet"))).toBeNull();
     expect(notificationRoute(event("n3", "scheduler"))).toBeNull();
   });
 });
@@ -470,6 +588,28 @@ describe("notificationMeta", () => {
     expect(notificationMeta(withPayload({ amount: 40 }))).toEqual([]);
   });
 
+  it("el nombre de una competencia tambien baja a chip (FASE 3.e)", () => {
+    expect(
+      notificationMeta(withPayload({ skill_name: "Claude para Excel" })),
+    ).toEqual(["Claude para Excel"]);
+  });
+
+  it("isCodeMeta separa codigos de texto libre: decide la tipografia del chip", () => {
+    expect(isCodeMeta("9F01")).toBe(true);
+    expect(isCodeMeta("FR-2026-0001")).toBe(true);
+    expect(isCodeMeta("AUD-A1")).toBe(true);
+    expect(isCodeMeta("Claude para Excel")).toBe(false);
+  });
+
+  it("una linea de timesheet se identifica por encargo Y actividad (FASE 3.d)", () => {
+    // Sin el codigo de actividad, dos lineas del mismo encargo se ven identicas en el panel.
+    expect(
+      notificationMeta(
+        withPayload({ activity_code: "9F1", engagement_code: "1042" }),
+      ),
+    ).toEqual(["1042", "9F1"]);
+  });
+
   it("ignora valores vacios o que no sean texto", () => {
     expect(
       notificationMeta(withPayload({ request_number: "", engagement_code: 42 })),
@@ -481,5 +621,54 @@ describe("notificationMeta", () => {
     expect(notificationMeta(withPayload({ request_number: " FR-1 " }))).toEqual([
       "FR-1",
     ]);
+  });
+});
+
+describe("notificationRoleChange", () => {
+  const roleEvent = (payload: Record<string, unknown>, type = "auth.role.changed") => ({
+    ...event("n1", "auth"),
+    type_key: type,
+    payload,
+  });
+
+  it("devuelve el rol anterior y el nuevo para pintarlos como badges (FASE 3.e)", () => {
+    expect(
+      notificationRoleChange(
+        roleEvent({ role_key: "senior", previous_role_key: "semisenior" }),
+      ),
+    ).toEqual({ from: "semisenior", to: "senior" });
+  });
+
+  it("sin rol anterior devuelve solo el nuevo: el badge se pinta igual", () => {
+    // Es el caso de un rol que nace vacio (role_key NULL antes del cambio).
+    expect(
+      notificationRoleChange(roleEvent({ role_key: "senior", previous_role_key: "" })),
+    ).toEqual({ from: null, to: "senior" });
+  });
+
+  it("ignora cualquier otro tipo, aunque traiga role_key en el payload", () => {
+    // auth.user.registered tambien lleva role_key, y ahi el badge no aplica.
+    expect(
+      notificationRoleChange(
+        roleEvent({ role_key: "assistant" }, "auth.user.registered"),
+      ),
+    ).toBeNull();
+  });
+
+  it("sin role_key no hay badge en vez de uno vacio", () => {
+    expect(notificationRoleChange(roleEvent({}))).toBeNull();
+  });
+});
+
+describe("canOpenScheduler", () => {
+  it("exige las DOS condiciones: modulo encendido y permiso sobre encargos", () => {
+    expect(canOpenScheduler(true, () => true)).toBe(true);
+    expect(canOpenScheduler(false, () => true)).toBe(false);
+    expect(canOpenScheduler(true, () => false)).toBe(false);
+  });
+
+  it("mira `engagement.read` y no otro permiso", () => {
+    expect(canOpenScheduler(true, (p) => p === "engagement.read")).toBe(true);
+    expect(canOpenScheduler(true, (p) => p === "work_order.read")).toBe(false);
   });
 });

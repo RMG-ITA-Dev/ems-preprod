@@ -199,8 +199,9 @@ GRANT ALL ON FUNCTION public.notify_staff(text, uuid, text, jsonb) TO service_ro
 -- LEFT JOIN no puede filtrar el "visto" de otro: si su fila no es visible, da NULL y la
 -- alerta aparece como no vista. Correcto.
 --
-CREATE OR REPLACE VIEW preserva permisos y dependencias. La lista de columnas
--- crece al final, que es lo único que CREATE OR REPLACE permite.
+-- Se reemplaza con CREATE OR REPLACE y no con DROP + CREATE porque así preserva permisos y
+-- dependencias. La lista de columnas crece al final, que es lo único que CREATE OR REPLACE
+-- permite.
 --
 
 CREATE OR REPLACE VIEW public.vw_staffing_alerts WITH (security_invoker='true') AS
@@ -505,6 +506,126 @@ $BODY$;
 COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text) IS
   'Contador "Cuotas vencidas". Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
 
+-- =====================================================================
+-- G.3) Contador de capacitación (módulo Aprobaciones de Timesheet)
+-- =====================================================================
+--
+-- D-31: "entrenamiento" son las horas cargadas a un encargo de CAPACITACIÓN, y lo que los
+-- identifica es `engagements.funcion = 2` (0 administrativa / 1 cliente / 2 capacitación /
+-- 3 calidad, clasificación de 0827-184). Cierra la parte de negocio que el handoff dejó
+-- abierta para `timesheet_admin_training_approval.manage` ("qué códigos/encargos las
+-- identifican"); la mitad administrativa (`funcion = 0`) queda fuera porque la matriz no le
+-- dio fila.
+--
+-- No filtra por persona: la matriz sólo lo concede con alcance `firm` (ADM) y `department`
+-- (Talento Humano), que son justamente los que miran la cola completa. Exige el período
+-- ENVIADO por el mismo motivo que `timesheet.pending_approval`: `unsubmit_timesheet_safe`
+-- borra las líneas aprobadas pero deja las `pending`, así que una boleta retirada dejaría
+-- filas pendientes que ya no esperan a nadie.
+--
+
+DROP FUNCTION IF EXISTS public.notif_agg_approval_training_pending();
+
+CREATE FUNCTION public.notif_agg_approval_training_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.timesheet_line_approvals tla
+    JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+    JOIN public.engagements e        ON e.engagement_id = tla.engagement_id
+   WHERE tla.status = 'pending'
+     AND tp.submitted_at IS NOT NULL
+     AND e.funcion = 2;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_agg_approval_training_pending() IS
+  'Contador "Solicitudes de aprobacion de entrenamiento pendientes" (D-31): lineas de timesheet en pending, de periodos ya enviados, sobre encargos de capacitacion (engagements.funcion = 2). Sin filtro por persona: la matriz lo concede solo con alcance firm/department.';
+
+
+-- =====================================================================
+-- G.4) Contador de cobertura (módulo Scheduler)
+-- =====================================================================
+--
+-- D-40: "gap de cobertura" = POSICIONES COMPROMETIDAS SIN CUBRIR. La OT aprobada declara
+-- cuánta gente de cada categoría necesita (`wo_staffing_requirements.staff_count`); el
+-- Scheduler asigna personas a ese encargo (`engagement_assignments`). El gap es la resta,
+-- por categoría, y sólo cuando falta: sobrar gente no es un gap negativo.
+--
+-- NO son los 4 gaps de la edge function `scheduler-gaps` (headcount/horas/competencias/
+-- banca vs pipeline): ésos son un tablero analítico con ventana de fechas, viven en Deno y
+-- son de liderazgo firmwide. Un contador de campana necesita ser un número, calculable en
+-- SQL y con el alcance de CADA rol; por eso éste se define aparte y más chico.
+--
+-- Tres alcances, que es lo que la matriz reparte: `firm` (ADM, Senior Partner), `society`
+-- (Socio) y `assigned` (SQR, Director, gerentes y Senior). El pareo requerimiento↔asignación
+-- va por (encargo, categoría) y no por `engagement_assignments.requirement_id`: esa columna
+-- es NULLABLE y el Scheduler no siempre la llena, así que confiar en ella contaría como
+-- descubierta una posición que sí tiene gente.
+--
+
+DROP FUNCTION IF EXISTS public.notif_agg_scheduler_coverage_gap(uuid, text);
+
+CREATE FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope text)
+    RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+  WITH req AS (
+    SELECT w.engagement_id,
+           r.category_id,
+           SUM(r.staff_count) AS required
+      FROM public.wo_staffing_requirements r
+      JOIN public.work_orders w ON w.wo_id = r.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+     WHERE w.approval_status = 'Approved'
+       -- Encargo vivo: sin override, o en los dos estados que permiten trabajar (4 Aprobado,
+       -- 5 Aprobado Emergencia). Cancelado/Finalizado/Rechazado no tienen cobertura que
+       -- reclamar.
+       AND (e.engagement_state_override IS NULL
+            OR e.engagement_state_override IN (4, 5))
+       AND (p_scope = 'firm'
+            OR (p_scope = 'society'
+                AND e.society_id = (SELECT s.society_id FROM public.staff s
+                                     WHERE s.staff_id = p_staff_id))
+            OR (p_scope NOT IN ('firm', 'society')
+                AND p_staff_id IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id,
+                                   e.specialist_it_id, e.specialist_tax_id)))
+     GROUP BY w.engagement_id, r.category_id
+  ), asignados AS (
+    SELECT a.engagement_id,
+           a.category_id,
+           COUNT(DISTINCT a.staff_id) AS cubiertas
+      FROM public.engagement_assignments a
+     WHERE a.deleted_at IS NULL
+       AND a.status <> 'CANCELLED'
+     GROUP BY a.engagement_id, a.category_id
+  ), gap AS (
+    SELECT r.engagement_id,
+           GREATEST(r.required - COALESCE(a.cubiertas, 0), 0) AS faltan
+      FROM req r
+      LEFT JOIN asignados a
+             ON a.engagement_id = r.engagement_id
+            AND a.category_id   = r.category_id
+  )
+  SELECT jsonb_build_object(
+           'count', COALESCE(SUM(g.faltan), 0),
+           -- `items` sólo en el alcance `assigned`, mismo criterio que wo.installment.overdue:
+           -- son pocos encargos y se pintan como chips de COT. En `firm`/`society` la lista
+           -- puede ser de cientos y el número ya manda a la pantalla, que tiene filtros.
+           'items', CASE WHEN p_scope NOT IN ('firm', 'society')
+                    THEN COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
+                           'engagement_id',   g.engagement_id,
+                           'engagement_code', COALESCE(e.engagement_code, '—'))
+                         ) FILTER (WHERE g.faltan > 0), '[]'::jsonb)
+                    ELSE '[]'::jsonb END)
+    FROM gap g
+    JOIN public.engagements e ON e.engagement_id = g.engagement_id;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text) IS
+  'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing vigente no cubre, por encargo y categoria. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
+
 
 DROP FUNCTION IF EXISTS public.get_my_notification_aggregates();
 
@@ -523,6 +644,7 @@ DECLARE
   v_start    date;
   v_from     date;
   v_scope_overdue text;
+  v_scope_gap     text;
 BEGIN
   IF v_staff IS NULL THEN
     RETURN v_out;
@@ -666,12 +788,31 @@ BEGIN
                         public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue));
   END IF;
 
+  -- ── Aprobaciones de Timesheet: capacitación (FASE 3.d) ──
+  IF 'approval.training_pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('approval.training_pending',
+                        public.notif_agg_approval_training_pending());
+  END IF;
+
+  -- ── Scheduler: cobertura (FASE 3.h) ──
+  -- Segundo contador que necesita el scope de la matriz, y el primero con TRES alcances
+  -- distintos (firm / society / assigned).
+  IF 'scheduler.coverage_gap' = ANY (v_types) THEN
+    SELECT nrt.scope_key INTO v_scope_gap
+      FROM public.notification_role_types nrt
+     WHERE nrt.role_key = v_role
+       AND nrt.type_key = 'scheduler.coverage_gap';
+
+    v_out := v_out || jsonb_build_object('scheduler.coverage_gap',
+                        public.notif_agg_scheduler_coverage_gap(v_staff, v_scope_gap));
+  END IF;
+
   RETURN v_out;
 END;
 $BODY$;
 
 COMMENT ON FUNCTION public.get_my_notification_aggregates() IS
-  'Contadores (delivery=aggregate) del usuario actual, gateados por notification_role_types. Timesheet respeta TS_ALERT_WINDOW_WEEKS/TS_TRACKING_START_DATE; wo.installment.overdue respeta el scope_key de la matriz. Definido una sola vez: no hay una version anterior que pisar.';
+  'Contadores (delivery=aggregate) del usuario actual, gateados por notification_role_types. Timesheet respeta TS_ALERT_WINDOW_WEEKS/TS_TRACKING_START_DATE; wo.installment.overdue respeta el scope_key de la matriz; approval.training_pending cuenta la cola de capacitacion (funcion=2); scheduler.coverage_gap respeta firm/society/assigned. Definido una sola vez: no hay una version anterior que pisar.';
 
 
 -- =====================================================================

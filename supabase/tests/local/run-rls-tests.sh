@@ -162,10 +162,12 @@ run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
 #                   get_my_notifications(), la vista legacy con seen_at, RLS y grants.
 #   02 seed         GENERADO por tools/parse-matriz-notificaciones.py. Va segundo por la FK
 #                   a notification_types (y a authorization_roles, de cero_13).
-#   03 disparadores los emisores de los tres modulos con triggers: Fondos, Ordenes de
-#                   Trabajo y Encargos. Sin los tipos sembrados, notify_staff los descarta
-#                   en silencio, asi que va despues del seed.
-# Ejercitado por rpc-notificaciones-fase1.sql (los 11 grupos).
+#   03 disparadores los emisores de los modulos con triggers: Fondos, Ordenes de Trabajo,
+#                   Encargos, Tiempos (timesheets/aprobaciones/tracker), Cuentas/Auth
+#                   (cuentas, personal y competencias), Clientes y Hojas de Trabajo. Sin los
+#                   tipos sembrados, notify_staff los descarta en silencio, asi que va
+#                   despues del seed.
+# Ejercitado por rpc-notificaciones-fase1.sql (los 16 grupos).
 run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
 run supabase/migrations/20260911100100_notificaciones_02_seed.sql
 run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql

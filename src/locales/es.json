@@ -1759,6 +1759,53 @@
         "client": {
           "billing_week": "Semana de facturación del cliente — cuota {{installment_number}}"
         }
+      },
+      "timesheet": {
+        "weekly_submitted": "{{staff_name}} envió su boleta semanal",
+        "own_submit_confirmed": "Tu boleta semanal cambió de estado",
+        "own_submit_confirmed_submitted": "Enviaste tu boleta semanal",
+        "own_submit_confirmed_withdrawn": "Retiraste tu boleta semanal",
+        "team_submitted_for_approval": "{{staff_name}} envió su boleta a tu aprobación"
+      },
+      "tracker": {
+        "timer": {
+          "auto_stopped": "Tu cronómetro se cerró solo al llegar a las 8 horas"
+        }
+      },
+      "approval": {
+        "line_approved": "{{reviewer}} aprobó tu línea de tiempo",
+        "line_rejected": "{{reviewer}} rechazó tu línea de tiempo",
+        "revision_requested": "Te pidieron revisar tu línea de tiempo",
+        "training_pending": "Capacitaciones por aprobar"
+      },
+      "auth": {
+        "user": {
+          "registered": "Nuevo usuario registrado: {{email}}"
+        },
+        "role": {
+          "changed": "Cambió el rol de {{staff_name}}",
+          "changed_own": "Tu rol cambió"
+        },
+        "account": {
+          "blocked": "Cuenta bloqueada por seguridad: {{staff_name}}",
+          "deleted": "Se eliminó la cuenta {{email}}"
+        }
+      },
+      "staff": {
+        "created": "Alta de personal: {{staff_name}}",
+        "terminated": "Baja de personal: {{staff_name}}",
+        "competency": {
+          "assigned": "Te asignaron una competencia",
+          "removed": "Te quitaron una competencia"
+        }
+      },
+      "client": {
+        "created": "Nuevo cliente: {{client_legal_name}}",
+        "updated": "Se edito la ficha de {{client_legal_name}}",
+        "deactivated": "Cliente inactivado: {{client_legal_name}}"
+      },
+      "scheduler": {
+        "coverage_gap": "Posiciones por cubrir"
       }
     },
     "pending": "Pendientes",
@@ -1769,7 +1816,9 @@
       "time_control": "Control de Tiempo",
       "engagement_status": "Estado de Encargos Generados",
       "fund_request": "Solicitudes de Fondos",
-      "payment_plan": "Plan de Pagos"
+      "payment_plan": "Plan de Pagos",
+      "training": "Capacitación",
+      "coverage": "Cobertura"
     },
     "alarms": {
       "timesheet": {
@@ -1800,6 +1849,12 @@
           "overdue": "Cuotas Vencidas",
           "due_this_week": "Cuotas por Vencer esta Semana"
         }
+      },
+      "approval": {
+        "training_pending": "Capacitaciones por Aprobar"
+      },
+      "scheduler": {
+        "coverage_gap": "Posiciones por Cubrir"
       }
     },
     "missingHours": "{{hours}} h faltantes",
