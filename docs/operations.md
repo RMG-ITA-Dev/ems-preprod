@@ -145,6 +145,47 @@ These have no CLI path and must be repeated on every environment:
    `https://<ref>.supabase.co/functions/v1/auth-email-hook`. It generates its own secret, which then
    has to be loaded as `AUTH_EMAIL_HOOK_SECRET`.
 
+### Mail delivery secrets
+
+Every outbound email in the system — signup confirmations, password recovery, admin unlock, and
+the whole notification catalogue — goes through Microsoft Graph, not Supabase's built-in mailer.
+These secrets are what make that work, and they have no CLI-independent default:
+
+| Secret | Purpose |
+|--------|---------|
+| `MAIL_ENABLED` | `true` sends through Graph; `false` logs what would have been sent and returns without touching the network. **There is no default** — leave it unset and the first send throws. That is deliberate: a project whose secret was never loaded used to simulate every email while reporting success, so signup created accounts and told people to check an inbox nothing had been sent to. |
+| `MAIL_TEST_RECIPIENT` | When set, replaces *all* recipients with this address. Useful against a staging project; leaving it set in production silently misroutes every message. |
+| `MS_GRAPH_TENANT_ID` | Entra ID tenant of the app registration. |
+| `MS_GRAPH_CLIENT_ID` | Application (client) ID. |
+| `MS_GRAPH_CLIENT_SECRET` | Client secret for that registration. |
+| `MS_GRAPH_SENDER_EMAIL` | Mailbox the messages are sent as. Needs `Mail.Send` granted on it. |
+| `MS_GRAPH_SENDER_NAME` | Display name on the From line. Exchange may override it. |
+| `CRON_SECRET` | Shared secret in the `x-cron-secret` header that `send-notification-emails` checks. Must match the `notif_email_cron_secret` vault entry. |
+| `AUTH_EMAIL_HOOK_SECRET` | Standard Webhooks secret that Supabase generates for the Send Email hook. |
+| `FRONTEND_URL` | Base URL for every link in those emails. Required by `register-user` and `request-password-reset` too — see below. |
+
+`supabase/functions/.env` holds the local values for `supabase functions serve` and is gitignored.
+In the cloud these are project secrets, loaded with `supabase secrets set` or one Lovable prompt
+per variable.
+
+### Vault entries for the email drain
+
+`notif-email-drain` — the pg_cron job that calls `send-notification-emails` every five minutes —
+reads its target and its secret from the vault by name, so no migration contains either value.
+Create both once per project:
+
+```sql
+select vault.create_secret('https://<ref>.supabase.co/functions/v1/send-notification-emails',
+                           'notif_email_drain_url', 'URL del drenaje de correos');
+select vault.create_secret('<the same value as the CRON_SECRET function secret>',
+                           'notif_email_cron_secret', 'Header x-cron-secret del drenaje');
+```
+
+The migration installs `pg_net` and `supabase_vault` itself and schedules the job; if the secrets
+are not there yet it still schedules, warns, and the job posts to a null URL until you add them.
+`SELECT status, COUNT(*), MIN(created_at) FROM public.notification_emails GROUP BY status` is the
+check that cannot lie: `pending` rows older than ten minutes mean the drain is not running.
+
 ### Origins the frontend is served from
 
 Three functions keep a hardcoded allowlist and reject anything else: `dashboard-data`,

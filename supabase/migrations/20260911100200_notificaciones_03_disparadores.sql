@@ -1972,9 +1972,19 @@ BEGIN
   -- ── Edición (D-04) ──
   -- Cualquier cambio de la ficha, sin filtrar por campo: la matriz se lo da sólo a los
   -- gerentes del cliente, que son pocos y para quienes el dato es de trabajo. Se exige un
-  -- cambio real —no basta con que corra el UPDATE— porque `updated_at` lo reescribe un
-  -- trigger en cada guardado y un "guardar sin tocar nada" no es una edición.
-  IF NEW IS DISTINCT FROM OLD THEN
+  -- cambio real —no basta con que corra el UPDATE— porque un "guardar sin tocar nada" no es
+  -- una edición y el formulario permite guardar sin cambios.
+  --
+  -- `updated_at` SE EXCLUYE DE LA COMPARACIÓN, y es la mitad que hace falta para que la frase
+  -- de arriba sea cierta. `update_clients_updated_at` es un trigger BEFORE UPDATE que le pone
+  -- `now()` en CADA update, así que para cuando corre este AFTER la fila nueva SIEMPRE difiere
+  -- de la vieja: `NEW IS DISTINCT FROM OLD` a secas da true siempre y le manda un aviso a cada
+  -- gerente por cada guardado, cambie algo o no.
+  --
+  -- Se compara sobre jsonb menos esa clave en vez de enumerar columnas: la lista se
+  -- desactualiza en cuanto alguien agrega un campo a `clients`, y el modo de fallar es
+  -- silencioso — dejaría de avisar de un campo nuevo sin que nada lo acuse.
+  IF to_jsonb(NEW) - 'updated_at' IS DISTINCT FROM to_jsonb(OLD) - 'updated_at' THEN
     FOR v_rec IN SELECT staff_id FROM public.notif_client_assigned(NEW.client_id)
     LOOP
       PERFORM public.notify_staff('client.updated', v_rec.staff_id,
@@ -2542,7 +2552,7 @@ END $$;
 DO $$
 BEGIN
   IF to_regprocedure('public.sync_user_role_from_category(uuid, text, text)') IS NOT NULL THEN
-    EXECUTE 'ALTER FUNCTION public.sync_user_role_from_category(uuid, text, text)'
+    EXECUTE 'ALTER FUNCTION public.sync_user_role_from_category(uuid, text, text)' ||
             ' SET "ems.role_change_source" = ''category''';
   ELSE
     RAISE NOTICE 'sync_user_role_from_category no existe: auth.role.changed no podra distinguir el cambio de categoria (falta 20260825000000_category_default_role_key.sql).';

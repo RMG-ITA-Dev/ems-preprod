@@ -1514,12 +1514,40 @@ GRANT EXECUTE ON FUNCTION public.mark_notification_email_result(uuid, boolean, t
 -- Cada 5 minutos es el compromiso entre latencia y ruido: el lote es de 50 y los envíos a Graph
 -- van en serie, así que una cadencia más fina se pisaría con la corrida anterior sin ganar nada
 -- (el `FOR UPDATE SKIP LOCKED` del claim lo tolera, pero no lo acelera).
+-- Primero se INSTALAN, porque un guard que se limita a mirar no alcanza. `pg_net` viene
+-- disponible pero NO instalado en un proyecto Supabase nuevo, y ninguna otra migración lo
+-- instala: sin esto, la primera pasada de `db push` sale por el `RETURN` de abajo, deja la
+-- migración registrada en `supabase_migrations.schema_migrations`, y habilitar la extensión
+-- después no sirve de nada — `db push` no reaplica lo ya registrado y el cron no queda nunca.
+-- El resultado es una bandeja que no se drena y ni un correo del catálogo, en silencio.
+--
+-- Mismo patrón defensivo que `cero_01` usa para `pg_cron`: se mira `pg_available_extensions`
+-- antes de intentar, y el intento va en su propio bloque porque en una base que no es la que
+-- el proveedor designa, `CREATE EXTENSION` falla y no debe tumbar la migración.
+DO $$
+BEGIN
+  FOR i IN 1..2 LOOP
+    DECLARE
+      v_ext text := (ARRAY['pg_net', 'supabase_vault'])[i];
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = v_ext)
+         AND EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = v_ext) THEN
+        EXECUTE format('CREATE EXTENSION IF NOT EXISTS %I', v_ext);
+        RAISE NOTICE 'Extension % instalada para el drenaje de correos.', v_ext;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE NOTICE 'No se pudo instalar % en esta base (%); se omite.', v_ext, SQLERRM;
+    END;
+  END LOOP;
+END $$;
+
 DO $$
 DECLARE
   v_falta text[] := ARRAY[]::text[];
 BEGIN
-  -- Mismo guard de existencia que el resto de los crons, ampliado a `pg_net` y al vault: en un
-  -- entorno sin esas extensiones —el harness SQL local, por ejemplo— no agenda y no rompe.
+  -- Y después se verifica. Si alguna sigue faltando —base sin ese paquete disponible, o el
+  -- harness SQL local— no se agenda y la migración no rompe, pero el aviso dice exactamente
+  -- qué falta y qué se pierde.
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')        THEN v_falta := v_falta || 'pg_cron'::text; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net')         THEN v_falta := v_falta || 'pg_net'::text; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'supabase_vault') THEN v_falta := v_falta || 'supabase_vault'::text; END IF;

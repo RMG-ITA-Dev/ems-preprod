@@ -8,7 +8,7 @@
 //
 // Contrato:
 //   Entrada: POST con el header `x-cron-secret`. Sin cuerpo.
-//   Salida:  { reclamados, enviados, fallidos, simulados }
+//   Salida:  { ok, reclamados, enviados, fallidos, simulados, sinCerrar }
 //
 // `verify_jwt = false` en config.toml: lo dispara un cron, que no tiene sesión. La autenticación
 // es el secreto compartido, y sin él no se toca la bandeja.
@@ -24,6 +24,8 @@ import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 /** Cuántos correos toma cada corrida. Graph limita la concurrencia por buzón; se envía en serie. */
 const LOTE = 50;
+/** Reintentos del cierre ante un corte transitorio entre Graph y PostgREST. */
+const INTENTOS_CIERRE = 3;
 
 type FilaBandeja = {
   email_id: string;
@@ -77,6 +79,36 @@ Deno.serve(async (req) => {
   let enviados = 0;
   let simulados = 0;
   let fallidos = 0;
+  /** Filas que quedaron en `sending` porque no se pudo escribir su resultado. */
+  const sinCerrar: string[] = [];
+
+  /**
+   * Graph ya pudo aceptar el correo cuando se llega a esta RPC. Reintentar el cierre evita que
+   * un fallo breve de PostgREST deje vencer el arriendo y convierta un envío único en duplicado.
+   */
+  const cerrarResultado = async (parametros: {
+    p_email_id: string;
+    p_ok: boolean;
+    p_error: string | null;
+  }) => {
+    let ultimoError: { message: string } | null = null;
+
+    for (let intento = 1; intento <= INTENTOS_CIERRE; intento++) {
+      const { error: errorCierre } = await supabase.rpc(
+        "mark_notification_email_result",
+        parametros,
+      );
+      if (!errorCierre) return null;
+
+      ultimoError = errorCierre;
+      console.error(
+        `[send-notification-emails] cierre ${intento}/${INTENTOS_CIERRE} de ${parametros.p_email_id} falló:`,
+        errorCierre.message,
+      );
+    }
+
+    return ultimoError;
+  };
 
   for (const fila of filas) {
     try {
@@ -95,11 +127,20 @@ Deno.serve(async (req) => {
         cuerpoHtml: correo.cuerpoHtml,
       });
 
-      await supabase.rpc("mark_notification_email_result", {
+      const errorCierre = await cerrarResultado({
         p_email_id: fila.email_id,
         p_ok: true,
         p_error: null,
       });
+
+      if (errorCierre) {
+        sinCerrar.push(fila.email_id);
+        console.error(
+          `[send-notification-emails] ${fila.type_key} (${fila.email_id}) se envio pero no se pudo cerrar; puede reenviarse al vencer el arriendo:`,
+          errorCierre.message,
+        );
+        continue;
+      }
 
       if (resultado.estado === "enviado") enviados++;
       else simulados++;
@@ -114,19 +155,40 @@ Deno.serve(async (req) => {
         detalle,
       );
 
-      await supabase.rpc("mark_notification_email_result", {
+      const errorCierre = await cerrarResultado({
         p_email_id: fila.email_id,
         p_ok: false,
         p_error: detalle.slice(0, 1000),
       });
+      if (errorCierre) {
+        // Acá el correo NO salió, así que la fila sin cerrar se recupera sola: al vencer el
+        // arriendo vuelve a la cola, que es justo lo que corresponde. Se registra igual para que
+        // el conteo de intentos no parezca saltear uno.
+        sinCerrar.push(fila.email_id);
+        console.error(
+          `[send-notification-emails] ${fila.type_key} (${fila.email_id}) fallo y tampoco se pudo registrar el fallo:`,
+          errorCierre.message,
+        );
+      }
       fallidos++;
     }
   }
 
-  const resumen = { reclamados: filas.length, enviados, fallidos, simulados };
+  const resumen = {
+    ok: sinCerrar.length === 0,
+    reclamados: filas.length,
+    enviados,
+    fallidos,
+    simulados,
+    // Se reporta aparte de `fallidos`: no es lo mismo "no se mandó" que "se mandó y no se pudo
+    // anotar". Lo segundo es lo que puede terminar en un correo repetido.
+    sinCerrar: sinCerrar.length,
+  };
   if (filas.length > 0) {
     console.log("[send-notification-emails]", JSON.stringify(resumen));
   }
 
-  return jsonResponse(resumen);
+  // No informar éxito cuando alguna fila quedó en `sending`: oculta un posible duplicado y
+  // hace que cron parezca sano aunque el cierre de la bandeja esté fallando.
+  return jsonResponse(resumen, sinCerrar.length > 0 ? 500 : 200);
 });
