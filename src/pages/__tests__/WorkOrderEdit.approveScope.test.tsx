@@ -125,6 +125,7 @@ vi.mock("@/hooks/mutations", () => ({
   useDeletePaymentPlan:       () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCollectionDate:    () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
   useSaveWorkOrderStaffing:   () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 

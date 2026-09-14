@@ -121,7 +121,12 @@ function dayOffset(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const completePlan: PaymentPlanInput = { wo_id: "wo-1", exchange_rate: null, payment_days: 30 };
+const completePlan: PaymentPlanInput = {
+  wo_id: "wo-1",
+  exchange_rate: null,
+  payment_days: 30,
+  exchange_rate_mode: "fijo",
+};
 
 function makeInstallment(overrides: Partial<PaymentInstallmentInput> = {}): PaymentInstallmentInput {
   return {
@@ -135,6 +140,8 @@ function makeInstallment(overrides: Partial<PaymentInstallmentInput> = {}): Paym
     percentage: 100,
     amount: 1000,
     status: "Pending",
+    invoice_exchange_rate: null,
+    payment_exchange_rate: null,
     ...overrides,
   };
 }

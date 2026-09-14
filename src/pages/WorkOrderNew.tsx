@@ -34,6 +34,7 @@ import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUps
 import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
+import { applyExchangeRateMode } from "@/lib/workOrderPaymentPlan";
 
 const WorkOrderNew = () => {
   const { t } = useTranslation();
@@ -115,6 +116,13 @@ const WorkOrderNew = () => {
   }, [selectedEngagementId, availableEngagements]);
 
   const selectedEngagement = availableEngagements?.find((e) => e.engagement_id === selectedEngagementId);
+
+  // Decision del operador 2026-09-10: el TC inicial del plan de pagos y el toggle
+  // Fijo/Variable quedan reservados solo al gerente DEL encargo (o admin) -- mismo
+  // criterio y mismo trigger de base de datos (wo_payment_plan_guard_exchange_rate)
+  // que WorkOrderEdit.tsx aplica para una OT existente.
+  const isEngagementManager = !!staffId && selectedEngagement?.manager_id === staffId;
+  const canEditPaymentPlan = isAdmin || isEngagementManager;
 
   // Check if selected engagement has a worksheet
   const { data: existingWorksheet } = useWorksheetByEngagementId(selectedEngagementId || undefined);
@@ -202,17 +210,30 @@ const WorkOrderNew = () => {
         }
       }
 
-      // Persist payment plan if any installments were configured
-      if (paymentInstallments.length > 0) {
+      // Persist payment plan if any installments were configured. canEditPaymentPlan
+      // guards against a non-manager somehow reaching this with installments != 0 (the
+      // section's own auto-init effect already requires it) -- defense in depth, same
+      // criterion as the DB trigger/RLS that would reject this write anyway.
+      if (paymentInstallments.length > 0 && canEditPaymentPlan) {
+        // MUST FIX review iteracion 23 #1 (codex): si se selecciono USD/USDT
+        // el tiempo suficiente para que el TC se autocompletara y despues se
+        // volvio a BOB antes de guardar, el TC quedaba en memoria -- la
+        // seccion oculta sus campos para BOB, pero no los limpia. Sin esto se
+        // persistia un exchange_rate/TC por cuota sin sentido en una OT en
+        // BOB. Mismo criterio de alcance de moneda (Decision #8 de
+        // plan_v2.md) ya aplicado en el resto del feature.
+        const mode = currency === "BOB" ? "fijo" : paymentPlan?.exchange_rate_mode ?? "fijo";
+        const exchangeRate = currency === "BOB" ? null : paymentPlan?.exchange_rate ?? null;
         const savedPlan = await upsertPaymentPlan.mutateAsync({
           wo_id: wo.wo_id,
-          exchange_rate: paymentPlan?.exchange_rate ?? null,
+          exchange_rate: exchangeRate,
           payment_days: paymentPlan?.payment_days ?? 30,
+          exchange_rate_mode: mode,
         });
         await batchUpsertInstallments.mutateAsync({
           planId: savedPlan.plan_id,
           woId: wo.wo_id,
-          installments: paymentInstallments,
+          installments: applyExchangeRateMode(mode, exchangeRate, paymentInstallments),
         });
       }
 
@@ -367,7 +388,12 @@ const WorkOrderNew = () => {
             paymentPlan={paymentPlan}
             paymentInstallments={paymentInstallments}
             isAdminDateEditable={false}
-            isStatusEditable={isAdmin || roleKey === "collections_analyst"}
+            // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
+            // lo que efectivamente pasa post-aprobacion -- una OT recien creada siempre esta
+            // Draft, asi que nunca son editables aca (evita ademas depender de un boton
+            // "Guardar" que WorkOrderForm no ofrece fuera de Draft/socioCorrecting).
+            isStatusEditable={false}
+            canEditPaymentPlan={canEditPaymentPlan}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
           />

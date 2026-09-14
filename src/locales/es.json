@@ -2,7 +2,17 @@
   "header": {
     "userPrefix": "Usuario:",
     "linkedToStaff": "Vinculado al personal:",
-    "notLinkedToStaff": "No vinculado a registro de personal"
+    "notLinkedToStaff": "No vinculado a registro de personal",
+    "exchangeRate": {
+      "unavailable": "Tipo de cambio no disponible",
+      "compra": "Bs {{value}}",
+      "venta": "Tipo de cambio de venta: Bs {{value}}",
+      "effectiveDate": "Vigente al {{date}}",
+      "status": {
+        "vigente": "Vigente",
+        "stale": "Último dato conocido (no es de hoy)"
+      }
+    }
   },
   "notFound": {
     "title": "¡Página no encontrada!",
@@ -345,6 +355,28 @@
     "compactFontHelp": "Usa fuente angosta en todas partes. Cuando está desactivado, la fuente angosta solo se usa en dispositivos móviles.",
     "allowedEmailDomain": "Dominio de Correo Permitido",
     "allowedEmailDomainHelp": "Solo los usuarios con este dominio de correo pueden registrarse. Dejar vacío para permitir cualquier dominio.",
+    "exchangeRateApiUrl": "URL del Microservicio de Tipo de Cambio",
+    "exchangeRateApiUrlPlaceholder": "https://tc-ruizmier-production.up.railway.app/api/v1/ruizmier-tc/tipo-cambio/oficial",
+    "exchangeRateApiUrlHelp": "Endpoint de TC Ruizmier (USD/BOB oficial BCB). Todavía no hay cron automático — usa \"Probar\" y luego \"Guardar\" para actualizar el dato que se muestra en el navbar.",
+    "exchangeRateApiUrlInvalid": "Ingresa una URL válida",
+    "exchangeRateApiUrlHttpsRequired": "La URL debe usar HTTPS",
+    "testConnection": "Probar",
+    "exchangeRateTestModalTitle": "Resultado de la prueba de tipo de cambio",
+    "exchangeRateTestCompra": "Compra: Bs {{value}}",
+    "exchangeRateTestVenta": "Venta: Bs {{value}}",
+    "exchangeRateTestEffectiveDate": "Fecha de vigencia: {{date}}",
+    "exchangeRateTestStatus": "Estado: {{value}}",
+    "exchangeRateTestChannel": "Canal: {{value}}",
+    "exchangeRateError": {
+      "unauthorized": "Tu sesión ya no es válida. Volvé a iniciar sesión e intentá de nuevo.",
+      "forbidden": "No tenés permiso para probar esta conexión.",
+      "missing_url": "Ingresá una URL antes de probar.",
+      "provider_error": "El servicio de tipo de cambio no respondió correctamente.",
+      "invalid_payload": "El servicio de tipo de cambio devolvió datos inesperados.",
+      "generic": "No se pudo probar la conexión. Intentá de nuevo."
+    },
+    "exchangeRateSaveAndSeed": "Guardar",
+    "exchangeRateSeeded": "URL guardada y tipo de cambio actualizado",
     "realizationLimit": "Límite de Realización (%)",
     "realizationLimitHelp": "Umbral para codificación por color: verde si R >= X%, rojo si R < X%",
     "skills": "Competencias",
@@ -1380,6 +1412,19 @@
     "paymentPlan": {
       "title": "Plan de Pagos",
       "exchangeRate": "Tipo de Cambio (BOB)",
+      "exchangeRateMode": "Modo de Tipo de Cambio",
+      "exchangeRateModeFijo": "Fijo",
+      "exchangeRateModeVariable": "Variable",
+      "invoiceExchangeRate": "TC Facturación",
+      "paymentExchangeRate": "TC Pago",
+      "currentBuyRateReference": "TC compra vigente: Bs {{value}}",
+      "currentBuyRateShort": "{{value}}",
+      "invoiceAmountBob": "≈ {{value}}",
+      "paymentAmountBob": "≈ {{value}}",
+      "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
+      "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
+      "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
+      "validationCannotRemoveInvoiced": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "paymentDays": "Días Hábiles de Pago",
       "numInstallments": "Número de Cuotas",
       "installmentNumber": "N°",

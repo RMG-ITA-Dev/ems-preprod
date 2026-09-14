@@ -2,7 +2,17 @@
   "header": {
     "userPrefix": "User:",
     "linkedToStaff": "Linked to staff:",
-    "notLinkedToStaff": "Not linked to staff record"
+    "notLinkedToStaff": "Not linked to staff record",
+    "exchangeRate": {
+      "unavailable": "Exchange rate unavailable",
+      "compra": "Bs {{value}}",
+      "venta": "Selling rate: Bs {{value}}",
+      "effectiveDate": "Effective {{date}}",
+      "status": {
+        "vigente": "Current",
+        "stale": "Last known value (not today's)"
+      }
+    }
   },
   "notFound": {
     "title": "Oops! Page not found",
@@ -345,6 +355,28 @@
     "compactFontHelp": "Uses narrow font everywhere. When off, narrow font is used only on mobile devices.",
     "allowedEmailDomain": "Allowed Email Domain",
     "allowedEmailDomainHelp": "Only users with this email domain can register. Leave empty to allow any domain.",
+    "exchangeRateApiUrl": "Exchange Rate Microservice URL",
+    "exchangeRateApiUrlPlaceholder": "https://tc-ruizmier-production.up.railway.app/api/v1/ruizmier-tc/tipo-cambio/oficial",
+    "exchangeRateApiUrlHelp": "TC Ruizmier endpoint (official BCB USD/BOB rate). No automatic cron yet — use \"Test\" then \"Save\" below to update the rate shown in the navbar.",
+    "exchangeRateApiUrlInvalid": "Enter a valid URL",
+    "exchangeRateApiUrlHttpsRequired": "The URL must use HTTPS",
+    "testConnection": "Test",
+    "exchangeRateTestModalTitle": "Exchange rate test result",
+    "exchangeRateTestCompra": "Buy: Bs {{value}}",
+    "exchangeRateTestVenta": "Sell: Bs {{value}}",
+    "exchangeRateTestEffectiveDate": "Effective date: {{date}}",
+    "exchangeRateTestStatus": "Status: {{value}}",
+    "exchangeRateTestChannel": "Channel: {{value}}",
+    "exchangeRateError": {
+      "unauthorized": "Your session is no longer valid. Sign in again and retry.",
+      "forbidden": "You don't have permission to test this connection.",
+      "missing_url": "Enter a URL before testing.",
+      "provider_error": "The exchange rate service did not respond correctly.",
+      "invalid_payload": "The exchange rate service returned unexpected data.",
+      "generic": "Could not test the connection. Please try again."
+    },
+    "exchangeRateSaveAndSeed": "Save",
+    "exchangeRateSeeded": "URL saved and exchange rate updated",
     "realizationLimit": "Realization Limit (%)",
     "realizationLimitHelp": "Threshold for color coding: green if R >= X%, red if R < X%",
     "skills": "Competencies",
@@ -1380,6 +1412,19 @@
     "paymentPlan": {
       "title": "Payment Schedule",
       "exchangeRate": "Exchange Rate (BOB)",
+      "exchangeRateMode": "Exchange Rate Mode",
+      "exchangeRateModeFijo": "Fixed",
+      "exchangeRateModeVariable": "Variable",
+      "invoiceExchangeRate": "Invoice Rate",
+      "paymentExchangeRate": "Payment Rate",
+      "currentBuyRateReference": "Current buy rate: Bs {{value}}",
+      "currentBuyRateShort": "{{value}}",
+      "invoiceAmountBob": "≈ {{value}}",
+      "paymentAmountBob": "≈ {{value}}",
+      "errorExchangeRateLocked": "This exchange rate is already locked and can no longer be changed.",
+      "errorInstallmentLocked": "This installment has already been invoiced and can no longer be changed or removed.",
+      "errorExchangeRateForbidden": "You don't have permission to change this exchange rate.",
+      "validationCannotRemoveInvoiced": "This installment has already been invoiced and can no longer be changed or removed.",
       "paymentDays": "Business Days to Pay",
       "numInstallments": "Number of Installments",
       "installmentNumber": "No.",

@@ -17,6 +17,10 @@
 -- client_legal_name ni ningún otro campo -- superficie mínima, más chica que la del selector.
 --
 
+-- Idempotente: mismo motivo que list_loggable_engagements() (20260831013000) -- posible
+-- prototipo manual previo en Dev 2.0.
+DROP FUNCTION IF EXISTS public.list_own_timer_engagement_labels(uuid[]);
+
 CREATE FUNCTION public.list_own_timer_engagement_labels(p_engagement_ids uuid[])
   RETURNS TABLE (
     engagement_id uuid,

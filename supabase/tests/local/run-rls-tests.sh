@@ -157,29 +157,81 @@ run supabase/migrations/20260825000000_category_default_role_key.sql
 # Ejercitado por rpc-0820-182-sync-user-role-from-category.sql.
 run supabase/migrations/20260825000100_authz_restore_legacy_app_role_mapping.sql
 
+# 0722-156 (Fase 1): tabla exchange_rate_history + seed EXCHANGE_RATE_API_URL. Sin
+# pg_cron/pg_net (scheduling diferido a un cron externo en Railway — ver plan_v2.md
+# Amendment 2026-09-04 parte 2). Ejercitado por rls-exchange-rate-history.sql.
+run supabase/migrations/20260905070913_0722-156_add_exchange_rate_history.sql
+
+# 0722-156b (Fase 2): TC fijo/variable por cuota en el plan de pagos de OT --
+# wo_payment_plan.exchange_rate_mode + wo_payment_installments.invoice_exchange_rate/
+# payment_exchange_rate, con freeze por trigger basado en status/approval_status
+# persistidos (BEFORE INSERT OR UPDATE, incl. el guard de transición legal de status) +
+# sync_wo_payment_installments() (delete de huérfanos + upsert del batch de cuotas en una
+# sola transacción, con validación de que las cuotas recibidas pertenezcan al plan_id
+# declarado). Consolidado en un solo archivo (revisiones posteriores de la misma Fase 2 se
+# editan aquí mismo, no en migraciones nuevas, mientras nada de esto se haya aplicado a un
+# Supabase real). Ejercitado por trigger-0722-156b-payment-exchange-rates.sql.
+run supabase/migrations/20260905172820_0722-156b_add_payment_exchange_rates.sql
+
+# 0722-156b (review iteración 6 #1 / iteración 8 #2 / iteración 9 #3 / iteración 12 #2 /
+# iteración 13 / iteración 14 #1): además del modelo de autorización del TC inicial
+# (solo el gerente del encargo o admin, con el token EXCHANGE_RATE_FORBIDDEN), agrega
+# trg_wo_payment_plan_sync_fixed_installments (AFTER UPDATE) -- cambiar el TC del plan
+# en modo Fijo no forzaba que las cuotas Pending ya guardadas lo siguieran; ahora se
+# re-sincronizan en cascada, en la misma transacción, sin depender de una 2da llamada
+# separada desde el frontend.
+# trg_wo_payment_plan_guard_exchange_rate solo corría BEFORE UPDATE -- un INSERT directo
+# podía crear un plan de pagos nuevo con TC/modo arbitrario para una OT ya aprobada o en
+# revisión, sin pasar por ninguna validación. Consolidada acá también la corrección de
+# sync_wo_payment_installments (validaba que un installment_id existente perteneciera a
+# p_plan_id, pero nunca que p_plan_id perteneciera realmente a p_wo_id -- RLS autoriza por
+# plan_id, no por la columna wo_id de la fila) -- vivía en un archivo aparte
+# (20260908160000) hasta que se fusionó acá el 2026-09-08 porque ninguna de las 2 se había
+# aplicado nunca a un Supabase real. También agrega el branch TG_OP = 'DELETE' (faltaba
+# por completo -- un DELETE directo del plan, con todas sus cuotas todavía Pending,
+# borraba en cascada el plan de una OT ya Aprobada sin ningún chequeo) y el trigger pasa
+# a BEFORE INSERT OR UPDATE OR DELETE. Ejercitado por
+# trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al final).
+run supabase/migrations/20260908150000_0722-156b_plan_insert_guard.sql
+
+# 0722-156b (review iteración 12 #1 / iteración 13 / iteración 14 #2): en modo fijo, el
+# chequeo de coincidencia con el TC del plan solo se evaluaba en UPDATE, nunca en un
+# INSERT real de cuota -- corregido. También agrega el rol collections_analyst/admin
+# exigido para capturar TC por cuota en modo Variable (token EXCHANGE_RATE_FORBIDDEN).
+# Ejercitado por trigger-0722-156b-payment-exchange-rates.sql (secciones agregadas al
+# final).
+run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
+
+# 0722-156b (review iteración 15/16, greptile + codex): senior_partner/partner nunca
+# debieron tener work_order.create -- el seed cero_13 ya se corrigió para una
+# instalación nueva, pero un ambiente donde ese seed ya corrió antes de la corrección
+# conserva esas 2 filas. DELETE forward-only, no depende de un paso manual por ambiente.
+run supabase/migrations/20260910100000_0722-156b_revoke_wo_create_partner_senior_partner.sql
+
 # Notificaciones: un archivo por CAPA, y en este orden.
-#   01 catalogo     tablas, notify_staff() como porton unico, los 13 contadores,
-#                   get_my_notifications(), la vista legacy con seen_at, RLS y grants.
-#   02 seed         GENERADO por tools/parse-matriz-notificaciones.py. Va segundo por la FK
+#   01 catalogo     tablas, notify_staff() como porton unico, los contadores,
+#                   get_my_notifications(), la bandeja de salida de correos, el drenaje,
+#                   la vista legacy con seen_at, RLS y grants.
+#   02 seed         archivo generado desde la matriz de notificaciones. Va segundo por la FK
 #                   a notification_types (y a authorization_roles, de cero_13).
 #   03 disparadores los emisores de los modulos con triggers: Fondos, Ordenes de Trabajo,
 #                   Encargos, Tiempos (timesheets/aprobaciones/tracker), Cuentas/Auth
-#                   (cuentas, personal y competencias), Clientes y Hojas de Trabajo. Sin los
-#                   tipos sembrados, notify_staff los descarta en silencio, asi que va
-#                   despues del seed.
-# Ejercitado por rpc-notificaciones-fase1.sql (los 18 grupos).
+#                   (cuentas, personal y competencias), Clientes y Hojas de Trabajo, mas los
+#                   recordatorios periodicos. Sin los tipos sembrados, notify_staff los
+#                   descarta en silencio, asi que va despues del seed.
+# Ejercitado por rpc-notificaciones-fase1.sql y rpc-notificaciones-correos.sql.
 run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
 run supabase/migrations/20260911100100_notificaciones_02_seed.sql
 run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql
 
-# Throttle de los correos de cuenta. Va con la migracion de correos: desde que los correos de
-# cuenta salen por Microsoft Graph, GoTrue ya no cuenta ninguno, y este es el freno que lo
-# reemplaza para el formulario publico de "olvide mi contrasena".
-run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
-
 # Fix del numerador de solicitudes de fondos (lpad truncando). NO es de notificaciones: se
 # encontro probando ese flujo y vive aparte para poder revertirse por separado.
 run supabase/migrations/20260911100500_fund_request_number_lpad.sql
+
+# Throttle de los correos de cuenta. Desde que los correos de cuenta salen por Microsoft
+# Graph, GoTrue ya no cuenta ninguno, y este es el freno que lo reemplaza para el formulario
+# publico de "olvide mi contrasena".
+run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
@@ -222,8 +274,10 @@ assert_suite supabase/tests/rls-0828-186-loggable-engagements-rpc.sql 'LOGGABLE 
 assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TIMER ENGAGEMENT LABELS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY RLS: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED'
-assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185 y notificaciones Fase 1 aplicadas sobre base scratch; las 17 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y notificaciones/correos aplicadas sobre base scratch; las 19 suites de RLS/RPC/schema-convergence/trigger pasaron"

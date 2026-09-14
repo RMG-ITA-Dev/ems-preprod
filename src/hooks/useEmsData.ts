@@ -181,6 +181,8 @@ export interface WOPaymentInstallment {
   percentage: number;
   amount: number | null;
   status: string;
+  invoice_exchange_rate: number | null;
+  payment_exchange_rate: number | null;
 }
 
 export interface WOPaymentPlan {
@@ -188,6 +190,7 @@ export interface WOPaymentPlan {
   wo_id: string;
   exchange_rate: number | null;
   payment_days: number;
+  exchange_rate_mode: string;
   installments?: WOPaymentInstallment[];
 }
 
@@ -842,7 +845,7 @@ export function useWorkOrderById(id: string) {
         .eq('wo_id', id)
         .maybeSingle();
       if (error) throw error;
-      return data as WorkOrder | null;
+      return data as unknown as WorkOrder | null;
     },
     enabled: !!id,
   });

@@ -438,8 +438,6 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('ita_manager', 'work_order.read', 'assigned_engagements'),
   ('tax_manager', 'work_order.read', 'assigned_engagements'),
   ('admin', 'work_order.create', 'firm'),
-  ('senior_partner', 'work_order.create', 'firm'),
-  ('partner', 'work_order.create', 'assigned_engagements'),
   ('manager', 'work_order.create', 'assigned_engagements'),
   ('ita_manager', 'work_order.create', 'assigned_engagements'),
   ('tax_manager', 'work_order.create', 'assigned_engagements'),
