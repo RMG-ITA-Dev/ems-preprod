@@ -17,7 +17,7 @@ const passwordSchema = z.string()
 const ResetPassword = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { updatePassword, session } = useAuth();
+  const { updatePassword, session, loading: sessionLoading } = useAuth();
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,6 +60,18 @@ const ResetPassword = () => {
       setLoading(false);
     }
   };
+
+  // Llegando desde el enlace del correo, la sesión todavía no existe: supabase-js tiene que leer
+  // el código de la URL y canjearlo contra el servidor, y eso es un viaje de red. Mientras dura,
+  // `session` es null — que no es lo mismo que "el enlace no sirve". Mostrar ahí la pantalla de
+  // enlace inválido manda al usuario de vuelta a /auth con un enlace que estaba perfecto.
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!isValidSession) {
     return (
