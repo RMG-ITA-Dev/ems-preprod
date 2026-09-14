@@ -192,6 +192,40 @@ Deno.serve(async (req) => {
     // estado inicial, así que el reintento vuelve a ser un registro normal.
     if (error instanceof FalloDeEnvio) {
       if (error.usuarioId) {
+        // DOS PASOS, y en este orden.
+        //
+        // Crear la cuenta dejó rastro fuera de `auth`: handle_new_user() escribió una fila en
+        // `user_roles`, y el trigger de notificaciones emitió un `auth.user.registered` a cada
+        // ADM con su correo encolado. Si se borra la cuenta sin limpiar eso, el CASCADE de
+        // `user_roles.user_id` dispara un `auth.account.deleted` a Seguridad TI: una alarma de
+        // baja de cuenta por un 503 de Graph, y los ADM avisados de un alta que ya no existe.
+        //
+        // `rollback_unconfirmed_signup` borra ese rastro dentro de UNA transacción, que es la
+        // única forma de que el marcador que silencia al trigger sea visible: es
+        // transaction-local, y esta llamada viaja por otra conexión que el deleteUser de abajo.
+        const { data: limpieza, error: errorLimpieza } = await supabaseAdmin.rpc(
+          "rollback_unconfirmed_signup",
+          { p_user_id: error.usuarioId },
+        );
+
+        if (errorLimpieza) {
+          // No se corta: una cuenta trancada es peor que una alarma de más, así que el borrado
+          // sigue igual y lo que queda es ruido que alguien puede descartar.
+          console.error(
+            "[register-user] no se pudo limpiar el rastro del alta; el borrado va a generar un aviso de baja:",
+            errorLimpieza.message,
+          );
+        } else if (limpieza && (limpieza as { ok?: boolean }).ok === false) {
+          // La guarda de la RPC. `ACCOUNT_CONFIRMED` no debería pasar nunca acá — la cuenta se
+          // creó en esta misma llamada y nadie pudo confirmarla — pero si pasa, hay una cuenta
+          // en uso de por medio y no se toca.
+          console.error(
+            "[register-user] la limpieza se nego:",
+            (limpieza as { reason?: string }).reason,
+          );
+          return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
+        }
+
         const { error: errorBorrado } = await supabaseAdmin.auth.admin.deleteUser(
           error.usuarioId,
         );

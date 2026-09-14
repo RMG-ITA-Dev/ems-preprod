@@ -1566,6 +1566,19 @@ BEGIN
 
   -- ── Eliminación de cuenta: sólo Seguridad TI (la matriz no se lo da al ADM) ──
   IF TG_OP = 'DELETE' THEN
+    -- Salvo que sea un alta que se está deshaciendo. `register-user` borra la cuenta que acaba
+    -- de crear cuando el correo de confirmación no sale, y ese borrado llega hasta acá por el
+    -- CASCADE de user_roles.user_id -> auth.users. Avisarle a Seguridad TI de una "cuenta
+    -- eliminada" por un 503 de Microsoft Graph es una alarma falsa, y las alarmas falsas en un
+    -- canal de seguridad se pagan con que dejen de mirarse.
+    --
+    -- El marcador lo pone rollback_unconfirmed_signup() con `set_config(..., true)`: es
+    -- transaction-local, así que no puede quedarse pegado ni filtrarse a otra sesión del pool.
+    -- Mismo mecanismo que `ems.role_change_source` (ver notif_origen_cambio_rol).
+    IF COALESCE(current_setting('ems.account_rollback', true), '') = '1' THEN
+      RETURN NULL;
+    END IF;
+
     FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['it_security_manager'])
     LOOP
       PERFORM public.notify_staff('auth.account.deleted', v_rec.staff_id,
@@ -1614,12 +1627,108 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_user_account_events() IS
-  'FASE 3.e: alta de cuenta, cambio de rol y eliminacion, leidos desde public.user_roles y no desde auth.users (D-34). El cambio de rol va al afectado con context=own y a la auditoria (ADM + Seguridad TI) sin duplicar. Degrada a WARNING.';
+  'FASE 3.e: alta de cuenta, cambio de rol y eliminacion, leidos desde public.user_roles y no desde auth.users (D-34). El cambio de rol va al afectado con context=own y a la auditoria (ADM + Seguridad TI) sin duplicar. El borrado NO avisa si ems.account_rollback = 1 (alta deshecha, no baja real). Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_user_account ON public.user_roles;
 CREATE TRIGGER tr_notify_user_account
   AFTER INSERT OR UPDATE OR DELETE ON public.user_roles
   FOR EACH ROW EXECUTE FUNCTION public.notify_user_account_events();
+
+-- ---------------------------------------------------------------------
+-- A.2) Deshacer un alta que quedó a medias
+-- ---------------------------------------------------------------------
+--
+-- `generateLink({ type: "signup" })` crea la cuenta ANTES de que haya nada que mandar, así que
+-- si Microsoft Graph falla queda una cuenta sin confirmar y sin correo. `register-user` la borra
+-- (ver `FalloDeEnvio` en `_shared/correo-auth.ts`), y ese borrado no es gratis: el alta ya dejó
+-- rastro en tres lugares.
+--
+--   1. `user_roles`, que lo escribe handle_new_user() en el INSERT de auth.users;
+--   2. una notificación `auth.user.registered` para cada ADM, que el trigger de arriba emitió
+--      en ese mismo INSERT;
+--   3. el correo de esa notificación, encolado en notification_emails.
+--
+-- Sin limpiar eso, deshacer el alta produce MÁS ruido que dejarla: el borrado de `user_roles`
+-- por CASCADE dispara `auth.account.deleted` a Seguridad TI, y los ADM se quedan con un aviso
+-- de que se registró alguien que ya no existe — con su correo en camino.
+--
+-- Esta función deshace las tres cosas en UNA transacción, que es la única forma de que el
+-- marcador `ems.account_rollback` sea visible para el trigger: `set_config(..., true)` es
+-- transaction-local, y la llamada a `auth.admin.deleteUser()` de la edge function viaja por otra
+-- conexión. Por eso la fila de `user_roles` se borra ACÁ y no se deja para el CASCADE.
+--
+-- La cuenta en sí la sigue borrando GoTrue por su API de admin: `auth` es suyo, y un DELETE
+-- directo sobre `auth.users` desde acá se salteariía su propia contabilidad.
+DROP FUNCTION IF EXISTS public.rollback_unconfirmed_signup(uuid);
+
+CREATE FUNCTION public.rollback_unconfirmed_signup(p_user_id uuid)
+    RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_confirmado boolean;
+  v_avisos     uuid[];
+  v_correos    integer := 0;
+  v_roles      integer := 0;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
+  END IF;
+
+  -- GUARDA. Esto solo puede tocar una cuenta que nunca se confirmo. Es service_role y hoy la
+  -- llama un unico sitio, pero el costo de equivocarse es borrarle el acceso a alguien que lo
+  -- estaba usando, asi que la condicion se verifica aca y no se confia en quien llama.
+  BEGIN
+    SELECT u.email_confirmed_at IS NOT NULL INTO v_confirmado
+      FROM auth.users u WHERE u.id = p_user_id;
+  EXCEPTION WHEN OTHERS THEN
+    -- El harness local monta un `auth` minimo. Ahi no hay nada que proteger.
+    v_confirmado := NULL;
+  END;
+
+  IF v_confirmado THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'ACCOUNT_CONFIRMED');
+  END IF;
+
+  -- Transaction-local: vale para todo lo que siga en ESTA transaccion y para nada mas.
+  PERFORM set_config('ems.account_rollback', '1', true);
+
+  -- Los avisos de alta que el trigger emitio a los ADM. Se buscan por `payload->>'user_id'` y
+  -- no por `entity_id`, que en un alta es el user_id pero pasaria a ser el staff_id si alguna
+  -- vez la ficha llegara a estar vinculada a tiempo.
+  SELECT COALESCE(array_agg(notification_id), ARRAY[]::uuid[]) INTO v_avisos
+    FROM public.notifications
+   WHERE type_key = 'auth.user.registered'
+     AND payload->>'user_id' = p_user_id::text;
+
+  -- El correo primero: solo lo que TODAVIA no salio. Un correo ya enviado es un hecho y su fila
+  -- es el registro de ese hecho — borrarla no lo desmiente, solo esconde que paso.
+  DELETE FROM public.notification_emails
+   WHERE notification_id = ANY (v_avisos)
+     AND status IN ('pending', 'failed');
+  GET DIAGNOSTICS v_correos = ROW_COUNT;
+
+  DELETE FROM public.notifications WHERE notification_id = ANY (v_avisos);
+
+  -- Y la fila que dispara el CASCADE. Borrarla aca, con el marcador puesto, es lo que evita el
+  -- `auth.account.deleted` cuando despues GoTrue borre la cuenta: para entonces ya no queda
+  -- nada que cascadear.
+  DELETE FROM public.user_roles WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_roles = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true,
+                            'notificaciones', COALESCE(array_length(v_avisos, 1), 0),
+                            'correos', v_correos,
+                            'roles', v_roles);
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.rollback_unconfirmed_signup(uuid) IS
+  'Deshace el rastro en public de un alta que quedo a medias (el correo de confirmacion no salio): borra los avisos auth.user.registered, sus correos sin enviar y la fila de user_roles, con ems.account_rollback puesto para que el trigger no reporte una baja de cuenta a Seguridad TI. Rechaza cuentas ya confirmadas. La cuenta en auth la borra GoTrue por su API.';
+
+REVOKE ALL ON FUNCTION public.rollback_unconfirmed_signup(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.rollback_unconfirmed_signup(uuid) TO service_role;
 
 -- =====================================================================
 -- C) staff — alta, baja y bloqueo de cuenta

@@ -2021,8 +2021,10 @@ DO $$
 DECLARE
   v_new     uuid := '59f00000-0000-4000-8000-00000000000d';
   v_newuser uuid := 'a9f00000-0000-4000-8000-00000000000d';
+  v_pending uuid := 'a9f00000-0000-4000-8000-00000000000e';  -- alta sin confirmar
   v_n       int;
   v_prev    int;
+  v_res     jsonb;
   c_adm   constant uuid := '59f00000-0000-4000-8000-000000000006';
   c_itsec constant uuid := '59f00000-0000-4000-8000-00000000000c';
   c_hr    constant uuid := '59f00000-0000-4000-8000-00000000000a';
@@ -2193,6 +2195,93 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el ADM recibio la eliminacion, y la matriz se la da solo a Seguridad TI';
   END IF;
   RAISE NOTICE 'PASS - la eliminacion de cuenta es la unica fila donde el ADM queda afuera';
+
+  -- 13.f.2 DESHACER UN ALTA NO ES UNA BAJA.
+  --
+  -- register-user borra la cuenta que acaba de crear cuando Microsoft Graph no logra mandar la
+  -- confirmacion. Ese borrado llega a user_roles por el CASCADE de auth.users, o sea por el
+  -- mismo camino que una baja de verdad — y sin distinguirlos, un 503 de Graph le dispara a
+  -- Seguridad TI una alarma de cuenta eliminada. Las alarmas falsas en un canal de seguridad se
+  -- pagan con que dejen de mirarse.
+  DELETE FROM public.notifications;
+  DELETE FROM public.notification_emails;
+
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    -- SIN confirmar: es la condicion que la RPC exige para tocar nada.
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    VALUES (v_pending, '00000000-0000-0000-0000-000000000000', 'authenticated',
+            'authenticated', 'notif-test-e@ruizmier.com', 'x', NULL, now(), now(),
+            '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+  INSERT INTO public.user_roles (user_id, role, role_key)
+  VALUES (v_pending, 'staff', 'assistant');
+
+  -- El alta dejo rastro: el aviso al ADM. Es lo que hay que limpiar.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.user.registered' AND payload->>'user_id' = v_pending::text;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el fixture del alta sin confirmar no genero el aviso (hubo %)', v_n;
+  END IF;
+
+  v_res := public.rollback_unconfirmed_signup(v_pending);
+  IF (v_res->>'ok')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'TEST FAIL - rollback_unconfirmed_signup se nego: %', v_res;
+  END IF;
+
+  -- LA ASERCION QUE IMPORTA: ninguna alarma de baja.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.account.deleted';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - deshacer un alta reporto una baja de cuenta a Seguridad TI';
+  END IF;
+
+  -- Y el rastro del alta se fue con ella: el ADM no queda avisado de un registro que ya no
+  -- existe, ni le sale el correo.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.user.registered' AND payload->>'user_id' = v_pending::text;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - quedo el aviso de alta de una cuenta deshecha (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'auth.user.registered' AND status IN ('pending', 'failed');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - quedo encolado el correo del alta deshecha (hubo %)', v_n;
+  END IF;
+
+  -- Y la fila que dispara el CASCADE, para que el deleteUser posterior no tenga que borrarla.
+  SELECT COUNT(*) INTO v_n FROM public.user_roles WHERE user_id = v_pending;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de user_roles sobrevivio al rollback';
+  END IF;
+  RAISE NOTICE 'PASS - deshacer un alta sin confirmar no alarma a Seguridad TI ni deja rastro';
+
+  -- 13.f.3 La guarda: una cuenta YA CONFIRMADA no se toca. Hoy la RPC la llama un solo sitio y
+  -- con una cuenta recien creada, pero el costo de equivocarse es sacarle el acceso a alguien
+  -- que lo estaba usando, asi que la condicion se verifica en la funcion.
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    DELETE FROM public.notifications;
+    INSERT INTO public.user_roles (user_id, role, role_key)
+    VALUES (v_newuser, 'staff', 'assistant')
+    ON CONFLICT DO NOTHING;
+
+    -- v_newuser se creo en 13.d con email_confirmed_at = now().
+    v_res := public.rollback_unconfirmed_signup(v_newuser);
+    IF (v_res->>'ok')::boolean IS NOT FALSE OR v_res->>'reason' <> 'ACCOUNT_CONFIRMED' THEN
+      RAISE EXCEPTION 'TEST FAIL - el rollback acepto una cuenta ya confirmada: %', v_res;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.user_roles WHERE user_id = v_newuser;
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - el rollback borro el rol de una cuenta confirmada';
+    END IF;
+    RAISE NOTICE 'PASS - el rollback se niega sobre una cuenta ya confirmada';
+
+    -- Se limpia el fixture sin dejar el aviso de baja dando vueltas en el grupo siguiente.
+    DELETE FROM public.user_roles WHERE user_id = v_newuser;
+    DELETE FROM public.notifications;
+  END IF;
 
   -- 13.g Competencias: dos tipos distintos (D-03), solo al afectado.
   DELETE FROM public.notifications;
