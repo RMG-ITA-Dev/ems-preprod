@@ -1,6 +1,5 @@
--- GENERADO por tools/parse-matriz-notificaciones.py desde docs/matriz-notificaciones.md.
--- No editar a mano: volve a correr el parser. Idempotente.
--- Conteos objetivo: 75 tipos, 462 concesiones rol x tipo.
+-- Seed del catalogo de notificaciones: 75 tipos, 462 concesiones rol x tipo.
+-- Archivo generado a partir de la matriz de notificaciones. Idempotente.
 
 insert into public.notification_types
   (type_key, module_key, label_key, delivery, display_order, is_active, email_enabled) values

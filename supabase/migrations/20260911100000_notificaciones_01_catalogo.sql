@@ -1,9 +1,9 @@
 --
 -- NOTIFICACIONES 01 — catálogo, lectura y contadores.
 --
--- Espejo deliberado del catálogo de autorización (cero_13): la matriz de negocio vive en
--- `docs/matriz-notificaciones.md`, `tools/parse-matriz-notificaciones.py` la convierte en el
--- seed (archivo 02), y una sola función-portón decide quién recibe qué. Igual que nadie
+-- Espejo deliberado del catálogo de autorización (cero_13): la matriz de negocio se mantiene
+-- fuera del código y se convierte en el seed (archivo 02), y una sola función-portón decide
+-- quién recibe qué. Igual que nadie
 -- escribe `role IN (...)` en una policy porque existe has_permission(), nadie debe decidir
 -- destinatarios a mano en un trigger: para eso está notify_staff().
 --
@@ -58,11 +58,11 @@ ALTER TABLE public.notification_types
   ADD COLUMN IF NOT EXISTS email_enabled boolean NOT NULL DEFAULT false;
 
 COMMENT ON TABLE public.notification_types IS
-  'Catálogo de tipos de notificación. GENERADO desde docs/matriz-notificaciones.md por tools/parse-matriz-notificaciones.py — no editar filas a mano.';
+  'Catálogo de tipos de notificación. Las filas las siembra la migración 02, que es un archivo generado: no editarlas a mano.';
 COMMENT ON COLUMN public.notification_types.delivery IS
   'event = una fila por suceso en public.notifications; aggregate = contador calculado al vuelo, nunca se persiste; email = solo correo, sin fila en la campana (los recordatorios periodicos).';
 COMMENT ON COLUMN public.notification_types.email_enabled IS
-  'Si el tipo ademas sale por correo. GENERADO desde la columna CORREO de docs/matriz-notificaciones.md (D-44). Independiente de delivery: un event puede mandar los dos, y un email solo correo.';
+  'Si el tipo ademas sale por correo (D-44). Independiente de delivery: un event puede mandar los dos, y un email solo correo.';
 COMMENT ON COLUMN public.notification_types.label_key IS
   'Clave i18n: notifications.types.<type_key>, en src/locales/{es,en}.json.';
 
@@ -84,7 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_role_types_type
   ON public.notification_role_types (type_key);
 
 COMMENT ON TABLE public.notification_role_types IS
-  'Matriz rol x tipo de notificación (una fila = una concesión). GENERADA desde docs/matriz-notificaciones.md — no editar a mano.';
+  'Matriz rol x tipo de notificación (una fila = una concesión). Las siembra la migración 02, que es un archivo generado: no editarlas a mano.';
 COMMENT ON COLUMN public.notification_role_types.scope_key IS
   'Qué registros disparan la notificación para ese rol. Lo consume el disparador de cada módulo; notify_staff() no lo evalúa.';
 

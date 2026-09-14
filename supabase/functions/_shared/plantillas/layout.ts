@@ -12,7 +12,7 @@
  * de sistema quiere saber qué pasó y qué tiene que hacer, en ese orden.
  */
 
-const NOMBRE_SISTEMA = "EMS — Ruizmier";
+const NOMBRE_SISTEMA = "EMS 2.0 - Ruizmier";
 const PIE = "Mensaje automático. No responda a esta dirección.";
 
 /** Lo que define cada plantilla. El resto del mensaje es común. */
@@ -89,7 +89,7 @@ export function construirCuerpos(
     ...(vence ? [VENCIMIENTO] : []),
     ...(copia.cierre ? [copia.cierre] : []),
     "",
-    `— ${NOMBRE_SISTEMA}`,
+    `- ${NOMBRE_SISTEMA}`,
     PIE,
   ].join("\n");
 
@@ -130,7 +130,7 @@ export function construirCuerpos(
         : ""}
       <hr style="border:none;border-top:1px solid #e4e7eb;margin:24px 0;" />
       <p style="margin:0;font-size:12px;color:#7b8794;">
-        ${escaparHtml(NOMBRE_SISTEMA)} — ${escaparHtml(PIE)}
+        ${escaparHtml(NOMBRE_SISTEMA)} - ${escaparHtml(PIE)}
       </p>
     </div>
   </body>
