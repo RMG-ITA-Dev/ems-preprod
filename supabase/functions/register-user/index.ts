@@ -16,6 +16,12 @@
 //            { ok: false, code: "INVALID_EMAIL" | "INVALID_PASSWORD" | "INVALID_NAME"
 //                               | "INVALID_DOMAIN" | "INVALID_REQUEST" | "INTERNAL_ERROR" }
 //
+// Si el correo no sale, el alta SE DESHACE. `generateLink` crea la cuenta antes de que haya nada
+// que mandar, así que un fallo de Graph dejaba una cuenta sin confirmar y sin correo — y el
+// reintento del usuario caía en la rama de "ya tenés cuenta", que le dice que ingrese o
+// restablezca la contraseña, cosas que una cuenta sin confirmar no puede hacer. Quedaba trancado
+// hasta que un admin la borrara. Ver `FalloDeEnvio` en `_shared/correo-auth.ts`.
+//
 // Un correo que YA tiene cuenta devuelve exactamente la misma respuesta que un alta exitosa, y
 // no un error. Es deliberado: responder distinto convertiría el formulario de registro en un
 // detector de usuarios — se prueban direcciones hasta ver cuál contesta distinto. Quien se
@@ -29,7 +35,7 @@
 // `verify_jwt = false` en config.toml: quien se registra todavía no tiene cuenta.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
+import { FalloDeEnvio, generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
 import { renderizarCorreoCuentaExistente } from "../_shared/plantillas/cuenta.ts";
 import { enviarCorreo } from "../_shared/mail-graph.ts";
 
@@ -78,9 +84,15 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  // De donde salen los enlaces de los correos que manda esta funcion. Es un secreto del
+  // proyecto y NO el header `Origin` de la peticion: este endpoint es publico, con CORS `*` y
+  // sin JWT, asi que `Origin` lo elige quien llama. Tomarlo de ahi convertiria el buzon
+  // institucional en un emisor de correos de marca con el boton apuntando a donde quiera el
+  // atacante. Mismo secreto que usan dashboard-data, scheduler-data y send-notification-emails.
+  const FRONTEND_URL = Deno.env.get("FRONTEND_URL")?.replace(/\/+$/, "");
 
-  if (!SUPABASE_URL || !SERVICE_ROLE) {
-    console.error("[register-user] Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
+  if (!SUPABASE_URL || !SERVICE_ROLE || !FRONTEND_URL) {
+    console.error("[register-user] Falta SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY o FRONTEND_URL.");
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
   }
 
@@ -128,10 +140,12 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, code: "INVALID_DOMAIN" }, 400);
   }
 
-  const origen = req.headers.get("origin");
+  // `body.redirectTo` sigue viniendo del cliente, pero no se cuela a ningun correo armado por
+  // nosotros: viaja a `generateLink`, y GoTrue lo valida contra su allowlist de redirects
+  // (Site URL + Additional Redirect URLs) antes de usarlo. El default sale de FRONTEND_URL.
   const redirectTo = typeof body.redirectTo === "string" && body.redirectTo
     ? body.redirectTo
-    : `${origen ?? SUPABASE_URL}/`;
+    : `${FRONTEND_URL}/`;
 
   // El mismo freno que la recuperación: un alta también manda un correo, y un endpoint público
   // que manda correos sin tope es un amplificador contra la casilla de cualquiera.
@@ -167,13 +181,48 @@ Deno.serve(async (req) => {
   } catch (error) {
     const detalle = error instanceof Error ? error.message : String(error);
 
+    // El alta quedó a medias: `generateLink({ type: "signup" })` YA CREÓ la cuenta y el correo
+    // no salió. Sin deshacerla, el usuario queda trancado y no puede destrancarse solo — su
+    // reintento cae en la rama de "ya tenés cuenta" de más abajo, que manda un mensaje diciendo
+    // que ingrese o restablezca la contraseña, y ninguna de las dos cosas funciona en una cuenta
+    // sin confirmar. Hacía falta un admin para borrarla a mano.
+    //
+    // Borrarla es seguro justamente porque se creó en ESTA llamada, hace milisegundos: nunca se
+    // confirmó, nadie inició sesión con ella, no tiene nada colgando. Y devuelve el alta a su
+    // estado inicial, así que el reintento vuelve a ser un registro normal.
+    if (error instanceof FalloDeEnvio) {
+      if (error.usuarioId) {
+        const { error: errorBorrado } = await supabaseAdmin.auth.admin.deleteUser(
+          error.usuarioId,
+        );
+        if (errorBorrado) {
+          // Es el único camino que deja el problema original en pie, así que se registra con
+          // el id: destrancar la cuenta pasa a necesitar un admin.
+          console.error(
+            `[register-user] no se pudo deshacer el alta a medias de ${error.usuarioId}; queda una cuenta sin confirmar:`,
+            errorBorrado.message,
+          );
+        } else {
+          console.log("[register-user] alta deshecha tras fallar el envio; el reintento sirve.");
+        }
+      } else {
+        console.error("[register-user] fallo el envio y GoTrue no devolvio el id de la cuenta.");
+      }
+
+      // 500 y no `respuestaCiega()`: que el correo no salga no depende de si la dirección
+      // existía, así que decirlo no filtra nada, y una pantalla de "revisá tu casilla" sobre un
+      // correo que nunca se mandó es peor que un error.
+      console.error("[register-user] fallo el envio del alta:", detalle);
+      return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
+    }
+
     if (esCorreoYaRegistrado(detalle)) {
       // Se le avisa por correo, no por la respuesta. El cupo ya se consumió, y eso es a
       // propósito: si probar una dirección registrada saliera gratis, el throttle no frenaría
       // el barrido.
       console.log("[register-user] el correo ya tiene cuenta; se avisa por correo.");
       const aviso = renderizarCorreoCuentaExistente({
-        urlApp: `${origen ?? SUPABASE_URL}/auth`,
+        urlApp: `${FRONTEND_URL}/auth`,
         nombre: firstName,
       });
       try {

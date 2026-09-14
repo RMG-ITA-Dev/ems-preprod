@@ -442,6 +442,71 @@ BEGIN
   RAISE NOTICE 'PASS — los contadores están gateados por la misma matriz que los eventos';
 END $$;
 
+-- ── Grupo 3b — el SECURITY DEFINER no es un endpoint público ────────────────
+--
+-- El Grupo 3 prueba que el helper VE lo que la RLS le esconde al usuario. Este prueba lo
+-- otro: que el usuario no puede llamarlo. Las dos mitades juntas son el diseño; sólo la
+-- primera es una fuga, y fue exactamente el estado del módulo hasta este PR:
+-- `engagement_approval_bucket` contestaba código y nombre de encargo a cualquiera que
+-- mandara un staff_id ajeno por /rest/v1/rpc/ con la anon key.
+--
+-- Se mira `has_function_privilege` y no se intenta la llamada: el harness corre como DUEÑO
+-- de las funciones, así que un `SELECT engagement_approval_bucket(...)` acá pasaría siempre
+-- y no probaría nada. El privilegio del rol es el dato, no el resultado de la llamada.
+DO $$
+DECLARE
+  r record;
+  v_abiertos text;
+BEGIN
+  -- Ningún helper del módulo puede ser ejecutado por el cliente. El barrido es por catálogo
+  -- a propósito: una lista escrita a mano no atrapa el contador que alguien agregue mañana,
+  -- que es justo como nació este bug.
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+    INTO v_abiertos
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.prosecdef
+     AND p.prorettype <> 'pg_catalog.trigger'::regtype
+     AND (p.proname LIKE 'notif\_%' OR p.proname = 'engagement_approval_bucket')
+     AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       OR has_function_privilege('anon', p.oid, 'EXECUTE'));
+
+  IF v_abiertos IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL — helpers ejecutables desde el cliente (PostgREST los publica): %',
+      v_abiertos;
+  END IF;
+  RAISE NOTICE 'PASS — ningún helper del módulo es ejecutable por anon ni authenticated';
+
+  -- El caso nombrado, aparte del barrido: es el que filtraba nombres de encargo y el que hay
+  -- que ver fallar si alguien recrea la función sin el REVOKE.
+  IF has_function_privilege('authenticated', 'public.engagement_approval_bucket(uuid, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL — engagement_approval_bucket volvió a quedar expuesta a authenticated';
+  END IF;
+  RAISE NOTICE 'PASS — engagement_approval_bucket cerrada';
+
+  -- El reverso: cerrar de más deja el panel en blanco, y eso no lo acusa ninguna de las
+  -- aserciones de arriba porque el harness corre como dueño.
+  FOR r IN
+    SELECT unnest(ARRAY[
+      'public.get_my_notifications(integer)',
+      'public.get_my_notification_aggregates()',
+      'public.mark_notifications_read(uuid[])',
+      'public.dismiss_notifications(uuid[])'
+    ]) AS firma
+  LOOP
+    IF NOT has_function_privilege('authenticated', r.firma, 'EXECUTE') THEN
+      RAISE EXCEPTION 'TEST FAIL — % quedó sin EXECUTE para authenticated: el panel no carga',
+        r.firma;
+    END IF;
+    -- Sin sesión no hay bandeja: las cuatro derivan el staff de get_my_staff_id().
+    IF has_function_privilege('anon', r.firma, 'EXECUTE') THEN
+      RAISE EXCEPTION 'TEST FAIL — % ejecutable por anon', r.firma;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS — las 4 RPC del panel abiertas a authenticated y cerradas a anon';
+END $$;
+
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
 DO $$
 DECLARE v_agg jsonb; v_before int; v_after int;
@@ -959,6 +1024,7 @@ DECLARE
   v_n    int;
   c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
   c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  v_desc uuid;
   c_risk constant uuid := '59f00000-0000-4000-8000-000000000005';  -- S_RISK (risk_supervisor)
   c_rpart constant uuid := '59f00000-0000-4000-8000-000000000008'; -- S_RPART (risk_partner)
 BEGIN
@@ -1204,6 +1270,57 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el vencimiento aviso % veces a Riesgos, se esperaba 1', v_n;
   END IF;
   RAISE NOTICE 'PASS - el plazo vencido avisa a Riesgos una sola vez';
+
+  -- 8.j LA REGRESION: descartar el aviso no puede hacer que el cron lo repita.
+  --
+  -- Los emisores deduplican con NOT EXISTS sobre public.notifications, o sea que la fila es a
+  -- la vez el aviso Y el registro de que ya salio. Mientras dismiss_notifications() la BORRABA,
+  -- apretar la "x" borraba tambien el registro y el cron del dia siguiente lo volvia a crear,
+  -- con un correo nuevo detras (dedupe_key = notification_id, y el recreado tiene otro).
+  --
+  -- wo.emergency.deadline_passed es el caso que no perdona: su condicion (deadline < hoy) no se
+  -- apaga sola nunca, asi que el aviso volvia todos los dias para siempre.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000005');  -- S_RISK
+  SELECT notification_id INTO v_desc FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF public.dismiss_notifications(ARRAY[v_desc]) <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el dueno no pudo descartar su propio aviso';
+  END IF;
+
+  -- Sale de la bandeja. Se busca ESE aviso y no se exige una bandeja vacia: a esta altura del
+  -- grupo el Supervisor de Riesgos ya acumulo otros avisos del flujo de la OT.
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(public.get_my_notifications(50)->'events') ev
+     WHERE ev->>'notification_id' = v_desc::text
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso descartado sigue en la bandeja';
+  END IF;
+
+  -- ...pero la fila sobrevive como registro de emision.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE notification_id = v_desc AND dismissed_at IS NOT NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila descartada se borro: el registro de emision no sobrevive';
+  END IF;
+
+  -- Y por eso el cron NO lo repite. Esta es la asercion que fallaba antes del arreglo.
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM public.notif_wo_daily_scheduled();
+  PERFORM public.notif_wo_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron recreo el aviso descartado (hay % filas)', v_n;
+  END IF;
+
+  -- Y tampoco encolo un correo nuevo: sin fila nueva no hay notification_id nuevo, que es de
+  -- donde salia el dedupe_key duplicado.
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n > 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso descartado volvio a encolar correo (% filas)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - descartar un aviso no hace que el cron lo repita al dia siguiente';
 END $$;
 
 -- -- Grupo 9 -- FASE 3.b: plan de pagos, cuotas y sus dos contadores ----------
@@ -2480,10 +2597,12 @@ BEGIN
 END $$;
 
 -- -- Grupo 17 -- Descarte manual y retencion ----------------------------------
--- Las dos vias por las que una notificacion deja de existir, y son complementarias: la "x"
--- la borra el usuario cuando quiere, el cron borra lo que nadie descarto. Sin el cron, la
--- tabla depende de que cada persona limpie; sin la "x", el usuario no puede sacarse de
--- encima una fila que ya resolvio.
+-- La "x" saca la fila de la VISTA; el cron es el unico que la saca de la TABLA. No es un
+-- detalle de implementacion: la fila es a la vez el aviso y el registro de que el aviso ya
+-- salio, y los emisores del cron viven del segundo. Si la "x" borrara, descartar un aviso lo
+-- traeria de vuelta al dia siguiente (ver 8.j).
+-- Lo descartado paga esa supervivencia con la ventana de retencion mas corta de las tres, y
+-- contada desde el descarte.
 DO $$
 DECLARE
   v_mine  uuid;
@@ -2503,28 +2622,46 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - los fixtures del grupo no se crearon';
   END IF;
 
-  -- 17.a El dueno descarta la suya: desaparece de verdad.
+  -- 17.a El dueno descarta la suya: sale de la bandeja y la fila queda marcada.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
   v_del := public.dismiss_notifications(ARRAY[v_mine]);
   IF v_del <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - dismiss_notifications borro % filas, se esperaba 1', v_del;
+    RAISE EXCEPTION 'TEST FAIL - dismiss_notifications descarto % filas, se esperaba 1', v_del;
   END IF;
-  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE notification_id = v_mine;
-  IF v_n <> 0 THEN
-    RAISE EXCEPTION 'TEST FAIL - la notificacion descartada sigue en la tabla';
+  IF jsonb_array_length(public.get_my_notifications(50)->'events') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la notificacion descartada sigue en la bandeja';
   END IF;
-  RAISE NOTICE 'PASS - la x borra la fila propia, y la borra de verdad';
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE notification_id = v_mine AND dismissed_at IS NOT NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila descartada no sobrevive marcada (registro de emision)';
+  END IF;
+  RAISE NOTICE 'PASS - la x saca el aviso de la bandeja y conserva el registro de emision';
 
-  -- 17.b Con el uuid de OTRO no pasa nada: el DELETE filtra por destinatario.
+  -- Descartar dos veces no mueve la marca: el plazo de retencion se cuenta desde el PRIMER
+  -- descarte, asi que un doble click no le regala 30 dias mas de vida a la fila.
+  IF public.dismiss_notifications(ARRAY[v_mine]) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - descartar dos veces volvio a contar la fila';
+  END IF;
+  RAISE NOTICE 'PASS - descartar es idempotente';
+
+  -- Tampoco cuenta como no leida: la campana no puede seguir mostrando lo que se descarto.
+  IF (public.get_my_notifications(50)->>'unread_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - lo descartado sigue contando como no leido';
+  END IF;
+  RAISE NOTICE 'PASS - lo descartado no cuenta en el badge';
+
+  -- 17.b Con el uuid de OTRO no pasa nada: el UPDATE filtra por destinatario.
   v_del := public.dismiss_notifications(ARRAY[v_other]);
   IF v_del <> 0 THEN
-    RAISE EXCEPTION 'TEST FAIL - se descarto la notificacion de otro (borro %)', v_del;
+    RAISE EXCEPTION 'TEST FAIL - se descarto la notificacion de otro (marco %)', v_del;
   END IF;
-  SELECT COUNT(*) INTO v_n FROM public.notifications WHERE notification_id = v_other;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE notification_id = v_other AND dismissed_at IS NULL;
   IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - la notificacion ajena desaparecio';
+    RAISE EXCEPTION 'TEST FAIL - la notificacion ajena se descarto o desaparecio';
   END IF;
-  RAISE NOTICE 'PASS - pasar el uuid de otro no borra nada';
+  RAISE NOTICE 'PASS - pasar el uuid de otro no descarta nada';
 
   -- Y sin ids no rompe: el panel puede llamar con la lista vacia.
   IF public.dismiss_notifications(ARRAY[]::uuid[]) <> 0
@@ -2561,6 +2698,33 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - la purga se llevo una no leida dentro de su ventana';
   END IF;
   RAISE NOTICE 'PASS - retencion: 30 dias para las leidas, 90 para las que nadie miro';
+
+  -- 17.c.2 La TERCERA ventana: lo descartado, contado desde el descarte y no desde que se creo.
+  --        Es lo que separa "el cron no lo repite" de "la tabla crece sin fin": descartar le
+  --        compra al cron 30 dias de silencio, ni cero (borrar) ni para siempre (conservar).
+  DELETE FROM public.notifications;
+  INSERT INTO public.notifications
+    (recipient_staff_id, type_key, created_at, read_at, dismissed_at) VALUES
+    -- Descartada hace 40 dias: se va.
+    (c_mgr, 'wo.rejected_partner', now() - interval '200 days', NULL, now() - interval '40 days'),
+    -- Descartada ANTEAYER pero creada hace 200: se QUEDA. Con la fecha base equivocada
+    -- (created_at) caia en el brazo de "sin leer, 90 dias" y se borraba, y el cron volvia a
+    -- avisar justo lo que el usuario acababa de silenciar.
+    (c_mgr, 'wo.rejected_partner', now() - interval '200 days', NULL, now() - interval '2 days'),
+    -- Descartada anteayer y ya leida antes: misma regla, manda el descarte.
+    (c_mgr, 'wo.rejected_partner', now() - interval '200 days', now() - interval '199 days',
+     now() - interval '2 days');
+
+  v_del := public.purge_old_notifications();
+  IF v_del <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la retencion de lo descartado borro % filas, se esperaba 1', v_del;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE dismissed_at > now() - interval '30 days';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - se borro un descarte reciente (quedaron %, se esperaban 2)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - lo descartado vive 30 dias contados DESDE el descarte, no desde su fecha';
 
   -- 17.d Las ventanas salen de global_settings, y un valor invertido no borra de mas.
   UPDATE public.global_settings SET setting_value = '60'

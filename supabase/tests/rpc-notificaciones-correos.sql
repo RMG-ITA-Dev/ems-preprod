@@ -64,6 +64,7 @@ DECLARE
   v_email_id uuid;
   v_estado   text;
   v_intentos integer;
+  v_ok       boolean;
   c_own    constant uuid := '59c00000-0000-4000-8000-000000000001';
   c_firm   constant uuid := '59c00000-0000-4000-8000-000000000002';
   c_nomail constant uuid := '59c00000-0000-4000-8000-000000000003';
@@ -255,6 +256,92 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - no se guardo el ultimo error';
   END IF;
   RAISE NOTICE 'PASS - dos reintentos y al tercero queda failed, con el error guardado';
+
+  -- 18.j.2 `sending` es un ARRIENDO, no un destino: si la invocacion muere entre reclamar y
+  --        cerrar, la fila tiene que volver a salir. Antes no salia — el claim solo miraba
+  --        `pending`— y con 50 envios en serie una corrida cortada sepultaba el resto del lote.
+  DELETE FROM public.notification_emails;
+  DELETE FROM public.notifications;
+  PERFORM public.notify_staff('auth.role.changed', c_own, 'ent-4', '{}'::jsonb);
+  SELECT email_id INTO v_email_id FROM public.notification_emails LIMIT 1;
+
+  PERFORM public.claim_notification_emails(50);
+  -- Aca MUERE el drenaje: no se llama a mark_notification_email_result().
+  SELECT claimed_at IS NOT NULL INTO v_ok FROM public.notification_emails WHERE email_id = v_email_id;
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'TEST FAIL - el claim no estampo claimed_at';
+  END IF;
+
+  -- Con el arriendo vigente la fila NO sale: dos crons seguidos no mandan el correo dos veces.
+  SELECT COUNT(*) INTO v_reclamados FROM public.claim_notification_emails(50);
+  IF v_reclamados <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - se retomo una fila con el arriendo todavia vigente (correo duplicado)';
+  END IF;
+
+  -- Vencido el arriendo, sale. Se envejece la estampa en vez de esperar 15 minutos reales.
+  UPDATE public.notification_emails
+     SET claimed_at = now() - interval '16 minutes' WHERE email_id = v_email_id;
+  SELECT COUNT(*) INTO v_reclamados FROM public.claim_notification_emails(50);
+  IF v_reclamados <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el arriendo vencido no se recogio (% filas)', v_reclamados;
+  END IF;
+  SELECT attempts INTO v_intentos FROM public.notification_emails WHERE email_id = v_email_id;
+  IF v_intentos <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - tras retomar el arriendo attempts=%, se esperaba 2', v_intentos;
+  END IF;
+  RAISE NOTICE 'PASS - el arriendo vencido se recoge y el vigente no';
+
+  -- 18.j.3 Un envio que mata al proceso CADA vez no se reintenta para siempre. El tope de 3 lo
+  --        aplica mark_notification_email_result(), o sea justo la funcion a la que esa fila
+  --        nunca llega: sin el barrido del claim, la fila daria vueltas indefinidamente.
+  UPDATE public.notification_emails
+     SET claimed_at = now() - interval '16 minutes' WHERE email_id = v_email_id;
+  PERFORM public.claim_notification_emails(50);   -- attempts 3
+  SELECT status, attempts INTO v_estado, v_intentos
+    FROM public.notification_emails WHERE email_id = v_email_id;
+  IF v_estado <> 'sending' OR v_intentos <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - antes del barrido quedo status=% attempts=%', v_estado, v_intentos;
+  END IF;
+
+  UPDATE public.notification_emails
+     SET claimed_at = now() - interval '16 minutes' WHERE email_id = v_email_id;
+  SELECT COUNT(*) INTO v_reclamados FROM public.claim_notification_emails(50);
+  IF v_reclamados <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - se volvio a reclamar una fila con los 3 intentos gastados';
+  END IF;
+  SELECT status, last_error INTO v_estado, v_dedupe
+    FROM public.notification_emails WHERE email_id = v_email_id;
+  IF v_estado <> 'failed' THEN
+    RAISE EXCEPTION 'TEST FAIL - el arriendo vencido con 3 intentos quedo en % y no en failed', v_estado;
+  END IF;
+  IF v_dedupe IS NULL OR v_dedupe NOT LIKE '%arriendo vencido%' THEN
+    RAISE EXCEPTION 'TEST FAIL - no se guardo el motivo del failed (last_error = %)', v_dedupe;
+  END IF;
+  RAISE NOTICE 'PASS - un arriendo que vence 3 veces termina en failed, no en bucle';
+
+  -- 18.j.4 Cerrar suelta el arriendo: una fila de vuelta en pending no puede seguir figurando
+  --        como reclamada por alguien.
+  DELETE FROM public.notification_emails;
+  DELETE FROM public.notifications;
+  PERFORM public.notify_staff('auth.role.changed', c_own, 'ent-5', '{}'::jsonb);
+  SELECT email_id INTO v_email_id FROM public.notification_emails LIMIT 1;
+
+  PERFORM public.claim_notification_emails(50);
+  PERFORM public.mark_notification_email_result(v_email_id, false, 'error simulado');
+  SELECT status, claimed_at IS NULL INTO v_estado, v_ok
+    FROM public.notification_emails WHERE email_id = v_email_id;
+  IF v_estado <> 'pending' OR NOT v_ok THEN
+    RAISE EXCEPTION 'TEST FAIL - tras el reintento quedo status=% con el arriendo sin soltar', v_estado;
+  END IF;
+
+  PERFORM public.claim_notification_emails(50);
+  PERFORM public.mark_notification_email_result(v_email_id, true, NULL);
+  SELECT status, claimed_at IS NULL INTO v_estado, v_ok
+    FROM public.notification_emails WHERE email_id = v_email_id;
+  IF v_estado <> 'sent' OR NOT v_ok THEN
+    RAISE EXCEPTION 'TEST FAIL - tras el envio exitoso quedo status=% con el arriendo sin soltar', v_estado;
+  END IF;
+  RAISE NOTICE 'PASS - cerrar un correo suelta el arriendo, salga bien o mal';
 
   -- 18.k La purga se lleva lo enviado viejo y CONSERVA lo fallido: es el registro de lo que
   --      nunca llego.

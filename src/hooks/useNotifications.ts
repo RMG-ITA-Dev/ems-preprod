@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { toast } from "sonner";
@@ -144,6 +145,7 @@ export function useMarkNotificationsRead() {
  */
 export function useDismissNotifications() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   return useMutation({
     mutationFn: async (ids: string[]) => {
@@ -168,7 +170,7 @@ export function useDismissNotifications() {
     // click explicito: si falla, la fila se queda ahi y sin aviso el usuario cree que la x
     // no funciona. Es exactamente lo que paso probando contra un mirror sin el RPC aplicado.
     onError: () => {
-      toast.error("No se pudo descartar la notificación");
+      toast.error(t("notifications.dismissError"));
     },
   });
 }

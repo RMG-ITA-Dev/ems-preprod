@@ -55,9 +55,15 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  // A donde vuelve el usuario despues de que GoTrue valide el token. Sale de un secreto del
+  // proyecto y NO del header `Origin`: este endpoint es publico, con CORS `*` y sin JWT, asi
+  // que `Origin` lo elige quien llama. Mismo criterio que register-user.
+  const FRONTEND_URL = Deno.env.get("FRONTEND_URL")?.replace(/\/+$/, "");
 
-  if (!SUPABASE_URL || !SERVICE_ROLE) {
-    console.error("[request-password-reset] Falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY.");
+  if (!SUPABASE_URL || !SERVICE_ROLE || !FRONTEND_URL) {
+    console.error(
+      "[request-password-reset] Falta SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY o FRONTEND_URL.",
+    );
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
   }
 
@@ -74,10 +80,11 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, code: "INVALID_EMAIL" }, 400);
   }
 
-  const origen = req.headers.get("origin");
+  // `body.redirectTo` lo valida GoTrue contra su allowlist de redirects antes de usarlo; el
+  // default sale de FRONTEND_URL.
   const redirectTo = typeof body.redirectTo === "string" && body.redirectTo
     ? body.redirectTo
-    : `${origen ?? SUPABASE_URL}/reset-password`;
+    : `${FRONTEND_URL}/reset-password`;
 
   const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE);
 

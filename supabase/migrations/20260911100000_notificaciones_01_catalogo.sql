@@ -99,18 +99,40 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     entity_id          text,
     payload            jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at         timestamp with time zone NOT NULL DEFAULT now(),
-    read_at            timestamp with time zone
+    read_at            timestamp with time zone,
+    -- Descarte: la "x" de cada fila. La razón por la que NO es un DELETE está en H.2 — esta
+    -- fila es también el registro de que el aviso ya se emitió, y los emisores del cron lo
+    -- consultan para no repetirlo. Borrándola, descartar un aviso lo hacía volver al día
+    -- siguiente, con un correo nuevo detrás.
+    dismissed_at       timestamp with time zone
 );
 
--- Bandeja del usuario: el único patrón de lectura del panel.
+-- La bandeja del usuario, que es lo descartado. Todas las lecturas del panel filtran
+-- `dismissed_at IS NULL`, así que el índice lo hace también: lo descartado se queda en la tabla
+-- como registro de emisión, no como algo que alguien vaya a leer.
+DROP INDEX IF EXISTS public.idx_notifications_inbox;
 CREATE INDEX IF NOT EXISTS idx_notifications_inbox
-  ON public.notifications (recipient_staff_id, created_at DESC);
--- Contador de no leídas: parcial, para que no crezca con el histórico ya leído.
+  ON public.notifications (recipient_staff_id, created_at DESC)
+  WHERE dismissed_at IS NULL;
+-- Contador de no leídas: parcial, para que no crezca con el histórico ya leído ni con lo
+-- descartado.
+DROP INDEX IF EXISTS public.idx_notifications_unread;
 CREATE INDEX IF NOT EXISTS idx_notifications_unread
-  ON public.notifications (recipient_staff_id) WHERE read_at IS NULL;
+  ON public.notifications (recipient_staff_id)
+  WHERE read_at IS NULL AND dismissed_at IS NULL;
+-- El patrón de los emisores del cron: "¿ya avisé de esto?". Va por tipo + entidad e incluye lo
+-- descartado a propósito — es justamente lo que tiene que seguir encontrando.
+CREATE INDEX IF NOT EXISTS idx_notifications_emitidas
+  ON public.notifications (type_key, entity_id, recipient_staff_id);
 
 COMMENT ON TABLE public.notifications IS
-  'Instancias de notificación de tipo event. Se escriben ÚNICAMENTE vía notify_staff(); no hay policy de INSERT para authenticated.';
+  'Instancias de notificación de tipo event. Se escriben ÚNICAMENTE vía notify_staff(); no hay policy de INSERT para authenticated. Una fila descartada (dismissed_at) NO se borra: es el registro de que el aviso ya salió, y sin ella los emisores del cron lo repiten.';
+COMMENT ON COLUMN public.notifications.dismissed_at IS
+  'Cuando el usuario apreto la "x". La fila deja de verse pero sobrevive como registro de emision, para que el cron no vuelva a avisar lo mismo. La borra el cron de retencion.';
+
+-- El CREATE la declara para el replay desde cero; el ALTER la agrega donde la tabla ya existe.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS dismissed_at timestamp with time zone;
 
 -- =====================================================================
 -- C.2) La bandeja de salida de correos
@@ -142,24 +164,37 @@ CREATE TABLE IF NOT EXISTS public.notification_emails (
     last_error         text,
     created_at         timestamp with time zone NOT NULL DEFAULT now(),
     sent_at            timestamp with time zone,
+    -- Cuando el drenaje se llevo esta fila. Es lo que convierte `sending` en un ARRIENDO con
+    -- vencimiento en vez de un estado del que no se vuelve: sin esta columna, una invocacion
+    -- que muere despues de reclamar y antes de cerrar deja la fila en `sending` para siempre,
+    -- porque el claim siguiente solo mira `pending`. Con 50 envios en serie contra Graph,
+    -- una corrida cortada por el limite de la edge function sepultaba el resto del lote.
+    claimed_at         timestamp with time zone,
     CONSTRAINT notification_emails_status_check
       CHECK (status IN ('pending', 'sending', 'failed', 'sent'))
 );
 
--- El único patrón de lectura del drenaje: lo pendiente, más viejo primero.
-CREATE INDEX IF NOT EXISTS idx_notification_emails_pendientes
+-- El único patrón de lectura del drenaje: lo reclamable, más viejo primero. Incluye `sending`
+-- porque el claim también recoge los arriendos vencidos, y un índice sólo sobre `pending` dejaba
+-- ese segundo brazo en seq scan.
+DROP INDEX IF EXISTS public.idx_notification_emails_pendientes;
+CREATE INDEX IF NOT EXISTS idx_notification_emails_reclamables
   ON public.notification_emails (created_at)
-  WHERE status = 'pending';
+  WHERE status IN ('pending', 'sending');
 
--- Igual que `email_enabled`: el CREATE la declara para el replay desde cero, y el ALTER la
+-- Igual que `email_enabled`: el CREATE las declara para el replay desde cero, y el ALTER las
 -- agrega donde la tabla ya existe.
 ALTER TABLE public.notification_emails
   ADD COLUMN IF NOT EXISTS to_name text;
+ALTER TABLE public.notification_emails
+  ADD COLUMN IF NOT EXISTS claimed_at timestamp with time zone;
 
 COMMENT ON TABLE public.notification_emails IS
   'Bandeja de salida de correos. Se escribe UNICAMENTE via notify_staff(); la drena la edge function send-notification-emails. Sin policies: no se lee desde el cliente.';
 COMMENT ON COLUMN public.notification_emails.dedupe_key IS
   'Clave de idempotencia. Derivado de un suceso: el notification_id. Recordatorio: type_key|staff_id|ventana.';
+COMMENT ON COLUMN public.notification_emails.claimed_at IS
+  'Cuando el drenaje reclamo la fila. Vence a los 15 minutos: un sending mas viejo que eso es una invocacion que murio sin cerrar, y el claim siguiente lo vuelve a tomar. NULL cuando la fila no esta en manos de nadie.';
 COMMENT ON COLUMN public.notification_emails.notification_id IS
   'La fila de la campana que lo origino, si la hay. NULL en los recordatorios (delivery=email) y cuando la notificacion se descarta: el correo ya mandado sigue siendo un hecho.';
 
@@ -878,6 +913,56 @@ $fn$;
 COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
   'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
 
+-- =====================================================================
+-- G.6) Quien puede llamar a los contadores
+-- =====================================================================
+--
+-- NINGUNO de los helpers de arriba es para el cliente. Todos son SECURITY DEFINER —tienen que
+-- serlo: un assistant no ve `engagements` por RLS y el contador igual tiene que poder contarlos—
+-- y varios reciben el `staff_id` POR PARAMETRO en vez de derivarlo de la sesion.
+--
+-- Esa combinacion es la que obliga a este bloque. Postgres le da EXECUTE a PUBLIC a toda funcion
+-- nueva, y PostgREST publica en /rest/v1/rpc/ todo lo que el rol pueda ejecutar. Sin REVOKE,
+-- `engagement_approval_bucket` contestaba codigo y nombre de encargo a cualquiera que mandara un
+-- staff_id ajeno con la anon key, salteando la RLS que el SECURITY DEFINER existe para saltear.
+-- Mismo problema en `notif_agg_wo_installment_overdue(staff, 'department')` (la mora de toda la
+-- firma) y en los demas que toman parametros.
+--
+-- El despachador NO se rompe: `get_my_notification_aggregates()` tambien es SECURITY DEFINER, o
+-- sea que corre como el dueño, y el dueño conserva EXECUTE sobre todos estos.
+--
+-- La regla, para lo que se agregue despues: si la funcion recibe un staff_id, va en esta lista.
+-- Solo salen a `authenticated` las cuatro que derivan el staff de `get_my_staff_id()`.
+
+REVOKE ALL ON FUNCTION public.engagement_approval_bucket(uuid, text)            FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_disbursement_pending()             FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_settlement_pending()               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_closure_pending()                  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_expense_review_pending()           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_due_this_week()          FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_approval_training_pending()             FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_timesheet_window_start()                    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)                FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date)  FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.engagement_approval_bucket(uuid, text)           TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_disbursement_pending()            TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_settlement_pending()              TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_closure_pending()                 TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_expense_review_pending()          TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_due_this_week()         TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text)     TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_approval_training_pending()            TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text)     TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_timesheet_window_start()                   TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)               TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)              TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) TO service_role;
+
+
 DROP FUNCTION IF EXISTS public.get_my_notification_aggregates();
 
 CREATE FUNCTION public.get_my_notification_aggregates() RETURNS jsonb
@@ -1050,6 +1135,9 @@ BEGIN
     FROM (
       SELECT * FROM public.notifications
        WHERE recipient_staff_id = v_staff
+         -- Lo descartado no vuelve a la bandeja. Sigue en la tabla, pero como registro de que
+         -- el aviso ya salió (ver H.2), no como algo que el usuario tenga que volver a ver.
+         AND dismissed_at IS NULL
        ORDER BY created_at DESC
        LIMIT v_limit
     ) n
@@ -1059,7 +1147,8 @@ BEGIN
   SELECT COUNT(*) INTO v_unread
     FROM public.notifications
    WHERE recipient_staff_id = v_staff
-     AND read_at IS NULL;
+     AND read_at IS NULL
+     AND dismissed_at IS NULL;
 
   RETURN jsonb_build_object(
     'events',       v_events,
@@ -1069,7 +1158,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.get_my_notifications(integer) IS
-  'Bandeja del usuario actual: eventos (public.notifications) + contadores (get_my_notification_aggregates) + no leídas. Fail-closed sin ficha de staff.';
+  'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado) + contadores (get_my_notification_aggregates) + no leidas. Fail-closed sin ficha de staff.';
 
 DROP FUNCTION IF EXISTS public.mark_notifications_read(uuid[]);
 
@@ -1091,7 +1180,10 @@ BEGIN
      SET read_at = now()
    WHERE notification_id = ANY (p_ids)
      AND recipient_staff_id = v_staff
-     AND read_at IS NULL;
+     AND read_at IS NULL
+     -- Una fila descartada ya no se ve, así que tampoco se "lee". El panel nunca manda su id,
+     -- pero el filtro va igual: es el mismo criterio que el resto de las lecturas.
+     AND dismissed_at IS NULL;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
@@ -1105,13 +1197,26 @@ COMMENT ON FUNCTION public.mark_notifications_read(uuid[]) IS
 -- H.2) Descarte manual — la "x" de cada fila
 -- =====================================================================
 --
--- Borra de verdad, y no marca `dismissed_at`: cada notificación tiene UN solo destinatario,
--- así que la fila es enteramente suya y descartarla no le saca nada a nadie. Tampoco hay
--- valor de auditoría que preservar — el hecho que la originó vive en su propia tabla
--- (el encargo, la OT, la boleta), y esto es sólo el aviso.
+-- Marca `dismissed_at`, y NO borra. Borrar era lo primero que se intentó, con el argumento de
+-- que cada notificación tiene un solo destinatario y la fila es enteramente suya. El argumento
+-- es cierto y aun así la conclusión estaba mal, porque la fila hace DOS trabajos:
 --
--- Es también lo que hace que el descarte SIRVA para el tamaño de la tabla: un `dismissed_at`
--- dejaría la fila ahí y la limpieza seguiría dependiendo entera del cron de retención.
+--   1. es el aviso que el usuario ve, y
+--   2. es el registro de que ese aviso YA SE EMITIÓ.
+--
+-- Los emisores del cron (migración 03) viven del segundo: antes de avisar preguntan
+-- `NOT EXISTS (SELECT 1 FROM notifications WHERE type_key = ... AND entity_id = ...)`. Borrando
+-- la fila, descartar un aviso borraba la prueba de que había salido, y a la mañana siguiente el
+-- cron lo volvía a crear — con un correo nuevo detrás, porque `notification_emails.dedupe_key`
+-- es el `notification_id` y el aviso recreado tiene uno nuevo. El usuario apretaba la "x" y el
+-- aviso volvía al día siguiente, para siempre, mientras la condición siguiera dándose.
+-- `wo.emergency.deadline_passed` es el caso claro: su condición (`deadline < hoy`) no se apaga
+-- sola nunca.
+--
+-- El descarte SIGUE sirviendo para el tamaño de la tabla, sólo que por otra vía: la retención le
+-- da a lo descartado la ventana MÁS CORTA de las tres (ver H.3), contada desde el descarte. Una
+-- fila descartada vive 30 días en vez de 90, no cero — y ese plazo es lo que separa "el cron no
+-- lo repite" de "la tabla crece sin fin".
 --
 DROP FUNCTION IF EXISTS public.dismiss_notifications(uuid[]);
 
@@ -1127,11 +1232,17 @@ BEGIN
     RETURN 0;
   END IF;
 
-  -- El filtro por recipient_staff_id es lo que impide borrar la notificación de otro
+  -- El filtro por recipient_staff_id es lo que impide descartar la notificación de otro
   -- pasando su uuid, igual que en mark_notifications_read().
-  DELETE FROM public.notifications
+  --
+  -- `dismissed_at IS NULL` en el WHERE hace la operación idempotente: descartar dos veces la
+  -- misma fila no mueve la marca, así que el plazo de retención se cuenta desde el PRIMER
+  -- descarte y un doble click no lo estira.
+  UPDATE public.notifications
+     SET dismissed_at = now()
    WHERE notification_id = ANY (p_ids)
-     AND recipient_staff_id = v_staff;
+     AND recipient_staff_id = v_staff
+     AND dismissed_at IS NULL;
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
@@ -1139,7 +1250,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.dismiss_notifications(uuid[]) IS
-  'Descarta (BORRA) notificaciones propias, una o varias. Ignora ids ajenos: el DELETE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de DELETE para authenticated — esta es la unica via.';
+  'Descarta notificaciones propias marcando dismissed_at; NO borra la fila, que sigue siendo el registro de que el aviso ya salio (sin ella el cron lo repite al dia siguiente). Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de UPDATE para authenticated — esta es la unica via.';
 
 -- =====================================================================
 -- H.3) Retención — el cron que acota la tabla
@@ -1148,10 +1259,17 @@ COMMENT ON FUNCTION public.dismiss_notifications(uuid[]) IS
 -- El descarte manual no alcanza y nunca va a alcanzar: quien no abre la campana no descarta
 -- nada, y las notificaciones de alguien que se fue de la firma no las descarta nadie.
 --
--- DOS VENTANAS, porque no significan lo mismo. Una LEÍDA ya cumplió su propósito: 30 días es
+-- TRES VENTANAS, porque no significan lo mismo. Una LEÍDA ya cumplió su propósito: 30 días es
 -- historial de sobra para "¿qué pasó la semana pasada?". Una NO LEÍDA todavía tiene algo que
 -- decir, así que aguanta 90 — pero no para siempre: un aviso de hace tres meses que nadie
 -- miró no se va a mirar nunca, y a esa altura el hecho lo cuenta la pantalla del módulo.
+--
+-- Una DESCARTADA es la tercera, y la que tiene el plazo más corto: el usuario ya dijo que no le
+-- interesa, así que no queda nada que mostrar. Lo único que queda es su valor como registro de
+-- emisión para el cron (ver H.2), y para eso 30 días desde el descarte alcanzan de sobra — las
+-- condiciones que emiten estos avisos se miden en días, no en meses. Se cuenta desde
+-- `dismissed_at` y no desde `created_at` a propósito: descartar un aviso viejo tiene que
+-- comprarle 30 días de silencio al cron, no cero.
 --
 -- Los dos plazos son configurables por `global_settings` con el mismo patrón que
 -- TS_ALERT_WINDOW_WEEKS: se validan con regex antes de castear, porque es texto libre que
@@ -1192,9 +1310,16 @@ BEGIN
   -- más conservador en vez de borrar avisos que nadie vio todavía.
   v_unread := GREATEST(v_unread, v_read);
 
+  -- El descarte se evalúa PRIMERO y con su propia fecha base. Sin este brazo, una fila
+  -- descartada caía en el de "no leída" —90 días contados desde que se creó— y una descartada
+  -- que ya estaba leída, en el de 30: ninguno de los dos mide lo que importa acá, que es cuánto
+  -- silencio le compró el descarte al cron.
   DELETE FROM public.notifications
-   WHERE (read_at IS NOT NULL AND created_at < now() - make_interval(days => v_read))
-      OR (read_at IS NULL     AND created_at < now() - make_interval(days => v_unread));
+   WHERE (dismissed_at IS NOT NULL AND dismissed_at < now() - make_interval(days => v_read))
+      OR (dismissed_at IS NULL AND read_at IS NOT NULL
+          AND created_at < now() - make_interval(days => v_read))
+      OR (dismissed_at IS NULL AND read_at IS NULL
+          AND created_at < now() - make_interval(days => v_unread));
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
@@ -1202,7 +1327,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.purge_old_notifications() IS
-  'Retencion de public.notifications: borra las leidas mas viejas que NOTIF_RETENTION_READ_DAYS (30) y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. Devuelve cuantas borro.';
+  'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. Devuelve cuantas borro.';
 
 REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.purge_old_notifications() TO service_role;
@@ -1232,6 +1357,16 @@ END $$;
 -- `FOR UPDATE SKIP LOCKED` es el control de concurrencia: dos drenajes simultáneos se reparten
 -- las filas en vez de pelearse por las mismas. Es lo que hace que el cron pueda correr cada 5
 -- minutos sin coordinar nada.
+--
+-- `sending` ES UN ARRIENDO, NO UN DESTINO. Entre reclamar y cerrar hay una llamada a Graph, y
+-- esa llamada puede no volver: la edge function se queda sin reloj, la redeployan a mitad de
+-- lote, se cae. Si `sending` fuera definitivo esas filas no las tomaba nadie más —el claim sólo
+-- miraba `pending`— y con 50 envíos en serie una sola corrida cortada sepultaba el resto del
+-- lote. Por eso cada claim estampa `claimed_at` y recoge lo que lleva demasiado tiempo ahí.
+--
+-- El arriendo dura 15 minutos: más que cualquier corrida VIVA posible —el tope de reloj de una
+-- edge function son ~400 s— así que un arriendo vencido significa que la invocación murió, no
+-- que va lenta. Retomarlo antes sí podría mandar el mismo correo dos veces.
 
 DROP FUNCTION IF EXISTS public.claim_notification_emails(integer);
 
@@ -1248,18 +1383,36 @@ RETURNS TABLE (
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  c_arriendo constant interval := interval '15 minutes';
 BEGIN
+  -- Primero los arriendos vencidos que ya gastaron los tres intentos. Van a `failed` y no
+  -- vuelven a la cola: sin este barrido, una fila cuyo envío mata al proceso cada vez se
+  -- reclamaría para siempre, porque el tope de intentos lo aplica
+  -- mark_notification_email_result() y a esa fila nadie llega a marcarla nunca.
+  UPDATE public.notification_emails e
+     SET status     = 'failed',
+         last_error = COALESCE(e.last_error,
+                        'El drenaje no cerro el envio: arriendo vencido tras 3 intentos.')
+   WHERE e.status = 'sending'
+     -- COALESCE y no `claimed_at < ...` a secas: un `sending` SIN estampa daria NULL, o sea
+     -- FALSE, y la fila quedaria enterrada — que es justo el bug que esto arregla.
+     AND COALESCE(e.claimed_at, e.created_at) < now() - c_arriendo
+     AND e.attempts >= 3;
+
   RETURN QUERY
   WITH tomadas AS (
     SELECT e.email_id
       FROM public.notification_emails e
      WHERE e.status = 'pending'
+        OR (e.status = 'sending'
+            AND COALESCE(e.claimed_at, e.created_at) < now() - c_arriendo)
      ORDER BY e.created_at
      LIMIT GREATEST(COALESCE(p_limit, 50), 0)
        FOR UPDATE SKIP LOCKED
   )
   UPDATE public.notification_emails e
-     SET status = 'sending', attempts = e.attempts + 1
+     SET status = 'sending', attempts = e.attempts + 1, claimed_at = now()
     FROM tomadas t
    WHERE e.email_id = t.email_id
   RETURNING e.email_id, e.to_email, e.to_name, e.type_key, e.entity_id, e.payload, e.attempts;
@@ -1267,7 +1420,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.claim_notification_emails(integer) IS
-  'Reclama hasta p_limit correos pendientes y los marca sending. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
+  'Reclama hasta p_limit correos y los marca sending con claimed_at. Toma lo pending y tambien lo sending con arriendo vencido (15 min), que es una invocacion que murio sin cerrar; con 3 intentos gastados eso pasa a failed. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
 
 REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM anon, authenticated;
@@ -1295,7 +1448,7 @@ BEGIN
 
   IF p_ok THEN
     UPDATE public.notification_emails
-       SET status = 'sent', sent_at = now(), last_error = NULL
+       SET status = 'sent', sent_at = now(), last_error = NULL, claimed_at = NULL
      WHERE email_id = p_email_id;
     RETURN FOUND;
   END IF;
@@ -1308,9 +1461,12 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- Se suelta el arriendo al cerrar: la fila ya no está en manos de nadie, y dejar el
+  -- `claimed_at` viejo haría que un `pending` pareciera un reclamo vencido.
   UPDATE public.notification_emails
      SET status     = CASE WHEN v_intentos >= 3 THEN 'failed' ELSE 'pending' END,
-         last_error = p_error
+         last_error = p_error,
+         claimed_at = NULL
    WHERE email_id = p_email_id;
 
   RETURN true;
@@ -1318,11 +1474,109 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) IS
-  'Cierra un correo reclamado: sent si salio, de vuelta a pending para reintentar, o failed al tercer intento.';
+  'Cierra un correo reclamado y suelta el arriendo (claimed_at = NULL): sent si salio, de vuelta a pending para reintentar, o failed al tercer intento.';
 
 REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) TO service_role;
+
+
+-- =====================================================================
+-- H.4.b) Lo que dispara el drenaje (D-47)
+-- =====================================================================
+--
+-- Sin esto, todo lo de arriba es una bandeja que nadie vacía: `notify_staff()` encola y las filas
+-- se quedan en `pending` para siempre. La edge function `send-notification-emails` existe, pero
+-- alguien la tiene que llamar, y el único que puede hacerlo desde la base es un cron.
+--
+-- NO CONTIENE NINGÚN SECRETO. La URL y el `x-cron-secret` se leen del vault POR NOMBRE, en cada
+-- corrida del job. Los dos secretos se cargan una vez por proyecto y a mano
+-- (`docs/plan-correos-notificaciones.md` §F4 paso 2):
+--
+--   select vault.create_secret('https://<ref>.supabase.co/functions/v1/send-notification-emails',
+--                              'notif_email_drain_url', 'URL del drenaje de correos');
+--   select vault.create_secret('<valor aleatorio>', 'notif_email_cron_secret',
+--                              'Header x-cron-secret del drenaje de correos');
+--
+-- El mismo valor aleatorio va como secreto `CRON_SECRET` de la edge function. Es DISTINTO del
+-- secret de Microsoft Graph y del del hook de auth.
+--
+-- Dos cosas de `pg_net` que conviene tener presentes al leer los logs:
+--
+--   * Es asíncrono. `net.http_post` devuelve un `request_id` y no espera la respuesta, así que el
+--     job NO puede ver si el envío salió bien: un `succeeded` en `cron.job_run_details` sólo dice
+--     que el disparo ocurrió. Lo que pasó se lee en los logs de la edge function y en la columna
+--     `status` de la bandeja.
+--   * Un fallo de red se pierde en silencio, y no importa: la fila sigue en `pending` y el
+--     drenaje de cinco minutos después la vuelve a tomar. Es justamente la ventaja de la bandeja
+--     sobre invocar la función dentro de la transacción que produjo el hecho.
+--
+-- Cada 5 minutos es el compromiso entre latencia y ruido: el lote es de 50 y los envíos a Graph
+-- van en serie, así que una cadencia más fina se pisaría con la corrida anterior sin ganar nada
+-- (el `FOR UPDATE SKIP LOCKED` del claim lo tolera, pero no lo acelera).
+DO $$
+DECLARE
+  v_falta text[] := ARRAY[]::text[];
+BEGIN
+  -- Mismo guard de existencia que el resto de los crons, ampliado a `pg_net` y al vault: en un
+  -- entorno sin esas extensiones —el harness SQL local, por ejemplo— no agenda y no rompe.
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron')        THEN v_falta := v_falta || 'pg_cron'::text; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net')         THEN v_falta := v_falta || 'pg_net'::text; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'supabase_vault') THEN v_falta := v_falta || 'supabase_vault'::text; END IF;
+
+  IF array_length(v_falta, 1) IS NOT NULL THEN
+    RAISE WARNING
+      'notif-email-drain NO agendado: falta(n) la(s) extension(es) %. Sin este cron la bandeja public.notification_emails no se drena y NO sale ningun correo del catalogo. Habilitarlas y volver a correr este archivo.',
+      array_to_string(v_falta, ', ');
+    RETURN;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-email-drain') THEN
+    PERFORM cron.unschedule('notif-email-drain');
+  END IF;
+
+  PERFORM cron.schedule('notif-email-drain', '*/5 * * * *', $cron$
+    SELECT net.http_post(
+      url     := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'notif_email_drain_url'),
+      headers := jsonb_build_object(
+        'Content-Type',  'application/json',
+        'x-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'notif_email_cron_secret')
+      ),
+      body    := '{}'::jsonb
+    );
+  $cron$);
+
+  RAISE NOTICE 'notif-email-drain agendado cada 5 minutos';
+
+  -- Los secretos no se validan con un guard que aborte: la migración puede correr antes de que
+  -- el operador los cargue, y fallar acá dejaría el resto del `db push` sin aplicar. Pero el job
+  -- sin secretos hace un POST a `url := NULL` que no llega a ninguna parte y no deja rastro en
+  -- los logs de la edge function, así que el aviso tiene que ser imposible de pasar por alto.
+  IF NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'notif_email_drain_url')
+     OR NOT EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name = 'notif_email_cron_secret') THEN
+    RAISE WARNING
+      'notif-email-drain quedo agendado pero le faltan secretos en el vault (notif_email_drain_url / notif_email_cron_secret): el job corre y no manda nada. Ver docs/plan-correos-notificaciones.md F4 paso 2.';
+  END IF;
+END $$;
+
+-- Cómo confirmarlo desde el SQL Editor del proyecto:
+--
+--   SELECT jobname, schedule, active FROM cron.job WHERE jobname = 'notif-email-drain';
+--   SELECT name, created_at FROM vault.decrypted_secrets
+--    WHERE name IN ('notif_email_drain_url', 'notif_email_cron_secret');
+--   SELECT status, start_time, return_message FROM cron.job_run_details
+--    WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'notif-email-drain')
+--    ORDER BY start_time DESC LIMIT 5;
+--   SELECT id, status_code, LEFT(content, 200) AS respuesta, created
+--     FROM net._http_response ORDER BY created DESC LIMIT 5;
+--
+-- Y la que realmente importa, porque es la única que no puede mentir:
+--
+--   SELECT status, COUNT(*), MIN(created_at) AS mas_vieja
+--     FROM public.notification_emails GROUP BY status ORDER BY status;
+--
+-- `pending` con una `mas_vieja` de más de diez minutos significa que el drenaje no está
+-- corriendo, sin importar lo que digan las consultas anteriores.
 
 
 -- =====================================================================
@@ -1396,7 +1650,11 @@ CREATE POLICY notification_role_types_read ON public.notification_role_types
 DROP POLICY IF EXISTS notifications_select_own ON public.notifications;
 CREATE POLICY notifications_select_own ON public.notifications
   FOR SELECT TO authenticated
-  USING (recipient_staff_id = public.get_my_staff_id());
+  -- `dismissed_at IS NULL` para que lo descartado no reaparezca por una consulta directa a la
+  -- tabla. El panel lee por RPC y ahí ya está filtrado, pero desde que la fila sobrevive al
+  -- descarte la policy tiene que decir lo mismo que la RPC: si no, lo que el usuario mandó a
+  -- callar vuelve a estar a la vista para cualquiera que consulte la tabla con su sesión.
+  USING (recipient_staff_id = public.get_my_staff_id() AND dismissed_at IS NULL);
 
 -- =====================================================================
 -- I.2) Realtime — la campana se entera sola
@@ -1441,3 +1699,27 @@ GRANT SELECT ON public.notifications           TO authenticated;
 GRANT ALL ON public.notification_types      TO service_role;
 GRANT ALL ON public.notification_role_types TO service_role;
 GRANT ALL ON public.notifications           TO service_role;
+
+
+-- =====================================================================
+-- K) Grants de funcion — la superficie que SI ve el cliente
+-- =====================================================================
+--
+-- Estas cuatro son toda la API del panel, y son las unicas del modulo que `authenticated` puede
+-- ejecutar. Lo que las hace seguras no es el grant sino que NINGUNA recibe un staff_id: las
+-- cuatro lo derivan de `get_my_staff_id()`, asi que no hay parametro con el que pedir la bandeja
+-- de otro. Todo lo demas quedo revocado (ver G.6 y el bloque de resolutores en la migracion 03).
+--
+-- Se declara explicito en vez de apoyarse en el EXECUTE que Postgres le da a PUBLIC por defecto:
+-- ese default fue justamente lo que dejo expuestos los helpers, y "no revocado" no es lo mismo
+-- que "concedido a proposito". `anon` queda afuera — sin sesion no hay bandeja que leer.
+
+REVOKE ALL ON FUNCTION public.get_my_notifications(integer)           FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.get_my_notification_aggregates()        FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.mark_notifications_read(uuid[])         FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.dismiss_notifications(uuid[])           FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.get_my_notifications(integer)        TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_my_notification_aggregates()     TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.mark_notifications_read(uuid[])      TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.dismiss_notifications(uuid[])        TO authenticated, service_role;

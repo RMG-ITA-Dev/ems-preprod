@@ -677,7 +677,12 @@ export function NotificationsPanel() {
             </p>
           )}
 
-          {!isPending && !isError && !hasAnything && (
+          {/* `notificationsError` tambien cuenta, y no solo `isError`: son DOS consultas (la
+              bandeja nueva y las alertas legacy) y cualquiera de las dos puede fallar sola.
+              Mirando solo `isError`, una bandeja caida con el feed legacy vacio pintaba el
+              mensaje de error Y "todo al dia" uno debajo del otro — que es lo contrario de lo
+              que se sabe: no se sabe si hay algo pendiente, justamente porque no cargo. */}
+          {!isPending && !isError && !notificationsError && !hasAnything && (
             <div className="space-y-1 px-4 py-8 text-center">
               <p className="text-sm font-medium">
                 {t("notifications.allClear")}

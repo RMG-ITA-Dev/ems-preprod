@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  FalloDeEnvio,
   generarYEnviarCorreoAuth,
   UsuarioInexistente,
   type ClienteAdmin,
@@ -13,6 +14,8 @@ const REDIRECT = "http://localhost:8080/reset-password?reason=admin_unlock";
 function adminFalso(respuesta: {
   hashedToken?: string | null;
   error?: { message: string };
+  /** Lo que GoTrue devuelve en `data.user` al crear la cuenta de un `signup`. */
+  usuarioId?: string | null;
 }): ClienteAdmin & { llamadas: unknown[] } {
   const llamadas: unknown[] = [];
   return {
@@ -23,7 +26,10 @@ function adminFalso(respuesta: {
           llamadas.push(parametros);
           if (respuesta.error) return { data: null, error: respuesta.error };
           return {
-            data: { properties: { hashed_token: respuesta.hashedToken ?? undefined } },
+            data: {
+              properties: { hashed_token: respuesta.hashedToken ?? undefined },
+              user: respuesta.usuarioId ? { id: respuesta.usuarioId } : null,
+            },
             error: null,
           };
         }),
@@ -157,5 +163,92 @@ describe("generarYEnviarCorreoAuth", () => {
     });
 
     expect(resultado).toEqual({ estado: "enviado", redirigido: false });
+  });
+
+  /**
+   * Las dos fases no significan lo mismo en un `signup`: `generateLink` CREA LA CUENTA y recién
+   * después se manda el mensaje. Si falla lo primero no quedó nada; si falla lo segundo quedó una
+   * cuenta sin confirmar y sin correo, y `register-user` tiene que poder deshacerla — su
+   * reintento no puede, porque a partir de ahí GoTrue responde "ya registrado".
+   */
+  describe("cuando el envio falla despues de generar el enlace", () => {
+    it("lanza FalloDeEnvio con el id de la cuenta recien creada", async () => {
+      const admin = adminFalso({ hashedToken: "pkce_abc123", usuarioId: "u-123" });
+      const enviar = vi.fn(async () => {
+        throw new Error("Graph 503");
+      });
+
+      const fallo = await generarYEnviarCorreoAuth({
+        admin,
+        enviar,
+        tipo: "signup",
+        email: "persona@ruizmier.com",
+        redirectTo: REDIRECT,
+        supabaseUrl: SUPABASE_URL,
+        password: "unaClaveLarga",
+      }).catch((e) => e);
+
+      expect(fallo).toBeInstanceOf(FalloDeEnvio);
+      expect(fallo.usuarioId).toBe("u-123");
+      // El motivo original no se pierde: es lo que se registra en los logs.
+      expect(fallo.message).toBe("Graph 503");
+      expect((fallo as FalloDeEnvio).causa).toBeInstanceOf(Error);
+    });
+
+    it("un fallo de GENERACION no es FalloDeEnvio: no hay cuenta que deshacer", async () => {
+      const admin = adminFalso({ error: { message: "email_exists" } });
+      const enviar = enviarFalso();
+
+      const fallo = await generarYEnviarCorreoAuth({
+        admin,
+        enviar,
+        tipo: "signup",
+        email: "persona@ruizmier.com",
+        redirectTo: REDIRECT,
+        supabaseUrl: SUPABASE_URL,
+        password: "unaClaveLarga",
+      }).catch((e) => e);
+
+      expect(fallo).toBeInstanceOf(Error);
+      expect(fallo).not.toBeInstanceOf(FalloDeEnvio);
+      expect(enviar.enviados).toHaveLength(0);
+    });
+
+    it("en recovery no hay usuarioId: la cuenta ya existia y no se deshace nada", async () => {
+      const admin = adminFalso({ hashedToken: "pkce_abc123" });
+      const enviar = vi.fn(async () => {
+        throw new Error("Graph 503");
+      });
+
+      const fallo = await generarYEnviarCorreoAuth({
+        admin,
+        enviar,
+        tipo: "recovery",
+        email: "persona@ruizmier.com",
+        redirectTo: REDIRECT,
+        supabaseUrl: SUPABASE_URL,
+      }).catch((e) => e);
+
+      expect(fallo).toBeInstanceOf(FalloDeEnvio);
+      expect(fallo.usuarioId).toBeNull();
+    });
+
+    it("un envio exitoso no lanza nada", async () => {
+      const admin = adminFalso({ hashedToken: "pkce_abc123", usuarioId: "u-123" });
+      const enviar = enviarFalso();
+
+      await expect(
+        generarYEnviarCorreoAuth({
+          admin,
+          enviar,
+          tipo: "signup",
+          email: "persona@ruizmier.com",
+          redirectTo: REDIRECT,
+          supabaseUrl: SUPABASE_URL,
+          password: "unaClaveLarga",
+        }),
+      ).resolves.toEqual({ estado: "simulado", redirigido: true });
+      expect(enviar.enviados).toHaveLength(1);
+    });
   });
 });

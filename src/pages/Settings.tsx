@@ -380,6 +380,8 @@ const Settings = () => {
     const persistedMaxAttempts = getSetting("AUTH_MAX_FAILED_ATTEMPTS") || "5";
     const persistedLockoutMinutes = getSetting("AUTH_LOCKOUT_MINUTES") || "15";
     const persistedExchangeRateApiUrl = getSetting("EXCHANGE_RATE_API_URL") || "";
+    const persistedAlertWindow = getSetting("TS_ALERT_WINDOW_WEEKS") || "4";
+    const persistedTrackingStart = getSetting("TS_TRACKING_START_DATE") || "";
 
     return (
       language !== persistedLang ||
@@ -395,11 +397,19 @@ const Settings = () => {
       (weeklyMin !== "" && weeklyMin !== persistedWeeklyMin) ||
       (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax) ||
       (maxFailedAttempts !== "" && maxFailedAttempts !== persistedMaxAttempts) ||
-      (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes)
+      (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes) ||
+      // Los dos campos de notificaciones NO son simetricos, porque no se guardan igual:
+      //   * alertWindowWeeks nunca se hidrata (el input cae al persistido en `value`), y el
+      //     guardado solo escribe si tiene algo. Vacio = sin tocar, igual que los numericos.
+      //   * trackingStartDate SI se hidrata, y el guardado compara contra lo persistido para
+      //     poder GUARDAR EL VACIO — dejarlo en blanco es como se desactiva el recorte. Asi que
+      //     aca la comparacion es directa: vacio sobre un valor guardado es un cambio real.
+      (alertWindowWeeks !== "" && alertWindowWeeks !== persistedAlertWindow) ||
+      trackingStartDate !== persistedTrackingStart
     );
   }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
-      maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl]);
+      maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl, alertWindowWeeks, trackingStartDate]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -427,6 +437,12 @@ const Settings = () => {
     setMaxFailedAttempts("");
     setLockoutMinutes("");
     setExchangeRateApiUrl(getSetting("EXCHANGE_RATE_API_URL") || "");
+    // Mismas dos formas que en isGlobalDirty: el que no se hidrata vuelve a vacio (= sin
+    // tocar) y el que si se hidrata vuelve a lo persistido. Desde que los dos cuentan para el
+    // estado sucio, dejarlos afuera de Cancelar haria que el LeavePageDialog saltara igual
+    // despues de cancelar.
+    setAlertWindowWeeks("");
+    setTrackingStartDate(getSetting("TS_TRACKING_START_DATE") || "");
 
     setActiveTab("account");
   };

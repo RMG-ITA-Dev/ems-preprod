@@ -2328,6 +2328,46 @@ GRANT EXECUTE ON FUNCTION public.notif_emit_approval_reminder_weekly() TO servic
 GRANT EXECUTE ON FUNCTION public.notif_emit_fund_reminder_weekly() TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() TO service_role;
 
+-- =====================================================================
+-- Quien puede llamar a los resolutores de destinatarios
+-- =====================================================================
+--
+-- Mismo motivo que el bloque G.6 de la migracion 01. Todos estos son SECURITY DEFINER y todos
+-- reciben el id de la entidad por parametro, asi que sin REVOKE cualquiera con la anon key
+-- preguntaba por PostgREST "quienes son los gerentes del encargo X" o "quienes tienen el rol
+-- partner", que es exactamente el directorio que la RLS no le entrega.
+--
+-- Los `notify_*_events()` NO estan en la lista: devuelven `trigger`, y una funcion asi no se
+-- puede invocar directamente (`trigger functions can only be called as triggers`) ni la publica
+-- PostgREST. El grant sobre ellas no cambia nada.
+--
+-- Nadie mas que el dueño necesita ejecutarlas: quien las llama son los triggers y los emisores
+-- del cron, todos SECURITY DEFINER, o sea que corren como el dueño y conservan su EXECUTE.
+
+REVOKE ALL ON FUNCTION public.notif_staff_by_roles(text[])                FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_staff_by_practice(uuid, text[])       FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_fund_request_managers(uuid)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_engagement_partners(uuid)             FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_engagement_managers(uuid)             FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_engagement_owners(uuid)               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_engagement_staffed(uuid)              FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_timesheet_period_leads(uuid)          FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_client_assigned(uuid)                 FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_scope_of(text, uuid)                  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_role_tiene(text, text)                FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.notif_staff_by_roles(text[])             TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_staff_by_practice(uuid, text[])    TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_fund_request_managers(uuid)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_engagement_partners(uuid)          TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_engagement_managers(uuid)          TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_engagement_owners(uuid)            TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_engagement_staffed(uuid)           TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_timesheet_period_leads(uuid)       TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_client_assigned(uuid)              TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_scope_of(text, uuid)               TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_role_tiene(text, text)             TO service_role;
+
 -- Horarios en UTC. La Paz es UTC-4, así que 13:00 UTC = 09:00 local: media mañana, no de
 -- madrugada como los emisores de la campana. Un correo que llega a las 2 AM se lee junto con el
 -- spam de la noche.
@@ -2398,4 +2438,58 @@ BEGIN
   ELSE
     RAISE NOTICE 'sync_user_role_from_category no existe: auth.role.changed no podra distinguir el cambio de categoria (falta 20260825000000_category_default_role_key.sql).';
   END IF;
+END $$;
+
+
+-- =====================================================================
+-- Verificación final: ningún helper del módulo quedó abierto al cliente
+-- =====================================================================
+--
+-- Va al final del ÚLTIMO archivo de notificaciones a propósito: acá ya existen las funciones de
+-- las tres migraciones, así que es el único punto donde se puede mirar el módulo entero.
+--
+-- El problema que atrapa es de omisión, y los `REVOKE` de arriba no se defienden solos: Postgres
+-- le da `EXECUTE` a `PUBLIC` a toda función nueva y PostgREST publica en `/rest/v1/rpc/` todo lo
+-- que el rol de la petición pueda ejecutar. Agregar un contador y olvidarse del `REVOKE` no da
+-- ningún error — deja un endpoint público que contesta con datos que la RLS esconde. Fue
+-- exactamente lo que pasó con `engagement_approval_bucket`, que devolvía código y nombre de
+-- encargo a cualquiera que mandara un staff_id ajeno con la anon key.
+--
+-- Por eso se verifica en vez de barrer automáticamente: un barrido silencioso arregla el
+-- síntoma y deja que la costumbre se pierda. Esto rompe la migración y obliga a decidir a qué
+-- lista va la función nueva.
+DO $$
+DECLARE v_abiertos text;
+BEGIN
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+    INTO v_abiertos
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.prosecdef
+     -- Los `notify_*_events()` devuelven `trigger`: no se pueden invocar directamente
+     -- (`trigger functions can only be called as triggers`) ni los publica PostgREST.
+     AND p.prorettype <> 'pg_catalog.trigger'::regtype
+     -- El prefijo `notif\_` no alcanza a `notify_staff` (sexto caracter `y`, no `_`), que de
+     -- todos modos ya esta revocada en la migracion 01.
+     AND (p.proname LIKE 'notif\_%' OR p.proname = 'engagement_approval_bucket')
+     AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       OR has_function_privilege('anon', p.oid, 'EXECUTE'));
+
+  IF v_abiertos IS NOT NULL THEN
+    RAISE EXCEPTION
+      'Helpers de notificaciones ejecutables desde el cliente (PostgREST los publica): %. Agregar su REVOKE junto al CREATE.',
+      v_abiertos;
+  END IF;
+
+  -- El reverso, que ningún REVOKE de más deje el panel en blanco. Las cuatro derivan el staff de
+  -- get_my_staff_id(), así que son las únicas que `authenticated` debe poder ejecutar.
+  IF NOT has_function_privilege('authenticated', 'public.get_my_notifications(integer)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.get_my_notification_aggregates()', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.mark_notifications_read(uuid[])', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.dismiss_notifications(uuid[])', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Alguna de las 4 RPC del panel quedo sin EXECUTE para authenticated: el panel no carga';
+  END IF;
+
+  RAISE NOTICE 'PASS — helpers cerrados al cliente, las 4 RPC del panel abiertas a authenticated';
 END $$;

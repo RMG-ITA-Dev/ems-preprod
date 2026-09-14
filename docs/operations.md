@@ -90,7 +90,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 | `auth-email-hook` | Supabase Auth Send Email Hook — renders the account emails (signup / recovery / admin unlock) and sends them through Microsoft Graph instead of Supabase's built-in mail service. Authenticated by the Standard Webhooks signature, not a JWT (`docs/plan-correos-notificaciones.md` §3) |
 | `request-password-reset` | Public "forgot password" endpoint. Asks GoTrue for the recovery token with `generateLink()` (which sends no email) and delivers it through Microsoft Graph, so the flow is no longer capped by Supabase's built-in 2-emails/hour limit. Abuse control is `claim_auth_email_slot()`, and the response is identical whether or not the account exists |
 | `register-user` | Public sign-up endpoint. Creates the account with `generateLink({type:"signup"})` (no email sent by GoTrue) and delivers the confirmation through Microsoft Graph. Enforces `ALLOWED_EMAIL_DOMAIN` server-side — the form is bypassable — and answers identically whether or not the address already has an account, mailing an "you already have an account" notice instead |
-| `send-notification-emails` | Drains `public.notification_emails` and delivers through Microsoft Graph. Cron-triggered every 5 minutes, authenticated by the `x-cron-secret` header. Templates live in `supabase/functions/_shared/plantillas/` |
+| `send-notification-emails` | Drains `public.notification_emails` and delivers through Microsoft Graph. Fired every 5 minutes by the `notif-email-drain` pg_cron job (scheduled in the notifications catalogue migration, section H.4.b), authenticated by the `x-cron-secret` header. That job needs `pg_net` and two vault secrets loaded per project — the migration warns instead of failing when they are missing, so check its output on a fresh deploy. Templates live in `supabase/functions/_shared/plantillas/` |
 
 ---
 
@@ -151,6 +151,12 @@ Three functions keep a hardcoded allowlist and reject anything else: `dashboard-
 `scheduler-data`, `scheduler-gaps` (plus `FRONTEND_URL` from the environment). A new frontend
 domain has to be added there as well as to the Auth redirect list, or those endpoints answer with
 the wrong `Access-Control-Allow-Origin` and the browser blocks the call.
+
+`register-user` and `request-password-reset` also need `FRONTEND_URL`, for a different reason:
+both are public (`verify_jwt = false`, CORS `*`) and both send mail, so the links in those
+messages are built from that secret and never from the request's `Origin` header — which the
+caller picks. Without the secret set they refuse to run rather than fall back to the `Origin`.
+`send-notification-emails` needs it too, for the links in the catalogue mails.
 
 ### Build-time variables on Railway
 

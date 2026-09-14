@@ -39,7 +39,11 @@ export type ClienteAdmin = {
         password?: string;
         options?: { redirectTo?: string; data?: Record<string, unknown> };
       }): Promise<{
-        data: { properties?: { hashed_token?: string } | null } | null;
+        data: {
+          properties?: { hashed_token?: string } | null;
+          /** Para `signup`, la cuenta que GoTrue acaba de crear. Ver `FalloDeEnvio`. */
+          user?: { id?: string } | null;
+        } | null;
         error: { message: string; status?: number } | null;
       }>;
     };
@@ -50,6 +54,28 @@ export class UsuarioInexistente extends Error {
   constructor() {
     super("No hay usuario con ese correo.");
     this.name = "UsuarioInexistente";
+  }
+}
+
+/**
+ * El enlace se generó pero el correo NO salió.
+ *
+ * Existe para que quien llama pueda distinguir las dos fases, porque para `signup` no significan
+ * lo mismo: `generateLink({ type: "signup" })` CREA LA CUENTA y después se manda el mensaje. Si
+ * falla la generación no quedó nada; si falla el envío quedó una cuenta sin confirmar y sin
+ * correo — y el reintento del usuario ya no puede arreglarla solo, porque a partir de ahí GoTrue
+ * responde "ya registrado" y el alta toma la rama de cuenta existente.
+ *
+ * `usuarioId` es la cuenta recién creada, para que quien llama pueda deshacerla. Va a estar sólo
+ * en `signup`: para `recovery` o `magiclink` la cuenta ya existía y no hay nada que deshacer.
+ */
+export class FalloDeEnvio extends Error {
+  constructor(
+    readonly causa: unknown,
+    readonly usuarioId?: string | null,
+  ) {
+    super(causa instanceof Error ? causa.message : String(causa));
+    this.name = "FalloDeEnvio";
   }
 }
 
@@ -119,12 +145,20 @@ export async function generarYEnviarCorreoAuth(parametros: {
     nombre: parametros.nombre ?? null,
   });
 
-  const resultado = await enviar({
-    destinatarios: [email],
-    asunto: correo.asunto,
-    cuerpoTexto: correo.cuerpoTexto,
-    cuerpoHtml: correo.cuerpoHtml,
-  });
+  // A partir de acá la cuenta de un `signup` YA EXISTE. Cualquier fallo del transporte se
+  // envuelve para que quien llama sepa que lo que falló fue la entrega y no la generación, y
+  // pueda deshacer el alta a medias en vez de dejar una cuenta sin confirmar y sin correo.
+  let resultado: Awaited<ReturnType<EnviarCorreoFn>>;
+  try {
+    resultado = await enviar({
+      destinatarios: [email],
+      asunto: correo.asunto,
+      cuerpoTexto: correo.cuerpoTexto,
+      cuerpoHtml: correo.cuerpoHtml,
+    });
+  } catch (error) {
+    throw new FalloDeEnvio(error, data?.user?.id ?? null);
+  }
 
   return { estado: resultado.estado, redirigido: resultado.redirigido };
 }
