@@ -9,9 +9,10 @@
 //   Input:  { staffId: string }
 //   Output (success):
 //     { ok: true, resetEmailSent: boolean }
-//     resetEmailSent is false when the account was unblocked but GoTrue
-//     rejected the reset-password email (SMTP/rate limit/redirect not allowed),
-//     so the UI can warn the admin instead of claiming the email was sent.
+//     resetEmailSent is false when the account was unblocked but the recovery
+//     email could not be produced or delivered (generateLink rejected the
+//     redirect, or Microsoft Graph refused the send), so the UI can warn the
+//     admin instead of claiming the email went out.
 //   Output (not admin):
 //     { ok: false, code: "NOT_ADMIN" }
 //   Output (staff not found):
@@ -23,12 +24,16 @@
 //   1. Verify caller JWT → resolve user → check admin role.
 //   2. Call admin_unblock_account(p_staff_id) RPC — atomically clears
 //      staff.is_blocked and deletes the auth_login_attempts row.
-//   3. Call GoTrue resetPasswordForEmail so the user receives the same
-//      reset-password email as "Forgot password", prompting them to set
-//      a new password. The redirectTo includes reason=admin_unlock so the
-//      /reset-password page can show a contextual banner.
+//   3. Ask GoTrue for a recovery link with generateLink() — which sends no
+//      email — and deliver it through Microsoft Graph. The user gets the same
+//      reset-password email as "Forgot password", prompting them to set a new
+//      password. The redirectTo includes reason=admin_unlock so the
+//      /reset-password page can show a contextual banner, and the email copy
+//      reflects that an admin did this rather than the user asking for it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
+import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,9 +59,10 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+  // SUPABASE_ANON_KEY ya no hace falta: el correo de recuperacion lo emite el cliente de
+  // servicio con generateLink(), no un cliente anonimo llamando a resetPasswordForEmail().
 
-  if (!SUPABASE_URL || !SERVICE_ROLE || !ANON_KEY) {
+  if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR", message: "Server not configured" }, 500);
   }
 
@@ -126,16 +132,29 @@ Deno.serve(async (req) => {
     ? body.redirectTo
     : `${req.headers.get("origin") ?? SUPABASE_URL}/reset-password?reason=admin_unlock`;
 
-  const supabaseAnon = createClient(SUPABASE_URL, ANON_KEY);
-  const { error: resetError } = await supabaseAnon.auth.resetPasswordForEmail(email, {
-    redirectTo,
-  });
-
-  if (resetError) {
+  //    The email goes out through Microsoft Graph, not GoTrue: generateLink()
+  //    hands us the recovery token WITHOUT sending anything, so this no longer
+  //    burns the project's per-hour email quota. An admin unblocking several
+  //    accounts in a row used to hit that limit from the fourth one onwards.
+  //    GoTrue still issues and validates the token — only the delivery moved.
+  try {
+    const resultado = await generarYEnviarCorreoAuth({
+      admin: supabaseAdmin,
+      enviar: enviarCorreo,
+      tipo: "recovery",
+      email,
+      redirectTo,
+      supabaseUrl: SUPABASE_URL,
+    });
+    console.log(`[unlock-account] recovery: ${resultado.estado}.`);
+  } catch (error) {
     // The account is already unblocked, so this is not fatal — but the user
     // received no recovery link. Report resetEmailSent: false so the admin is
     // warned and can re-send the reset manually instead of being told it went out.
-    console.error("[unlock-account] resetPasswordForEmail failed:", resetError);
+    console.error(
+      "[unlock-account] recovery email failed:",
+      error instanceof Error ? error.message : String(error),
+    );
     return jsonResponse({ ok: true, resetEmailSent: false });
   }
 
