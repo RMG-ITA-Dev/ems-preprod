@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS public.notification_types (
     delivery      text NOT NULL,
     display_order integer NOT NULL DEFAULT 0,
     is_active     boolean NOT NULL DEFAULT true,
+    -- Segundo eje, independiente de `delivery` (D-44): si el tipo ademas sale por correo. La
+    -- bandeja de salida y la compuerta viven en la migracion 04; la columna vive aca porque el
+    -- seed la escribe, y el seed corre antes.
+    email_enabled boolean NOT NULL DEFAULT false,
     created_at    timestamp with time zone NOT NULL DEFAULT now(),
     updated_at    timestamp with time zone NOT NULL DEFAULT now(),
     CONSTRAINT notification_types_delivery_check
@@ -47,10 +51,18 @@ CREATE TABLE IF NOT EXISTS public.notification_types (
       CHECK (btrim(type_key) <> '')
 );
 
+-- `CREATE TABLE IF NOT EXISTS` no agrega columnas a una tabla que ya existe: este ALTER es
+-- lo que pone `email_enabled` en los ambientes donde este archivo ya se aplico antes de la
+-- fase de correos. Desde cero es un no-op.
+ALTER TABLE public.notification_types
+  ADD COLUMN IF NOT EXISTS email_enabled boolean NOT NULL DEFAULT false;
+
 COMMENT ON TABLE public.notification_types IS
   'Catálogo de tipos de notificación. GENERADO desde docs/matriz-notificaciones.md por tools/parse-matriz-notificaciones.py — no editar filas a mano.';
 COMMENT ON COLUMN public.notification_types.delivery IS
-  'event = una fila por suceso en public.notifications; aggregate = contador calculado al vuelo, nunca se persiste; email = reservado para Microsoft Graph.';
+  'event = una fila por suceso en public.notifications; aggregate = contador calculado al vuelo, nunca se persiste; email = solo correo, sin fila en la campana (los recordatorios periodicos).';
+COMMENT ON COLUMN public.notification_types.email_enabled IS
+  'Si el tipo ademas sale por correo. GENERADO desde la columna CORREO de docs/matriz-notificaciones.md (D-44). Independiente de delivery: un event puede mandar los dos, y un email solo correo.';
 COMMENT ON COLUMN public.notification_types.label_key IS
   'Clave i18n: notifications.types.<type_key>, en src/locales/{es,en}.json.';
 
@@ -101,6 +113,87 @@ COMMENT ON TABLE public.notifications IS
   'Instancias de notificación de tipo event. Se escriben ÚNICAMENTE vía notify_staff(); no hay policy de INSERT para authenticated.';
 
 -- =====================================================================
+-- C.2) La bandeja de salida de correos
+-- =====================================================================
+---------------------------------------------------------------------
+--
+-- Por qué una tabla y no llamar a la función de correo desde el trigger: el envío no puede vivir
+-- dentro de la transacción de negocio. Si Graph tarda 20 s, la aprobación de la OT tarda 20 s; y si
+-- el envío falla, no puede tumbar el INSERT del hecho. La bandeja desacopla las dos cosas y deja
+-- rastro de qué se mandó, a quién y con qué error.
+
+CREATE TABLE IF NOT EXISTS public.notification_emails (
+    email_id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- La idempotencia. Para lo derivado de un suceso es el notification_id; para un recordatorio,
+    -- `type_key|staff_id|ventana`. Un cron que corre dos veces manda un correo, no dos.
+    dedupe_key         text NOT NULL UNIQUE,
+    notification_id    uuid REFERENCES public.notifications(notification_id) ON DELETE SET NULL,
+    recipient_staff_id uuid NOT NULL REFERENCES public.staff(staff_id) ON DELETE CASCADE,
+    to_email           text NOT NULL,
+    -- El nombre se congela al encolar y no se resuelve al enviar: el correo saluda a quien era
+    -- destinatario cuando ocurrio el hecho, y una baja o un cambio de apellido en el medio no
+    -- deberia cambiar un mensaje ya generado.
+    to_name            text,
+    type_key           text NOT NULL REFERENCES public.notification_types(type_key) ON DELETE CASCADE,
+    entity_id          text,
+    payload            jsonb NOT NULL DEFAULT '{}'::jsonb,
+    status             text NOT NULL DEFAULT 'pending',
+    attempts           integer NOT NULL DEFAULT 0,
+    last_error         text,
+    created_at         timestamp with time zone NOT NULL DEFAULT now(),
+    sent_at            timestamp with time zone,
+    CONSTRAINT notification_emails_status_check
+      CHECK (status IN ('pending', 'sending', 'failed', 'sent'))
+);
+
+-- El único patrón de lectura del drenaje: lo pendiente, más viejo primero.
+CREATE INDEX IF NOT EXISTS idx_notification_emails_pendientes
+  ON public.notification_emails (created_at)
+  WHERE status = 'pending';
+
+-- Igual que `email_enabled`: el CREATE la declara para el replay desde cero, y el ALTER la
+-- agrega donde la tabla ya existe.
+ALTER TABLE public.notification_emails
+  ADD COLUMN IF NOT EXISTS to_name text;
+
+COMMENT ON TABLE public.notification_emails IS
+  'Bandeja de salida de correos. Se escribe UNICAMENTE via notify_staff(); la drena la edge function send-notification-emails. Sin policies: no se lee desde el cliente.';
+COMMENT ON COLUMN public.notification_emails.dedupe_key IS
+  'Clave de idempotencia. Derivado de un suceso: el notification_id. Recordatorio: type_key|staff_id|ventana.';
+COMMENT ON COLUMN public.notification_emails.notification_id IS
+  'La fila de la campana que lo origino, si la hay. NULL en los recordatorios (delivery=email) y cuando la notificacion se descarta: el correo ya mandado sigue siendo un hecho.';
+
+ALTER TABLE public.notification_emails ENABLE ROW LEVEL SECURITY;
+
+-- Sin policies a propósito: sólo `service_role` toca esta tabla, y `service_role` no evalúa RLS.
+REVOKE ALL ON TABLE public.notification_emails FROM PUBLIC;
+REVOKE ALL ON TABLE public.notification_emails FROM anon, authenticated;
+GRANT ALL ON TABLE public.notification_emails TO service_role;
+
+
+-- =====================================================================
+-- C.3) De dónde vino un cambio de rol
+-- =====================================================================
+--
+-- `auth.role.changed` manda correo (D-44), y el texto dice una cosa distinta según el cambio haya
+-- sido directo o derivado de la categoría — el rol se deriva de ella (`sync_user_role_from_category`,
+-- 0820-182), así que cambiar la categoría de alguien también dispara el aviso.
+--
+-- El trigger está sobre `user_roles` y ve el resultado, no la causa. La causa la anota quien la
+-- conoce, en una variable de sesión local a la transacción (ver FASE 3.j en el archivo 03), y el
+-- trigger la copia al payload. Determinístico, en vez de adivinar mirando si la categoría cambió
+-- cerca en el tiempo.
+
+CREATE OR REPLACE FUNCTION public.notif_origen_cambio_rol() RETURNS text
+    LANGUAGE sql STABLE
+    AS $BODY$
+  SELECT COALESCE(NULLIF(current_setting('ems.role_change_source', true), ''), 'direct');
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS
+  'De donde vino el cambio de rol en curso: category si lo escribio sync_user_role_from_category, direct en cualquier otro caso. Lo consume el payload de auth.role.changed para elegir el texto del correo.';
+
+-- =====================================================================
 -- D) notify_staff() — el portón único
 -- =====================================================================
 --
@@ -111,9 +204,7 @@ COMMENT ON TABLE public.notifications IS
 -- disparador puede llamar a notify_staff() para todos los candidatos y dejar que la matriz
 -- filtre, sin envolver cada llamada en un IF.
 --
-DROP FUNCTION IF EXISTS public.notify_staff(text, uuid, text, jsonb);
-
-CREATE FUNCTION public.notify_staff(
+CREATE OR REPLACE FUNCTION public.notify_staff(
     p_type_key           text,
     p_recipient_staff_id uuid,
     p_entity_id          text  DEFAULT NULL,
@@ -123,29 +214,35 @@ CREATE FUNCTION public.notify_staff(
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_delivery      text;
-  v_role_key      text;
+  v_delivery        text;
+  v_email_enabled   boolean;
+  v_role_key        text;
+  v_scope_key       text;
   v_notification_id uuid;
+  v_email           text;
+  v_nombre          text;
+  v_dedupe          text;
 BEGIN
   IF p_type_key IS NULL OR p_recipient_staff_id IS NULL THEN
     RETURN NULL;
   END IF;
 
   -- El tipo debe existir y estar activo. Un type_key con typo no crea filas huérfanas.
-  SELECT nt.delivery INTO v_delivery
+  SELECT nt.delivery, nt.email_enabled INTO v_delivery, v_email_enabled
     FROM public.notification_types nt
    WHERE nt.type_key = p_type_key
      AND nt.is_active;
 
-  -- Los 'aggregate' se calculan al vuelo y los 'email' salen por otro canal: ninguno se
-  -- persiste acá. Si un disparador los intenta, es un bug del disparador, no del catálogo.
-  IF v_delivery IS DISTINCT FROM 'event' THEN
+  -- Los `aggregate` se calculan al vuelo: no se persisten ni se mandan.
+  IF v_delivery IS NULL OR v_delivery = 'aggregate' THEN
     RETURN NULL;
   END IF;
 
-  -- Rol del DESTINATARIO (no del que dispara). Sin cuenta vinculada o sin rol, no hay
-  -- notificación — mismo criterio que get_engagement_team_candidates().
-  SELECT ur.role_key INTO v_role_key
+  -- Rol del DESTINATARIO (no del que dispara). Sin cuenta vinculada o sin rol, no hay aviso.
+  -- El correo se trae acá mismo: es la misma fila.
+  SELECT ur.role_key, s.email,
+         btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))
+    INTO v_role_key, v_email, v_nombre
     FROM public.staff s
     JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
    WHERE s.staff_id = p_recipient_staff_id
@@ -156,25 +253,62 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  -- El portón: la matriz decide.
-  IF NOT EXISTS (
-    SELECT 1 FROM public.notification_role_types nrt
-     WHERE nrt.role_key = v_role_key
-       AND nrt.type_key = p_type_key
-  ) THEN
+  -- El portón: la matriz decide, y de paso dice con qué alcance.
+  SELECT nrt.scope_key INTO v_scope_key
+    FROM public.notification_role_types nrt
+   WHERE nrt.role_key = v_role_key
+     AND nrt.type_key = p_type_key;
+
+  IF v_scope_key IS NULL THEN
     RETURN NULL;
   END IF;
 
-  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, payload)
-  VALUES (p_recipient_staff_id, p_type_key, p_entity_id, COALESCE(p_payload, '{}'::jsonb))
-  RETURNING notification_id INTO v_notification_id;
+  -- La campana, sólo para los tipos que viven ahí.
+  IF v_delivery = 'event' THEN
+    INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, payload)
+    VALUES (p_recipient_staff_id, p_type_key, p_entity_id, COALESCE(p_payload, '{}'::jsonb))
+    RETURNING notification_id INTO v_notification_id;
+  END IF;
+
+  -- El correo. Tres condiciones, y las tres tienen que darse:
+  --
+  --   * el tipo está marcado en la matriz (D-44),
+  --   * el destinatario tiene correo cargado — sin `staff.email` no hay a dónde mandarlo, y
+  --   * el alcance no es `firm`, SALVO que sea un recordatorio.
+  --
+  -- Lo último es la regla que reemplaza a marcar 419 celdas: `firm` significa "ve toda la firma".
+  -- Por campana eso es una lista; por correo POR SUCESO sería un mensaje por cada hecho de la
+  -- empresa. La excepción es el recordatorio (`delivery = 'email'`), que es justamente el formato
+  -- que le sirve a ese destinatario: un resumen por semana en vez de cien avisos sueltos.
+  -- Excluirlo de los dos lo dejaría sin ninguna vía de correo, que no es lo que se decidió.
+  IF v_email_enabled
+     AND v_email IS NOT NULL
+     AND btrim(v_email) <> ''
+     AND (v_scope_key <> 'firm' OR v_delivery = 'email') THEN
+
+    -- Para un evento alcanza el notification_id. Un recordatorio (delivery='email') no tiene, y
+    -- su unicidad la define quien llama: pasa la ventana en el payload (`dedupe`), y si no la
+    -- pasa cae a la fecha, que es la cadencia más fina que tiene sentido para un recordatorio.
+    v_dedupe := COALESCE(
+      v_notification_id::text,
+      p_type_key || '|' || p_recipient_staff_id::text || '|' ||
+        COALESCE(p_payload->>'dedupe', to_char(now(), 'YYYY-MM-DD')));
+
+    INSERT INTO public.notification_emails
+      (dedupe_key, notification_id, recipient_staff_id, to_email, to_name, type_key,
+       entity_id, payload)
+    VALUES
+      (v_dedupe, v_notification_id, p_recipient_staff_id, btrim(v_email),
+       NULLIF(v_nombre, ''), p_type_key, p_entity_id, COALESCE(p_payload, '{}'::jsonb))
+    ON CONFLICT (dedupe_key) DO NOTHING;
+  END IF;
 
   RETURN v_notification_id;
 END;
 $$;
 
 COMMENT ON FUNCTION public.notify_staff(text, uuid, text, jsonb) IS
-  'Portón único de escritura de notificaciones. Inserta sólo si el rol del destinatario tiene ese type_key en notification_role_types y el tipo es delivery=event. Devuelve NULL (sin error) si no corresponde.';
+  'Porton unico de escritura. Inserta en la campana si delivery=event, y encola correo si el tipo tiene email_enabled, el destinatario tiene staff.email y su alcance no es firm (D-44). Devuelve el notification_id, o NULL si no corresponde (tambien cuando solo se encolo correo).';
 
 -- Sin GRANT a `authenticated` a propósito: nadie notifica a mano desde el cliente. Los
 -- disparadores de Fase 3+ deben ser SECURITY DEFINER (propiedad del owner) para poder
@@ -627,6 +761,123 @@ COMMENT ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text) IS
   'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing vigente no cubre, por encargo y categoria. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
 
 
+-- Los tres contadores de timesheet, extraidos del despachador (D-44). Estaban escritos en linea
+-- adentro de get_my_notification_aggregates(), que resuelve al usuario con get_my_staff_id(); el
+-- cron de recordatorios no tiene usuario actual y no podia reusarlos. Duplicar el SQL era la otra
+-- salida, y termina con la campana diciendo 3 y el correo diciendo 5.
+--
+-- `overdue` y `reverted` reciben las semanas YA calculadas en vez del staff_id: get_week_statuses()
+-- es la parte cara y los dos miran la misma lista. Asi se calcula una vez por persona, que es lo
+-- que hacia el despachador antes de esto.
+
+DROP FUNCTION IF EXISTS public.notif_timesheet_window_start();
+
+CREATE FUNCTION public.notif_timesheet_window_start() RETURNS date
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $fn$
+DECLARE
+  v_raw    text;
+  v_window integer := 4;
+  v_start  date;
+  v_from   date;
+BEGIN
+  -- Se valida con regex en vez de castear a ciegas: global_settings es texto libre y un valor
+  -- mal tipeado por el admin no debe tumbar la campana entera.
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
+  IF v_raw ~ '^[0-9]+$' THEN
+    v_window := LEAST(GREATEST(v_raw::integer, 1), 52);
+  END IF;
+
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'TS_TRACKING_START_DATE';
+  IF btrim(COALESCE(v_raw, '')) ~ '^\d{4}-\d{2}-\d{2}$' THEN
+    v_start := btrim(v_raw)::date;
+  END IF;
+
+  v_from := CURRENT_DATE - (v_window * 7);
+  -- La fecha de arranque del sistema solo puede ACORTAR la ventana, nunca alargarla.
+  IF v_start IS NOT NULL AND v_start > v_from THEN
+    v_from := v_start;
+  END IF;
+
+  RETURN v_from;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.notif_timesheet_window_start() IS
+  'Inicio de la ventana de las alarmas de timesheet: TS_ALERT_WINDOW_WEEKS semanas atras, recortada por TS_TRACKING_START_DATE. Un valor mal tipeado cae al default de 4 semanas.';
+
+DROP FUNCTION IF EXISTS public.notif_agg_timesheet_overdue(jsonb);
+
+CREATE FUNCTION public.notif_agg_timesheet_overdue(p_weeks jsonb) RETURNS jsonb
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $fn$
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'missing_hours', COALESCE(SUM((w->>'missing_hours')::numeric), 0),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start',    w->>'week_start',
+                      'missing_hours', (w->>'missing_hours')::numeric
+                    ) ORDER BY w->>'week_start' DESC), '[]'::jsonb))
+    FROM jsonb_array_elements(COALESCE(p_weeks, '[]'::jsonb)) w
+   WHERE w->>'status' IN ('NOT_LOGGED', 'NOT_SUBMITTED', 'DRAFT');
+$fn$;
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_overdue(jsonb) IS
+  'Semanas sin cargar o sin enviar, sobre la salida de get_week_statuses(). Lo consumen el despachador de la campana y el recordatorio diario.';
+
+DROP FUNCTION IF EXISTS public.notif_agg_timesheet_reverted(jsonb);
+
+CREATE FUNCTION public.notif_agg_timesheet_reverted(p_weeks jsonb) RETURNS jsonb
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $fn$
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', COALESCE(jsonb_agg(jsonb_build_object('week_start', w->>'week_start')
+                      ORDER BY w->>'week_start' DESC), '[]'::jsonb))
+    FROM jsonb_array_elements(COALESCE(p_weeks, '[]'::jsonb)) w
+   WHERE w->>'status' = 'REJECTED';
+$fn$;
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_reverted(jsonb) IS
+  'Semanas devueltas al colaborador, sobre la salida de get_week_statuses().';
+
+DROP FUNCTION IF EXISTS public.notif_agg_timesheet_pending_approval(uuid, date);
+
+CREATE FUNCTION public.notif_agg_timesheet_pending_approval(p_staff_id uuid, p_from date)
+    RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $fn$
+  -- DISTINCT obligatorio: timesheet_line_approvals es UNIQUE (period_id, engagement_id,
+  -- activity_id), asi que sin el el COT se repetiria una vez por actividad.
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start', week_start, 'cots', cots) ORDER BY week_start DESC),
+                    '[]'::jsonb))
+    FROM (
+      SELECT tp.week_start_date AS week_start,
+             COALESCE(jsonb_agg(DISTINCT e.engagement_code)
+                      FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
+        FROM public.timesheet_periods tp
+        JOIN public.timesheet_line_approvals tla ON tla.period_id = tp.period_id
+        JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+       WHERE tp.staff_id = p_staff_id
+         AND tp.submitted_at IS NOT NULL
+         AND tla.status = 'pending'
+         AND tp.week_start_date >= p_from
+       GROUP BY tp.week_start_date
+    ) q;
+$fn$;
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
+  'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
+
 DROP FUNCTION IF EXISTS public.get_my_notification_aggregates();
 
 CREATE FUNCTION public.get_my_notification_aggregates() RETURNS jsonb
@@ -639,9 +890,6 @@ DECLARE
   v_types    text[];
   v_weeks    jsonb;
   v_out      jsonb := '{}'::jsonb;
-  v_raw      text;
-  v_window   integer := 4;
-  v_start    date;
   v_from     date;
   v_scope_overdue text;
   v_scope_gap     text;
@@ -671,25 +919,7 @@ BEGIN
   END IF;
 
   -- ── Ventana de las alarmas de timesheet ──
-  -- Se valida con regex en vez de castear a ciegas: global_settings es texto libre y un valor
-  -- mal tipeado por el admin no debe tumbar la campana entera.
-  SELECT setting_value INTO v_raw
-    FROM public.global_settings WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
-  IF v_raw ~ '^[0-9]+$' THEN
-    v_window := LEAST(GREATEST(v_raw::integer, 1), 52);
-  END IF;
-
-  SELECT setting_value INTO v_raw
-    FROM public.global_settings WHERE setting_key = 'TS_TRACKING_START_DATE';
-  IF btrim(COALESCE(v_raw, '')) ~ '^\d{4}-\d{2}-\d{2}$' THEN
-    v_start := btrim(v_raw)::date;
-  END IF;
-
-  v_from := CURRENT_DATE - (v_window * 7);
-  -- La fecha de arranque del sistema solo puede ACORTAR la ventana, nunca alargarla.
-  IF v_start IS NOT NULL AND v_start > v_from THEN
-    v_from := v_start;
-  END IF;
+  v_from := public.notif_timesheet_window_start();
 
   -- ── Timesheets ──
   IF v_types && ARRAY['timesheet.overdue','timesheet.reverted','timesheet.pending_approval'] THEN
@@ -697,50 +927,18 @@ BEGIN
   END IF;
 
   IF 'timesheet.overdue' = ANY (v_types) THEN
-    v_out := v_out || jsonb_build_object('timesheet.overdue', (
-      SELECT jsonb_build_object(
-               'count', COUNT(*),
-               'missing_hours', COALESCE(SUM((w->>'missing_hours')::numeric), 0),
-               'items', COALESCE(jsonb_agg(jsonb_build_object(
-                          'week_start',    w->>'week_start',
-                          'missing_hours', (w->>'missing_hours')::numeric
-                        ) ORDER BY w->>'week_start' DESC), '[]'::jsonb))
-        FROM jsonb_array_elements(v_weeks) w
-       WHERE w->>'status' IN ('NOT_LOGGED', 'NOT_SUBMITTED', 'DRAFT')));
+    v_out := v_out || jsonb_build_object('timesheet.overdue',
+               public.notif_agg_timesheet_overdue(v_weeks));
   END IF;
 
   IF 'timesheet.reverted' = ANY (v_types) THEN
-    v_out := v_out || jsonb_build_object('timesheet.reverted', (
-      SELECT jsonb_build_object(
-               'count', COUNT(*),
-               'items', COALESCE(jsonb_agg(jsonb_build_object('week_start', w->>'week_start')
-                          ORDER BY w->>'week_start' DESC), '[]'::jsonb))
-        FROM jsonb_array_elements(v_weeks) w
-       WHERE w->>'status' = 'REJECTED'));
+    v_out := v_out || jsonb_build_object('timesheet.reverted',
+               public.notif_agg_timesheet_reverted(v_weeks));
   END IF;
 
   IF 'timesheet.pending_approval' = ANY (v_types) THEN
-    -- DISTINCT obligatorio: timesheet_line_approvals es UNIQUE (period_id, engagement_id,
-    -- activity_id), asi que sin el el COT se repetiria una vez por actividad.
-    v_out := v_out || jsonb_build_object('timesheet.pending_approval', (
-      SELECT jsonb_build_object(
-               'count', COUNT(*),
-               'items', COALESCE(jsonb_agg(jsonb_build_object(
-                          'week_start', week_start, 'cots', cots) ORDER BY week_start DESC),
-                        '[]'::jsonb))
-        FROM (
-          SELECT tp.week_start_date AS week_start,
-                 COALESCE(jsonb_agg(DISTINCT e.engagement_code)
-                          FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
-            FROM public.timesheet_periods tp
-            JOIN public.timesheet_line_approvals tla ON tla.period_id = tp.period_id
-            JOIN public.engagements e ON e.engagement_id = tla.engagement_id
-           WHERE tp.staff_id = v_staff
-             AND tp.submitted_at IS NOT NULL
-             AND tla.status = 'pending'
-             AND tp.week_start_date >= v_from
-           GROUP BY tp.week_start_date
-        ) q));
+    v_out := v_out || jsonb_build_object('timesheet.pending_approval',
+               public.notif_agg_timesheet_pending_approval(v_staff, v_from));
   END IF;
 
   -- ── Encargos generados: estado actual de la OT, no una ventana ──
@@ -1025,6 +1223,154 @@ BEGIN
     );
   END IF;
 END $$;
+
+-- =====================================================================
+-- H.4) El drenaje de correos
+-- =====================================================================
+---------------------------------------------------------------------
+--
+-- `FOR UPDATE SKIP LOCKED` es el control de concurrencia: dos drenajes simultáneos se reparten
+-- las filas en vez de pelearse por las mismas. Es lo que hace que el cron pueda correr cada 5
+-- minutos sin coordinar nada.
+
+DROP FUNCTION IF EXISTS public.claim_notification_emails(integer);
+
+CREATE FUNCTION public.claim_notification_emails(p_limit integer DEFAULT 50)
+RETURNS TABLE (
+    email_id   uuid,
+    to_email   text,
+    to_name    text,
+    type_key   text,
+    entity_id  text,
+    payload    jsonb,
+    attempts   integer
+)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  RETURN QUERY
+  WITH tomadas AS (
+    SELECT e.email_id
+      FROM public.notification_emails e
+     WHERE e.status = 'pending'
+     ORDER BY e.created_at
+     LIMIT GREATEST(COALESCE(p_limit, 50), 0)
+       FOR UPDATE SKIP LOCKED
+  )
+  UPDATE public.notification_emails e
+     SET status = 'sending', attempts = e.attempts + 1
+    FROM tomadas t
+   WHERE e.email_id = t.email_id
+  RETURNING e.email_id, e.to_email, e.to_name, e.type_key, e.entity_id, e.payload, e.attempts;
+END;
+$$;
+
+COMMENT ON FUNCTION public.claim_notification_emails(integer) IS
+  'Reclama hasta p_limit correos pendientes y los marca sending. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
+
+REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_notification_emails(integer) TO service_role;
+
+-- Tope de intentos. Tres es suficiente para cubrir una caída de red o un 500 pasajero; más que
+-- eso es un problema de configuración, y reintentarlo cada 5 minutos para siempre sólo esconde
+-- el error en vez de mostrarlo.
+DROP FUNCTION IF EXISTS public.mark_notification_email_result(uuid, boolean, text);
+
+CREATE FUNCTION public.mark_notification_email_result(
+    p_email_id uuid,
+    p_ok       boolean,
+    p_error    text DEFAULT NULL
+) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_intentos integer;
+BEGIN
+  IF p_email_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  IF p_ok THEN
+    UPDATE public.notification_emails
+       SET status = 'sent', sent_at = now(), last_error = NULL
+     WHERE email_id = p_email_id;
+    RETURN FOUND;
+  END IF;
+
+  SELECT attempts INTO v_intentos
+    FROM public.notification_emails
+   WHERE email_id = p_email_id;
+
+  IF v_intentos IS NULL THEN
+    RETURN false;
+  END IF;
+
+  UPDATE public.notification_emails
+     SET status     = CASE WHEN v_intentos >= 3 THEN 'failed' ELSE 'pending' END,
+         last_error = p_error
+   WHERE email_id = p_email_id;
+
+  RETURN true;
+END;
+$$;
+
+COMMENT ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) IS
+  'Cierra un correo reclamado: sent si salio, de vuelta a pending para reintentar, o failed al tercer intento.';
+
+REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) TO service_role;
+
+
+-- =====================================================================
+-- H.5) Retención de correos
+-- =====================================================================
+---------------------------------------------------------------------
+--
+-- Las `sent` viejas no dicen nada: el hecho vive en su módulo y el correo ya llegó. Las `failed`
+-- se conservan — son el registro de lo que NO llegó, y borrarlas es perder la única pista de que
+-- alguien nunca se enteró de algo.
+
+CREATE OR REPLACE FUNCTION public.purge_old_notification_emails()
+RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_borrados integer;
+BEGIN
+  DELETE FROM public.notification_emails
+   WHERE status = 'sent'
+     AND COALESCE(sent_at, created_at) < now() - interval '30 days';
+  GET DIAGNOSTICS v_borrados = ROW_COUNT;
+  RETURN v_borrados;
+END;
+$$;
+
+COMMENT ON FUNCTION public.purge_old_notification_emails() IS
+  'Borra los correos enviados hace mas de 30 dias. Conserva los failed: son el registro de lo que no llego.';
+
+REVOKE ALL ON FUNCTION public.purge_old_notification_emails() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.purge_old_notification_emails() TO service_role;
+
+-- Mismo horario y mismo guard que el resto de los crons del catálogo.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-email-purge-daily') THEN
+      PERFORM cron.unschedule('notif-email-purge-daily');
+    END IF;
+    PERFORM cron.schedule(
+      'notif-email-purge-daily',
+      '35 5 * * *',
+      $cron$SELECT public.purge_old_notification_emails();$cron$
+    );
+  END IF;
+END $$;
+
 
 -- =====================================================================
 -- I) RLS

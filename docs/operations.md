@@ -42,7 +42,7 @@
 | File | Why |
 |------|-----|
 | `src/integrations/supabase/types.ts` | Auto-generated from the Supabase schema |
-| `supabase/config.toml` | Managed by Lovable Cloud |
+| `supabase/config.toml` | Was managed by Lovable Cloud. Under the Railway + Supabase model it IS edited by hand — it is where each function's `verify_jwt` lives — but `project_id` still points at the Lovable project |
 
 ### Scheduler feature flag
 
@@ -58,10 +58,10 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 
 ---
 
-## Backend (Lovable Cloud)
+## Backend (Supabase)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 9 Edge Functions (inventory below)
+- 13 Edge Functions (inventory below)
 - 15 migrations in `supabase/migrations/`: 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. The 15th is the first incremental migration applied on top of that set, `20260825120000_0825-183_worksheet_activity_practice_scope.sql` (bug 0825-183: strict practice scope for worksheet matrix cells).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
@@ -78,25 +78,85 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 | `test-minmax-settings` | Backend integration tests for the min/max settings RPC |
 | `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
 | `unlock-account` | Admin manual account unlock — clears `staff.is_blocked` + sends password reset email (BUG 0601-132) |
+| `auth-email-hook` | Supabase Auth Send Email Hook — renders the account emails (signup / recovery / admin unlock) and sends them through Microsoft Graph instead of Supabase's built-in mail service. Authenticated by the Standard Webhooks signature, not a JWT (`docs/plan-correos-notificaciones.md` §3) |
+| `request-password-reset` | Public "forgot password" endpoint. Asks GoTrue for the recovery token with `generateLink()` (which sends no email) and delivers it through Microsoft Graph, so the flow is no longer capped by Supabase's built-in 2-emails/hour limit. Abuse control is `claim_auth_email_slot()`, and the response is identical whether or not the account exists |
+| `register-user` | Public sign-up endpoint. Creates the account with `generateLink({type:"signup"})` (no email sent by GoTrue) and delivers the confirmation through Microsoft Graph. Enforces `ALLOWED_EMAIL_DOMAIN` server-side — the form is bypassable — and answers identically whether or not the address already has an account, mailing an "you already have an account" notice instead |
+| `send-notification-emails` | Drains `public.notification_emails` and delivers through Microsoft Graph. Cron-triggered every 5 minutes, authenticated by the `x-cron-secret` header. Templates live in `supabase/functions/_shared/plantillas/` |
 
 ---
 
-## Lovable Deployment Workflow
+## Deployment
 
-Frontend code in `src/**` and translations in `src/locales/*.json` sync automatically through the GitHub integration. **Backend changes require an explicit Lovable prompt** after the commit lands on `main`.
+**Target model (decided 2026-09-11): frontend on Railway, backend on Supabase, no Lovable.**
+The Lovable Cloud project (`ugqxfnrxvksiltwxzist`) is the environment that exists today; everything
+below describes how the target model is operated, and it is already how the EMS-Test project
+(`slkqdcwwvmjtcbakajib`) is driven.
 
-`development` is the integration branch — feature branches (e.g. `dev-scheduler`) merge there first via Pull Request, with CI required. `main` is production and is what Lovable Cloud actually watches; `development` reaching `main` is a separate, deliberate promotion step, not automatic.
+`development` is the integration branch — feature branches merge there first via Pull Request, with
+CI required. `main` is production; `development` reaching `main` is a separate, deliberate
+promotion step, not automatic.
 
-| Change | Auto-syncs? | Required Lovable prompt |
-|--------|-------------|--------------------------|
-| Frontend (`src/**`) | Yes | — |
-| Translations (`src/locales/*.json`) | Yes | — |
-| Edge Function edited (`supabase/functions/<name>/`) | No | `"Deploy the <name> edge function"` |
-| New migration (`supabase/migrations/*.sql`) | No | `"Apply pending Supabase migrations"` |
-| New table / schema change | No | `"Create a <name> table with columns: ..."` |
-| New secret / env var | No | `"Add a Supabase secret named <NAME>"` |
+### What ships where
 
-Deep reference: `.claude/skills/lovable/SKILL.md`.
+| Change | How it ships |
+|--------|--------------|
+| Frontend (`src/**`), translations (`src/locales/*.json`) | Railway builds from the branch it watches |
+| Migrations (`supabase/migrations/*.sql`) | `supabase db push --project-ref <ref>` |
+| Edge functions (`supabase/functions/<name>/`) | `supabase functions deploy <name> --project-ref <ref>` |
+| Secrets / env vars for functions | `supabase secrets set --project-ref <ref> --env-file <file>` |
+| Auth redirect allowlist, Site URL, Auth Hooks | Dashboard only — no CLI equivalent |
+
+Nothing deploys itself: a migration merged to `main` is **not** applied until someone runs
+`db push`, and an edited edge function keeps serving its previous version until it is redeployed.
+
+### Bringing up a Supabase project from zero
+
+```bash
+supabase link --project-ref <ref>
+supabase db push                                     # every migration, in order; creates the ledger
+supabase secrets set --project-ref <ref> --env-file <secrets.env>
+supabase functions deploy <name> --project-ref <ref> # one per function
+```
+
+`supabase db push` records what it applied in `supabase_migrations.schema_migrations`, so a second
+run is a no-op. Projects populated by pasting SQL into the Studio editor have no such ledger and
+re-run everything — see the migration-order rule in `AGENTS.md`.
+
+Function deploys read `[functions.<name>]` from `supabase/config.toml`, so `verify_jwt` travels with
+the repo. Setting it by hand in the dashboard is only needed for functions pasted into the web
+editor.
+
+### Manual, per project, in the dashboard
+
+These have no CLI path and must be repeated on every environment:
+
+1. **Authentication → URL Configuration** — Site URL, plus every frontend origin in Redirect URLs.
+   GoTrue ignores a `redirect_to` that is not listed and silently falls back to the Site URL.
+2. **Authentication → Auth Hooks → Send Email hook** — HTTPS, pointing at
+   `https://<ref>.supabase.co/functions/v1/auth-email-hook`. It generates its own secret, which then
+   has to be loaded as `AUTH_EMAIL_HOOK_SECRET`.
+
+### Origins the frontend is served from
+
+Three functions keep a hardcoded allowlist and reject anything else: `dashboard-data`,
+`scheduler-data`, `scheduler-gaps` (plus `FRONTEND_URL` from the environment). A new frontend
+domain has to be added there as well as to the Auth redirect list, or those endpoints answer with
+the wrong `Access-Control-Allow-Origin` and the browser blocks the call.
+
+### Build-time variables on Railway
+
+Vite inlines `VITE_*` at build time, so these must exist **when Railway builds**, not just at
+runtime: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`,
+`VITE_SCHEDULER_ENABLED`.
+
+### Regenerating `types.ts`
+
+```bash
+supabase gen types typescript --project-ref <ref> > src/integrations/supabase/types.ts
+```
+
+Needed after any migration that adds or changes an RPC. Until it is regenerated, new RPCs have to be
+called through an `as never` cast, and there are several of those waiting to be removed.
 
 ---
 

@@ -172,6 +172,11 @@ run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
 run supabase/migrations/20260911100100_notificaciones_02_seed.sql
 run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql
 
+# Throttle de los correos de cuenta. Va con la migracion de correos: desde que los correos de
+# cuenta salen por Microsoft Graph, GoTrue ya no cuenta ninguno, y este es el freno que lo
+# reemplaza para el formulario publico de "olvide mi contrasena".
+run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
+
 # Fix del numerador de solicitudes de fondos (lpad truncando). NO es de notificaciones: se
 # encontro probando ese flujo y vive aparte para poder revertirse por separado.
 run supabase/migrations/20260911100500_fund_request_number_lpad.sql
@@ -218,5 +223,7 @@ assert_suite supabase/tests/rls-0828-186-own-timer-engagement-labels.sql 'OWN TI
 assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185 y notificaciones Fase 1 aplicadas sobre base scratch; las 15 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185 y notificaciones Fase 1 aplicadas sobre base scratch; las 17 suites de RLS/RPC/schema-convergence/trigger pasaron"

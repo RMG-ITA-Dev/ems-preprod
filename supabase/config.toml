@@ -9,3 +9,23 @@ verify_jwt = true
 # secure-signin is the auth endpoint itself — callers do not yet have a JWT.
 [functions.secure-signin]
 verify_jwt = false
+
+# auth-email-hook lo llama GoTrue, que no manda JWT: la autenticacion es la firma
+# Standard Webhooks que verifica la propia funcion.
+[functions.auth-email-hook]
+verify_jwt = false
+
+# request-password-reset lo llama alguien SIN sesion (olvide mi contrasena), igual que
+# secure-signin. El anti-abuso es claim_auth_email_slot(), no el JWT.
+[functions.request-password-reset]
+verify_jwt = false
+
+# register-user lo llama alguien que todavia NO tiene cuenta, asi que no puede mandar JWT.
+# Valida dominio y throttle del lado del servidor, porque el formulario es salteable.
+[functions.register-user]
+verify_jwt = false
+
+# send-notification-emails lo dispara un cron, que no tiene sesion. La autenticacion es el
+# header x-cron-secret que la funcion verifica contra CRON_SECRET.
+[functions.send-notification-emails]
+verify_jwt = false

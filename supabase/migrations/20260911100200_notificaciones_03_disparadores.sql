@@ -1585,6 +1585,12 @@ BEGIN
       PERFORM public.notify_staff('auth.role.changed', v_staff,
                 COALESCE(v_staff::text, NEW.user_id::text),
                 v_base || jsonb_build_object('previous_role_key', COALESCE(OLD.role_key, ''),
+                                             -- De donde vino el cambio: `category` si lo escribio
+                                             -- sync_user_role_from_category, `direct` si no. El
+                                             -- correo elige el texto con esto (D-44); el trigger
+                                             -- ve el resultado y no la causa, asi que la causa la
+                                             -- anota quien la conoce.
+                                             'source', public.notif_origen_cambio_rol(),
                                              'context', 'own'));
     END IF;
 
@@ -2050,5 +2056,346 @@ BEGIN
       '0 12 * * *',
       $cron$SELECT public.notif_engagement_daily_scheduled();$cron$
     );
+  END IF;
+END $$;
+
+
+-- =====================================================================
+-- FASE 3.i — Recordatorios periódicos (D-44)
+-- =====================================================================
+---------------------------------------------------------------------
+--
+-- Los contadores del catálogo no mandan correo por suceso: mandan un resumen con cadencia
+-- (D-44). Es lo que permite que ninguna aprobación se pierda sin mandar un correo por ítem —
+-- una solicitud de fondos de 12 gastos generaría 49 correos, y a la tercera semana la gente
+-- arma una regla en Outlook y ahí se pierden también los que importaban.
+--
+-- Cada emisor recorre a quien tenga el tipo concedido en la matriz, arma el resumen con LOS
+-- MISMOS contadores que pinta la campana, y sólo avisa si hay algo que contar. `notify_staff()`
+-- pone el freno final: el tipo es `delivery = 'email'`, así que no deja fila en la campana, y el
+-- `dedupe_key` hace que dos corridas de la misma ventana manden un correo y no dos.
+--
+-- Los emisores NO filtran por alcance `firm`: eso lo hace notify_staff() y sólo para el correo
+-- por suceso. Un rol `firm` sí recibe el resumen — es justamente el formato que le sirve.
+
+-- Un rol tiene concedido un tipo. Se usa para armar los resumenes pieza por pieza: sumar todos
+-- los contadores sin preguntar le mostraria a un gerente la cola de capacitacion de Talento
+-- Humano, que la matriz no le concede.
+CREATE OR REPLACE FUNCTION public.notif_role_tiene(p_role_key text, p_type_key text)
+RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+  SELECT EXISTS (
+    SELECT 1 FROM public.notification_role_types
+     WHERE role_key = p_role_key AND type_key = p_type_key);
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_role_tiene(text, text) IS
+  'Si la matriz le concede ese tipo a ese rol. Helper de los emisores de recordatorio.';
+
+-- 1. Diario: mis horas.
+CREATE OR REPLACE FUNCTION public.notif_emit_timesheet_reminder_daily()
+RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_from     date := public.notif_timesheet_window_start();
+  v_hoy      text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'YYYY-MM-DD');
+  v_weeks    jsonb;
+  v_overdue  jsonb;
+  v_reverted jsonb;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'timesheet.reminder.daily'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    v_weeks    := public.get_week_statuses(v_rec.staff_id, v_from, CURRENT_DATE);
+    v_overdue  := public.notif_agg_timesheet_overdue(v_weeks);
+    v_reverted := public.notif_agg_timesheet_reverted(v_weeks);
+
+    -- Sin nada pendiente no se manda nada. Un recordatorio que dice "cero" todos los días
+    -- enseña a ignorarlo.
+    CONTINUE WHEN COALESCE((v_overdue->>'count')::integer, 0)
+                + COALESCE((v_reverted->>'count')::integer, 0) = 0;
+
+    PERFORM public.notify_staff('timesheet.reminder.daily', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe',   v_hoy,
+                                 'overdue',  v_overdue,
+                                 'reverted', v_reverted));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_emit_timesheet_reminder_daily() IS
+  'Recordatorio diario de horas: semanas sin cargar y semanas devueltas. Devuelve a cuantas personas se les emitio (el dedupe puede descartar alguna si el cron corre dos veces el mismo dia).';
+
+-- 2. Semanal: lo que tengo que aprobar.
+CREATE OR REPLACE FUNCTION public.notif_emit_approval_reminder_weekly()
+RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_from      date := public.notif_timesheet_window_start();
+  v_semana    text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_lineas    jsonb;
+  v_capac     jsonb;
+  v_encargos  jsonb;
+  v_total     integer;
+  v_avisados  integer := 0;
+  v_rec       record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'approval.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    -- Cada pieza del resumen se incluye SOLO si la matriz le concede ese contador. Sumarlos
+    -- todos le mostraria a un gerente la cola de capacitacion de Talento Humano.
+    v_lineas := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'timesheet.pending_approval')
+                     THEN public.notif_agg_timesheet_pending_approval(v_rec.staff_id, v_from)
+                     ELSE NULL END;
+    v_capac  := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'approval.training_pending')
+                     THEN public.notif_agg_approval_training_pending()
+                     ELSE NULL END;
+    v_encargos := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'engagement.pending_partner_approval')
+                       THEN public.engagement_approval_bucket(v_rec.staff_id, 'Pending_Approval')
+                       ELSE NULL END;
+
+    v_total := COALESCE((v_lineas->>'count')::integer, 0)
+             + COALESCE((v_capac->>'count')::integer, 0)
+             + COALESCE((v_encargos->>'count')::integer, 0);
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('approval.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe',    v_semana,
+                                 'total',     v_total,
+                                 'lineas',    v_lineas,
+                                 'capacitacion', v_capac,
+                                 'encargos',  v_encargos));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS
+  'Recordatorio semanal de aprobaciones: lineas de timesheet, cola de capacitacion y encargos esperando al Socio. Cada pieza entra solo si la matriz le concede ese contador al rol.';
+
+-- 3. Semanal: fondos.
+CREATE OR REPLACE FUNCTION public.notif_emit_fund_reminder_weekly()
+RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_revision jsonb;
+  v_desemb   jsonb;
+  v_liquid   jsonb;
+  v_cierre   jsonb;
+  v_total    integer;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  -- Los cuatro contadores de fondos no reciben staff: son de toda la firma, y la matriz se los
+  -- concede a Contabilidad con alcance `department`. Se calculan una sola vez.
+  v_revision := public.notif_agg_fund_expense_review_pending();
+  v_desemb   := public.notif_agg_fund_disbursement_pending();
+  v_liquid   := public.notif_agg_fund_settlement_pending();
+  v_cierre   := public.notif_agg_fund_closure_pending();
+
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'fund.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    v_total := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.expense.review_pending')
+                    THEN COALESCE((v_revision->>'count')::integer, 0) ELSE 0 END
+             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.disbursement.pending')
+                    THEN COALESCE((v_desemb->>'count')::integer, 0) ELSE 0 END
+             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.settlement.pending')
+                    THEN COALESCE((v_liquid->>'count')::integer, 0) ELSE 0 END
+             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.request.closure_pending')
+                    THEN COALESCE((v_cierre->>'count')::integer, 0) ELSE 0 END;
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('fund.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe', v_semana,
+                                 'total',  v_total,
+                                 'revision_gastos', v_revision,
+                                 'desembolsos',     v_desemb,
+                                 'liquidaciones',   v_liquid,
+                                 'cierres',         v_cierre));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_emit_fund_reminder_weekly() IS
+  'Recordatorio semanal de fondos: gastos por revisar, solicitudes por desembolsar, por liquidar y por cerrar.';
+
+-- 4. Semanal: cuotas.
+CREATE OR REPLACE FUNCTION public.notif_emit_wo_installment_reminder_weekly()
+RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_semana_actual jsonb := public.notif_agg_wo_installment_due_this_week();
+  v_mora     jsonb;
+  v_total    integer;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key,
+           -- El alcance del contador de mora, que la matriz reparte con DOS: `assigned` para los
+           -- gerentes (sus encargos) y `department` para Contabilidad (todo). Sin esto un gerente
+           -- veria la mora de toda la firma.
+           (SELECT n2.scope_key FROM public.notification_role_types n2
+             WHERE n2.role_key = ur.role_key
+               AND n2.type_key = 'wo.installment.overdue') AS scope_mora
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'wo.installment.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    v_mora := CASE WHEN v_rec.scope_mora IS NOT NULL
+                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora)
+                   ELSE NULL END;
+
+    v_total := COALESCE((v_mora->>'count')::integer, 0)
+             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
+                    THEN COALESCE((v_semana_actual->>'count')::integer, 0) ELSE 0 END;
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('wo.installment.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe', v_semana,
+                                 'total',  v_total,
+                                 'vencidas',   v_mora,
+                                 'por_vencer', v_semana_actual));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() IS
+  'Recordatorio semanal de cuotas: vencidas y por vencer esta semana. Reemplaza al correo por cuota de wo.client.billing_week (D-44).';
+
+REVOKE ALL ON FUNCTION public.notif_emit_timesheet_reminder_daily() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_emit_approval_reminder_weekly() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_reminder_weekly() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.notif_emit_timesheet_reminder_daily() TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_emit_approval_reminder_weekly() TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_emit_fund_reminder_weekly() TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() TO service_role;
+
+-- Horarios en UTC. La Paz es UTC-4, así que 13:00 UTC = 09:00 local: media mañana, no de
+-- madrugada como los emisores de la campana. Un correo que llega a las 2 AM se lee junto con el
+-- spam de la noche.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-reminder-timesheet-daily') THEN
+      PERFORM cron.unschedule('notif-reminder-timesheet-daily');
+    END IF;
+    -- Lunes a viernes: el fin de semana no se cargan horas y el aviso sólo gasta atención.
+    PERFORM cron.schedule('notif-reminder-timesheet-daily', '0 13 * * 1-5',
+      $cron$SELECT public.notif_emit_timesheet_reminder_daily();$cron$);
+
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-reminder-approval-weekly') THEN
+      PERFORM cron.unschedule('notif-reminder-approval-weekly');
+    END IF;
+    PERFORM cron.schedule('notif-reminder-approval-weekly', '10 13 * * 1',
+      $cron$SELECT public.notif_emit_approval_reminder_weekly();$cron$);
+
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-reminder-fund-weekly') THEN
+      PERFORM cron.unschedule('notif-reminder-fund-weekly');
+    END IF;
+    PERFORM cron.schedule('notif-reminder-fund-weekly', '20 13 * * 1',
+      $cron$SELECT public.notif_emit_fund_reminder_weekly();$cron$);
+
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-reminder-installment-weekly') THEN
+      PERFORM cron.unschedule('notif-reminder-installment-weekly');
+    END IF;
+    PERFORM cron.schedule('notif-reminder-installment-weekly', '30 13 * * 1',
+      $cron$SELECT public.notif_emit_wo_installment_reminder_weekly();$cron$);
+  END IF;
+END $$;
+
+
+-- =====================================================================
+-- FASE 3.j — De dónde vino el cambio de rol (D-44)
+-- =====================================================================
+---------------------------------------------------------------------
+--
+-- `auth.role.changed` manda correo (D-44), y el texto tiene que decir una cosa distinta según el
+-- cambio haya sido directo o derivado de la categoría: el rol se deriva de ella
+-- (`sync_user_role_from_category`, 0820-182), así que cambiar la categoría de alguien también
+-- dispara este aviso.
+--
+-- El trigger está sobre `user_roles` y ve el resultado, no la causa. La causa la deja anotada
+-- quien la conoce, en una variable de sesión local a la transacción, y el trigger la copia al
+-- payload. Determinístico, en vez de adivinar mirando si la categoría cambió cerca en el tiempo.
+--
+-- `notif_origen_cambio_rol()` vive en la migración 01: la llama el trigger del 03, que corre
+-- antes que este archivo.
+
+-- Y quien conoce la causa la anota. Se usa la clausula SET de la propia funcion en vez de tocar
+-- su cuerpo: `20260825000000_category_default_role_key.sql` ya esta aplicada en ambientes reales,
+-- y reescribir sus 100 lineas aca solo para agregar una es pedir que las dos copias se separen.
+-- La clausula vale mientras la funcion corre, incluida la delegacion en admin_set_user_role_key y
+-- el trigger que esa escritura dispara, y se restaura sola al salir.
+--
+-- Va guardado porque este archivo no puede exigir esa migracion: el catalogo de notificaciones
+-- no depende de la sincronizacion de categoria, y un ambiente sin ella —EMS-Test, sin ir mas
+-- lejos— no tiene por que quedarse sin los emisores enteros por un detalle de redaccion de un
+-- correo. Si la funcion no esta, el origen queda en `direct` y el correo dice "su rol cambio",
+-- que es verdad igual.
+DO $$
+BEGIN
+  IF to_regprocedure('public.sync_user_role_from_category(uuid, text, text)') IS NOT NULL THEN
+    EXECUTE 'ALTER FUNCTION public.sync_user_role_from_category(uuid, text, text)'
+            ' SET "ems.role_change_source" = ''category''';
+  ELSE
+    RAISE NOTICE 'sync_user_role_from_category no existe: auth.role.changed no podra distinguir el cambio de categoria (falta 20260825000000_category_default_role_key.sql).';
   END IF;
 END $$;

@@ -233,16 +233,17 @@ BEGIN
   SELECT COUNT(*) INTO v_grants FROM public.notification_role_types;
   SELECT COUNT(DISTINCT role_key) INTO v_roles FROM public.notification_role_types;
 
-  IF v_types <> 71 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 71 (¿corriste el parser?)', v_types;
+  -- 75 = los 71 originales + los 4 recordatorios periodicos que agrego D-44 (delivery='email').
+  IF v_types <> 75 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 75 (¿corriste el parser?)', v_types;
   END IF;
-  IF v_grants <> 419 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 419', v_grants;
+  IF v_grants <> 462 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 462', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 71 tipos, 419 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 75 tipos, 462 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
