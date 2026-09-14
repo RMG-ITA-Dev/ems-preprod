@@ -1235,8 +1235,18 @@ BEGIN
   VALUES ('e9f00000-0000-4000-8000-000000000005', 'BOB', 'High', 'Draft')
   RETURNING wo_id INTO v_wo;
 
+  -- El plan de pagos SI necesita sesion, al reves que el resto de los fixtures: la rama
+  -- 0722-156b agrego trg_wo_payment_plan_guard_exchange_rate, que exige ser el gerente del
+  -- encargo o admin para crearlo (EXCHANGE_RATE_FORBIDDEN). Sin sesion, is_admin() y
+  -- get_my_staff_id() son falsos los dos y el INSERT se rechaza.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR, gerente de E_FIVE
+
   INSERT INTO public.wo_payment_plan (wo_id, payment_days)
   VALUES (v_wo, 30) RETURNING plan_id INTO v_plan;
+
+  -- De vuelta sin sesion: las cuotas y el resto del grupo se cargan como el resto de los
+  -- fixtures, y el contador de mora se mide sin que auth.uid() lo filtre.
+  PERFORM set_config('request.jwt.claims', '', true);
 
   -- OJO CON LA MAQUINA DE ESTADOS DE LA CUOTA. La rama 0722-156b (tipo de cambio por cuota,
   -- aplicada al mirror antes de mergear a development) agrega dos guards sobre esta tabla:
@@ -1281,6 +1291,13 @@ BEGIN
 
   -- 9.b Cambio de estado de una cuota: a Contabilidad, con el estado en el payload.
   -- Pending -> Invoiced es la única salida legal de 'Pending'.
+  --
+  -- La OT pasa a 'Approved' antes: la rama 0722-156b agrego INSTALLMENT_LOCKED, que exige la
+  -- orden aprobada para mover el estado de una cuota. Se escribe SOLO approval_status y no
+  -- approved_at, asi que notify_work_order_events no emite nada por este UPDATE — ninguna de
+  -- sus condiciones mira ese salto (Draft/Pending_Approval -> Approved sin firma).
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = v_wo;
+
   UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
