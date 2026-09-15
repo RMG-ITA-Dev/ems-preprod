@@ -138,3 +138,37 @@ describe("renderizarCorreoCuentaExistente", () => {
     expect(correo.cuerpoTexto).not.toContain("/auth/v1/verify");
   });
 });
+
+/**
+ * El correo institucional sale con la paleta de la firma, no con la que venga a mano.
+ *
+ * Antes usaba la Blue Grey de Tailwind y un `#0f4c81` que quería ser el navy de la marca y estaba
+ * corrido dos por ciento: los colores del mensaje no eran los de Ruizmier. En correo no hay
+ * tokens —Outlook no resuelve `var()` y los clientes descartan las clases—, así que esto es lo
+ * único que ata el HTML a `docs/skills/design-system.md`.
+ */
+describe("paleta de la marca", () => {
+  const html = renderizarCorreoAuth(datos()).cuerpoHtml;
+
+  it("usa los hex del design system", () => {
+    expect(html).toContain("#f7f9fc"); // background
+    expect(html).toContain("#0f3c73"); // brand-navy: texto y botón
+    expect(html).toContain("#5a6370"); // brand-gray: texto secundario
+    expect(html).toContain("#c9d4e9"); // border
+  });
+
+  it("no quedó nada de la paleta anterior", () => {
+    for (const viejo of ["#0f4c81", "#1f2933", "#52606d", "#f4f5f7", "#e4e7eb", "#7b8794"]) {
+      expect(html, viejo).not.toContain(viejo);
+    }
+  });
+
+  it("el botón va en navy, que es el que pasa AA sobre blanco", () => {
+    // Blanco sobre `brand-teal` da 4.29:1, por debajo del 4.5:1 de AA para texto normal; sobre
+    // navy da 10.97:1. Y no va en `brand-purple` porque en la app ese color significa
+    // Agregar/Guardar (regla 1 de AGENTS.md) y este botón navega.
+    expect(html).toMatch(/background:#0f3c73;color:#ffffff;/);
+    expect(html).not.toContain("#008795"); // brand-teal
+    expect(html).not.toContain("#7c3aed"); // brand-purple
+  });
+});
