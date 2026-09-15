@@ -57,6 +57,15 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
     return entidad ? `/work-orders/${entidad}` : null;
   }
 
+  // Senior/Semi Senior pueden recibir estas asignaciones, pero no tienen `engagement.read`.
+  // El panel omite el enlace por el mismo motivo; el correo vuelve al inicio accesible de EMS.
+  if (
+    typeKey === "engagement.sqr_assigned" ||
+    typeKey === "engagement.encargado_assigned"
+  ) {
+    return null;
+  }
+
   if (typeKey.startsWith("engagement.")) {
     return entidad ? `/engagements/${entidad}` : null;
   }

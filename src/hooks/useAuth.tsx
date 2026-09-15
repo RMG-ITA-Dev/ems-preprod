@@ -186,6 +186,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (error) {
+      // `functions.invoke()` convierte un 4xx/5xx en FunctionsHttpError y deja el cuerpo en
+      // `context`. Sin leerlo, los códigos `INVALID_*` del endpoint nunca llegan a Auth.tsx.
+      const context = (error as { context?: Response }).context;
+      if (context && typeof context.json === "function") {
+        try {
+          const cuerpo = await context.json();
+          const codigo = cuerpo?.code ?? cuerpo?.error?.code;
+          if (typeof codigo === "string") return { error: new Error(codigo) };
+        } catch {
+          // Conserva el error del SDK cuando la respuesta no es JSON legible.
+        }
+      }
       return { error: error as Error };
     }
 

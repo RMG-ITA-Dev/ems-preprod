@@ -129,11 +129,18 @@ Deno.serve(async (req) => {
 
   // Dominio permitido. No es información sensible —la pantalla de registro lo muestra— así que
   // rechazarlo explícitamente no filtra nada que no esté ya a la vista.
-  const { data: ajuste } = await supabaseAdmin
+  const { data: ajuste, error: errorAjuste } = await supabaseAdmin
     .from("global_settings")
     .select("setting_value")
     .eq("setting_key", "ALLOWED_EMAIL_DOMAIN")
     .maybeSingle();
+
+  if (errorAjuste) {
+    // Esta consulta define el límite de un endpoint público. Tratar un error de PostgREST como
+    // "sin restricción" permitiría crear cuentas desde cualquier dominio.
+    console.error("[register-user] no se pudo leer ALLOWED_EMAIL_DOMAIN:", errorAjuste.message);
+    return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
+  }
 
   const dominio = (ajuste?.setting_value ?? "").trim().toLowerCase();
   if (dominio && !email.toLowerCase().endsWith(`@${dominio}`)) {

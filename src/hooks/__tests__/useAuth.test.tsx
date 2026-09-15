@@ -305,10 +305,16 @@ describe("useAuth", () => {
   });
 
   it("signUp devuelve el codigo de validacion del servidor", async () => {
-    // El dominio permitido se valida tambien en el servidor: el formulario es salteable.
+    // En producción un 400 llega como FunctionsHttpError; el código queda en el cuerpo de
+    // `context`, no en `data`.
     vi.mocked(supabase.functions.invoke).mockResolvedValue({
-      data: { ok: false, code: "INVALID_DOMAIN" },
-      error: null,
+      data: null,
+      error: {
+        name: "FunctionsHttpError",
+        context: {
+          json: async () => ({ ok: false, code: "INVALID_DOMAIN" }),
+        },
+      },
     } as any);
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });

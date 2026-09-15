@@ -215,6 +215,12 @@ describe("rutas", () => {
     expect(ruta).toBe("/fund-requests/fr-7/expenses");
   });
 
+  it("asignaciones de encargo sin permiso de lectura vuelven al inicio", () => {
+    for (const typeKey of ["engagement.sqr_assigned", "engagement.encargado_assigned"]) {
+      expect(rutaDeNotificacion({ typeKey, entityId: "eng-1" })).toBeNull();
+    }
+  });
+
   it("urlAbsoluta no duplica la barra", () => {
     expect(urlAbsoluta("https://ems.ruizmier.com/", "/timesheet")).toBe(
       "https://ems.ruizmier.com/timesheet",

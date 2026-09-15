@@ -53,12 +53,12 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
   "engagement.sqr_assigned": {
     asunto: "Asignación como Socio de Riesgos",
     intro: "Lo asignaron como Socio de Riesgos de un encargo.",
-    boton: "Ver encargo",
+    boton: "Abrir EMS",
   },
   "engagement.encargado_assigned": {
     asunto: "Asignación como Encargado",
     intro: "Lo asignaron como Encargado de un encargo.",
-    boton: "Ver encargo",
+    boton: "Abrir EMS",
   },
 
   // ── Órdenes de trabajo ──
