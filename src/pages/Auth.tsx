@@ -112,7 +112,13 @@ const Auth = () => {
           } else if (error.message === "INVALID_NAME") {
             toast.error(t("form.required"));
           } else {
-            toast.error(error.message);
+            // Lo que queda son códigos del contrato con `register-user` (`INTERNAL_ERROR`,
+            // `INVALID_REQUEST`), no texto para leer: mostrarlos tal cual le ponía al usuario
+            // una palabra en mayúsculas que no significa nada, en cualquiera de los dos idiomas.
+            // Antes del contrato por códigos acá caía la prosa de GoTrue, que al menos se leía.
+            // El código va a la consola, que es donde sirve para soporte.
+            console.error("[Auth] el alta fallo:", error.message);
+            toast.error(t("auth.signupFailed"));
           }
         } else if (emailConfirmationRequired) {
           setSentToEmail(validatedEmail);

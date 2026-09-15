@@ -674,6 +674,32 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
     expect(row).toHaveAttribute("href", "/fund-requests/fr-1");
   });
 
+  it("la x NO vive dentro del enlace de la fila", async () => {
+    // Un <button> adentro de un <a> es HTML invalido, y deja la fila con dos activaciones en
+    // conflicto: el lector de pantalla la anuncia como enlace y la x queda adentro con semantica
+    // ambigua. Cancelar el click tapa el sintoma del mouse, no el del teclado.
+    setup({ events: [fundEvent()], unread_count: 1 });
+    await openPanel();
+
+    const descartar = screen.getByRole("button", { name: "notifications.dismiss" });
+    expect(descartar.closest("a")).toBeNull();
+    // Y el enlace sigue existiendo: separar la x no puede costar la navegacion de la fila.
+    expect(
+      screen.getByText("notifications.types.fund.request.decided").closest("a"),
+    ).toHaveAttribute("href", "/fund-requests/fr-1");
+  });
+
+  it("descartar no navega: la x y el enlace son controles distintos", async () => {
+    setup({ events: [fundEvent()], unread_count: 1 });
+    await openPanel();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "notifications.dismiss" }),
+    );
+
+    expect(mockDismiss).toHaveBeenCalledWith(["n1"]);
+  });
+
   it("un evento de gasto lleva a la pantalla de gastos de su solicitud", async () => {
     setup({
       events: [

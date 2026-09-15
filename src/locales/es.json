@@ -1569,6 +1569,7 @@
     "emailHelper": "Solo correos corporativos",
     "emailHelperWithDomain": "Solo correos corporativos @{{domain}}",
     "invalidDomain": "Solo se permiten correos del dominio corporativo",
+    "signupFailed": "No se pudo completar el registro. Reintente; si el problema persiste, avise al administrador.",
     "password": "Contraseña",
     "dontHaveAccount": "¿No tiene una cuenta?",
     "alreadyHaveAccount": "¿Ya tiene una cuenta?",

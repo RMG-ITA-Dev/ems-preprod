@@ -1569,6 +1569,7 @@
     "emailHelper": "Corporate emails only",
     "emailHelperWithDomain": "Corporate @{{domain}} emails only",
     "invalidDomain": "Only corporate domain emails allowed",
+    "signupFailed": "Could not complete the registration. Try again; if the problem persists, contact your administrator.",
     "password": "Password",
     "dontHaveAccount": "Don't have an account?",
     "alreadyHaveAccount": "Already have an account?",

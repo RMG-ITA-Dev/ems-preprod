@@ -304,22 +304,6 @@ function EventRow({
         <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
           {format(new Date(event.created_at), "dd/MM/yyyy")}
         </span>
-        {/* La "x" descarta SOLO esta fila, y borra de verdad. Va dentro del <Link>, asi que
-            corta el click para no navegar de paso; `type=button` porque un <button> suelto
-            dentro de un <a> hereda submit en algunos navegadores. */}
-        <button
-          type="button"
-          aria-label={t("notifications.dismiss")}
-          title={t("notifications.dismiss")}
-          className="shrink-0 rounded p-0.5 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onDismiss(event.notification_id);
-          }}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
       </div>
       {(meta.length > 0 || state || roleChange) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -379,18 +363,47 @@ function EventRow({
     </>
   );
 
-  const className = cn(
-    "block border-b border-border/60 px-4 py-2.5 last:border-b-0",
-    !event.read_at && "bg-primary/5",
+  // `pr-10` reserva el ancho de la "x": el texto y la fecha viven adentro del enlace y la "x"
+  // se pinta encima, asi que sin ese hueco se le meterian debajo.
+  const interior = cn(
+    "block px-4 py-2.5 pr-10",
     route && "transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
   );
 
-  return route ? (
-    <Link to={route} onClick={onNavigate} className={className}>
-      {body}
-    </Link>
-  ) : (
-    <div className={className}>{body}</div>
+  // La "x" es HERMANA del enlace, no hija. Un <button> dentro de un <a> es HTML invalido, y en
+  // la practica deja la fila con dos activaciones en conflicto: el lector de pantalla la anuncia
+  // como enlace y la "x" queda adentro con semantica ambigua, cuando no directamente sin
+  // exponer. Cancelar el click —que es lo que habia— tapa el sintoma del mouse y no la
+  // semantica, que es la mitad que le importa a quien navega por teclado.
+  //
+  // El enlace sigue siendo `block` y ocupa la fila entera, asi que el hover no cambia; lo unico
+  // que deja de navegar es el rectangulo de la "x", que es lo correcto.
+  return (
+    <div
+      className={cn(
+        "relative border-b border-border/60 last:border-b-0",
+        !event.read_at && "bg-primary/5",
+      )}
+    >
+      {route ? (
+        <Link to={route} onClick={onNavigate} className={interior}>
+          {body}
+        </Link>
+      ) : (
+        <div className={interior}>{body}</div>
+      )}
+
+      {/* Descarta SOLO esta fila, y borra de verdad. */}
+      <button
+        type="button"
+        aria-label={t("notifications.dismiss")}
+        title={t("notifications.dismiss")}
+        className="absolute right-3 top-2.5 rounded p-0.5 text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
+        onClick={() => onDismiss(event.notification_id)}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 
