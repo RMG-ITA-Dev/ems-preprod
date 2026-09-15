@@ -84,6 +84,28 @@ function fechaDdMmAaaa(valor: string): string {
   return partes ? `${partes[3]}/${partes[2]}/${partes[1]}` : valor;
 }
 
+/**
+ * Monto con separador de miles y sin decimales (regla 4 de AGENTS.md), precedido por la moneda.
+ *
+ * Los miles se ponen a mano y no con `toLocaleString("es-BO")` porque el separador de esa locale
+ * depende de la versión de ICU del runtime: acá corre Deno y en las pruebas corre Node, y el
+ * correo no puede salir distinto según quién lo renderice.
+ *
+ * Redondea, como `formatAmount()` en la aplicación (src/lib/utils.ts): la cifra exacta vive en la
+ * pantalla a la que lleva el botón, y el detalle del correo es una referencia.
+ *
+ * Lo que no sea un número sale tal cual, igual que las fechas.
+ */
+function montoConMoneda(valor: string, moneda: unknown): string {
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) return valor;
+
+  const entero = Math.round(Math.abs(numero)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const conSigno = `${numero < 0 ? "-" : ""}${entero}`;
+  const divisa = typeof moneda === "string" && moneda.trim() ? `${moneda.trim()} ` : "";
+  return `${divisa}${conSigno}`;
+}
+
 /** Las líneas de un evento: las claves del payload que existan, en el orden declarado. */
 function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string; valor: string }[] {
   const salida: { etiqueta: string; valor: string }[] = [];
@@ -100,7 +122,10 @@ function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string;
     if (valor === null || valor === undefined) continue;
     const texto = typeof valor === "string" ? valor.trim() : String(valor);
     if (!texto) continue;
-    salida.push({ etiqueta, valor: formato === "fecha" ? fechaDdMmAaaa(texto) : texto });
+    let mostrado = texto;
+    if (formato === "fecha") mostrado = fechaDdMmAaaa(texto);
+    else if (formato === "monto") mostrado = montoConMoneda(texto, payload.currency);
+    salida.push({ etiqueta, valor: mostrado });
   }
   return salida;
 }

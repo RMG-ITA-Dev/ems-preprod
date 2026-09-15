@@ -164,18 +164,23 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
  * redactar una frase distinta por tipo. El texto se queda con el hecho, y la referencia baja a
  * una línea aparte.
  *
- * `formato` sólo se declara donde el valor NO es texto ya presentable. Las fechas llegan desde
- * columnas `date`, y jsonb las serializa en ISO: sin esta marca el correo imprimía
- * "Plazo: 2026-09-18" contra la regla 3 de AGENTS.md. Se declara clave por clave y no se detecta
- * por patrón a propósito: un `notes` o un `reason` que el usuario escriba con forma de fecha es
- * texto libre y no debe reordenarse.
+ * `formato` sólo se declara donde el valor NO llega ya presentable, y se declara CLAVE POR CLAVE
+ * en vez de detectarse por patrón: un `notes` o un `reason` que el usuario escriba con forma de
+ * fecha es texto suyo, y reordenarlo sería corromperlo.
+ *
+ *   - `fecha`: vienen de columnas `date` y jsonb las serializa en ISO, así que sin la marca el
+ *     correo imprimía "Plazo: 2026-09-18", contra la regla 3 de AGENTS.md (DD/MM/YYYY).
+ *   - `monto`: `JSON.parse` convierte el 1500.00 de jsonb en 1500, y String() lo dejaba pasar sin
+ *     separador de miles ni moneda. La moneda sale de `payload.currency` y NO tiene línea propia:
+ *     "BOB" a secas no le dice nada a nadie, y los cuatro disparadores que mandan `amount` mandan
+ *     también la moneda.
  */
-export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fecha" }[] = [
+export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fecha" | "monto" }[] = [
   { clave: "semana", etiqueta: "Semana" },
   { clave: "request_number", etiqueta: "Solicitud" },
   { clave: "engagement_code", etiqueta: "Encargo" },
   { clave: "activity_code", etiqueta: "Actividad" },
-  { clave: "amount", etiqueta: "Monto" },
+  { clave: "amount", etiqueta: "Monto", formato: "monto" },
   { clave: "decision", etiqueta: "Decisión" },
   { clave: "reason", etiqueta: "Motivo" },
   { clave: "notes", etiqueta: "Observaciones" },

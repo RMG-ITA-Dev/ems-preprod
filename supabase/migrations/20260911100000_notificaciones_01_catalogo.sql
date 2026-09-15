@@ -1428,19 +1428,23 @@ BEGIN
      -- lo que ya arregló `dismiss_notifications` marcando en vez de borrar (ver su comentario);
      -- la retención abría la misma puerta un poco más tarde.
      --
-     -- De los cuatro dedupes del cron, éste es el único sin cota propia: `deadline_near` y
-     -- `ending_soon` llevan `days_left` (condición cierta dos días del calendario y nunca más) y
-     -- `billing_week` muere con la semana. `deadline_passed` no se apaga solo: mientras la OT
-     -- siga en Emergency_Approved con el plazo vencido, la condición es cierta para siempre.
-     --
      -- Sin esto, la ventana de retención pasaba a gobernar la CADENCIA de una alarma:
-     -- NOTIF_RETENTION_READ_DAYS acepta hasta 1, y con ese valor Riesgos recibía el mismo aviso
-     -- todos los días. Ni siquiera hacía falta descartarlo; alcanzaba con leerlo.
+     -- NOTIF_RETENTION_READ_DAYS acepta hasta 1, y con ese valor el aviso volvía todos los días.
+     -- Ni siquiera hacía falta descartarlo; alcanzaba con leerlo.
      --
-     -- En cuanto el Gerente completa los datos de riesgo (`risk_status` vuelve a 'Pending'), la
-     -- condición se apaga y la fila vuelve a envejecer con las reglas normales: esto NO es una
-     -- exención permanente, y por eso no hace crecer la tabla sin fin.
+     -- NINGUNA de las dos exenciones es permanente. Las dos preguntan por el hecho, no por el
+     -- type_key: cuando el hecho deja de ser cierto, la fila vuelve a envejecer con las reglas
+     -- normales y se va. Por eso esto no hace crecer la tabla sin fin.
+     --
+     -- De los cuatro dedupes del cron, los otros dos (`wo.emergency.deadline_near` y
+     -- `engagement.ending_soon`) no necesitan exención: llevan `days_left` en el payload, y esa
+     -- condición es cierta dos días del calendario y nunca más. Ya vencidos, que se borre la
+     -- fila no reabre nada.
      AND NOT (
+       -- 1) El plazo de emergencia vencido. Es el que no perdona: mientras la OT siga en
+       --    Emergency_Approved con el plazo pasado, la condición es cierta PARA SIEMPRE, así que
+       --    con cualquier retención la alarma se repetía indefinidamente. Se apaga cuando el
+       --    Gerente completa los datos de riesgo y `risk_status` vuelve a 'Pending'.
        n.type_key = 'wo.emergency.deadline_passed'
        AND EXISTS (
          SELECT 1 FROM public.work_orders w
@@ -1448,6 +1452,26 @@ BEGIN
             AND w.risk_status = 'Emergency_Approved'
             AND w.emergency_deadline_at IS NOT NULL
             AND w.emergency_deadline_at < (now() AT TIME ZONE 'America/La_Paz')::date
+       )
+     )
+     AND NOT (
+       -- 2) La semana de facturación. Acá la condición SÍ muere sola —el domingo—, así que sólo
+       --    se rompe con la retención por debajo de 7 días: la fila se purgaba el martes y el
+       --    cron del miércoles volvía a avisar la misma cuota. Más angosto que el caso 1, misma
+       --    causa, y el arreglo es el mismo.
+       --
+       --    El dedupe de este tipo va por `installment_id` del payload y no por entity_id: el
+       --    entity_id es la OT, y una OT puede tener dos cuotas facturables en la misma semana.
+       n.type_key = 'wo.client.billing_week'
+       AND EXISTS (
+         SELECT 1 FROM public.wo_payment_installments i
+          WHERE i.installment_id::text = n.payload->>'installment_id'
+            AND i.status = 'Pending'
+            AND i.agreed_invoice_date IS NOT NULL
+            AND i.agreed_invoice_date
+                  >= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date
+            AND i.agreed_invoice_date
+                  <= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6
        )
      );
 
@@ -1457,7 +1481,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.purge_old_notifications() IS
-  'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. EXCEPCION: no borra un wo.emergency.deadline_passed cuya OT sigue en Emergency_Approved con el plazo vencido, porque esa fila es el dedupe del cron y sin ella la alarma se repetiria cada vez que vence la retencion. Devuelve cuantas borro.';
+  'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. EXCEPCION: no borra las filas que todavia sirven de dedupe a un emisor del cron cuyo hecho sigue vigente (wo.emergency.deadline_passed con la OT en Emergency_Approved y plazo vencido; wo.client.billing_week con la cuota Pending dentro de su semana), porque sin ellas la alarma se repetiria cada vez que vence la retencion. Las exenciones preguntan por el hecho, no por el type_key: al apagarse el hecho la fila caduca normal. Devuelve cuantas borro.';
 
 REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.purge_old_notifications() TO service_role;

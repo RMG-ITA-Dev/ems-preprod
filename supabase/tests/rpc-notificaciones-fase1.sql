@@ -2997,6 +2997,7 @@ DECLARE
   c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
   v_wo    uuid;
   v_vivas int;
+  v_inst  uuid;
 BEGIN
   PERFORM set_config('request.jwt.claims', '', true);
   DELETE FROM public.notifications;
@@ -3225,6 +3226,79 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - la exencion quedo permanente: sobreviven % filas vencidas', v_n;
   END IF;
   RAISE NOTICE 'PASS - resuelta la emergencia, el registro caduca como cualquier otro';
+
+  -- 17.g El MISMO problema, mas angosto: la semana de facturacion. Su condicion si muere sola
+  --      (el domingo), asi que solo se rompe con la retencion por debajo de 7 dias. Se reproduce
+  --      con la ventana en 2: la fila se purga al tercer dia y el cron del siguiente reemite la
+  --      misma cuota dentro de la misma semana.
+  SELECT installment_id INTO v_inst FROM public.wo_payment_installments
+   WHERE status = 'Pending' AND agreed_invoice_date IS NOT NULL
+     AND agreed_invoice_date >= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date
+     AND agreed_invoice_date <= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6
+   ORDER BY installment_id LIMIT 1;
+  IF v_inst IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - no quedo ninguna cuota facturable esta semana, el fixture del grupo 9 cambio';
+  END IF;
+
+  UPDATE public.global_settings SET setting_value = '2'
+   WHERE setting_key IN ('NOTIF_RETENTION_READ_DAYS', 'NOTIF_RETENTION_UNREAD_DAYS');
+
+  DELETE FROM public.notifications;
+  DELETE FROM public.notification_emails;
+  PERFORM public.notif_wo_daily_scheduled();
+
+  SELECT COUNT(*) INTO v_vivas FROM public.notifications
+   WHERE type_key = 'wo.client.billing_week' AND payload->>'installment_id' = v_inst::text;
+  IF v_vivas < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron no emitio la semana de facturacion, el fixture no sirve';
+  END IF;
+
+  UPDATE public.notifications
+     SET created_at = now() - interval '3 days', read_at = now() - interval '3 days';
+
+  -- Control: mismo tipo, cuota que no existe. Esa caduca, porque la exencion pregunta por el
+  -- hecho y no por el type_key.
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, payload,
+                                    created_at, read_at)
+  VALUES (c_mgr, 'wo.client.billing_week', gen_random_uuid()::text,
+          jsonb_build_object('installment_id', gen_random_uuid()::text),
+          now() - interval '3 days', now() - interval '3 days');
+
+  v_del := public.purge_old_notifications();
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.client.billing_week' AND payload->>'installment_id' = v_inst::text;
+  IF v_n <> v_vivas THEN
+    RAISE EXCEPTION 'TEST FAIL - la purga se llevo el dedupe de una cuota aun facturable (quedaron % de %)',
+      v_n, v_vivas;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.client.billing_week' AND payload->>'installment_id' <> v_inst::text;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la excepcion salvo el aviso de una cuota que ya no es facturable';
+  END IF;
+
+  PERFORM public.notif_wo_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.client.billing_week' AND payload->>'installment_id' = v_inst::text;
+  IF v_n <> v_vivas THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron repitio la semana de facturacion tras la purga (hay %, habia %)',
+      v_n, v_vivas;
+  END IF;
+  RAISE NOTICE 'PASS - con la retencion corta, la semana de facturacion tampoco se repite';
+
+  -- Y tampoco es permanente: corrida la fecha fuera de la semana, la fila caduca.
+  UPDATE public.wo_payment_installments
+     SET agreed_invoice_date = agreed_invoice_date + 30
+   WHERE installment_id = v_inst;
+
+  v_del := public.purge_old_notifications();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.client.billing_week';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - pasada la semana, el dedupe siguio exento (sobreviven %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - pasada la semana de facturacion, el registro caduca como cualquier otro';
 
   RAISE NOTICE 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED (rolled back)';
 END $$;

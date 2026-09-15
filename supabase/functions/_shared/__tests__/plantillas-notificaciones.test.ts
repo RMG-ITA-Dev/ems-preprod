@@ -68,13 +68,14 @@ describe("renderizarCorreoNotificacion — eventos", () => {
       base({
         typeKey: "fund.request.closed",
         entityId: "fr-9",
-        payload: { request_number: "FR-2026-2027", amount: 1500 },
+        payload: { request_number: "FR-2026-2027", amount: 1500, currency: "BOB" },
       }),
     );
 
     expect(correo.asunto).toBe("Solicitud de fondos cerrada");
     expect(correo.cuerpoTexto).toContain("- Solicitud: FR-2026-2027");
-    expect(correo.cuerpoTexto).toContain("- Monto: 1500");
+    // El comentario de arriba ya decia "BOB 1.500"; la linea salia "1500" a secas.
+    expect(correo.cuerpoTexto).toContain("- Monto: BOB 1.500");
   });
 
   it("un cambio de rol derivado de la categoria tiene otra redaccion", () => {
@@ -195,6 +196,54 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     );
 
     expect(correo.cuerpoTexto).toContain("- Plazo: sin definir");
+  });
+
+  it("el monto lleva separador de miles y no decimales", () => {
+    // jsonb manda 1500.00 y JSON.parse lo vuelve 1500; String() lo imprimia pelado. Regla 4 de
+    // AGENTS.md: miles separados, cero decimales.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.request.closed",
+        entityId: "fr-9",
+        payload: { amount: 1234567.89, currency: "USD" },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Monto: USD 1.234.568");
+  });
+
+  it("sin moneda en el payload el monto igual sale formateado", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({ typeKey: "fund.request.closed", entityId: "fr-9", payload: { amount: 9500 } }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Monto: 9.500");
+  });
+
+  it("la moneda no ocupa una linea propia", () => {
+    // "Moneda: BOB" como detalle suelto no le dice nada a nadie: viaja pegada al monto.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.request.closed",
+        entityId: "fr-9",
+        payload: { amount: 100, currency: "BOB" },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).not.toContain("Moneda:");
+    expect(correo.cuerpoTexto).toContain("- Monto: BOB 100");
+  });
+
+  it("un monto que no es numero sale tal cual en vez de perderse", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.request.closed",
+        entityId: "fr-9",
+        payload: { amount: "por definir", currency: "BOB" },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Monto: por definir");
   });
 
   it("escapa el payload: lo escriben los usuarios", () => {
