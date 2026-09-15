@@ -312,6 +312,45 @@ BEGIN
    WHERE type_key = 'engagement.deleted';
   RAISE NOTICE 'PASS — un tipo inactivo está en el catálogo pero no entrega';
 
+  -- 1.e.2 EL ENLACE SE APAGA CUANDO LA PANTALLA LE QUEDA CERRADA.
+  --
+  -- El correo no tiene sesion contra la cual chequear permisos: lo arma un cron, horas despues
+  -- y para otra persona. El unico momento con el rol del destinatario a la vista es este, asi
+  -- que notify_staff marca el payload y `rutas.ts` obedece. Sin eso, el boton llevaba a "Sin
+  -- acceso" a pantalla completa.
+  --
+  -- El manager SI tiene work_order.read, asi que su aviso sale con enlace.
+  v_id := public.notify_staff('wo.rejected_partner',
+                              '59f00000-0000-4000-8000-000000000002', 'wo-1', '{}'::jsonb);
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL — el fixture del enlace no se creo';
+  END IF;
+  IF (SELECT payload ? 'sin_ruta' FROM public.notifications WHERE notification_id = v_id) THEN
+    RAISE EXCEPTION 'TEST FAIL — se apago el enlace de un rol que SI puede abrir la pantalla';
+  END IF;
+
+  -- Seguridad TI NO lo tiene, y la matriz de notificaciones igual le da avisos de OT.
+  INSERT INTO public.notification_role_types (role_key, type_key, scope_key)
+  VALUES ('it_security_manager', 'wo.rejected_partner', 'firm')
+  ON CONFLICT DO NOTHING;
+
+  v_id := public.notify_staff('wo.rejected_partner',
+                              '59f00000-0000-4000-8000-00000000000c', 'wo-1', '{}'::jsonb);
+  IF v_id IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL — el aviso no se emitio; sin fila no hay enlace que medir';
+  END IF;
+  IF (SELECT payload->>'sin_ruta' FROM public.notifications WHERE notification_id = v_id)
+     IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'TEST FAIL — no se apago el enlace de un rol sin work_order.read';
+  END IF;
+  RAISE NOTICE 'PASS — el enlace se apaga solo para quien no puede abrir la pantalla destino';
+
+  -- Y se apaga el ENLACE, no el aviso: que no pueda abrir la pantalla no significa que el hecho
+  -- no le importe. La fila existe, con su payload.
+  DELETE FROM public.notification_role_types
+   WHERE role_key = 'it_security_manager' AND type_key = 'wo.rejected_partner';
+  DELETE FROM public.notifications WHERE entity_id = 'wo-1';
+
   -- 1.f Staff sin cuenta vinculada: sin rol no hay elegibilidad que evaluar.
   v_id := public.notify_staff('wo.rejected_partner',
                               '59f00000-0000-4000-8000-000000000009', NULL, '{}'::jsonb);
@@ -329,7 +368,7 @@ END $$;
 
 -- ── Grupo 2 — la bandeja es privada ─────────────────────────────────────────
 DO $$
-DECLARE v_res jsonb; v_marked int;
+DECLARE v_res jsonb; v_marked int; v_n int;
 BEGIN
   -- El manager ve la suya.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
@@ -388,6 +427,67 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL — re-marcar devolvió % en vez de 0', v_marked;
   END IF;
   RAISE NOTICE 'PASS — el dueño marca leído una vez; repetir es no-op';
+
+  -- Una cola mas grande que el limite DRENA en vez de trancarse.
+  --
+  -- El panel pide 50 y marca leidas al cerrar las que recibio. Ordenando la ventana solo por
+  -- fecha, un usuario con mas de 50 sin leer recibia siempre las 50 mas nuevas: las marcaba
+  -- leidas, y la carga siguiente volvia a traer esas mismas —que siguen siendo las mas nuevas—.
+  -- Las viejas sin leer no entraban nunca, no se marcaban nunca, y el badge no bajaba.
+  DELETE FROM public.notifications;
+  INSERT INTO public.notifications (recipient_staff_id, type_key, created_at)
+  SELECT '59f00000-0000-4000-8000-000000000002', 'wo.rejected_partner',
+         now() - make_interval(mins => n)
+    FROM generate_series(1, 8) n;
+
+  -- Limite de 5 sobre 8 sin leer: entran las 5 mas nuevas.
+  v_res := public.get_my_notifications(5);
+  IF jsonb_array_length(v_res->'events') <> 5 OR (v_res->>'unread_count')::int <> 8 THEN
+    RAISE EXCEPTION 'TEST FAIL — la primera tanda dio % eventos y unread=%',
+      jsonb_array_length(v_res->'events'), v_res->>'unread_count';
+  END IF;
+
+  -- El panel las marca al cerrar.
+  v_marked := public.mark_notifications_read(
+    ARRAY(SELECT (ev->>'notification_id')::uuid
+            FROM jsonb_array_elements(v_res->'events') ev));
+  IF v_marked <> 5 THEN
+    RAISE EXCEPTION 'TEST FAIL — se marcaron % de 5', v_marked;
+  END IF;
+
+  -- LA ASERCION QUE IMPORTA: la tanda siguiente trae las 3 que faltaban, no las mismas 5.
+  v_res := public.get_my_notifications(5);
+  IF (v_res->>'unread_count')::int <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL — quedaron % sin leer, se esperaban 3', v_res->>'unread_count';
+  END IF;
+  SELECT COUNT(*) INTO v_n
+    FROM jsonb_array_elements(v_res->'events') ev
+   WHERE ev->>'read_at' IS NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL — la segunda tanda trajo % sin leer, se esperaban 3', v_n;
+  END IF;
+
+  -- Y al marcarlas, el badge llega a cero: la cola drena entera.
+  PERFORM public.mark_notifications_read(
+    ARRAY(SELECT (ev->>'notification_id')::uuid
+            FROM jsonb_array_elements(v_res->'events') ev));
+  IF (public.get_my_notifications(5)->>'unread_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL — el badge no llego a cero con la cola drenada';
+  END IF;
+  RAISE NOTICE 'PASS — una cola mayor que el limite drena en vez de dejar el badge trancado';
+
+  -- La lista sigue saliendo por fecha: lo no leido prioriza QUE entra, no en que orden se ve.
+  DELETE FROM public.notifications;
+  INSERT INTO public.notifications (recipient_staff_id, type_key, created_at, read_at) VALUES
+    ('59f00000-0000-4000-8000-000000000002', 'wo.rejected_partner', now() - interval '1 min', now()),
+    ('59f00000-0000-4000-8000-000000000002', 'wo.rejected_partner', now() - interval '9 min', NULL);
+  v_res := public.get_my_notifications(50);
+  IF (v_res->'events'->0->>'read_at') IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL — la mas nueva dejo de encabezar la lista';
+  END IF;
+  RAISE NOTICE 'PASS — priorizar lo no leido no reordena la lista que ve el usuario';
+
+  DELETE FROM public.notifications;
 END $$;
 
 -- ── Grupo 3 — contadores: gateo por rol y el motivo del SECURITY DEFINER ────

@@ -181,6 +181,62 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
     expect(correo.cuerpoTexto).not.toContain("por liquidar");
   });
 
+  // El recordatorio de aprobaciones resume TRES contadores que la app rutea a tres pantallas
+  // distintas (TYPE_ROUTE_PERMISSION en src/lib/notifications.ts). Mandarlos a los tres a la cola
+  // del aprobador le daba "No access" a los ocho roles que reciben el recordatorio sin
+  // `timesheet_approval.read` — assistant, semisenior, senior, los ita_/tax_ y Seguridad TI.
+  describe("approval.reminder.weekly elige destino segun el contador que trae", () => {
+    const recordatorioDeAprobaciones = (payload: Record<string, unknown>) =>
+      renderizarCorreoNotificacion(
+        base({ typeKey: "approval.reminder.weekly", entityId: null, payload }),
+      );
+
+    it("la boleta propia esperando aprobacion lleva a MI hoja de tiempo", () => {
+      // `lineas` no es trabajo por aprobar: son las semanas que envio el destinatario y que
+      // siguen esperando a SU aprobador. Un senior no entra a /timesheet/approvals.
+      const correo = recordatorioDeAprobaciones({ lineas: { count: 2 } });
+
+      expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com/timesheet");
+      expect(correo.cuerpoTexto).not.toContain("/timesheet/approvals");
+      expect(correo.cuerpoTexto).toContain("semanas suyas esperando aprobación");
+    });
+
+    it("la cola de capacitacion si lleva a aprobaciones", () => {
+      const correo = recordatorioDeAprobaciones({ capacitacion: { count: 4 } });
+      expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com/timesheet/approvals");
+    });
+
+    it("los encargos esperando al Socio llevan a encargos", () => {
+      const correo = recordatorioDeAprobaciones({ encargos: { count: 1 } });
+      expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com/engagements");
+    });
+
+    it("con varios contadores gana lo que el destinatario tiene que resolver el", () => {
+      // La boleta propia espera a otro; la capacitacion espera al destinatario. El boton lleva
+      // a donde hay algo que hacer, no a donde hay algo que mirar.
+      const correo = recordatorioDeAprobaciones({
+        lineas: { count: 3 },
+        capacitacion: { count: 1 },
+      });
+
+      expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com/timesheet/approvals");
+      // Y las dos lineas siguen apareciendo: cambia el destino, no el resumen.
+      expect(correo.cuerpoTexto).toContain("semanas suyas esperando aprobación: 3");
+      expect(correo.cuerpoTexto).toContain("línea de capacitación por aprobar: 1");
+    });
+
+    it("el boton nombra la pantalla a la que lleva, no siempre 'aprobaciones'", () => {
+      // Un boton que dice "Ir a aprobaciones" sobre un enlace a la hoja de tiempo propia es la
+      // misma mentira que el enlace roto, solo que mas dificil de notar.
+      expect(recordatorioDeAprobaciones({ lineas: { count: 1 } }).cuerpoTexto)
+        .toContain("Ir a mi hoja de tiempo");
+      expect(recordatorioDeAprobaciones({ encargos: { count: 1 } }).cuerpoTexto)
+        .toContain("Ir a encargos");
+      expect(recordatorioDeAprobaciones({ capacitacion: { count: 1 } }).cuerpoTexto)
+        .toContain("Ir a aprobaciones");
+    });
+  });
+
   it("los cuatro recordatorios rinden", () => {
     for (const tipo of [
       "timesheet.reminder.daily",
@@ -215,10 +271,47 @@ describe("rutas", () => {
     expect(ruta).toBe("/fund-requests/fr-7/expenses");
   });
 
-  it("asignaciones de encargo sin permiso de lectura vuelven al inicio", () => {
-    for (const typeKey of ["engagement.sqr_assigned", "engagement.encargado_assigned"]) {
-      expect(rutaDeNotificacion({ typeKey, entityId: "eng-1" })).toBeNull();
-    }
+  describe("sin_ruta: el destinatario no puede abrir la pantalla", () => {
+    // Quien decide es `notify_staff`, al encolar: es el unico momento con el rol del
+    // destinatario a la vista. Aca no hay sesion contra la cual chequear permisos, asi que el
+    // renderizador solo obedece la marca. Antes habia una excepcion a mano para dos tipos de
+    // encargo; esto cubre la clase entera.
+    it("apaga el enlace sea cual sea el modulo", () => {
+      const casos = [
+        { typeKey: "wo.submitted_risk", entityId: "wo-1" },
+        { typeKey: "wo.payment_plan.pending_approval", entityId: "wo-1" },
+        { typeKey: "engagement.sqr_assigned", entityId: "eng-1" },
+        { typeKey: "engagement.encargado_assigned", entityId: "eng-1" },
+        { typeKey: "fund.request.approved", entityId: "fr-1" },
+      ];
+      for (const caso of casos) {
+        expect(rutaDeNotificacion({ ...caso, payload: { sin_ruta: true } }), caso.typeKey)
+          .toBeNull();
+      }
+    });
+
+    it("gana sobre cualquier destino, incluido el de los recordatorios", () => {
+      const ruta = rutaDeNotificacion({
+        typeKey: "approval.reminder.weekly",
+        entityId: null,
+        payload: { sin_ruta: true, capacitacion: { count: 3 } },
+      });
+      expect(ruta).toBeNull();
+    });
+
+    it("sin la marca el enlace sale normal: no se apaga por las dudas", () => {
+      // La marca la pone la base cuando corresponde. Un payload que no la trae es un
+      // destinatario que SI puede entrar, y quitarle el enlace seria el error opuesto.
+      expect(rutaDeNotificacion({ typeKey: "wo.submitted_risk", entityId: "wo-1" }))
+        .toBe("/work-orders/wo-1");
+      expect(
+        rutaDeNotificacion({
+          typeKey: "engagement.sqr_assigned",
+          entityId: "eng-1",
+          payload: { sin_ruta: false },
+        }),
+      ).toBe("/engagements/eng-1");
+    });
   });
 
   it("urlAbsoluta no duplica la barra", () => {

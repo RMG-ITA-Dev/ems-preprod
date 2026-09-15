@@ -11,7 +11,11 @@
 
 import { renderizar, type Copia, type CorreoRenderizado } from "./layout.ts";
 import { DETALLES_PAYLOAD, TEXTOS_NOTIFICACION } from "./constants/notificaciones.ts";
-import { TEXTOS_RECORDATORIO, type CopiaRecordatorio } from "./constants/recordatorios.ts";
+import {
+  destinoDeRecordatorio,
+  TEXTOS_RECORDATORIO,
+  type CopiaRecordatorio,
+} from "./constants/recordatorios.ts";
 import { rutaDeNotificacion, urlAbsoluta } from "./rutas.ts";
 
 export class TipoSinPlantilla extends Error {
@@ -115,7 +119,11 @@ export function renderizarCorreoNotificacion(datos: DatosNotificacion): CorreoRe
 
   if (esRecordatorio(datos.typeKey)) {
     const copia = TEXTOS_RECORDATORIO[datos.typeKey];
-    return renderizar(copia, enlace, {
+    // El botón tiene que nombrar la pantalla a la que lleva, y esa pantalla puede cambiar según
+    // los contadores del destinatario: "Ir a aprobaciones" sobre un enlace a la hoja de tiempo
+    // propia es la misma mentira que el enlace roto, sólo que más difícil de notar.
+    const destino = destinoDeRecordatorio(datos.typeKey, payload);
+    return renderizar(destino ? { ...copia, boton: destino.boton, intro: destino.intro } : copia, enlace, {
       nombre: datos.nombre,
       detalles: detallesDeRecordatorio(copia, payload),
     });

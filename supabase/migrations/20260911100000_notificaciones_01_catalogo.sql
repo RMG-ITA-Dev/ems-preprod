@@ -239,6 +239,51 @@ COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS
 -- disparador puede llamar a notify_staff() para todos los candidatos y dejar que la matriz
 -- filtre, sin envolver cada llamada en un IF.
 --
+-- ---------------------------------------------------------------------
+-- D.1) Qué permiso exige la pantalla a la que lleva un aviso
+-- ---------------------------------------------------------------------
+--
+-- Espejo de `MODULE_ROUTE_PERMISSION` / `TYPE_ROUTE_PERMISSION` (src/lib/notifications.ts).
+--
+-- Por qué vive en la base y no en las plantillas: el panel chequea el permiso con `can()`, que
+-- lee la sesión del navegador. El correo no tiene sesión — lo arma un cron, horas después y para
+-- otra persona—, así que el único momento en que se sabe quién es el destinatario es el enqueue.
+-- Ahí `notify_staff` ya tiene su `role_key`, y la matriz está a un JOIN.
+--
+-- Sin esto, `rutas.ts` mandaba a todos a la misma pantalla y quien no podía abrirla recibía un
+-- botón que lleva a "Sin acceso": risk_partner y risk_supervisor en los avisos de riesgo, senior
+-- y collections_analyst en los de plan de pagos. La excepción a mano de `engagement.sqr_assigned`
+-- era un parche de este mismo agujero, y tapaba dos tipos de los muchos.
+--
+-- NULL = esa pantalla no exige permiso, o el módulo todavía no rutea a ninguna.
+DROP FUNCTION IF EXISTS public.notif_permiso_de_ruta(text, text);
+
+CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  SELECT CASE
+    -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
+    WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
+      THEN 'timesheet_approval.read'
+    WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
+    WHEN p_module_key = 'work_order'         THEN 'work_order.read'
+    WHEN p_module_key = 'engagement'         THEN 'engagement.read'
+    -- El destino de estos tres es la pantalla PROPIA (su hoja, su cronómetro), no una bandeja
+    -- de otros: por eso `timesheet.read` / `time_entry.read`, que sí tienen los 17 roles que
+    -- reportan horas, con alcance `own`.
+    WHEN p_module_key = 'timesheet'          THEN 'timesheet.read'
+    WHEN p_module_key = 'timesheet_approval' THEN 'timesheet.read'
+    WHEN p_module_key = 'tracker'            THEN 'time_entry.read'
+    WHEN p_module_key = 'client'             THEN 'client.read'
+    -- El módulo `auth` cubre cuentas Y personal, y las dos mitades terminan en la ficha de staff.
+    WHEN p_module_key = 'auth'               THEN 'staff.read'
+    ELSE NULL
+  END;
+$$;
+
+COMMENT ON FUNCTION public.notif_permiso_de_ruta(text, text) IS
+  'Permiso que exige la pantalla destino de un aviso, espejo de MODULE_ROUTE_PERMISSION/TYPE_ROUTE_PERMISSION en src/lib/notifications.ts. NULL si esa pantalla no exige ninguno. Lo usa notify_staff() para apagar el enlace del correo cuando el destinatario no puede abrirla.';
+
 CREATE OR REPLACE FUNCTION public.notify_staff(
     p_type_key           text,
     p_recipient_staff_id uuid,
@@ -251,6 +296,9 @@ CREATE OR REPLACE FUNCTION public.notify_staff(
 DECLARE
   v_delivery        text;
   v_email_enabled   boolean;
+  v_module_key      text;
+  v_permiso         text;
+  v_payload         jsonb := COALESCE(p_payload, '{}'::jsonb);
   v_role_key        text;
   v_scope_key       text;
   v_notification_id uuid;
@@ -263,7 +311,8 @@ BEGIN
   END IF;
 
   -- El tipo debe existir y estar activo. Un type_key con typo no crea filas huérfanas.
-  SELECT nt.delivery, nt.email_enabled INTO v_delivery, v_email_enabled
+  SELECT nt.delivery, nt.email_enabled, nt.module_key
+    INTO v_delivery, v_email_enabled, v_module_key
     FROM public.notification_types nt
    WHERE nt.type_key = p_type_key
      AND nt.is_active;
@@ -298,10 +347,26 @@ BEGIN
     RETURN NULL;
   END IF;
 
+  -- El enlace se apaga ACÁ y no al renderizar: el correo no tiene sesión contra la cual chequear
+  -- permisos, así que la única oportunidad de saber si el destinatario puede abrir la pantalla es
+  -- este momento, donde ya está resuelto su rol. `rutas.ts` sólo obedece la marca.
+  --
+  -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
+  -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
+  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key);
+  IF v_permiso IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.authorization_role_permissions arp
+        WHERE arp.role_key = v_role_key
+          AND arp.permission_key = v_permiso
+     ) THEN
+    v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+  END IF;
+
   -- La campana, sólo para los tipos que viven ahí.
   IF v_delivery = 'event' THEN
     INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, payload)
-    VALUES (p_recipient_staff_id, p_type_key, p_entity_id, COALESCE(p_payload, '{}'::jsonb))
+    VALUES (p_recipient_staff_id, p_type_key, p_entity_id, v_payload)
     RETURNING notification_id INTO v_notification_id;
   END IF;
 
@@ -327,14 +392,14 @@ BEGIN
     v_dedupe := COALESCE(
       v_notification_id::text,
       p_type_key || '|' || p_recipient_staff_id::text || '|' ||
-        COALESCE(p_payload->>'dedupe', to_char(now(), 'YYYY-MM-DD')));
+        COALESCE(v_payload->>'dedupe', to_char(now(), 'YYYY-MM-DD')));
 
     INSERT INTO public.notification_emails
       (dedupe_key, notification_id, recipient_staff_id, to_email, to_name, type_key,
        entity_id, payload)
     VALUES
       (v_dedupe, v_notification_id, p_recipient_staff_id, btrim(v_email),
-       NULLIF(v_nombre, ''), p_type_key, p_entity_id, COALESCE(p_payload, '{}'::jsonb))
+       NULLIF(v_nombre, ''), p_type_key, p_entity_id, v_payload)
     ON CONFLICT (dedupe_key) DO NOTHING;
   END IF;
 
@@ -343,7 +408,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.notify_staff(text, uuid, text, jsonb) IS
-  'Porton unico de escritura. Inserta en la campana si delivery=event, y encola correo si el tipo tiene email_enabled, el destinatario tiene staff.email y su alcance no es firm (D-44). Devuelve el notification_id, o NULL si no corresponde (tambien cuando solo se encolo correo).';
+  'Porton unico de escritura. Inserta en la campana si delivery=event, y encola correo si el tipo tiene email_enabled, el destinatario tiene staff.email y su alcance no es firm (D-44). Marca el payload con sin_ruta=true cuando el rol del destinatario no tiene el permiso que exige la pantalla destino (notif_permiso_de_ruta), para que el correo no le ofrezca un boton a "Sin acceso". Devuelve el notification_id, o NULL si no corresponde (tambien cuando solo se encolo correo).';
 
 -- Sin GRANT a `authenticated` a propósito: nadie notifica a mano desde el cliente. Los
 -- disparadores de Fase 3+ deben ser SECURITY DEFINER (propiedad del owner) para poder
@@ -1160,7 +1225,16 @@ BEGIN
          -- resultado del LIMIT devuelve menos de v_limit avisos aunque haya más activos.
          AND EXISTS (SELECT 1 FROM public.notification_types t
                       WHERE t.type_key = n0.type_key AND t.is_active)
-       ORDER BY n0.created_at DESC
+       -- LO NO LEÍDO PRIMERO, y este orden es de SELECCIÓN, no de presentación: decide cuáles
+       -- de todos los avisos entran en la ventana de v_limit. Ordenando sólo por fecha, un
+       -- usuario con más de v_limit sin leer quedaba trancado: el panel recibía las 50 más
+       -- nuevas, las marcaba leídas al cerrar, y la carga siguiente volvía a traer ESAS MISMAS
+       -- —que siguen siendo las más nuevas, ahora leídas—. Las viejas sin leer nunca entraban,
+       -- nunca se marcaban, y `unread_count` las seguía contando: badge que no baja hasta que
+       -- la purga se lleve el historial nuevo, 90 días después.
+       --
+       -- Así cada apertura se lleva hasta v_limit pendientes y la cola drena sola.
+       ORDER BY (n0.read_at IS NULL) DESC, n0.created_at DESC
        LIMIT v_limit
     ) n
     JOIN public.notification_types nt ON nt.type_key = n.type_key;
@@ -1184,7 +1258,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.get_my_notifications(integer) IS
-  'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado ni los tipos inactivos) + contadores (get_my_notification_aggregates) + no leidas, contadas con ese mismo filtro. Fail-closed sin ficha de staff.';
+  'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado ni los tipos inactivos) + contadores (get_my_notification_aggregates) + no leidas, contadas con ese mismo filtro. La ventana de p_limit se llena priorizando lo no leido, para que una cola mayor que p_limit drene en vez de trancarse; la lista sale igual por fecha. Fail-closed sin ficha de staff.';
 
 DROP FUNCTION IF EXISTS public.mark_notifications_read(uuid[]);
 

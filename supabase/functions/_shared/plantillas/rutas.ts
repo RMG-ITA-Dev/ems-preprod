@@ -11,7 +11,7 @@
  * 404, que es peor que no tener enlace. Cuando se toque una ruta de la app, se toca acá.
  */
 
-import { RUTAS_RECORDATORIO } from "./constants/recordatorios.ts";
+import { destinoDeRecordatorio, RUTAS_RECORDATORIO } from "./constants/recordatorios.ts";
 
 export type DatosRuta = {
   typeKey: string;
@@ -31,6 +31,19 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   const { typeKey } = datos;
   const entidad = texto(datos.entityId);
   const payload = datos.payload ?? {};
+
+  // PRIMERO, y antes que cualquier destino: el destinatario no puede abrir esa pantalla. Lo
+  // decide `notify_staff` al encolar, que es el único momento en que se sabe de quién es el
+  // correo — acá no hay sesión contra la cual chequear permisos. Sin esto el botón llevaba a
+  // "Sin acceso" a pantalla completa: risk_partner y risk_supervisor en los avisos de riesgo,
+  // senior y collections_analyst en los de plan de pagos. Ver `notif_permiso_de_ruta` en la
+  // migración del catálogo.
+  if (payload.sin_ruta === true) return null;
+
+  // Un recordatorio que resume contadores de pantallas distintas elige destino según lo que
+  // traiga el payload; el resto tiene uno fijo.
+  const porConcepto = destinoDeRecordatorio(typeKey, payload);
+  if (porConcepto) return porConcepto.ruta;
 
   const recordatorio = RUTAS_RECORDATORIO[typeKey];
   if (recordatorio) return recordatorio;
@@ -57,15 +70,10 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
     return entidad ? `/work-orders/${entidad}` : null;
   }
 
-  // Senior/Semi Senior pueden recibir estas asignaciones, pero no tienen `engagement.read`.
-  // El panel omite el enlace por el mismo motivo; el correo vuelve al inicio accesible de EMS.
-  if (
-    typeKey === "engagement.sqr_assigned" ||
-    typeKey === "engagement.encargado_assigned"
-  ) {
-    return null;
-  }
-
+  // Acá vivía una excepción a mano para `engagement.sqr_assigned` y `engagement.encargado_assigned`,
+  // que apagaba el enlace porque Senior/Semi Senior reciben esas asignaciones sin tener
+  // `engagement.read`. La reemplaza el `sin_ruta` de arriba, que cubre la clase entera en vez de
+  // dos tipos — y de paso deja de castigar a los gerentes, que SÍ pueden abrir el encargo.
   if (typeKey.startsWith("engagement.")) {
     return entidad ? `/engagements/${entidad}` : null;
   }
