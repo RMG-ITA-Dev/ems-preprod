@@ -89,8 +89,12 @@ vi.mock("@/components/ui/leave-page-dialog", () => ({
     <div data-testid="leave-page-dialog" data-is-dirty={isDirty} />
   ),
 }));
+// El idioma es mutable para poder probar el calendario en los dos: `vi.mock` se iza, asi que el
+// factory tiene que leer de un objeto creado con `vi.hoisted` en vez de una constante del modulo.
+const sesion = vi.hoisted(() => ({ idioma: "en" }));
+
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: sesion.idioma } }),
 }));
 vi.mock("@/components/settings/UserRolesManager", () => ({ UserRolesManager: () => <div /> }));
 vi.mock("@/components/settings/ChangePasswordCard", () => ({ ChangePasswordCard: () => <div /> }));
@@ -102,6 +106,7 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
   let queryClient: QueryClient;
 
   beforeEach(() => {
+    sesion.idioma = "en";
     vi.clearAllMocks();
     capturedLockArgs = {};
     queryClient = new QueryClient({
@@ -188,6 +193,30 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
 
     expect(disparador).toHaveTextContent("common.pickDate");
     expect(capturedLockArgs.isDirty).toBe(true);
+  });
+
+  it("el calendario se muestra en el idioma de la sesion", async () => {
+    // `react-day-picker` cae a ingles si nadie le pasa locale, y el wrapper de ui/calendar.tsx no
+    // elige ninguno: el calendario mostraba "January" y "Mo Tu We" en una sesion en espanol.
+    sesion.idioma = "es";
+    const user = await abrirGlobal();
+
+    await user.click(screen.getByLabelText("settings.trackingStartDate"));
+    const calendario = await screen.findByRole("dialog");
+
+    // Enero 2026 es el mes de lo persistido, asi que es el que abre.
+    expect(within(calendario).getByText(/enero/i)).toBeInTheDocument();
+    expect(within(calendario).queryByText(/january/i)).not.toBeInTheDocument();
+  });
+
+  it("y en ingles cuando la sesion es en ingles", async () => {
+    sesion.idioma = "en";
+    const user = await abrirGlobal();
+
+    await user.click(screen.getByLabelText("settings.trackingStartDate"));
+    const calendario = await screen.findByRole("dialog");
+
+    expect(within(calendario).getByText(/january/i)).toBeInTheDocument();
   });
 
   it("Cancelar devuelve los dos campos a lo persistido y limpia el estado sucio", async () => {

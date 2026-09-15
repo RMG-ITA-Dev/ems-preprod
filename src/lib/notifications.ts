@@ -16,6 +16,8 @@
  * `src/lib/engagementStatus.ts`: toda la lógica testeable sin levantar nada.
  */
 
+import { canSeePlanning } from "@/lib/schedulerAccess";
+
 /** Módulos del catálogo. Espejo de `notification_types.module_key`. */
 export type NotificationModule =
   | "auth"
@@ -237,13 +239,27 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
 
 /**
  * Permiso sintetico del contador de cobertura. Vive aca —y no en el panel— para que el
- * predicado sea testeable sin render: el panel solo compone `can` con esto.
+ * predicado sea testeable sin render.
+ *
+ * Pregunta por el ROL y no por un permiso, aunque todo el resto de esta tabla rutee por permiso:
+ * el Scheduler no tiene permisos `scheduler.*` en el catalogo RBAC, su acceso lo decide
+ * `canSeePlanning()` sobre `role_key` (ver el encabezado de schedulerAccess.ts, que explica por
+ * que quedo asi). Reusar ese predicado es la unica forma de que el enlace coincida con la puerta.
+ *
+ * Antes aproximaba con `can("engagement.read")` —"puede ver encargos"— y fallaba en las DOS
+ * direcciones, porque los tres conjuntos no coinciden:
+ *
+ *   * `sqr`, `ita_manager` y `tax_manager` reciben el contador y tienen `engagement.read`, pero
+ *     NO estan en SCHEDULER_PLANNING_ROLES: el enlace se pintaba y `/scheduler` —que no tiene
+ *     guard de ruta, el gate esta adentro— les mostraba el estado de sin acceso.
+ *   * `senior` SI puede entrar al Scheduler y NO tiene `engagement.read` (tiene
+ *     `dashboard.engagement.read`, que es otro permiso): se le ocultaba un enlace que abria bien.
  */
 export function canOpenScheduler(
   schedulerEnabled: boolean,
-  can: (permission: string) => boolean,
+  roleKey: string | null | undefined,
 ): boolean {
-  return schedulerEnabled && can("engagement.read");
+  return schedulerEnabled && canSeePlanning(roleKey);
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   type NotificationEvent,
   type NotificationModule,
 } from "../notifications";
+import { canSeePlanning } from "@/lib/schedulerAccess";
 
 function event(
   id: string,
@@ -277,7 +278,7 @@ describe("buildPendingSections", () => {
     // /scheduler no esta montada en App.tsx si VITE_SCHEDULER_ENABLED no es "true".
     const result = buildPendingSections(
       { "scheduler.coverage_gap": { count: 3 } },
-      (p) => (p === "scheduler.view" ? canOpenScheduler(false, () => true) : true),
+      (p) => (p === "scheduler.view" ? canOpenScheduler(false, "admin") : true),
     );
     expect(result[0].alarms[0].count).toBe(3);
     expect(result[0].alarms[0].route).toBeNull();
@@ -698,14 +699,39 @@ describe("notificationRoleChange", () => {
 });
 
 describe("canOpenScheduler", () => {
-  it("exige las DOS condiciones: modulo encendido y permiso sobre encargos", () => {
-    expect(canOpenScheduler(true, () => true)).toBe(true);
-    expect(canOpenScheduler(false, () => true)).toBe(false);
-    expect(canOpenScheduler(true, () => false)).toBe(false);
+  it("exige las DOS condiciones: modulo encendido y rol con acceso al Scheduler", () => {
+    expect(canOpenScheduler(true, "admin")).toBe(true);
+    expect(canOpenScheduler(false, "admin")).toBe(false);
+    expect(canOpenScheduler(true, "assistant")).toBe(false);
+    expect(canOpenScheduler(true, null)).toBe(false);
   });
 
-  it("mira `engagement.read` y no otro permiso", () => {
-    expect(canOpenScheduler(true, (p) => p === "engagement.read")).toBe(true);
-    expect(canOpenScheduler(true, (p) => p === "work_order.read")).toBe(false);
+  // LA REGRESION, y fallaba en las dos direcciones. Antes aproximaba con `engagement.read`
+  // ("puede ver encargos"), que no es el mismo conjunto que "puede abrir el Scheduler":
+  // `canSeePlanning` decide por role_key y no hay permisos `scheduler.*` en el catalogo RBAC.
+  it.each(["sqr", "ita_manager", "tax_manager"])(
+    "%s recibe el contador y tiene engagement.read, pero NO entra al Scheduler",
+    (rol) => {
+      // Con el predicado viejo el enlace se pintaba y /scheduler —que no tiene guard de ruta—
+      // les mostraba el estado de sin acceso.
+      expect(canOpenScheduler(true, rol)).toBe(false);
+    },
+  );
+
+  it("senior SI entra, aunque no tenga engagement.read", () => {
+    // Tiene `dashboard.engagement.read`, que es otro permiso (cero_13). Con el predicado viejo
+    // se le ocultaba un enlace a una pantalla que abre bien.
+    expect(canOpenScheduler(true, "senior")).toBe(true);
+  });
+
+  it("coincide con el predicado que gobierna la pantalla", () => {
+    // La afirmacion de fondo: enlace y puerta son el MISMO conjunto. Si alguien cambia
+    // SCHEDULER_PLANNING_ROLES, esto sigue siendo cierto sin tocar nada.
+    for (const rol of [
+      "admin", "senior_partner", "partner", "director", "manager", "senior",
+      "sqr", "ita_manager", "tax_manager", "assistant", "hr_manager", null,
+    ]) {
+      expect(canOpenScheduler(true, rol)).toBe(canSeePlanning(rol));
+    }
   });
 });

@@ -469,7 +469,7 @@ export function NotificationsPanel() {
 
   // `can` decide si cada fila navega o se queda como texto: la matriz de notificaciones y la
   // de permisos son independientes y hoy se contradicen en varios pares rol/pantalla.
-  const { can, scope } = useAuthorization();
+  const { can, scope, roleKey } = useAuthorization();
 
   // Dos pseudo-permisos que no existen en el catalogo RBAC, cada uno con su predicado:
   //   - `scheduler.view`: ademas del permiso exige que el modulo este encendido. Con el flag
@@ -479,14 +479,17 @@ export function NotificationsPanel() {
   const canOpenRoute = useMemo(
     () => (permission: string) => {
       if (permission === "scheduler.view") {
-        return canOpenScheduler(isSchedulerEnabled(), can);
+        // Por ROL y no por permiso: el Scheduler no tiene permisos en el catalogo RBAC, lo
+        // gobierna `canSeePlanning(role_key)` — el mismo predicado que usan AppSidebar y la
+        // propia pagina. Ver canOpenScheduler().
+        return canOpenScheduler(isSchedulerEnabled(), roleKey);
       }
       if (permission === "timesheet_approval.firm_read") {
         return canOpenTrainingApprovals(scope);
       }
       return can(permission);
     },
-    [can, scope],
+    [can, scope, roleKey],
   );
 
   const pendingSections = useMemo(

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
+import { enUS, es } from "date-fns/locale";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -138,6 +139,10 @@ async function parseExchangeRateFunctionError(error: unknown): Promise<{ message
 
 const Settings = () => {
   const { t, i18n } = useTranslation();
+  // `react-day-picker` cae a ingles si no se le pasa locale, y el wrapper de ui/calendar.tsx no
+  // elige ninguno: sin esto el calendario muestra "September" y "Mo Tu We" en una sesion en
+  // espanol. Mismo criterio que las 4 pantallas del Scheduler, que ya lo hacen asi.
+  const dateLocale = i18n.language?.startsWith("es") ? es : enUS;
   const queryClient = useQueryClient();
   const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
@@ -1495,6 +1500,7 @@ const Settings = () => {
                             <PopoverContent className="w-auto p-0" align="start">
                               <Calendar
                                 mode="single"
+                                locale={dateLocale}
                                 // Mediodía y no medianoche: `new Date('2026-09-14')` se parsea como
                                 // UTC, y en un huso al oeste eso retrocede un día al mostrarlo.
                                 selected={
