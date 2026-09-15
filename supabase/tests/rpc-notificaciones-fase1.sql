@@ -521,7 +521,7 @@ END $$;
 
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
 DO $$
-DECLARE v_agg jsonb; v_before int; v_after int;
+DECLARE v_agg jsonb; v_before int; v_after int; v_dia int;
 BEGIN
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000001');  -- assistant
 
@@ -575,6 +575,48 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL — una fecha de arranque vieja alargo la ventana';
   END IF;
   RAISE NOTICE 'PASS - la fecha de arranque solo acorta, nunca alarga';
+
+  -- Y una fecha de arranque que NO cae lunes se adelanta al lunes siguiente.
+  --
+  -- Sin eso el recorte es de mentira: get_week_statuses() rebobina lo que recibe al lunes de esa
+  -- semana y despues solo clampea contra hire/termination, asi que una fecha de mitad de semana
+  -- deja entrar la semana ENTERA — y la alarma reclama horas de los dias anteriores a que la
+  -- firma cargara en EMS, que es justo lo que este ajuste existe para evitar.
+  FOR v_dia IN 0..6 LOOP
+    -- Un dia de cada ISODOW, sobre una semana fija para que la prueba no dependa de hoy.
+    UPDATE public.global_settings
+       SET setting_value = to_char(DATE '2026-09-14' + v_dia, 'YYYY-MM-DD')
+     WHERE setting_key = 'TS_TRACKING_START_DATE';
+
+    IF EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - con arranque % la ventana empieza en ISODOW %, y no en lunes',
+        DATE '2026-09-14' + v_dia,
+        EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int;
+    END IF;
+  END LOOP;
+
+  -- Un lunes se respeta tal cual: adelantarlo se comeria una semana entera de alarmas.
+  UPDATE public.global_settings SET setting_value = '2026-09-14'   -- lunes
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+  IF public.notif_timesheet_window_start() <> DATE '2026-09-14' THEN
+    RAISE EXCEPTION 'TEST FAIL - un lunes se movio a %', public.notif_timesheet_window_start();
+  END IF;
+
+  -- Y el martes siguiente cae en el lunes de la semana QUE VIENE, no en el de la suya.
+  UPDATE public.global_settings SET setting_value = '2026-09-15'   -- martes
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+  IF public.notif_timesheet_window_start() <> DATE '2026-09-21' THEN
+    RAISE EXCEPTION 'TEST FAIL - el martes 15 se resolvio a % y no al lunes 21',
+      public.notif_timesheet_window_start();
+  END IF;
+  RAISE NOTICE 'PASS - una fecha de arranque a mitad de semana se adelanta al lunes siguiente';
+
+  -- Los settings vuelven a como los dejaba este grupo antes de estas aserciones: los que siguen
+  -- cuentan con ese estado, y una fecha del 2000 no recorta nada caiga el dia que caiga.
+  UPDATE public.global_settings SET setting_value = '2000-01-01'
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+  UPDATE public.global_settings SET setting_value = '1'
+   WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
 END $$;
 
 -- -- Grupo 5 -- FASE 3.a: los disparadores de Fondos emiten de verdad ---------
@@ -2034,6 +2076,7 @@ DECLARE
   v_new     uuid := '59f00000-0000-4000-8000-00000000000d';
   v_newuser uuid := 'a9f00000-0000-4000-8000-00000000000d';
   v_pending uuid := 'a9f00000-0000-4000-8000-00000000000e';  -- alta sin confirmar
+  v_abort   uuid := 'a9f00000-0000-4000-8000-000000000011';  -- baja que no se concreta
   v_n       int;
   v_prev    int;
   v_res     jsonb;
@@ -2359,6 +2402,79 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS - preparar la baja se niega sobre una cuenta con ficha de staff';
 
+    -- 13.f.6 UNA BAJA QUE NO SE CONCRETA SE DESHACE ENTERA.
+    --
+    -- Sacar el rol antes del borrado abre un estado que antes no existia: si GoTrue despues
+    -- falla por algo transitorio, la cuenta sigue viva y sin rol, y el frontend es fail-closed
+    -- —esa persona entra y no ve nada—. Mientras la fila se iba por el CASCADE eso no podia
+    -- pasar, porque el CASCADE solo corria si la cuenta se habia borrado de verdad.
+    DELETE FROM public.notifications;
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    VALUES (v_abort, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'notif-test-11@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+    INSERT INTO public.user_roles (user_id, role, role_key)
+    VALUES (v_abort, 'staff', 'senior');
+    DELETE FROM public.notifications;  -- el aviso de alta del INSERT
+
+    v_res := public.prepare_account_deletion(v_abort);
+    IF (v_res->>'ok')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'TEST FAIL - prepare_account_deletion se nego: %', v_res;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - el fixture no dejo el aviso de baja (hubo %)', v_n;
+    END IF;
+
+    -- GoTrue no pudo borrar la cuenta.
+    v_res := public.abort_account_deletion(v_abort, v_res->'rol');
+    IF (v_res->>'ok')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'TEST FAIL - no se pudo deshacer la baja: %', v_res;
+    END IF;
+
+    -- El rol vuelve TAL CUAL, no con un default: quien tenia `senior` no queda como `staff`.
+    SELECT COUNT(*) INTO v_n FROM public.user_roles
+     WHERE user_id = v_abort AND role_key = 'senior';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - el rol no volvio tal cual (hubo %)', v_n;
+    END IF;
+
+    -- Y la baja deja de estar anunciada: no ocurrio.
+    SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - quedo anunciada a Seguridad TI una baja que no ocurrio (hubo %)', v_n;
+    END IF;
+
+    -- Ni se anuncia como un alta: la cuenta existia desde antes.
+    SELECT COUNT(*) INTO v_n FROM public.notifications
+     WHERE type_key = 'auth.user.registered' AND payload->>'user_id' = v_abort::text;
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - reponer el rol se anuncio como un alta nueva (hubo %)', v_n;
+    END IF;
+    RAISE NOTICE 'PASS - una baja que no se concreta devuelve el rol y retira el aviso';
+
+    -- 13.f.7 Y al reves: si la cuenta SI se borro no hay nada que deshacer. Reponer el rol
+    -- dejaria una fila apuntando a una cuenta que ya no existe.
+    PERFORM set_config('ems.account_rollback', '', true);
+    DELETE FROM public.notifications;
+
+    v_res := public.prepare_account_deletion(v_abort);
+    DELETE FROM auth.users WHERE id = v_abort;
+
+    v_res := public.abort_account_deletion(v_abort, v_res->'rol');
+    IF (v_res->>'ok')::boolean IS NOT FALSE OR v_res->>'reason' <> 'NO_AUTH_USER' THEN
+      RAISE EXCEPTION 'TEST FAIL - se deshizo una baja que si ocurrio: %', v_res;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.user_roles WHERE user_id = v_abort;
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - se repuso el rol de una cuenta que ya no existe';
+    END IF;
+    RAISE NOTICE 'PASS - deshacer no repone nada cuando la baja si ocurrio';
+
+    -- El marcador vuelve a bajarse: es transaction-local y la suite es una sola transaccion.
+    PERFORM set_config('ems.account_rollback', '', true);
     DELETE FROM public.notifications;
   END IF;
 

@@ -17,6 +17,12 @@
 // servicio externo, y dejar la transacción abierta mientras tanto bloquearía la fila todo ese
 // tiempo. `claim_notification_emails` usa FOR UPDATE SKIP LOCKED, así que dos drenajes
 // simultáneos se reparten el trabajo en vez de pelearse.
+//
+// Son TRES RPC por correo y no dos, porque arrendar no es intentar. El claim arrienda el lote
+// entero; `begin_notification_email_attempt` gasta el intento de a una fila, justo antes de
+// Graph. Cobrar el intento al reclamar se lo cobraba también a las 49 filas que esperaban turno,
+// así que una corrida cortada a mitad de lote les gastaba el presupuesto de reintentos sin
+// haberlas mandado nunca.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { renderizarCorreoNotificacion, TipoSinPlantilla } from "../_shared/plantillas/notificaciones.ts";
@@ -112,6 +118,32 @@ Deno.serve(async (req) => {
 
   for (const fila of filas) {
     try {
+      // El intento se gasta ACÁ y no al reclamar el lote. Reclamar toma hasta 50 filas de una;
+      // esto las manda de a una. Si la invocación muere a mitad del lote, las que todavía no
+      // llegaron a este punto no gastaron nada y vuelven a la cola enteras al vencer el arriendo.
+      const { data: intento, error: errorIntento } = await supabase.rpc(
+        "begin_notification_email_attempt",
+        { p_email_id: fila.email_id },
+      );
+
+      if (errorIntento) {
+        // Sin poder anotar el intento no se manda: mandar igual abre la puerta a reintentar sin
+        // tope un correo que sale mal cada vez. Queda arrendada y la retoma la corrida siguiente.
+        console.error(
+          `[send-notification-emails] no se pudo anotar el intento de ${fila.email_id}; se deja para el proximo drenaje:`,
+          errorIntento.message,
+        );
+        sinCerrar.push(fila.email_id);
+        continue;
+      }
+
+      if (intento === null) {
+        // La fila dejo de estar arrendada entre el claim y esto: otra corrida la cerro, o el
+        // barrido la dio por perdida. No es nuestra.
+        console.warn(`[send-notification-emails] ${fila.email_id} ya no estaba en sending; se saltea.`);
+        continue;
+      }
+
       const correo = renderizarCorreoNotificacion({
         typeKey: fila.type_key,
         entityId: fila.entity_id,

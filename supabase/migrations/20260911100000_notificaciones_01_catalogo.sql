@@ -518,7 +518,7 @@ INSERT INTO public.global_settings (setting_key, setting_value, description) VAL
   ('TS_ALERT_WINDOW_WEEKS', '4',
    'Semanas hacia atrás que miran las alarmas de timesheet de la campana (vencidos, revertidos, aprobaciones pendientes). Independiente de TS_EMPLOYEE_RETRO_DAYS, que gobierna la EDICIÓN. Rango aceptado 1-52; fuera de rango o no numérico cae a 4.'),
   ('TS_TRACKING_START_DATE', '',
-   'Fecha (YYYY-MM-DD) desde la que la firma carga horas en EMS 2.0. Las semanas anteriores no generan alarmas de timesheet: nunca van a tener datos. Vacío = sin recorte. Hoy sólo afecta notificaciones.')
+   'Fecha (YYYY-MM-DD) desde la que la firma carga horas en EMS 2.0. Las semanas anteriores no generan alarmas de timesheet: nunca van a tener datos. Si no cae lunes se adelanta al lunes siguiente, porque las alarmas se calculan por semana entera y una semana parcial reclamaría horas anteriores al arranque. Vacío = sin recorte. Hoy sólo afecta notificaciones.')
 ON CONFLICT (setting_key) DO NOTHING;
 
 -- =====================================================================
@@ -832,9 +832,27 @@ BEGIN
   END IF;
 
   v_from := CURRENT_DATE - (v_window * 7);
-  -- La fecha de arranque del sistema solo puede ACORTAR la ventana, nunca alargarla.
-  IF v_start IS NOT NULL AND v_start > v_from THEN
-    v_from := v_start;
+
+  IF v_start IS NOT NULL THEN
+    -- La fecha de arranque tiene que caer LUNES para recortar de verdad. Quien consume esto es
+    -- `get_week_statuses()`, que rebobina lo que reciba al lunes de esa semana y después sólo
+    -- clampea contra hire/termination: con una fecha de arranque a mitad de semana, esa semana
+    -- entra ENTERA y la alarma termina reclamando horas de los días anteriores a que la firma
+    -- cargara en EMS — exactamente lo que este ajuste existe para evitar.
+    --
+    -- Se adelanta al lunes siguiente, o sea a la primera semana COMPLETA. Sí, así la semana
+    -- parcial del arranque tampoco alarma, y es a propósito: `get_week_statuses()` calcula las
+    -- horas esperadas sobre el lunes-viernes entero y no sabe arrancar a mitad, así que la única
+    -- alternativa es reclamar horas de días que no existían. Alarmar de menos una semana en el
+    -- cutover es el lado barato del error.
+    IF EXTRACT(ISODOW FROM v_start)::integer <> 1 THEN
+      v_start := v_start + (8 - EXTRACT(ISODOW FROM v_start)::integer);
+    END IF;
+
+    -- Y sólo puede ACORTAR la ventana, nunca alargarla.
+    IF v_start > v_from THEN
+      v_from := v_start;
+    END IF;
   END IF;
 
   RETURN v_from;
@@ -842,7 +860,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.notif_timesheet_window_start() IS
-  'Inicio de la ventana de las alarmas de timesheet: TS_ALERT_WINDOW_WEEKS semanas atras, recortada por TS_TRACKING_START_DATE. Un valor mal tipeado cae al default de 4 semanas.';
+  'Inicio de la ventana de las alarmas de timesheet: TS_ALERT_WINDOW_WEEKS semanas atras, recortada por TS_TRACKING_START_DATE. La fecha de arranque se adelanta al lunes siguiente si no cae lunes, porque get_week_statuses() rebobina al lunes de esa semana y una semana parcial terminaria reclamando horas anteriores al arranque. Un valor mal tipeado cae al default de 4 semanas.';
 
 DROP FUNCTION IF EXISTS public.notif_agg_timesheet_overdue(jsonb);
 
@@ -1375,6 +1393,12 @@ END $$;
 -- El arriendo dura 15 minutos: más que cualquier corrida VIVA posible —el tope de reloj de una
 -- edge function son ~400 s— así que un arriendo vencido significa que la invocación murió, no
 -- que va lenta. Retomarlo antes sí podría mandar el mismo correo dos veces.
+--
+-- ARRENDAR NO ES INTENTAR, y son dos contadores distintos aunque compartan la fila. El arriendo
+-- lo toma el lote; el intento lo gasta cada envío, uno por uno
+-- (`begin_notification_email_attempt`). Mezclarlos —cobrar el intento al reclamar— hace que una
+-- corrida cortada a mitad de lote le gaste el presupuesto de reintentos a las filas que todavía
+-- estaban esperando su turno.
 
 DROP FUNCTION IF EXISTS public.claim_notification_emails(integer);
 
@@ -1419,8 +1443,17 @@ BEGIN
      LIMIT GREATEST(COALESCE(p_limit, 50), 0)
        FOR UPDATE SKIP LOCKED
   )
+  -- Reclamar NO gasta intento. Un claim toma hasta 50 filas y el drenaje las manda de a una:
+  -- cobrarle el intento al lote entero se lo cobra también a las que la invocación nunca llegó a
+  -- tocar, y una corrida cortada a mitad de lote se las lleva puestas. Tres cortes y el barrido
+  -- de arriba las manda a `failed` sin que Graph las haya visto nunca.
+  --
+  -- El intento lo gasta `begin_notification_email_attempt()`, fila por fila y justo antes de
+  -- llamar a Graph. Eso conserva lo que el conteo en el claim protegía —una fila cuyo envío mata
+  -- al proceso SÍ pasa por ahí, así que sigue gastando intentos y no da vueltas para siempre— y
+  -- deja fuera a las que sólo estuvieron en la cola.
   UPDATE public.notification_emails e
-     SET status = 'sending', attempts = e.attempts + 1, claimed_at = now()
+     SET status = 'sending', claimed_at = now()
     FROM tomadas t
    WHERE e.email_id = t.email_id
   RETURNING e.email_id, e.to_email, e.to_name, e.type_key, e.entity_id, e.payload, e.attempts;
@@ -1428,11 +1461,49 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.claim_notification_emails(integer) IS
-  'Reclama hasta p_limit correos y los marca sending con claimed_at. Toma lo pending y tambien lo sending con arriendo vencido (15 min), que es una invocacion que murio sin cerrar; con 3 intentos gastados eso pasa a failed. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
+  'Reclama hasta p_limit correos y los marca sending con claimed_at, SIN gastar intento (eso lo hace begin_notification_email_attempt() por fila). Toma lo pending y tambien lo sending con arriendo vencido (15 min), que es una invocacion que murio sin cerrar; con 3 intentos gastados eso pasa a failed. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
 
 REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_notification_emails(integer) TO service_role;
+
+-- El intento se gasta acá: una fila por llamada, y el drenaje llama justo antes de entregarle el
+-- correo a Graph. Es la frontera entre "estaba en la cola" y "se intentó mandar", y es lo que
+-- decide si el barrido del claim tiene derecho a darla por perdida.
+--
+-- Refresca `claimed_at` de paso: el arriendo tiene que medirse desde el envío y no desde que se
+-- tomó el lote, porque lo que puede quedar colgado es la llamada a Graph.
+DROP FUNCTION IF EXISTS public.begin_notification_email_attempt(uuid);
+
+CREATE FUNCTION public.begin_notification_email_attempt(p_email_id uuid) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_intentos integer;
+BEGIN
+  IF p_email_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Sólo sobre un arriendo vigente. Si la fila ya no está en `sending` es que otra corrida la
+  -- cerró o el barrido la dio por perdida, y sumarle un intento a eso no describe nada.
+  UPDATE public.notification_emails
+     SET attempts = attempts + 1, claimed_at = now()
+   WHERE email_id = p_email_id
+     AND status = 'sending'
+  RETURNING attempts INTO v_intentos;
+
+  RETURN v_intentos;
+END;
+$$;
+
+COMMENT ON FUNCTION public.begin_notification_email_attempt(uuid) IS
+  'Gasta un intento de esa fila y refresca su arriendo. La llama el drenaje justo antes de entregarle el correo a Graph, para que el intento cuente un envio de verdad y no una fila que solo estuvo en el lote. Devuelve el numero de intento, o NULL si la fila ya no esta en sending.';
+
+REVOKE ALL ON FUNCTION public.begin_notification_email_attempt(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.begin_notification_email_attempt(uuid) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.begin_notification_email_attempt(uuid) TO service_role;
 
 -- Tope de intentos. Tres es suficiente para cubrir una caída de red o un 500 pasajero; más que
 -- eso es un problema de configuración, y reintentarlo cada 5 minutos para siempre sólo esconde

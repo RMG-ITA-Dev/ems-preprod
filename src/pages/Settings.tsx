@@ -1446,7 +1446,7 @@ const Settings = () => {
                     {/* Notificaciones: ventana de las alarmas de timesheet. */}
                     <div className="space-y-4 py-4 border-b border-border">
                       <h4 className="font-medium text-sm">{t("settings.notificationsSection")}</h4>
-                      <div className="grid grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <Label htmlFor="alertWindowWeeks">{t("settings.alertWindowWeeks")}</Label>
                           <NumericInput

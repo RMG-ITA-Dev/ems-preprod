@@ -132,20 +132,51 @@ Deno.serve(async (req) => {
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (deleteError) {
-      // User might already be deleted — que es el caso esperado acá, y el que deja el estado
-      // consistente: la cuenta no estaba y la fila de user_roles que quedaba huérfana ya se
-      // limpió en el paso 8. Si en cambio fue un fallo transitorio, la cuenta sigue viva y sin
-      // rol: el log lleva el id porque destrabarla necesita que un admin le reasigne el rol.
-      console.error(
-        `[manage-auth-user] deleteUser fallo para ${userId}; si la cuenta sigue existiendo quedo sin rol:`,
-        deleteError.message,
+      // Dos cosas distintas llegan acá y el paso 8 obliga a separarlas.
+      //
+      //   * La cuenta ya no estaba: el borrado es idempotente, la baja es real y lo que hizo el
+      //     paso 8 fue limpiar una fila huérfana. Es el caso que este bloque siempre asumió.
+      //   * El borrado falló por algo transitorio: la cuenta sigue viva, y sin el rol que el
+      //     paso 8 ya le quitó. Antes ese estado era imposible —la fila sólo se iba por el
+      //     CASCADE, o sea sólo si la cuenta se había borrado— así que hay que reponerla, o el
+      //     fallo de GoTrue deja a alguien adentro sin ver nada.
+      //
+      // `abort_account_deletion` distingue los dos mirando `auth.users`, y lo hace en la misma
+      // transacción en la que repone: preguntar acá y reponer después dejaría la ventana abierta.
+      const { data: reposicion, error: errorReposicion } = await supabaseAdmin.rpc(
+        "abort_account_deletion",
+        { p_user_id: userId, p_rol: (preparacion as { rol?: unknown } | null)?.rol ?? null },
       );
+
+      const repuesto = !errorReposicion &&
+        (reposicion as { ok?: boolean } | null)?.ok === true;
+
+      if (errorReposicion) {
+        // Es el único camino que deja el problema en pie, así que se registra con el id:
+        // destrabar la cuenta pasa a necesitar que un admin le reasigne el rol.
+        console.error(
+          `[manage-auth-user] no se pudo reponer el rol de ${userId} tras fallar el borrado; si la cuenta sigue viva quedo sin rol:`,
+          errorReposicion.message,
+        );
+      }
+
       await supabaseAdmin.from("user_lifecycle_audit_log").insert({
         actor_user_id: caller.id,
         target_user_id: userId,
-        action: "account_delete_idempotent",
+        action: repuesto ? "account_delete_aborted" : "account_delete_idempotent",
         metadata: { error: deleteError.message },
       });
+
+      if (repuesto) {
+        // La cuenta sigue existiendo y volvió a su estado anterior: no se borró nada, así que
+        // decir que sí sería mentir. El aviso de baja a Seguridad TI también se retiró.
+        console.error(`[manage-auth-user] deleteUser fallo para ${userId}; se repuso el rol.`);
+        return new Response(
+          JSON.stringify({ success: false, code: "DELETE_FAILED", message: deleteError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       return new Response(
         JSON.stringify({ success: true, code: "ALREADY_DELETED", message: "User may already be deleted" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

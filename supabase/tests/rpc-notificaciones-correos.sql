@@ -62,6 +62,7 @@ DECLARE
   v_dedupe   text;
   v_reclamados integer;
   v_email_id uuid;
+  v_email_2  uuid;
   v_estado   text;
   v_intentos integer;
   v_ok       boolean;
@@ -206,9 +207,10 @@ BEGIN
   IF v_reclamados <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - el drenaje reclamo % filas, se esperaba 1', v_reclamados;
   END IF;
+  -- `sending` si, pero attempts en cero: reclamar arrienda la fila, no la intenta.
   SELECT status, attempts INTO v_estado, v_intentos
     FROM public.notification_emails LIMIT 1;
-  IF v_estado <> 'sending' OR v_intentos <> 1 THEN
+  IF v_estado <> 'sending' OR v_intentos <> 0 THEN
     RAISE EXCEPTION 'TEST FAIL - tras reclamar quedo status=% attempts=%', v_estado, v_intentos;
   END IF;
 
@@ -236,8 +238,11 @@ BEGIN
   PERFORM public.notify_staff('auth.role.changed', c_own, 'ent-3', '{}'::jsonb);
   SELECT email_id INTO v_email_id FROM public.notification_emails LIMIT 1;
 
+  -- El intento lo gasta begin_notification_email_attempt(), que es lo que el drenaje llama
+  -- justo antes de entregarle el correo a Graph. Reclamar no cuenta como intentar.
   FOR v_n IN 1..2 LOOP
     PERFORM public.claim_notification_emails(50);
+    PERFORM public.begin_notification_email_attempt(v_email_id);
     PERFORM public.mark_notification_email_result(v_email_id, false, 'error simulado');
     SELECT status INTO v_estado FROM public.notification_emails WHERE email_id = v_email_id;
     IF v_estado <> 'pending' THEN
@@ -246,6 +251,7 @@ BEGIN
   END LOOP;
 
   PERFORM public.claim_notification_emails(50);
+  PERFORM public.begin_notification_email_attempt(v_email_id);
   PERFORM public.mark_notification_email_result(v_email_id, false, 'error simulado');
   SELECT status, attempts, last_error INTO v_estado, v_intentos, v_dedupe
     FROM public.notification_emails WHERE email_id = v_email_id;
@@ -266,7 +272,8 @@ BEGIN
   SELECT email_id INTO v_email_id FROM public.notification_emails LIMIT 1;
 
   PERFORM public.claim_notification_emails(50);
-  -- Aca MUERE el drenaje: no se llama a mark_notification_email_result().
+  PERFORM public.begin_notification_email_attempt(v_email_id);  -- el drenaje va a mandar...
+  -- ...y aca MUERE: no se llama a mark_notification_email_result().
   SELECT claimed_at IS NOT NULL INTO v_ok FROM public.notification_emails WHERE email_id = v_email_id;
   IF NOT v_ok THEN
     RAISE EXCEPTION 'TEST FAIL - el claim no estampo claimed_at';
@@ -285,18 +292,25 @@ BEGIN
   IF v_reclamados <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - el arriendo vencido no se recogio (% filas)', v_reclamados;
   END IF;
+  -- Un intento, no dos: el que gasto el envio que murio. Retomar el arriendo no cobra nada —si
+  -- lo cobrara, el presupuesto de reintentos se iria en reclamos y no en envios.
   SELECT attempts INTO v_intentos FROM public.notification_emails WHERE email_id = v_email_id;
-  IF v_intentos <> 2 THEN
-    RAISE EXCEPTION 'TEST FAIL - tras retomar el arriendo attempts=%, se esperaba 2', v_intentos;
+  IF v_intentos <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - tras retomar el arriendo attempts=%, se esperaba 1', v_intentos;
   END IF;
   RAISE NOTICE 'PASS - el arriendo vencido se recoge y el vigente no';
 
   -- 18.j.3 Un envio que mata al proceso CADA vez no se reintenta para siempre. El tope de 3 lo
   --        aplica mark_notification_email_result(), o sea justo la funcion a la que esa fila
-  --        nunca llega: sin el barrido del claim, la fila daria vueltas indefinidamente.
+  --        nunca llega: sin el barrido del claim, la fila daria vueltas indefinidamente. Lo que
+  --        la condena es haber sido ENTREGADA a Graph tres veces, no haber sido reclamada tres
+  --        veces — por eso cada vuelta pasa por begin_notification_email_attempt().
+  PERFORM public.begin_notification_email_attempt(v_email_id);   -- attempts 2, y muere otra vez
+
   UPDATE public.notification_emails
      SET claimed_at = now() - interval '16 minutes' WHERE email_id = v_email_id;
-  PERFORM public.claim_notification_emails(50);   -- attempts 3
+  PERFORM public.claim_notification_emails(50);
+  PERFORM public.begin_notification_email_attempt(v_email_id);   -- attempts 3
   SELECT status, attempts INTO v_estado, v_intentos
     FROM public.notification_emails WHERE email_id = v_email_id;
   IF v_estado <> 'sending' OR v_intentos <> 3 THEN
@@ -318,6 +332,60 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - no se guardo el motivo del failed (last_error = %)', v_dedupe;
   END IF;
   RAISE NOTICE 'PASS - un arriendo que vence 3 veces termina en failed, no en bucle';
+
+  -- 18.j.4 ARRENDAR NO ES INTENTAR, que es lo que separa este bloque del anterior.
+  --
+  -- El claim toma hasta 50 filas de una y el drenaje las manda en serie. Mientras el intento se
+  -- cobraba en el claim, una corrida cortada a mitad de lote le gastaba el presupuesto a las
+  -- filas que todavia esperaban turno: tres cortes y el barrido las mandaba a `failed` sin que
+  -- Graph las hubiera visto nunca. El sintoma es el peor de todos: un aviso que no llega y una
+  -- fila que dice haberlo intentado.
+  DELETE FROM public.notification_emails;
+  DELETE FROM public.notifications;
+  PERFORM public.notify_staff('auth.role.changed', c_own, 'ent-5', '{}'::jsonb);
+  PERFORM public.notify_staff('auth.role.changed', c_own, 'ent-6', '{}'::jsonb);
+  SELECT email_id INTO v_email_id FROM public.notification_emails WHERE entity_id = 'ent-5';
+  SELECT email_id INTO v_email_2  FROM public.notification_emails WHERE entity_id = 'ent-6';
+  IF v_email_id IS NULL OR v_email_2 IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el fixture de dos correos no se encolo';
+  END IF;
+
+  -- Se reclaman las dos; el drenaje alcanza a mandar la primera y muere. La segunda nunca salio
+  -- del lote.
+  SELECT COUNT(*) INTO v_reclamados FROM public.claim_notification_emails(50);
+  IF v_reclamados <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el claim tomo % filas, se esperaban 2', v_reclamados;
+  END IF;
+  PERFORM public.begin_notification_email_attempt(v_email_id);
+  PERFORM public.mark_notification_email_result(v_email_id, true, NULL);
+
+  SELECT attempts, status INTO v_intentos, v_estado
+    FROM public.notification_emails WHERE email_id = v_email_2;
+  IF v_intentos <> 0 OR v_estado <> 'sending' THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila que el lote nunca mando quedo con attempts=% status=%',
+      v_intentos, v_estado;
+  END IF;
+
+  -- Y al vencer el arriendo vuelve entera, con sus tres intentos intactos.
+  UPDATE public.notification_emails
+     SET claimed_at = now() - interval '16 minutes' WHERE email_id = v_email_2;
+  SELECT COUNT(*) INTO v_reclamados FROM public.claim_notification_emails(50);
+  IF v_reclamados <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila que quedo esperando no volvio a la cola (% filas)', v_reclamados;
+  END IF;
+  SELECT attempts INTO v_intentos FROM public.notification_emails WHERE email_id = v_email_2;
+  IF v_intentos <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - esperar turno le gasto % intentos a un correo que nunca se mando',
+      v_intentos;
+  END IF;
+  RAISE NOTICE 'PASS - una corrida cortada no le gasta intentos a las filas que nunca mando';
+
+  -- Y no se puede gastar intento sobre una fila que ya no esta arrendada: la cerro otra corrida
+  -- o el barrido la dio por perdida, y sumarle un intento a eso no describe nada.
+  IF public.begin_notification_email_attempt(v_email_id) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - se gasto un intento sobre una fila que ya no estaba en sending';
+  END IF;
+  RAISE NOTICE 'PASS - gastar intento exige un arriendo vigente';
 
   -- 18.j.4 Cerrar suelta el arriendo: una fila de vuelta en pending no puede seguir figurando
   --        como reclamada por alguien.
