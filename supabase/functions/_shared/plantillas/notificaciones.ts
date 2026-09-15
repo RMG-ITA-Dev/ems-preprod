@@ -68,6 +68,22 @@ function detallesDeRecordatorio(
     }));
 }
 
+/**
+ * Fecha ISO a DD/MM/YYYY (regla 3 de AGENTS.md).
+ *
+ * Reordena TEXTO y no construye un `Date` a propósito: `new Date("2026-09-18")` se interpreta como
+ * medianoche UTC, y formatearla en cualquier zona al oeste de Greenwich —La Paz es UTC-4— devuelve
+ * el día anterior. El payload ya trae la fecha tal como la escribió Postgres desde una columna
+ * `date`; no hay nada que convertir, sólo que acomodar.
+ *
+ * Lo que no calce con el patrón sale tal cual: mostrar una fecha en ISO es peor que la regla, pero
+ * mucho mejor que tragarse el dato.
+ */
+function fechaDdMmAaaa(valor: string): string {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]|$)/.exec(valor);
+  return partes ? `${partes[3]}/${partes[2]}/${partes[1]}` : valor;
+}
+
 /** Las líneas de un evento: las claves del payload que existan, en el orden declarado. */
 function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string; valor: string }[] {
   const salida: { etiqueta: string; valor: string }[] = [];
@@ -79,12 +95,12 @@ function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string;
   if (semana !== undefined && semana !== null && anio !== undefined && anio !== null) {
     payload = { ...payload, semana: `${semana}/${anio}` };
   }
-  for (const { clave, etiqueta } of DETALLES_PAYLOAD) {
+  for (const { clave, etiqueta, formato } of DETALLES_PAYLOAD) {
     const valor = payload[clave];
     if (valor === null || valor === undefined) continue;
     const texto = typeof valor === "string" ? valor.trim() : String(valor);
     if (!texto) continue;
-    salida.push({ etiqueta, valor: texto });
+    salida.push({ etiqueta, valor: formato === "fecha" ? fechaDdMmAaaa(texto) : texto });
   }
   return salida;
 }

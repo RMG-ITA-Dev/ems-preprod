@@ -163,8 +163,14 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
  * Sacan el identificador DEL TEXTO: "Se cerró la solicitud FR-2026-2027 de BOB 1.500" obliga a
  * redactar una frase distinta por tipo. El texto se queda con el hecho, y la referencia baja a
  * una línea aparte.
+ *
+ * `formato` sólo se declara donde el valor NO es texto ya presentable. Las fechas llegan desde
+ * columnas `date`, y jsonb las serializa en ISO: sin esta marca el correo imprimía
+ * "Plazo: 2026-09-18" contra la regla 3 de AGENTS.md. Se declara clave por clave y no se detecta
+ * por patrón a propósito: un `notes` o un `reason` que el usuario escriba con forma de fecha es
+ * texto libre y no debe reordenarse.
  */
-export const DETALLES_PAYLOAD: { clave: string; etiqueta: string }[] = [
+export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fecha" }[] = [
   { clave: "semana", etiqueta: "Semana" },
   { clave: "request_number", etiqueta: "Solicitud" },
   { clave: "engagement_code", etiqueta: "Encargo" },
@@ -173,8 +179,8 @@ export const DETALLES_PAYLOAD: { clave: string; etiqueta: string }[] = [
   { clave: "decision", etiqueta: "Decisión" },
   { clave: "reason", etiqueta: "Motivo" },
   { clave: "notes", etiqueta: "Observaciones" },
-  { clave: "deadline", etiqueta: "Plazo" },
-  { clave: "invoice_date", etiqueta: "Fecha de facturación" },
+  { clave: "deadline", etiqueta: "Plazo", formato: "fecha" },
+  { clave: "invoice_date", etiqueta: "Fecha de facturación", formato: "fecha" },
   { clave: "previous_role_key", etiqueta: "Rol anterior" },
   { clave: "role_key", etiqueta: "Rol actual" },
 ];

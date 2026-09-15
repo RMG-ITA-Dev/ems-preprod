@@ -136,6 +136,67 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     );
   });
 
+  it("las fechas del payload salen en DD/MM/YYYY y no en ISO", () => {
+    // `emergency_deadline_at` es una columna `date`, asi que jsonb la serializa "2026-09-18" y
+    // String() la dejaba pasar tal cual hasta el correo. Regla 3 de AGENTS.md.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "wo.emergency.deadline_passed",
+        entityId: "wo-1",
+        payload: { deadline: "2026-09-18" },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Plazo: 18/09/2026");
+    expect(correo.cuerpoTexto).not.toContain("2026-09-18");
+    expect(correo.cuerpoHtml).toContain("18/09/2026");
+  });
+
+  it("el otro disparo del mismo plazo tambien formatea", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "wo.emergency.deadline_near",
+        entityId: "wo-1",
+        payload: { deadline: "2026-12-01", days_left: 3 },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Plazo: 01/12/2026");
+  });
+
+  it("el dia no se corre por zona horaria", () => {
+    // `new Date("2026-01-01")` es medianoche UTC; formatearla en La Paz (UTC-4) devuelve el 31 de
+    // diciembre. Por eso el formateo reordena texto y no construye un Date.
+    const correo = renderizarCorreoNotificacion(
+      base({ typeKey: "wo.emergency.deadline_passed", entityId: "wo-1", payload: { deadline: "2026-01-01" } }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Plazo: 01/01/2026");
+    expect(correo.cuerpoTexto).not.toContain("31/12/2025");
+  });
+
+  it("solo formatea las claves declaradas como fecha, no el texto libre", () => {
+    // Una observacion que el usuario escriba con forma de fecha es texto suyo, no un dato de
+    // calendario: reordenarla seria corromperla.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.request.decided",
+        entityId: "fr-1",
+        payload: { notes: "2026-09-18" },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Observaciones: 2026-09-18");
+  });
+
+  it("una fecha que no calza el patron sale tal cual en vez de perderse", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({ typeKey: "wo.emergency.deadline_passed", entityId: "wo-1", payload: { deadline: "sin definir" } }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Plazo: sin definir");
+  });
+
   it("escapa el payload: lo escriben los usuarios", () => {
     const correo = renderizarCorreoNotificacion(
       base({ typeKey: "fund.request.decided", entityId: "fr-1", payload: { notes: "<script>x</script>" } }),

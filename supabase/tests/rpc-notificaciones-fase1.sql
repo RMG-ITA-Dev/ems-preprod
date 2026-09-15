@@ -2995,6 +2995,8 @@ DECLARE
   v_del   int;
   c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
   c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+  v_wo    uuid;
+  v_vivas int;
 BEGIN
   PERFORM set_config('request.jwt.claims', '', true);
   DELETE FROM public.notifications;
@@ -3145,6 +3147,84 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - con un valor no numerico la purga no cayo al default de 30 dias';
   END IF;
   RAISE NOTICE 'PASS - un valor mal tipeado cae al default y no rompe el cron';
+
+  -- 17.e LA OTRA MITAD DE 8.j: la retencion tampoco puede borrar el registro de emision.
+  --
+  -- 8.j arreglo el descarte (marcar en vez de borrar) para que el cron no repitiera el aviso.
+  -- La purga abria la MISMA puerta unos dias despues: es el unico dedupe del cron sin cota
+  -- propia, porque `deadline < hoy` con la OT en Emergency_Approved no se apaga solo nunca.
+  -- Y no hacia falta descartar: bastaba con LEER el aviso y esperar la ventana de 30 dias.
+  UPDATE public.global_settings SET setting_value = '30'
+   WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
+  UPDATE public.global_settings SET setting_value = '90'
+   WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
+
+  SELECT wo_id INTO v_wo FROM public.work_orders
+   WHERE risk_status = 'Emergency_Approved' ORDER BY wo_id LIMIT 1;
+  IF v_wo IS NULL THEN
+    SELECT wo_id INTO v_wo FROM public.work_orders ORDER BY wo_id LIMIT 1;
+  END IF;
+  UPDATE public.work_orders
+     SET risk_status = 'Emergency_Approved',
+         emergency_deadline_at = (now() AT TIME ZONE 'America/La_Paz')::date - 10
+   WHERE wo_id = v_wo;
+
+  -- Se emite por la via real y no a mano: lo que se prueba es el par cron/purga.
+  DELETE FROM public.notifications;
+  DELETE FROM public.notification_emails;
+  PERFORM public.notif_wo_daily_scheduled();
+
+  SELECT COUNT(*) INTO v_vivas FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND entity_id = v_wo::text;
+  IF v_vivas < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron no emitio el vencimiento, el fixture no sirve';
+  END IF;
+
+  -- Leidas y viejas: las tres ventanas las alcanzan.
+  UPDATE public.notifications
+     SET created_at = now() - interval '200 days', read_at = now() - interval '199 days';
+
+  -- Control: MISMO tipo, pero sobre una OT que no existe. Esa si tiene que caducar, porque la
+  -- excepcion es "el hecho sigue vigente", no "este type_key es intocable".
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, created_at, read_at)
+  VALUES (c_mgr, 'wo.emergency.deadline_passed', gen_random_uuid()::text,
+          now() - interval '200 days', now() - interval '199 days');
+
+  v_del := public.purge_old_notifications();
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND entity_id = v_wo::text;
+  IF v_n <> v_vivas THEN
+    RAISE EXCEPTION 'TEST FAIL - la purga se llevo el registro de emision vigente (quedaron % de %)',
+      v_n, v_vivas;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND entity_id <> v_wo::text;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la excepcion salvo un aviso cuya OT ya no esta en emergencia';
+  END IF;
+
+  -- Y por eso el cron no reemite: sin fila nueva no hay correo nuevo.
+  PERFORM public.notif_wo_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND entity_id = v_wo::text;
+  IF v_n <> v_vivas THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron repitio la alarma tras la purga (hay % filas, habia %)',
+      v_n, v_vivas;
+  END IF;
+  RAISE NOTICE 'PASS - la retencion no borra el dedupe de una alarma todavia vigente';
+
+  -- 17.f ...y NO es una exencion permanente. En cuanto el Gerente completa los datos de riesgo
+  --      el hecho deja de ser cierto y la fila vuelve a envejecer con las reglas de siempre.
+  UPDATE public.work_orders SET risk_status = 'Pending' WHERE wo_id = v_wo;
+
+  v_del := public.purge_old_notifications();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la exencion quedo permanente: sobreviven % filas vencidas', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - resuelta la emergencia, el registro caduca como cualquier otro';
 
   RAISE NOTICE 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED (rolled back)';
 END $$;

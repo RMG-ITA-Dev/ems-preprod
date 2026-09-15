@@ -1414,12 +1414,42 @@ BEGIN
   -- descartada caía en el de "no leída" —90 días contados desde que se creó— y una descartada
   -- que ya estaba leída, en el de 30: ninguno de los dos mide lo que importa acá, que es cuánto
   -- silencio le compró el descarte al cron.
-  DELETE FROM public.notifications
-   WHERE (dismissed_at IS NOT NULL AND dismissed_at < now() - make_interval(days => v_read))
-      OR (dismissed_at IS NULL AND read_at IS NOT NULL
-          AND created_at < now() - make_interval(days => v_read))
-      OR (dismissed_at IS NULL AND read_at IS NULL
-          AND created_at < now() - make_interval(days => v_unread));
+  DELETE FROM public.notifications n
+   WHERE ((n.dismissed_at IS NOT NULL AND n.dismissed_at < now() - make_interval(days => v_read))
+       OR (n.dismissed_at IS NULL AND n.read_at IS NOT NULL
+           AND n.created_at < now() - make_interval(days => v_read))
+       OR (n.dismissed_at IS NULL AND n.read_at IS NULL
+           AND n.created_at < now() - make_interval(days => v_unread)))
+     -- ...SALVO que la fila todavía esté haciendo de registro de emisión.
+     --
+     -- Los emisores del cron deduplican con NOT EXISTS contra esta tabla: la fila es a la vez el
+     -- aviso Y la constancia de que ya salió. Borrarla mientras el hecho sigue vigente devuelve
+     -- el NOT EXISTS a verdadero y el cron reemite, con un correo nuevo detrás. Es exactamente
+     -- lo que ya arregló `dismiss_notifications` marcando en vez de borrar (ver su comentario);
+     -- la retención abría la misma puerta un poco más tarde.
+     --
+     -- De los cuatro dedupes del cron, éste es el único sin cota propia: `deadline_near` y
+     -- `ending_soon` llevan `days_left` (condición cierta dos días del calendario y nunca más) y
+     -- `billing_week` muere con la semana. `deadline_passed` no se apaga solo: mientras la OT
+     -- siga en Emergency_Approved con el plazo vencido, la condición es cierta para siempre.
+     --
+     -- Sin esto, la ventana de retención pasaba a gobernar la CADENCIA de una alarma:
+     -- NOTIF_RETENTION_READ_DAYS acepta hasta 1, y con ese valor Riesgos recibía el mismo aviso
+     -- todos los días. Ni siquiera hacía falta descartarlo; alcanzaba con leerlo.
+     --
+     -- En cuanto el Gerente completa los datos de riesgo (`risk_status` vuelve a 'Pending'), la
+     -- condición se apaga y la fila vuelve a envejecer con las reglas normales: esto NO es una
+     -- exención permanente, y por eso no hace crecer la tabla sin fin.
+     AND NOT (
+       n.type_key = 'wo.emergency.deadline_passed'
+       AND EXISTS (
+         SELECT 1 FROM public.work_orders w
+          WHERE w.wo_id::text = n.entity_id
+            AND w.risk_status = 'Emergency_Approved'
+            AND w.emergency_deadline_at IS NOT NULL
+            AND w.emergency_deadline_at < (now() AT TIME ZONE 'America/La_Paz')::date
+       )
+     );
 
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
@@ -1427,7 +1457,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.purge_old_notifications() IS
-  'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. Devuelve cuantas borro.';
+  'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. EXCEPCION: no borra un wo.emergency.deadline_passed cuya OT sigue en Emergency_Approved con el plazo vencido, porque esa fila es el dedupe del cron y sin ella la alarma se repetiria cada vez que vence la retencion. Devuelve cuantas borro.';
 
 REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.purge_old_notifications() TO service_role;
