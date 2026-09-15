@@ -2334,6 +2334,11 @@ DECLARE
   v_desemb   jsonb;
   v_liquid   jsonb;
   v_cierre   jsonb;
+  -- Los mismos cuatro contadores recortados a lo que la matriz le concede a CADA destinatario.
+  v_rev_rol  jsonb;
+  v_des_rol  jsonb;
+  v_liq_rol  jsonb;
+  v_cie_rol  jsonb;
   v_total    integer;
   v_avisados integer := 0;
   v_rec      record;
@@ -2356,23 +2361,34 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
-    v_total := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.expense.review_pending')
-                    THEN COALESCE((v_revision->>'count')::integer, 0) ELSE 0 END
-             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.disbursement.pending')
-                    THEN COALESCE((v_desemb->>'count')::integer, 0) ELSE 0 END
-             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.settlement.pending')
-                    THEN COALESCE((v_liquid->>'count')::integer, 0) ELSE 0 END
-             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.request.closure_pending')
-                    THEN COALESCE((v_cierre->>'count')::integer, 0) ELSE 0 END;
+    -- El recorte por rol tiene que pasar ANTES de armar el payload y no sólo dentro de v_total:
+    -- gatear el total decide bien a quién se le manda y mal qué lee. `detallesDeRecordatorio()`
+    -- (plantillas/notificaciones.ts) renderiza todo bucket con count > 0, así que un
+    -- accounting_analyst —que tiene `fund.reminder.weekly` y de los cuatro contadores sólo
+    -- `fund.expense.review_pending`— recibía los otros tres, que son de Contabilidad.
+    -- Mismo patrón que notif_emit_approval_reminder_weekly: la pieza no concedida viaja NULL.
+    v_rev_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.expense.review_pending')
+                      THEN v_revision ELSE NULL END;
+    v_des_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.disbursement.pending')
+                      THEN v_desemb ELSE NULL END;
+    v_liq_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.settlement.pending')
+                      THEN v_liquid ELSE NULL END;
+    v_cie_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.request.closure_pending')
+                      THEN v_cierre ELSE NULL END;
+
+    v_total := COALESCE((v_rev_rol->>'count')::integer, 0)
+             + COALESCE((v_des_rol->>'count')::integer, 0)
+             + COALESCE((v_liq_rol->>'count')::integer, 0)
+             + COALESCE((v_cie_rol->>'count')::integer, 0);
     CONTINUE WHEN v_total = 0;
 
     PERFORM public.notify_staff('fund.reminder.weekly', v_rec.staff_id, NULL,
               jsonb_build_object('dedupe', v_semana,
                                  'total',  v_total,
-                                 'revision_gastos', v_revision,
-                                 'desembolsos',     v_desemb,
-                                 'liquidaciones',   v_liquid,
-                                 'cierres',         v_cierre));
+                                 'revision_gastos', v_rev_rol,
+                                 'desembolsos',     v_des_rol,
+                                 'liquidaciones',   v_liq_rol,
+                                 'cierres',         v_cie_rol));
     v_avisados := v_avisados + 1;
   END LOOP;
 
@@ -2381,7 +2397,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_emit_fund_reminder_weekly() IS
-  'Recordatorio semanal de fondos: gastos por revisar, solicitudes por desembolsar, por liquidar y por cerrar.';
+  'Recordatorio semanal de fondos: gastos por revisar, solicitudes por desembolsar, por liquidar y por cerrar. Cada contador entra al payload solo si la matriz se lo concede al rol del destinatario.';
 
 -- 4. Semanal: cuotas.
 CREATE OR REPLACE FUNCTION public.notif_emit_wo_installment_reminder_weekly()
@@ -2393,6 +2409,8 @@ DECLARE
   v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
   v_semana_actual jsonb := public.notif_agg_wo_installment_due_this_week();
   v_mora     jsonb;
+  -- `v_semana_actual` es de toda la firma; esta es su version recortada al destinatario.
+  v_por_venc jsonb;
   v_total    integer;
   v_avisados integer := 0;
   v_rec      record;
@@ -2418,16 +2436,22 @@ BEGIN
                    THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora)
                    ELSE NULL END;
 
+    -- Igual que la mora de arriba: el contador entra al payload sólo si la matriz se lo concede.
+    -- `wo.installment.due_this_week` es de Contabilidad (alcance `department`) y los gerentes no
+    -- lo tienen, así que mandárselo les entregaba las cuotas por vencer de toda la firma —
+    -- exactamente lo que `scope_mora` se cuida de no hacer con las vencidas.
+    v_por_venc := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
+                       THEN v_semana_actual ELSE NULL END;
+
     v_total := COALESCE((v_mora->>'count')::integer, 0)
-             + CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
-                    THEN COALESCE((v_semana_actual->>'count')::integer, 0) ELSE 0 END;
+             + COALESCE((v_por_venc->>'count')::integer, 0);
     CONTINUE WHEN v_total = 0;
 
     PERFORM public.notify_staff('wo.installment.reminder.weekly', v_rec.staff_id, NULL,
               jsonb_build_object('dedupe', v_semana,
                                  'total',  v_total,
                                  'vencidas',   v_mora,
-                                 'por_vencer', v_semana_actual));
+                                 'por_vencer', v_por_venc));
     v_avisados := v_avisados + 1;
   END LOOP;
 
@@ -2436,7 +2460,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() IS
-  'Recordatorio semanal de cuotas: vencidas y por vencer esta semana. Reemplaza al correo por cuota de wo.client.billing_week (D-44).';
+  'Recordatorio semanal de cuotas: vencidas (con el alcance que la matriz le da al rol) y por vencer esta semana (solo si la matriz le concede ese contador). Reemplaza al correo por cuota de wo.client.billing_week (D-44).';
 
 REVOKE ALL ON FUNCTION public.notif_emit_timesheet_reminder_daily() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.notif_emit_approval_reminder_weekly() FROM PUBLIC;

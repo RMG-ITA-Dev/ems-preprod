@@ -23,7 +23,11 @@
 // que `secure-signin`.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { generarYEnviarCorreoAuth, UsuarioInexistente } from "../_shared/correo-auth.ts";
+import {
+  devolverCupoDeCorreo,
+  generarYEnviarCorreoAuth,
+  UsuarioInexistente,
+} from "../_shared/correo-auth.ts";
 import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 const corsHeaders = {
@@ -121,6 +125,11 @@ Deno.serve(async (req) => {
       console.log("[request-password-reset] sin cuenta para ese correo.");
       return jsonResponse({ ok: true });
     }
+    // El correo no salió, así que el cupo vuelve: el usuario puede reintentar en el acto en vez
+    // de esperar al minuto por un envío que nunca ocurrió. No afloja el freno —ningún mensaje
+    // llegó a esa casilla— y no se confunde con el caso de arriba, donde consumir el cupo por una
+    // dirección inexistente es justamente lo que impide barrerlas gratis.
+    await devolverCupoDeCorreo(supabaseAdmin, email, "request-password-reset");
     console.error(
       "[request-password-reset] falló el envío:",
       error instanceof Error ? error.message : String(error),

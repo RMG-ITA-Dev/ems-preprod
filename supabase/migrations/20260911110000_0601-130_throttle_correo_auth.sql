@@ -125,7 +125,63 @@ REVOKE ALL ON FUNCTION public.claim_auth_email_slot(text, integer, integer) FROM
 GRANT EXECUTE ON FUNCTION public.claim_auth_email_slot(text, integer, integer) TO service_role;
 
 -- ---------------------------------------------------------------------
--- C) Limpieza
+-- C) release_auth_email_slot()
+-- ---------------------------------------------------------------------
+--
+-- Devuelve el cupo cuando el correo NO llegó a salir. El cupo se descuenta ANTES de intentar el
+-- envío —tiene que ser así: descontarlo después deja la puerta abierta a mil pedidos en paralelo
+-- que todavía no terminaron— y si Graph falla, queda un cupo gastado por un correo que nunca
+-- existió.
+--
+-- Eso no es contabilidad fina: `register-user` deshace el alta a medias justamente para que el
+-- reintento funcione, y sin devolver el cupo el reintento cae en el mínimo entre correos y se
+-- come una respuesta de "revise su casilla" sobre una cuenta que ya no existe. El arreglo del
+-- rollback quedaba anulado por su propio freno.
+--
+-- Qué NO se devuelve: un cupo gastado por un correo que SÍ salió, aunque el flujo termine en
+-- error o el destinatario no exista. Ese consumo es el anti-barrido y está decidido en las
+-- funciones que llaman.
+--
+-- `last_sent_at = NULL` y no "el valor anterior" —que no se guarda— porque no afloja la política:
+-- para que haya algo que devolver tuvo que haber un `claim` concedido, y un `claim` sólo se
+-- concede si el último correo REAL salió hace más de `p_min_segundos`. Así que el pedido que
+-- entra después de una devolución sigue cayendo, como mínimo, a esa distancia del anterior.
+
+DROP FUNCTION IF EXISTS public.release_auth_email_slot(text);
+
+CREATE FUNCTION public.release_auth_email_slot(p_email text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_email text := lower(trim(coalesce(p_email, '')));
+  v_filas integer;
+BEGIN
+  IF v_email = '' THEN
+    RETURN false;
+  END IF;
+
+  UPDATE public.auth_email_throttle
+     SET sent_count   = GREATEST(sent_count - 1, 0),
+         last_sent_at = NULL
+   WHERE email_normalized = v_email
+     -- Sin cupo consumido no hay nada que devolver, y restar igual regalaría cupo de más.
+     AND sent_count > 0;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
+
+  RETURN v_filas > 0;
+END;
+$$;
+
+COMMENT ON FUNCTION public.release_auth_email_slot(text) IS
+  'Devuelve el cupo que claim_auth_email_slot() ya descontó, para cuando el correo no llegó a salir (falla de Graph). Devuelve true si había algo que devolver. NO se usa cuando el correo sí salió.';
+
+REVOKE ALL ON FUNCTION public.release_auth_email_slot(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.release_auth_email_slot(text) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.release_auth_email_slot(text) TO service_role;
+
+-- ---------------------------------------------------------------------
+-- D) Limpieza
 -- ---------------------------------------------------------------------
 --
 -- La tabla es una fila por destinatario y no crece con el uso, pero una fila cuya ventana venció

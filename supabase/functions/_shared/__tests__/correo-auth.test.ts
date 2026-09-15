@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  devolverCupoDeCorreo,
   FalloDeEnvio,
   generarYEnviarCorreoAuth,
   UsuarioInexistente,
@@ -249,6 +250,30 @@ describe("generarYEnviarCorreoAuth", () => {
         }),
       ).resolves.toEqual({ estado: "simulado", redirigido: true });
       expect(enviar.enviados).toHaveLength(1);
+    });
+  });
+
+  describe("devolverCupoDeCorreo", () => {
+    it("llama a la RPC con el correo normalizado por la base", async () => {
+      const rpc = vi.fn(async () => ({ error: null }));
+
+      await devolverCupoDeCorreo({ rpc }, "persona@ruizmier.com", "register-user");
+
+      expect(rpc).toHaveBeenCalledWith("release_auth_email_slot", {
+        p_email: "persona@ruizmier.com",
+      });
+    });
+
+    it("no lanza si la RPC falla: corre dentro de un camino de error y no puede taparlo", async () => {
+      const rpc = vi.fn(async () => ({ error: { message: "connection reset" } }));
+      const consola = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(
+        devolverCupoDeCorreo({ rpc }, "persona@ruizmier.com", "register-user"),
+      ).resolves.toBeUndefined();
+      expect(consola).toHaveBeenCalled();
+
+      consola.mockRestore();
     });
   });
 });

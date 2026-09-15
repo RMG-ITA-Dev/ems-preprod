@@ -391,6 +391,203 @@ BEGIN
   END IF;
   PERFORM set_config('ems.role_change_source', '', true);
   RAISE NOTICE 'PASS - el origen del cambio de rol se lee del marcador';
+END $$;
+
+-- -- Grupo 19 -- El recordatorio semanal no entrega contadores que la matriz no concede ------
+--
+-- Los contadores de fondos y el de "cuotas por vencer" son de TODA la firma, asi que se calculan
+-- una vez por corrida y no por destinatario. Eso hacia facil el error: gatear por rol solo el
+-- total decide bien A QUIEN se le manda y mal QUE lee, porque `detallesDeRecordatorio()`
+-- (plantillas/notificaciones.ts) pinta todo bucket con count > 0 que le llegue en el payload.
+--
+-- Lo que se rompia en concreto:
+--   * un accounting_analyst, que de los cuatro contadores de fondos solo tiene
+--     `fund.expense.review_pending`, recibia ademas los tres de Contabilidad;
+--   * un manager, que tiene el recordatorio de cuotas con alcance `assigned` y NO tiene
+--     `wo.installment.due_this_week`, recibia las cuotas por vencer de toda la firma —
+--     justo lo que el alcance de la mora se cuida de no hacer.
+--
+-- Los fixtures viven dentro del bloque a proposito: el Grupo 18 cuenta filas por tipo sobre
+-- toda la tabla, y dos empleados de Contabilidad mas le moverian el piso.
+DO $$
+DECLARE
+  c_mgr   constant uuid := '59c00000-0000-4000-8000-000000000001';  -- S_OWN, manager con correo
+  c_acan  constant uuid := '59c00000-0000-4000-8000-000000000004';  -- accounting_analyst
+  c_acmg  constant uuid := '59c00000-0000-4000-8000-000000000005';  -- accounting_manager
+  c_cli   constant uuid := 'c9c00000-0000-4000-8000-000000000001';
+  c_eng   constant uuid := 'e9c00000-0000-4000-8000-000000000001';
+  c_eng2  constant uuid := 'e9c00000-0000-4000-8000-000000000002';
+  c_fr    constant uuid := 'f9c00000-0000-4000-8000-000000000001';
+  v_wo    uuid;
+  v_wo2   uuid;
+  v_plan  uuid;
+  v_pay   jsonb;
+  v_hoy   date := (now() AT TIME ZONE 'America/La_Paz')::date;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  -- ---- Los dos de Contabilidad, que el fixture base no tiene --------------------------------
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    SELECT ('a9c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+           '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+           'correo-test-' || n || '@ruizmier.com', 'x', now(), now(), now(),
+           '{}'::jsonb, '{}'::jsonb
+      FROM generate_series(4, 5) n
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+
+  INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+    ('a9c00000-0000-4000-8000-000000000004', 'senior',  'accounting_analyst'),
+    ('a9c00000-0000-4000-8000-000000000005', 'manager', 'accounting_manager')
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, email, is_active,
+                            practica_id, society_id, weekly_capacity_hours, hire_date, city)
+  VALUES
+    (c_acan, 'a9c00000-0000-4000-8000-000000000004', 'CORREO', 'Analista',
+     'analista@ruizmier.com', true,
+     (SELECT practica_id FROM public.practicas WHERE code = 1),
+     (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+    (c_acmg, 'a9c00000-0000-4000-8000-000000000005', 'CORREO', 'ContaGerente',
+     'conta@ruizmier.com', true,
+     (SELECT practica_id FROM public.practicas WHERE code = 1),
+     (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz');
+
+  -- ---- Dos encargos del manager con correo, uno por OT -------------------------------------
+  -- Hacen falta DOS porque `work_orders` es UNIQUE por encargo y las dos mitades de la prueba
+  -- piden estados opuestos: el plan de pagos no se puede crear sobre una OT aprobada o en
+  -- revisión (trg_wo_payment_plan_guard_exchange_rate, EXCHANGE_RATE_LOCKED) y una solicitud de
+  -- fondos sólo se puede imputar a una OT aprobada (fr_wo_validate_approved).
+  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  VALUES (c_cli, 'CORREO Cliente Uno', 'CORREO-9C01');
+
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  manager_id, created_by_staff_id, fecha_cierre, society_id)
+  VALUES (c_eng,  c_cli, 'CORREO Encargo Uno', '9C01', c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+         (c_eng2, c_cli, 'CORREO Encargo Dos', '9C02', c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
+  -- La del plan de pagos y las cuotas.
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
+  VALUES (c_eng, 'BOB', 'High', 'Draft')
+  RETURNING wo_id INTO v_wo;
+
+  -- La de los fondos.
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
+  VALUES (c_eng2, 'BOB', 'High', 'Approved')
+  RETURNING wo_id INTO v_wo2;
+
+  -- ---- Un pendiente en cada uno de los cuatro contadores de fondos --------------------------
+  -- Desembolsos: aprobada por el gerente y sin desembolsar.
+  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
+  VALUES (c_mgr, 100, 'BOB', 'aprobado_gerente');
+  -- Liquidaciones: en liquidacion y sin liquidar.
+  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
+  VALUES (c_mgr, 100, 'BOB', 'en_liquidacion');
+  -- Cierres: liquidada y sin cerrar. `settled_at` va en el INSERT para no pelear con el guard
+  -- de columnas de Contabilidad, que mira los UPDATE.
+  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency,
+                                    status, settled_at)
+  VALUES (c_mgr, 100, 'BOB', 'en_liquidacion', now());
+  -- Gastos por revisar: fondos entregados con un gasto en `aprobado_gerente`.
+  INSERT INTO public.fund_requests (fund_request_id, requester_staff_id, total_requested_amount,
+                                    currency, status, disbursed_at)
+  VALUES (c_fr, c_mgr, 300, 'BOB', 'fondos_entregados', now());
+  INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
+  VALUES (c_fr, v_wo2, 300);
+  INSERT INTO public.fund_request_expenses (fund_request_id, wo_id, expense_date, amount,
+                                            currency, status)
+  VALUES (c_fr, v_wo2, CURRENT_DATE, 300, 'BOB', 'aprobado_gerente');
+
+  -- ---- Dos cuotas: una vencida (del manager) y una por vencer esta semana -------------------
+  -- El plan SI necesita sesion: trg_wo_payment_plan_guard_exchange_rate exige ser el gerente
+  -- del encargo o admin. El resto de los fixtures va sin sesion, como en fase1.
+  PERFORM set_config('request.jwt.claims',
+                     json_build_object('sub',  'a9c00000-0000-4000-8000-000000000001',
+                                       'role', 'authenticated')::text, true);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days)
+  VALUES (v_wo, 30) RETURNING plan_id INTO v_plan;
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
+                                              amount, status, agreed_invoice_date,
+                                              agreed_payment_date)
+  VALUES (v_plan, v_wo, 1, 50, 500, 'Pending', v_hoy - 14, v_hoy - 7);
+
+  -- El domingo de esta semana: cae siempre entre hoy y el fin de la ventana, sea cual sea el
+  -- dia en que corra la suite.
+  INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
+                                              amount, status, agreed_invoice_date,
+                                              agreed_payment_date)
+  VALUES (v_plan, v_wo, 2, 50, 500, 'Pending', v_hoy,
+          date_trunc('week', v_hoy)::date + 6);
+
+  -- ---- 19.a Fondos: el analista lee SOLO el contador que la matriz le concede ---------------
+  DELETE FROM public.notification_emails;
+  PERFORM public.notif_emit_fund_reminder_weekly();
+
+  SELECT payload INTO v_pay FROM public.notification_emails
+   WHERE type_key = 'fund.reminder.weekly' AND recipient_staff_id = c_acan;
+  IF v_pay IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el analista de contabilidad no recibio el recordatorio de fondos';
+  END IF;
+  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al analista le falta el contador que SI tiene concedido: %', v_pay;
+  END IF;
+  IF COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   <> 0
+     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) <> 0
+     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el analista recibio contadores de Contabilidad que no tiene: %', v_pay;
+  END IF;
+  -- Y el total es el de lo que ve, no el de la firma: si no, el asunto del correo promete un
+  -- numero que el cuerpo no puede explicar.
+  IF (v_pay->>'total')::int <> COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) THEN
+    RAISE EXCEPTION 'TEST FAIL - el total del analista no coincide con lo que se le entrega: %', v_pay;
+  END IF;
+  RAISE NOTICE 'PASS - el recordatorio de fondos le entrega al analista solo su contador';
+
+  -- El Gerente de Contabilidad, que los tiene los cuatro, no pierde ninguno.
+  SELECT payload INTO v_pay FROM public.notification_emails
+   WHERE type_key = 'fund.reminder.weekly' AND recipient_staff_id = c_acmg;
+  IF v_pay IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente de contabilidad no recibio el recordatorio de fondos';
+  END IF;
+  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   < 1
+     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente de contabilidad perdio contadores que si tiene: %', v_pay;
+  END IF;
+  RAISE NOTICE 'PASS - el recordatorio de fondos conserva los cuatro contadores de Contabilidad';
+
+  -- ---- 19.b Cuotas: el gerente no ve las por vencer de toda la firma ------------------------
+  DELETE FROM public.notification_emails;
+  PERFORM public.notif_emit_wo_installment_reminder_weekly();
+
+  SELECT payload INTO v_pay FROM public.notification_emails
+   WHERE type_key = 'wo.installment.reminder.weekly' AND recipient_staff_id = c_mgr;
+  IF v_pay IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente no recibio el recordatorio de cuotas';
+  END IF;
+  IF COALESCE((v_pay->'vencidas'->>'count')::int, 0) < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al gerente le falta la mora de su propio encargo: %', v_pay;
+  END IF;
+  IF COALESCE((v_pay->'por_vencer'->>'count')::int, 0) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente recibio las cuotas por vencer de toda la firma: %', v_pay;
+  END IF;
+  RAISE NOTICE 'PASS - el recordatorio de cuotas no le filtra al gerente el contador de Contabilidad';
+
+  -- Y a Contabilidad, que SI lo tiene, le llega.
+  SELECT payload INTO v_pay FROM public.notification_emails
+   WHERE type_key = 'wo.installment.reminder.weekly' AND recipient_staff_id = c_acmg;
+  IF COALESCE((v_pay->'por_vencer'->>'count')::int, 0) < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad perdio el contador de cuotas por vencer: %', v_pay;
+  END IF;
+  RAISE NOTICE 'PASS - el recordatorio de cuotas conserva el contador de Contabilidad';
 
   RAISE NOTICE 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED';
 END $$;

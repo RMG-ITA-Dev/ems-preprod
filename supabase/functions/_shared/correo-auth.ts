@@ -88,6 +88,41 @@ function esUsuarioInexistente(mensaje: string): boolean {
   return texto.includes("user not found") || texto.includes("no user found");
 }
 
+/** Lo mínimo del cliente para llamar a las RPC del throttle, separado por el mismo motivo. */
+export type ClienteRpc = {
+  rpc(
+    nombre: string,
+    argumentos: Record<string, unknown>,
+  ): Promise<{ error: { message: string } | null }>;
+};
+
+/**
+ * Devuelve el cupo de correo que `claim_auth_email_slot()` ya había descontado, para cuando el
+ * correo NO llegó a salir.
+ *
+ * El cupo se pide antes de intentar el envío, así que un fallo de Graph deja gastado un cupo por
+ * un correo que nunca existió. Eso trancaba el reintento: el alta a medias se deshace justamente
+ * para que el usuario pueda volver a registrarse, y el mínimo entre correos se lo comía con una
+ * respuesta de "revise su casilla" sobre una cuenta que ya no está.
+ *
+ * NO se llama cuando el correo sí salió, ni cuando el consumo del cupo es deliberado (una
+ * dirección que ya tiene cuenta o que no existe: si probarlas saliera gratis, el throttle no
+ * frenaría el barrido).
+ *
+ * No lanza: corre dentro de un camino de error y no puede tapar la falla original.
+ */
+export async function devolverCupoDeCorreo(
+  admin: ClienteRpc,
+  email: string,
+  etiqueta: string,
+): Promise<void> {
+  const { error } = await admin.rpc("release_auth_email_slot", { p_email: email });
+  if (error) {
+    // Lo peor que pasa es que el usuario espere al minuto para reintentar.
+    console.error(`[${etiqueta}] no se pudo devolver el cupo de correo:`, error.message);
+  }
+}
+
 /**
  * Genera el enlace con GoTrue y manda el correo por Graph.
  *

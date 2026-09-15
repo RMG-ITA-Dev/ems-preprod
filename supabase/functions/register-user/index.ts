@@ -35,7 +35,11 @@
 // `verify_jwt = false` en config.toml: quien se registra todavía no tiene cuenta.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { FalloDeEnvio, generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
+import {
+  devolverCupoDeCorreo,
+  FalloDeEnvio,
+  generarYEnviarCorreoAuth,
+} from "../_shared/correo-auth.ts";
 import { renderizarCorreoCuentaExistente } from "../_shared/plantillas/cuenta.ts";
 import { enviarCorreo } from "../_shared/mail-graph.ts";
 
@@ -250,6 +254,12 @@ Deno.serve(async (req) => {
         console.error("[register-user] fallo el envio y GoTrue no devolvio el id de la cuenta.");
       }
 
+      // Y se devuelve el cupo, porque deshacer el alta no alcanza para que el reintento sirva:
+      // el cupo se descuenta ANTES de intentar el envío, así que sin esto el reintento choca
+      // contra el mínimo entre correos y se lleva un "revise su casilla" sobre una cuenta que
+      // acabamos de borrar. Devolverlo no afloja el freno: ningún correo salió a esa casilla.
+      await devolverCupoDeCorreo(supabaseAdmin, email, "register-user");
+
       // 500 y no `respuestaCiega()`: que el correo no salga no depende de si la dirección
       // existía, así que decirlo no filtra nada, y una pantalla de "revisá tu casilla" sobre un
       // correo que nunca se mandó es peor que un error.
@@ -282,6 +292,10 @@ Deno.serve(async (req) => {
       return respuestaCiega();
     }
 
+    // Falló `generateLink` mismo: no hay cuenta ni correo, así que el cupo también se devuelve.
+    // Es el único camino que queda y no tiene nada de deliberado — a diferencia del de arriba,
+    // donde el consumo es lo que impide barrer direcciones registradas.
+    await devolverCupoDeCorreo(supabaseAdmin, email, "register-user");
     console.error("[register-user] falló el alta:", detalle);
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
   }

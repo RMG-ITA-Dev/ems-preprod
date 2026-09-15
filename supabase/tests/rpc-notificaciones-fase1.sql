@@ -343,6 +343,18 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — el destinatario ve su notificación y cuenta 1 sin leer';
 
+  -- Un tipo que el operador desactiva sale de la bandeja Y del badge, y con el mismo filtro.
+  -- Contar las no leídas aparte dejaba la campana con un número que el usuario no podía bajar:
+  -- no hay fila que abrir ni que marcar leída.
+  UPDATE public.notification_types SET is_active = false WHERE type_key = 'wo.rejected_partner';
+  v_res := public.get_my_notifications();
+  IF jsonb_array_length(v_res->'events') <> 0 OR (v_res->>'unread_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL — un tipo desactivado deja % eventos y unread_count = %',
+      jsonb_array_length(v_res->'events'), v_res->>'unread_count';
+  END IF;
+  UPDATE public.notification_types SET is_active = true WHERE type_key = 'wo.rejected_partner';
+  RAISE NOTICE 'PASS — desactivar un tipo lo saca de la bandeja y del badge a la vez';
+
   -- El assistant NO ve la del manager.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000001');
   v_res := public.get_my_notifications();

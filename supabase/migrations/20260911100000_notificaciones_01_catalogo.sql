@@ -1133,22 +1133,30 @@ BEGIN
            'read_at',         n.read_at) ORDER BY n.created_at DESC), '[]'::jsonb)
     INTO v_events
     FROM (
-      SELECT * FROM public.notifications
-       WHERE recipient_staff_id = v_staff
+      SELECT * FROM public.notifications n0
+       WHERE n0.recipient_staff_id = v_staff
          -- Lo descartado no vuelve a la bandeja. Sigue en la tabla, pero como registro de que
          -- el aviso ya salió (ver H.2), no como algo que el usuario tenga que volver a ver.
-         AND dismissed_at IS NULL
-       ORDER BY created_at DESC
+         AND n0.dismissed_at IS NULL
+         -- El tipo desactivado se descarta ACÁ y no después del LIMIT: filtrar sobre el
+         -- resultado del LIMIT devuelve menos de v_limit avisos aunque haya más activos.
+         AND EXISTS (SELECT 1 FROM public.notification_types t
+                      WHERE t.type_key = n0.type_key AND t.is_active)
+       ORDER BY n0.created_at DESC
        LIMIT v_limit
     ) n
-    JOIN public.notification_types nt ON nt.type_key = n.type_key
-   WHERE nt.is_active;
+    JOIN public.notification_types nt ON nt.type_key = n.type_key;
 
+  -- El mismo predicado que los eventos, y no uno más flojo: un tipo desactivado no aparece en
+  -- la bandeja, así que contarlo deja la campana con un número que el usuario no puede bajar —
+  -- no hay fila que abrir ni que marcar leída.
   SELECT COUNT(*) INTO v_unread
-    FROM public.notifications
-   WHERE recipient_staff_id = v_staff
-     AND read_at IS NULL
-     AND dismissed_at IS NULL;
+    FROM public.notifications n
+   WHERE n.recipient_staff_id = v_staff
+     AND n.read_at IS NULL
+     AND n.dismissed_at IS NULL
+     AND EXISTS (SELECT 1 FROM public.notification_types t
+                  WHERE t.type_key = n.type_key AND t.is_active);
 
   RETURN jsonb_build_object(
     'events',       v_events,
@@ -1158,7 +1166,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.get_my_notifications(integer) IS
-  'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado) + contadores (get_my_notification_aggregates) + no leidas. Fail-closed sin ficha de staff.';
+  'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado ni los tipos inactivos) + contadores (get_my_notification_aggregates) + no leidas, contadas con ese mismo filtro. Fail-closed sin ficha de staff.';
 
 DROP FUNCTION IF EXISTS public.mark_notifications_read(uuid[]);
 
