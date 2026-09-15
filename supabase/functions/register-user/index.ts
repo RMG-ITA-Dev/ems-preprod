@@ -41,6 +41,7 @@ import {
   generarYEnviarCorreoAuth,
 } from "../_shared/correo-auth.ts";
 import { renderizarCorreoCuentaExistente } from "../_shared/plantillas/cuenta.ts";
+import { verificarDominioDeRegistro } from "../_shared/dominio-registro.ts";
 import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 const corsHeaders = {
@@ -146,8 +147,21 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
   }
 
-  const dominio = (ajuste?.setting_value ?? "").trim().toLowerCase();
-  if (dominio && !email.toLowerCase().endsWith(`@${dominio}`)) {
+  // Falla CERRADO tambien cuando el ajuste no esta o viene vacio, no solo cuando la consulta
+  // revienta. Antes eran dos tratamientos distintos del mismo limite: error -> 500, ausencia ->
+  // registro abierto a cualquier dominio. Ver `_shared/dominio-registro.ts` para el porque, y
+  // para la diferencia deliberada con el trigger validate_email_domain() de la base.
+  const veredicto = verificarDominioDeRegistro(email, ajuste?.setting_value);
+
+  if (!veredicto.ok) {
+    if (veredicto.code === "DOMAIN_NOT_CONFIGURED") {
+      // Problema del servidor, no de quien se registra: se responde 500 y se deja rastro, porque
+      // sin este ajuste el alta publica no tiene limite y eso hay que arreglarlo, no tolerarlo.
+      console.error(
+        "[register-user] ALLOWED_EMAIL_DOMAIN no esta configurado: el alta publica queda cerrada hasta que se cargue.",
+      );
+      return jsonResponse({ ok: false, code: "INTERNAL_ERROR" }, 500);
+    }
     return jsonResponse({ ok: false, code: "INVALID_DOMAIN" }, 400);
   }
 
