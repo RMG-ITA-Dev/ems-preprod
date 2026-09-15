@@ -1056,29 +1056,62 @@ CREATE OR REPLACE FUNCTION public.notify_engagement_staffing_events() RETURNS tr
     SET search_path TO 'public'
     AS $BODY$
 DECLARE
-  v_alta  boolean;
-  v_baja  boolean;
-  v_code  text;
-  v_name  text;
-  v_who   text;
-  v_base  jsonb;
-  v_rec   record;
+  v_viva_antes boolean;
+  v_viva_ahora boolean;
+  v_alta       boolean;
+  v_baja       boolean;
+  v_reemplazo  boolean;
+  v_avisos     jsonb;
+  v_aviso      jsonb;
+  v_staff      uuid;
+  v_es_alta    boolean;
+  v_code       text;
+  v_name       text;
+  v_who        text;
+  v_base       jsonb;
+  v_rec        record;
 BEGIN
-  -- TRES FORMAS DE SACAR A ALGUIEN, y las tres cuentan (decisión del operador 2026-09-10):
-  -- el borrado lógico (`deleted_at`, que es lo que escribe save_engagement_assignments) y el
-  -- paso a CANCELLED. Los cambios de fechas/horas/porcentaje NO avisan: el Scheduler
-  -- reescribe esas columnas seguido y sería puro ruido.
+  -- TRES FORMAS DE SACAR A ALGUIEN, y las tres cuentan (decisión del operador 2026-09-10).
+  -- Durante un tiempo el comentario decía "tres" y el código miraba dos: el borrado lógico
+  -- (`deleted_at`, que es lo que escribe save_engagement_assignments) y el paso a CANCELLED.
+  --
+  -- La tercera es el REEMPLAZO: `save_engagement_assignments` cambia `staff_id` en la fila que ya
+  -- existe, sin tocar `deleted_at` ni `status`. No es un caso raro —esa función tiene una
+  -- validación dedicada para él (cero_02, "reasignar la fila a un staff DISTINTO exige la misma
+  -- elegibilidad que un insert nuevo")— y sin embargo no encendía ninguno de los dos predicados,
+  -- así que la reasignación no le avisaba a NADIE: ni a quien salía, ni a quien entraba, ni a los
+  -- gerentes.
+  --
+  -- Un reemplazo son DOS hechos y se emiten los dos, en ese orden: se fue uno, entró otro.
+  --
+  -- Los cambios de fechas/horas/porcentaje siguen sin avisar: el Scheduler reescribe esas
+  -- columnas seguido y sería puro ruido.
+  --
+  -- "Viva" se calcula una vez y las tres condiciones se leen de ahí. Antes cada predicado
+  -- enumeraba sus combinaciones de `deleted_at` y `status` por separado, y de paso eso hacía que
+  -- borrar una fila que YA estaba CANCELLED contara como una baja nueva.
   IF TG_OP = 'INSERT' THEN
-    v_alta := NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED';
-    v_baja := false;
+    v_viva_antes := false;
+    v_viva_ahora := NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED';
   ELSE
-    v_alta := (OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED')
-           OR (OLD.status = 'CANCELLED' AND NEW.status <> 'CANCELLED' AND NEW.deleted_at IS NULL);
-    v_baja := (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL)
-           OR (OLD.status <> 'CANCELLED' AND NEW.status = 'CANCELLED');
+    v_viva_antes := OLD.deleted_at IS NULL AND OLD.status <> 'CANCELLED';
+    v_viva_ahora := NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED';
   END IF;
 
-  IF NOT (v_alta OR v_baja) THEN
+  v_alta      := NOT v_viva_antes AND v_viva_ahora;
+  v_baja      := v_viva_antes AND NOT v_viva_ahora;
+  v_reemplazo := TG_OP <> 'INSERT'
+             AND v_viva_antes AND v_viva_ahora
+             AND NEW.staff_id IS DISTINCT FROM OLD.staff_id;
+
+  -- Cada aviso es (a quién, si es alta). El reemplazo produce dos; el resto, uno.
+  IF v_reemplazo THEN
+    v_avisos := jsonb_build_array(
+      jsonb_build_object('staff', OLD.staff_id, 'alta', false),
+      jsonb_build_object('staff', NEW.staff_id, 'alta', true));
+  ELSIF v_alta OR v_baja THEN
+    v_avisos := jsonb_build_array(jsonb_build_object('staff', NEW.staff_id, 'alta', v_alta));
+  ELSE
     RETURN NULL;
   END IF;
 
@@ -1087,34 +1120,42 @@ BEGIN
     FROM public.engagements e
    WHERE e.engagement_id = NEW.engagement_id;
 
-  SELECT COALESCE(s.first_name || ' ' || s.last_name, '')
-    INTO v_who
-    FROM public.staff s WHERE s.staff_id = NEW.staff_id;
-
-  v_base := jsonb_build_object(
-    'engagement_code', v_code,
-    'engagement_name', v_name,
-    'engagement_id',   NEW.engagement_id,
-    'staff_name',      v_who);
-
-  -- El MISMO type_key con dos redacciones, porque el hecho se lee distinto según de qué lado
-  -- estés: "te asignaron a X" vs "asignaron a Fulano a X". `context` es la clave reservada de
-  -- i18next y el panel hace t(label_key, {...payload}), así que cada destinatario recibe su
-  -- propia variante sin que el catálogo necesite cuatro tipos.
-  PERFORM public.notify_staff('engagement.staffing.changed', NEW.staff_id,
-            NEW.engagement_id::text,
-            v_base || jsonb_build_object('context',
-              CASE WHEN v_alta THEN 'assigned' ELSE 'unassigned' END));
-
-  FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+  FOR v_aviso IN SELECT * FROM jsonb_array_elements(v_avisos)
   LOOP
-    -- Al propio afectado no se le manda dos veces si además es gerente del encargo.
-    IF v_rec.staff_id IS DISTINCT FROM NEW.staff_id THEN
-      PERFORM public.notify_staff('engagement.staffing.changed', v_rec.staff_id,
-                NEW.engagement_id::text,
-                v_base || jsonb_build_object('context',
-                  CASE WHEN v_alta THEN 'team_assigned' ELSE 'team_unassigned' END));
-    END IF;
+    v_staff   := (v_aviso->>'staff')::uuid;
+    v_es_alta := (v_aviso->>'alta')::boolean;
+
+    -- El nombre se resuelve POR AVISO: en un reemplazo cada mitad nombra a una persona distinta,
+    -- y el texto que leen los gerentes es justamente "asignaron a Fulano" / "sacaron a Mengano".
+    SELECT COALESCE(s.first_name || ' ' || s.last_name, '')
+      INTO v_who
+      FROM public.staff s WHERE s.staff_id = v_staff;
+
+    v_base := jsonb_build_object(
+      'engagement_code', v_code,
+      'engagement_name', v_name,
+      'engagement_id',   NEW.engagement_id,
+      'staff_name',      v_who);
+
+    -- El MISMO type_key con dos redacciones, porque el hecho se lee distinto según de qué lado
+    -- estés: "te asignaron a X" vs "asignaron a Fulano a X". `context` es la clave reservada de
+    -- i18next y el panel hace t(label_key, {...payload}), así que cada destinatario recibe su
+    -- propia variante sin que el catálogo necesite cuatro tipos.
+    PERFORM public.notify_staff('engagement.staffing.changed', v_staff,
+              NEW.engagement_id::text,
+              v_base || jsonb_build_object('context',
+                CASE WHEN v_es_alta THEN 'assigned' ELSE 'unassigned' END));
+
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      -- Al propio afectado no se le manda dos veces si además es gerente del encargo.
+      IF v_rec.staff_id IS DISTINCT FROM v_staff THEN
+        PERFORM public.notify_staff('engagement.staffing.changed', v_rec.staff_id,
+                  NEW.engagement_id::text,
+                  v_base || jsonb_build_object('context',
+                    CASE WHEN v_es_alta THEN 'team_assigned' ELSE 'team_unassigned' END));
+      END IF;
+    END LOOP;
   END LOOP;
 
   RETURN NULL;
@@ -1125,7 +1166,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_engagement_staffing_events() IS
-  'FASE 3.c: alta y baja de staffing. Baja = deleted_at o status CANCELLED; los cambios de fechas/horas no avisan. El afectado y los gerentes reciben el mismo type_key con redaccion distinta via el `context` de i18next. Degrada a WARNING.';
+  'FASE 3.c: alta, baja y REEMPLAZO de staffing. Baja = deleted_at o status CANCELLED; reemplazo = cambia staff_id en la fila viva, que es como save_engagement_assignments reasigna una posicion y antes no avisaba a nadie. Un reemplazo emite dos hechos: baja del anterior y alta del nuevo. Los cambios de fechas/horas no avisan. El afectado y los gerentes reciben el mismo type_key con redaccion distinta via el `context` de i18next. Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_engagement_staffing ON public.engagement_assignments;
 CREATE TRIGGER tr_notify_engagement_staffing

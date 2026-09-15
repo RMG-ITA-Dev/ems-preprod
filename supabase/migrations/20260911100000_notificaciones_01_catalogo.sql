@@ -699,7 +699,17 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
     AS $BODY$
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
     FROM public.wo_payment_installments i
-   WHERE i.status <> 'Completed'
+   -- `Overdue` sale de acá, y no alcanza con el filtro de fechas para dejarlo afuera. Ese estado
+   -- se marca A MANO y la guarda de transiciones no mira el calendario
+   -- (`WHEN 'Invoiced' THEN NEW.status IN ('Completed', 'Overdue')`, migración 0722-156b), así
+   -- que una cuota puede estar marcada vencida y tener su fecha de pago el viernes DE ESTA
+   -- semana. Sin esta exclusión caía en los dos contadores a la vez —acá por la fecha, y en
+   -- notif_agg_wo_installment_overdue() por el brazo `status = 'Overdue'`— y Contabilidad la
+   -- veía dos veces, en la campana y en el correo del lunes.
+   --
+   -- Gana el estado más específico, mismo criterio que usa este módulo cuando
+   -- `client.deactivated` le gana a `client.updated`: si ya está vencida, no está por vencer.
+   WHERE i.status NOT IN ('Completed', 'Overdue')
      AND i.agreed_payment_date IS NOT NULL
      AND i.agreed_payment_date >= (now() AT TIME ZONE 'America/La_Paz')::date
      AND i.agreed_payment_date <=
@@ -707,7 +717,7 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS
-  'Contador "Cuotas por vencer esta semana": cuotas no cobradas cuya fecha de pago acordada cae entre hoy y el domingo. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
+  'Contador "Cuotas por vencer esta semana": cuotas cuya fecha de pago acordada cae entre hoy y el domingo, excluyendo Completed y tambien Overdue. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
 
 DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_overdue(uuid, text);
 
@@ -841,6 +851,23 @@ CREATE FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope
       FROM public.engagement_assignments a
      WHERE a.deleted_at IS NULL
        AND a.status <> 'CANCELLED'
+       -- Y con vida por delante. Hay una TERCERA forma de que una asignación deje de cubrir, y
+       -- no deja marca: que llegue a su `end_date`. Nadie escribe 'COMPLETED' (el estado existe
+       -- en el CHECK y ninguna vía lo asigna), así que una asignación vencida se queda en
+       -- CONFIRMED con deleted_at NULL para siempre — y este contador la contaba como cobertura.
+       -- Resultado: decía "0 gaps" sobre un encargo VIVO cuyo equipo ya se fue.
+       --
+       -- Es el mismo predicado que usa el Scheduler (scheduler-gaps/handler.ts: `.lte(start_date,
+       -- endDate).gte(end_date, startDate)`), que es un SOLAPAMIENTO contra la ventana que el
+       -- usuario elige en pantalla. Este contador no tiene ventana elegible: la suya es "de hoy
+       -- en adelante", y solapar con [hoy, ∞) se reduce a esto.
+       --
+       -- NO se agrega `a.start_date <= hoy`. Eso cerraría la ventana a [hoy, hoy] —un punto, que
+       -- el Scheduler no usa en ningún lado— y contradiría la definición del contador: segun D-40
+       -- el gap son POSICIONES COMPROMETIDAS sin cubrir, y una asignación que arranca el mes que
+       -- viene SÍ cubre una posición comprometida. Excluirla convertiría cada encargo por empezar
+       -- en un gap completo aunque el equipo ya esté armado.
+       AND a.end_date >= (now() AT TIME ZONE 'America/La_Paz')::date
      GROUP BY a.engagement_id, a.category_id
   ), gap AS (
     SELECT r.engagement_id,
@@ -866,7 +893,7 @@ CREATE FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text) IS
-  'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing vigente no cubre, por encargo y categoria. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
+  'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing no cubre, por encargo y categoria. Cuenta como cobertura la asignacion que todavia tiene vida por delante (end_date >= hoy), no la que ya vencio: vencer no deja marca de estado y esas filas hacian que el contador dijera 0 sobre un encargo vivo sin equipo. Una asignacion que arranca en el futuro SI cuenta, porque la posicion esta comprometida. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
 
 
 -- Los tres contadores de timesheet, extraidos del despachador (D-44). Estaban escritos en linea

@@ -1642,6 +1642,33 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - vencida y por vencer son contadores disjuntos';
 
+  -- 9.d.2 Disjuntos TAMBIEN por estado, que es la mitad que faltaba.
+  --
+  -- 9.d los separa por FECHA, y eso solo prueba la mitad facil. El estado `Overdue` se marca A
+  -- MANO y la guarda de transiciones no mira el calendario
+  -- (`WHEN 'Invoiced' THEN NEW.status IN ('Completed','Overdue')`, migracion 0722-156b), asi que
+  -- una cuota puede estar marcada vencida y tener su fecha de pago DENTRO de esta semana. Ahi
+  -- caia en los dos contadores: en "por vencer" por la fecha y en "vencidas" por el estado, y
+  -- Contabilidad la veia dos veces.
+  UPDATE public.wo_payment_installments
+     SET status = 'Overdue'
+   WHERE installment_id = v_inst;
+
+  IF (public.notif_agg_wo_installment_due_this_week()->>'count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una cuota marcada Overdue con fecha de esta semana se conto como por vencer';
+  END IF;
+
+  -- Y sigue contando donde corresponde: el arreglo excluye, no esconde.
+  IF (public.notif_agg_wo_installment_overdue(c_mgr, 'department')->>'count')::int < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota Overdue desaparecio tambien del contador de mora';
+  END IF;
+  RAISE NOTICE 'PASS - una cuota marcada Overdue no cuenta ademas como por vencer';
+
+  -- Se devuelve a Invoiced para lo que sigue del grupo.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced'
+   WHERE installment_id = v_inst;
+
   -- 9.e Semana de facturacion: el cron avisa al gerente una vez por cuota. La protagonista
   -- es la CUOTA 2, que nunca salio de 'Pending'; la 1 ya esta facturada y por eso queda
   -- fuera, que es justo lo que el tipo tiene que hacer.
@@ -1790,6 +1817,64 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - cambiar las horas de la asignacion notifico (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - mover horas o fechas de la asignacion no avisa';
+
+  -- 10.d.2 REEMPLAZO: la tercera forma de sacar a alguien, y la que no dejaba rastro.
+  --
+  -- `save_engagement_assignments` reasigna una posicion cambiando `staff_id` en la MISMA fila,
+  -- sin tocar `deleted_at` ni `status`. Ninguno de los dos predicados se encendia, asi que la
+  -- reasignacion no le avisaba a nadie: ni a quien salia, ni a quien entraba, ni a los gerentes.
+  --
+  -- 10.d dejo la fila borrada logicamente, y un reemplazo solo existe sobre una fila VIVA: se la
+  -- revive, se prueba, y se la deja como estaba para que 10.e siga arrancando igual.
+  UPDATE public.engagement_assignments SET deleted_at = NULL WHERE assignment_id = v_asg;
+  DELETE FROM public.notifications;
+  UPDATE public.engagement_assignments SET staff_id = c_sen WHERE assignment_id = v_asg;
+
+  -- Al que sale: su propia baja.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf
+     AND payload->>'context' = 'unassigned';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al reemplazado no le avisaron que salio (hubo %)', v_n;
+  END IF;
+
+  -- Al que entra: su propia alta.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen
+     AND payload->>'context' = 'assigned';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al reemplazante no le avisaron que entro (hubo %)', v_n;
+  END IF;
+
+  -- Al gerente: DOS hechos, y cada uno nombra a su persona. Es la asercion que distingue
+  -- "hubo un cambio" de "se fue Fulano y entro Mengano".
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_mgr
+     AND payload->>'context' = 'team_unassigned';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente no vio la salida del reemplazado (hubo %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_mgr
+     AND payload->>'context' = 'team_assigned';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente no vio la entrada del reemplazante (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - reemplazar a alguien avisa como dos hechos: sale uno, entra otro';
+
+  -- Y el nombre del payload NO es el mismo en los dos: cada mitad nombra a su persona.
+  SELECT COUNT(DISTINCT payload->>'staff_name') INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_mgr;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - los dos avisos al gerente nombran a la misma persona (distintos: %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - cada mitad del reemplazo nombra a su propia persona';
+
+  -- Se devuelve todo al estado en que lo dejo 10.d: el asistente asignado y la fila borrada.
+  DELETE FROM public.notifications;
+  UPDATE public.engagement_assignments SET staff_id = c_stf WHERE assignment_id = v_asg;
+  UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
+  DELETE FROM public.notifications;
 
   -- 10.e Finalizacion: baja hasta el staffing VIGENTE. La asignacion de arriba quedo borrada,
   -- asi que el staffing NO debe recibirla; se le devuelve la asignacion para comprobar que
@@ -2914,6 +2999,48 @@ BEGIN
       v_agg->'scheduler.coverage_gap'->>'count';
   END IF;
   RAISE NOTICE 'PASS - el staffing borrado deja de cubrir la posicion';
+
+  -- 15.b.2 Y una asignacion VENCIDA tampoco cubre, aunque no tenga ninguna marca.
+  --
+  -- Es la tercera forma de dejar de cubrir y la unica que no deja rastro: nadie escribe
+  -- 'COMPLETED', asi que al pasar su end_date la fila se queda en CONFIRMED con deleted_at NULL
+  -- para siempre. El contador la sumaba como cobertura y decia "0 gaps" sobre un encargo VIVO
+  -- cuyo equipo ya se habia ido — justo al reves de lo que muestra el Scheduler, que si filtra
+  -- por fechas.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.engagement_assignments
+     SET deleted_at = NULL,
+         start_date = (now() AT TIME ZONE 'America/La_Paz')::date - 60,
+         end_date   = (now() AT TIME ZONE 'America/La_Paz')::date - 1
+   WHERE assignment_id = v_asg;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - una asignacion vencida siguio cubriendo (gap %)',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - la asignacion vencida deja de cubrir, aunque no tenga marca de estado';
+
+  -- Pero la que arranca EN EL FUTURO si cubre: la posicion esta comprometida. Excluirla
+  -- convertiria cada encargo por empezar en un gap completo aunque el equipo ya este armado.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.engagement_assignments
+     SET start_date = (now() AT TIME ZONE 'America/La_Paz')::date + 30,
+         end_date   = (now() AT TIME ZONE 'America/La_Paz')::date + 60
+   WHERE assignment_id = v_asg;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  v_agg := public.get_my_notification_aggregates();
+  IF (v_agg->'scheduler.coverage_gap'->>'count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el staffing planificado a futuro no conto como cobertura (gap %)',
+      v_agg->'scheduler.coverage_gap'->>'count';
+  END IF;
+  RAISE NOTICE 'PASS - el staffing planificado a futuro si cubre la posicion';
+
+  -- Se devuelve al estado que espera 15.c: borrada.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
 
   -- 15.c Los tres alcances. El ADM lo tiene por `firm` y ve el mismo gap sin estar asignado.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000006');  -- ADM
