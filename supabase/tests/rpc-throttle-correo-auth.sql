@@ -11,6 +11,10 @@
 -- cuando el correo no llego a salir. Sin la segunda, el rollback del alta a medias no destranca
 -- nada: el reintento del usuario cae en el minimo entre correos.
 --
+-- Y el cupo son DOS: el del destinatario y el de la firma. El de GoTrue era por proyecto, asi
+-- que un freno solo por destinatario no lo reemplaza — se esquiva recorriendo direcciones, que
+-- en una firma con dominio propio son adivinables.
+--
 -- Marcador final: 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
 
 BEGIN;
@@ -62,7 +66,8 @@ BEGIN
   IF public.claim_auth_email_slot('  PERSONA@Ruizmier.com ') <> false THEN
     RAISE EXCEPTION 'TEST FAIL - cambiar mayusculas o espacios esquivo el freno';
   END IF;
-  SELECT COUNT(*) INTO v_n FROM public.auth_email_throttle;
+  -- Se excluye '*', que es el contador de la firma y no un destinatario.
+  SELECT COUNT(*) INTO v_n FROM public.auth_email_throttle WHERE email_normalized <> '*';
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'TEST FAIL - la normalizacion creo % filas para el mismo correo', v_n;
   END IF;
@@ -178,7 +183,111 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - devolver no regala cupo ni crea filas';
 
-  -- 9. La purga se lleva lo vencido hace mas de un dia y conserva lo vigente.
+  -- 9. El tope de la firma. El freno por destinatario no lo cubre: quien conoce el dominio
+  --    conoce las direcciones, y recorriendo una lista de empleados multiplica el tope por la
+  --    cantidad de casillas. Los correos de cuenta salen por el mismo buzon de Graph que el
+  --    drenaje de notificaciones, asi que agotarlo se lleva puestas las notificaciones de todos.
+  DELETE FROM public.auth_email_throttle;
+
+  -- Tope global de 2, con el freno por destinatario holgado para que no interfiera.
+  IF public.claim_auth_email_slot('uno@ruizmier.com', 5, 0, 2) <> true
+     OR public.claim_auth_email_slot('dos@ruizmier.com', 5, 0, 2) <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - el tope global de 2 no concedio los dos primeros';
+  END IF;
+
+  -- El tercero es un destinatario NUEVO, con su cupo propio intacto: lo unico que lo frena es
+  -- el tope de la firma.
+  IF public.claim_auth_email_slot('tres@ruizmier.com', 5, 0, 2) <> false THEN
+    RAISE EXCEPTION 'TEST FAIL - un destinatario nuevo esquivo el tope global';
+  END IF;
+  RAISE NOTICE 'PASS - el tope de la firma frena a un destinatario que nunca pidio nada';
+
+  -- Y al frenarlo NO le cobra el cupo. Si se lo cobrara, alcanzaria con pedir mientras el tope
+  -- global esta agotado para dejar sin cupo propio a quien nunca recibio un correo.
+  SELECT COALESCE(MAX(sent_count), 0) INTO v_count FROM public.auth_email_throttle
+   WHERE email_normalized = 'tres@ruizmier.com';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - al frenado por el tope global se le descontó cupo propio (%)', v_count;
+  END IF;
+  SELECT sent_count INTO v_count FROM public.auth_email_throttle WHERE email_normalized = '*';
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el contador global quedo en %, se esperaba 2', v_count;
+  END IF;
+  RAISE NOTICE 'PASS - un pedido frenado por el tope global no descuenta ningun cupo';
+
+  -- 9.b Devolver un cupo devuelve TAMBIEN el de la firma. Si no, cada falla de Graph gastaria
+  --     techo global para siempre y el freno se cerraria solo.
+  IF public.release_auth_email_slot('dos@ruizmier.com') <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - no se pudo devolver el cupo';
+  END IF;
+  SELECT sent_count INTO v_count FROM public.auth_email_throttle WHERE email_normalized = '*';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el contador global quedo en % tras la devolucion, se esperaba 1',
+      v_count;
+  END IF;
+  IF public.claim_auth_email_slot('tres@ruizmier.com', 5, 0, 2) <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - el cupo global devuelto no se puede reusar';
+  END IF;
+  RAISE NOTICE 'PASS - devolver un cupo devuelve tambien el de la firma';
+
+  -- 9.c Y una devolucion sobre un correo que nunca reclamo nada no baja el contador de la
+  --     firma: seria techo global gratis, llamando a release en un bucle.
+  SELECT sent_count INTO v_count FROM public.auth_email_throttle WHERE email_normalized = '*';
+  IF public.release_auth_email_slot('jamas@ruizmier.com') <> false THEN
+    RAISE EXCEPTION 'TEST FAIL - se devolvio el cupo de un correo que nunca reclamo';
+  END IF;
+  SELECT sent_count INTO v_n FROM public.auth_email_throttle WHERE email_normalized = '*';
+  IF v_n <> v_count THEN
+    RAISE EXCEPTION 'TEST FAIL - una devolucion sin consumo movio el contador global de % a %',
+      v_count, v_n;
+  END IF;
+  RAISE NOTICE 'PASS - devolver sin consumo previo no toca el contador de la firma';
+
+  -- 9.d La fila global comparte tabla con los destinatarios, asi que su clave tiene que ser
+  --     inalcanzable desde afuera: reclamarla o devolverla por nombre seria romper el tope.
+  IF public.claim_auth_email_slot('*', 5, 0, 2) <> false
+     OR public.claim_auth_email_slot('  *  ', 5, 0, 2) <> false
+     OR public.release_auth_email_slot('*') <> false THEN
+    RAISE EXCEPTION 'TEST FAIL - la clave reservada de la fila global se acepto como destinatario';
+  END IF;
+  RAISE NOTICE 'PASS - la fila global no se puede reclamar ni devolver como si fuera un correo';
+
+  -- 9.e Sin parametro, el tope global sale de global_settings; un valor mal tipeado cae al
+  --     default en vez de dejar a la firma entera sin correos de cuenta.
+  DELETE FROM public.auth_email_throttle;
+  UPDATE public.global_settings SET setting_value = '1'
+   WHERE setting_key = 'AUTH_EMAIL_GLOBAL_MAX_PER_HOUR';
+  IF public.claim_auth_email_slot('a@ruizmier.com', 5, 0) <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - el primer correo no paso con el tope global en 1';
+  END IF;
+  IF public.claim_auth_email_slot('b@ruizmier.com', 5, 0) <> false THEN
+    RAISE EXCEPTION 'TEST FAIL - el tope global de global_settings no se aplico';
+  END IF;
+
+  UPDATE public.global_settings SET setting_value = 'muchos'
+   WHERE setting_key = 'AUTH_EMAIL_GLOBAL_MAX_PER_HOUR';
+  IF public.claim_auth_email_slot('c@ruizmier.com', 5, 0) <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - un tope global mal tipeado dejo a la firma sin correos';
+  END IF;
+  UPDATE public.global_settings SET setting_value = '120'
+   WHERE setting_key = 'AUTH_EMAIL_GLOBAL_MAX_PER_HOUR';
+  RAISE NOTICE 'PASS - el tope global se lee de global_settings y un valor basura cae al default';
+
+  -- 9.f La ventana de la firma tambien se renueva: el tope es por hora, no un techo de por vida.
+  DELETE FROM public.auth_email_throttle;
+  INSERT INTO public.auth_email_throttle (email_normalized, window_start, sent_count, last_sent_at)
+  VALUES ('*', now() - interval '2 hours', 999, now() - interval '2 hours');
+  IF public.claim_auth_email_slot('d@ruizmier.com', 5, 0, 2) <> true THEN
+    RAISE EXCEPTION 'TEST FAIL - la ventana global vencida siguio frenando';
+  END IF;
+  SELECT sent_count INTO v_count FROM public.auth_email_throttle WHERE email_normalized = '*';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - tras renovar la ventana global el contador quedo en %, se esperaba 1',
+      v_count;
+  END IF;
+  RAISE NOTICE 'PASS - la ventana de la firma se renueva y el contador vuelve a empezar';
+
+  -- 10. La purga se lleva lo vencido hace mas de un dia y conserva lo vigente.
   DELETE FROM public.auth_email_throttle;
   INSERT INTO public.auth_email_throttle (email_normalized, window_start, sent_count, last_sent_at)
   VALUES

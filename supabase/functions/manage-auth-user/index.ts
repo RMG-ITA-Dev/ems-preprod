@@ -86,11 +86,60 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 8. Delete the auth user
+    // 8. Quitar el rol ANTES de borrar la cuenta, y no después.
+    //
+    // `user_roles.user_id` tiene ON DELETE CASCADE contra `auth.users`, así que borrar primero
+    // la cuenta se llevaba la fila por cascade — y el trigger que avisa a Seguridad TI corría
+    // adentro de ese cascade, con `auth.users` ya borrada. El correo es el único identificador
+    // que le queda a ese aviso (una cuenta con ficha de staff no se puede borrar, ver el paso 7),
+    // así que el mensaje salía como "Se eliminó la cuenta " y nadie podía saber cuál.
+    //
+    // Con la fila borrada acá, el trigger lee `auth.users` viva y el aviso sale con la dirección.
+    // El cascade posterior ya no encuentra nada, así que el aviso tampoco se duplica.
+    const { data: preparacion, error: errorPreparacion } = await supabaseAdmin.rpc(
+      "prepare_account_deletion",
+      { p_user_id: userId },
+    );
+
+    if (errorPreparacion) {
+      return new Response(
+        JSON.stringify({ success: false, code: "INTERNAL_ERROR", message: errorPreparacion.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // La guarda de la RPC. No debería dispararse —el paso 7 ya la cubre— pero si se dispara hay
+    // una cuenta en uso de por medio y el borrado no sigue.
+    if (preparacion && (preparacion as { ok?: boolean }).ok === false) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: "LINKED_USER",
+          message: `Cannot delete user: ${(preparacion as { reason?: string }).reason}`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (preparacion && (preparacion as { con_correo?: boolean }).con_correo === false) {
+      // El aviso a Seguridad TI sale sin dirección porque la cuenta de auth ya no estaba. No
+      // corta el borrado —queda la fila huérfana de user_roles por limpiar igual— pero conviene
+      // que el log diga por qué ese aviso salió incompleto.
+      console.warn(`[manage-auth-user] ${userId} no tenia cuenta en auth; el aviso de baja sale sin correo.`);
+    }
+
+    // 9. Delete the auth user
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (deleteError) {
-      // User might already be deleted
+      // User might already be deleted — que es el caso esperado acá, y el que deja el estado
+      // consistente: la cuenta no estaba y la fila de user_roles que quedaba huérfana ya se
+      // limpió en el paso 8. Si en cambio fue un fallo transitorio, la cuenta sigue viva y sin
+      // rol: el log lleva el id porque destrabarla necesita que un admin le reasigne el rol.
+      console.error(
+        `[manage-auth-user] deleteUser fallo para ${userId}; si la cuenta sigue existiendo quedo sin rol:`,
+        deleteError.message,
+      );
       await supabaseAdmin.from("user_lifecycle_audit_log").insert({
         actor_user_id: caller.id,
         target_user_id: userId,
@@ -102,9 +151,6 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // 9. Delete user_roles row
-    await supabaseAdmin.from("user_roles").delete().eq("user_id", userId);
 
     // 10. Audit
     await supabaseAdmin.from("user_lifecycle_audit_log").insert({

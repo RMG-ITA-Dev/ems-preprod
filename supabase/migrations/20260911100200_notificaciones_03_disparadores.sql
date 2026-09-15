@@ -1730,6 +1730,81 @@ COMMENT ON FUNCTION public.rollback_unconfirmed_signup(uuid) IS
 REVOKE ALL ON FUNCTION public.rollback_unconfirmed_signup(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rollback_unconfirmed_signup(uuid) TO service_role;
 
+-- ---------------------------------------------------------------------
+-- A.3) Borrar una cuenta de verdad
+-- ---------------------------------------------------------------------
+--
+-- Misma mecánica que A.2 y la intención opuesta: allá se borra la fila de `user_roles` a mano
+-- para que el aviso NO salga; acá se borra a mano para que salga BIEN.
+--
+-- El problema es el mismo CASCADE. `manage-auth-user` llamaba a `deleteUser()` y dejaba que
+-- `user_roles.user_id -> auth.users ON DELETE CASCADE` se llevara la fila, así que el trigger
+-- corría DENTRO del cascade, con la fila padre ya borrada. Para entonces
+-- `SELECT u.email FROM auth.users` no devuelve nada, y el correo es el único identificador que
+-- queda: la ficha de `staff` no puede existir —`manage-auth-user` se niega a borrar una cuenta
+-- vinculada— y el aviso de la campana es `'Se eliminó la cuenta {{email}}'`. Seguridad TI
+-- recibía esa frase cortada, sin una sola pista de qué cuenta se borró.
+--
+-- Borrando la fila ACÁ, antes de que GoTrue toque `auth.users`, el trigger la lee viva y el
+-- aviso sale con la dirección. Y cuando después GoTrue borre la cuenta, el CASCADE ya no
+-- encuentra nada que cascadear: el aviso sale una vez, no dos.
+--
+-- Qué NO se hace acá: borrar `auth.users`. Ese esquema es de GoTrue y un DELETE directo se
+-- saltearía su propia contabilidad. Igual que en A.2, la cuenta la sigue borrando su API.
+DROP FUNCTION IF EXISTS public.prepare_account_deletion(uuid);
+
+CREATE FUNCTION public.prepare_account_deletion(p_user_id uuid)
+    RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_staff   uuid;
+  v_email   text;
+  v_roles   integer := 0;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
+  END IF;
+
+  -- GUARDA, por el mismo motivo que la de A.2: esto le saca el rol a una cuenta, y la única
+  -- razón para hacerlo es que se esté borrando. `manage-auth-user` ya lo verifica antes de
+  -- llamar; si igual llega una cuenta con ficha vinculada, alguien se equivocó y no se toca.
+  SELECT s.staff_id INTO v_staff
+    FROM public.staff s
+   WHERE s.auth_user_id = p_user_id
+     AND s.deleted_at IS NULL;
+
+  IF v_staff IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'LINKED_STAFF');
+  END IF;
+
+  -- Se lee sólo para poder informar si el aviso va a salir con dirección o sin ella. La que
+  -- viaja en el aviso la lee el trigger por su cuenta, en el DELETE de abajo.
+  BEGIN
+    SELECT u.email INTO v_email FROM auth.users u WHERE u.id = p_user_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_email := NULL;
+  END;
+
+  -- Esto es lo que dispara `auth.account.deleted`, con `auth.users` todavía en pie.
+  DELETE FROM public.user_roles WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_roles = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true,
+                            'roles', v_roles,
+                            -- false = la cuenta de auth ya no estaba, así que el aviso sale sin
+                            -- dirección. No es un error: el borrado igual tiene que seguir.
+                            'con_correo', COALESCE(btrim(v_email), '') <> '');
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.prepare_account_deletion(uuid) IS
+  'Quita la fila de user_roles ANTES de que GoTrue borre la cuenta, para que el aviso auth.account.deleted a Seguridad TI salga con el correo: si se deja al CASCADE, el trigger corre con auth.users ya borrada y el aviso sale sin identificar la cuenta. Se niega si la cuenta tiene ficha de staff vinculada. No toca auth.users.';
+
+REVOKE ALL ON FUNCTION public.prepare_account_deletion(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.prepare_account_deletion(uuid) TO service_role;
+
 -- =====================================================================
 -- C) staff — alta, baja y bloqueo de cuenta
 -- =====================================================================

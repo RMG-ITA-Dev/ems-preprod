@@ -2295,6 +2295,73 @@ BEGIN
     DELETE FROM public.notifications;
   END IF;
 
+  -- 13.f.4 EL CAMINO REAL DE UNA BAJA, que es el que 13.f NO ejerce.
+  --
+  -- 13.f borra la fila de `user_roles` a mano y por eso pasa. La baja de verdad no la borra:
+  -- `manage-auth-user` llama a deleteUser() y la fila se va por el CASCADE de
+  -- `user_roles.user_id -> auth.users`. El trigger corre entonces DENTRO del cascade, con la
+  -- fila padre ya borrada, y `SELECT u.email FROM auth.users` no devuelve nada. El correo es el
+  -- unico identificador que le queda al aviso —una cuenta con ficha de staff no se puede
+  -- borrar— y el texto de la campana es 'Se elimino la cuenta {{email}}': a Seguridad TI le
+  -- llegaba esa frase cortada, sin decir cual.
+  --
+  -- prepare_account_deletion() saca la fila ANTES, con auth.users todavia viva.
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    -- OJO: 13.f.2 llamo a rollback_unconfirmed_signup(), que pone `ems.account_rollback` con
+    -- set_config(..., true). Eso es transaction-local, y esta suite entera es UNA transaccion,
+    -- asi que el marcador sigue puesto y silencia toda baja posterior. En produccion no pasa
+    -- —cada llamada por PostgREST es su propia transaccion— pero aca hay que bajarlo a mano o
+    -- este grupo prueba el silencio en vez del aviso.
+    PERFORM set_config('ems.account_rollback', '', true);
+
+    DELETE FROM public.notifications;
+    -- v_pending ya tiene su fila en auth.users (13.f.2) y se quedo sin rol; se le repone.
+    INSERT INTO public.user_roles (user_id, role, role_key)
+    VALUES (v_pending, 'staff', 'assistant');
+    DELETE FROM public.notifications;  -- el aviso de alta que acaba de emitir el INSERT
+
+    v_res := public.prepare_account_deletion(v_pending);
+    IF (v_res->>'ok')::boolean IS NOT TRUE OR (v_res->>'con_correo')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'TEST FAIL - prepare_account_deletion no preparo la baja: %', v_res;
+    END IF;
+
+    -- LA ASERCION QUE IMPORTA: el aviso identifica la cuenta.
+    SELECT COUNT(*) INTO v_n FROM public.notifications
+     WHERE type_key = 'auth.account.deleted'
+       AND recipient_staff_id = c_itsec
+       AND payload->>'email' = 'notif-test-e@ruizmier.com';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - el aviso de baja no salio con el correo de la cuenta (hubo %)', v_n;
+    END IF;
+    RAISE NOTICE 'PASS - la baja avisa a Seguridad TI con el correo de la cuenta borrada';
+
+    -- Y cuando GoTrue borra la cuenta, el cascade ya no encuentra fila: el aviso sale UNA vez.
+    DELETE FROM auth.users WHERE id = v_pending;
+    SELECT COUNT(*) INTO v_n FROM public.notifications
+     WHERE type_key = 'auth.account.deleted';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - el borrado de la cuenta duplico el aviso de baja (hubo %)', v_n;
+    END IF;
+    RAISE NOTICE 'PASS - preparar la baja no duplica el aviso cuando GoTrue borra la cuenta';
+
+    -- 13.f.5 La guarda: una cuenta con ficha de staff vinculada no se toca. `manage-auth-user`
+    -- ya lo verifica antes de llamar, pero sacarle el rol a alguien que esta trabajando es
+    -- exactamente lo que no puede pasar por un error de quien llama.
+    DELETE FROM public.notifications;
+    v_res := public.prepare_account_deletion('a9f00000-0000-4000-8000-00000000000b');  -- S_SENIOR
+    IF (v_res->>'ok')::boolean IS NOT FALSE OR v_res->>'reason' <> 'LINKED_STAFF' THEN
+      RAISE EXCEPTION 'TEST FAIL - se preparo la baja de una cuenta con ficha vinculada: %', v_res;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.user_roles
+     WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - la guarda se nego pero igual borro el rol';
+    END IF;
+    RAISE NOTICE 'PASS - preparar la baja se niega sobre una cuenta con ficha de staff';
+
+    DELETE FROM public.notifications;
+  END IF;
+
   -- 13.g Competencias: dos tipos distintos (D-03), solo al afectado.
   DELETE FROM public.notifications;
   INSERT INTO public.staff_skills (staff_id, skill_id, proficiency_level)
