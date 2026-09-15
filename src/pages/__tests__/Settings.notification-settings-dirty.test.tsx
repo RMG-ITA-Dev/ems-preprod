@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
@@ -124,9 +124,10 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
     await abrirGlobal();
     expect(capturedLockArgs.locked).toBe(true);
     expect(capturedLockArgs.isDirty).toBe(false);
-    // La fecha SÍ se hidrata; la ventana cae al persistido por el `value` del input.
-    expect((screen.getByLabelText("settings.trackingStartDate") as HTMLInputElement).value)
-      .toBe("2026-01-01");
+    // La fecha SÍ se hidrata; la ventana cae al persistido por el `value` del input. El campo
+    // de fecha es un calendario y no un `<input type="date">`, así que lo persistido se lee del
+    // texto del disparador, ya en DD/MM/YYYY (regla 3 de AGENTS.md).
+    expect(screen.getByLabelText("settings.trackingStartDate")).toHaveTextContent("01/01/2026");
     expect((screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement).value)
       .toBe("4");
   });
@@ -159,31 +160,44 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
   });
 
   it("cambiar SOLO la fecha de arranque ensucia el formulario", async () => {
-    await abrirGlobal();
-    const input = screen.getByLabelText("settings.trackingStartDate") as HTMLInputElement;
+    const user = await abrirGlobal();
+    const disparador = screen.getByLabelText("settings.trackingStartDate");
 
-    fireEvent.change(input, { target: { value: "2026-03-15" } });
+    await user.click(disparador);
+    // El calendario abre en el mes de lo persistido (enero 2026), asi que el dia esta a la vista
+    // sin navegar meses.
+    await user.click(within(await screen.findByRole("dialog")).getByText("15"));
 
-    expect(input.value).toBe("2026-03-15");
+    expect(disparador).toHaveTextContent("15/01/2026");
     expect(capturedLockArgs.isDirty).toBe(true);
   });
 
   it("BORRAR la fecha de arranque tambien ensucia: el vacio es un valor que se guarda", async () => {
-    await abrirGlobal();
-    const input = screen.getByLabelText("settings.trackingStartDate") as HTMLInputElement;
+    const user = await abrirGlobal();
+    const disparador = screen.getByLabelText("settings.trackingStartDate");
 
-    fireEvent.change(input, { target: { value: "" } });
+    await user.click(disparador);
+    const calendario = await screen.findByRole("dialog");
 
+    // Se elige un dia y se vuelve a hacer clic en el MISMO: `mode="single"` sin `required`
+    // deselecciona, y esa es la unica forma de vaciar el ajuste desde la interfaz. Se pasa por el
+    // 15 en vez de deseleccionar el 1 persistido porque el 1 aparece dos veces en la grilla de
+    // enero 2026 (el propio y el 1 de febrero, que el calendario muestra como dia de afuera).
+    await user.click(within(calendario).getByText("15"));
+    await user.click(within(calendario).getByText("15"));
+
+    expect(disparador).toHaveTextContent("common.pickDate");
     expect(capturedLockArgs.isDirty).toBe(true);
   });
 
   it("Cancelar devuelve los dos campos a lo persistido y limpia el estado sucio", async () => {
     const user = await abrirGlobal();
     const semanas = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
-    const fecha = screen.getByLabelText("settings.trackingStartDate") as HTMLInputElement;
+    const fecha = screen.getByLabelText("settings.trackingStartDate");
 
     fireEvent.change(semanas, { target: { value: "12" } });
-    fireEvent.change(fecha, { target: { value: "2026-06-30" } });
+    await user.click(fecha);
+    await user.click(within(await screen.findByRole("dialog")).getByText("20"));
     expect(capturedLockArgs.isDirty).toBe(true);
 
     await user.click(screen.getByText("common.cancel"));
@@ -192,8 +206,7 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
     await user.click(screen.getByText("settings.globalSettings"));
     expect((screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement).value)
       .toBe("4");
-    expect((screen.getByLabelText("settings.trackingStartDate") as HTMLInputElement).value)
-      .toBe("2026-01-01");
+    expect(screen.getByLabelText("settings.trackingStartDate")).toHaveTextContent("01/01/2026");
     expect(capturedLockArgs.isDirty).toBe(false);
   });
 });

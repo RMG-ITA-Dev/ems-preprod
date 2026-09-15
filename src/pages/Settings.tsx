@@ -1,8 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { format } from "date-fns";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +74,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy } from "lucide-react";
+import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy, Calendar as CalendarIcon } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
@@ -1460,12 +1464,59 @@ const Settings = () => {
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="trackingStartDate">{t("settings.trackingStartDate")}</Label>
-                          <Input
-                            id="trackingStartDate"
-                            type="date"
-                            value={trackingStartDate}
-                            onChange={(e) => setTrackingStartDate(e.target.value)}
-                          />
+                          {/*
+                            Calendario y no `<input type="date">`: el nativo se pinta con el
+                            formato del navegador, así que en inglés muestra mm/dd/aaaa y el
+                            mismo campo se lee distinto según quién lo abra. La regla del repo es
+                            DD/MM/YYYY en todos lados. El valor viaja como 'YYYY-MM-DD' porque es
+                            lo que guarda `global_settings` y lo que la RPC sabe leer.
+
+                            El ajuste es opcional —vacío = sin recorte— y se vacía volviendo a
+                            hacer clic en el día ya elegido: `mode="single"` sin `required`
+                            deselecciona y devuelve `undefined`.
+                          */}
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                id="trackingStartDate"
+                                type="button"
+                                variant="outline"
+                                className={cn(
+                                  "w-full justify-start text-left font-normal",
+                                  !trackingStartDate && "text-muted-foreground"
+                                )}
+                              >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {trackingStartDate
+                                  ? format(new Date(trackingStartDate + "T12:00:00"), "dd/MM/yyyy")
+                                  : t("common.pickDate")}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                mode="single"
+                                // Mediodía y no medianoche: `new Date('2026-09-14')` se parsea como
+                                // UTC, y en un huso al oeste eso retrocede un día al mostrarlo.
+                                selected={
+                                  trackingStartDate
+                                    ? new Date(trackingStartDate + "T12:00:00")
+                                    : undefined
+                                }
+                                // Abre en el mes de lo ya elegido y no en el de hoy: la fecha de
+                                // arranque de la firma queda en el pasado, y sin esto hay que
+                                // retroceder meses a mano cada vez que se abre el calendario.
+                                defaultMonth={
+                                  trackingStartDate
+                                    ? new Date(trackingStartDate + "T12:00:00")
+                                    : undefined
+                                }
+                                onSelect={(date) =>
+                                  setTrackingStartDate(date ? format(date, "yyyy-MM-dd") : "")
+                                }
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
                           <p className="text-sm text-muted-foreground">{t("settings.trackingStartDateHelp")}</p>
                         </div>
                       </div>

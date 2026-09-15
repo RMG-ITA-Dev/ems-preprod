@@ -148,14 +148,20 @@ Deno.serve(async (req) => {
         { p_user_id: userId, p_rol: (preparacion as { rol?: unknown } | null)?.rol ?? null },
       );
 
-      const repuesto = !errorReposicion &&
-        (reposicion as { ok?: boolean } | null)?.ok === true;
+      const reposicionRpc = reposicion as { ok?: boolean; reason?: string } | null;
+      const repuesto = !errorReposicion && reposicionRpc?.ok === true;
+
+      // "Ya estaba borrada" es una AFIRMACIÓN, no un default. La única lectura que la respalda es
+      // que la RPC haya mirado `auth.users` y no haya encontrado la cuenta; cualquier otra cosa
+      // —la RPC no respondió, o se negó por otro motivo— deja el estado sin saber, y ahí no se
+      // puede decir que el borrado salió bien: la cuenta puede seguir viva y sin rol.
+      const borradoReal = !errorReposicion &&
+        reposicionRpc?.ok === false &&
+        reposicionRpc?.reason === "NO_AUTH_USER";
 
       if (errorReposicion) {
-        // Es el único camino que deja el problema en pie, así que se registra con el id:
-        // destrabar la cuenta pasa a necesitar que un admin le reasigne el rol.
         console.error(
-          `[manage-auth-user] no se pudo reponer el rol de ${userId} tras fallar el borrado; si la cuenta sigue viva quedo sin rol:`,
+          `[manage-auth-user] no se pudo reponer el rol de ${userId} tras fallar el borrado:`,
           errorReposicion.message,
         );
       }
@@ -163,9 +169,24 @@ Deno.serve(async (req) => {
       await supabaseAdmin.from("user_lifecycle_audit_log").insert({
         actor_user_id: caller.id,
         target_user_id: userId,
-        action: repuesto ? "account_delete_aborted" : "account_delete_idempotent",
-        metadata: { error: deleteError.message },
+        action: borradoReal
+          ? "account_delete_idempotent"
+          : repuesto
+            ? "account_delete_aborted"
+            : "account_delete_unresolved",
+        metadata: {
+          error: deleteError.message,
+          ...(errorReposicion ? { rollback_error: errorReposicion.message } : {}),
+          ...(reposicionRpc?.reason ? { rollback_reason: reposicionRpc.reason } : {}),
+        },
       });
+
+      if (borradoReal) {
+        return new Response(
+          JSON.stringify({ success: true, code: "ALREADY_DELETED", message: "User may already be deleted" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       if (repuesto) {
         // La cuenta sigue existiendo y volvió a su estado anterior: no se borró nada, así que
@@ -177,9 +198,18 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Ni borrada ni repuesta. Es el único camino que deja el problema en pie, así que va con
+      // el id: si la cuenta sigue viva, destrabarla necesita que un admin le reasigne el rol.
+      console.error(
+        `[manage-auth-user] ${userId} quedo en estado indeterminado: el borrado fallo y no se pudo confirmar ni deshacer.`,
+      );
       return new Response(
-        JSON.stringify({ success: true, code: "ALREADY_DELETED", message: "User may already be deleted" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          success: false,
+          code: "DELETE_INCONSISTENT",
+          message: "Deletion failed and could not be rolled back; the account may be left without a role",
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

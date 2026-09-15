@@ -14,6 +14,7 @@
  */
 
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { correoHabilitado } from "./mail-config.ts";
 
 /* ------------------------------------------------------------------ */
 /* API pública                                                         */
@@ -135,31 +136,6 @@ function leerConfig(): ConfigGraph {
     remitente: remitente!,
     remitenteNombre,
   };
-}
-
-/**
- * Solo "true" habilita llamadas externas; el `.toLowerCase()` no ensancha la semántica.
- *
- * SIN VALOR NO HAY DEFAULT: falta la variable y esto lanza, en vez de caer a "simular". El
- * default silencioso era peligroso justamente donde más se nota: un proyecto recién desplegado
- * al que nadie le cargó el secreto simulaba TODOS los correos y devolvía éxito, así que el alta
- * creaba la cuenta y le decía al usuario que revisara una casilla a la que no había salido nada.
- * Nada en los logs de la aplicación distinguía eso de un envío real.
- *
- * Obligar a que esté escrita convierte esa omisión en un error visible en el primer envío.
- * `MAIL_ENABLED=false` sigue siendo válido y sigue simulando: lo que deja de existir es
- * simular POR NO HABER DECIDIDO.
- */
-function correoHabilitado(): boolean {
-  const valor = Deno.env.get("MAIL_ENABLED")?.trim().toLowerCase();
-  if (valor === undefined || valor === "") {
-    throw new Error(
-      'Falta el secreto MAIL_ENABLED. Se espera "true" (envia por Microsoft Graph) o "false" ' +
-        "(simula sin salir a la red). Sin valor no se asume ninguno de los dos: ver " +
-        "docs/operations.md, Mail delivery secrets.",
-    );
-  }
-  return valor === "true";
 }
 
 function normalizarDestinatarios(destinatarios: string[]): string[] {
