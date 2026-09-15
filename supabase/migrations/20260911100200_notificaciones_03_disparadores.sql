@@ -821,7 +821,7 @@ COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS
   'FASE 3.b: los 3 eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
 
 -- Sin GRANT a `authenticated`: la dispara el cron, no el cliente.
-REVOKE ALL ON FUNCTION public.notif_wo_daily_scheduled() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_wo_daily_scheduled() FROM PUBLIC, anon, authenticated;
 GRANT ALL ON FUNCTION public.notif_wo_daily_scheduled() TO service_role;
 
 -- El guard de pg_cron es el mismo patrón defensivo de cero_01/cero_02: en el harness local la
@@ -2325,7 +2325,7 @@ $BODY$;
 COMMENT ON FUNCTION public.notif_engagement_daily_scheduled() IS
   'FASE 3.c (D-05): aviso previo a la fecha fin del encargo, a 7 dias y a 1 dia, a la conduccion + ADM. Idempotente por destinatario y por days_left contra public.notifications. Devuelve cuantas notificaciones emitio.';
 
-REVOKE ALL ON FUNCTION public.notif_engagement_daily_scheduled() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_engagement_daily_scheduled() FROM PUBLIC, anon, authenticated;
 GRANT ALL ON FUNCTION public.notif_engagement_daily_scheduled() TO service_role;
 
 -- Mismo guard de pg_cron y misma hora que `notif-wo-daily`: '0 12 * * *' UTC ≈ 08:00
@@ -2629,10 +2629,10 @@ $BODY$;
 COMMENT ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() IS
   'Recordatorio semanal de cuotas: vencidas (con el alcance que la matriz le da al rol) y por vencer esta semana (solo si la matriz le concede ese contador). Reemplaza al correo por cuota de wo.client.billing_week (D-44).';
 
-REVOKE ALL ON FUNCTION public.notif_emit_timesheet_reminder_daily() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.notif_emit_approval_reminder_weekly() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.notif_emit_fund_reminder_weekly() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notif_emit_timesheet_reminder_daily() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_approval_reminder_weekly() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_reminder_weekly() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.notif_emit_timesheet_reminder_daily() TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_emit_approval_reminder_weekly() TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_emit_fund_reminder_weekly() TO service_role;
@@ -2780,9 +2780,32 @@ BEGIN
      -- Los `notify_*_events()` devuelven `trigger`: no se pueden invocar directamente
      -- (`trigger functions can only be called as triggers`) ni los publica PostgREST.
      AND p.prorettype <> 'pg_catalog.trigger'::regtype
-     -- El prefijo `notif\_` no alcanza a `notify_staff` (sexto caracter `y`, no `_`), que de
-     -- todos modos ya esta revocada en la migracion 01.
-     AND (p.proname LIKE 'notif\_%' OR p.proname = 'engagement_approval_bucket')
+     -- El filtro cubre el MODULO ENTERO, no solo el prefijo `notif\_`.
+     --
+     -- Antes decia `notif\_% OR engagement_approval_bucket`, con la nota de que notify_staff
+     -- "de todos modos ya esta revocada en la migracion 01". Estaba revocada a medias: con
+     -- `FROM PUBLIC` a secas, que en Postgres pelado alcanza y en un proyecto Supabase no —el
+     -- `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON FUNCTIONS TO anon, authenticated` del proyecto
+     -- le da un grant DIRECTO que revocar PUBLIC no toca. O sea que la unica funcion que el
+     -- filtro dejaba pasar por confiar en otro archivo era la que escribe notificaciones y
+     -- encola correos a nombre de cualquiera. Hallazgo real al pegar esto en el mirror
+     -- (2026-09-15); el harness no podia verlo hasta que 00-shim-auth.sql replico ese default.
+     --
+     -- Moraleja que vale para lo que se agregue: el guard no confia en que otro archivo haya
+     -- revocado bien, lo verifica.
+     AND (p.proname LIKE 'notif\_%'
+       OR p.proname LIKE 'notify\_%'
+       OR p.proname LIKE '%notification%'
+       OR p.proname IN ('engagement_approval_bucket',
+                        'rollback_unconfirmed_signup',
+                        'prepare_account_deletion',
+                        'abort_account_deletion'))
+     -- Las 4 RPC del panel son la excepcion y SI deben estar abiertas: se verifican abajo, al
+     -- reves. Ninguna recibe un staff_id — las cuatro lo derivan de get_my_staff_id().
+     AND p.proname NOT IN ('get_my_notifications',
+                           'get_my_notification_aggregates',
+                           'mark_notifications_read',
+                           'dismiss_notifications')
      AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
        OR has_function_privilege('anon', p.oid, 'EXECUTE'));
 

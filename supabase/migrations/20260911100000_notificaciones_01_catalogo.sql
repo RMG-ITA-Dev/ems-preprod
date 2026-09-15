@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS public.notifications (
     dismissed_at       timestamp with time zone
 );
 
+-- El CREATE la declara para el replay desde cero; el ALTER la agrega donde la tabla ya existe.
+--
+-- VA ACA, pegado al CREATE TABLE, y no mas abajo: los dos indices parciales de abajo la usan en
+-- su WHERE, y el COMMENT ON COLUMN la nombra. Con el ALTER despues de ellos, re-pegar el archivo
+-- sobre una base que ya tenia la tabla SIN la columna moria con
+-- `ERROR: 42703: column "dismissed_at" does not exist` antes de llegar a agregarla — o sea que
+-- la parte del archivo que existe para arreglar esa base era justamente la que no se alcanzaba.
+ALTER TABLE public.notifications
+  ADD COLUMN IF NOT EXISTS dismissed_at timestamp with time zone;
+
 -- La bandeja del usuario, que es lo descartado. Todas las lecturas del panel filtran
 -- `dismissed_at IS NULL`, así que el índice lo hace también: lo descartado se queda en la tabla
 -- como registro de emisión, no como algo que alguien vaya a leer.
@@ -129,10 +139,6 @@ COMMENT ON TABLE public.notifications IS
   'Instancias de notificación de tipo event. Se escriben ÚNICAMENTE vía notify_staff(); no hay policy de INSERT para authenticated. Una fila descartada (dismissed_at) NO se borra: es el registro de que el aviso ya salió, y sin ella los emisores del cron lo repiten.';
 COMMENT ON COLUMN public.notifications.dismissed_at IS
   'Cuando el usuario apreto la "x". La fila deja de verse pero sobrevive como registro de emision, para que el cron no vuelva a avisar lo mismo. La borra el cron de retencion.';
-
--- El CREATE la declara para el replay desde cero; el ALTER la agrega donde la tabla ya existe.
-ALTER TABLE public.notifications
-  ADD COLUMN IF NOT EXISTS dismissed_at timestamp with time zone;
 
 -- =====================================================================
 -- C.2) La bandeja de salida de correos
@@ -174,6 +180,15 @@ CREATE TABLE IF NOT EXISTS public.notification_emails (
       CHECK (status IN ('pending', 'sending', 'failed', 'sent'))
 );
 
+-- Igual que `email_enabled`: el CREATE las declara para el replay desde cero, y el ALTER las
+-- agrega donde la tabla ya existe. Tambien pegadas al CREATE TABLE, por la misma razon que
+-- `dismissed_at` arriba: el COMMENT ON COLUMN de `claimed_at` la nombra, y cualquier indice que
+-- se agregue despues las tendria disponibles sin pensarlo.
+ALTER TABLE public.notification_emails
+  ADD COLUMN IF NOT EXISTS to_name text;
+ALTER TABLE public.notification_emails
+  ADD COLUMN IF NOT EXISTS claimed_at timestamp with time zone;
+
 -- El único patrón de lectura del drenaje: lo reclamable, más viejo primero. Incluye `sending`
 -- porque el claim también recoge los arriendos vencidos, y un índice sólo sobre `pending` dejaba
 -- ese segundo brazo en seq scan.
@@ -181,13 +196,6 @@ DROP INDEX IF EXISTS public.idx_notification_emails_pendientes;
 CREATE INDEX IF NOT EXISTS idx_notification_emails_reclamables
   ON public.notification_emails (created_at)
   WHERE status IN ('pending', 'sending');
-
--- Igual que `email_enabled`: el CREATE las declara para el replay desde cero, y el ALTER las
--- agrega donde la tabla ya existe.
-ALTER TABLE public.notification_emails
-  ADD COLUMN IF NOT EXISTS to_name text;
-ALTER TABLE public.notification_emails
-  ADD COLUMN IF NOT EXISTS claimed_at timestamp with time zone;
 
 COMMENT ON TABLE public.notification_emails IS
   'Bandeja de salida de correos. Se escribe UNICAMENTE via notify_staff(); la drena la edge function send-notification-emails. Sin policies: no se lee desde el cliente.';
@@ -414,7 +422,7 @@ COMMENT ON FUNCTION public.notify_staff(text, uuid, text, jsonb) IS
 -- disparadores de Fase 3+ deben ser SECURITY DEFINER (propiedad del owner) para poder
 -- llamarla — un trigger sin SECURITY DEFINER corre como el usuario que hizo el INSERT y
 -- se topa con "permission denied for function notify_staff". Es el comportamiento buscado.
-REVOKE ALL ON FUNCTION public.notify_staff(text, uuid, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.notify_staff(text, uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT ALL ON FUNCTION public.notify_staff(text, uuid, text, jsonb) TO service_role;
 
 -- =====================================================================
@@ -1486,7 +1494,7 @@ $BODY$;
 COMMENT ON FUNCTION public.purge_old_notifications() IS
   'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. EXCEPCION: no borra las filas que todavia sirven de dedupe a un emisor del cron cuyo hecho sigue vigente (wo.emergency.deadline_passed con la OT en Emergency_Approved y plazo vencido; wo.client.billing_week con la cuota Pending dentro de su semana), porque sin ellas la alarma se repetiria cada vez que vence la retencion. Las exenciones preguntan por el hecho, no por el type_key: al apagarse el hecho la fila caduca normal. Devuelve cuantas borro.';
 
-REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.purge_old_notifications() FROM PUBLIC, anon, authenticated;
 GRANT ALL ON FUNCTION public.purge_old_notifications() TO service_role;
 
 -- Mismo guard de pg_cron que el resto. '30 5 * * *' UTC ≈ 01:30 America/La_Paz: de
@@ -1594,7 +1602,7 @@ $$;
 COMMENT ON FUNCTION public.claim_notification_emails(integer) IS
   'Reclama hasta p_limit correos y los marca sending con claimed_at, SIN gastar intento (eso lo hace begin_notification_email_attempt() por fila). Toma lo pending y tambien lo sending con arriendo vencido (15 min), que es una invocacion que murio sin cerrar; con 3 intentos gastados eso pasa a failed. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
 
-REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_notification_emails(integer) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_notification_emails(integer) TO service_role;
 
@@ -1632,7 +1640,7 @@ $$;
 COMMENT ON FUNCTION public.begin_notification_email_attempt(uuid) IS
   'Gasta un intento de esa fila y refresca su arriendo. La llama el drenaje justo antes de entregarle el correo a Graph, para que el intento cuente un envio de verdad y no una fila que solo estuvo en el lote. Devuelve el numero de intento, o NULL si la fila ya no esta en sending.';
 
-REVOKE ALL ON FUNCTION public.begin_notification_email_attempt(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.begin_notification_email_attempt(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.begin_notification_email_attempt(uuid) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.begin_notification_email_attempt(uuid) TO service_role;
 
@@ -1686,7 +1694,7 @@ $$;
 COMMENT ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) IS
   'Cierra un correo reclamado y suelta el arriendo (claimed_at = NULL): sent si salio, de vuelta a pending para reintentar, o failed al tercer intento.';
 
-REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mark_notification_email_result(uuid, boolean, text) TO service_role;
 
@@ -1845,7 +1853,7 @@ $$;
 COMMENT ON FUNCTION public.purge_old_notification_emails() IS
   'Borra los correos enviados hace mas de 30 dias. Conserva los failed: son el registro de lo que no llego.';
 
-REVOKE ALL ON FUNCTION public.purge_old_notification_emails() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.purge_old_notification_emails() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.purge_old_notification_emails() TO service_role;
 
 -- Mismo horario y mismo guard que el resto de los crons del catálogo.

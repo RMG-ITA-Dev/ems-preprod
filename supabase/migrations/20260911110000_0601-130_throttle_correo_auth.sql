@@ -191,7 +191,7 @@ $$;
 COMMENT ON FUNCTION public.claim_auth_email_slot(text, integer, integer, integer) IS
   'Consume un cupo de correo de cuenta: el del destinatario y el de la firma. Devuelve true si se puede mandar (y ya descontó los dos), false si está dentro del mínimo entre correos, pasó el tope por destinatario de la ventana de una hora, o la firma agotó AUTH_EMAIL_GLOBAL_MAX_PER_HOUR. Cuando devuelve false no descuenta nada.';
 
-REVOKE ALL ON FUNCTION public.claim_auth_email_slot(text, integer, integer, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.claim_auth_email_slot(text, integer, integer, integer) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.claim_auth_email_slot(text, integer, integer, integer) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.claim_auth_email_slot(text, integer, integer, integer) TO service_role;
 
@@ -271,7 +271,7 @@ $$;
 COMMENT ON FUNCTION public.release_auth_email_slot(text) IS
   'Devuelve los cupos que claim_auth_email_slot() ya descontó —el del destinatario y el de la firma—, para cuando el correo no llegó a salir (falla de Graph). Devuelve true si había algo que devolver. NO se usa cuando el correo sí salió.';
 
-REVOKE ALL ON FUNCTION public.release_auth_email_slot(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.release_auth_email_slot(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.release_auth_email_slot(text) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.release_auth_email_slot(text) TO service_role;
 
@@ -305,7 +305,7 @@ $$;
 COMMENT ON FUNCTION public.purge_old_auth_email_throttle() IS
   'Borra las filas de auth_email_throttle cuya ventana venció hace más de un día. Devuelve cuántas borró.';
 
-REVOKE ALL ON FUNCTION public.purge_old_auth_email_throttle() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.purge_old_auth_email_throttle() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.purge_old_auth_email_throttle() TO service_role;
 
 DO $$
@@ -320,4 +320,47 @@ BEGIN
       $cron$SELECT public.purge_old_auth_email_throttle();$cron$
     );
   END IF;
+END $$;
+
+
+-- =====================================================================
+-- Verificación final: el freno no se maneja desde el cliente
+-- =====================================================================
+--
+-- Mismo guard que cierra la migración 03, sobre las tres funciones de este archivo. Va acá
+-- porque este archivo corre DESPUÉS del 03, así que aquel no puede verlas.
+--
+-- Lo que protege es más grave que un dato de más: las tres son el freno antiabuso del
+-- formulario público de "olvidé mi contraseña". Con `EXECUTE` para `anon`, PostgREST las
+-- publica en `/rest/v1/rpc/` y el freno se maneja desde afuera con la anon key:
+-- `release_auth_email_slot` devuelve cupo consumido y `purge_old_auth_email_throttle` vacía
+-- la tabla entera. O sea, el mecanismo que reemplaza al límite de GoTrue, desarmable por
+-- quien debía frenar.
+--
+-- Por qué hace falta verificarlo y no alcanza con escribir el REVOKE: un proyecto Supabase
+-- trae `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON FUNCTIONS TO anon, authenticated` sobre
+-- `public`, que le da a esos roles un grant DIRECTO. `REVOKE ... FROM PUBLIC` a secas NO lo
+-- toca, y el resultado es una función que se lee cerrada en el archivo y está abierta en el
+-- proyecto. Pasó con estas tres (hallazgo 2026-09-15, al pegar el módulo en el mirror).
+DO $$
+DECLARE v_abiertos text;
+BEGIN
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+    INTO v_abiertos
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('claim_auth_email_slot',
+                       'release_auth_email_slot',
+                       'purge_old_auth_email_throttle')
+     AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       OR has_function_privilege('anon', p.oid, 'EXECUTE'));
+
+  IF v_abiertos IS NOT NULL THEN
+    RAISE EXCEPTION
+      'El freno de correos de auth es ejecutable desde el cliente (PostgREST lo publica): %. Revocar a anon y authenticated, no solo a PUBLIC.',
+      v_abiertos;
+  END IF;
+
+  RAISE NOTICE 'PASS — el freno de correos de auth solo lo maneja service_role';
 END $$;
