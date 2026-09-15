@@ -2405,7 +2405,8 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
-    v_weeks    := public.get_week_statuses(v_rec.staff_id, v_from, CURRENT_DATE);
+    -- Hora local, no CURRENT_DATE (UTC): ver cero_02 (get_week_statuses / get_my_pending_hours).
+    v_weeks    := public.get_week_statuses(v_rec.staff_id, v_from, (now() AT TIME ZONE 'America/La_Paz')::date);
     v_overdue  := public.notif_agg_timesheet_overdue(v_weeks);
     v_reverted := public.notif_agg_timesheet_reverted(v_weeks);
 

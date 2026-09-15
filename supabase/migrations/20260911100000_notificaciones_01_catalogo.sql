@@ -896,7 +896,8 @@ BEGIN
     v_start := btrim(v_raw)::date;
   END IF;
 
-  v_from := CURRENT_DATE - (v_window * 7);
+  -- Hora local, no CURRENT_DATE (UTC): ver cero_02 (get_week_statuses / get_my_pending_hours).
+  v_from := (now() AT TIME ZONE 'America/La_Paz')::date - (v_window * 7);
 
   IF v_start IS NOT NULL THEN
     -- La fecha de arranque tiene que caer LUNES para recortar de verdad. Quien consume esto es
@@ -1091,7 +1092,9 @@ BEGIN
 
   -- ── Timesheets ──
   IF v_types && ARRAY['timesheet.overdue','timesheet.reverted','timesheet.pending_approval'] THEN
-    v_weeks := public.get_week_statuses(v_staff, v_from, CURRENT_DATE);
+    -- La fecha de corte va en hora local: CURRENT_DATE es UTC y a partir de las 20:00 en
+    -- Bolivia ya es manana (ver cero_02 (get_week_statuses / get_my_pending_hours)).
+    v_weeks := public.get_week_statuses(v_staff, v_from, (now() AT TIME ZONE 'America/La_Paz')::date);
   END IF;
 
   IF 'timesheet.overdue' = ANY (v_types) THEN

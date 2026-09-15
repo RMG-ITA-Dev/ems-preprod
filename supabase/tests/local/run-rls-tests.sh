@@ -279,5 +279,6 @@ assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMEN
 assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-fecha-local.sql 'FECHA LOCAL: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y notificaciones/correos aplicadas sobre base scratch; las 19 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y notificaciones/correos aplicadas sobre base scratch; las 20 suites de RLS/RPC/schema-convergence/trigger pasaron"
