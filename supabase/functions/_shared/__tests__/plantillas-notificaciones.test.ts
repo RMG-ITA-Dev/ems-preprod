@@ -39,6 +39,49 @@ describe("cobertura contra el seed", () => {
     expect(faltantes).toEqual([]);
   });
 
+  it("todo tipo marcado con correo en el seed llega a una pantalla", () => {
+    // El hermano del de arriba, para la OTRA mitad del correo: tener plantilla no sirve si el
+    // boton lleva a la portada.
+    //
+    // Hace falta un test y no alcanza con mirar la app porque los dos ruteadores despachan por
+    // criterios DISTINTOS sobre los mismos datos: `notificationRoute()` por `module_key` y este
+    // por prefijo del `type_key`. "Esta cubierto en la app" no implica "esta cubierto aca", y asi
+    // se colo `timesheet.own_submit_confirmed`: mandaba correo con el boton "Ver mi hoja de
+    // tiempo" y rutaDeNotificacion() no tenia ninguna rama `timesheet.`, asi que caia en el
+    // `return null` del final y urlAbsoluta() lo mandaba al inicio de la aplicacion.
+    const seed = readFileSync(
+      "supabase/migrations/20260911100100_notificaciones_02_seed.sql",
+      "utf-8",
+    );
+    const marcados = [...seed.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
+    expect(marcados.length).toBe(27);
+
+    // Un payload con todo lo que las ramas pueden necesitar: los gastos rutean por
+    // `fund_request_id` y los eventos de cuenta por `staff_id`, porque su entity_id no es
+    // parametro de ninguna ruta. Sin `sin_ruta`, que es la unica forma legitima de no tener
+    // destino y depende del destinatario, no del tipo.
+    const sinRuta = marcados.filter(
+      (typeKey) =>
+        rutaDeNotificacion({
+          typeKey,
+          entityId: "entidad-1",
+          payload: { fund_request_id: "fr-1", staff_id: "staff-1" },
+        }) === null,
+    );
+    expect(sinRuta).toEqual([]);
+  });
+
+  it("el acuse de la boleta propia lleva a la hoja de tiempo, no a la portada", () => {
+    // La regresion concreta, fijada aparte del barrido: el barrido solo exige "alguna ruta", y
+    // esta tiene que ser ESA — es la que el boton promete.
+    for (const typeKey of ["timesheet.own_submit_confirmed"]) {
+      expect(rutaDeNotificacion({ typeKey, entityId: "period-1" })).toBe("/timesheet");
+      expect(
+        urlAbsoluta(URL_APP, rutaDeNotificacion({ typeKey, entityId: "period-1" })),
+      ).toBe("https://ems.ruizmier.com/timesheet");
+    }
+  });
+
   it("no sobran plantillas para tipos que nadie manda", () => {
     const seed = readFileSync(
       "supabase/migrations/20260911100100_notificaciones_02_seed.sql",

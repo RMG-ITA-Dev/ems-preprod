@@ -84,6 +84,20 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
     return entidad ? `/engagements/${entidad}` : null;
   }
 
+  // La hoja de tiempo tiene DOS destinos segun de quien sea la boleta, igual que en la app
+  // (`notificationRoute`, case "timesheet"): el acuse propio va a MI hoja —/timesheet no toma la
+  // semana por URL, TimeSheet.tsx no lee searchParams— y los avisos sobre la boleta de OTRO al
+  // detalle de aprobacion de ese periodo, que si lo toma por ruta.
+  //
+  // Hoy el unico de los tres que sale por correo es el acuse propio, pero la rama espeja los tres:
+  // este archivo se quedo sin rama `timesheet.` desde el principio, y el correo salia con el boton
+  // "Ver mi hoja de tiempo" apuntando a la portada. Cubrir la clase entera evita repetirlo cuando
+  // la matriz le encienda el correo a otro.
+  if (typeKey === "timesheet.own_submit_confirmed") return "/timesheet";
+  if (typeKey.startsWith("timesheet.")) {
+    return entidad ? `/timesheet/approvals/${entidad}` : null;
+  }
+
   // Los eventos de cuenta nacen en `user_roles`, donde lo que hay es un user_id: el disparador
   // resuelve la ficha y la deja en el payload.
   if (typeKey.startsWith("auth.")) {
