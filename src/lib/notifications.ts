@@ -545,10 +545,15 @@ export function notificationRoute(
       return event.entity_id ? `/work-orders/${event.entity_id}` : null;
     }
     case "engagement": {
-      // Todos los eventos del modulo llevan engagement_id en entity_id, incluidos los de
-      // staffing: la asignacion no tiene pantalla propia, se edita en el equipo del encargo.
-      // `engagement.deleted` tambien rutea, y a un encargo que ya no existe — pero ese solo
-      // lo recibe el admin, y la pantalla de detalle es donde va a mirar que paso.
+      // El borrado de encargo es DURO: el trigger corre en TG_OP='DELETE' y emite el id de la
+      // fila que acaba de desaparecer, asi que /engagements/:id lleva al cartel
+      // `engagement.unavailable`. No hay "pantalla donde mirar que paso" — no quedo nada que
+      // mirar, y el aviso ya trae el codigo y el nombre en el payload. Vale la regla de arriba:
+      // sin enlace se pinta como texto, que es preferible a mandar a una ruta muerta.
+      if (event.type_key === "engagement.deleted") return null;
+
+      // El resto lleva engagement_id en entity_id, incluidos los de staffing: la asignacion no
+      // tiene pantalla propia, se edita en el equipo del encargo.
       return event.entity_id ? `/engagements/${event.entity_id}` : null;
     }
     case "timesheet": {

@@ -582,7 +582,10 @@ export function NotificationsPanel() {
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-96 p-0">
+      {/* El ancho se ata al viewport y recien despues se topea: `w-96` a secas son 384px fijos,
+          mas anchos que un telefono de 360 o 375, y el contenido quedaba cortado. En pantalla
+          grande el calc da miles de px y manda el max-w, asi que ahi no cambia nada. */}
+      <PopoverContent align="end" className="w-[calc(100vw-2rem)] max-w-96 p-0">
         <div className="flex items-center justify-between px-4 py-3">
           <span className="text-sm font-semibold">
             {t("notifications.title")}

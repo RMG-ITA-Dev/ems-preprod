@@ -79,6 +79,10 @@ COMMENT ON FUNCTION public.set_fund_request_number() IS
 -- No se toca ninguna fila: renombrar request_number de una solicitud viva romperia
 -- cualquier referencia externa (correos, planillas, capturas) que la mencione.
 --
+-- `is_called` es condicional y no `true` a secas. Con la tabla vacia el maximo es 0, el GREATEST
+-- lo sube a 1, y marcar ese 1 como consumido hacia que el primer nextval() devolviera 2: una base
+-- nueva arrancaba en FR-<anio>-0002 y el 0001 no existia nunca. Con filas, en cambio, el valor SI
+-- esta consumido y el proximo tiene que ser max+1.
 SELECT setval(
   'public.fund_request_number_seq',
   GREATEST(
@@ -86,5 +90,6 @@ SELECT setval(
        FROM public.fund_requests
       WHERE request_number ~ '^FR-[0-9]{4}-[0-9]+$'),
     1),
-  true  -- is_called: el proximo nextval devuelve max+1
+  EXISTS (SELECT 1 FROM public.fund_requests
+           WHERE request_number ~ '^FR-[0-9]{4}-[0-9]+$')
 );

@@ -460,6 +460,23 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e)).toBe("/fund-requests/fr-1");
   });
 
+  it("el borrado de un encargo NO rutea: la fila que nombra ya no existe", () => {
+    // El trigger corre en TG_OP='DELETE' y emite el id de la fila que acaba de desaparecer, asi
+    // que /engagements/:id solo puede mostrar `engagement.unavailable`. El aviso ya trae codigo
+    // y nombre en el payload, y sin ruta la fila se pinta como texto, que es la regla del modulo.
+    const e = { ...event("n1", "engagement"), type_key: "engagement.deleted",
+                entity_id: "eng-1", payload: { engagement_code: "9F01" } };
+    expect(notificationRoute(e)).toBeNull();
+  });
+
+  it("el resto de los eventos de encargo si rutea al detalle", () => {
+    // La excepcion es del borrado y de nadie mas: nulear el modulo entero se llevaria puestos
+    // los avisos de encargos que si existen.
+    const e = { ...event("n1", "engagement"), type_key: "engagement.finalized",
+                entity_id: "eng-1" };
+    expect(notificationRoute(e)).toBe("/engagements/eng-1");
+  });
+
   it("un evento de gasto lleva a la pantalla de gastos de SU solicitud", () => {
     // entity_id es el fre_id, que no es parametro de ninguna ruta: el destino se arma con
     // el fund_request_id del payload.

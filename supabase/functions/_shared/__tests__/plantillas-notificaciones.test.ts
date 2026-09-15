@@ -299,6 +299,14 @@ describe("rutas", () => {
       expect(ruta).toBeNull();
     });
 
+    it("el borrado de encargo no rutea, aunque el destinatario tenga el permiso", () => {
+      // No lo cubre `sin_ruta`: al admin no le falta `engagement.read`, lo que falta es la fila.
+      // El borrado es duro (TG_OP='DELETE'), asi que el detalle solo puede dar "no disponible".
+      expect(rutaDeNotificacion({ typeKey: "engagement.deleted", entityId: "eng-1" })).toBeNull();
+      expect(rutaDeNotificacion({ typeKey: "engagement.finalized", entityId: "eng-1" }))
+        .toBe("/engagements/eng-1");
+    });
+
     it("sin la marca el enlace sale normal: no se apaga por las dudas", () => {
       // La marca la pone la base cuando corresponde. Un payload que no la trae es un
       // destinatario que SI puede entrar, y quitarle el enlace seria el error opuesto.

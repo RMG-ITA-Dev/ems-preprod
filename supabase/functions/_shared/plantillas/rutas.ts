@@ -70,6 +70,12 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
     return entidad ? `/work-orders/${entidad}` : null;
   }
 
+  // El borrado de encargo es DURO: el trigger emite el id de una fila que ya no existe, así que
+  // la pantalla de detalle sólo puede mostrar el cartel de "no disponible". Esto no lo cubre el
+  // `sin_ruta` de arriba —el admin SÍ tiene `engagement.read`—, y no es lo mismo: allá la
+  // pantalla existe y le queda cerrada, acá directamente no hay pantalla.
+  if (typeKey === "engagement.deleted") return null;
+
   // Acá vivía una excepción a mano para `engagement.sqr_assigned` y `engagement.encargado_assigned`,
   // que apagaba el enlace porque Senior/Semi Senior reciben esas asignaciones sin tener
   // `engagement.read`. La reemplaza el `sin_ruta` de arriba, que cubre la clase entera en vez de
