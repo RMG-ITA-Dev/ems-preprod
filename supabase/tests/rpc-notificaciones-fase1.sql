@@ -1816,6 +1816,65 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - la finalizacion baja al staffing vigente, y solo al vigente';
 
+  -- 10.e.2 LA TERCERA FORMA DE SALIR: que la asignacion venza.
+  --
+  -- El borrado logico y el CANCELLED son salidas ANTICIPADAS y dejan marca. La normal —la
+  -- asignacion llega a su end_date— no deja ninguna: `end_date` es NOT NULL, nadie escribe
+  -- 'COMPLETED', y la fila se queda en CONFIRMED con deleted_at NULL para siempre. Sin mirar la
+  -- fecha, quien estuvo en enero recibia la finalizacion de un encargo que cierra en septiembre.
+  --
+  -- El fixture del grupo tiene el encargo SIN end_date, asi que primero hay que ponerle una.
+  UPDATE public.engagements SET end_date = CURRENT_DATE + 30 WHERE engagement_id = v_eng;
+
+  -- (a) La asignacion cubre el cierre (termina el mismo dia): sigue recibiendo.
+  DELETE FROM public.notifications;
+  UPDATE public.engagements SET engagement_state_override = NULL WHERE engagement_id = v_eng;
+  UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_stf;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el staffing que llega al cierre no recibio la finalizacion (hubo %)', v_n;
+  END IF;
+
+  -- (b) Se fue antes: su asignacion vencio 25 dias antes del cierre del encargo.
+  UPDATE public.engagement_assignments SET end_date = CURRENT_DATE + 5 WHERE assignment_id = v_asg;
+  DELETE FROM public.notifications;
+  UPDATE public.engagements SET engagement_state_override = NULL WHERE engagement_id = v_eng;
+  UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_stf;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - quien se fue antes del cierre recibio la finalizacion';
+  END IF;
+
+  -- Y el aviso NO se apaga: achicar el staffing no puede silenciar el evento, porque la
+  -- conduccion y el Admin llegan por otra via.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id IN (c_part, c_mgr, c_adm);
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - excluir al staffing vencido apago el aviso de la conduccion (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - la asignacion vencida antes del cierre tampoco recibe la finalizacion';
+
+  -- 10.e.3 Sin end_date en el encargo NO se filtra: un dato faltante no puede vaciar la
+  --        audiencia. Es la unica razon por la que el resto de este grupo —cuyo fixture no tiene
+  --        end_date— sigue pasando.
+  UPDATE public.engagements SET end_date = NULL WHERE engagement_id = v_eng;
+  DELETE FROM public.notifications;
+  UPDATE public.engagements SET engagement_state_override = NULL WHERE engagement_id = v_eng;
+  UPDATE public.engagements SET engagement_state_override = 7 WHERE engagement_id = v_eng;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.finalized' AND recipient_staff_id = c_stf;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - sin end_date del encargo se filtro igual y se perdio el staffing (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - sin fecha de fin del encargo no se filtra por fecha';
+
+  -- Se restaura la asignacion para lo que sigue del grupo.
+  UPDATE public.engagement_assignments SET end_date = CURRENT_DATE + 30 WHERE assignment_id = v_asg;
+
   -- 10.f Borrado del encargo: solo auditoria.
   DELETE FROM public.engagement_assignments WHERE assignment_id = v_asg;
   DELETE FROM public.engagements WHERE engagement_id = v_eng;

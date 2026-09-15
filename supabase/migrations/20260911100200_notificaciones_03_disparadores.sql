@@ -849,7 +849,7 @@ END $$;
 --
 -- TRES CÍRCULOS DE DESTINATARIOS, y la diferencia importa:
 --   * `notif_engagement_owners()`   los 6 cargos DEL ENCARGO. Es "la conducción".
---   * `notif_engagement_staffed()`  la gente de `engagement_assignments` VIGENTE: seniors,
+--   * `notif_engagement_staffed()`  la gente de `engagement_assignments` viva AL CIERRE: seniors,
 --                                   semis, asistentes. Sin esto `engagement.finalized` —que
 --                                   la matriz concede a 15 roles— no llegaría a ninguno,
 --                                   porque al encargo no se atan por columna.
@@ -893,18 +893,37 @@ CREATE FUNCTION public.notif_engagement_staffed(p_engagement_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
-  -- Staffing VIGENTE (decisión del operador 2026-09-10): ni borrado lógicamente ni
-  -- CANCELLED. Quien salió del encargo hace tres meses no tiene por qué enterarse de que
-  -- terminó.
+  -- Staffing VIGENTE AL CIERRE (decisión del operador 2026-09-10): "quien salió del encargo
+  -- hace tres meses no tiene por qué enterarse de que terminó".
+  --
+  -- Hay TRES formas de salir y antes se miraban dos. El borrado lógico y el `CANCELLED` son las
+  -- dos salidas ANTICIPADAS; la tercera es la normal —la asignación llega a su `end_date`— y no
+  -- deja ninguna marca de estado: `end_date` es NOT NULL, nadie en el repositorio escribe
+  -- `'COMPLETED'` (el estado existe en el CHECK y ninguna vía lo asigna), así que una asignación
+  -- vencida se queda en `CONFIRMED` con `deleted_at` NULL para siempre. Sin mirar la fecha, esta
+  -- función devolvía a quien estuvo en enero para un encargo que cierra en septiembre.
+  --
+  -- LA COMPARACIÓN ES CONTRA `engagements.end_date` Y NO CONTRA HOY, y eso no es un detalle: el
+  -- encargo se finaliza DESPUÉS de que su fecha de fin pasó, así que a esa altura todas las
+  -- asignaciones ya vencieron y un filtro contra `now()` dejaría la lista VACÍA — convertiría un
+  -- aviso de más en un aviso de menos, que es peor.
+  --
+  -- Con `e.end_date` NULL no se filtra nada: un dato faltante no puede vaciar la audiencia.
+  --
+  -- Achicar esto no puede silenciar el evento: `notify_engagement_events` une admin + los 6
+  -- cargos + este helper, así que la finalización siempre llega a la conducción.
   SELECT DISTINCT a.staff_id
     FROM public.engagement_assignments a
+    JOIN public.engagements e ON e.engagement_id = a.engagement_id
    WHERE a.engagement_id = p_engagement_id
      AND a.deleted_at IS NULL
      AND a.status <> 'CANCELLED'
+     AND (e.end_date IS NULL
+          OR (a.start_date <= e.end_date AND a.end_date >= e.end_date))
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_engagement_staffed(uuid) IS
-  'Staff con asignacion VIGENTE en el encargo (engagement_assignments sin deleted_at y con status <> CANCELLED). Es la unica via por la que seniors/semis/asistentes se atan a un encargo.';
+  'Staff cuya asignacion seguia viva AL CIERRE del encargo: sin deleted_at, status <> CANCELLED, y abarcando engagements.end_date. La tercera condicion es la que excluye a quien se fue por vencimiento normal de su asignacion, que no deja marca de estado. Se compara contra end_date del encargo y no contra hoy, porque la finalizacion ocurre cuando esa fecha ya paso y filtrar por hoy vaciaria la lista. Con end_date NULL no filtra. Es la unica via por la que seniors/semis/asistentes se atan a un encargo.';
 
 -- =====================================================================
 -- B) engagements — 5 eventos
