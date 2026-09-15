@@ -7,10 +7,14 @@
 -- medianoche hora local ya era el dia siguiente: la semana marcada como actual saltaba a la
 -- siguiente el domingo a las 20:00, y con ella el calculo de horas pendientes.
 --
--- El arreglo va en cero_02, donde las dos funciones se DEFINEN, y no en una migracion posterior:
--- el proyecto se levanta de cero corriendo solo las migraciones, asi que una migracion final que
--- recree las dos funciones seria 200 lineas duplicadas para deshacer el texto de cero_02 unas
--- lineas mas arriba — dos copias que pueden divergir, y que se pierden si alguien re-pega cero_02.
+-- Lo arregla 20260911100600_fecha_local_current_date.sql, que recrea las dos funciones con
+-- CREATE OR REPLACE. NO se edita cero_02, donde nacen: los proyectos poblados con `supabase db
+-- push` llevan ledger y saltean ese archivo para siempre, asi que el arreglo no les llegaria
+-- (mismo razonamiento y mismo precedente que 20260825000100_authz_restore_legacy_app_role_mapping).
+--
+-- Por eso la asercion de convergencia mira la funcion VIVA con pg_get_functiondef() y no el texto
+-- de ningun archivo: lo que importa es el estado final de la base, venga de donde venga la
+-- definicion. Si alguien vuelve a poner CURRENT_DATE en cualquiera de los dos lados, salta igual.
 --
 -- Se fija America/La_Paz en el codigo y no con ALTER DATABASE ... SET timezone, que ademas moveria
 -- now(), CURRENT_DATE y como PostgREST serializa todo timestamptz de la aplicacion. El propio

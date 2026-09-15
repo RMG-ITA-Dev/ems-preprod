@@ -228,6 +228,11 @@ run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql
 # encontro probando ese flujo y vive aparte para poder revertirse por separado.
 run supabase/migrations/20260911100500_fund_request_number_lpad.sql
 
+# Fecha local en get_week_statuses/get_my_pending_hours. Tampoco es de notificaciones: CURRENT_DATE
+# se evaluaba en UTC y adelantaba el dia a partir de las 20:00 en Bolivia. Recrea las dos funciones
+# de cero_02 con CREATE OR REPLACE, asi que tiene que correr DESPUES de el.
+run supabase/migrations/20260911100600_fecha_local_current_date.sql
+
 # Throttle de los correos de cuenta. Desde que los correos de cuenta salen por Microsoft
 # Graph, GoTrue ya no cuenta ninguno, y este es el freno que lo reemplaza para el formulario
 # publico de "olvide mi contrasena".

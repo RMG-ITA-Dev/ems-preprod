@@ -904,7 +904,7 @@ BEGIN
     v_start := btrim(v_raw)::date;
   END IF;
 
-  -- Hora local, no CURRENT_DATE (UTC): ver cero_02 (get_week_statuses / get_my_pending_hours).
+  -- Hora local, no CURRENT_DATE (UTC): ver 20260911100600_fecha_local_current_date.sql.
   v_from := (now() AT TIME ZONE 'America/La_Paz')::date - (v_window * 7);
 
   IF v_start IS NOT NULL THEN
@@ -1101,7 +1101,7 @@ BEGIN
   -- ── Timesheets ──
   IF v_types && ARRAY['timesheet.overdue','timesheet.reverted','timesheet.pending_approval'] THEN
     -- La fecha de corte va en hora local: CURRENT_DATE es UTC y a partir de las 20:00 en
-    -- Bolivia ya es manana (ver cero_02 (get_week_statuses / get_my_pending_hours)).
+    -- Bolivia ya es manana (ver 20260911100600_fecha_local_current_date.sql).
     v_weeks := public.get_week_statuses(v_staff, v_from, (now() AT TIME ZONE 'America/La_Paz')::date);
   END IF;
 
