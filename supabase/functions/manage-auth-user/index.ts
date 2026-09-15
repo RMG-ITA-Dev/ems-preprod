@@ -86,16 +86,23 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 8. Quitar el rol ANTES de borrar la cuenta, y no después.
+    // 8. Guardar el correo ANTES de borrar la cuenta.
     //
-    // `user_roles.user_id` tiene ON DELETE CASCADE contra `auth.users`, así que borrar primero
-    // la cuenta se llevaba la fila por cascade — y el trigger que avisa a Seguridad TI corría
-    // adentro de ese cascade, con `auth.users` ya borrada. El correo es el único identificador
-    // que le queda a ese aviso (una cuenta con ficha de staff no se puede borrar, ver el paso 7),
-    // así que el mensaje salía como "Se eliminó la cuenta " y nadie podía saber cuál.
+    // `user_roles.user_id` tiene ON DELETE CASCADE contra `auth.users`, así que el trigger que
+    // avisa a Seguridad TI corre DENTRO del cascade, con `auth.users` ya borrada: no puede leer
+    // el correo, que es el único identificador que le queda al aviso (una cuenta con ficha de
+    // staff no se puede borrar, ver el paso 7). El mensaje salía como "Se eliminó la cuenta ".
     //
-    // Con la fila borrada acá, el trigger lee `auth.users` viva y el aviso sale con la dirección.
-    // El cascade posterior ya no encuentra nada, así que el aviso tampoco se duplica.
+    // Esta RPC copia el correo a `user_roles.deletion_email` para que el trigger lo encuentre en
+    // `OLD` cuando el cascade se lleve la fila. NO borra ni anuncia nada: el aviso lo dispara el
+    // borrado real del paso 9.
+    //
+    // Que no borre es deliberado y es lo que hace seguro este punto del flujo. La versión
+    // anterior sí borraba la fila acá —y con eso emitía el aviso— antes del `await` externo, o
+    // sea COMMITEANDO una baja que todavía no había ocurrido. Una invocación interrumpida entre
+    // las dos llamadas (timeout, redeploy, caída) no devuelve error, así que la reposición de
+    // abajo nunca corría: quedaba una cuenta viva sin rol y una alarma falsa en el canal de
+    // Seguridad TI, para siempre y en silencio. Ahora ese estado no existe.
     const { data: preparacion, error: errorPreparacion } = await supabaseAdmin.rpc(
       "prepare_account_deletion",
       { p_user_id: userId },
@@ -122,8 +129,8 @@ Deno.serve(async (req) => {
     }
 
     if (preparacion && (preparacion as { con_correo?: boolean }).con_correo === false) {
-      // El aviso a Seguridad TI sale sin dirección porque la cuenta de auth ya no estaba. No
-      // corta el borrado —queda la fila huérfana de user_roles por limpiar igual— pero conviene
+      // El aviso a Seguridad TI va a salir sin dirección porque la cuenta de auth ya no estaba.
+      // No corta el borrado —la fila huérfana de user_roles hay que limpiarla igual— pero conviene
       // que el log diga por qué ese aviso salió incompleto.
       console.warn(`[manage-auth-user] ${userId} no tenia cuenta en auth; el aviso de baja sale sin correo.`);
     }
@@ -132,83 +139,52 @@ Deno.serve(async (req) => {
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (deleteError) {
-      // Dos cosas distintas llegan acá y el paso 8 obliga a separarlas.
-      //
-      //   * La cuenta ya no estaba: el borrado es idempotente, la baja es real y lo que hizo el
-      //     paso 8 fue limpiar una fila huérfana. Es el caso que este bloque siempre asumió.
-      //   * El borrado falló por algo transitorio: la cuenta sigue viva, y sin el rol que el
-      //     paso 8 ya le quitó. Antes ese estado era imposible —la fila sólo se iba por el
-      //     CASCADE, o sea sólo si la cuenta se había borrado— así que hay que reponerla, o el
-      //     fallo de GoTrue deja a alguien adentro sin ver nada.
-      //
-      // `abort_account_deletion` distingue los dos mirando `auth.users`, y lo hace en la misma
-      // transacción en la que repone: preguntar acá y reponer después dejaría la ventana abierta.
-      const { data: reposicion, error: errorReposicion } = await supabaseAdmin.rpc(
-        "abort_account_deletion",
-        { p_user_id: userId, p_rol: (preparacion as { rol?: unknown } | null)?.rol ?? null },
+      // El paso 8 no destruyó nada, así que acá no hay que reponer: la fila de `user_roles` sigue
+      // intacta y nadie anunció una baja. Sólo queda limpiar la marca, que sin borrado no describe
+      // nada — y si la limpieza falla tampoco pasa nada grave: la marca no la lee nadie fuera del
+      // DELETE, y un borrado posterior la sobrescribe.
+      const { error: errorLimpieza } = await supabaseAdmin.rpc(
+        "clear_account_deletion_mark",
+        { p_user_id: userId },
       );
 
-      const reposicionRpc = reposicion as { ok?: boolean; reason?: string } | null;
-      const repuesto = !errorReposicion && reposicionRpc?.ok === true;
-
-      // "Ya estaba borrada" es una AFIRMACIÓN, no un default. La única lectura que la respalda es
-      // que la RPC haya mirado `auth.users` y no haya encontrado la cuenta; cualquier otra cosa
-      // —la RPC no respondió, o se negó por otro motivo— deja el estado sin saber, y ahí no se
-      // puede decir que el borrado salió bien: la cuenta puede seguir viva y sin rol.
-      const borradoReal = !errorReposicion &&
-        reposicionRpc?.ok === false &&
-        reposicionRpc?.reason === "NO_AUTH_USER";
-
-      if (errorReposicion) {
-        console.error(
-          `[manage-auth-user] no se pudo reponer el rol de ${userId} tras fallar el borrado:`,
-          errorReposicion.message,
+      if (errorLimpieza) {
+        console.warn(
+          `[manage-auth-user] no se pudo limpiar la marca de baja de ${userId}:`,
+          errorLimpieza.message,
         );
       }
+
+      // "Ya estaba borrada" es una AFIRMACIÓN, no un default, y la respalda una lectura hecha
+      // ANTES de intentar el borrado: `existe_auth` dice si la cuenta seguía en `auth.users`.
+      // `false` -> el borrado es idempotente y la baja es real. `true` -> el borrado falló de
+      // verdad. `null` -> no se pudo mirar, y entonces no se afirma nada.
+      const yaNoEstaba = (preparacion as { existe_auth?: boolean | null } | null)
+        ?.existe_auth === false;
 
       await supabaseAdmin.from("user_lifecycle_audit_log").insert({
         actor_user_id: caller.id,
         target_user_id: userId,
-        action: borradoReal
-          ? "account_delete_idempotent"
-          : repuesto
-            ? "account_delete_aborted"
-            : "account_delete_unresolved",
+        action: yaNoEstaba ? "account_delete_idempotent" : "account_delete_failed",
         metadata: {
           error: deleteError.message,
-          ...(errorReposicion ? { rollback_error: errorReposicion.message } : {}),
-          ...(reposicionRpc?.reason ? { rollback_reason: reposicionRpc.reason } : {}),
+          ...(errorLimpieza ? { cleanup_error: errorLimpieza.message } : {}),
         },
       });
 
-      if (borradoReal) {
+      if (yaNoEstaba) {
         return new Response(
           JSON.stringify({ success: true, code: "ALREADY_DELETED", message: "User may already be deleted" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      if (repuesto) {
-        // La cuenta sigue existiendo y volvió a su estado anterior: no se borró nada, así que
-        // decir que sí sería mentir. El aviso de baja a Seguridad TI también se retiró.
-        console.error(`[manage-auth-user] deleteUser fallo para ${userId}; se repuso el rol.`);
-        return new Response(
-          JSON.stringify({ success: false, code: "DELETE_FAILED", message: deleteError.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Ni borrada ni repuesta. Es el único camino que deja el problema en pie, así que va con
-      // el id: si la cuenta sigue viva, destrabarla necesita que un admin le reasigne el rol.
-      console.error(
-        `[manage-auth-user] ${userId} quedo en estado indeterminado: el borrado fallo y no se pudo confirmar ni deshacer.`,
-      );
+      // La cuenta sigue existiendo y CON su rol: no se borró nada, así que decir que sí sería
+      // mentir. A diferencia de la versión anterior, acá no hay un tercer caso "indeterminado":
+      // como el paso 8 no destruye, no hay nada que pueda quedar a medias.
+      console.error(`[manage-auth-user] deleteUser fallo para ${userId}; la cuenta queda intacta.`);
       return new Response(
-        JSON.stringify({
-          success: false,
-          code: "DELETE_INCONSISTENT",
-          message: "Deletion failed and could not be rolled back; the account may be left without a role",
-        }),
+        JSON.stringify({ success: false, code: "DELETE_FAILED", message: deleteError.message }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

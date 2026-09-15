@@ -516,9 +516,19 @@ export function NotificationsPanel() {
       // engagement_created): comunicaron lo que tenian que comunicar y no piden accion. Las
       // derivadas de estado vivo (work_order_pending_approval, timesheet_pending_approval)
       // se quedan aunque esten vistas, porque el trabajo sigue pendiente.
+      //
+      // El unico descarte de aca es por DUPLICADO, y exige que el agregado nuevo cubra LA MISMA
+      // fila: `engagement.pending_partner_approval` pinta ese encargo, asi que la legacy sobra.
+      //
+      // `timesheet_pending_approval` NO se descarta, aunque el catalogo tenga un tipo de nombre
+      // casi igual: son destinatarios OPUESTOS. La vista le da la fila a `tla.approved_by` —el
+      // que REVISA— y `notif_agg_timesheet_pending_approval` filtra por `tp.staff_id`, o sea la
+      // boleta PROPIA del que envio. Ningun agregado del catalogo cuenta "lineas que yo tengo
+      // que aprobar" (`approval.training_pending` es solo capacitacion, funcion = 2), asi que
+      // descartarla dejaba al aprobador sin la fila persistente: solo le quedaba el evento
+      // `timesheet.team_submitted_for_approval`, que se lee una vez y desaparece.
       visibleLegacyAlerts(rawAlerts ?? []).filter(
         (a) =>
-          a.alert_type !== "timesheet_pending_approval" &&
           !(
             a.alert_type === "work_order_pending_approval" &&
             a.engagement_id &&

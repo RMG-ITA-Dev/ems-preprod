@@ -2465,10 +2465,29 @@ BEGIN
 
     v_res := public.prepare_account_deletion(v_pending);
     IF (v_res->>'ok')::boolean IS NOT TRUE OR (v_res->>'con_correo')::boolean IS NOT TRUE THEN
-      RAISE EXCEPTION 'TEST FAIL - prepare_account_deletion no preparo la baja: %', v_res;
+      RAISE EXCEPTION 'TEST FAIL - prepare_account_deletion no marco la baja: %', v_res;
+    END IF;
+    IF (v_res->>'existe_auth')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'TEST FAIL - existe_auth no reporto la cuenta viva: %', v_res;
     END IF;
 
-    -- LA ASERCION QUE IMPORTA: el aviso identifica la cuenta.
+    -- PREPARAR NO ANUNCIA NADA. Es lo que hace seguro el hueco entre esta llamada y deleteUser():
+    -- si la edge function muere aca, no quedo ni una cuenta sin rol ni una alarma falsa.
+    SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - preparar la baja ya anuncio algo (hubo %)', v_n;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.user_roles WHERE user_id = v_pending;
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - preparar la baja borro el rol antes de tiempo';
+    END IF;
+    RAISE NOTICE 'PASS - preparar la baja no borra ni anuncia: no hay estado intermedio que reponer';
+
+    -- Y AHORA el borrado de verdad. El aviso sale del CASCADE, y LA ASERCION QUE IMPORTA es que
+    -- identifique la cuenta: el trigger corre con auth.users ya vacia y el correo lo saca de la
+    -- marca que dejo prepare_account_deletion().
+    DELETE FROM auth.users WHERE id = v_pending;
+
     SELECT COUNT(*) INTO v_n FROM public.notifications
      WHERE type_key = 'auth.account.deleted'
        AND recipient_staff_id = c_itsec
@@ -2476,16 +2495,11 @@ BEGIN
     IF v_n <> 1 THEN
       RAISE EXCEPTION 'TEST FAIL - el aviso de baja no salio con el correo de la cuenta (hubo %)', v_n;
     END IF;
-    RAISE NOTICE 'PASS - la baja avisa a Seguridad TI con el correo de la cuenta borrada';
-
-    -- Y cuando GoTrue borra la cuenta, el cascade ya no encuentra fila: el aviso sale UNA vez.
-    DELETE FROM auth.users WHERE id = v_pending;
-    SELECT COUNT(*) INTO v_n FROM public.notifications
-     WHERE type_key = 'auth.account.deleted';
+    SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
     IF v_n <> 1 THEN
-      RAISE EXCEPTION 'TEST FAIL - el borrado de la cuenta duplico el aviso de baja (hubo %)', v_n;
+      RAISE EXCEPTION 'TEST FAIL - el borrado duplico el aviso de baja (hubo %)', v_n;
     END IF;
-    RAISE NOTICE 'PASS - preparar la baja no duplica el aviso cuando GoTrue borra la cuenta';
+    RAISE NOTICE 'PASS - el borrado real avisa a Seguridad TI UNA vez, con el correo de la cuenta';
 
     -- 13.f.5 La guarda: una cuenta con ficha de staff vinculada no se toca. `manage-auth-user`
     -- ya lo verifica antes de llamar, pero sacarle el rol a alguien que esta trabajando es
@@ -2502,12 +2516,15 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS - preparar la baja se niega sobre una cuenta con ficha de staff';
 
-    -- 13.f.6 UNA BAJA QUE NO SE CONCRETA SE DESHACE ENTERA.
+    -- 13.f.6 UNA BAJA QUE NO SE CONCRETA NO DEJA RASTRO.
     --
-    -- Sacar el rol antes del borrado abre un estado que antes no existia: si GoTrue despues
-    -- falla por algo transitorio, la cuenta sigue viva y sin rol, y el frontend es fail-closed
-    -- —esa persona entra y no ve nada—. Mientras la fila se iba por el CASCADE eso no podia
-    -- pasar, porque el CASCADE solo corria si la cuenta se habia borrado de verdad.
+    -- Antes habia que DESHACERLA: prepare_account_deletion() borraba el rol y emitia el aviso, asi
+    -- que un fallo de GoTrue dejaba una cuenta viva sin rol y una alarma falsa, y hacia falta
+    -- abort_account_deletion() para revertir las dos cosas. Y solo funcionaba si deleteUser()
+    -- DEVOLVIA error: una invocacion interrumpida no devuelve nada, y ese estado quedaba para
+    -- siempre.
+    --
+    -- Desde que preparar solo marca, no hay nada que deshacer. Esto lo verifica.
     DELETE FROM public.notifications;
     INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
                             email_confirmed_at, created_at, updated_at,
@@ -2523,55 +2540,53 @@ BEGIN
     IF (v_res->>'ok')::boolean IS NOT TRUE THEN
       RAISE EXCEPTION 'TEST FAIL - prepare_account_deletion se nego: %', v_res;
     END IF;
-    SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
-    IF v_n <> 1 THEN
-      RAISE EXCEPTION 'TEST FAIL - el fixture no dejo el aviso de baja (hubo %)', v_n;
-    END IF;
 
-    -- GoTrue no pudo borrar la cuenta.
-    v_res := public.abort_account_deletion(v_abort, v_res->'rol');
-    IF (v_res->>'ok')::boolean IS NOT TRUE THEN
-      RAISE EXCEPTION 'TEST FAIL - no se pudo deshacer la baja: %', v_res;
-    END IF;
-
-    -- El rol vuelve TAL CUAL, no con un default: quien tenia `senior` no queda como `staff`.
+    -- GoTrue no pudo borrar la cuenta. No se llama a nada para "deshacer": se comprueba que no
+    -- haya quedado nada roto, que es el punto entero del rediseno.
     SELECT COUNT(*) INTO v_n FROM public.user_roles
      WHERE user_id = v_abort AND role_key = 'senior';
     IF v_n <> 1 THEN
-      RAISE EXCEPTION 'TEST FAIL - el rol no volvio tal cual (hubo %)', v_n;
+      RAISE EXCEPTION 'TEST FAIL - la cuenta perdio su rol por un borrado que no ocurrio (hubo %)', v_n;
     END IF;
 
-    -- Y la baja deja de estar anunciada: no ocurrio.
     SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'auth.account.deleted';
     IF v_n <> 0 THEN
       RAISE EXCEPTION 'TEST FAIL - quedo anunciada a Seguridad TI una baja que no ocurrio (hubo %)', v_n;
     END IF;
+    RAISE NOTICE 'PASS - un borrado que falla no deja ni cuenta sin rol ni alarma falsa';
 
-    -- Ni se anuncia como un alta: la cuenta existia desde antes.
-    SELECT COUNT(*) INTO v_n FROM public.notifications
-     WHERE type_key = 'auth.user.registered' AND payload->>'user_id' = v_abort::text;
-    IF v_n <> 0 THEN
-      RAISE EXCEPTION 'TEST FAIL - reponer el rol se anuncio como un alta nueva (hubo %)', v_n;
+    -- La marca se limpia, para que una direccion vieja no espere a un borrado futuro.
+    v_res := public.clear_account_deletion_mark(v_abort);
+    IF (v_res->>'ok')::boolean IS NOT TRUE OR (v_res->>'limpiadas')::integer <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - no se limpio la marca de baja: %', v_res;
     END IF;
-    RAISE NOTICE 'PASS - una baja que no se concreta devuelve el rol y retira el aviso';
+    SELECT COUNT(*) INTO v_n FROM public.user_roles
+     WHERE user_id = v_abort AND deletion_email IS NOT NULL;
+    IF v_n <> 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - la marca sobrevivio a la limpieza';
+    END IF;
+    RAISE NOTICE 'PASS - limpiar la marca es idempotente y no toca el rol';
 
-    -- 13.f.7 Y al reves: si la cuenta SI se borro no hay nada que deshacer. Reponer el rol
-    -- dejaria una fila apuntando a una cuenta que ya no existe.
-    PERFORM set_config('ems.account_rollback', '', true);
+    -- 13.f.7 Sin marca, el aviso sale igual pero sin identificar la cuenta. Es el caso del
+    -- borrado hecho POR FUERA de manage-auth-user (Studio, la API de GoTrue): nadie llamo a
+    -- prepare_account_deletion(), asi que el trigger corre en el CASCADE sin nada que leer. Se
+    -- afirma explicitamente porque es una PERDIDA conocida y aceptada, no un descuido: es
+    -- exactamente como se comportaba antes de todo esto.
     DELETE FROM public.notifications;
-
-    v_res := public.prepare_account_deletion(v_abort);
     DELETE FROM auth.users WHERE id = v_abort;
 
-    v_res := public.abort_account_deletion(v_abort, v_res->'rol');
-    IF (v_res->>'ok')::boolean IS NOT FALSE OR v_res->>'reason' <> 'NO_AUTH_USER' THEN
-      RAISE EXCEPTION 'TEST FAIL - se deshizo una baja que si ocurrio: %', v_res;
+    SELECT COUNT(*) INTO v_n FROM public.notifications
+     WHERE type_key = 'auth.account.deleted'
+       AND recipient_staff_id = c_itsec
+       AND COALESCE(payload->>'email', '') = '';
+    IF v_n <> 1 THEN
+      RAISE EXCEPTION 'TEST FAIL - un borrado sin preparar no aviso, o aviso de mas (hubo %)', v_n;
     END IF;
     SELECT COUNT(*) INTO v_n FROM public.user_roles WHERE user_id = v_abort;
     IF v_n <> 0 THEN
-      RAISE EXCEPTION 'TEST FAIL - se repuso el rol de una cuenta que ya no existe';
+      RAISE EXCEPTION 'TEST FAIL - el CASCADE no se llevo la fila de user_roles';
     END IF;
-    RAISE NOTICE 'PASS - deshacer no repone nada cuando la baja si ocurrio';
+    RAISE NOTICE 'PASS - un borrado por fuera del flujo avisa igual, aunque sin el correo';
 
     -- El marcador vuelve a bajarse: es transaction-local y la suite es una sola transaccion.
     PERFORM set_config('ems.account_rollback', '', true);

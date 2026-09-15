@@ -222,6 +222,59 @@ describe("NotificationsPanel — gateo de secciones", () => {
       screen.getByText(/notifications\.types\.work_order_pending_approval/),
     ).toBeInTheDocument();
   });
+
+  it("la alerta del APROBADOR convive con el contador del que envio", async () => {
+    // Dos cosas de nombre casi igual y destinatarios OPUESTOS:
+    //
+    //   * la fila legacy `timesheet_pending_approval` la emite vw_staffing_alerts sobre
+    //     `tla.approved_by` -> le llega a quien REVISA;
+    //   * el contador `timesheet.pending_approval` sale de notif_agg_timesheet_pending_approval,
+    //     que filtra `tp.staff_id = p_staff_id` -> es la boleta PROPIA del que envio.
+    //
+    // El panel llego a descartar la fila legacy por creerla duplicada del contador. No lo es, y
+    // ningun agregado del catalogo cuenta "lineas que yo tengo que aprobar", asi que el
+    // aprobador se quedaba sin nada persistente: solo el evento
+    // `timesheet.team_submitted_for_approval`, que se lee una vez y desaparece.
+    setup(
+      { aggregates: { "timesheet.pending_approval": { count: 2 } } },
+      [
+        {
+          alert_type: "timesheet_pending_approval",
+          entity_id: "tla-1",
+          staff_id: "me",
+          priority_level: "high",
+          detected_at: "2026-09-08T10:00:00Z",
+          description: "Fulano — Encargo",
+        },
+      ],
+    );
+    await openPanel();
+
+    expect(
+      screen.getByText(/notifications\.types\.timesheet_pending_approval/),
+    ).toBeInTheDocument();
+  });
+
+  it("la alerta del aprobador sobrevive a estar vista: el trabajo sigue pendiente", async () => {
+    // `seen_at` solo baja el badge. Las filas derivadas de ESTADO VIVO se siguen pintando,
+    // porque ocultarlas esconderia trabajo que nadie resolvio (ver SUPERSEDED_LEGACY_ALERTS).
+    setup({}, [
+      {
+        alert_type: "timesheet_pending_approval",
+        entity_id: "tla-1",
+        staff_id: "me",
+        priority_level: "high",
+        detected_at: "2026-09-08T10:00:00Z",
+        description: "Fulano — Encargo",
+        seen_at: "2026-09-09T10:00:00Z",
+      },
+    ]);
+    await openPanel();
+
+    expect(
+      screen.getByText(/notifications\.types\.timesheet_pending_approval/),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("NotificationsPanel — contadores y badge", () => {

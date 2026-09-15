@@ -1547,6 +1547,12 @@ BEGIN
     v_email := NULL;
   END;
 
+  -- La marca gana sobre la lectura. En un DELETE por CASCADE `auth.users` ya se borro y el SELECT
+  -- de arriba no devuelve nada; `deletion_email` es lo que prepare_account_deletion() dejo ahi
+  -- justo para este momento (ver A.3). Fuera de un borrado en curso la marca es NULL y manda la
+  -- lectura, asi que el COALESCE no necesita saber en que operacion esta.
+  v_email := COALESCE(v_row.deletion_email, v_email);
+
   v_base := jsonb_build_object(
     'user_id',    v_row.user_id,
     'staff_id',   v_staff,
@@ -1741,23 +1747,48 @@ GRANT EXECUTE ON FUNCTION public.rollback_unconfirmed_signup(uuid) TO service_ro
 -- A.3) Borrar una cuenta de verdad
 -- ---------------------------------------------------------------------
 --
--- Misma mecánica que A.2 y la intención opuesta: allá se borra la fila de `user_roles` a mano
--- para que el aviso NO salga; acá se borra a mano para que salga BIEN.
+-- El aviso `auth.account.deleted` a Seguridad TI necesita el CORREO, y ahí está la dificultad:
+-- `user_roles.user_id` tiene `ON DELETE CASCADE` contra `auth.users`, así que el trigger corre
+-- DENTRO del cascade, con la fila padre ya borrada. Para entonces `SELECT u.email FROM auth.users`
+-- no devuelve nada, y el correo es el único identificador que queda —una cuenta con ficha de
+-- staff no se puede borrar (ver el paso 7 de `manage-auth-user`)—. El aviso salía como
+-- 'Se eliminó la cuenta ' y nadie podía saber cuál.
 --
--- El problema es el mismo CASCADE. `manage-auth-user` llamaba a `deleteUser()` y dejaba que
--- `user_roles.user_id -> auth.users ON DELETE CASCADE` se llevara la fila, así que el trigger
--- corría DENTRO del cascade, con la fila padre ya borrada. Para entonces
--- `SELECT u.email FROM auth.users` no devuelve nada, y el correo es el único identificador que
--- queda: la ficha de `staff` no puede existir —`manage-auth-user` se niega a borrar una cuenta
--- vinculada— y el aviso de la campana es `'Se eliminó la cuenta {{email}}'`. Seguridad TI
--- recibía esa frase cortada, sin una sola pista de qué cuenta se borró.
+-- LA PRIMERA SOLUCIÓN FUE PEOR QUE EL PROBLEMA, y por eso esto se reescribió. Consistía en borrar
+-- la fila de `user_roles` ACÁ, antes de que GoTrue tocara `auth.users`: el trigger la leía viva y
+-- el aviso salía con la dirección. Pero eso COMMITEA el borrado y el aviso antes de la llamada
+-- externa a `deleteUser()`, y esas dos cosas viven en transacciones distintas. Si la edge function
+-- muere entre una y otra —timeout, redeploy, caída— queda:
 --
--- Borrando la fila ACÁ, antes de que GoTrue toque `auth.users`, el trigger la lee viva y el
--- aviso sale con la dirección. Y cuando después GoTrue borre la cuenta, el CASCADE ya no
--- encuentra nada que cascadear: el aviso sale una vez, no dos.
+--   * una cuenta VIVA sin rol: el frontend es fail-closed, esa persona entra y no ve nada, y
+--   * un `auth.account.deleted` ya emitido a Seguridad TI por una baja que no ocurrió.
 --
--- Qué NO se hace acá: borrar `auth.users`. Ese esquema es de GoTrue y un DELETE directo se
--- saltearía su propia contabilidad. Igual que en A.2, la cuenta la sigue borrando su API.
+-- La reposición existía, pero sólo corría cuando `deleteUser()` DEVOLVÍA error. Una invocación
+-- interrumpida no devuelve nada, así que ese estado quedaba para siempre y en silencio.
+--
+-- LO QUE SE HACE AHORA: no se borra nada acá. Se GUARDA el correo en la propia fila, y se deja
+-- que el CASCADE dispare el aviso cuando la cuenta se haya borrado DE VERDAD. El trigger ya no
+-- necesita `auth.users`: lee la marca de `OLD`.
+--
+-- El estado intermedio deja de existir. Si la función muere después de marcar:
+--
+--   * no se borró ninguna fila — el rol sigue donde estaba;
+--   * no se emitió ningún aviso — nadie anunció una baja que no pasó;
+--   * el único residuo es un texto en una columna, que no lo lee nadie más.
+--
+-- Y se conserva lo que la solución anterior ganaba: un borrado hecho POR FUERA de
+-- `manage-auth-user` (alguien que borra la cuenta desde Studio, o por la API de GoTrue) sigue
+-- disparando el aviso por el CASCADE, sólo que sin correo — que es exactamente como estaba antes
+-- de todo esto, no una regresión.
+
+-- La marca. Vive en `user_roles` y no en una tabla aparte porque el trigger la lee de `OLD`: en un
+-- DELETE por CASCADE no hay a dónde ir a buscarla, la fila que se está borrando es todo lo que hay.
+ALTER TABLE public.user_roles
+  ADD COLUMN IF NOT EXISTS deletion_email text;
+
+COMMENT ON COLUMN public.user_roles.deletion_email IS
+  'Correo de la cuenta, copiado por prepare_account_deletion() justo antes de que GoTrue la borre. Lo lee el trigger en el DELETE por CASCADE, cuando auth.users ya no existe y el aviso a Seguridad TI se quedaria sin identificar la cuenta. NULL fuera de un borrado en curso.';
+
 DROP FUNCTION IF EXISTS public.prepare_account_deletion(uuid);
 
 CREATE FUNCTION public.prepare_account_deletion(p_user_id uuid)
@@ -1768,15 +1799,16 @@ CREATE FUNCTION public.prepare_account_deletion(p_user_id uuid)
 DECLARE
   v_staff   uuid;
   v_email   text;
-  v_rol     public.user_roles%ROWTYPE;
+  v_existe  boolean;
+  v_filas   integer;
 BEGIN
   IF p_user_id IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
   END IF;
 
-  -- GUARDA, por el mismo motivo que la de A.2: esto le saca el rol a una cuenta, y la única
-  -- razón para hacerlo es que se esté borrando. `manage-auth-user` ya lo verifica antes de
-  -- llamar; si igual llega una cuenta con ficha vinculada, alguien se equivocó y no se toca.
+  -- GUARDA. Esto anuncia una baja, y la única razón para anunciarla es que se esté borrando la
+  -- cuenta. `manage-auth-user` ya lo verifica antes de llamar; si igual llega una cuenta con ficha
+  -- vinculada, alguien se equivocó y no se toca.
   SELECT s.staff_id INTO v_staff
     FROM public.staff s
    WHERE s.auth_user_id = p_user_id
@@ -1786,115 +1818,83 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'reason', 'LINKED_STAFF');
   END IF;
 
-  -- Se lee sólo para poder informar si el aviso va a salir con dirección o sin ella. La que
-  -- viaja en el aviso la lee el trigger por su cuenta, en el DELETE de abajo.
+  -- Se leen las DOS cosas por separado, y no se deduce una de la otra: "no hay correo" y "no hay
+  -- cuenta" no son lo mismo, y quien llama necesita distinguirlas. Si `deleteUser()` despues
+  -- falla, `existe_auth = false` dice que la cuenta ya no estaba —el borrado es idempotente y la
+  -- baja es real—; `true` dice que el borrado fallo de verdad.
   BEGIN
-    SELECT u.email INTO v_email FROM auth.users u WHERE u.id = p_user_id;
+    SELECT u.email, true INTO v_email, v_existe
+      FROM auth.users u WHERE u.id = p_user_id;
+    v_existe := COALESCE(v_existe, false);
   EXCEPTION WHEN OTHERS THEN
-    v_email := NULL;
+    -- El harness local monta un `auth` mínimo: no se puede afirmar nada, y NULL lo dice.
+    v_email  := NULL;
+    v_existe := NULL;
   END;
 
-  -- Esto es lo que dispara `auth.account.deleted`, con `auth.users` todavía en pie.
-  --
-  -- La fila entera vuelve en el resultado, y no sólo el rol: es lo que le permite a quien llama
-  -- reponerla tal cual si GoTrue después no puede borrar la cuenta. Se devuelve como jsonb del
-  -- ROW completo para que agregar una columna a `user_roles` no deje la restauración a medias.
-  DELETE FROM public.user_roles WHERE user_id = p_user_id
-  RETURNING * INTO v_rol;
+  -- UPDATE, no DELETE. Es toda la diferencia: esto no borra ni anuncia nada, así que no hay
+  -- estado intermedio que reponer si lo que viene después no llega a pasar.
+  UPDATE public.user_roles
+     SET deletion_email = NULLIF(btrim(COALESCE(v_email, '')), '')
+   WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
 
   RETURN jsonb_build_object('ok', true,
-                            'roles', CASE WHEN v_rol.user_id IS NULL THEN 0 ELSE 1 END,
-                            'rol',   to_jsonb(v_rol),
-                            -- false = la cuenta de auth ya no estaba, así que el aviso sale sin
-                            -- dirección. No es un error: el borrado igual tiene que seguir.
+                            'marcado', v_filas,
+                            -- NULL cuando no se pudo mirar `auth` (harness local).
+                            'existe_auth', v_existe,
+                            -- false = el aviso va a salir sin dirección. No es un error: el
+                            -- borrado igual tiene que seguir.
                             'con_correo', COALESCE(btrim(v_email), '') <> '');
 END;
 $BODY$;
 
 COMMENT ON FUNCTION public.prepare_account_deletion(uuid) IS
-  'Quita la fila de user_roles ANTES de que GoTrue borre la cuenta, para que el aviso auth.account.deleted a Seguridad TI salga con el correo: si se deja al CASCADE, el trigger corre con auth.users ya borrada y el aviso sale sin identificar la cuenta. Devuelve la fila borrada en `rol` para que abort_account_deletion() pueda reponerla si el borrado no llega a concretarse. Se niega si la cuenta tiene ficha de staff vinculada. No toca auth.users.';
+  'Copia el correo de la cuenta a user_roles.deletion_email y devuelve en existe_auth si la cuenta seguia en auth.users para que el aviso auth.account.deleted identifique la cuenta cuando el CASCADE borre la fila con auth.users ya vacia. NO borra ni anuncia nada: el aviso lo dispara el borrado real, asi que una invocacion interrumpida no deja ni una cuenta sin rol ni una alarma falsa. Se niega si la cuenta tiene ficha de staff vinculada.';
 
 REVOKE ALL ON FUNCTION public.prepare_account_deletion(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.prepare_account_deletion(uuid) TO service_role;
 
 -- ---------------------------------------------------------------------
--- A.4) Deshacer una baja que no llegó a concretarse
+-- A.4) Limpiar la marca cuando el borrado no se concreta
 -- ---------------------------------------------------------------------
 --
--- `prepare_account_deletion()` saca el rol antes de que GoTrue borre la cuenta. Si el borrado
--- después falla por algo transitorio, la cuenta sigue viva y sin rol: la persona entra y no ve
--- nada, porque el frontend es fail-closed. Antes de que el rol se quitara acá eso no podía pasar
--- —el CASCADE sólo corría si la cuenta se había borrado de verdad— así que reponer la fila no es
--- un extra, es lo que sostiene la garantía que había.
---
--- Y repone las dos cosas, no una: además de la fila, retira el `auth.account.deleted` que el
--- trigger ya le emitió a Seguridad TI. Una baja que no ocurrió no puede quedar anunciada — es el
--- mismo argumento que A.2, al revés: las alarmas falsas en un canal de seguridad se pagan con
--- que dejen de mirarse.
---
--- Cómo sabe si hay algo que reponer: mira `auth.users`. Si la cuenta ya no está, el borrado sí
--- ocurrió, no hay nada que deshacer, y reponer la fila fallaría igual contra la FK.
+-- Reemplaza a `abort_account_deletion()`, que ya no tiene nada que deshacer: como A.3 no borra ni
+-- anuncia, no queda ni fila que reponer ni aviso que retirar. Lo único que sobrevive a un borrado
+-- fallido es la marca, y dejarla puesta tampoco rompe nada —nadie la lee fuera del DELETE— pero se
+-- limpia igual, para que no quede una dirección vieja esperando a un borrado futuro por si la
+-- persona cambia de correo en el medio.
 DROP FUNCTION IF EXISTS public.abort_account_deletion(uuid, jsonb);
+DROP FUNCTION IF EXISTS public.clear_account_deletion_mark(uuid);
 
-CREATE FUNCTION public.abort_account_deletion(p_user_id uuid, p_rol jsonb)
+CREATE FUNCTION public.clear_account_deletion_mark(p_user_id uuid)
     RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
 DECLARE
-  v_existe boolean;
-  v_avisos uuid[];
+  v_filas integer;
 BEGIN
-  IF p_user_id IS NULL OR p_rol IS NULL OR jsonb_typeof(p_rol) <> 'object' THEN
-    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_ARGS');
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
   END IF;
 
-  BEGIN
-    SELECT true INTO v_existe FROM auth.users u WHERE u.id = p_user_id;
-  EXCEPTION WHEN OTHERS THEN
-    -- El harness local monta un `auth` mínimo; ahí no hay nada que consultar.
-    v_existe := NULL;
-  END;
+  UPDATE public.user_roles
+     SET deletion_email = NULL
+   WHERE user_id = p_user_id
+     AND deletion_email IS NOT NULL;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
 
-  IF v_existe IS NOT TRUE THEN
-    -- La cuenta no está: el borrado se concretó y la baja es real. No se repone nada.
-    RETURN jsonb_build_object('ok', false, 'reason', 'NO_AUTH_USER');
-  END IF;
-
-  -- Transaction-local: silencia el `auth.user.registered` que el INSERT de abajo dispararía.
-  -- Reponer un rol no es un alta.
-  PERFORM set_config('ems.account_rollback', '1', true);
-
-  -- El aviso de baja que el trigger ya emitió. Se busca por `payload->>'user_id'` igual que en
-  -- A.2, y no por `entity_id`, que en una baja es el user_id pero no tiene por qué seguir
-  -- siéndolo.
-  SELECT COALESCE(array_agg(notification_id), ARRAY[]::uuid[]) INTO v_avisos
-    FROM public.notifications
-   WHERE type_key = 'auth.account.deleted'
-     AND payload->>'user_id' = p_user_id::text;
-
-  -- Sólo lo que todavía no salió: un correo ya enviado es un hecho, y borrar su fila no lo
-  -- desmiente. Hoy `auth.account.deleted` no manda correo, pero la matriz puede cambiar.
-  DELETE FROM public.notification_emails
-   WHERE notification_id = ANY (v_avisos)
-     AND status IN ('pending', 'failed');
-
-  DELETE FROM public.notifications WHERE notification_id = ANY (v_avisos);
-
-  INSERT INTO public.user_roles
-  SELECT * FROM jsonb_populate_record(NULL::public.user_roles, p_rol)
-  ON CONFLICT DO NOTHING;
-
-  RETURN jsonb_build_object('ok', true,
-                            'avisos_retirados', COALESCE(array_length(v_avisos, 1), 0));
+  RETURN jsonb_build_object('ok', true, 'limpiadas', v_filas);
 END;
 $BODY$;
 
-COMMENT ON FUNCTION public.abort_account_deletion(uuid, jsonb) IS
-  'Deshace lo que prepare_account_deletion() adelantó cuando el borrado de la cuenta no llego a concretarse: repone la fila de user_roles (sin emitir auth.user.registered) y retira el aviso auth.account.deleted que ya salio. Devuelve ok=false con reason=NO_AUTH_USER si la cuenta efectivamente se borro, o sea si no hay nada que deshacer.';
+COMMENT ON FUNCTION public.clear_account_deletion_mark(uuid) IS
+  'Borra user_roles.deletion_email cuando el borrado de la cuenta no llego a concretarse. Reemplaza a abort_account_deletion(): desde que prepare_account_deletion() no borra ni anuncia, no hay fila que reponer ni aviso que retirar.';
 
-REVOKE ALL ON FUNCTION public.abort_account_deletion(uuid, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.abort_account_deletion(uuid, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.clear_account_deletion_mark(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.clear_account_deletion_mark(uuid) TO service_role;
+
 
 -- =====================================================================
 -- C) staff — alta, baja y bloqueo de cuenta
@@ -2799,7 +2799,7 @@ BEGIN
        OR p.proname IN ('engagement_approval_bucket',
                         'rollback_unconfirmed_signup',
                         'prepare_account_deletion',
-                        'abort_account_deletion'))
+                        'clear_account_deletion_mark'))
      -- Las 4 RPC del panel son la excepcion y SI deben estar abiertas: se verifican abajo, al
      -- reves. Ninguna recibe un staff_id — las cuatro lo derivan de get_my_staff_id().
      AND p.proname NOT IN ('get_my_notifications',
