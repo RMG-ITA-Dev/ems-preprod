@@ -471,11 +471,12 @@ describe("notificationRoute", () => {
   });
 
   it("la asignacion de especialista NO rutea: la RLS no lo reconoce como asignado", () => {
-    // El encargo existe, pero `is_assigned_to_engagement()` solo mira partner_id, manager_id,
-    // sqr_id y encargado_id —no `specialist_it_id` ni `specialist_tax_id`—, asi que
-    // /engagements/:id devuelve cero filas y EngagementEdit cae en `engagement.unavailable`.
-    // El chequeo de permiso no lo ataja, y por eso el `can` de abajo devuelve true: `ita_manager`
-    // y `tax_manager` SI tienen `engagement.read`; lo que les falta es la FILA.
+    // El encargo existe, pero no entra en el portafolio del destinatario:
+    // `list_portfolio_engagements()` (BUG 0828-185) resuelve a ita_manager/tax_manager por
+    // `manager_id`, y ninguno de sus 4 buckets mira `specialist_it_id` ni `specialist_tax_id`.
+    // Sin la fila, EngagementEdit cae en `engagement.unavailable`. El chequeo de permiso no lo
+    // ataja, y por eso el `can` de abajo devuelve true: `ita_manager` y `tax_manager` SI tienen
+    // `engagement.read`; lo que les falta es la FILA.
     const e = { ...event("n1", "engagement"), type_key: "engagement.specialist_assigned",
                 entity_id: "eng-1",
                 payload: { context: "it", engagement_code: "12-06" } };

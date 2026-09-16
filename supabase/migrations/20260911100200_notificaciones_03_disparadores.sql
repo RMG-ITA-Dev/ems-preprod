@@ -946,8 +946,8 @@ BEGIN
 
   -- El CLIENTE viaja en el payload porque es lo que ubica al encargo: "Auditoria Externa 2026"
   -- se repite entre clientes, y el correo de `engagement.specialist_assigned` sale SIN BOTÓN
-  -- —la RLS no contempla a los especialistas—, así que el texto es lo único que el
-  -- destinatario tiene para saber de qué encargo le hablan. `client_id` es NOT NULL, así que
+  -- —el portafolio de 0828-185 no contempla a los especialistas—, así que el texto es lo único
+  -- que el destinatario tiene para saber de qué encargo le hablan. `client_id` es NOT NULL, así que
   -- esto sólo queda vacío si el cliente se borró en la misma transacción.
   SELECT c.client_legal_name INTO v_cliente
     FROM public.clients c

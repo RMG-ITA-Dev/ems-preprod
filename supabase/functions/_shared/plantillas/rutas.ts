@@ -81,12 +81,23 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   if (typeKey === "engagement.deleted") return null;
 
   // La asignación de un especialista tampoco tiene a dónde llevar, y por una razón distinta de
-  // la del borrado: el encargo EXISTE, pero `is_assigned_to_engagement()` sólo mira partner,
-  // manager, sqr y encargado —no `specialist_it_id` ni `specialist_tax_id`—, así que la RLS le
-  // devuelve cero filas al destinatario y EngagementEdit cae en "encargo no disponible". No lo
-  // cubre el `sin_ruta` de arriba: `ita_manager` y `tax_manager` SÍ tienen `engagement.read`, y
-  // lo que les falta es la FILA, no el permiso. Espejo de `notificationRoute`
-  // (src/lib/notifications.ts). El correo compensa nombrando cliente y encargo en el detalle.
+  // la del borrado: el encargo EXISTE, pero el destinatario no lo tiene en su portafolio.
+  // EngagementEdit.tsx no lee la tabla, lee `list_portfolio_engagements()` (BUG 0828-185), y
+  // su bucket `own_management` resuelve a `ita_manager`/`tax_manager` por `manager_id` — las
+  // columnas `specialist_it_id` y `specialist_tax_id` no figuran en ninguno de los 4 buckets.
+  // Un encargo donde el Gerente ESPECIALISTA sólo es especialista no aparece en la lista, y
+  // /engagements/<id> le muestra "encargo no disponible". (Salvo que lo haya creado él: el
+  // bucket `creator` sí lo alcanza. El aviso no puede distinguir ese caso.)
+  //
+  // NO ES LA RLS, aunque lo parezca: `is_assigned_to_engagement()` tampoco mira esas dos
+  // columnas, pero `engagements` no tiene ENABLE ROW LEVEL SECURITY —drift de 20260115000154,
+  // ver docs/hallazgo-rls-drift-ruta-a.md— así que la policy "engagements read" no se evalúa
+  // hoy. Cuando se reactive, la falta de la RLS se suma; no la reemplaza.
+  //
+  // Tampoco lo cubre el `sin_ruta` de arriba: `ita_manager` y `tax_manager` SÍ tienen
+  // `engagement.read`, y lo que les falta es la FILA, no el permiso. Espejo de
+  // `notificationRoute` (src/lib/notifications.ts). El correo compensa nombrando cliente y
+  // encargo en el detalle.
   if (typeKey === "engagement.specialist_assigned") return null;
 
   // Acá vivía una excepción a mano para `engagement.sqr_assigned` y `engagement.encargado_assigned`,

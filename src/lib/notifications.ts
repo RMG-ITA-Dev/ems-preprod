@@ -569,12 +569,21 @@ export function notificationRoute(
       if (event.type_key === "engagement.deleted") return null;
 
       // La asignacion de un especialista tampoco lleva a ningun lado, y por otra razon: el
-      // encargo existe, pero `is_assigned_to_engagement()` solo mira partner_id, manager_id,
-      // sqr_id y encargado_id —no `specialist_it_id` ni `specialist_tax_id`—, asi que la RLS le
-      // devuelve cero filas al Gerente ESPECIALISTA y EngagementEdit cae en
-      // `engagement.unavailable`. El chequeo de permiso de arriba no lo ataja: `ita_manager` y
-      // `tax_manager` SI tienen `engagement.read`; lo que les falta es la FILA, no el permiso.
-      // La fila queda como texto, con su chip de codigo y su boton de descartar.
+      // encargo existe, pero no esta en el portafolio del destinatario. EngagementEdit.tsx no
+      // lee la tabla, lee `list_portfolio_engagements()` (BUG 0828-185) via
+      // usePortfolioEngagements(), y su bucket `own_management` resuelve a ita_manager/
+      // tax_manager por `manager_id`: las columnas `specialist_it_id` y `specialist_tax_id` no
+      // figuran en ninguno de los 4 buckets. Sin la fila, la pantalla muestra
+      // `engagement.unavailable`. (El bucket `creator` lo salva si el encargo lo creo el mismo;
+      // el aviso no puede distinguirlo.)
+      //
+      // NO ES LA RLS: `is_assigned_to_engagement()` tiene la misma falta, pero `engagements` no
+      // tiene ENABLE ROW LEVEL SECURITY hoy —drift de 20260115000154, ver
+      // docs/hallazgo-rls-drift-ruta-a.md—, asi que esa policy no se evalua.
+      //
+      // El chequeo de permiso de arriba no lo ataja: `ita_manager` y `tax_manager` SI tienen
+      // `engagement.read`; lo que les falta es la FILA. La fila de la campana queda como texto,
+      // con su chip de codigo y su boton de descartar.
       if (event.type_key === "engagement.specialist_assigned") return null;
 
       // El resto lleva engagement_id en entity_id, incluidos los de staffing: la asignacion no

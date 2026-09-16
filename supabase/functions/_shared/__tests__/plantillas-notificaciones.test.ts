@@ -70,10 +70,10 @@ describe("cobertura contra el seed", () => {
     );
 
     // La lista es CERRADA y esta es la unica excepcion: `engagement.specialist_assigned` sale
-    // sin destino a proposito, porque `is_assigned_to_engagement()` no mira las columnas de
-    // especialista y la ficha del encargo le queda cerrada al destinatario. Anotarla aca en vez
-    // de aflojar el test a "puede haber nulls" es lo que mantiene el valor del hermano: un tipo
-    // nuevo que se quede sin rama sigue reventando.
+    // sin destino a proposito, porque `list_portfolio_engagements()` (BUG 0828-185) no reconoce
+    // al especialista y la ficha del encargo le queda cerrada al destinatario. Anotarla aca en
+    // vez de aflojar el test a "puede haber nulls" es lo que mantiene el valor del hermano: un
+    // tipo nuevo que se quede sin rama sigue reventando.
     expect(sinRuta).toEqual(["engagement.specialist_assigned"]);
   });
 
@@ -162,10 +162,10 @@ describe("renderizarCorreoNotificacion — eventos", () => {
   });
 
   it("la asignacion de especialista sale sin boton y nombra cliente y encargo", () => {
-    // El aviso es informativo: `ita_manager` tiene `engagement.read` pero
-    // `is_assigned_to_engagement()` no mira `specialist_it_id`, asi que /engagements/<id> le
-    // muestra "no disponible". Como no hay pantalla a la que mandarlo, el encargo tiene que
-    // quedar identificado EN EL TEXTO.
+    // El aviso es informativo: `ita_manager` tiene `engagement.read`, pero el encargo no entra
+    // en su portafolio —`list_portfolio_engagements()` lo resuelve por `manager_id`— y
+    // /engagements/<id> le muestra "no disponible". Como no hay pantalla a la que mandarlo, el
+    // encargo tiene que quedar identificado EN EL TEXTO.
     const correo = renderizarCorreoNotificacion(
       base({
         typeKey: "engagement.specialist_assigned",
@@ -536,8 +536,9 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
 describe("rutas", () => {
   it("la asignacion de especialista no lleva a ninguna pantalla", () => {
     // No es `sin_ruta` —`ita_manager` y `tax_manager` SI tienen `engagement.read`—: lo que les
-    // falta es la FILA, porque `is_assigned_to_engagement()` solo mira partner, manager, sqr y
-    // encargado. Espejo de `notificationRoute` en src/lib/notifications.ts.
+    // falta es la FILA, porque `list_portfolio_engagements()` (BUG 0828-185) resuelve su
+    // portafolio por `manager_id`, no por las columnas de especialista. Espejo de
+    // `notificationRoute` en src/lib/notifications.ts.
     expect(
       rutaDeNotificacion({ typeKey: "engagement.specialist_assigned", entityId: "eng-1" }),
     ).toBeNull();
