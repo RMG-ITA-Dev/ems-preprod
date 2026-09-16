@@ -53,8 +53,15 @@ export type Copia = {
   asunto: string;
   /** Qué pasó y qué se espera. Una o dos frases. */
   intro: string;
-  /** Texto del botón. Imperativo, dos o tres palabras. */
-  boton: string;
+  /**
+   * Texto del botón. Imperativo, dos o tres palabras.
+   *
+   * OPCIONAL, y sin él el correo sale sin botón. Un aviso puramente informativo no tiene a
+   * dónde mandar al lector: `engagement.specialist_assigned` avisa al Gerente ESPECIALISTA de
+   * su asignación y la ficha del encargo le queda cerrada por RLS. Antes esos correos salían
+   * igual, con el botón apuntando a la portada: prometían una pantalla y entregaban otra.
+   */
+  boton?: string;
   /** Cierre opcional: sólo cuando agrega algo que el lector necesita. */
   cierre?: string;
 };
@@ -102,12 +109,17 @@ const VENCIMIENTO = "El enlace vence en una hora y admite un solo uso.";
  */
 export function construirCuerpos(
   copia: Copia,
-  enlace: string,
+  enlace: string | null,
   opciones: OpcionesCuerpo = {},
 ): { cuerpoTexto: string; cuerpoHtml: string } {
   const encabezado = saludo(opciones.nombre);
   const detalles = opciones.detalles ?? [];
   const vence = opciones.mencionarVencimiento === true;
+
+  // Sin destino no hay botón, y tampoco la línea "copie esta dirección": las dos hablan de una
+  // pantalla, y si no hay ruta la única dirección que queda es la portada. El correo se manda
+  // igual —el hecho vale por sí mismo—, sólo que como aviso y no como invitación a entrar.
+  const destino = enlace && copia.boton ? { enlace, boton: copia.boton } : null;
 
   const cuerpoTexto = [
     encabezado,
@@ -117,8 +129,7 @@ export function construirCuerpos(
       ? ["", ...detalles.map((d) => `- ${d.etiqueta}: ${d.valor}`)]
       : []),
     "",
-    `${copia.boton}: ${enlace}`,
-    "",
+    ...(destino ? [`${destino.boton}: ${destino.enlace}`, ""] : []),
     ...(vence ? [VENCIMIENTO] : []),
     ...(copia.cierre ? [copia.cierre] : []),
     "",
@@ -148,16 +159,18 @@ export function construirCuerpos(
       <p style="margin:0 0 16px;font-size:15px;">${escaparHtml(encabezado)}</p>
       <p style="margin:0 0 24px;font-size:15px;line-height:1.5;">${escaparHtml(copia.intro)}</p>
       ${detallesHtml}
-      <p style="margin:0 0 24px;">
-        <a href="${escaparHtml(enlace)}"
+      ${destino
+        ? `<p style="margin:0 0 24px;">
+        <a href="${escaparHtml(destino.enlace)}"
            style="display:inline-block;padding:12px 20px;background:${COLORES.boton};color:${COLORES.botonTexto};text-decoration:none;border-radius:6px;font-size:15px;">
-          ${escaparHtml(copia.boton)}
+          ${escaparHtml(destino.boton)}
         </a>
       </p>
       <p style="margin:0 0 8px;font-size:13px;color:${COLORES.textoTenue};line-height:1.5;">
         Si el botón no funciona, copie esta dirección en el navegador:<br />
-        <span style="word-break:break-all;">${escaparHtml(enlace)}</span>
-      </p>
+        <span style="word-break:break-all;">${escaparHtml(destino.enlace)}</span>
+      </p>`
+        : ""}
       ${notaFinal
         ? `<p style="margin:16px 0 0;font-size:13px;color:${COLORES.textoTenue};line-height:1.5;">${notaFinal}</p>`
         : ""}
@@ -175,7 +188,7 @@ export function construirCuerpos(
 /** Arma el correo completo. Es el único lugar que ensambla copia + enlace + detalles. */
 export function renderizar(
   copia: Copia,
-  enlace: string,
+  enlace: string | null,
   opciones: OpcionesCuerpo = {},
 ): CorreoRenderizado {
   const { cuerpoTexto, cuerpoHtml } = construirCuerpos(copia, enlace, opciones);

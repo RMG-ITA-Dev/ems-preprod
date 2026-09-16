@@ -117,6 +117,17 @@ function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string;
   if (semana !== undefined && semana !== null && anio !== undefined && anio !== null) {
     payload = { ...payload, semana: `${semana}/${anio}` };
   }
+  // El encargo se compone igual: el codigo identifica y el nombre explica, pero separados gastan
+  // dos renglones para decir una sola cosa. Con uno solo de los dos sale ese, tal cual:
+  // `engagement_code` es nullable en la tabla y `engagement_name` no.
+  const codigo = typeof payload.engagement_code === "string" ? payload.engagement_code.trim() : "";
+  const nombre = typeof payload.engagement_name === "string" ? payload.engagement_name.trim() : "";
+  if (codigo && nombre) {
+    payload = { ...payload, engagement_code: `${codigo} — ${nombre}` };
+  } else if (!codigo && nombre) {
+    payload = { ...payload, engagement_code: nombre };
+  }
+
   for (const { clave, etiqueta, formato } of DETALLES_PAYLOAD) {
     const valor = payload[clave];
     if (valor === null || valor === undefined) continue;
@@ -153,10 +164,13 @@ function copiaDeEvento(typeKey: string, payload: Record<string, unknown>): Copia
 
 export function renderizarCorreoNotificacion(datos: DatosNotificacion): CorreoRenderizado {
   const payload = datos.payload ?? {};
-  const enlace = urlAbsoluta(
-    datos.urlApp,
-    rutaDeNotificacion({ typeKey: datos.typeKey, entityId: datos.entityId, payload }),
-  );
+  // SIN RUTA NO HAY ENLACE, y sin enlace no hay boton. Antes esto era `urlAbsoluta(urlApp, ruta)`
+  // a secas, y `urlAbsoluta` devuelve el origen pelado cuando la ruta es null: el correo salia
+  // con "Ver encargo" o "Ir a aprobaciones" apuntando a la portada. Le pasaba a TODOS los
+  // `sin_ruta` —riesgo, plan de pagos, revision de gastos— y ahora tambien a los avisos que
+  // nacen sin destino, como `engagement.specialist_assigned`.
+  const ruta = rutaDeNotificacion({ typeKey: datos.typeKey, entityId: datos.entityId, payload });
+  const enlace = ruta === null ? null : urlAbsoluta(datos.urlApp, ruta);
 
   if (esRecordatorio(datos.typeKey)) {
     const copia = TEXTOS_RECORDATORIO[datos.typeKey];

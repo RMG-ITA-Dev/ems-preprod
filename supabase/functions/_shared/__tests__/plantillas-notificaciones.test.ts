@@ -68,7 +68,13 @@ describe("cobertura contra el seed", () => {
           payload: { fund_request_id: "fr-1", staff_id: "staff-1" },
         }) === null,
     );
-    expect(sinRuta).toEqual([]);
+
+    // La lista es CERRADA y esta es la unica excepcion: `engagement.specialist_assigned` sale
+    // sin destino a proposito, porque `is_assigned_to_engagement()` no mira las columnas de
+    // especialista y la ficha del encargo le queda cerrada al destinatario. Anotarla aca en vez
+    // de aflojar el test a "puede haber nulls" es lo que mantiene el valor del hermano: un tipo
+    // nuevo que se quede sin rama sigue reventando.
+    expect(sinRuta).toEqual(["engagement.specialist_assigned"]);
   });
 
   it("el acuse de la boleta propia lleva a la hoja de tiempo, no a la portada", () => {
@@ -138,12 +144,69 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     expect(porCategoria.cuerpoTexto).toContain("/staff/s-1");
   });
 
-  it("sin ruta el correo igual sale, apuntando al inicio", () => {
-    // Mejor un enlace generico que no avisar: el hecho ya ocurrio.
+  it("sin ruta el correo igual sale, pero SIN boton y sin enlace", () => {
+    // El hecho ya ocurrio y vale por si mismo, asi que el correo sale igual. Lo que no sale es
+    // el boton: hasta 2026-09-16 la ruta null se convertia en el origen pelado y el mensaje
+    // llevaba "Ver solicitud" a la portada, que es la misma mentira que un enlace roto.
     const correo = renderizarCorreoNotificacion(
       base({ typeKey: "fund.request.closed", entityId: null, payload: {} }),
     );
-    expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com");
+
+    expect(correo.cuerpoTexto).not.toContain("https://ems.ruizmier.com");
+    expect(correo.cuerpoTexto).not.toContain("Ver solicitud");
+    expect(correo.cuerpoHtml).not.toContain("<a href=");
+    expect(correo.cuerpoHtml).not.toContain("copie esta direcci\u00f3n");
+    // Y el aviso sigue estando: sin boton no es lo mismo que sin correo.
+    expect(correo.cuerpoTexto).toContain("Estimado/a Ana:");
+    expect(correo.cuerpoTexto).toContain("EMS 2.0 - Ruizmier");
+  });
+
+  it("la asignacion de especialista sale sin boton y nombra cliente y encargo", () => {
+    // El aviso es informativo: `ita_manager` tiene `engagement.read` pero
+    // `is_assigned_to_engagement()` no mira `specialist_it_id`, asi que /engagements/<id> le
+    // muestra "no disponible". Como no hay pantalla a la que mandarlo, el encargo tiene que
+    // quedar identificado EN EL TEXTO.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "engagement.specialist_assigned",
+        entityId: "eng-1",
+        payload: {
+          context: "it",
+          client_name: "ACME S.A.",
+          engagement_code: "12-06",
+          engagement_name: "Auditoria Externa 2026",
+        },
+      }),
+    );
+
+    expect(correo.asunto).toBe("Lo asignaron a un encargo");
+    expect(correo.cuerpoTexto).toContain("especialista ITA");
+    expect(correo.cuerpoTexto).toContain("- Cliente: ACME S.A.");
+    expect(correo.cuerpoTexto).toContain("- Encargo: 12-06 \u2014 Auditoria Externa 2026");
+    expect(correo.cuerpoTexto).toContain("no requiere ninguna accion");
+
+    // Sin boton y sin enlace: ni el texto plano ni el HTML mencionan una pantalla.
+    expect(correo.cuerpoTexto).not.toContain("Ver encargo");
+    expect(correo.cuerpoTexto).not.toContain("https://ems.ruizmier.com");
+    expect(correo.cuerpoHtml).not.toContain("<a href=");
+  });
+
+  it("con codigo vacio el encargo se identifica por su nombre", () => {
+    // `engagement_code` es nullable en la tabla y el disparador lo manda como cadena vacia.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "engagement.specialist_assigned",
+        entityId: "eng-1",
+        payload: {
+          context: "tax",
+          client_name: "ACME S.A.",
+          engagement_code: "",
+          engagement_name: "Auditoria Externa 2026",
+        },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Encargo: Auditoria Externa 2026");
   });
 
 
@@ -443,20 +506,27 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
     expect(correo.cuerpoTexto).not.toContain("/fund-requests/disbursements");
     // El correo igual sale: el dato le sirve aunque no pueda abrir la pantalla.
     expect(correo.cuerpoTexto).toContain("- gastos por revisar: 4");
-    // Y el BOTON tampoco nombra la pantalla: con el enlace apuntando al inicio, "Ir a revision de
-    // gastos" seria la misma mentira que un enlace roto, solo que mas dificil de notar.
+    // Y NO HAY BOTON, ni el de la pestania ni el generico del tipo: sin ruta no hay a donde
+    // mandar al lector, y "Ir a solicitudes" sobre el origen pelado es la misma mentira que un
+    // enlace roto, solo que mas dificil de notar.
     expect(correo.cuerpoTexto).not.toContain("Ir a revisión de gastos");
-    expect(correo.cuerpoTexto).toContain("Ir a solicitudes");
+    expect(correo.cuerpoTexto).not.toContain("Ir a solicitudes");
+    expect(correo.cuerpoHtml).not.toContain("<a href=");
   });
 
   it("los cuatro recordatorios rinden", () => {
-    for (const tipo of [
-      "timesheet.reminder.daily",
-      "approval.reminder.weekly",
-      "fund.reminder.weekly",
-      "wo.installment.reminder.weekly",
-    ]) {
-      const correo = renderizarCorreoNotificacion(base({ typeKey: tipo, entityId: null }));
+    // `fund.reminder.weekly` NO tiene ruta fija: sus cuatro contadores viven en pestanias
+    // distintas de la misma pantalla y el destino sale del contador que traiga el payload. Por
+    // eso va con uno, mientras que a los otros tres les alcanza el tipo.
+    const casos: [string, Record<string, unknown>][] = [
+      ["timesheet.reminder.daily", {}],
+      ["approval.reminder.weekly", {}],
+      ["fund.reminder.weekly", { revision_gastos: { count: 4 } }],
+      ["wo.installment.reminder.weekly", {}],
+    ];
+
+    for (const [tipo, payload] of casos) {
+      const correo = renderizarCorreoNotificacion(base({ typeKey: tipo, entityId: null, payload }));
       expect(correo.asunto.length).toBeGreaterThan(0);
       expect(correo.cuerpoHtml).toContain("<a href=");
     }
@@ -464,6 +534,20 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
 });
 
 describe("rutas", () => {
+  it("la asignacion de especialista no lleva a ninguna pantalla", () => {
+    // No es `sin_ruta` —`ita_manager` y `tax_manager` SI tienen `engagement.read`—: lo que les
+    // falta es la FILA, porque `is_assigned_to_engagement()` solo mira partner, manager, sqr y
+    // encargado. Espejo de `notificationRoute` en src/lib/notifications.ts.
+    expect(
+      rutaDeNotificacion({ typeKey: "engagement.specialist_assigned", entityId: "eng-1" }),
+    ).toBeNull();
+
+    // Y el resto del modulo sigue entrando por la rama generica.
+    expect(
+      rutaDeNotificacion({ typeKey: "engagement.sqr_assigned", entityId: "eng-1" }),
+    ).toBe("/engagements/eng-1");
+  });
+
   it("un gasto lleva a la pantalla de gastos de SU solicitud", () => {
     // entity_id es el fre_id, que no es parametro de ninguna ruta.
     const ruta = rutaDeNotificacion({

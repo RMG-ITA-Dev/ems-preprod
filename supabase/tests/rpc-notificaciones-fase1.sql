@@ -1831,6 +1831,19 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el especialista ITA no recibio su asignacion (hubo %)', v_n;
   END IF;
 
+  -- Y el aviso tiene que traer CLIENTE, codigo y nombre del encargo, porque este es el unico
+  -- tipo del catalogo que sale sin enlace: `is_assigned_to_engagement()` no mira las columnas
+  -- de especialista, asi que la ficha del encargo le queda cerrada al destinatario y el texto
+  -- es todo lo que va a poder leer del hecho. Sin `client_name` el correo dice "Auditoria
+  -- Externa 2026" y no de quien.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.specialist_assigned' AND recipient_staff_id = c_ita
+     AND payload->>'client_name' = 'NOTIF Cliente SA'
+     AND COALESCE(payload->>'engagement_name', '') <> '';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la asignacion del especialista no identifica cliente y encargo (hubo %)', v_n;
+  END IF;
+
   -- El TAX no se asigno todavia: nadie recibe un aviso que no le toca.
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'engagement.specialist_assigned' AND recipient_staff_id = c_tax;

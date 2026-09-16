@@ -939,13 +939,24 @@ DECLARE
   v_rec      record;
   v_owners   boolean;
   v_finished boolean;
+  v_cliente  text;
 BEGIN
   -- OLD en el borrado, NEW en todo lo demás: así el resto del cuerpo no repite el CASE.
   IF TG_OP = 'DELETE' THEN v_row := OLD; ELSE v_row := NEW; END IF;
 
+  -- El CLIENTE viaja en el payload porque es lo que ubica al encargo: "Auditoria Externa 2026"
+  -- se repite entre clientes, y el correo de `engagement.specialist_assigned` sale SIN BOTÓN
+  -- —la RLS no contempla a los especialistas—, así que el texto es lo único que el
+  -- destinatario tiene para saber de qué encargo le hablan. `client_id` es NOT NULL, así que
+  -- esto sólo queda vacío si el cliente se borró en la misma transacción.
+  SELECT c.client_legal_name INTO v_cliente
+    FROM public.clients c
+   WHERE c.client_id = v_row.client_id;
+
   v_base := jsonb_build_object(
     'engagement_code', COALESCE(v_row.engagement_code, ''),
     'engagement_name', COALESCE(v_row.engagement_name, ''),
+    'client_name',     COALESCE(v_cliente, ''),
     'engagement_id',   v_row.engagement_id);
 
   -- ── Borrado: sólo auditoría (la matriz se lo da a ADM con alcance firm) ──

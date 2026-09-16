@@ -63,20 +63,28 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
 
   // Un tipo, dos redacciones por `context` (D-43): el hecho es el mismo y lo unico que cambia es
   // la especialidad. El texto base existe igual, por si algun dia hay un especialista sin sabor.
+  //
+  // LOS TRES VAN SIN `boton`, y es deliberado: hoy `is_assigned_to_engagement()` mira
+  // partner/manager/sqr/encargado y NO las dos columnas de especialista, asi que la RLS le
+  // devuelve cero filas al Gerente ESPECIALISTA y /engagements/<id> le muestra el cartel de
+  // "encargo no disponible". Un boton "Ver encargo" ahi es una promesa que el sistema no cumple.
+  // Como el correo se queda sin destino, el encargo tiene que quedar identificado EN EL TEXTO:
+  // de eso se ocupan las lineas de detalle, cliente + encargo (ver DETALLES_PAYLOAD).
+  // Cuando la RLS contemple a los especialistas, esto vuelve a llevar boton.
   "engagement.specialist_assigned": {
     asunto: "Lo asignaron a un encargo",
-    intro: "Lo asignaron como especialista de un encargo.",
-    boton: "Ver encargo",
+    intro: "Lo asignaron como especialista del encargo que se detalla a continuacion.",
+    cierre: "Aviso informativo: no requiere ninguna accion de su parte.",
   },
   "engagement.specialist_assigned:it": {
     asunto: "Lo asignaron a un encargo",
-    intro: "Lo asignaron como especialista ITA de un encargo.",
-    boton: "Ver encargo",
+    intro: "Lo asignaron como especialista ITA del encargo que se detalla a continuacion.",
+    cierre: "Aviso informativo: no requiere ninguna accion de su parte.",
   },
   "engagement.specialist_assigned:tax": {
     asunto: "Lo asignaron a un encargo",
-    intro: "Lo asignaron como especialista TAX de un encargo.",
-    boton: "Ver encargo",
+    intro: "Lo asignaron como especialista TAX del encargo que se detalla a continuacion.",
+    cierre: "Aviso informativo: no requiere ninguna accion de su parte.",
   },
 
   // ── Órdenes de trabajo ──
@@ -196,6 +204,13 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
 export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fecha" | "monto" }[] = [
   { clave: "semana", etiqueta: "Semana" },
   { clave: "request_number", etiqueta: "Solicitud" },
+  // El cliente encabeza al encargo porque es el dato que lo ubica: "Auditoria Externa 2026" se
+  // repite entre clientes, y un correo sin boton —ver `engagement.specialist_assigned`— no
+  // tiene pantalla a la que ir a averiguar de cual se trata.
+  { clave: "client_name", etiqueta: "Cliente" },
+  // Codigo y nombre del encargo viajan en claves distintas y se muestran en UNA linea:
+  // "Encargo: 12-06" y "Nombre: Auditoria Externa 2026" son dos renglones para un solo dato.
+  // Los compone `detallesDeEvento`, igual que hace con la semana.
   { clave: "engagement_code", etiqueta: "Encargo" },
   { clave: "activity_code", etiqueta: "Actividad" },
   { clave: "amount", etiqueta: "Monto", formato: "monto" },

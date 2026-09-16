@@ -24,8 +24,12 @@ function texto(valor: unknown): string | null {
 }
 
 /**
- * Devuelve la ruta relativa, o null si no hay a dónde ir. Sin ruta el correo igual se manda: lleva
- * al inicio de la aplicación, que es mejor que no avisar.
+ * Devuelve la ruta relativa, o null si no hay a dónde ir.
+ *
+ * Sin ruta el correo igual se manda —el hecho vale por sí mismo—, pero SIN BOTÓN: hasta
+ * 2026-09-16 el null se convertía en el origen pelado (`urlAbsoluta`) y el mensaje salía con
+ * "Ver encargo" apuntando a la portada, que es la misma mentira que un enlace roto. Lo decide
+ * `renderizarCorreoNotificacion`, y `layout.ts` omite el botón cuando no hay enlace.
  */
 export function rutaDeNotificacion(datos: DatosRuta): string | null {
   const { typeKey } = datos;
@@ -75,6 +79,15 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   // `sin_ruta` de arriba —el admin SÍ tiene `engagement.read`—, y no es lo mismo: allá la
   // pantalla existe y le queda cerrada, acá directamente no hay pantalla.
   if (typeKey === "engagement.deleted") return null;
+
+  // La asignación de un especialista tampoco tiene a dónde llevar, y por una razón distinta de
+  // la del borrado: el encargo EXISTE, pero `is_assigned_to_engagement()` sólo mira partner,
+  // manager, sqr y encargado —no `specialist_it_id` ni `specialist_tax_id`—, así que la RLS le
+  // devuelve cero filas al destinatario y EngagementEdit cae en "encargo no disponible". No lo
+  // cubre el `sin_ruta` de arriba: `ita_manager` y `tax_manager` SÍ tienen `engagement.read`, y
+  // lo que les falta es la FILA, no el permiso. Espejo de `notificationRoute`
+  // (src/lib/notifications.ts). El correo compensa nombrando cliente y encargo en el detalle.
+  if (typeKey === "engagement.specialist_assigned") return null;
 
   // Acá vivía una excepción a mano para `engagement.sqr_assigned` y `engagement.encargado_assigned`,
   // que apagaba el enlace porque Senior/Semi Senior reciben esas asignaciones sin tener

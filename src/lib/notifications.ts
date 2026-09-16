@@ -568,6 +568,15 @@ export function notificationRoute(
       // sin enlace se pinta como texto, que es preferible a mandar a una ruta muerta.
       if (event.type_key === "engagement.deleted") return null;
 
+      // La asignacion de un especialista tampoco lleva a ningun lado, y por otra razon: el
+      // encargo existe, pero `is_assigned_to_engagement()` solo mira partner_id, manager_id,
+      // sqr_id y encargado_id —no `specialist_it_id` ni `specialist_tax_id`—, asi que la RLS le
+      // devuelve cero filas al Gerente ESPECIALISTA y EngagementEdit cae en
+      // `engagement.unavailable`. El chequeo de permiso de arriba no lo ataja: `ita_manager` y
+      // `tax_manager` SI tienen `engagement.read`; lo que les falta es la FILA, no el permiso.
+      // La fila queda como texto, con su chip de codigo y su boton de descartar.
+      if (event.type_key === "engagement.specialist_assigned") return null;
+
       // El resto lleva engagement_id en entity_id, incluidos los de staffing: la asignacion no
       // tiene pantalla propia, se edita en el equipo del encargo.
       return event.entity_id ? `/engagements/${event.entity_id}` : null;
@@ -631,7 +640,12 @@ export function notificationMeta(event: NotificationEvent): string[] {
   // `skill_name` (3.e) no es un codigo sino texto libre; entra igual porque cumple la misma
   // funcion —sacar el identificador DEL TEXTO— y el panel decide la tipografia por la forma
   // del valor, no por la clave.
-  for (const key of ["request_number", "engagement_code", "activity_code", "cot", "skill_name"]) {
+  //
+  // `client_name` lo traen los eventos de encargo, y va PRIMERO porque es lo que ubica al
+  // encargo: el nombre se repite entre clientes. Pesa sobre todo en los avisos que no llevan a
+  // ninguna pantalla —`engagement.specialist_assigned`, `engagement.deleted`—, donde el texto de
+  // la fila es todo lo que el destinatario va a poder leer del hecho.
+  for (const key of ["request_number", "client_name", "engagement_code", "activity_code", "cot", "skill_name"]) {
     const raw = p[key];
     if (typeof raw === "string" && raw.trim()) out.push(raw.trim());
   }
