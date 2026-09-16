@@ -654,6 +654,47 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — un valor invalido cae al default en vez de tumbar la campana';
 
+  -- 6.d.2 Y "invalido" no es solo "no numerico". El regex validaba la FORMA y el cast reventaba
+  -- igual con dos clases de valor que la forma acepta:
+  --
+  --   * un entero de 20 digitos: '^[0-9]+$' lo aceptaba y `::integer` desborda ANTES de que el
+  --     LEAST/GREATEST pueda acotarlo;
+  --   * una fecha imposible como 2026-02-31: pasa `\d{4}-\d{2}-\d{2}` y revienta al castear.
+  --
+  -- notif_timesheet_window_start() no tiene manejo de excepcion, asi que cualquiera de las dos
+  -- subia hasta get_my_notifications() y dejaba la campana EN BLANCO para todos — justo lo que el
+  -- comentario del regex dice que no puede pasar.
+  UPDATE public.global_settings SET setting_value = '99999999999999999999'
+   WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
+  UPDATE public.global_settings SET setting_value = ''
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+
+  IF public.notif_timesheet_window_start() IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - un entero desbordado no cayo al default';
+  END IF;
+
+  UPDATE public.global_settings SET setting_value = '4'
+   WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
+  UPDATE public.global_settings SET setting_value = '2026-02-31'
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+
+  -- La fecha imposible se descarta y la ventana queda sin recorte, que es el default documentado
+  -- del ajuste ("Vacio = sin recorte").
+  IF public.notif_timesheet_window_start()
+     <> (now() AT TIME ZONE 'America/La_Paz')::date - 28 THEN
+    RAISE EXCEPTION 'TEST FAIL - una fecha imposible no cayo al default (dio %)',
+      public.notif_timesheet_window_start();
+  END IF;
+
+  -- Y la campana entera sigue de pie: es la asercion que de verdad importa.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');
+  PERFORM public.get_my_notifications(50);
+  PERFORM set_config('request.jwt.claims', '', true);
+  RAISE NOTICE 'PASS - ni un entero desbordado ni una fecha imposible tumban la campana';
+
+  UPDATE public.global_settings SET setting_value = ''
+   WHERE setting_key = 'TS_TRACKING_START_DATE';
+
   -- TS_TRACKING_START_DATE acorta aunque la ventana sea amplia.
   UPDATE public.global_settings SET setting_value = '12'
    WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
@@ -2646,6 +2687,75 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - la fila de user_roles sobrevivio al rollback';
   END IF;
   RAISE NOTICE 'PASS - deshacer un alta sin confirmar no alarma a Seguridad TI ni deja rastro';
+
+  -- 13.f.2b Y tambien se cancela el correo que el drenaje YA RECLAMO.
+  --
+  -- El drenaje corre cada 5 minutos y puede tomar el correo del alta mientras register-user
+  -- todavia pelea con Graph. Esa fila queda en `sending`, que el filtro viejo
+  -- (`IN ('pending','failed')`) no tocaba: el DELETE de notifications solo le ponia
+  -- notification_id en NULL —la FK es ON DELETE SET NULL— y el drenaje le mandaba al ADM el aviso
+  -- de un alta que se acababa de deshacer.
+  PERFORM set_config('ems.account_rollback', '', true);
+  DELETE FROM public.notifications;
+  DELETE FROM public.notification_emails;
+
+  INSERT INTO public.user_roles (user_id, role, role_key)
+  VALUES (v_pending, 'staff', 'assistant');
+
+  -- La fila de correo se arma A MANO, y hay que decir por que: HOY `auth.user.registered` tiene
+  -- `email_enabled = false` en el seed, asi que notify_staff() no encola nada y este escenario no
+  -- se puede producir por la via normal. Lo que se prueba es el CONTRATO de la funcion —cancelar
+  -- todo lo que no haya salido— que no puede depender de una bandera de la matriz: D-44 dice
+  -- explicitamente que el correo por tipo se enciende y se apaga desde ahi.
+  INSERT INTO public.notification_emails
+    (dedupe_key, notification_id, recipient_staff_id, to_email, type_key, payload, status, claimed_at)
+  SELECT 'probe-' || n.notification_id::text, n.notification_id, n.recipient_staff_id,
+         'adm@ruizmier.com', 'auth.user.registered', n.payload, 'sending', now()
+    FROM public.notifications n
+   WHERE n.type_key = 'auth.user.registered'
+     AND n.payload->>'user_id' = v_pending::text;
+
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails WHERE status = 'sending';
+  IF v_n < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el fixture no dejo ningun correo reclamado: la asercion no prueba nada';
+  END IF;
+
+  v_res := public.rollback_unconfirmed_signup(v_pending);
+  IF (v_res->>'ok')::boolean IS NOT TRUE THEN
+    RAISE EXCEPTION 'TEST FAIL - el rollback se nego: %', v_res;
+  END IF;
+
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'auth.user.registered';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el correo reclamado sobrevivio al rollback (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el rollback cancela tambien el correo que el drenaje ya habia reclamado';
+
+  -- Un correo YA ENVIADO no se toca: es el registro de un hecho.
+  PERFORM set_config('ems.account_rollback', '', true);
+  DELETE FROM public.notifications;
+  DELETE FROM public.notification_emails;
+  INSERT INTO public.user_roles (user_id, role, role_key)
+  VALUES (v_pending, 'staff', 'assistant');
+  INSERT INTO public.notification_emails
+    (dedupe_key, notification_id, recipient_staff_id, to_email, type_key, payload, status, sent_at)
+  SELECT 'probe-sent-' || n.notification_id::text, n.notification_id, n.recipient_staff_id,
+         'adm@ruizmier.com', 'auth.user.registered', n.payload, 'sent', now()
+    FROM public.notifications n
+   WHERE n.type_key = 'auth.user.registered'
+     AND n.payload->>'user_id' = v_pending::text;
+
+  v_res := public.rollback_unconfirmed_signup(v_pending);
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'auth.user.registered' AND status = 'sent';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el rollback borro un correo que ya habia salido (quedaron %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - un correo ya enviado sobrevive al rollback: borrarlo esconderia un hecho';
+
+  DELETE FROM public.notification_emails;
+  DELETE FROM public.notifications;
 
   -- 13.f.3 La guarda: una cuenta YA CONFIRMADA no se toca. Hoy la RPC la llama un solo sitio y
   -- con una cuenta recien creada, pero el costo de equivocarse es sacarle el acceso a alguien

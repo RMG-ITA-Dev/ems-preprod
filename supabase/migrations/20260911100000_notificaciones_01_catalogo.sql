@@ -933,16 +933,28 @@ DECLARE
 BEGIN
   -- Se valida con regex en vez de castear a ciegas: global_settings es texto libre y un valor
   -- mal tipeado por el admin no debe tumbar la campana entera.
+  --
+  -- El `{1,9}` no es cosmetico: '^[0-9]+$' aceptaba 20 digitos, y el cast a integer revienta
+  -- ANTES de que el LEAST/GREATEST pueda acotar nada. Nueve digitos siempre entran en integer.
   SELECT setting_value INTO v_raw
     FROM public.global_settings WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
-  IF v_raw ~ '^[0-9]+$' THEN
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
     v_window := LEAST(GREATEST(v_raw::integer, 1), 52);
   END IF;
 
   SELECT setting_value INTO v_raw
     FROM public.global_settings WHERE setting_key = 'TS_TRACKING_START_DATE';
+  -- El regex da la FORMA; el cast va en su propio bloque porque la forma no alcanza. '2026-02-31'
+  -- pasa `\d{4}-\d{2}-\d{2}` y revienta al castear, y esta funcion no tiene manejo de excepcion:
+  -- la de adentro subia hasta get_my_notifications() y dejaba la campana en blanco para todos, que
+  -- es exactamente lo que el comentario de arriba dice que no puede pasar.
   IF btrim(COALESCE(v_raw, '')) ~ '^\d{4}-\d{2}-\d{2}$' THEN
-    v_start := btrim(v_raw)::date;
+    BEGIN
+      v_start := btrim(v_raw)::date;
+    EXCEPTION WHEN OTHERS THEN
+      -- Cae al default documentado del ajuste: vacio = sin recorte.
+      v_start := NULL;
+    END;
   END IF;
 
   -- Hora local, no CURRENT_DATE (UTC): ver 20260911100600_fecha_local_current_date.sql.
@@ -1448,13 +1460,13 @@ DECLARE
 BEGIN
   SELECT setting_value INTO v_raw
     FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
-  IF v_raw ~ '^[0-9]+$' THEN
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
     v_read := LEAST(GREATEST(v_raw::integer, 1), 3650);
   END IF;
 
   SELECT setting_value INTO v_raw
     FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
-  IF v_raw ~ '^[0-9]+$' THEN
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
     v_unread := LEAST(GREATEST(v_raw::integer, 1), 3650);
   END IF;
 

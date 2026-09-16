@@ -128,7 +128,9 @@ BEGIN
     v_max_global := 120;
     SELECT setting_value INTO v_raw
       FROM public.global_settings WHERE setting_key = 'AUTH_EMAIL_GLOBAL_MAX_PER_HOUR';
-    IF v_raw ~ '^[0-9]+$' THEN
+    -- `{1,9}`: el cast a integer revienta antes que el clamp con un numero de 20 digitos, y
+    -- esta funcion es la que decide si sale un correo de recuperacion de contrasena.
+    IF v_raw ~ '^[0-9]{1,9}$' THEN
       v_max_global := LEAST(GREATEST(v_raw::integer, 1), 100000);
     END IF;
   END IF;

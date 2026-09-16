@@ -1787,9 +1787,23 @@ BEGIN
 
   -- El correo primero: solo lo que TODAVIA no salio. Un correo ya enviado es un hecho y su fila
   -- es el registro de ese hecho — borrarla no lo desmiente, solo esconde que paso.
+  --
+  -- `<> 'sent'` y no `IN ('pending','failed')`, porque falta el tercer estado: `sending`. El
+  -- drenaje corre cada 5 minutos y puede haber RECLAMADO el correo del alta mientras register-user
+  -- todavia peleaba con Graph. Esa fila no entraba en el filtro viejo, y el DELETE de
+  -- `notifications` que viene abajo solo le pone `notification_id` en NULL (la FK es ON DELETE SET
+  -- NULL): el drenaje seguia y le mandaba al ADM el aviso de un alta que se acababa de deshacer.
+  --
+  -- Borrarla la cancela sin mecanismo nuevo: `begin_notification_email_attempt` solo actualiza
+  -- `WHERE status = 'sending'`, asi que devuelve NULL, y el drenaje ya sabe saltear ese caso
+  -- ("La fila dejo de estar arrendada entre el claim y esto").
+  --
+  -- No cierra la ventana ENTERA, y conviene saberlo: si el drenaje ya paso ese punto y esta dentro
+  -- de la llamada a Graph, el correo sale igual. Eso no lo arregla ninguna bandera — el mensaje
+  -- salio o no salio. Lo que se cierra del todo es el caso "reclamado y todavia sin intentar".
   DELETE FROM public.notification_emails
    WHERE notification_id = ANY (v_avisos)
-     AND status IN ('pending', 'failed');
+     AND status <> 'sent';
   GET DIAGNOSTICS v_correos = ROW_COUNT;
 
   DELETE FROM public.notifications WHERE notification_id = ANY (v_avisos);
@@ -1808,7 +1822,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.rollback_unconfirmed_signup(uuid) IS
-  'Deshace el rastro en public de un alta que quedo a medias (el correo de confirmacion no salio): borra los avisos auth.user.registered, sus correos sin enviar y la fila de user_roles, con ems.account_rollback puesto para que el trigger no reporte una baja de cuenta a Seguridad TI. Rechaza cuentas ya confirmadas. La cuenta en auth la borra GoTrue por su API.';
+  'Deshace el rastro en public de un alta que quedo a medias (el correo de confirmacion no salio): borra los avisos auth.user.registered, sus correos que no llegaron a salir —incluidos los ya reclamados por el drenaje, que se cancelan solos porque begin_notification_email_attempt deja de encontrarlos en sending— y la fila de user_roles, con ems.account_rollback puesto para que el trigger no reporte una baja de cuenta a Seguridad TI. Rechaza cuentas ya confirmadas. La cuenta en auth la borra GoTrue por su API.';
 
 REVOKE ALL ON FUNCTION public.rollback_unconfirmed_signup(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rollback_unconfirmed_signup(uuid) TO service_role;
