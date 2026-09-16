@@ -1870,6 +1870,55 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - cada mitad del reemplazo nombra a su propia persona';
 
+  -- 10.d.3 Y si ademas cambia el ENCARGO, cada mitad habla del suyo.
+  --
+  -- Nada en la base impide que un UPDATE mueva `engagement_id`: save_engagement_assignments no lo
+  -- toca y su WHERE lo fija, pero eso es la aplicacion, no una restriccion. Con los dos avisos
+  -- armados sobre NEW, al que salia se le decia que lo sacaron de un encargo donde nunca estuvo.
+  -- 10.d.2 dejo la asignacion viva y en c_sen, asi que el movimiento devuelve la posicion al
+  -- asistente Y la cambia de encargo en la misma sentencia.
+  DELETE FROM public.notifications;
+  UPDATE public.engagement_assignments
+     SET engagement_id = 'e9f00000-0000-4000-8000-000000000002',
+         staff_id      = c_stf
+   WHERE assignment_id = v_asg;
+
+  -- La baja habla del encargo VIEJO: es del que esa persona salio.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen
+     AND payload->>'context' = 'unassigned'
+     AND payload->>'engagement_id' = v_eng::text;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la baja no nombro el encargo del que la persona salio (hubo %)', v_n;
+  END IF;
+
+  -- Y el alta, del NUEVO.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf
+     AND payload->>'context' = 'assigned'
+     AND payload->>'engagement_id' = 'e9f00000-0000-4000-8000-000000000002';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta no nombro el encargo al que la persona entro (hubo %)', v_n;
+  END IF;
+
+  -- Los gerentes del encargo VIEJO se enteran de la salida; con los dos avisos armados sobre NEW
+  -- no se enteraba nadie de ese lado.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_mgr
+     AND payload->>'context' = 'team_unassigned'
+     AND payload->>'engagement_id' = v_eng::text;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - los gerentes del encargo viejo no vieron la salida (hubo %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - movida entre encargos, cada mitad del aviso habla de su propio encargo';
+
+  -- Se devuelve todo al estado que espera 10.e: encargo del grupo y borrada. El asistente ya
+  -- quedo puesto por el movimiento de arriba.
+  DELETE FROM public.notifications;
+  UPDATE public.engagement_assignments SET engagement_id = v_eng WHERE assignment_id = v_asg;
+  UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
+  DELETE FROM public.notifications;
+
   -- Se devuelve todo al estado en que lo dejo 10.d: el asistente asignado y la fila borrada.
   DELETE FROM public.notifications;
   UPDATE public.engagement_assignments SET staff_id = c_stf WHERE assignment_id = v_asg;
@@ -2183,6 +2232,47 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - un rol fuera de la matriz recibio avisos de timesheet (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - los disparadores de tiempos respetan la matriz';
+
+  -- 11.h La VISTA LEGACY no puede anunciar una boleta que ya no esta enviada.
+  --
+  -- `unsubmit_timesheet_safe` pone submitted_at en NULL y solo borra las lineas `approved` —y solo
+  -- si el periodo estaba completo—, asi que las `pending` quedan. La vista seleccionaba por
+  -- `tla.status = 'pending'` a secas, y el aprobador se quedaba con un alerta permanente sobre una
+  -- boleta retirada. El contador nuevo del catalogo ya exigia el periodo enviado por este mismo
+  -- motivo; la vista no.
+  PERFORM set_config('request.jwt.claims', '', true);
+  -- La vista hace JOIN contra `categories` por la categoria del DUENO de la boleta, y el fixture
+  -- del archivo crea el staff sin categoria: sin esto la fila no aparece y la asercion de abajo
+  -- pasaria por el motivo equivocado.
+  UPDATE public.staff SET category_id = (SELECT category_id FROM public.categories LIMIT 1)
+   WHERE staff_id = c_own AND category_id IS NULL;
+  UPDATE public.timesheet_periods SET submitted_at = now() WHERE period_id = v_per;
+  UPDATE public.timesheet_line_approvals
+     SET status = 'pending', approved_by = c_mgr
+   WHERE period_id = v_per;
+
+  SELECT COUNT(*) INTO v_n FROM public.vw_staffing_alerts
+   WHERE alert_type = 'timesheet_pending_approval' AND staff_id = c_mgr;
+  IF v_n < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - con la boleta enviada el aprobador no ve la alerta (hubo %)', v_n;
+  END IF;
+
+  -- Y al retirarla, desaparece. Las filas `pending` siguen ahi: lo que cambia es que ya no esperan
+  -- a nadie.
+  UPDATE public.timesheet_periods SET submitted_at = NULL WHERE period_id = v_per;
+
+  SELECT COUNT(*) INTO v_n FROM public.vw_staffing_alerts
+   WHERE alert_type = 'timesheet_pending_approval' AND staff_id = c_mgr;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la boleta retirada sigue anunciada al aprobador (hubo %)', v_n;
+  END IF;
+
+  SELECT COUNT(*) INTO v_n FROM public.timesheet_line_approvals
+   WHERE period_id = v_per AND status = 'pending';
+  IF v_n < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el fixture no dejo lineas pendientes: la asercion no prueba nada';
+  END IF;
+  RAISE NOTICE 'PASS - la vista legacy deja de anunciar una boleta retirada';
 END $$;
 
 -- -- Grupo 12 -- FASE 3.d: cierre automatico del timer y cola de capacitacion --

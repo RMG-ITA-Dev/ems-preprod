@@ -83,7 +83,9 @@ export const TEXTOS_RECORDATORIO: Record<string, CopiaRecordatorio> = {
 export const RUTAS_RECORDATORIO: Record<string, string> = {
   "timesheet.reminder.daily": "/timesheet",
   "approval.reminder.weekly": "/timesheet/approvals",
-  "fund.reminder.weekly": "/fund-requests",
+  // Sin ningún bucket poblado no hay a dónde ir: el emisor no manda el correo si el total es 0,
+  // así que llegar acá significa un payload roto, y la lista personal sería una respuesta falsa.
+  // Ver DESTINOS_POR_CONCEPTO más abajo.
   "wo.installment.reminder.weekly": "/work-orders",
 };
 
@@ -120,6 +122,42 @@ export const DESTINOS_POR_CONCEPTO: Record<string, Record<string, DestinoRecorda
       ruta: "/timesheet",
       boton: "Ir a mi hoja de tiempo",
       intro: "Tiene semanas enviadas que todavía esperan aprobación.",
+    },
+  },
+
+  // Los cuatro contadores de fondos viven en la MISMA pantalla, en pestañas distintas, y ninguno
+  // vive en `/fund-requests` — que es la lista PERSONAL: `FundRequests.tsx` filtra por
+  // `requester_staff_id === staffRecord.staff_id`. El recordatorio cuenta las colas de
+  // Contabilidad de toda la firma, así que el botón llevaba a un Gerente de Contabilidad a sus
+  // propias solicitudes, que probablemente sean cero.
+  //
+  // El mapeo no se inventa acá: es el mismo de `PENDING_ALARMS` en src/lib/notifications.ts, tab
+  // por tab. El orden de las claves es la prioridad y sigue al de allá, para que la campana y el
+  // correo manden al mismo lugar cuando hay más de un bucket con cuenta.
+  //
+  // Quien no pueda abrir esa pantalla no recibe botón: `notif_permiso_de_ruta` mapea este tipo a
+  // `fund_disbursement.read`, que `accounting_analyst` no tiene, y `notify_staff` le marca el
+  // payload con `sin_ruta`.
+  "fund.reminder.weekly": {
+    desembolsos: {
+      ruta: "/fund-requests/disbursements?tab=to_disburse",
+      boton: "Ir a desembolsos",
+      intro: "Hay solicitudes de fondos esperando su gestión.",
+    },
+    revision_gastos: {
+      ruta: "/fund-requests/disbursements?tab=expenses_review",
+      boton: "Ir a revisión de gastos",
+      intro: "Hay gastos esperando su revisión.",
+    },
+    liquidaciones: {
+      ruta: "/fund-requests/disbursements?tab=in_settlement",
+      boton: "Ir a liquidaciones",
+      intro: "Hay solicitudes de fondos esperando su gestión.",
+    },
+    cierres: {
+      ruta: "/fund-requests/disbursements?tab=in_settlement",
+      boton: "Ir a liquidaciones",
+      intro: "Hay solicitudes de fondos esperando su gestión.",
     },
   },
 };

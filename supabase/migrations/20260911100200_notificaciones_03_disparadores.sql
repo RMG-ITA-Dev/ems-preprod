@@ -1064,6 +1064,7 @@ DECLARE
   v_avisos     jsonb;
   v_aviso      jsonb;
   v_staff      uuid;
+  v_eng        uuid;
   v_es_alta    boolean;
   v_code       text;
   v_name       text;
@@ -1104,29 +1105,38 @@ BEGIN
              AND v_viva_antes AND v_viva_ahora
              AND NEW.staff_id IS DISTINCT FROM OLD.staff_id;
 
-  -- Cada aviso es (a quién, si es alta). El reemplazo produce dos; el resto, uno.
+  -- Cada aviso es (a quién, de qué encargo, si es alta). El reemplazo produce dos; el resto, uno.
+  --
+  -- La baja lleva el encargo VIEJO y el alta el nuevo, y no es una precaución vacía: nada en la
+  -- base impide que un UPDATE directo mueva `engagement_id` —`save_engagement_assignments` no lo
+  -- toca y su WHERE lo fija, pero eso es la aplicación, no una restricción—. Con los dos avisos
+  -- armados sobre `NEW`, un movimiento entre encargos le decía al que sale que lo sacaron de un
+  -- encargo donde nunca estuvo, y dejaba a los gerentes del encargo viejo sin enterarse.
   IF v_reemplazo THEN
     v_avisos := jsonb_build_array(
-      jsonb_build_object('staff', OLD.staff_id, 'alta', false),
-      jsonb_build_object('staff', NEW.staff_id, 'alta', true));
+      jsonb_build_object('staff', OLD.staff_id, 'eng', OLD.engagement_id, 'alta', false),
+      jsonb_build_object('staff', NEW.staff_id, 'eng', NEW.engagement_id, 'alta', true));
   ELSIF v_alta OR v_baja THEN
-    v_avisos := jsonb_build_array(jsonb_build_object('staff', NEW.staff_id, 'alta', v_alta));
+    v_avisos := jsonb_build_array(
+      jsonb_build_object('staff', NEW.staff_id, 'eng', NEW.engagement_id, 'alta', v_alta));
   ELSE
     RETURN NULL;
   END IF;
 
-  SELECT COALESCE(e.engagement_code, ''), COALESCE(e.engagement_name, '')
-    INTO v_code, v_name
-    FROM public.engagements e
-   WHERE e.engagement_id = NEW.engagement_id;
-
   FOR v_aviso IN SELECT * FROM jsonb_array_elements(v_avisos)
   LOOP
     v_staff   := (v_aviso->>'staff')::uuid;
+    v_eng     := (v_aviso->>'eng')::uuid;
     v_es_alta := (v_aviso->>'alta')::boolean;
 
-    -- El nombre se resuelve POR AVISO: en un reemplazo cada mitad nombra a una persona distinta,
-    -- y el texto que leen los gerentes es justamente "asignaron a Fulano" / "sacaron a Mengano".
+    -- Encargo y persona se resuelven POR AVISO. En un reemplazo cada mitad nombra a una persona
+    -- distinta —el texto que leen los gerentes es "asignaron a Fulano" / "sacaron a Mengano"— y,
+    -- si además cambió el encargo, cada mitad habla del suyo.
+    SELECT COALESCE(e.engagement_code, ''), COALESCE(e.engagement_name, '')
+      INTO v_code, v_name
+      FROM public.engagements e
+     WHERE e.engagement_id = v_eng;
+
     SELECT COALESCE(s.first_name || ' ' || s.last_name, '')
       INTO v_who
       FROM public.staff s WHERE s.staff_id = v_staff;
@@ -1134,7 +1144,7 @@ BEGIN
     v_base := jsonb_build_object(
       'engagement_code', v_code,
       'engagement_name', v_name,
-      'engagement_id',   NEW.engagement_id,
+      'engagement_id',   v_eng,
       'staff_name',      v_who);
 
     -- El MISMO type_key con dos redacciones, porque el hecho se lee distinto según de qué lado
@@ -1142,16 +1152,16 @@ BEGIN
     -- i18next y el panel hace t(label_key, {...payload}), así que cada destinatario recibe su
     -- propia variante sin que el catálogo necesite cuatro tipos.
     PERFORM public.notify_staff('engagement.staffing.changed', v_staff,
-              NEW.engagement_id::text,
+              v_eng::text,
               v_base || jsonb_build_object('context',
                 CASE WHEN v_es_alta THEN 'assigned' ELSE 'unassigned' END));
 
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(v_eng)
     LOOP
       -- Al propio afectado no se le manda dos veces si además es gerente del encargo.
       IF v_rec.staff_id IS DISTINCT FROM v_staff THEN
         PERFORM public.notify_staff('engagement.staffing.changed', v_rec.staff_id,
-                  NEW.engagement_id::text,
+                  v_eng::text,
                   v_base || jsonb_build_object('context',
                     CASE WHEN v_es_alta THEN 'team_assigned' ELSE 'team_unassigned' END));
       END IF;

@@ -273,6 +273,11 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text)
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
     WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
       THEN 'timesheet_approval.read'
+    -- El recordatorio semanal de fondos NO va a la lista de solicitudes: sus cuatro contadores
+    -- son colas de Contabilidad y viven en /fund-requests/disbursements, que exige su propio
+    -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
+    -- excepcion el correo le ofrecia un boton a "Sin acceso".
+    WHEN p_type_key = 'fund.reminder.weekly' THEN 'fund_disbursement.read'
     WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
     WHEN p_module_key = 'work_order'         THEN 'work_order.read'
     WHEN p_module_key = 'engagement'         THEN 'engagement.read'
@@ -471,7 +476,16 @@ WITH base AS (
      JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
      JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
      JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
-  WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL))
+  -- `tp.submitted_at IS NOT NULL` no estaba, y sin eso la fila sobrevive al RETIRO de la boleta:
+  -- `unsubmit_timesheet_safe` pone submitted_at en NULL y solo borra las lineas `approved` —y solo
+  -- si el periodo estaba completo—, asi que las `pending` quedan ahi y el aprobador se queda con
+  -- un alerta permanente sobre una boleta que ya nadie envio.
+  --
+  -- El contador nuevo del catalogo ya se protegia de esto: `notif_agg_timesheet_pending_approval`
+  -- exige el periodo enviado por el MISMO motivo, y lo dice en su comentario. La vista legacy no
+  -- lo aplicaba, y eso se volvio visible cuando el panel dejo de descartar esta fila.
+  WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL)
+         AND (tp.submitted_at IS NOT NULL))
 UNION ALL
  SELECT 'work_order_pending_approval'::text AS alert_type,
     NULL::character varying AS category_name,

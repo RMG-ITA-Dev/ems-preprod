@@ -163,7 +163,15 @@ export function renderizarCorreoNotificacion(datos: DatosNotificacion): CorreoRe
     // El botón tiene que nombrar la pantalla a la que lleva, y esa pantalla puede cambiar según
     // los contadores del destinatario: "Ir a aprobaciones" sobre un enlace a la hoja de tiempo
     // propia es la misma mentira que el enlace roto, sólo que más difícil de notar.
-    const destino = destinoDeRecordatorio(datos.typeKey, payload);
+    //
+    // Y por eso `sin_ruta` también apaga el texto por concepto, no sólo el enlace. Cuando el
+    // destinatario no puede abrir la pantalla, `rutaDeNotificacion` devuelve null y el botón
+    // termina apuntando al inicio de la aplicación: dejarle encima "Ir a revisión de gastos" es
+    // exactamente la mentira que este bloque existe para evitar. Se cae a la copia genérica del
+    // tipo, que no promete ninguna pantalla en particular.
+    const destino = payload.sin_ruta === true
+      ? null
+      : destinoDeRecordatorio(datos.typeKey, payload);
     return renderizar(destino ? { ...copia, boton: destino.boton, intro: destino.intro } : copia, enlace, {
       nombre: datos.nombre,
       detalles: detallesDeRecordatorio(copia, payload),

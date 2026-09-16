@@ -390,6 +390,65 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
     });
   });
 
+  it("el recordatorio de fondos NO lleva a la lista personal de solicitudes", () => {
+    // `/fund-requests` filtra por `requester_staff_id === staffRecord.staff_id`
+    // (FundRequests.tsx): es la lista PROPIA. El recordatorio cuenta las colas de Contabilidad de
+    // toda la firma, asi que ese destino le mostraba a un Gerente de Contabilidad sus propias
+    // solicitudes —probablemente cero— en vez del backlog que el correo acababa de resumir.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.reminder.weekly",
+        entityId: null,
+        payload: { desembolsos: { count: 12 } },
+      }),
+    );
+
+    expect(
+      rutaDeNotificacion({ typeKey: "fund.reminder.weekly", payload: { desembolsos: { count: 12 } } }),
+    ).toBe("/fund-requests/disbursements?tab=to_disburse");
+    expect(correo.cuerpoTexto).toContain(
+      "https://ems.ruizmier.com/fund-requests/disbursements?tab=to_disburse",
+    );
+    expect(correo.asunto).toBe("Solicitudes de fondos pendientes");
+  });
+
+  it.each([
+    ["desembolsos", "to_disburse"],
+    ["revision_gastos", "expenses_review"],
+    ["liquidaciones", "in_settlement"],
+    ["cierres", "in_settlement"],
+  ])("el bucket %s manda a su pestaña (%s)", (clave, tab) => {
+    // El mapeo es el mismo de PENDING_ALARMS en src/lib/notifications.ts, tab por tab: la campana
+    // y el correo tienen que mandar al mismo lugar.
+    const correo = renderizarCorreoNotificacion(
+      base({ typeKey: "fund.reminder.weekly", entityId: null, payload: { [clave]: { count: 3 } } }),
+    );
+
+    expect(correo.cuerpoTexto).toContain(
+      `https://ems.ruizmier.com/fund-requests/disbursements?tab=${tab}`,
+    );
+  });
+
+  it("sin permiso sobre la pantalla, el recordatorio de fondos sale sin boton", () => {
+    // `accounting_analyst` recibe el recordatorio y no tiene `fund_disbursement.read`. Lo decide
+    // notify_staff al encolar, que es el unico momento con el rol a la vista, y marca el payload.
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.reminder.weekly",
+        entityId: null,
+        payload: { revision_gastos: { count: 4 }, sin_ruta: true },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).not.toContain("/fund-requests/disbursements");
+    // El correo igual sale: el dato le sirve aunque no pueda abrir la pantalla.
+    expect(correo.cuerpoTexto).toContain("- gastos por revisar: 4");
+    // Y el BOTON tampoco nombra la pantalla: con el enlace apuntando al inicio, "Ir a revision de
+    // gastos" seria la misma mentira que un enlace roto, solo que mas dificil de notar.
+    expect(correo.cuerpoTexto).not.toContain("Ir a revisión de gastos");
+    expect(correo.cuerpoTexto).toContain("Ir a solicitudes");
+  });
+
   it("los cuatro recordatorios rinden", () => {
     for (const tipo of [
       "timesheet.reminder.daily",
