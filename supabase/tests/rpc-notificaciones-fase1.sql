@@ -1911,56 +1911,47 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - cada mitad del reemplazo nombra a su propia persona';
 
-  -- 10.d.3 Y si ademas cambia el ENCARGO, cada mitad habla del suyo.
+  -- 10.d.3 UNA ASIGNACION NO SE MUDA DE ENCARGO.
   --
-  -- Nada en la base impide que un UPDATE mueva `engagement_id`: save_engagement_assignments no lo
-  -- toca y su WHERE lo fija, pero eso es la aplicacion, no una restriccion. Con los dos avisos
-  -- armados sobre NEW, al que salia se le decia que lo sacaron de un encargo donde nunca estuvo.
-  -- 10.d.2 dejo la asignacion viva y en c_sen, asi que el movimiento devuelve la posicion al
-  -- asistente Y la cambia de encargo en la misma sentencia.
+  -- Este bloque probaba lo contrario: que al mover la fila de encargo cada mitad del aviso hablara
+  -- del suyo. Funcionaba, pero anunciaba con prolijidad una operacion que deja la fila mintiendo —
+  -- `requirement_id` apuntando al requerimiento de un encargo ajeno (y esa columna no tiene FK),
+  -- fechas y horas validadas contra otro encargo, solapamiento calculado contra otro conjunto.
+  -- El agujero no era la notificacion que faltaba: era que la operacion existiera.
+  --
+  -- El trigger de C.0 la rechaza. El manejo por-encargo del disparador de avisos se conserva igual:
+  -- es correcto, y hoy queda inalcanzable, que es lo que se busca.
+  DECLARE
+    v_rechazo text;
+  BEGIN
+    UPDATE public.engagement_assignments
+       SET engagement_id = 'e9f00000-0000-4000-8000-000000000002'
+     WHERE assignment_id = v_asg;
+    RAISE EXCEPTION 'TEST FAIL - se pudo mover la asignacion a otro encargo';
+  EXCEPTION
+    WHEN raise_exception THEN
+      GET STACKED DIAGNOSTICS v_rechazo = MESSAGE_TEXT;
+      -- El TEST FAIL de arriba tambien es raise_exception: hay que distinguirlo del rechazo.
+      IF v_rechazo LIKE 'TEST FAIL%' THEN
+        RAISE EXCEPTION '%', v_rechazo;
+      END IF;
+      IF v_rechazo NOT LIKE 'ASSIGNMENT_ENGAGEMENT_IMMUTABLE%' THEN
+        RAISE EXCEPTION 'TEST FAIL - el movimiento fallo por otro motivo: %', v_rechazo;
+      END IF;
+  END;
+  RAISE NOTICE 'PASS - una asignacion no puede mudarse de encargo';
+
+  -- Y el resto de la fila sigue editable: la guarda mira UNA columna, no congela la asignacion.
   DELETE FROM public.notifications;
-  UPDATE public.engagement_assignments
-     SET engagement_id = 'e9f00000-0000-4000-8000-000000000002',
-         staff_id      = c_stf
-   WHERE assignment_id = v_asg;
-
-  -- La baja habla del encargo VIEJO: es del que esa persona salio.
-  SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_sen
-     AND payload->>'context' = 'unassigned'
-     AND payload->>'engagement_id' = v_eng::text;
+  UPDATE public.engagement_assignments SET hours_per_week = 30 WHERE assignment_id = v_asg;
+  SELECT COUNT(*) INTO v_n FROM public.engagement_assignments
+   WHERE assignment_id = v_asg AND hours_per_week = 30 AND engagement_id = v_eng;
   IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - la baja no nombro el encargo del que la persona salio (hubo %)', v_n;
+    RAISE EXCEPTION 'TEST FAIL - la guarda bloqueo una edicion que no toca el encargo';
   END IF;
+  RAISE NOTICE 'PASS - la guarda solo mira el encargo: el resto de la fila se sigue editando';
 
-  -- Y el alta, del NUEVO.
-  SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_stf
-     AND payload->>'context' = 'assigned'
-     AND payload->>'engagement_id' = 'e9f00000-0000-4000-8000-000000000002';
-  IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - el alta no nombro el encargo al que la persona entro (hubo %)', v_n;
-  END IF;
-
-  -- Los gerentes del encargo VIEJO se enteran de la salida; con los dos avisos armados sobre NEW
-  -- no se enteraba nadie de ese lado.
-  SELECT COUNT(*) INTO v_n FROM public.notifications
-   WHERE type_key = 'engagement.staffing.changed' AND recipient_staff_id = c_mgr
-     AND payload->>'context' = 'team_unassigned'
-     AND payload->>'engagement_id' = v_eng::text;
-  IF v_n <> 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - los gerentes del encargo viejo no vieron la salida (hubo %)', v_n;
-  END IF;
-  RAISE NOTICE 'PASS - movida entre encargos, cada mitad del aviso habla de su propio encargo';
-
-  -- Se devuelve todo al estado que espera 10.e: encargo del grupo y borrada. El asistente ya
-  -- quedo puesto por el movimiento de arriba.
-  DELETE FROM public.notifications;
-  UPDATE public.engagement_assignments SET engagement_id = v_eng WHERE assignment_id = v_asg;
-  UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;
-  DELETE FROM public.notifications;
-
-  -- Se devuelve todo al estado en que lo dejo 10.d: el asistente asignado y la fila borrada.
+  -- Se devuelve al estado que espera 10.e: asistente y borrada.
   DELETE FROM public.notifications;
   UPDATE public.engagement_assignments SET staff_id = c_stf WHERE assignment_id = v_asg;
   UPDATE public.engagement_assignments SET deleted_at = now() WHERE assignment_id = v_asg;

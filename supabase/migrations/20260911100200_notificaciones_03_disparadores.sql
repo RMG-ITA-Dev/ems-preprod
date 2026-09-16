@@ -1048,6 +1048,54 @@ CREATE TRIGGER tr_notify_engagement
   FOR EACH ROW EXECUTE FUNCTION public.notify_engagement_events();
 
 -- =====================================================================
+-- C.0) Una asignación no se muda de encargo
+-- =====================================================================
+--
+-- La fila de `engagement_assignments` pertenece a SU encargo, y cambiarle `engagement_id` no es
+-- "mover a alguien": es dejar una fila cuyos datos pertenecen a otro lado.
+--
+--   * `requirement_id` apunta a `wo_staffing_requirements`, que cuelga de una OT y por lo tanto de
+--     UN encargo. Movida la fila, ese puntero señala el requerimiento de un encargo ajeno — y esa
+--     columna NO tiene clave foránea (ni en cero_03 ni en cero_04), asi que nada se queja.
+--   * `start_date`, `end_date`, `hours_per_week`, `allocation_percent` y `category_id` se cargaron
+--     contra el encargo viejo, y la deteccion de solapamiento de `save_engagement_assignments`
+--     corrio contra ESE conjunto de asignaciones. Despues del movimiento nadie las revalida.
+--
+-- Por eso se prohibe en vez de notificarse. El disparador de abajo reconoce tres hechos —entro
+-- alguien, salio alguien, lo reemplazaron— y un cambio de encargo a secas no es ninguno: la fila
+-- sigue viva y la persona no cambia, asi que el aviso no salia y nadie se enteraba. Agregarle esa
+-- rama seria anunciar con prolijidad una operacion que deja la fila mintiendo; el agujero de
+-- verdad es que la operacion exista.
+--
+-- NINGUN camino de la aplicacion se rompe: `save_engagement_assignments` no incluye
+-- `engagement_id` en su SET y su WHERE lo fija (cero_02). Mover a una persona de encargo ya se
+-- hace como corresponde — se cierra una asignacion y se abre otra—, y por esa via todos los avisos
+-- salen solos.
+--
+-- Va como trigger y no como CHECK porque hay que comparar OLD con NEW.
+CREATE OR REPLACE FUNCTION public.reject_engagement_assignment_move() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $BODY$
+BEGIN
+  IF NEW.engagement_id IS DISTINCT FROM OLD.engagement_id THEN
+    RAISE EXCEPTION
+      'ASSIGNMENT_ENGAGEMENT_IMMUTABLE: una asignacion no cambia de encargo (% -> %). Cerrar la asignacion en el encargo actual y crear una nueva en el destino.',
+      OLD.engagement_id, NEW.engagement_id;
+  END IF;
+  RETURN NEW;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.reject_engagement_assignment_move() IS
+  'Rechaza cambiarle el engagement_id a una asignacion existente. La fila lleva datos atados a su encargo —requirement_id (sin FK), fechas, horas, categoria, y el solapamiento validado contra ese encargo— que un movimiento deja apuntando a otro lado sin que nada se queje. La via soportada es cerrar la asignacion y abrir otra.';
+
+DROP TRIGGER IF EXISTS tr_reject_engagement_assignment_move ON public.engagement_assignments;
+CREATE TRIGGER tr_reject_engagement_assignment_move
+  BEFORE UPDATE ON public.engagement_assignments
+  FOR EACH ROW EXECUTE FUNCTION public.reject_engagement_assignment_move();
+
+-- =====================================================================
 -- C) engagement_assignments — asignación y desasignación de staffing
 -- =====================================================================
 
