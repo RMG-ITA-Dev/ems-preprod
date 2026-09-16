@@ -3473,6 +3473,9 @@ DECLARE
   c_assist constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST
   c_mgr    constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
   c_hr     constant uuid := '59f00000-0000-4000-8000-00000000000a';  -- S_HR (hr_manager)
+  c_acct   constant uuid := '59f00000-0000-4000-8000-000000000003';  -- S_ACCT
+  c_risk   constant uuid := '59f00000-0000-4000-8000-000000000005';  -- S_RISK
+  c_cli    constant uuid := 'c9f00000-0000-4000-8000-00000000000b';  -- cliente propio de 18.d
   v_fr     uuid := 'f9f00000-0000-4000-8000-000000000008';
   v_wo     uuid;
   v_n      int;
@@ -3667,6 +3670,58 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - con solicitante y gerente distintos hubo % avisos de desembolso, se esperaban 2', v_n;
   END IF;
   RAISE NOTICE 'PASS - el UNION deduplica sin sacar al gerente que no es el solicitante';
+
+  -- 18.d `is_assigned_to_client()` tiene que reconocer las MISMAS columnas que
+  --      `notif_client_assigned()`. Si no, el aviso de cliente sale con enlace —los dos
+  --      gerentes especialistas tienen `client.read`, asi que `notif_permiso_de_ruta` no lo
+  --      marca `sin_ruta`— hacia una ficha que la policy "clients read" les esconde.
+  --
+  --      Se corre sobre un cliente PROPIO con UN solo encargo: los fixtures del archivo
+  --      cuelgan todos de `c9f...001`, donde estos actores ya ocupan otros cargos y la
+  --      asercion no aislaria nada.
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  VALUES (c_cli, 'NOTIF Cliente Once', 'NOTIF-9F0B');
+
+  -- `chk_engagements_manager_not_specialist` (0828-185) prohibe que el gerente general sea
+  -- ademas especialista, asi que van tres personas distintas.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  manager_id, specialist_it_id, specialist_tax_id,
+                                  created_by_staff_id, fecha_cierre, society_id)
+  VALUES ('e9f00000-0000-4000-8000-00000000000c', c_cli,
+          'NOTIF Encargo Doce', '9F0C', c_mgr, c_assist, c_acct, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
+  -- La premisa: el disparador SI los considera destinatarios del cliente.
+  SELECT COUNT(*) INTO v_n FROM public.notif_client_assigned(c_cli)
+   WHERE staff_id IN (c_assist, c_acct);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - notif_client_assigned no incluye a los dos especialistas (hubo %)', v_n;
+  END IF;
+
+  -- Y la policy tiene que decir lo mismo, para cada uno por su columna.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000001');  -- S_ASSIST = specialist_it
+  IF NOT public.is_assigned_to_client(c_cli) THEN
+    RAISE EXCEPTION 'TEST FAIL - is_assigned_to_client ignora specialist_it_id: el aviso linkearia a una ficha escondida';
+  END IF;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');  -- S_ACCT = specialist_tax
+  IF NOT public.is_assigned_to_client(c_cli) THEN
+    RAISE EXCEPTION 'TEST FAIL - is_assigned_to_client ignora specialist_tax_id: el aviso linkearia a una ficha escondida';
+  END IF;
+
+  -- Y no se abrio de mas: quien no ocupa NINGUNA de las seis columnas sigue afuera.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000005');  -- S_RISK, sin cargo aca
+  IF public.is_assigned_to_client(c_cli) THEN
+    RAISE EXCEPTION 'TEST FAIL - is_assigned_to_client dio true para quien no ocupa ningun cargo del encargo';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.notif_client_assigned(c_cli) WHERE staff_id = c_risk) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - notif_client_assigned incluyo a quien no ocupa ningun cargo';
+  END IF;
+
+  PERFORM set_config('request.jwt.claims', '', true);
+  RAISE NOTICE 'PASS - la policy de clientes y el disparador reconocen las mismas seis columnas';
 END $$;
 
 -- -- Grupo 17 -- Descarte manual y retencion ----------------------------------

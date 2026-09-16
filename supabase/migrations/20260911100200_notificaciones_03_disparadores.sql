@@ -2260,7 +2260,50 @@ CREATE FUNCTION public.notif_client_assigned(p_client_id uuid)
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_client_assigned(uuid) IS
-  'Staff asignado a un cliente: quienes ocupan un cargo en alguno de sus encargos, en cualquier estado. Espejo de is_assigned_to_client() en sentido inverso, mas los dos especialistas.';
+  'Staff asignado a un cliente: quienes ocupan un cargo en alguno de sus encargos, en cualquier estado. Espejo de is_assigned_to_client() en sentido inverso, incluidos los dos especialistas.';
+
+-- Y el espejo, del otro lado, para que las dos funciones digan lo MISMO.
+--
+-- `is_assigned_to_client()` (cero_02) miraba partner/manager/sqr/encargado y no las dos
+-- columnas de especialista. Con `notif_client_assigned()` incluyendolas, un `ita_manager` o
+-- `tax_manager` que entra al cliente SOLO por ahi recibe `client.updated` /
+-- `client.deactivated` y el aviso linkea a /clients/<id> — tiene `client.read` (alcance
+-- `assigned_clients`), asi que `notif_permiso_de_ruta` no lo marca `sin_ruta`. Si la policy no
+-- lo reconoce, el enlace lleva a una pantalla sin su fila.
+--
+-- HOY eso no se rompe, y conviene decirlo para que nadie lo confunda con lo de D-43: `clients`
+-- NO tiene `ENABLE ROW LEVEL SECURITY` — drift de la consolidacion, ver
+-- docs/hallazgo-rls-drift-ruta-a.md — asi que la policy "clients read" no se evalua y
+-- `useClientsFull()` devuelve todos los clientes a todos. La divergencia se vuelve real el dia
+-- que se aplique la reconciliacion de ese hallazgo, que el mismo doc pone como requisito
+-- previo a produccion. Se cierra ahora, que cuesta una funcion.
+--
+-- Barato de verdad, al reves que ampliar el portafolio de encargos (D-43): ver un cliente NO
+-- habilita editarlo. `client.update` lo tiene unicamente `admin`, y ClientForm resuelve
+-- `canSave = !isEdit || can("client.update")`, asi que para estos dos roles el formulario
+-- queda de solo lectura. La unica via de escritura era el `isEdit=false` del deep-link sin
+-- fila, y esa la tapa el guard de ClientEdit.tsx.
+--
+-- Una sola funcion: la policy "clients read" (cero_05) la hereda por CREATE OR REPLACE, sin
+-- DDL de policies. NO se toca `is_assigned_to_engagement()`: es otra decision, con otras
+-- consecuencias, y ahi ver SI es editar.
+CREATE OR REPLACE FUNCTION public.is_assigned_to_client(p_client_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+  -- Cliente asignado = tengo >=1 encargo (en cualquier estado) donde ocupo uno de los seis
+  -- cargos del bloque Equipo. Las tres columnas de gerencia —general, ITA y TAX— se mueven
+  -- siempre juntas en el formulario del encargo y valen lo mismo para ver a su cliente.
+  select exists (
+    select 1 from engagements e
+    where e.client_id = p_client_id
+      and get_my_staff_id() in (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id,
+                                e.specialist_it_id, e.specialist_tax_id)
+  )
+$BODY$;
+
+COMMENT ON FUNCTION public.is_assigned_to_client(uuid) IS
+  'True si el usuario actual ocupa algun cargo del bloque Equipo (partner/manager/sqr/encargado/specialist_it/specialist_tax) en algun encargo de este cliente, sin importar el estado del encargo. Los dos especialistas se sumaron el 2026-09-16 para que coincida con notif_client_assigned(): sin eso, un aviso de cliente podia linkear a una ficha que la policy "clients read" le escondia.';
 
 -- =====================================================================
 -- B) clients — alta, edición e inactivación

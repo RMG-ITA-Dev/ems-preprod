@@ -735,6 +735,7 @@
     "engagements": "Engagements",
     "newClient": "New Client",
     "editClient": "Edit Client",
+    "unavailable": "This client is not available to you. It may have been deactivated, or you may not have access to it.",
     "createClient": "Create Client",
     "deleteClient": "Delete Client",
     "searchPlaceholder": "Search by client name, NIT, or contact...",

@@ -735,6 +735,7 @@
     "engagements": "Encargos",
     "newClient": "Nuevo Cliente",
     "editClient": "Editar Cliente",
+    "unavailable": "Este cliente no está disponible para usted. Puede haber sido dado de baja, o quizás no tiene acceso a él.",
     "createClient": "Crear Cliente",
     "deleteClient": "Eliminar Cliente",
     "searchPlaceholder": "Buscar por nombre, NIT, o contacto...",
