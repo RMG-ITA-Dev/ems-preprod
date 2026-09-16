@@ -30,8 +30,15 @@ vi.mock("react-router-dom", async () => {
 let mockId = "no-existe";
 let mockClients: Array<{ client_id: string }> | undefined = [];
 let mockLoading = false;
+let mockError = false;
+const mockRefetch = vi.fn();
 vi.mock("@/hooks/useEmsData", () => ({
-  useClientsFull: () => ({ data: mockClients, isLoading: mockLoading }),
+  useClientsFull: () => ({
+    data: mockClients,
+    isLoading: mockLoading,
+    isError: mockError,
+    refetch: mockRefetch,
+  }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({
@@ -77,6 +84,7 @@ describe("ClientEdit — un id fuera de la lista no es un alta", () => {
     mockId = "no-existe";
     mockClients = [];
     mockLoading = false;
+    mockError = false;
   });
 
   it("muestra el aviso y NO monta el formulario cuando el cliente no esta en la lista", () => {
@@ -105,6 +113,22 @@ describe("ClientEdit — un id fuera de la lista no es un alta", () => {
     wrap();
     expect(screen.getByTestId("client-form")).toHaveAttribute("data-mode", "edit");
     expect(screen.queryByText("client.unavailable")).not.toBeInTheDocument();
+  });
+
+  it("un error de carga NO es un cliente inexistente: avisa y ofrece reintentar", () => {
+    // `useClientsFull()` hace `throw error`, asi que react-query deja `data` en undefined con
+    // `isLoading` ya en false: identico a un id que no existe. Decirle "no esta disponible para
+    // usted" seria una respuesta falsa sobre un cliente que existe.
+    mockClients = undefined;
+    mockError = true;
+    mockId = "cli-1";
+    wrap();
+    expect(screen.getByText("client.loadError")).toBeInTheDocument();
+    expect(screen.queryByText("client.unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("client-form")).not.toBeInTheDocument();
+
+    screen.getByText("client.retry").click();
+    expect(mockRefetch).toHaveBeenCalled();
   });
 
   it("mientras carga no decide nada: ni aviso ni formulario", () => {

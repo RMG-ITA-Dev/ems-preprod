@@ -17,7 +17,7 @@ const ClientEdit = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: clients, isLoading } = useClientsFull();
+  const { data: clients, isLoading, isError, refetch } = useClientsFull();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
@@ -39,6 +39,36 @@ const ClientEdit = () => {
         <div className="space-y-6">
           <Skeleton className="h-10 w-64" />
           <Skeleton className="h-96 w-full" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // `useClientsFull()` hace `throw error` cuando falla la consulta, y react-query deja
+  // entonces `data` en `undefined` con `isLoading` ya en false — exactamente la misma forma
+  // que un id inexistente. Sin esta rama, una red caida se le reportaba al usuario como
+  // "este cliente no está disponible para usted", que es una respuesta falsa: el cliente
+  // existe y lo que corresponde es reintentar, no mandarlo al listado.
+  //
+  // Va ANTES del chequeo de `client` a proposito: los dos miran el mismo `undefined` y solo
+  // `isError` sabe distinguir por que. Misma rama, y por la misma razon, que EngagementEdit.tsx
+  // tiene desde REVIEW 0828-185 (iteracion 2, #2).
+  if (isError) {
+    return (
+      <AppLayout title={t("nav.clients")} focusMode>
+        <div className="space-y-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("client.loadError")}</AlertDescription>
+          </Alert>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              {t("client.retry")}
+            </Button>
+            <Button variant="cancel" onClick={() => navigate("/clients")}>
+              {t("common.cancel")}
+            </Button>
+          </div>
         </div>
       </AppLayout>
     );
