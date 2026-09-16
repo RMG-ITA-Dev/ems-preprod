@@ -1844,7 +1844,7 @@
       },
       "staff": {
         "created": "New staff member: {{staff_name}}",
-        "terminated": "Staff member terminated: {{staff_name}}",
+        "terminated": "Termination recorded for {{staff_name}}",
         "competency": {
           "assigned": "You were given a new competency",
           "removed": "A competency was removed from you"

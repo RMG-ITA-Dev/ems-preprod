@@ -1844,7 +1844,7 @@
       },
       "staff": {
         "created": "Alta de personal: {{staff_name}}",
-        "terminated": "Baja de personal: {{staff_name}}",
+        "terminated": "Se registró la baja de {{staff_name}}",
         "competency": {
           "assigned": "Te asignaron una competencia",
           "removed": "Te quitaron una competencia"

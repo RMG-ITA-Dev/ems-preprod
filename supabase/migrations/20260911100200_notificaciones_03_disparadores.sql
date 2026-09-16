@@ -2086,6 +2086,16 @@ BEGIN
   END IF;
 
   -- ── Baja de personal: tres señales, un solo evento (D-35) ──
+  --
+  -- La primera señal es cargar `termination_date`, y esa fecha puede ser FUTURA: StaffForm sólo
+  -- exige la fecha cuando `is_active` pasa a false, no al revés, así que se puede registrar la
+  -- salida de alguien que sigue trabajando. El aviso sale igual —es lo que D-35 decidió, y a
+  -- Talento Humano le sirve saberlo cuando se registra, no el último día— pero por eso el texto
+  -- dice "Se registró la baja de X" y no "X dejó la firma": la fecha efectiva viaja en el payload.
+  --
+  -- Hacer que la fecha avise recién el día que llega pediría un emisor por calendario, como los
+  -- de plazo de emergencia. Hoy no existe, y sin él sacar esta señal dejaría la baja sin avisar
+  -- hasta que alguien apague `is_active` a mano.
   -- La UI usa una u otra según la pantalla (fecha de baja, desactivar, borrado lógico) y el
   -- hecho de negocio es uno. Hacer las tres en el mismo UPDATE deja UNA notificación.
   v_baja := (OLD.termination_date IS NULL AND NEW.termination_date IS NOT NULL)

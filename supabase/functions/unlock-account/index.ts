@@ -32,7 +32,7 @@
 //      reflects that an admin did this rather than the user asking for it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
+import { devolverCupoDeCorreo, generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
 import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 const corsHeaders = {
@@ -137,6 +137,33 @@ Deno.serve(async (req) => {
   //    burns the project's per-hour email quota. An admin unblocking several
   //    accounts in a row used to hit that limit from the fourth one onwards.
   //    GoTrue still issues and validates the token — only the delivery moved.
+  //
+  //    El freno propio SI se aplica, y faltaba. La migracion del throttle dice tres veces que
+  //    cubre "desbloqueo", y esta era la unica de las tres vias de correo de cuenta que no lo
+  //    reclamaba: `AUTH_EMAIL_GLOBAL_MAX_PER_HOUR` decia ser el tope de toda la firma y en los
+  //    hechos contaba dos flujos de tres. Y `admin_unblock_account` devuelve ok aunque la cuenta
+  //    no estuviera bloqueada, asi que repetir la llamada —un doble clic alcanza— mandaba un
+  //    correo cada vez, saltando el minimo entre correos al mismo destinatario.
+  //
+  //    El tope global de 120/hora no reintroduce el problema que esta rama vino a resolver: el de
+  //    GoTrue eran 2 por proyecto, y un admin desbloqueando de a uno no se acerca a 120.
+  const { data: hayCupo, error: errorCupo } = await supabaseAdmin.rpc("claim_auth_email_slot", {
+    p_email: email,
+  });
+
+  if (errorCupo || !hayCupo) {
+    // A diferencia de `request-password-reset`, que es publico y responde siempre igual para no
+    // delatar que correos existen, ACA quien llama es un admin y necesita saber que el correo no
+    // salio: la cuenta ya quedo desbloqueada, y sin el enlace la persona no puede entrar. Se le
+    // devuelve el mismo `resetEmailSent: false` que ya usa el fallo de Graph.
+    console.warn(
+      errorCupo
+        ? `[unlock-account] claim_auth_email_slot fallo: ${errorCupo.message}`
+        : "[unlock-account] frenado por throttle.",
+    );
+    return jsonResponse({ ok: true, resetEmailSent: false });
+  }
+
   try {
     const resultado = await generarYEnviarCorreoAuth({
       admin: supabaseAdmin,
@@ -151,6 +178,10 @@ Deno.serve(async (req) => {
     // The account is already unblocked, so this is not fatal — but the user
     // received no recovery link. Report resetEmailSent: false so the admin is
     // warned and can re-send the reset manually instead of being told it went out.
+    //
+    // El cupo vuelve: ningun mensaje llego a esa casilla, asi que el admin puede reintentar en el
+    // acto en vez de chocar con el minimo entre correos por un envio que nunca ocurrio.
+    await devolverCupoDeCorreo(supabaseAdmin, email, "unlock-account");
     console.error(
       "[unlock-account] recovery email failed:",
       error instanceof Error ? error.message : String(error),
