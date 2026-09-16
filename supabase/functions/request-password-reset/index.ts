@@ -15,6 +15,10 @@
 // el throttle. Un endpoint que responde distinto según el caso es un detector de usuarios — se
 // prueban correos hasta ver cuál contesta distinto. Lo que pasó de verdad va al log del servidor.
 //
+// "Idéntica" incluye CUÁNTO TARDA, y por eso el envío va en segundo plano: un cuerpo igual con
+// latencias distintas se barre igual de fácil, sólo que con un cronómetro. Ver el bloque del
+// envío, más abajo.
+//
 // El anti-abuso que antes ponía GoTrue lo pone ahora `claim_auth_email_slot()`: un mínimo de
 // segundos entre dos correos al mismo destinatario y un tope por ventana de una hora. Sin eso, un
 // endpoint público que manda correos es un amplificador contra la casilla de cualquiera.
@@ -46,6 +50,23 @@ const jsonResponse = (body: unknown, status = 200) =>
 /** Validación mínima: sólo descarta lo que ni siquiera es una dirección. */
 function correoValido(valor: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(valor) && valor.length <= 255;
+}
+
+/**
+ * Deja corriendo una tarea después de haber respondido.
+ *
+ * `EdgeRuntime.waitUntil` es lo que impide que el runtime mate el isolate apenas devuelve la
+ * Response. No está tipado en el `Deno` de esm.sh, de ahí el acceso por `globalThis`; donde no
+ * exista, la promesa igual corre mientras el isolate viva —se pierde la garantía, no el envío— y
+ * el `catch` de quien llama sigue siendo el que evita un rechazo sin manejar.
+ */
+function enSegundoPlano(tarea: Promise<unknown>): void {
+  const runtime = (globalThis as {
+    EdgeRuntime?: { waitUntil?: (promesa: Promise<unknown>) => void };
+  }).EdgeRuntime;
+  if (typeof runtime?.waitUntil === "function") {
+    runtime.waitUntil(tarea);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -108,34 +129,46 @@ Deno.serve(async (req) => {
     return jsonResponse({ ok: true });
   }
 
-  try {
-    const resultado = await generarYEnviarCorreoAuth({
-      admin: supabaseAdmin,
-      enviar: enviarCorreo,
-      tipo: "recovery",
-      email,
-      redirectTo,
-      supabaseUrl: SUPABASE_URL,
-    });
-    console.log(`[request-password-reset] recovery: ${resultado.estado}.`);
-  } catch (error) {
-    if (error instanceof UsuarioInexistente) {
-      // Respuesta idéntica al caso exitoso. El cupo ya se consumió, y eso es a propósito:
-      // si probar un correo inexistente saliera gratis, el throttle no frenaría el barrido.
-      console.log("[request-password-reset] sin cuenta para ese correo.");
-      return jsonResponse({ ok: true });
+  // A partir de acá NADA de lo que pase puede cambiar la respuesta, así que tampoco se espera.
+  //
+  // Esperarlo era una fuga por tiempo: `UsuarioInexistente` sale del error de `generateLink`
+  // (correo-auth.ts), o sea apenas vuelve GoTrue, mientras que una cuenta real esperaba además
+  // el viaje a Microsoft Graph. Mismo cuerpo, distinta latencia — y esa diferencia se mide con
+  // un cronómetro y convierte igual el formulario en un detector de usuarios. El throttle no lo
+  // tapa: `claim_auth_email_slot` cuenta por destinatario, y quien barre prueba una dirección
+  // distinta cada vez, cada una con su cupo entero.
+  //
+  // Ahora los tres desenlaces —salió, no hay cuenta, falló el envío— salen del mismo `return` de
+  // abajo, alcanzado en el mismo momento. Lo que pasó de verdad sigue yendo al log.
+  enSegundoPlano((async () => {
+    try {
+      const resultado = await generarYEnviarCorreoAuth({
+        admin: supabaseAdmin,
+        enviar: enviarCorreo,
+        tipo: "recovery",
+        email,
+        redirectTo,
+        supabaseUrl: SUPABASE_URL,
+      });
+      console.log(`[request-password-reset] recovery: ${resultado.estado}.`);
+    } catch (error) {
+      if (error instanceof UsuarioInexistente) {
+        // El cupo ya se consumió, y eso es a propósito: si probar un correo inexistente saliera
+        // gratis, el throttle no frenaría el barrido.
+        console.log("[request-password-reset] sin cuenta para ese correo.");
+        return;
+      }
+      // El correo no salió, así que el cupo vuelve: el usuario puede reintentar en el acto en vez
+      // de esperar al minuto por un envío que nunca ocurrió. No afloja el freno —ningún mensaje
+      // llegó a esa casilla— y no se confunde con el caso de arriba, donde consumir el cupo por
+      // una dirección inexistente es justamente lo que impide barrerlas gratis.
+      await devolverCupoDeCorreo(supabaseAdmin, email, "request-password-reset");
+      console.error(
+        "[request-password-reset] falló el envío:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
-    // El correo no salió, así que el cupo vuelve: el usuario puede reintentar en el acto en vez
-    // de esperar al minuto por un envío que nunca ocurrió. No afloja el freno —ningún mensaje
-    // llegó a esa casilla— y no se confunde con el caso de arriba, donde consumir el cupo por una
-    // dirección inexistente es justamente lo que impide barrerlas gratis.
-    await devolverCupoDeCorreo(supabaseAdmin, email, "request-password-reset");
-    console.error(
-      "[request-password-reset] falló el envío:",
-      error instanceof Error ? error.message : String(error),
-    );
-    return jsonResponse({ ok: true });
-  }
+  })());
 
   return jsonResponse({ ok: true });
 });

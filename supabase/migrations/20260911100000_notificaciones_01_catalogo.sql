@@ -264,15 +264,60 @@ COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS
 -- era un parche de este mismo agujero, y tapaba dos tipos de los muchos.
 --
 -- NULL = esa pantalla no exige permiso, o el módulo todavía no rutea a ninguna.
-DROP FUNCTION IF EXISTS public.notif_permiso_de_ruta(text, text);
+--
+-- Un recordatorio que resume colas de PANTALLAS DISTINTAS no tiene un permiso por tipo: tiene
+-- uno por contador, igual que ya tenía un destino por contador. Por eso entra el payload.
+DROP FUNCTION IF EXISTS public.notif_contador(jsonb, text);
 
-CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text) RETURNS text
+CREATE FUNCTION public.notif_contador(p_payload jsonb, p_clave text) RETURNS integer
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  -- Espejo de `conteoDeConcepto` en
+  -- supabase/functions/_shared/plantillas/constants/recordatorios.ts: un bucket es
+  -- `{"count": n}`, y lo que no sea un número cuenta como cero. El `trunc` y el `GREATEST`
+  -- están para que un payload raro no haga fallar un INSERT de notificación.
+  SELECT CASE
+    WHEN jsonb_typeof(COALESCE(p_payload, '{}'::jsonb) -> p_clave -> 'count')
+           IS DISTINCT FROM 'number'
+      THEN 0
+    ELSE GREATEST(trunc((p_payload -> p_clave ->> 'count')::numeric)::integer, 0)
+  END;
+$$;
+
+COMMENT ON FUNCTION public.notif_contador(jsonb, text) IS
+  'Lee el contador de un bucket de recordatorio (`{"count": n}`) del payload. Cero si el bucket falta o no trae numero. Espejo de conteoDeConcepto en plantillas/constants/recordatorios.ts.';
+
+DROP FUNCTION IF EXISTS public.notif_permiso_de_ruta(text, text);
+DROP FUNCTION IF EXISTS public.notif_permiso_de_ruta(text, text, jsonb);
+
+CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb)
+    RETURNS text
     LANGUAGE sql IMMUTABLE
     AS $$
   SELECT CASE
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
     WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
       THEN 'timesheet_approval.read'
+    -- El recordatorio de aprobaciones resume TRES colas que viven en pantallas distintas, y el
+    -- botón apunta a la del primer contador con número (`DESTINOS_POR_CONCEPTO`, en
+    -- supabase/functions/_shared/plantillas/constants/recordatorios.ts). El permiso tiene que
+    -- salir del MISMO contador: gatear el tipo entero por el permiso de su módulo mandaba a
+    -- todos a `timesheet.read`, y `hr_manager` —que por la matriz sólo recibe el bucket de
+    -- capacitación— no lo tiene. Perdía el botón a `/timesheet/approvals`, que SÍ puede
+    -- abrir: tiene `timesheet_approval.read` con alcance `assigned_engagements` desde 0817-180.
+    --
+    -- El orden de los WHEN es el orden de prioridad de allá, y tiene que seguir siéndolo: si
+    -- divergen, el correo gatea por una pantalla y linkea a otra.
+    WHEN p_type_key = 'approval.reminder.weekly' THEN
+      CASE
+        WHEN public.notif_contador(p_payload, 'capacitacion') > 0 THEN 'timesheet_approval.read'
+        WHEN public.notif_contador(p_payload, 'encargos')     > 0 THEN 'engagement.read'
+        WHEN public.notif_contador(p_payload, 'lineas')       > 0 THEN 'timesheet.read'
+        -- Sin ningún contador poblado el destino cae a `RUTAS_RECORDATORIO`, que para este tipo
+        -- es `/timesheet/approvals`. `notif_emit_approval_reminder_weekly` no emite con total 0,
+        -- así que esto es una red, no un caso esperado.
+        ELSE 'timesheet_approval.read'
+      END
     -- El recordatorio semanal de fondos NO va a la lista de solicitudes: sus cuatro contadores
     -- son colas de Contabilidad y viven en /fund-requests/disbursements, que exige su propio
     -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
@@ -281,9 +326,20 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text)
     WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
     WHEN p_module_key = 'work_order'         THEN 'work_order.read'
     WHEN p_module_key = 'engagement'         THEN 'engagement.read'
+    -- `worksheet.sent_to_quality` es campana pura (email_enabled = false), asi que este
+    -- WHEN no apaga ningun boton hoy: esta para que el espejo con
+    -- MODULE_ROUTE_PERMISSION no quede cojo si el tipo pasa a mandar correo.
+    WHEN p_module_key = 'worksheet'          THEN 'worksheet.read'
     -- El destino de estos tres es la pantalla PROPIA (su hoja, su cronómetro), no una bandeja
     -- de otros: por eso `timesheet.read` / `time_entry.read`, que sí tienen los 17 roles que
     -- reportan horas, con alcance `own`.
+    --
+    -- `timesheet_approval` cae acá sólo para lo que queda del módulo después de las dos
+    -- excepciones de arriba: hoy, nada que se encole. Sus tipos son `approval.reminder.weekly`
+    -- (resuelto por contador) y `approval.training_pending`, que es `aggregate` y nunca llega a
+    -- `notify_staff`. Se deja porque el default correcto para una bandeja de aprobación de UN
+    -- tipo nuevo no es obvio, y fallar hacia el permiso más común avisa sin enlace en vez de
+    -- linkear a "Sin acceso".
     WHEN p_module_key = 'timesheet'          THEN 'timesheet.read'
     WHEN p_module_key = 'timesheet_approval' THEN 'timesheet.read'
     WHEN p_module_key = 'tracker'            THEN 'time_entry.read'
@@ -294,8 +350,8 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text)
   END;
 $$;
 
-COMMENT ON FUNCTION public.notif_permiso_de_ruta(text, text) IS
-  'Permiso que exige la pantalla destino de un aviso, espejo de MODULE_ROUTE_PERMISSION/TYPE_ROUTE_PERMISSION en src/lib/notifications.ts. NULL si esa pantalla no exige ninguno. Lo usa notify_staff() para apagar el enlace del correo cuando el destinatario no puede abrirla.';
+COMMENT ON FUNCTION public.notif_permiso_de_ruta(text, text, jsonb) IS
+  'Permiso que exige la pantalla destino de un aviso, espejo de MODULE_ROUTE_PERMISSION/TYPE_ROUTE_PERMISSION en src/lib/notifications.ts. NULL si esa pantalla no exige ninguno. Para approval.reminder.weekly sale del contador poblado del payload, igual que su ruta (DESTINOS_POR_CONCEPTO). Lo usa notify_staff() para apagar el enlace del correo cuando el destinatario no puede abrirla.';
 
 CREATE OR REPLACE FUNCTION public.notify_staff(
     p_type_key           text,
@@ -366,7 +422,7 @@ BEGIN
   --
   -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
   -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
-  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key);
+  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
   IF v_permiso IS NOT NULL
      AND NOT EXISTS (
        SELECT 1 FROM public.authorization_role_permissions arp

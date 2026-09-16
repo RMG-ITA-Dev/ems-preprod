@@ -527,6 +527,27 @@ describe("notificationRoute", () => {
     expect(notificationRoute(event("n1", "work_order"))).toBeNull();
   });
 
+  it("la hoja enviada a calidad lleva a su hoja (FASE 3.g)", () => {
+    // /worksheets/:id existe desde antes que el modulo (App.tsx) y exige `worksheet.read`, que
+    // es justo el permiso de los cinco roles que pueden ocupar la funcion SQR (D-07). Sin el
+    // case, el modulo caia al `default` y la fila se pintaba como texto muerto.
+    //
+    // Hoy el evento no se emite —ninguna via del producto escribe
+    // `activity_worksheets.status = 'approved'` (D-38)—, asi que esto cubre el dia que exista.
+    const e = { ...event("n1", "worksheet"), type_key: "worksheet.sent_to_quality",
+                entity_id: "ws-4" };
+    expect(notificationRoute(e)).toBe("/worksheets/ws-4");
+    expect(notificationRoute(e, (p) => p === "worksheet.read")).toBe("/worksheets/ws-4");
+  });
+
+  it("sin worksheet.read la hoja no rutea, y sin entity_id tampoco", () => {
+    const e = { ...event("n1", "worksheet"), type_key: "worksheet.sent_to_quality",
+                entity_id: "ws-4" };
+    expect(notificationRoute(e, () => false)).toBeNull();
+    expect(notificationRoute({ ...event("n2", "worksheet"),
+                               type_key: "worksheet.sent_to_quality" })).toBeNull();
+  });
+
   it("un evento de Encargo lleva a su encargo (FASE 3.c)", () => {
     const e = { ...event("n1", "engagement"), type_key: "engagement.finalized",
                 entity_id: "eng-3" };

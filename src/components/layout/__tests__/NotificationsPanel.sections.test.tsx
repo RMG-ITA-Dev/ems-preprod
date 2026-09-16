@@ -846,14 +846,63 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
   });
 
   it("un evento de un modulo sin destino se renderiza sin enlace", async () => {
-    // Hojas de Trabajo no tiene disparadores todavia: mandar a una ruta inventada es peor
-    // que no linkear, asi que la fila se pinta como texto.
+    // `scheduler` es el unico module_key del catalogo que no tiene case en
+    // `notificationRoute()`: su unica fila es un CONTADOR (`scheduler.coverage_gap`), que se
+    // pinta en otra seccion y con su propio destino. Mandar un evento de un modulo sin ruta a
+    // una inventada es peor que no linkear, asi que la fila se pinta como texto.
+    //
+    // Hasta el 2026-09-16 este test usaba `worksheet`, que era el otro modulo sin case. Dejo
+    // de servir cuando la hoja gano el suyo: ver el test de aca abajo.
+    setup({
+      events: [
+        fundEvent({
+          type_key: "scheduler.coverage_gap",
+          module_key: "scheduler" as const,
+          label_key: "notifications.types.scheduler.coverage_gap",
+          payload: {},
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText("notifications.types.scheduler.coverage_gap")
+      .closest("a");
+    expect(row).toBeNull();
+  });
+
+  it("la hoja enviada a calidad lleva a su hoja (FASE 3.g)", async () => {
+    // /worksheets/:id existe desde antes que el modulo y exige `worksheet.read`. El evento no
+    // se emite todavia —ninguna via escribe `activity_worksheets.status = 'approved'` (D-38)—,
+    // pero el dia que exista el paso la fila tiene que abrirse, no quedarse en texto.
     setup({
       events: [
         fundEvent({
           type_key: "worksheet.sent_to_quality",
           module_key: "worksheet" as const,
           label_key: "notifications.types.worksheet.sent_to_quality",
+          entity_id: "ws-4",
+          payload: {},
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText("notifications.types.worksheet.sent_to_quality")
+      .closest("a");
+    expect(row).toHaveAttribute("href", "/worksheets/ws-4");
+  });
+
+  it("sin worksheet.read la hoja se pinta como texto, no como enlace a Sin acceso", async () => {
+    mockCan.mockImplementation((p: string) => p !== "worksheet.read");
+    setup({
+      events: [
+        fundEvent({
+          type_key: "worksheet.sent_to_quality",
+          module_key: "worksheet" as const,
+          label_key: "notifications.types.worksheet.sent_to_quality",
+          entity_id: "ws-4",
           payload: {},
         }),
       ],

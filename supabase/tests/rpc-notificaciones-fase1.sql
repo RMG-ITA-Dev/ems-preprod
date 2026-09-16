@@ -3459,6 +3459,216 @@ BEGIN
 
 END $$;
 
+-- -- Grupo 18 -- El permiso del boton sale del CONTADOR; los hitos no se duplican ----
+-- Dos hallazgos de revision (2026-09-16), los dos del mismo tipo: una regla escrita una vez
+-- para todo un tipo, cuando el tipo reparte por fila.
+--
+--   18.a-18.b `approval.reminder.weekly` resume TRES colas que viven en pantallas distintas.
+--             La RUTA ya salia del contador poblado (DESTINOS_POR_CONCEPTO); el PERMISO salia
+--             del modulo y era siempre `timesheet.read`.
+--   18.c      El solicitante de fondos puede ser tambien el gerente de la OT, y cada hito lo
+--             notificaba dos veces.
+DO $$
+DECLARE
+  c_assist constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST
+  c_mgr    constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_hr     constant uuid := '59f00000-0000-4000-8000-00000000000a';  -- S_HR (hr_manager)
+  v_fr     uuid := 'f9f00000-0000-4000-8000-000000000008';
+  v_wo     uuid;
+  v_n      int;
+  v_perm   text;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  -- 18.a notif_permiso_de_ruta elige por contador, en el MISMO orden de prioridad que
+  --      DESTINOS_POR_CONCEPTO (capacitacion, encargos, lineas). Si los dos ordenes divergen,
+  --      el correo gatea por una pantalla y linkea a otra.
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{"lineas": null, "capacitacion": {"count": 3}, "encargos": null}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'timesheet_approval.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - con solo capacitacion el permiso fue %, se esperaba timesheet_approval.read', v_perm;
+  END IF;
+
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{"lineas": null, "capacitacion": null, "encargos": {"count": 2}}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'engagement.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - con solo encargos el permiso fue %, se esperaba engagement.read', v_perm;
+  END IF;
+
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{"lineas": {"count": 1}, "capacitacion": null, "encargos": null}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'timesheet.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - con solo lineas el permiso fue %, se esperaba timesheet.read', v_perm;
+  END IF;
+
+  -- Prioridad: con dos contadores poblados manda el primero de la lista, igual que la ruta.
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{"lineas": {"count": 9}, "capacitacion": {"count": 1}, "encargos": null}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'timesheet_approval.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - con capacitacion Y lineas gano %, se esperaba la prioridad de capacitacion', v_perm;
+  END IF;
+
+  -- Un contador en CERO no es un contador poblado: el emisor saltea esos buckets al armar el
+  -- texto, y el destino tiene que saltearlos igual.
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{"lineas": {"count": 2}, "capacitacion": {"count": 0}, "encargos": null}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'timesheet.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - un bucket en cero decidio el permiso (fue %)', v_perm;
+  END IF;
+
+  -- Sin ningun contador: cae al destino fijo de RUTAS_RECORDATORIO, /timesheet/approvals.
+  v_perm := public.notif_permiso_de_ruta('approval.reminder.weekly', 'timesheet_approval',
+              '{}'::jsonb);
+  IF v_perm IS DISTINCT FROM 'timesheet_approval.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - sin contadores el permiso fue %, se esperaba el del destino fijo', v_perm;
+  END IF;
+  RAISE NOTICE 'PASS - el permiso del recordatorio de aprobaciones sale del contador poblado';
+
+  -- El resto del modulo NO cambia: los dos avisos de envio ajeno siguen pidiendo la bandeja,
+  -- y un tipo cualquiera de `timesheet_approval` sigue cayendo al permiso del modulo.
+  IF public.notif_permiso_de_ruta('timesheet.weekly_submitted', 'timesheet', '{}'::jsonb)
+     IS DISTINCT FROM 'timesheet_approval.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - se perdio la excepcion de los avisos de envio ajeno';
+  END IF;
+  IF public.notif_permiso_de_ruta('approval.line_approved', 'timesheet_approval',
+       '{}'::jsonb) IS DISTINCT FROM 'timesheet.read' THEN
+    RAISE EXCEPTION 'TEST FAIL - un tipo del modulo dejo de caer al permiso del modulo';
+  END IF;
+
+  -- 18.b De punta a punta: el correo de hr_manager deja de salir sin boton.
+  --
+  -- `hr_manager` no tiene `timesheet.read` y por eso el gateo por modulo le marcaba `sin_ruta`
+  -- SIEMPRE. Pero su unico bucket es capacitacion (la matriz no le da ni `lineas` ni
+  -- `encargos`), que rutea a /timesheet/approvals, pantalla que SI puede abrir:
+  -- `timesheet_approval.read` con alcance `assigned_engagements` desde 0817-180.
+  --
+  -- El tipo es delivery='email', asi que no hay fila de campana que mirar: la evidencia esta
+  -- en notification_emails. Los fixtures del archivo no cargan `staff.email`, y sin correo
+  -- notify_staff no encola nada.
+  UPDATE public.staff SET email = 'notif-hr@ruizmier.com'     WHERE staff_id = c_hr;
+  UPDATE public.staff SET email = 'notif-assist@ruizmier.com' WHERE staff_id = c_assist;
+
+  PERFORM public.notify_staff('approval.reminder.weekly', c_hr, NULL,
+            '{"dedupe": "g18-hr", "total": 3, "lineas": null, "encargos": null,
+              "capacitacion": {"count": 3}}'::jsonb);
+
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE dedupe_key = 'approval.reminder.weekly|' || c_hr::text || '|g18-hr';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el recordatorio de hr_manager no se encolo (hubo %)', v_n;
+  END IF;
+  IF (SELECT payload ? 'sin_ruta' FROM public.notification_emails
+       WHERE dedupe_key = 'approval.reminder.weekly|' || c_hr::text || '|g18-hr') THEN
+    RAISE EXCEPTION 'TEST FAIL - se apago el boton de hr_manager, que SI puede abrir /timesheet/approvals';
+  END IF;
+  RAISE NOTICE 'PASS - hr_manager conserva el boton del recordatorio de capacitacion';
+
+  -- Y el porton NO se aflojo: el mismo bucket para un assistant, que tiene `timesheet.read`
+  -- pero NO `timesheet_approval.read`, sigue saliendo sin boton.
+  PERFORM public.notify_staff('approval.reminder.weekly', c_assist, NULL,
+            '{"dedupe": "g18-as-capac", "total": 3, "lineas": null, "encargos": null,
+              "capacitacion": {"count": 3}}'::jsonb);
+  IF (SELECT payload->>'sin_ruta' FROM public.notification_emails
+       WHERE dedupe_key = 'approval.reminder.weekly|' || c_assist::text || '|g18-as-capac')
+     IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'TEST FAIL - un assistant conservo el boton a la bandeja de aprobaciones';
+  END IF;
+
+  -- Mismo destinatario, otro bucket: su propia hoja de tiempo, que si puede abrir.
+  PERFORM public.notify_staff('approval.reminder.weekly', c_assist, NULL,
+            '{"dedupe": "g18-as-lineas", "total": 1, "capacitacion": null, "encargos": null,
+              "lineas": {"count": 1}}'::jsonb);
+  IF (SELECT payload ? 'sin_ruta' FROM public.notification_emails
+       WHERE dedupe_key = 'approval.reminder.weekly|' || c_assist::text || '|g18-as-lineas') THEN
+    RAISE EXCEPTION 'TEST FAIL - se apago el boton a /timesheet, que el assistant SI puede abrir';
+  END IF;
+  RAISE NOTICE 'PASS - el mismo tipo enciende o apaga el boton segun el contador, para el mismo rol';
+
+  DELETE FROM public.notification_emails WHERE dedupe_key LIKE 'approval.reminder.weekly|%|g18-%';
+  UPDATE public.staff SET email = NULL WHERE staff_id IN (c_hr, c_assist);
+
+  -- 18.c Un GERENTE que pide fondos contra una OT de SU PROPIO encargo esta en las dos listas:
+  --      es el solicitante y es el `manager_staff_id` que resuelve `fr_wo_set_manager()` desde
+  --      `engagements.manager_id`. notify_staff no deduplica, asi que cada hito le llegaba dos
+  --      veces (dos campanas y, por el notification_id distinto, dos correos).
+  --
+  --      Encargo propio: `work_orders` es UNIQUE por engagement_id y los grupos 5/7/9 ya
+  --      gastaron los suyos.
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                  manager_id, created_by_staff_id, fecha_cierre, society_id)
+  VALUES ('e9f00000-0000-4000-8000-00000000000b', 'c9f00000-0000-4000-8000-000000000001',
+          'NOTIF Encargo Once', '9F0B', c_mgr, c_mgr, '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status)
+  VALUES ('e9f00000-0000-4000-8000-00000000000b', 'BOB', 'High', 'Approved')
+  RETURNING wo_id INTO v_wo;
+
+  INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
+                                    total_requested_amount, currency, status)
+  VALUES (v_fr, c_mgr, 700, 'BOB', 'borrador');
+  INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
+  VALUES (v_fr, v_wo, 700);
+
+  -- La premisa del hallazgo, verificada y no supuesta: el gerente de la OT ES el solicitante.
+  SELECT COUNT(*) INTO v_n FROM public.fund_request_work_orders frw
+    JOIN public.fund_requests fr ON fr.fund_request_id = frw.fund_request_id
+   WHERE frw.fund_request_id = v_fr
+     AND frw.manager_staff_id = fr.requester_staff_id;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el fixture no reproduce solicitante = gerente de la OT';
+  END IF;
+
+  UPDATE public.fund_requests SET status = 'pendiente_aprobacion' WHERE fund_request_id = v_fr;
+
+  -- Las tres columnas de Contabilidad las gatea `fr_guard_accounting_cols`: hay que ponerse en
+  -- la piel de Contabilidad, igual que en 5.c.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');  -- accounting_manager
+  UPDATE public.fund_requests
+     SET disbursed_at = now(), total_disbursed_amount = 700, status = 'fondos_entregados'
+   WHERE fund_request_id = v_fr;
+  UPDATE public.fund_requests SET settled_at = now(), status = 'en_liquidacion'
+   WHERE fund_request_id = v_fr;
+  UPDATE public.fund_requests SET closed_at = now(), status = 'cerrado'
+   WHERE fund_request_id = v_fr;
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE entity_id = v_fr::text
+     AND recipient_staff_id = c_mgr
+     AND type_key IN ('fund.disbursement.done', 'fund.settlement.recorded',
+                      'fund.request.closed');
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente-solicitante recibio % avisos de hito, se esperaban 3 (eran 6)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - solicitante y gerente en la misma persona recibe cada hito UNA vez';
+
+  -- Y el UNION no se llevo puesto a nadie: con el solicitante SEPARADO del gerente, los dos
+  -- siguen recibiendo el hito. Control sobre la misma OT, otra solicitud.
+  INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
+                                    total_requested_amount, currency, status)
+  VALUES ('f9f00000-0000-4000-8000-000000000009', c_assist, 200, 'BOB', 'borrador');
+  INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
+  VALUES ('f9f00000-0000-4000-8000-000000000009', v_wo, 200);
+  UPDATE public.fund_requests SET status = 'pendiente_aprobacion'
+   WHERE fund_request_id = 'f9f00000-0000-4000-8000-000000000009';
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');  -- accounting_manager
+  UPDATE public.fund_requests
+     SET disbursed_at = now(), total_disbursed_amount = 200, status = 'fondos_entregados'
+   WHERE fund_request_id = 'f9f00000-0000-4000-8000-000000000009';
+  PERFORM set_config('request.jwt.claims', '', true);
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE entity_id = 'f9f00000-0000-4000-8000-000000000009'
+     AND type_key = 'fund.disbursement.done'
+     AND recipient_staff_id IN (c_assist, c_mgr);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - con solicitante y gerente distintos hubo % avisos de desembolso, se esperaban 2', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el UNION deduplica sin sacar al gerente que no es el solicitante';
+END $$;
+
 -- -- Grupo 17 -- Descarte manual y retencion ----------------------------------
 -- La "x" saca la fila de la VISTA; el cron es el unico que la saca de la TABLA. No es un
 -- detalle de implementacion: la fila es a la vez el aviso y el registro de que el aviso ya

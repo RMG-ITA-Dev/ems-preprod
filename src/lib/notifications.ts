@@ -485,6 +485,7 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
   fund_request: "fund_request.read",
   work_order: "work_order.read",
   engagement: "engagement.read",
+  worksheet: "worksheet.read",
   // El destino de estos tres es la pantalla del PROPIO usuario (su hoja de tiempo, su
   // cronometro), no una bandeja de otros: por eso `timesheet.read` / `time_entry.read`, que
   // los 17 roles que reportan horas tienen con alcance `own`.
@@ -589,6 +590,16 @@ export function notificationRoute(
       // El resto lleva engagement_id en entity_id, incluidos los de staffing: la asignacion no
       // tiene pantalla propia, se edita en el equipo del encargo.
       return event.entity_id ? `/engagements/${event.entity_id}` : null;
+    }
+    case "worksheet": {
+      // entity_id = el id de la hoja, que es el parametro de /worksheets/:id (WorksheetEdit).
+      //
+      // Hoy este case no corre: ninguna via del producto escribe `activity_worksheets.status
+      // = 'approved'`, que es lo unico que dispara `worksheet.sent_to_quality` (D-38). Se
+      // agrega igual porque la pantalla YA existe y el permiso que exige YA esta en el
+      // catalogo: dejarlo caer al `default` hacia que el dia que exista el paso, quien revisa
+      // calidad viera una fila de campana que no se puede abrir.
+      return event.entity_id ? `/worksheets/${event.entity_id}` : null;
     }
     case "timesheet": {
       // Dos destinos, segun de quien sea la boleta. El acuse propio va a MI hoja de tiempo

@@ -119,11 +119,19 @@ BEGIN
   -- Desembolso / liquidacion / cierre: al solicitante Y a los gerentes. Se miran los
   -- timestamps y no el status: son hitos independientes de la maquina de estados (la
   -- liquidacion es de dos pasos manuales) y el status puede no moverse.
+  --
+  -- El UNION no es cosmetico y el DISTINCT de notif_fund_request_managers() no alcanza: el
+  -- solicitante PUEDE ser tambien gerente de la OT. `manager` tiene `fund_request.create`, y
+  -- `fr_wo_set_manager()` copia `manager_staff_id` desde `engagements.manager_id`, asi que un
+  -- Gerente que pide fondos contra una OT de su propio encargo cae en las dos listas. Como
+  -- notify_staff() no deduplica --inserta una fila por llamada, y el dedupe_key del correo es
+  -- el notification_id, distinto en cada INSERT-- recibia dos campanas y dos correos por hito.
+  -- Es el mismo patron que ya usaba la cancelacion, mas abajo.
   IF OLD.disbursed_at IS NULL AND NEW.disbursed_at IS NOT NULL THEN
-    PERFORM public.notify_staff('fund.disbursement.done',
-              NEW.requester_staff_id, NEW.fund_request_id::text,
-              v_payload || jsonb_build_object('disbursed', NEW.total_disbursed_amount));
-    FOR v_rec IN SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
     LOOP
       PERFORM public.notify_staff('fund.disbursement.done',
                 v_rec.staff_id, NEW.fund_request_id::text,
@@ -132,10 +140,10 @@ BEGIN
   END IF;
 
   IF OLD.settled_at IS NULL AND NEW.settled_at IS NOT NULL THEN
-    PERFORM public.notify_staff('fund.settlement.recorded',
-              NEW.requester_staff_id, NEW.fund_request_id::text,
-              v_payload || jsonb_build_object('balance', NEW.settlement_balance));
-    FOR v_rec IN SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
     LOOP
       PERFORM public.notify_staff('fund.settlement.recorded',
                 v_rec.staff_id, NEW.fund_request_id::text,
@@ -144,9 +152,10 @@ BEGIN
   END IF;
 
   IF OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL THEN
-    PERFORM public.notify_staff('fund.request.closed',
-              NEW.requester_staff_id, NEW.fund_request_id::text, v_payload);
-    FOR v_rec IN SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
     LOOP
       PERFORM public.notify_staff('fund.request.closed',
                 v_rec.staff_id, NEW.fund_request_id::text, v_payload);
