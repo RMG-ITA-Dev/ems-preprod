@@ -56,7 +56,7 @@ const ClientEdit = () => {
   if (isError) {
     return (
       <AppLayout title={t("nav.clients")} focusMode>
-        <div className="space-y-4">
+        <div className="space-y-2">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("client.loadError")}</AlertDescription>
@@ -90,7 +90,7 @@ const ClientEdit = () => {
   if (!client) {
     return (
       <AppLayout title={t("nav.clients")} focusMode>
-        <div className="space-y-4">
+        <div className="space-y-2">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("client.unavailable")}</AlertDescription>
