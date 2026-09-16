@@ -233,17 +233,18 @@ BEGIN
   SELECT COUNT(*) INTO v_grants FROM public.notification_role_types;
   SELECT COUNT(DISTINCT role_key) INTO v_roles FROM public.notification_role_types;
 
-  -- 75 = los 71 originales + los 4 recordatorios periodicos que agrego D-44 (delivery='email').
-  IF v_types <> 75 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 75 (¿corriste el parser?)', v_types;
+  -- 76 = los 71 originales + los 4 recordatorios periodicos de D-44 (delivery='email') + el aviso
+  -- de asignacion a los gerentes especialistas (D-43).
+  IF v_types <> 76 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 76 (¿corriste el parser?)', v_types;
   END IF;
-  IF v_grants <> 462 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 462', v_grants;
+  IF v_grants <> 464 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 464', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 75 tipos, 462 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 76 tipos, 464 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -1756,7 +1757,36 @@ DECLARE
   -- imposible de probar.
   c_stf  constant uuid := '59f00000-0000-4000-8000-000000000001';  -- S_ASSIST (assistant)
   c_adm  constant uuid := '59f00000-0000-4000-8000-000000000006';
+  c_ita  constant uuid := '59f00000-0000-4000-8000-0000000000c1';  -- Gerente ESPECIALISTA ITA
+  c_tax  constant uuid := '59f00000-0000-4000-8000-0000000000c2';  -- Gerente ESPECIALISTA TAX
 BEGIN
+  DELETE FROM public.notifications;
+
+  -- Los dos gerentes especialistas: el fixture del archivo no trae ninguno, y D-43 les da un
+  -- aviso propio de su asignacion.
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
+                            email_confirmed_at, created_at, updated_at,
+                            raw_app_meta_data, raw_user_meta_data)
+    VALUES ('a9f00000-0000-4000-8000-0000000000c1', '00000000-0000-0000-0000-000000000000',
+            'authenticated', 'authenticated', 'notif-ita@ruizmier.com', 'x', now(), now(), now(),
+            '{}'::jsonb, '{}'::jsonb),
+           ('a9f00000-0000-4000-8000-0000000000c2', '00000000-0000-0000-0000-000000000000',
+            'authenticated', 'authenticated', 'notif-tax@ruizmier.com', 'x', now(), now(), now(),
+            '{}'::jsonb, '{}'::jsonb)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+  INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+    ('a9f00000-0000-4000-8000-0000000000c1', 'staff', 'ita_manager'),
+    ('a9f00000-0000-4000-8000-0000000000c2', 'staff', 'tax_manager');
+  INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
+                            practica_id, society_id, weekly_capacity_hours, hire_date, city)
+  VALUES (c_ita, 'a9f00000-0000-4000-8000-0000000000c1', 'NOTIF', 'EspIta', true,
+          (SELECT practica_id FROM public.practicas WHERE code = 1),
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'),
+         (c_tax, 'a9f00000-0000-4000-8000-0000000000c2', 'NOTIF', 'EspTax', true,
+          (SELECT practica_id FROM public.practicas WHERE code = 1),
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz');
   DELETE FROM public.notifications;
 
   -- 10.a Alta con Socio, Gerente y Encargado ya elegidos.
@@ -1766,6 +1796,7 @@ BEGIN
   VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Encargo Tres', '9F03',
           c_part, c_mgr, c_sen, c_mgr, '2026-12-31',
           (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+  UPDATE public.engagements SET specialist_it_id = c_ita WHERE engagement_id = v_eng;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'engagement.created' AND recipient_staff_id IN (c_part, c_mgr);
@@ -1787,6 +1818,49 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el Encargado no recibio su asignacion en el alta (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - el alta tambien asigna: el Encargado se entera aunque no reciba el alta';
+
+  -- 10.a.2 Los GERENTES ESPECIALISTAS tambien se enteran de su propia asignacion (D-43).
+  --
+  -- Antes solo les llegaba `engagement.owners.changed` —"Cambiaron los responsables del encargo"—,
+  -- el mismo aviso generico que reciben cuando cambian al Socio o al SQR: tenian que abrir el
+  -- encargo para saber si el cambio era sobre ellos.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.specialist_assigned' AND recipient_staff_id = c_ita
+     AND payload->>'context' = 'it';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el especialista ITA no recibio su asignacion (hubo %)', v_n;
+  END IF;
+
+  -- El TAX no se asigno todavia: nadie recibe un aviso que no le toca.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.specialist_assigned' AND recipient_staff_id = c_tax;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el especialista TAX recibio una asignacion que no ocurrio';
+  END IF;
+
+  -- Y al asignarlo despues, le llega con SU especialidad.
+  DELETE FROM public.notifications;
+  UPDATE public.engagements SET specialist_tax_id = c_tax WHERE engagement_id = v_eng;
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.specialist_assigned' AND recipient_staff_id = c_tax
+     AND payload->>'context' = 'tax';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el especialista TAX no recibio su asignacion al reasignar (hubo %)', v_n;
+  END IF;
+
+  -- Re-guardar sin tocar la columna no reavisa.
+  DELETE FROM public.notifications;
+  UPDATE public.engagements SET engagement_name = 'NOTIF Encargo Tres (bis)'
+   WHERE engagement_id = v_eng;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'engagement.specialist_assigned';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - renombrar el encargo reaviso la asignacion del especialista';
+  END IF;
+  RAISE NOTICE 'PASS - cada gerente especialista recibe su asignacion, con su especialidad';
+
+  DELETE FROM public.notifications;
 
   -- 10.b Cambio de responsables: auditoria al Admin + la conduccion resultante.
   UPDATE public.engagements SET sqr_id = c_part WHERE engagement_id = v_eng;

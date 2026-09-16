@@ -1765,6 +1765,9 @@
         "deleted": "Se eliminó el encargo {{engagement_name}}",
         "sqr_assigned": "Te asignaron como SQR del encargo",
         "encargado_assigned": "Te asignaron como Encargado del encargo",
+        "specialist_assigned": "Te asignaron como especialista del encargo",
+        "specialist_assigned_it": "Te asignaron como especialista ITA del encargo",
+        "specialist_assigned_tax": "Te asignaron como especialista TAX del encargo",
         "staffing": {
           "changed": "Cambió el staffing del encargo",
           "changed_assigned": "Te asignaron al encargo {{engagement_name}}",

@@ -74,10 +74,11 @@ BEGIN
   DELETE FROM public.notification_emails;
   DELETE FROM public.notifications;
 
-  -- 18.a El seed trae la bandera, y la trae para los tipos que decidió D-44.
+  -- 18.a El seed trae la bandera, y la trae para los tipos que decidió D-44 (+ D-43, que agrego
+  -- el aviso de asignacion a los gerentes especialistas).
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
-  IF v_n <> 27 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 27', v_n;
+  IF v_n <> 28 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 28', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types

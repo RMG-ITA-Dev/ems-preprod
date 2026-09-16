@@ -1009,6 +1009,25 @@ BEGIN
                                 NEW.engagement_id::text, v_base);
   END IF;
 
+  -- Y lo mismo para los dos gerentes ESPECIALISTAS (D-43). Sin esto, al Gerente ESPECIALISTA
+  -- ITA/TAX solo le llegaba `engagement.owners.changed` —"Cambiaron los responsables del
+  -- encargo"—, el mismo aviso generico que recibe cuando cambian al Socio o al SQR: tenia que
+  -- abrir el encargo para saber si el cambio era sobre el.
+  --
+  -- UN tipo y no dos, con la especialidad en `context`: el hecho es identico y lo unico que
+  -- cambia es la palabra. Mismo criterio que D-09 con `days_left`.
+  IF NEW.specialist_it_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.specialist_it_id IS DISTINCT FROM OLD.specialist_it_id) THEN
+    PERFORM public.notify_staff('engagement.specialist_assigned', NEW.specialist_it_id,
+              NEW.engagement_id::text, v_base || jsonb_build_object('context', 'it'));
+  END IF;
+
+  IF NEW.specialist_tax_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.specialist_tax_id IS DISTINCT FROM OLD.specialist_tax_id) THEN
+    PERFORM public.notify_staff('engagement.specialist_assigned', NEW.specialist_tax_id,
+              NEW.engagement_id::text, v_base || jsonb_build_object('context', 'tax'));
+  END IF;
+
   -- ── Finalización ──
   -- La señal es el override llegando a 7, venga del cron nocturno
   -- (finalize_due_engagements) o del trigger BEFORE recompute_engagement_finalization, que
@@ -1040,7 +1059,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_engagement_events() IS
-  'FASE 3.c: 5 eventos de engagements (alta, cambio de responsables, asignacion de SQR/Encargado, finalizacion y borrado). La finalizacion baja hasta el staffing vigente porque es el unico evento que la matriz concede a seniors/semis/asistentes. Degrada a WARNING.';
+  'FASE 3.c: 5 eventos de engagements (alta, cambio de responsables, asignacion de SQR/Encargado/especialista, finalizacion y borrado). La finalizacion baja hasta el staffing vigente porque es el unico evento que la matriz concede a seniors/semis/asistentes. Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_engagement ON public.engagements;
 CREATE TRIGGER tr_notify_engagement

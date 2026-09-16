@@ -1765,6 +1765,9 @@
         "deleted": "Engagement {{engagement_name}} was deleted",
         "sqr_assigned": "You were assigned as SQR of the engagement",
         "encargado_assigned": "You were assigned as Lead of the engagement",
+        "specialist_assigned": "You were assigned as specialist of the engagement",
+        "specialist_assigned_it": "You were assigned as ITA specialist of the engagement",
+        "specialist_assigned_tax": "You were assigned as TAX specialist of the engagement",
         "staffing": {
           "changed": "The engagement staffing changed",
           "changed_assigned": "You were staffed on engagement {{engagement_name}}",

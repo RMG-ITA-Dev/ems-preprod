@@ -61,6 +61,24 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     boton: "Abrir EMS",
   },
 
+  // Un tipo, dos redacciones por `context` (D-43): el hecho es el mismo y lo unico que cambia es
+  // la especialidad. El texto base existe igual, por si algun dia hay un especialista sin sabor.
+  "engagement.specialist_assigned": {
+    asunto: "Lo asignaron a un encargo",
+    intro: "Lo asignaron como especialista de un encargo.",
+    boton: "Ver encargo",
+  },
+  "engagement.specialist_assigned:it": {
+    asunto: "Lo asignaron a un encargo",
+    intro: "Lo asignaron como especialista ITA de un encargo.",
+    boton: "Ver encargo",
+  },
+  "engagement.specialist_assigned:tax": {
+    asunto: "Lo asignaron a un encargo",
+    intro: "Lo asignaron como especialista TAX de un encargo.",
+    boton: "Ver encargo",
+  },
+
   // ── Órdenes de trabajo ──
   "wo.submitted_partner": {
     asunto: "Orden de trabajo pendiente de su aprobación",
