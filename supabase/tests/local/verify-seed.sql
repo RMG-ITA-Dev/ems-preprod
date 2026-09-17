@@ -81,9 +81,11 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
+  -- 20 claves vigentes antes de notificaciones/correo, mas 5 que esas migraciones requieren:
+  -- TS_ALERT_WINDOW_WEEKS, TS_TRACKING_START_DATE, las dos retenciones y el tope global auth.
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 20 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 20 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 20 claves';
+  IF n <> 25 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 25 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 25 claves';
 
   -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
   -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea
