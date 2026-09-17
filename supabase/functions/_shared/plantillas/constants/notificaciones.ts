@@ -12,6 +12,35 @@
 
 import type { Copia } from "../layout.ts";
 
+// Las plantillas de correo se ejecutan en la Edge Function y no tienen acceso a i18next. Estos
+// son los equivalentes en español de `authz.role.*`: el payload conserva el role_key canónico,
+// pero nunca se lo expone como texto técnico a la persona destinataria.
+export const NOMBRES_ROL_CORREO: Record<string, string> = {
+  admin: "Administrador",
+  it_security_manager: "Gerente Nacional de Seguridad TI",
+  senior_partner: "Senior Partner",
+  partner: "Socio",
+  sqr: "Calidad-Riesgo (SQR)",
+  director: "Director",
+  manager: "Gerente",
+  senior: "Senior",
+  semisenior: "Semi Senior",
+  assistant: "Asistente",
+  ita_manager: "Gerente Especialista ITA",
+  ita_senior: "Senior Especialista ITA",
+  ita_assistant: "Asistente Especialista ITA",
+  tax_manager: "Gerente Especialista TAX",
+  tax_senior: "Senior Especialista TAX",
+  tax_assistant: "Asistente Especialista TAX",
+  accounting_manager: "Gerente de Contabilidad",
+  accounting_analyst: "Analista de Contabilidad",
+  collections_analyst: "Analista de Cobranzas",
+  risk_partner: "Socio de Riesgos",
+  risk_supervisor: "Supervisor de Riesgos",
+  hr_manager: "Gerente de Talento Humano",
+  hr_analyst: "Analista de Talento Humano",
+};
+
 export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
   // ── Cuentas ──
   // Dos variantes del mismo tipo: el rol se deriva de la categoría, así que cambiar la categoría

@@ -10,7 +10,11 @@
  */
 
 import { renderizar, type Copia, type CorreoRenderizado } from "./layout.ts";
-import { DETALLES_PAYLOAD, TEXTOS_NOTIFICACION } from "./constants/notificaciones.ts";
+import {
+  DETALLES_PAYLOAD,
+  NOMBRES_ROL_CORREO,
+  TEXTOS_NOTIFICACION,
+} from "./constants/notificaciones.ts";
 import {
   destinoDeRecordatorio,
   TEXTOS_RECORDATORIO,
@@ -134,7 +138,9 @@ function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string;
     const texto = typeof valor === "string" ? valor.trim() : String(valor);
     if (!texto) continue;
     let mostrado = texto;
-    if (formato === "fecha") mostrado = fechaDdMmAaaa(texto);
+    if (clave === "previous_role_key" || clave === "role_key") {
+      mostrado = NOMBRES_ROL_CORREO[texto] ?? texto;
+    } else if (formato === "fecha") mostrado = fechaDdMmAaaa(texto);
     else if (formato === "monto") mostrado = montoConMoneda(texto, payload.currency);
     salida.push({ etiqueta, valor: mostrado });
   }
