@@ -8,6 +8,10 @@
 -- la práctica y el nombre de la categoría, nunca por orden ni por UUID. Actualiza
 -- tanto default_app_role (espejo legacy) como default_role_key (el campo que
 -- muestra la UI "Rol de App Predeterminado").
+-- Las selecciones manuales no nulas de default_role_key se preservan; solo se
+-- completa ese campo cuando está NULL, igual que el backfill de compatibilidad
+-- 20260825000100. Actualmente NULL es también la representación de "Ninguno",
+-- por lo que no hay estado persistido para distinguirlo de un valor sin configurar.
 --
 -- Es segura de reintentar: volver a ejecutarla deja las mismas 61 parejas con
 -- el mismo valor. Si faltara una práctica/categoría esperada, aborta en vez de
@@ -169,7 +173,7 @@ BEGIN
 
   UPDATE public.categories c
      SET default_app_role = d.default_app_role,
-         default_role_key = CASE
+         default_role_key = COALESCE(c.default_role_key, CASE
            WHEN d.category_name = 'Gerente - Especialista IT' THEN 'ita_manager'
            WHEN d.category_name = 'Senior - Especialista IT' THEN 'ita_senior'
            WHEN d.category_name = 'Asistente - Especialista IT' THEN 'ita_assistant'
@@ -183,28 +187,14 @@ BEGIN
            WHEN d.default_app_role = 'senior' THEN 'senior'
            WHEN d.default_app_role = 'semisenior' THEN 'semisenior'
            WHEN d.default_app_role = 'staff' THEN 'assistant'
-         END
+         END)
     FROM _0820_182_category_role_defaults d
     JOIN public.practicas p ON p.code = d.practice_code
    WHERE c.practica_id = p.practica_id
      AND c.category_name = d.category_name
      AND (
        c.default_app_role IS DISTINCT FROM d.default_app_role
-       OR c.default_role_key IS DISTINCT FROM CASE
-         WHEN d.category_name = 'Gerente - Especialista IT' THEN 'ita_manager'
-         WHEN d.category_name = 'Senior - Especialista IT' THEN 'ita_senior'
-         WHEN d.category_name = 'Asistente - Especialista IT' THEN 'ita_assistant'
-         WHEN d.category_name = 'Gerente - Especialista Tax' THEN 'tax_manager'
-         WHEN d.category_name = 'Senior - Especialista Tax' THEN 'tax_senior'
-         WHEN d.category_name = 'Asistente - Especialista Tax' THEN 'tax_assistant'
-         WHEN d.default_app_role = 'partner' THEN 'partner'
-         WHEN d.default_app_role = 'sqr' THEN 'sqr'
-         WHEN d.default_app_role = 'director' THEN 'director'
-         WHEN d.default_app_role = 'manager' THEN 'manager'
-         WHEN d.default_app_role = 'senior' THEN 'senior'
-         WHEN d.default_app_role = 'semisenior' THEN 'semisenior'
-         WHEN d.default_app_role = 'staff' THEN 'assistant'
-       END
+       OR c.default_role_key IS NULL
      );
 
   IF EXISTS (
@@ -215,21 +205,7 @@ BEGIN
         ON c.practica_id = p.practica_id
        AND c.category_name = d.category_name
      WHERE c.default_app_role IS DISTINCT FROM d.default_app_role
-        OR c.default_role_key IS DISTINCT FROM CASE
-          WHEN d.category_name = 'Gerente - Especialista IT' THEN 'ita_manager'
-          WHEN d.category_name = 'Senior - Especialista IT' THEN 'ita_senior'
-          WHEN d.category_name = 'Asistente - Especialista IT' THEN 'ita_assistant'
-          WHEN d.category_name = 'Gerente - Especialista Tax' THEN 'tax_manager'
-          WHEN d.category_name = 'Senior - Especialista Tax' THEN 'tax_senior'
-          WHEN d.category_name = 'Asistente - Especialista Tax' THEN 'tax_assistant'
-          WHEN d.default_app_role = 'partner' THEN 'partner'
-          WHEN d.default_app_role = 'sqr' THEN 'sqr'
-          WHEN d.default_app_role = 'director' THEN 'director'
-          WHEN d.default_app_role = 'manager' THEN 'manager'
-          WHEN d.default_app_role = 'senior' THEN 'senior'
-          WHEN d.default_app_role = 'semisenior' THEN 'semisenior'
-          WHEN d.default_app_role = 'staff' THEN 'assistant'
-        END
+        OR c.default_role_key IS NULL
   ) THEN
     RAISE EXCEPTION '0820-182 category default role backfill verification failed';
   END IF;

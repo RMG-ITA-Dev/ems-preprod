@@ -78,7 +78,12 @@ describe("0820-182 — backfill de default_app_role por práctica/categoría", (
 describe("0820-182 — backfill de default_role_key para la UI", () => {
   it("deriva el role_key de las mismas 61 filas que reciben el rol legacy", () => {
     expect(backfillMappings()).toHaveLength(61);
-    expect(migrationSql).toContain("default_role_key = CASE");
+    expect(migrationSql).toContain("default_role_key = COALESCE(c.default_role_key, CASE");
+  });
+
+  it("conserva una selección manual de role_key y solo completa valores NULL", () => {
+    expect(migrationSql).toContain("OR c.default_role_key IS NULL");
+    expect(migrationSql).not.toContain("c.default_role_key IS DISTINCT FROM CASE");
   });
 
   it("traduce los valores legacy a los role_key del catálogo", () => {
