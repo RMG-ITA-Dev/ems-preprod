@@ -26,6 +26,12 @@ export const NOMBRES_ROL_CORREO: Record<string, string> = {
   senior: "Senior",
   semisenior: "Semi Senior",
   assistant: "Asistente",
+  // Valores de `app_role` legacy: notify_user_account_events() los envía cuando
+  // cambia únicamente user_roles.role mediante el RPC deprecado.
+  staff: "Asistente",
+  viewer: "Visualizador",
+  specialist_it: "Especialista IT",
+  specialist_tax: "Especialista Tax",
   ita_manager: "Gerente Especialista ITA",
   ita_senior: "Senior Especialista ITA",
   ita_assistant: "Asistente Especialista ITA",
