@@ -2986,11 +2986,30 @@ END $$;
 -- lejos— no tiene por que quedarse sin los emisores enteros por un detalle de redaccion de un
 -- correo. Si la funcion no esta, el origen queda en `direct` y el correo dice "su rol cambio",
 -- que es verdad igual.
+-- El ALTER degrada, no aborta. `ems.role_change_source` es un GUC personalizado, y fijarlo con
+-- `ALTER FUNCTION ... SET` exige privilegio sobre el parametro: en el stack de Supabase las
+-- migraciones corren como `postgres`, que NO es superusuario (lo es `supabase_admin`), y el
+-- intento muere con 42501 -- "permission denied to set parameter". En un cluster donde el que
+-- aplica SI es superusuario pasa sin ruido, que es por lo que el harness local no lo veia:
+-- hallazgo real de CI (2026-09-16, `supabase start`).
+--
+-- Que se caiga ahi no puede costar las tres migraciones de notificaciones enteras. Es la misma
+-- razon por la que el ELSE de abajo tampoco aborta: esto decide el TEXTO de un correo, no si el
+-- correo sale. Sin el parametro, `notif_origen_cambio_rol()` devuelve `direct` y el mensaje dice
+-- "su rol cambio", que es verdad igual -- solo se pierde la variante que aclara que vino de un
+-- cambio de categoria.
+--
+-- Se atrapa `insufficient_privilege` y no `OTHERS`: cualquier otro fallo aca si es un problema
+-- de verdad y tiene que salir a la luz.
 DO $$
 BEGIN
   IF to_regprocedure('public.sync_user_role_from_category(uuid, text, text)') IS NOT NULL THEN
-    EXECUTE 'ALTER FUNCTION public.sync_user_role_from_category(uuid, text, text)' ||
-            ' SET "ems.role_change_source" = ''category''';
+    BEGIN
+      EXECUTE 'ALTER FUNCTION public.sync_user_role_from_category(uuid, text, text)' ||
+              ' SET "ems.role_change_source" = ''category''';
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE 'sin privilegio para fijar ems.role_change_source (hace falta superusuario): auth.role.changed saldra siempre con source=direct.';
+    END;
   ELSE
     RAISE NOTICE 'sync_user_role_from_category no existe: auth.role.changed no podra distinguir el cambio de categoria (falta 20260825000000_category_default_role_key.sql).';
   END IF;
