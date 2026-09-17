@@ -1685,6 +1685,8 @@ DECLARE
   v_email    text;
   v_base     jsonb;
   v_rec      record;
+  v_rol_prev  text;
+  v_rol_nuevo text;
   c_auditoria constant text[] := ARRAY['admin', 'it_security_manager'];
 BEGIN
   IF TG_OP = 'DELETE' THEN v_row := OLD; ELSE v_row := NEW; END IF;
@@ -1758,16 +1760,35 @@ BEGIN
   END IF;
 
   -- ── Cambio de rol ──
-  -- `role_key` es la autoridad y `role` el espejo legacy, pero se miran los dos: hay caminos
-  -- viejos que todavía mueven sólo el enum, y para el usuario el hecho es el mismo.
-  IF NEW.role_key IS DISTINCT FROM OLD.role_key
-     OR NEW.role IS DISTINCT FROM OLD.role THEN
+  -- `role_key` es la autoridad y `role` el espejo legacy, pero se miran los dos, y el enum NO es
+  -- cosmético: `is_admin()` y `has_role()` (cero_02) leen `user_roles.role`, así que mover sólo
+  -- el enum da o quita admin en todas las policies que las llaman. Es justamente el cambio que
+  -- más merece auditoría, no uno para ignorar.
+  --
+  -- Por eso los dos roles del payload salen de la columna QUE CAMBIÓ y no siempre de `role_key`:
+  -- `admin_set_user_role()` hace `UPDATE user_roles SET role = ...` y deja `role_key` intacto.
+  -- Está deprecado y ningún componente lo llama, pero sigue con GRANT a `authenticated`
+  -- (cero_06), o sea que se alcanza directo por PostgREST. Leyendo `role_key` de los dos lados,
+  -- ese camino mandaba un aviso de auditoría que decía "de X a X" — sin delta, que es peor que
+  -- no mandarlo: el lector concluye que no pasó nada justo cuando alguien ganó admin.
+  --
+  -- Si cambian las dos, manda `role_key`: es la autoridad, y el enum es su espejo.
+  IF NEW.role_key IS DISTINCT FROM OLD.role_key THEN
+    v_rol_prev  := COALESCE(OLD.role_key, '');
+    v_rol_nuevo := COALESCE(NEW.role_key, '');
+  ELSIF NEW.role IS DISTINCT FROM OLD.role THEN
+    v_rol_prev  := COALESCE(OLD.role::text, '');
+    v_rol_nuevo := COALESCE(NEW.role::text, '');
+  END IF;
+
+  IF v_rol_nuevo IS NOT NULL THEN
     -- Al afectado (alcance `own`), con el rol anterior para que el texto pueda decir de qué
     -- a qué. Sin ficha de staff no hay a quién notificar: notify_staff necesita un staff_id.
     IF v_staff IS NOT NULL THEN
       PERFORM public.notify_staff('auth.role.changed', v_staff,
                 COALESCE(v_staff::text, NEW.user_id::text),
-                v_base || jsonb_build_object('previous_role_key', COALESCE(OLD.role_key, ''),
+                v_base || jsonb_build_object('role_key',          v_rol_nuevo,
+                                             'previous_role_key', v_rol_prev,
                                              -- De donde vino el cambio: `category` si lo escribio
                                              -- sync_user_role_from_category, `direct` si no. El
                                              -- correo elige el texto con esto (D-44); el trigger
@@ -1784,7 +1805,8 @@ BEGIN
       IF v_rec.staff_id IS DISTINCT FROM v_staff THEN
         PERFORM public.notify_staff('auth.role.changed', v_rec.staff_id,
                   COALESCE(v_staff::text, NEW.user_id::text),
-                  v_base || jsonb_build_object('previous_role_key', COALESCE(OLD.role_key, '')));
+                  v_base || jsonb_build_object('role_key',          v_rol_nuevo,
+                                               'previous_role_key', v_rol_prev));
       END IF;
     END LOOP;
   END IF;
@@ -1797,7 +1819,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_user_account_events() IS
-  'FASE 3.e: alta de cuenta, cambio de rol y eliminacion, leidos desde public.user_roles y no desde auth.users (D-34). El cambio de rol va al afectado con context=own y a la auditoria (ADM + Seguridad TI) sin duplicar. El borrado NO avisa si ems.account_rollback = 1 (alta deshecha, no baja real). Degrada a WARNING.';
+  'FASE 3.e: alta de cuenta, cambio de rol y eliminacion, leidos desde public.user_roles y no desde auth.users (D-34). El cambio de rol va al afectado con context=own y a la auditoria (ADM + Seguridad TI) sin duplicar, con role_key/previous_role_key tomados de la columna que cambio (role_key manda; si solo se movio el enum legacy `role`, van sus valores, porque is_admin()/has_role() lo leen). El borrado NO avisa si ems.account_rollback = 1 (alta deshecha, no baja real). Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_user_account ON public.user_roles;
 CREATE TRIGGER tr_notify_user_account

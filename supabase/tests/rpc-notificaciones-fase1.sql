@@ -2683,6 +2683,42 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - tocar user_roles sin cambiar el rol no avisa';
 
+  -- 13.e-bis Si lo que se movio es el ENUM legacy, el payload tiene que traer el enum.
+  --
+  -- `admin_set_user_role()` (deprecado, sin componente que lo llame, pero todavia con GRANT a
+  -- `authenticated` en cero_06) hace `UPDATE user_roles SET role = ...` y no toca `role_key`.
+  -- Leyendo `role_key` de los dos lados, el aviso salia "de senior a senior". Y no es un cambio
+  -- cosmetico que se pueda ignorar: `is_admin()` y `has_role()` leen esta columna.
+  --
+  -- El enum se mueve a 'manager', que NO coincide con el `role_key` de S_SENIOR ('senior'):
+  -- asi la asercion distingue de que columna salio el dato.
+  DELETE FROM public.notifications;
+  UPDATE public.user_roles SET role = 'manager'
+   WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';   -- S_SENIOR, role_key intacto
+
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.role.changed' AND recipient_staff_id = c_own
+     AND payload->>'previous_role_key' = 'senior'
+     AND payload->>'role_key' = 'manager';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cambio de solo el enum no viajo en el payload (hubo %)', v_n;
+  END IF;
+
+  -- La propiedad de fondo, para los tres destinatarios: un aviso de cambio de rol NUNCA puede
+  -- decir que el rol anterior y el nuevo son el mismo.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'auth.role.changed'
+     AND payload->>'previous_role_key' = payload->>'role_key';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - % avisos de cambio de rol con rol anterior identico al nuevo', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - un cambio de solo el enum legacy viaja con sus propios valores';
+
+  -- Se devuelve el enum: la suite es UNA transaccion y `is_admin()`/`has_role()` lo leen.
+  UPDATE public.user_roles SET role = 'senior'
+   WHERE user_id = 'a9f00000-0000-4000-8000-00000000000b';
+  DELETE FROM public.notifications;
+
   -- Se devuelve el rol: la suite es UNA transaccion y los grupos siguientes cuentan con que
   -- S_SENIOR siga siendo `senior` (el modulo Hojas de Trabajo se lo concede, `semisenior` no).
   UPDATE public.user_roles SET role_key = 'senior'
