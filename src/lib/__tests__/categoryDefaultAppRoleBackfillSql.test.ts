@@ -57,10 +57,15 @@ describe("0820-182 — backfill de default_app_role por práctica/categoría", (
     expect([...backfillMappings()].sort()).toEqual([...seededMappings()].sort());
   });
 
-  it("vincula por nombre de práctica y categoría, y falla si falta una fila", () => {
-    expect(migrationSql).toContain("p.name = d.practice_name");
+  it("vincula por código de práctica y categoría, y falla si falta una fila", () => {
+    expect(migrationSql).toContain("p.code = d.practice_code");
     expect(migrationSql).toContain("c.category_name = d.category_name");
     expect(migrationSql).toContain("missing expected practice/category mappings");
+  });
+
+  it("traduce cada práctica canónica a su código estable", () => {
+    expect(migrationSql).toContain("WHEN 'Auditoría' THEN 1");
+    expect(migrationSql).toContain("WHEN 'Growth & Strategy' THEN 7");
   });
 
   it("es idempotente y no reescribe una fila que ya coincide", () => {

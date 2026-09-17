@@ -4,8 +4,8 @@
 -- El seed cero_11 contiene este catálogo, pero usa ON CONFLICT DO NOTHING.
 -- Por eso una base que ya tenía las categorías conserva sus valores previos
 -- (incluyendo NULL) al incorporar el seed. Esta migración aplica la fuente
--- autorizada a las filas existentes, identificándolas por el nombre de la
--- práctica y el nombre de la categoría, nunca por orden ni por UUID. Actualiza
+-- autorizada a las filas existentes, identificándolas por el código estable de
+-- la práctica y el nombre de la categoría, nunca por orden ni por UUID. Actualiza
 -- tanto default_app_role (espejo legacy) como default_role_key (el campo que
 -- muestra la UI "Rol de App Predeterminado").
 --
@@ -18,6 +18,7 @@
 
 CREATE TEMP TABLE _0820_182_category_role_defaults (
   practice_name text NOT NULL,
+  practice_code smallint,
   category_name text NOT NULL,
   default_app_role public.app_role NOT NULL,
   PRIMARY KEY (practice_name, category_name)
@@ -95,6 +96,23 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Growth & Strategy', 'Asistente', 'staff'),
   ('Growth & Strategy', 'Pasante', 'staff');
 
+-- Los nombres de práctica de arriba documentan la fuente; el join contra la
+-- base usa su código inmutable del catálogo. Un cambio de etiqueta visible de
+-- la práctica no debe impedir este backfill.
+UPDATE _0820_182_category_role_defaults
+   SET practice_code = CASE practice_name
+     WHEN 'Auditoría' THEN 1
+     WHEN 'Compliance' THEN 2
+     WHEN 'Tax & Advisory' THEN 3
+     WHEN 'Precios de Transferencias' THEN 4
+     WHEN 'M&A' THEN 5
+     WHEN 'Legal' THEN 6
+     WHEN 'Growth & Strategy' THEN 7
+   END;
+
+ALTER TABLE _0820_182_category_role_defaults
+  ALTER COLUMN practice_code SET NOT NULL;
+
 DO $$
 DECLARE
   v_expected_count integer;
@@ -111,7 +129,7 @@ BEGIN
 
   SELECT count(*) INTO v_matched_count
     FROM _0820_182_category_role_defaults d
-    JOIN public.practicas p ON p.name = d.practice_name
+    JOIN public.practicas p ON p.code = d.practice_code
     JOIN public.categories c
       ON c.practica_id = p.practica_id
      AND c.category_name = d.category_name;
@@ -120,7 +138,7 @@ BEGIN
     SELECT string_agg(format('%s / %s', d.practice_name, d.category_name), ', ')
       INTO v_mismatches
       FROM _0820_182_category_role_defaults d
-      LEFT JOIN public.practicas p ON p.name = d.practice_name
+      LEFT JOIN public.practicas p ON p.code = d.practice_code
       LEFT JOIN public.categories c
         ON c.practica_id = p.practica_id
        AND c.category_name = d.category_name
@@ -167,7 +185,7 @@ BEGIN
            WHEN d.default_app_role = 'staff' THEN 'assistant'
          END
     FROM _0820_182_category_role_defaults d
-    JOIN public.practicas p ON p.name = d.practice_name
+    JOIN public.practicas p ON p.code = d.practice_code
    WHERE c.practica_id = p.practica_id
      AND c.category_name = d.category_name
      AND (
@@ -192,7 +210,7 @@ BEGIN
   IF EXISTS (
     SELECT 1
       FROM _0820_182_category_role_defaults d
-      JOIN public.practicas p ON p.name = d.practice_name
+      JOIN public.practicas p ON p.code = d.practice_code
       JOIN public.categories c
         ON c.practica_id = p.practica_id
        AND c.category_name = d.category_name
