@@ -97,7 +97,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Growth & Strategy', 'Pasante', 'staff');
 
 -- Los nombres de práctica de arriba documentan la fuente; el join contra la
--- base usa su código inmutable del catálogo. Un cambio de etiqueta visible de
+-- base usa su código estable del catálogo. Un cambio de etiqueta visible de
 -- la práctica no debe impedir este backfill.
 UPDATE _0820_182_category_role_defaults
    SET practice_code = CASE practice_name
