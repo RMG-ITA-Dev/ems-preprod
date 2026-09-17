@@ -1,8 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { format } from "date-fns";
+import { enUS, es } from "date-fns/locale";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +75,7 @@ import { ChangePasswordCard } from "@/components/settings/ChangePasswordCard";
 import { HolidaysManager } from "@/components/settings/HolidaysManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy } from "lucide-react";
+import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy, Calendar as CalendarIcon } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
@@ -134,6 +139,10 @@ async function parseExchangeRateFunctionError(error: unknown): Promise<{ message
 
 const Settings = () => {
   const { t, i18n } = useTranslation();
+  // `react-day-picker` cae a ingles si no se le pasa locale, y el wrapper de ui/calendar.tsx no
+  // elige ninguno: sin esto el calendario muestra "September" y "Mo Tu We" en una sesion en
+  // espanol. Mismo criterio que las 4 pantallas del Scheduler, que ya lo hacen asi.
+  const dateLocale = i18n.language?.startsWith("es") ? es : enUS;
   const queryClient = useQueryClient();
   const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
@@ -304,6 +313,10 @@ const Settings = () => {
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
   const [lockoutMinutes, setLockoutMinutes] = useState<string>("");
+  // Notificaciones: ventana de las alarmas de timesheet. Independiente de
+  // TS_EMPLOYEE_RETRO_DAYS, que gobierna la EDICION de semanas pasadas.
+  const [alertWindowWeeks, setAlertWindowWeeks] = useState<string>("");
+  const [trackingStartDate, setTrackingStartDate] = useState<string>("");
   const [exchangeRateApiUrl, setExchangeRateApiUrl] = useState<string>("");
   const [exchangeRateTestOpen, setExchangeRateTestOpen] = useState(false);
   const [exchangeRateTestLoading, setExchangeRateTestLoading] = useState(false);
@@ -330,6 +343,15 @@ const Settings = () => {
       const compactFontSetting = settings.find((s) => s.setting_key === "COMPACT_FONT");
       if (compactFontSetting) {
         setCompactFont(compactFontSetting.setting_value === "true");
+      }
+      // Se hidrata explicitamente (no via fallback en `value`) porque el guardado compara
+      // contra lo persistido para permitir GUARDAR EL VACIO. Sin esto, guardar sin tocar el
+      // campo borraria la fecha ya configurada.
+      const trackingStartSetting = settings.find(
+        (s) => s.setting_key === "TS_TRACKING_START_DATE"
+      );
+      if (trackingStartSetting) {
+        setTrackingStartDate(trackingStartSetting.setting_value ?? "");
       }
       const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
       if (emailDomainSetting) {
@@ -367,6 +389,8 @@ const Settings = () => {
     const persistedMaxAttempts = getSetting("AUTH_MAX_FAILED_ATTEMPTS") || "5";
     const persistedLockoutMinutes = getSetting("AUTH_LOCKOUT_MINUTES") || "15";
     const persistedExchangeRateApiUrl = getSetting("EXCHANGE_RATE_API_URL") || "";
+    const persistedAlertWindow = getSetting("TS_ALERT_WINDOW_WEEKS") || "4";
+    const persistedTrackingStart = getSetting("TS_TRACKING_START_DATE") || "";
 
     return (
       language !== persistedLang ||
@@ -382,11 +406,19 @@ const Settings = () => {
       (weeklyMin !== "" && weeklyMin !== persistedWeeklyMin) ||
       (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax) ||
       (maxFailedAttempts !== "" && maxFailedAttempts !== persistedMaxAttempts) ||
-      (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes)
+      (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes) ||
+      // Los dos campos de notificaciones NO son simetricos, porque no se guardan igual:
+      //   * alertWindowWeeks nunca se hidrata (el input cae al persistido en `value`), y el
+      //     guardado solo escribe si tiene algo. Vacio = sin tocar, igual que los numericos.
+      //   * trackingStartDate SI se hidrata, y el guardado compara contra lo persistido para
+      //     poder GUARDAR EL VACIO — dejarlo en blanco es como se desactiva el recorte. Asi que
+      //     aca la comparacion es directa: vacio sobre un valor guardado es un cambio real.
+      (alertWindowWeeks !== "" && alertWindowWeeks !== persistedAlertWindow) ||
+      trackingStartDate !== persistedTrackingStart
     );
   }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
-      maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl]);
+      maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl, alertWindowWeeks, trackingStartDate]);
 
   // Navigation lock - only when global tab is active
   const { blocker } = usePageLeaveLock({
@@ -414,6 +446,12 @@ const Settings = () => {
     setMaxFailedAttempts("");
     setLockoutMinutes("");
     setExchangeRateApiUrl(getSetting("EXCHANGE_RATE_API_URL") || "");
+    // Mismas dos formas que en isGlobalDirty: el que no se hidrata vuelve a vacio (= sin
+    // tocar) y el que si se hidrata vuelve a lo persistido. Desde que los dos cuentan para el
+    // estado sucio, dejarlos afuera de Cancelar haria que el LeavePageDialog saltara igual
+    // despues de cancelar.
+    setAlertWindowWeeks("");
+    setTrackingStartDate(getSetting("TS_TRACKING_START_DATE") || "");
 
     setActiveTab("account");
   };
@@ -729,6 +767,18 @@ const Settings = () => {
         lockoutMinutesValue = val.toString();
       }
 
+      // Ventana de alarmas: el backend recorta a 1-52 y cae al default ante basura, pero se
+      // valida aca tambien para no persistir un valor que la funcion va a ignorar.
+      let alertWindowValue: string | null = null;
+      if (alertWindowWeeks) {
+        const val = parseInt(alertWindowWeeks, 10);
+        if (isNaN(val) || val < 1 || val > 52) {
+          toast.error(t("settings.alertWindowWeeksRangeError"));
+          return;
+        }
+        alertWindowValue = val.toString();
+      }
+
       // Mandatory-HTTPS absolute-URL validation (bug 0722-156) — the same rule the
       // "Probar"/"Guardar" flow relies on (fetchProviderRate rejects non-HTTPS server-side
       // too), checked here so a bad value never reaches global_settings via plain Save.
@@ -811,6 +861,16 @@ const Settings = () => {
       if (lockoutMinutesValue !== null) {
         await updateSettingMutation.mutateAsync({ key: "AUTH_LOCKOUT_MINUTES", value: lockoutMinutesValue });
       }
+      if (alertWindowValue !== null) {
+        await updateSettingMutation.mutateAsync({ key: "TS_ALERT_WINDOW_WEEKS", value: alertWindowValue });
+      }
+      // Se compara contra lo persistido para poder GUARDAR EL VACIO: dejar el campo en blanco
+      // es la forma de desactivar el recorte por fecha de arranque.
+      const persistedTrackingStart = getSetting("TS_TRACKING_START_DATE") || "";
+      if (trackingStartDate !== persistedTrackingStart) {
+        await updateSettingMutation.mutateAsync({ key: "TS_TRACKING_START_DATE", value: trackingStartDate });
+      }
+
       if (exchangeRateApiUrlValue !== null) {
         await updateSettingMutation.mutateAsync({ key: "EXCHANGE_RATE_API_URL", value: exchangeRateApiUrlValue });
       }
@@ -1390,6 +1450,82 @@ const Settings = () => {
                         <span className="text-muted-foreground">%</span>
                       </div>
                       <p className="text-sm text-muted-foreground">{t("settings.taxRateHelp")}</p>
+                    </div>
+
+                    {/* Notificaciones: ventana de las alarmas de timesheet. */}
+                    <div className="space-y-4 py-4 border-b border-border">
+                      <h4 className="font-medium text-sm">{t("settings.notificationsSection")}</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="alertWindowWeeks">{t("settings.alertWindowWeeks")}</Label>
+                          <NumericInput
+                            id="alertWindowWeeks"
+                            value={alertWindowWeeks || getSetting("TS_ALERT_WINDOW_WEEKS") || "4"}
+                            onValueChange={setAlertWindowWeeks}
+                            placeholder="4"
+                            decimals={0}
+                          />
+                          <p className="text-sm text-muted-foreground">{t("settings.alertWindowWeeksHelp")}</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="trackingStartDate">{t("settings.trackingStartDate")}</Label>
+                          {/*
+                            Calendario y no `<input type="date">`: el nativo se pinta con el
+                            formato del navegador, así que en inglés muestra mm/dd/aaaa y el
+                            mismo campo se lee distinto según quién lo abra. La regla del repo es
+                            DD/MM/YYYY en todos lados. El valor viaja como 'YYYY-MM-DD' porque es
+                            lo que guarda `global_settings` y lo que la RPC sabe leer.
+
+                            El ajuste es opcional —vacío = sin recorte— y se vacía volviendo a
+                            hacer clic en el día ya elegido: `mode="single"` sin `required`
+                            deselecciona y devuelve `undefined`.
+                          */}
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                id="trackingStartDate"
+                                type="button"
+                                variant="outline"
+                                className={cn(
+                                  "w-full justify-start text-left font-normal",
+                                  !trackingStartDate && "text-muted-foreground"
+                                )}
+                              >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {trackingStartDate
+                                  ? format(new Date(trackingStartDate + "T12:00:00"), "dd/MM/yyyy")
+                                  : t("common.pickDate")}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                mode="single"
+                                locale={dateLocale}
+                                // Mediodía y no medianoche: `new Date('2026-09-14')` se parsea como
+                                // UTC, y en un huso al oeste eso retrocede un día al mostrarlo.
+                                selected={
+                                  trackingStartDate
+                                    ? new Date(trackingStartDate + "T12:00:00")
+                                    : undefined
+                                }
+                                // Abre en el mes de lo ya elegido y no en el de hoy: la fecha de
+                                // arranque de la firma queda en el pasado, y sin esto hay que
+                                // retroceder meses a mano cada vez que se abre el calendario.
+                                defaultMonth={
+                                  trackingStartDate
+                                    ? new Date(trackingStartDate + "T12:00:00")
+                                    : undefined
+                                }
+                                onSelect={(date) =>
+                                  setTrackingStartDate(date ? format(date, "yyyy-MM-dd") : "")
+                                }
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <p className="text-sm text-muted-foreground">{t("settings.trackingStartDateHelp")}</p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* Account Lockout Settings (BUG 0601-132) */}

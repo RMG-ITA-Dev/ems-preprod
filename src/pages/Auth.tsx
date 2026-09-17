@@ -96,12 +96,29 @@ const Auth = () => {
         
         const { error, emailConfirmationRequired } = await signUp(validatedEmail, validatedPassword, validatedFirstName, validatedLastName);
         if (error) {
-          if (error.message.includes("already registered")) {
-            toast.error(t("messages.emailAlreadyRegistered"));
-          } else if (error.message.includes("restricted to @")) {
-            toast.error(t("auth.invalidDomain"));
+          // El alta pasa por la edge function `register-user`, que devuelve códigos en vez de
+          // mensajes de GoTrue. Un correo ya registrado NO llega acá: responde como un alta
+          // exitosa y avisa por correo, para que el formulario no sirva de detector de usuarios.
+          if (error.message === "INVALID_DOMAIN") {
+            toast.error(
+              allowedDomain
+                ? t("auth.validation.emailDomainOnly", { domain: allowedDomain })
+                : t("auth.invalidDomain"),
+            );
+          } else if (error.message === "INVALID_EMAIL") {
+            toast.error(t("validation.emailInvalid"));
+          } else if (error.message === "INVALID_PASSWORD") {
+            toast.error(t("auth.validation.passwordMinSignup"));
+          } else if (error.message === "INVALID_NAME") {
+            toast.error(t("form.required"));
           } else {
-            toast.error(error.message);
+            // Lo que queda son códigos del contrato con `register-user` (`INTERNAL_ERROR`,
+            // `INVALID_REQUEST`), no texto para leer: mostrarlos tal cual le ponía al usuario
+            // una palabra en mayúsculas que no significa nada, en cualquiera de los dos idiomas.
+            // Antes del contrato por códigos acá caía la prosa de GoTrue, que al menos se leía.
+            // El código va a la consola, que es donde sirve para soporte.
+            console.error("[Auth] el alta fallo:", error.message);
+            toast.error(t("auth.signupFailed"));
           }
         } else if (emailConfirmationRequired) {
           setSentToEmail(validatedEmail);

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict QQNNfG3feOimLEYMA3bW5hKVcHw4RY18dPzCHeLMwKMgTg26NWqy8BVrtrmgmVL
+\restrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1198,6 +1198,41 @@ $$;
 
 
 --
+-- Name: begin_notification_email_attempt(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.begin_notification_email_attempt(p_email_id uuid) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_intentos integer;
+BEGIN
+  IF p_email_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Sólo sobre un arriendo vigente. Si la fila ya no está en `sending` es que otra corrida la
+  -- cerró o el barrido la dio por perdida, y sumarle un intento a eso no describe nada.
+  UPDATE public.notification_emails
+     SET attempts = attempts + 1, claimed_at = now()
+   WHERE email_id = p_email_id
+     AND status = 'sending'
+  RETURNING attempts INTO v_intentos;
+
+  RETURN v_intentos;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION begin_notification_email_attempt(p_email_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.begin_notification_email_attempt(p_email_id uuid) IS 'Gasta un intento de esa fila y refresca su arriendo. La llama el drenaje justo antes de entregarle el correo a Graph, para que el intento cuente un envio de verdad y no una fila que solo estuvo en el lote. Devuelve el numero de intento, o NULL si la fila ya no esta en sending.';
+
+
+--
 -- Name: can_approve_timesheet(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1541,6 +1576,202 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: claim_auth_email_slot(text, integer, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.claim_auth_email_slot(p_email text, p_max_por_hora integer DEFAULT 5, p_min_segundos integer DEFAULT 60, p_max_global integer DEFAULT NULL::integer) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $_$
+DECLARE
+  v_email       text := lower(trim(coalesce(p_email, '')));
+  v_ahora       timestamp with time zone := now();
+  v_fila        public.auth_email_throttle%ROWTYPE;
+  v_global      public.auth_email_throttle%ROWTYPE;
+  v_max_global  integer := p_max_global;
+  v_raw         text;
+  v_venc_email  boolean;
+  v_venc_global boolean;
+  c_global      constant text := '*';
+BEGIN
+  -- El '@' no es cosmético: es lo que garantiza que un destinatario no pueda hacerse pasar por
+  -- la fila global. Quien llama ya validó la dirección; acá alcanza con que no sea la clave
+  -- reservada.
+  IF v_email = '' OR position('@' in v_email) = 0 THEN
+    RETURN false;
+  END IF;
+
+  IF v_max_global IS NULL THEN
+    -- Se valida con regex en vez de castear a ciegas: `global_settings` es texto libre y un
+    -- valor mal tipeado por el admin no puede dejar sin correos de cuenta a la firma entera.
+    v_max_global := 120;
+    SELECT setting_value INTO v_raw
+      FROM public.global_settings WHERE setting_key = 'AUTH_EMAIL_GLOBAL_MAX_PER_HOUR';
+    -- `{1,9}`: el cast a integer revienta antes que el clamp con un numero de 20 digitos, y
+    -- esta funcion es la que decide si sale un correo de recuperacion de contrasena.
+    IF v_raw ~ '^[0-9]{1,9}$' THEN
+      v_max_global := LEAST(GREATEST(v_raw::integer, 1), 100000);
+    END IF;
+  END IF;
+
+  -- Asegura las filas sin pisarlas si ya existen, para poder bloquearlas en el paso siguiente.
+  INSERT INTO public.auth_email_throttle (email_normalized, window_start, sent_count, last_sent_at)
+  VALUES (c_global, v_ahora, 0, NULL), (v_email, v_ahora, 0, NULL)
+  ON CONFLICT (email_normalized) DO NOTHING;
+
+  SELECT * INTO v_global
+    FROM public.auth_email_throttle
+   WHERE email_normalized = c_global
+     FOR UPDATE;
+
+  SELECT * INTO v_fila
+    FROM public.auth_email_throttle
+   WHERE email_normalized = v_email
+     FOR UPDATE;
+
+  v_venc_email  := v_fila.window_start   < v_ahora - interval '1 hour';
+  v_venc_global := v_global.window_start < v_ahora - interval '1 hour';
+
+  -- Los topes del destinatario. Con la ventana vencida no hay nada que chequear: el contador
+  -- arranca de cero y este correo es el primero.
+  IF NOT v_venc_email THEN
+    -- Demasiado seguido al mismo destinatario.
+    IF v_fila.last_sent_at IS NOT NULL
+       AND v_fila.last_sent_at > v_ahora - make_interval(secs => p_min_segundos) THEN
+      RETURN false;
+    END IF;
+
+    -- Tope de la ventana en curso.
+    IF v_fila.sent_count >= p_max_por_hora THEN
+      RETURN false;
+    END IF;
+  END IF;
+
+  -- El tope de la firma. Sin mínimo entre correos: ese freno es contra la casilla de una
+  -- persona, y uno global convertiría el formulario en una fila de a uno por minuto.
+  IF NOT v_venc_global AND v_global.sent_count >= v_max_global THEN
+    RETURN false;
+  END IF;
+
+  UPDATE public.auth_email_throttle
+     SET window_start = CASE WHEN v_venc_global THEN v_ahora ELSE window_start END,
+         sent_count   = CASE WHEN v_venc_global THEN 1 ELSE v_global.sent_count + 1 END,
+         last_sent_at = v_ahora
+   WHERE email_normalized = c_global;
+
+  UPDATE public.auth_email_throttle
+     SET window_start = CASE WHEN v_venc_email THEN v_ahora ELSE window_start END,
+         sent_count   = CASE WHEN v_venc_email THEN 1 ELSE v_fila.sent_count + 1 END,
+         last_sent_at = v_ahora
+   WHERE email_normalized = v_email;
+
+  RETURN true;
+END;
+$_$;
+
+
+--
+-- Name: FUNCTION claim_auth_email_slot(p_email text, p_max_por_hora integer, p_min_segundos integer, p_max_global integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.claim_auth_email_slot(p_email text, p_max_por_hora integer, p_min_segundos integer, p_max_global integer) IS 'Consume un cupo de correo de cuenta: el del destinatario y el de la firma. Devuelve true si se puede mandar (y ya descontó los dos), false si está dentro del mínimo entre correos, pasó el tope por destinatario de la ventana de una hora, o la firma agotó AUTH_EMAIL_GLOBAL_MAX_PER_HOUR. Cuando devuelve false no descuenta nada.';
+
+
+--
+-- Name: claim_notification_emails(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.claim_notification_emails(p_limit integer DEFAULT 50) RETURNS TABLE(email_id uuid, to_email text, to_name text, type_key text, entity_id text, payload jsonb, attempts integer)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  c_arriendo constant interval := interval '15 minutes';
+BEGIN
+  -- Primero los arriendos vencidos que ya gastaron los tres intentos. Van a `failed` y no
+  -- vuelven a la cola: sin este barrido, una fila cuyo envío mata al proceso cada vez se
+  -- reclamaría para siempre, porque el tope de intentos lo aplica
+  -- mark_notification_email_result() y a esa fila nadie llega a marcarla nunca.
+  UPDATE public.notification_emails e
+     SET status     = 'failed',
+         last_error = COALESCE(e.last_error,
+                        'El drenaje no cerro el envio: arriendo vencido tras 3 intentos.')
+   WHERE e.status = 'sending'
+     -- COALESCE y no `claimed_at < ...` a secas: un `sending` SIN estampa daria NULL, o sea
+     -- FALSE, y la fila quedaria enterrada — que es justo el bug que esto arregla.
+     AND COALESCE(e.claimed_at, e.created_at) < now() - c_arriendo
+     AND e.attempts >= 3;
+
+  RETURN QUERY
+  WITH tomadas AS (
+    SELECT e.email_id
+      FROM public.notification_emails e
+     WHERE e.status = 'pending'
+        OR (e.status = 'sending'
+            AND COALESCE(e.claimed_at, e.created_at) < now() - c_arriendo)
+     ORDER BY e.created_at
+     LIMIT GREATEST(COALESCE(p_limit, 50), 0)
+       FOR UPDATE SKIP LOCKED
+  )
+  -- Reclamar NO gasta intento. Un claim toma hasta 50 filas y el drenaje las manda de a una:
+  -- cobrarle el intento al lote entero se lo cobra también a las que la invocación nunca llegó a
+  -- tocar, y una corrida cortada a mitad de lote se las lleva puestas. Tres cortes y el barrido
+  -- de arriba las manda a `failed` sin que Graph las haya visto nunca.
+  --
+  -- El intento lo gasta `begin_notification_email_attempt()`, fila por fila y justo antes de
+  -- llamar a Graph. Eso conserva lo que el conteo en el claim protegía —una fila cuyo envío mata
+  -- al proceso SÍ pasa por ahí, así que sigue gastando intentos y no da vueltas para siempre— y
+  -- deja fuera a las que sólo estuvieron en la cola.
+  UPDATE public.notification_emails e
+     SET status = 'sending', claimed_at = now()
+    FROM tomadas t
+   WHERE e.email_id = t.email_id
+  RETURNING e.email_id, e.to_email, e.to_name, e.type_key, e.entity_id, e.payload, e.attempts;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION claim_notification_emails(p_limit integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.claim_notification_emails(p_limit integer) IS 'Reclama hasta p_limit correos y los marca sending con claimed_at, SIN gastar intento (eso lo hace begin_notification_email_attempt() por fila). Toma lo pending y tambien lo sending con arriendo vencido (15 min), que es una invocacion que murio sin cerrar; con 3 intentos gastados eso pasa a failed. FOR UPDATE SKIP LOCKED: dos drenajes simultaneos no toman la misma fila.';
+
+
+--
+-- Name: clear_account_deletion_mark(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.clear_account_deletion_mark(p_user_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_filas integer;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
+  END IF;
+
+  UPDATE public.user_roles
+     SET deletion_email = NULL
+   WHERE user_id = p_user_id
+     AND deletion_email IS NOT NULL;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true, 'limpiadas', v_filas);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION clear_account_deletion_mark(p_user_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.clear_account_deletion_mark(p_user_id uuid) IS 'Borra user_roles.deletion_email cuando el borrado de la cuenta no llego a concretarse. Reemplaza a abort_account_deletion(): desde que prepare_account_deletion() no borra ni anuncia, no hay fila que reponer ni aviso que retirar.';
 
 
 --
@@ -2135,6 +2366,47 @@ $$;
 
 
 --
+-- Name: dismiss_notifications(uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dismiss_notifications(p_ids uuid[]) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL OR p_ids IS NULL OR array_length(p_ids, 1) IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- El filtro por recipient_staff_id es lo que impide descartar la notificación de otro
+  -- pasando su uuid, igual que en mark_notifications_read().
+  --
+  -- `dismissed_at IS NULL` en el WHERE hace la operación idempotente: descartar dos veces la
+  -- misma fila no mueve la marca, así que el plazo de retención se cuenta desde el PRIMER
+  -- descarte y un doble click no lo estira.
+  UPDATE public.notifications
+     SET dismissed_at = now()
+   WHERE notification_id = ANY (p_ids)
+     AND recipient_staff_id = v_staff
+     AND dismissed_at IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION dismiss_notifications(p_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dismiss_notifications(p_ids uuid[]) IS 'Descarta notificaciones propias marcando dismissed_at; NO borra la fila, que sigue siendo el registro de que el aviso ya salio (sin ella el cron lo repite al dia siguiente). Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de UPDATE para authenticated — esta es la unica via.';
+
+
+--
 -- Name: enforce_activity_default(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2660,6 +2932,37 @@ BEGIN
   RETURN v_approval = 'Approved' AND v_risk IS DISTINCT FROM 'Rejected';
 END;
 $$;
+
+
+--
+-- Name: engagement_approval_bucket(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'engagement_id',   e.engagement_id,
+                      'engagement_code', e.engagement_code,
+                      'engagement_name', e.engagement_name)
+                    ORDER BY e.engagement_code), '[]'::jsonb))
+    FROM public.engagements e
+    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+   WHERE e.created_by_staff_id = p_staff_id
+     AND wo.approval_status = p_status
+     AND (e.engagement_state_override IS NULL
+          OR e.engagement_state_override NOT IN (6, 7));
+$$;
+
+
+--
+-- Name: FUNCTION engagement_approval_bucket(p_staff_id uuid, p_status text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) IS 'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status, excluyendo Cancelado (6) y Finalizado (7).';
 
 
 --
@@ -3649,6 +3952,231 @@ $$;
 
 
 --
+-- Name: get_my_notification_aggregates(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_my_notification_aggregates() RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff    uuid := public.get_my_staff_id();
+  v_role     text;
+  v_types    text[];
+  v_weeks    jsonb;
+  v_out      jsonb := '{}'::jsonb;
+  v_from     date;
+  v_scope_overdue text;
+  v_scope_gap     text;
+BEGIN
+  IF v_staff IS NULL THEN
+    RETURN v_out;
+  END IF;
+
+  SELECT ur.role_key INTO v_role
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE s.staff_id = v_staff;
+
+  IF v_role IS NULL THEN
+    RETURN v_out;
+  END IF;
+
+  SELECT array_agg(nrt.type_key) INTO v_types
+    FROM public.notification_role_types nrt
+    JOIN public.notification_types nt ON nt.type_key = nrt.type_key
+   WHERE nrt.role_key = v_role
+     AND nt.is_active
+     AND nt.delivery = 'aggregate';
+
+  IF v_types IS NULL THEN
+    RETURN v_out;
+  END IF;
+
+  -- ── Ventana de las alarmas de timesheet ──
+  v_from := public.notif_timesheet_window_start();
+
+  -- ── Timesheets ──
+  IF v_types && ARRAY['timesheet.overdue','timesheet.reverted','timesheet.pending_approval'] THEN
+    -- La fecha de corte va en hora local: CURRENT_DATE es UTC y a partir de las 20:00 en
+    -- Bolivia ya es manana (ver 20260911100600_fecha_local_current_date.sql).
+    v_weeks := public.get_week_statuses(v_staff, v_from, (now() AT TIME ZONE 'America/La_Paz')::date);
+  END IF;
+
+  IF 'timesheet.overdue' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('timesheet.overdue',
+               public.notif_agg_timesheet_overdue(v_weeks));
+  END IF;
+
+  IF 'timesheet.reverted' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('timesheet.reverted',
+               public.notif_agg_timesheet_reverted(v_weeks));
+  END IF;
+
+  IF 'timesheet.pending_approval' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('timesheet.pending_approval',
+               public.notif_agg_timesheet_pending_approval(v_staff, v_from));
+  END IF;
+
+  -- ── Encargos generados: estado actual de la OT, no una ventana ──
+  IF 'engagement.rejected_by_partner' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('engagement.rejected_by_partner',
+                        public.engagement_approval_bucket(v_staff, 'Rejected'));
+  END IF;
+  IF 'engagement.pending_partner_approval' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('engagement.pending_partner_approval',
+                        public.engagement_approval_bucket(v_staff, 'Pending_Approval'));
+  END IF;
+
+  -- ── Solicitudes de Fondos: cola de trabajo de Contabilidad ──
+  IF 'fund.disbursement.pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('fund.disbursement.pending',
+                        public.notif_agg_fund_disbursement_pending());
+  END IF;
+  IF 'fund.expense.review_pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('fund.expense.review_pending',
+                        public.notif_agg_fund_expense_review_pending());
+  END IF;
+  IF 'fund.settlement.pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('fund.settlement.pending',
+                        public.notif_agg_fund_settlement_pending());
+  END IF;
+  IF 'fund.request.closure_pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('fund.request.closure_pending',
+                        public.notif_agg_fund_closure_pending());
+  END IF;
+
+  -- ── Órdenes de Trabajo: cuotas del plan de pagos (FASE 3.b) ──
+  IF 'wo.installment.due_this_week' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('wo.installment.due_this_week',
+                        public.notif_agg_wo_installment_due_this_week());
+  END IF;
+  IF 'wo.installment.overdue' = ANY (v_types) THEN
+    -- El scope viene de la matriz, no de una constante: el mismo contador vale `assigned`
+    -- para un gerente y `department` para Contabilidad.
+    SELECT nrt.scope_key INTO v_scope_overdue
+      FROM public.notification_role_types nrt
+     WHERE nrt.role_key = v_role
+       AND nrt.type_key = 'wo.installment.overdue';
+
+    v_out := v_out || jsonb_build_object('wo.installment.overdue',
+                        public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue));
+  END IF;
+
+  -- ── Aprobaciones de Timesheet: capacitación (FASE 3.d) ──
+  IF 'approval.training_pending' = ANY (v_types) THEN
+    v_out := v_out || jsonb_build_object('approval.training_pending',
+                        public.notif_agg_approval_training_pending());
+  END IF;
+
+  -- ── Scheduler: cobertura (FASE 3.h) ──
+  -- Segundo contador que necesita el scope de la matriz, y el primero con TRES alcances
+  -- distintos (firm / society / assigned).
+  IF 'scheduler.coverage_gap' = ANY (v_types) THEN
+    SELECT nrt.scope_key INTO v_scope_gap
+      FROM public.notification_role_types nrt
+     WHERE nrt.role_key = v_role
+       AND nrt.type_key = 'scheduler.coverage_gap';
+
+    v_out := v_out || jsonb_build_object('scheduler.coverage_gap',
+                        public.notif_agg_scheduler_coverage_gap(v_staff, v_scope_gap));
+  END IF;
+
+  RETURN v_out;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION get_my_notification_aggregates(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_my_notification_aggregates() IS 'Contadores (delivery=aggregate) del usuario actual, gateados por notification_role_types. Timesheet respeta TS_ALERT_WINDOW_WEEKS/TS_TRACKING_START_DATE; wo.installment.overdue respeta el scope_key de la matriz; approval.training_pending cuenta la cola de capacitacion (funcion=2); scheduler.coverage_gap respeta firm/society/assigned. Definido una sola vez: no hay una version anterior que pisar.';
+
+
+--
+-- Name: get_my_notifications(integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_my_notifications(p_limit integer DEFAULT 50) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff  uuid := public.get_my_staff_id();
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
+  v_events jsonb;
+  v_unread integer;
+BEGIN
+  -- Fail-closed: una cuenta sin ficha de staff no ve nada, igual que
+  -- get_my_authorization_context() con un usuario sin rol.
+  IF v_staff IS NULL THEN
+    RETURN jsonb_build_object('events', '[]'::jsonb,
+                              'aggregates', '{}'::jsonb,
+                              'unread_count', 0);
+  END IF;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'notification_id', n.notification_id,
+           'type_key',        n.type_key,
+           'module_key',      nt.module_key,
+           'label_key',       nt.label_key,
+           'entity_id',       n.entity_id,
+           'payload',         n.payload,
+           'created_at',      n.created_at,
+           'read_at',         n.read_at) ORDER BY n.created_at DESC), '[]'::jsonb)
+    INTO v_events
+    FROM (
+      SELECT * FROM public.notifications n0
+       WHERE n0.recipient_staff_id = v_staff
+         -- Lo descartado no vuelve a la bandeja. Sigue en la tabla, pero como registro de que
+         -- el aviso ya salió (ver H.2), no como algo que el usuario tenga que volver a ver.
+         AND n0.dismissed_at IS NULL
+         -- El tipo desactivado se descarta ACÁ y no después del LIMIT: filtrar sobre el
+         -- resultado del LIMIT devuelve menos de v_limit avisos aunque haya más activos.
+         AND EXISTS (SELECT 1 FROM public.notification_types t
+                      WHERE t.type_key = n0.type_key AND t.is_active)
+       -- LO NO LEÍDO PRIMERO, y este orden es de SELECCIÓN, no de presentación: decide cuáles
+       -- de todos los avisos entran en la ventana de v_limit. Ordenando sólo por fecha, un
+       -- usuario con más de v_limit sin leer quedaba trancado: el panel recibía las 50 más
+       -- nuevas, las marcaba leídas al cerrar, y la carga siguiente volvía a traer ESAS MISMAS
+       -- —que siguen siendo las más nuevas, ahora leídas—. Las viejas sin leer nunca entraban,
+       -- nunca se marcaban, y `unread_count` las seguía contando: badge que no baja hasta que
+       -- la purga se lleve el historial nuevo, 90 días después.
+       --
+       -- Así cada apertura se lleva hasta v_limit pendientes y la cola drena sola.
+       ORDER BY (n0.read_at IS NULL) DESC, n0.created_at DESC
+       LIMIT v_limit
+    ) n
+    JOIN public.notification_types nt ON nt.type_key = n.type_key;
+
+  -- El mismo predicado que los eventos, y no uno más flojo: un tipo desactivado no aparece en
+  -- la bandeja, así que contarlo deja la campana con un número que el usuario no puede bajar —
+  -- no hay fila que abrir ni que marcar leída.
+  SELECT COUNT(*) INTO v_unread
+    FROM public.notifications n
+   WHERE n.recipient_staff_id = v_staff
+     AND n.read_at IS NULL
+     AND n.dismissed_at IS NULL
+     AND EXISTS (SELECT 1 FROM public.notification_types t
+                  WHERE t.type_key = n.type_key AND t.is_active);
+
+  RETURN jsonb_build_object(
+    'events',       v_events,
+    'aggregates',   public.get_my_notification_aggregates(),
+    'unread_count', v_unread);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION get_my_notifications(p_limit integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_my_notifications(p_limit integer) IS 'Bandeja del usuario actual: eventos (public.notifications, sin lo descartado ni los tipos inactivos) + contadores (get_my_notification_aggregates) + no leidas, contadas con ese mismo filtro. La ventana de p_limit se llena priorizando lo no leido, para que una cola mayor que p_limit drene en vez de trancarse; la lista sale igual por fecha. Fail-closed sin ficha de staff.';
+
+
+--
 -- Name: get_my_pending_hours(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3672,6 +4200,9 @@ DECLARE
   v_actual numeric;
   v_gap numeric;
   v_result jsonb := '[]'::jsonb;
+  -- Se calcula UNA vez, igual que get_week_statuses con su v_today: repetir la expresion en cada
+  -- uso abre la puerta a que queden dos fechas distintas en la misma llamada.
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
 BEGIN
   SELECT s.hire_date, s.weekly_capacity_hours, s.termination_date, s.city
   INTO v_hire_date, v_capacity, v_end_date, v_staff_city
@@ -3681,7 +4212,7 @@ BEGIN
     RETURN '[]'::jsonb;
   END IF;
 
-  v_end_date := LEAST(COALESCE(v_end_date, CURRENT_DATE), CURRENT_DATE);
+  v_end_date := LEAST(COALESCE(v_end_date, v_today), v_today);
   v_daily := COALESCE(v_capacity, 40) / 5.0;
 
   -- Start from Monday of hire_date's week
@@ -3691,7 +4222,7 @@ BEGIN
     v_week_end := v_cursor + 4;  -- Friday
 
     -- Skip current/incomplete week (ascending order, so EXIT is safe)
-    IF v_week_end >= CURRENT_DATE THEN
+    IF v_week_end >= v_today THEN
       EXIT;
     END IF;
 
@@ -3741,6 +4272,13 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+
+--
+-- Name: FUNCTION get_my_pending_hours(p_staff_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_my_pending_hours(p_staff_id uuid) IS 'Semanas cerradas con horas faltantes. La fecha de corte se calcula en America/La_Paz: con CURRENT_DATE (UTC) la semana en curso se excluia un dia antes a partir de las 20:00 hora local.';
 
 
 --
@@ -3986,7 +4524,7 @@ DECLARE
   v_approval_approved integer;
   v_approval_rejected integer;
   v_result jsonb := '[]'::jsonb;
-  v_today date := CURRENT_DATE;
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
 BEGIN
   -- Get staff info
   SELECT s.hire_date, s.termination_date, s.weekly_capacity_hours, s.city
@@ -4165,6 +4703,13 @@ $$;
 
 
 --
+-- Name: FUNCTION get_week_statuses(p_staff_id uuid, p_start_date date, p_end_date date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_week_statuses(p_staff_id uuid, p_start_date date, p_end_date date) IS 'Estado semana a semana de la hoja de tiempo. El dia de hoy se calcula en America/La_Paz: con CURRENT_DATE (UTC) la semana marcada como actual saltaba a la siguiente el domingo a las 20:00 hora local.';
+
+
+--
 -- Name: guard_auth_lockout_settings(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4302,12 +4847,14 @@ CREATE FUNCTION public.is_assigned_to_client(p_client_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- Cliente asignado = tengo >=1 encargo (en cualquier estado) donde soy
-  -- partner/manager/sqr/encargado. Simétrico con is_assigned_to_engagement.
+  -- Cliente asignado = tengo >=1 encargo (en cualquier estado) donde ocupo uno de los seis
+  -- cargos del bloque Equipo. Las tres columnas de gerencia —general, ITA y TAX— se mueven
+  -- siempre juntas en el formulario del encargo y valen lo mismo para ver a su cliente.
   select exists (
     select 1 from engagements e
     where e.client_id = p_client_id
-      and get_my_staff_id() in (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)
+      and get_my_staff_id() in (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id,
+                                e.specialist_it_id, e.specialist_tax_id)
   )
 $$;
 
@@ -4316,7 +4863,7 @@ $$;
 -- Name: FUNCTION is_assigned_to_client(p_client_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.is_assigned_to_client(p_client_id uuid) IS 'True si el usuario actual está asignado (partner/manager/sqr/encargado) a algún encargo de este cliente, sin importar el estado del encargo. Simétrica con is_assigned_to_engagement: si ves el encargo, ves su cliente.';
+COMMENT ON FUNCTION public.is_assigned_to_client(p_client_id uuid) IS 'True si el usuario actual ocupa algun cargo del bloque Equipo (partner/manager/sqr/encargado/specialist_it/specialist_tax) en algun encargo de este cliente, sin importar el estado del encargo. Los dos especialistas se sumaron el 2026-09-16 para que coincida con notif_client_assigned(): sin eso, un aviso de cliente podia linkear a una ficha que la policy "clients read" le escondia.';
 
 
 --
@@ -4641,6 +5188,96 @@ COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185: encarg
 
 
 --
+-- Name: mark_notification_email_result(uuid, boolean, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.mark_notification_email_result(p_email_id uuid, p_ok boolean, p_error text DEFAULT NULL::text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_intentos integer;
+BEGIN
+  IF p_email_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  IF p_ok THEN
+    UPDATE public.notification_emails
+       SET status = 'sent', sent_at = now(), last_error = NULL, claimed_at = NULL
+     WHERE email_id = p_email_id;
+    RETURN FOUND;
+  END IF;
+
+  SELECT attempts INTO v_intentos
+    FROM public.notification_emails
+   WHERE email_id = p_email_id;
+
+  IF v_intentos IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- Se suelta el arriendo al cerrar: la fila ya no está en manos de nadie, y dejar el
+  -- `claimed_at` viejo haría que un `pending` pareciera un reclamo vencido.
+  UPDATE public.notification_emails
+     SET status     = CASE WHEN v_intentos >= 3 THEN 'failed' ELSE 'pending' END,
+         last_error = p_error,
+         claimed_at = NULL
+   WHERE email_id = p_email_id;
+
+  RETURN true;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION mark_notification_email_result(p_email_id uuid, p_ok boolean, p_error text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.mark_notification_email_result(p_email_id uuid, p_ok boolean, p_error text) IS 'Cierra un correo reclamado y suelta el arriendo (claimed_at = NULL): sent si salio, de vuelta a pending para reintentar, o failed al tercer intento.';
+
+
+--
+-- Name: mark_notifications_read(uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.mark_notifications_read(p_ids uuid[]) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL OR p_ids IS NULL OR array_length(p_ids, 1) IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- El filtro por recipient_staff_id es lo que impide marcar como leída la notificación de
+  -- otro pasando su uuid. No se re-marca lo ya leído (read_at IS NULL).
+  UPDATE public.notifications
+     SET read_at = now()
+   WHERE notification_id = ANY (p_ids)
+     AND recipient_staff_id = v_staff
+     AND read_at IS NULL
+     -- Una fila descartada ya no se ve, así que tampoco se "lee". El panel nunca manda su id,
+     -- pero el filtro va igual: es el mismo criterio que el resto de las lecturas.
+     AND dismissed_at IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION mark_notifications_read(p_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.mark_notifications_read(p_ids uuid[]) IS 'Marca como leídas las notificaciones propias. Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id().';
+
+
+--
 -- Name: move_category(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4701,6 +5338,3001 @@ $$;
 
 
 --
+-- Name: notif_agg_approval_training_pending(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_approval_training_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.timesheet_line_approvals tla
+    JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+    JOIN public.engagements e        ON e.engagement_id = tla.engagement_id
+   WHERE tla.status = 'pending'
+     AND tp.submitted_at IS NOT NULL
+     AND e.funcion = 2;
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_approval_training_pending(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_approval_training_pending() IS 'Contador "Solicitudes de aprobacion de entrenamiento pendientes" (D-31): lineas de timesheet en pending, de periodos ya enviados, sobre encargos de capacitacion (engagements.funcion = 2). Sin filtro por persona: la matriz lo concede solo con alcance firm/department.';
+
+
+--
+-- Name: notif_agg_fund_closure_pending(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_fund_closure_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Liquidada pero sin cerrar: el segundo paso manual pendiente.
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.fund_requests
+   WHERE settled_at IS NOT NULL AND closed_at IS NULL AND status <> 'cancelado';
+$$;
+
+
+--
+-- Name: notif_agg_fund_disbursement_pending(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_fund_disbursement_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Aprobadas por el gerente y todavía sin desembolsar.
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.fund_requests
+   WHERE status = 'aprobado_gerente' AND disbursed_at IS NULL;
+$$;
+
+
+--
+-- Name: notif_agg_fund_expense_review_pending(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_fund_expense_review_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.fund_requests fr
+   WHERE fr.status = 'fondos_entregados'
+     AND EXISTS (
+       SELECT 1 FROM public.fund_request_expenses e
+        WHERE e.fund_request_id = fr.fund_request_id
+          AND e.status = 'aprobado_gerente'
+     );
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_fund_expense_review_pending(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending() IS 'Contador "Gastos por revisar": solicitudes en fondos_entregados con algun gasto en aprobado_gerente. Mismo predicado que el tab expenses_review de FundRequestDisbursements (tabOf + expensePhase).';
+
+
+--
+-- Name: notif_agg_fund_settlement_pending(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- En liquidación y sin liquidación registrada. La liquidación es de dos pasos manuales,
+  -- así que `en_liquidacion` con settled_at NULL es exactamente "falta registrarla".
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.fund_requests
+   WHERE status = 'en_liquidacion' AND settled_at IS NULL;
+$$;
+
+
+--
+-- Name: notif_agg_scheduler_coverage_gap(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope text) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  WITH req AS (
+    SELECT w.engagement_id,
+           r.category_id,
+           SUM(r.staff_count) AS required
+      FROM public.wo_staffing_requirements r
+      JOIN public.work_orders w ON w.wo_id = r.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+     WHERE w.approval_status = 'Approved'
+       -- Encargo vivo: sin override, o en los dos estados que permiten trabajar (4 Aprobado,
+       -- 5 Aprobado Emergencia). Cancelado/Finalizado/Rechazado no tienen cobertura que
+       -- reclamar.
+       AND (e.engagement_state_override IS NULL
+            OR e.engagement_state_override IN (4, 5))
+       AND (p_scope = 'firm'
+            OR (p_scope = 'society'
+                AND e.society_id = (SELECT s.society_id FROM public.staff s
+                                     WHERE s.staff_id = p_staff_id))
+            OR (p_scope NOT IN ('firm', 'society')
+                AND p_staff_id IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id,
+                                   e.specialist_it_id, e.specialist_tax_id)))
+     GROUP BY w.engagement_id, r.category_id
+  ), asignados AS (
+    SELECT a.engagement_id,
+           a.category_id,
+           COUNT(DISTINCT a.staff_id) AS cubiertas
+      FROM public.engagement_assignments a
+     WHERE a.deleted_at IS NULL
+       AND a.status <> 'CANCELLED'
+       -- Y con vida por delante. Hay una TERCERA forma de que una asignación deje de cubrir, y
+       -- no deja marca: que llegue a su `end_date`. Nadie escribe 'COMPLETED' (el estado existe
+       -- en el CHECK y ninguna vía lo asigna), así que una asignación vencida se queda en
+       -- CONFIRMED con deleted_at NULL para siempre — y este contador la contaba como cobertura.
+       -- Resultado: decía "0 gaps" sobre un encargo VIVO cuyo equipo ya se fue.
+       --
+       -- Es el mismo predicado que usa el Scheduler (scheduler-gaps/handler.ts: `.lte(start_date,
+       -- endDate).gte(end_date, startDate)`), que es un SOLAPAMIENTO contra la ventana que el
+       -- usuario elige en pantalla. Este contador no tiene ventana elegible: la suya es "de hoy
+       -- en adelante", y solapar con [hoy, ∞) se reduce a esto.
+       --
+       -- NO se agrega `a.start_date <= hoy`. Eso cerraría la ventana a [hoy, hoy] —un punto, que
+       -- el Scheduler no usa en ningún lado— y contradiría la definición del contador: segun D-40
+       -- el gap son POSICIONES COMPROMETIDAS sin cubrir, y una asignación que arranca el mes que
+       -- viene SÍ cubre una posición comprometida. Excluirla convertiría cada encargo por empezar
+       -- en un gap completo aunque el equipo ya esté armado.
+       AND a.end_date >= (now() AT TIME ZONE 'America/La_Paz')::date
+     GROUP BY a.engagement_id, a.category_id
+  ), gap AS (
+    SELECT r.engagement_id,
+           GREATEST(r.required - COALESCE(a.cubiertas, 0), 0) AS faltan
+      FROM req r
+      LEFT JOIN asignados a
+             ON a.engagement_id = r.engagement_id
+            AND a.category_id   = r.category_id
+  )
+  SELECT jsonb_build_object(
+           'count', COALESCE(SUM(g.faltan), 0),
+           -- `items` sólo en el alcance `assigned`, mismo criterio que wo.installment.overdue:
+           -- son pocos encargos y se pintan como chips de COT. En `firm`/`society` la lista
+           -- puede ser de cientos y el número ya manda a la pantalla, que tiene filtros.
+           'items', CASE WHEN p_scope NOT IN ('firm', 'society')
+                    THEN COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
+                           'engagement_id',   g.engagement_id,
+                           'engagement_code', COALESCE(e.engagement_code, '—'))
+                         ) FILTER (WHERE g.faltan > 0), '[]'::jsonb)
+                    ELSE '[]'::jsonb END)
+    FROM gap g
+    JOIN public.engagements e ON e.engagement_id = g.engagement_id;
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope text) IS 'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing no cubre, por encargo y categoria. Cuenta como cobertura la asignacion que todavia tiene vida por delante (end_date >= hoy), no la que ya vencio: vencer no deja marca de estado y esas filas hacian que el contador dijera 0 sobre un encargo vivo sin equipo. Una asignacion que arranca en el futuro SI cuenta, porque la posicion esta comprometida. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
+
+
+--
+-- Name: notif_agg_timesheet_overdue(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_timesheet_overdue(p_weeks jsonb) RETURNS jsonb
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'missing_hours', COALESCE(SUM((w->>'missing_hours')::numeric), 0),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start',    w->>'week_start',
+                      'missing_hours', (w->>'missing_hours')::numeric
+                    ) ORDER BY w->>'week_start' DESC), '[]'::jsonb))
+    FROM jsonb_array_elements(COALESCE(p_weeks, '[]'::jsonb)) w
+   WHERE w->>'status' IN ('NOT_LOGGED', 'NOT_SUBMITTED', 'DRAFT');
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_timesheet_overdue(p_weeks jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_overdue(p_weeks jsonb) IS 'Semanas sin cargar o sin enviar, sobre la salida de get_week_statuses(). Lo consumen el despachador de la campana y el recordatorio diario.';
+
+
+--
+-- Name: notif_agg_timesheet_pending_approval(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_timesheet_pending_approval(p_staff_id uuid, p_from date) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- DISTINCT obligatorio: timesheet_line_approvals es UNIQUE (period_id, engagement_id,
+  -- activity_id), asi que sin el el COT se repetiria una vez por actividad.
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start', week_start, 'cots', cots) ORDER BY week_start DESC),
+                    '[]'::jsonb))
+    FROM (
+      SELECT tp.week_start_date AS week_start,
+             COALESCE(jsonb_agg(DISTINCT e.engagement_code)
+                      FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
+        FROM public.timesheet_periods tp
+        JOIN public.timesheet_line_approvals tla ON tla.period_id = tp.period_id
+        JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+       WHERE tp.staff_id = p_staff_id
+         AND tp.submitted_at IS NOT NULL
+         AND tla.status = 'pending'
+         AND tp.week_start_date >= p_from
+       GROUP BY tp.week_start_date
+    ) q;
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_timesheet_pending_approval(p_staff_id uuid, p_from date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(p_staff_id uuid, p_from date) IS 'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
+
+
+--
+-- Name: notif_agg_timesheet_reverted(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_timesheet_reverted(p_weeks jsonb) RETURNS jsonb
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', COALESCE(jsonb_agg(jsonb_build_object('week_start', w->>'week_start')
+                      ORDER BY w->>'week_start' DESC), '[]'::jsonb))
+    FROM jsonb_array_elements(COALESCE(p_weeks, '[]'::jsonb)) w
+   WHERE w->>'status' = 'REJECTED';
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_timesheet_reverted(p_weeks jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_reverted(p_weeks jsonb) IS 'Semanas devueltas al colaborador, sobre la salida de get_week_statuses().';
+
+
+--
+-- Name: notif_agg_wo_installment_due_this_week(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
+    FROM public.wo_payment_installments i
+   -- `Overdue` sale de acá, y no alcanza con el filtro de fechas para dejarlo afuera. Ese estado
+   -- se marca A MANO y la guarda de transiciones no mira el calendario
+   -- (`WHEN 'Invoiced' THEN NEW.status IN ('Completed', 'Overdue')`, migración 0722-156b), así
+   -- que una cuota puede estar marcada vencida y tener su fecha de pago el viernes DE ESTA
+   -- semana. Sin esta exclusión caía en los dos contadores a la vez —acá por la fecha, y en
+   -- notif_agg_wo_installment_overdue() por el brazo `status = 'Overdue'`— y Contabilidad la
+   -- veía dos veces, en la campana y en el correo del lunes.
+   --
+   -- Gana el estado más específico, mismo criterio que usa este módulo cuando
+   -- `client.deactivated` le gana a `client.updated`: si ya está vencida, no está por vencer.
+   WHERE i.status NOT IN ('Completed', 'Overdue')
+     AND i.agreed_payment_date IS NOT NULL
+     AND i.agreed_payment_date >= (now() AT TIME ZONE 'America/La_Paz')::date
+     AND i.agreed_payment_date <=
+         (date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6);
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_wo_installment_due_this_week(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS 'Contador "Cuotas por vencer esta semana": cuotas cuya fecha de pago acordada cae entre hoy y el domingo, excluyendo Completed y tambien Overdue. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
+
+
+--
+-- Name: notif_agg_wo_installment_overdue(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Único contador del catálogo que la matriz reparte con DOS alcances: `assigned` para los
+  -- gerentes (sus encargos) y `department` para Contabilidad y Cobranzas (todo). Por eso
+  -- recibe el scope: sin él, un gerente vería la mora de toda la firma.
+  --
+  -- `items` sólo se llena en el caso `assigned`, que son pocas filas y se pintan como chips
+  -- de COT en el panel. Para Contabilidad la lista puede ser de cientos y no aporta: el
+  -- número manda a la pantalla, y la pantalla tiene los filtros.
+  SELECT jsonb_build_object(
+           'count', COUNT(*),
+           'items', CASE WHEN p_scope = 'assigned'
+                    THEN COALESCE(jsonb_agg(DISTINCT jsonb_build_object(
+                           'engagement_id',   q.engagement_id,
+                           'engagement_code', q.engagement_code)), '[]'::jsonb)
+                    ELSE '[]'::jsonb END)
+    FROM (
+      SELECT e.engagement_id,
+             COALESCE(e.engagement_code, '—') AS engagement_code
+        FROM public.wo_payment_installments i
+        JOIN public.work_orders w  ON w.wo_id = i.wo_id
+        JOIN public.engagements e  ON e.engagement_id = w.engagement_id
+       WHERE i.status <> 'Completed'
+         AND (i.status = 'Overdue'
+              OR (i.agreed_payment_date IS NOT NULL
+                  AND i.agreed_payment_date < (now() AT TIME ZONE 'America/La_Paz')::date))
+         AND (p_scope <> 'assigned'
+              OR p_staff_id IN (e.manager_id, e.specialist_it_id, e.specialist_tax_id))
+    ) q;
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) IS 'Contador "Cuotas vencidas". Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
+
+
+--
+-- Name: notif_client_assigned(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_client_assigned(p_client_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de `is_assigned_to_client()`, del revés: esa función pregunta "¿estoy asignado a
+  -- este cliente?" y ésta responde "¿quiénes lo están?". Se suman los dos especialistas, que
+  -- la original no mira: para la matriz de notificaciones son gerentes del encargo igual que
+  -- el general, y las tres columnas se mueven siempre juntas.
+  --
+  -- Sin filtrar por estado del encargo, igual que la original: un cliente con un encargo
+  -- cerrado sigue siendo "tu cliente" a los efectos de enterarte de que lo inactivaron.
+  SELECT DISTINCT s FROM (
+    SELECT e.partner_id        AS s FROM public.engagements e WHERE e.client_id = p_client_id
+    UNION SELECT e.manager_id        FROM public.engagements e WHERE e.client_id = p_client_id
+    UNION SELECT e.sqr_id            FROM public.engagements e WHERE e.client_id = p_client_id
+    UNION SELECT e.encargado_id      FROM public.engagements e WHERE e.client_id = p_client_id
+    UNION SELECT e.specialist_it_id  FROM public.engagements e WHERE e.client_id = p_client_id
+    UNION SELECT e.specialist_tax_id FROM public.engagements e WHERE e.client_id = p_client_id
+  ) q WHERE s IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_client_assigned(p_client_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_client_assigned(p_client_id uuid) IS 'Staff asignado a un cliente: quienes ocupan un cargo en alguno de sus encargos, en cualquier estado. Espejo de is_assigned_to_client() en sentido inverso, incluidos los dos especialistas.';
+
+
+--
+-- Name: notif_contador(jsonb, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_contador(p_payload jsonb, p_clave text) RETURNS integer
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  -- Espejo de `conteoDeConcepto` en
+  -- supabase/functions/_shared/plantillas/constants/recordatorios.ts: un bucket es
+  -- `{"count": n}`, y lo que no sea un número cuenta como cero. El `trunc` y el `GREATEST`
+  -- están para que un payload raro no haga fallar un INSERT de notificación.
+  SELECT CASE
+    WHEN jsonb_typeof(COALESCE(p_payload, '{}'::jsonb) -> p_clave -> 'count')
+           IS DISTINCT FROM 'number'
+      THEN 0
+    ELSE GREATEST(trunc((p_payload -> p_clave ->> 'count')::numeric)::integer, 0)
+  END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_contador(p_payload jsonb, p_clave text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_contador(p_payload jsonb, p_clave text) IS 'Lee el contador de un bucket de recordatorio (`{"count": n}`) del payload. Cero si el bucket falta o no trae numero. Espejo de conteoDeConcepto en plantillas/constants/recordatorios.ts.';
+
+
+--
+-- Name: notif_emit_approval_reminder_weekly(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_approval_reminder_weekly() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_from      date := public.notif_timesheet_window_start();
+  v_semana    text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_lineas    jsonb;
+  v_capac     jsonb;
+  v_encargos  jsonb;
+  v_total     integer;
+  v_avisados  integer := 0;
+  v_rec       record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'approval.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    -- Cada pieza del resumen se incluye SOLO si la matriz le concede ese contador. Sumarlos
+    -- todos le mostraria a un gerente la cola de capacitacion de Talento Humano.
+    v_lineas := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'timesheet.pending_approval')
+                     THEN public.notif_agg_timesheet_pending_approval(v_rec.staff_id, v_from)
+                     ELSE NULL END;
+    v_capac  := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'approval.training_pending')
+                     THEN public.notif_agg_approval_training_pending()
+                     ELSE NULL END;
+    v_encargos := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'engagement.pending_partner_approval')
+                       THEN public.engagement_approval_bucket(v_rec.staff_id, 'Pending_Approval')
+                       ELSE NULL END;
+
+    v_total := COALESCE((v_lineas->>'count')::integer, 0)
+             + COALESCE((v_capac->>'count')::integer, 0)
+             + COALESCE((v_encargos->>'count')::integer, 0);
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('approval.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe',    v_semana,
+                                 'total',     v_total,
+                                 'lineas',    v_lineas,
+                                 'capacitacion', v_capac,
+                                 'encargos',  v_encargos));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_emit_approval_reminder_weekly(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS 'Recordatorio semanal de aprobaciones: lineas de timesheet, cola de capacitacion y encargos esperando al Socio. Cada pieza entra solo si la matriz le concede ese contador al rol.';
+
+
+--
+-- Name: notif_emit_fund_reminder_weekly(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_fund_reminder_weekly() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_revision jsonb;
+  v_desemb   jsonb;
+  v_liquid   jsonb;
+  v_cierre   jsonb;
+  -- Los mismos cuatro contadores recortados a lo que la matriz le concede a CADA destinatario.
+  v_rev_rol  jsonb;
+  v_des_rol  jsonb;
+  v_liq_rol  jsonb;
+  v_cie_rol  jsonb;
+  v_total    integer;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  -- Los cuatro contadores de fondos no reciben staff: son de toda la firma, y la matriz se los
+  -- concede a Contabilidad con alcance `department`. Se calculan una sola vez.
+  v_revision := public.notif_agg_fund_expense_review_pending();
+  v_desemb   := public.notif_agg_fund_disbursement_pending();
+  v_liquid   := public.notif_agg_fund_settlement_pending();
+  v_cierre   := public.notif_agg_fund_closure_pending();
+
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'fund.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    -- El recorte por rol tiene que pasar ANTES de armar el payload y no sólo dentro de v_total:
+    -- gatear el total decide bien a quién se le manda y mal qué lee. `detallesDeRecordatorio()`
+    -- (plantillas/notificaciones.ts) renderiza todo bucket con count > 0, así que un
+    -- accounting_analyst —que tiene `fund.reminder.weekly` y de los cuatro contadores sólo
+    -- `fund.expense.review_pending`— recibía los otros tres, que son de Contabilidad.
+    -- Mismo patrón que notif_emit_approval_reminder_weekly: la pieza no concedida viaja NULL.
+    v_rev_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.expense.review_pending')
+                      THEN v_revision ELSE NULL END;
+    v_des_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.disbursement.pending')
+                      THEN v_desemb ELSE NULL END;
+    v_liq_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.settlement.pending')
+                      THEN v_liquid ELSE NULL END;
+    v_cie_rol := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'fund.request.closure_pending')
+                      THEN v_cierre ELSE NULL END;
+
+    v_total := COALESCE((v_rev_rol->>'count')::integer, 0)
+             + COALESCE((v_des_rol->>'count')::integer, 0)
+             + COALESCE((v_liq_rol->>'count')::integer, 0)
+             + COALESCE((v_cie_rol->>'count')::integer, 0);
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('fund.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe', v_semana,
+                                 'total',  v_total,
+                                 'revision_gastos', v_rev_rol,
+                                 'desembolsos',     v_des_rol,
+                                 'liquidaciones',   v_liq_rol,
+                                 'cierres',         v_cie_rol));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_emit_fund_reminder_weekly(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_emit_fund_reminder_weekly() IS 'Recordatorio semanal de fondos: gastos por revisar, solicitudes por desembolsar, por liquidar y por cerrar. Cada contador entra al payload solo si la matriz se lo concede al rol del destinatario.';
+
+
+--
+-- Name: notif_emit_timesheet_reminder_daily(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_timesheet_reminder_daily() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_from     date := public.notif_timesheet_window_start();
+  v_hoy      text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'YYYY-MM-DD');
+  v_weeks    jsonb;
+  v_overdue  jsonb;
+  v_reverted jsonb;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'timesheet.reminder.daily'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    -- Hora local, no CURRENT_DATE (UTC): ver 20260911100600_fecha_local_current_date.sql.
+    v_weeks    := public.get_week_statuses(v_rec.staff_id, v_from, (now() AT TIME ZONE 'America/La_Paz')::date);
+    v_overdue  := public.notif_agg_timesheet_overdue(v_weeks);
+    v_reverted := public.notif_agg_timesheet_reverted(v_weeks);
+
+    -- Sin nada pendiente no se manda nada. Un recordatorio que dice "cero" todos los días
+    -- enseña a ignorarlo.
+    CONTINUE WHEN COALESCE((v_overdue->>'count')::integer, 0)
+                + COALESCE((v_reverted->>'count')::integer, 0) = 0;
+
+    PERFORM public.notify_staff('timesheet.reminder.daily', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe',   v_hoy,
+                                 'overdue',  v_overdue,
+                                 'reverted', v_reverted));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_emit_timesheet_reminder_daily(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_emit_timesheet_reminder_daily() IS 'Recordatorio diario de horas: semanas sin cargar y semanas devueltas. Devuelve a cuantas personas se les emitio (el dedupe puede descartar alguna si el cron corre dos veces el mismo dia).';
+
+
+--
+-- Name: notif_emit_wo_installment_reminder_weekly(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_wo_installment_reminder_weekly() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
+  v_semana_actual jsonb := public.notif_agg_wo_installment_due_this_week();
+  v_mora     jsonb;
+  -- `v_semana_actual` es de toda la firma; esta es su version recortada al destinatario.
+  v_por_venc jsonb;
+  v_total    integer;
+  v_avisados integer := 0;
+  v_rec      record;
+BEGIN
+  FOR v_rec IN
+    SELECT s.staff_id, ur.role_key,
+           -- El alcance del contador de mora, que la matriz reparte con DOS: `assigned` para los
+           -- gerentes (sus encargos) y `department` para Contabilidad (todo). Sin esto un gerente
+           -- veria la mora de toda la firma.
+           (SELECT n2.scope_key FROM public.notification_role_types n2
+             WHERE n2.role_key = ur.role_key
+               AND n2.type_key = 'wo.installment.overdue') AS scope_mora
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+      JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+     WHERE nrt.type_key = 'wo.installment.reminder.weekly'
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND s.email IS NOT NULL
+       AND btrim(s.email) <> ''
+  LOOP
+    v_mora := CASE WHEN v_rec.scope_mora IS NOT NULL
+                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora)
+                   ELSE NULL END;
+
+    -- Igual que la mora de arriba: el contador entra al payload sólo si la matriz se lo concede.
+    -- `wo.installment.due_this_week` es de Contabilidad (alcance `department`) y los gerentes no
+    -- lo tienen, así que mandárselo les entregaba las cuotas por vencer de toda la firma —
+    -- exactamente lo que `scope_mora` se cuida de no hacer con las vencidas.
+    v_por_venc := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
+                       THEN v_semana_actual ELSE NULL END;
+
+    v_total := COALESCE((v_mora->>'count')::integer, 0)
+             + COALESCE((v_por_venc->>'count')::integer, 0);
+    CONTINUE WHEN v_total = 0;
+
+    PERFORM public.notify_staff('wo.installment.reminder.weekly', v_rec.staff_id, NULL,
+              jsonb_build_object('dedupe', v_semana,
+                                 'total',  v_total,
+                                 'vencidas',   v_mora,
+                                 'por_vencer', v_por_venc));
+    v_avisados := v_avisados + 1;
+  END LOOP;
+
+  RETURN v_avisados;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_emit_wo_installment_reminder_weekly(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() IS 'Recordatorio semanal de cuotas: vencidas (con el alcance que la matriz le da al rol) y por vencer esta semana (solo si la matriz le concede ese contador). Reemplaza al correo por cuota de wo.client.billing_week (D-44).';
+
+
+--
+-- Name: notif_engagement_daily_scheduled(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_engagement_daily_scheduled() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  FOR v_rec IN
+    SELECT e.engagement_id, e.end_date,
+           COALESCE(e.engagement_code, '') AS engagement_code,
+           COALESCE(e.engagement_name, '') AS engagement_name,
+           (e.end_date - v_today) AS days_left,
+           r.staff_id
+      FROM public.engagements e
+      CROSS JOIN LATERAL (
+        SELECT staff_id FROM public.notif_engagement_owners(e.engagement_id)
+        UNION
+        SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+      ) r
+     WHERE e.end_date IS NOT NULL
+       AND (e.end_date - v_today) IN (7, 1)
+       -- Un encargo ya finalizado, cancelado o rechazado no tiene fecha fin que avisar. El
+       -- mismo criterio de `finalize_due_engagements()`: sólo los estados que siguen vivos.
+       AND (e.engagement_state_override IS NULL
+            OR e.engagement_state_override NOT IN (6, 7, 8))
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM public.notifications n
+       WHERE n.type_key = 'engagement.ending_soon'
+         AND n.entity_id = v_rec.engagement_id::text
+         AND n.recipient_staff_id = v_rec.staff_id
+         AND n.payload->>'days_left' = v_rec.days_left::text
+    ) THEN
+      IF public.notify_staff('engagement.ending_soon', v_rec.staff_id,
+           v_rec.engagement_id::text,
+           jsonb_build_object('engagement_id',   v_rec.engagement_id,
+                              'engagement_code', v_rec.engagement_code,
+                              'engagement_name', v_rec.engagement_name,
+                              'end_date',        v_rec.end_date,
+                              'days_left',       v_rec.days_left)
+           -- El último día no se anuncia como "quedan 1 días": `context` de i18next le da su
+           -- propia redacción sin gastar un tipo del catálogo.
+           || CASE WHEN v_rec.days_left = 1
+                   THEN jsonb_build_object('context', 'last_day')
+                   ELSE '{}'::jsonb END) IS NOT NULL THEN
+        v_sent := v_sent + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_engagement_daily_scheduled(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_engagement_daily_scheduled() IS 'FASE 3.c (D-05): aviso previo a la fecha fin del encargo, a 7 dias y a 1 dia, a la conduccion + ADM. Idempotente por destinatario y por days_left contra public.notifications. Devuelve cuantas notificaciones emitio.';
+
+
+--
+-- Name: notif_engagement_managers(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_engagement_managers(p_engagement_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Los tres gerentes del encargo: el general y los dos especialistas. En la matriz las
+  -- columnas Gerente / Gerente ESPECIALISTA ITA / Gerente ESPECIALISTA TAX se mueven siempre
+  -- juntas, así que se resuelven juntas.
+  SELECT s FROM (
+    SELECT e.manager_id        AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION
+    SELECT e.specialist_it_id  FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION
+    SELECT e.specialist_tax_id FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+  ) q WHERE s IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_engagement_managers(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_engagement_managers(p_engagement_id uuid) IS 'Alcance `assigned` de la banda gerencial de un encargo: manager_id + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+
+
+--
+-- Name: notif_engagement_owners(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_engagement_owners(p_engagement_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Los 6 cargos del encargo. `notif_engagement_partners` + `notif_engagement_managers`
+  -- (PARTE 2) cubren 5 de estos 6 entre las dos; acá se suma `encargado_id`, que en el
+  -- módulo OT no hacía falta y en éste sí.
+  SELECT s FROM (
+    SELECT e.partner_id        AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION SELECT e.manager_id        FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION SELECT e.sqr_id            FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION SELECT e.encargado_id      FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION SELECT e.specialist_it_id  FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION SELECT e.specialist_tax_id FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+  ) q WHERE s IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_engagement_owners(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_engagement_owners(p_engagement_id uuid) IS 'Los 6 cargos de un encargo: partner, manager, sqr, encargado y los dos especialistas. Alcance `assigned` de la conduccion, para el modulo Encargos.';
+
+
+--
+-- Name: notif_engagement_partners(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_engagement_partners(p_engagement_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- sqr_id incluido a propósito (D-19): la función SQR la ocupan Socio, Senior Partner,
+  -- Senior o Director, y para ellos "asignados" significa justamente "el encargo donde soy
+  -- el SQR". Quien la ocupe con un rol que la matriz no contempla lo filtra notify_staff().
+  SELECT s FROM (
+    SELECT e.partner_id AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    UNION
+    SELECT e.sqr_id     FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+  ) q WHERE s IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_engagement_partners(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_engagement_partners(p_engagement_id uuid) IS 'Alcance `assigned` de la banda alta de un encargo: partner_id + sqr_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+
+
+--
+-- Name: notif_engagement_staffed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_engagement_staffed(p_engagement_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Staffing VIGENTE AL CIERRE (decisión del operador 2026-09-10): "quien salió del encargo
+  -- hace tres meses no tiene por qué enterarse de que terminó".
+  --
+  -- Hay TRES formas de salir y antes se miraban dos. El borrado lógico y el `CANCELLED` son las
+  -- dos salidas ANTICIPADAS; la tercera es la normal —la asignación llega a su `end_date`— y no
+  -- deja ninguna marca de estado: `end_date` es NOT NULL, nadie en el repositorio escribe
+  -- `'COMPLETED'` (el estado existe en el CHECK y ninguna vía lo asigna), así que una asignación
+  -- vencida se queda en `CONFIRMED` con `deleted_at` NULL para siempre. Sin mirar la fecha, esta
+  -- función devolvía a quien estuvo en enero para un encargo que cierra en septiembre.
+  --
+  -- LA COMPARACIÓN ES CONTRA `engagements.end_date` Y NO CONTRA HOY, y eso no es un detalle: el
+  -- encargo se finaliza DESPUÉS de que su fecha de fin pasó, así que a esa altura todas las
+  -- asignaciones ya vencieron y un filtro contra `now()` dejaría la lista VACÍA — convertiría un
+  -- aviso de más en un aviso de menos, que es peor.
+  --
+  -- Con `e.end_date` NULL no se filtra nada: un dato faltante no puede vaciar la audiencia.
+  --
+  -- Achicar esto no puede silenciar el evento: `notify_engagement_events` une admin + los 6
+  -- cargos + este helper, así que la finalización siempre llega a la conducción.
+  SELECT DISTINCT a.staff_id
+    FROM public.engagement_assignments a
+    JOIN public.engagements e ON e.engagement_id = a.engagement_id
+   WHERE a.engagement_id = p_engagement_id
+     AND a.deleted_at IS NULL
+     AND a.status <> 'CANCELLED'
+     AND (e.end_date IS NULL
+          OR (a.start_date <= e.end_date AND a.end_date >= e.end_date))
+$$;
+
+
+--
+-- Name: FUNCTION notif_engagement_staffed(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_engagement_staffed(p_engagement_id uuid) IS 'Staff cuya asignacion seguia viva AL CIERRE del encargo: sin deleted_at, status <> CANCELLED, y abarcando engagements.end_date. La tercera condicion es la que excluye a quien se fue por vencimiento normal de su asignacion, que no deja marca de estado. Se compara contra end_date del encargo y no contra hoy, porque la finalizacion ocurre cuando esa fecha ya paso y filtrar por hoy vaciaria la lista. Con end_date NULL no filtra. Es la unica via por la que seniors/semis/asistentes se atan a un encargo.';
+
+
+--
+-- Name: notif_fund_request_managers(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT DISTINCT frw.manager_staff_id
+    FROM public.fund_request_work_orders frw
+   WHERE frw.fund_request_id = p_fund_request_id
+     AND frw.manager_staff_id IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_fund_request_managers(p_fund_request_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid) IS 'Gerentes de las OT de una solicitud de fondos (multi-gerente: cada uno aprueba su parte). Lo usan los disparadores de notificacion del modulo.';
+
+
+--
+-- Name: notif_origen_cambio_rol(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_origen_cambio_rol() RETURNS text
+    LANGUAGE sql STABLE
+    AS $$
+  SELECT COALESCE(NULLIF(current_setting('ems.role_change_source', true), ''), 'direct');
+$$;
+
+
+--
+-- Name: FUNCTION notif_origen_cambio_rol(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS 'De donde vino el cambio de rol en curso: category si lo escribio sync_user_role_from_category, direct en cualquier otro caso. Lo consume el payload de auth.role.changed para elegir el texto del correo.';
+
+
+--
+-- Name: notif_permiso_de_ruta(text, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  SELECT CASE
+    -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
+    WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
+      THEN 'timesheet_approval.read'
+    -- El recordatorio de aprobaciones resume TRES colas que viven en pantallas distintas, y el
+    -- botón apunta a la del primer contador con número (`DESTINOS_POR_CONCEPTO`, en
+    -- supabase/functions/_shared/plantillas/constants/recordatorios.ts). El permiso tiene que
+    -- salir del MISMO contador: gatear el tipo entero por el permiso de su módulo mandaba a
+    -- todos a `timesheet.read`, y `hr_manager` —que por la matriz sólo recibe el bucket de
+    -- capacitación— no lo tiene. Perdía el botón a `/timesheet/approvals`, que SÍ puede
+    -- abrir: tiene `timesheet_approval.read` con alcance `assigned_engagements` desde 0817-180.
+    --
+    -- El orden de los WHEN es el orden de prioridad de allá, y tiene que seguir siéndolo: si
+    -- divergen, el correo gatea por una pantalla y linkea a otra.
+    WHEN p_type_key = 'approval.reminder.weekly' THEN
+      CASE
+        WHEN public.notif_contador(p_payload, 'capacitacion') > 0 THEN 'timesheet_approval.read'
+        WHEN public.notif_contador(p_payload, 'encargos')     > 0 THEN 'engagement.read'
+        WHEN public.notif_contador(p_payload, 'lineas')       > 0 THEN 'timesheet.read'
+        -- Sin ningún contador poblado el destino cae a `RUTAS_RECORDATORIO`, que para este tipo
+        -- es `/timesheet/approvals`. `notif_emit_approval_reminder_weekly` no emite con total 0,
+        -- así que esto es una red, no un caso esperado.
+        ELSE 'timesheet_approval.read'
+      END
+    -- El recordatorio semanal de fondos NO va a la lista de solicitudes: sus cuatro contadores
+    -- son colas de Contabilidad y viven en /fund-requests/disbursements, que exige su propio
+    -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
+    -- excepcion el correo le ofrecia un boton a "Sin acceso".
+    WHEN p_type_key = 'fund.reminder.weekly' THEN 'fund_disbursement.read'
+    WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
+    WHEN p_module_key = 'work_order'         THEN 'work_order.read'
+    WHEN p_module_key = 'engagement'         THEN 'engagement.read'
+    -- `worksheet.sent_to_quality` es campana pura (email_enabled = false), asi que este
+    -- WHEN no apaga ningun boton hoy: esta para que el espejo con
+    -- MODULE_ROUTE_PERMISSION no quede cojo si el tipo pasa a mandar correo.
+    WHEN p_module_key = 'worksheet'          THEN 'worksheet.read'
+    -- El destino de estos tres es la pantalla PROPIA (su hoja, su cronómetro), no una bandeja
+    -- de otros: por eso `timesheet.read` / `time_entry.read`, que sí tienen los 17 roles que
+    -- reportan horas, con alcance `own`.
+    --
+    -- `timesheet_approval` cae acá sólo para lo que queda del módulo después de las dos
+    -- excepciones de arriba: hoy, nada que se encole. Sus tipos son `approval.reminder.weekly`
+    -- (resuelto por contador) y `approval.training_pending`, que es `aggregate` y nunca llega a
+    -- `notify_staff`. Se deja porque el default correcto para una bandeja de aprobación de UN
+    -- tipo nuevo no es obvio, y fallar hacia el permiso más común avisa sin enlace en vez de
+    -- linkear a "Sin acceso".
+    WHEN p_module_key = 'timesheet'          THEN 'timesheet.read'
+    WHEN p_module_key = 'timesheet_approval' THEN 'timesheet.read'
+    WHEN p_module_key = 'tracker'            THEN 'time_entry.read'
+    WHEN p_module_key = 'client'             THEN 'client.read'
+    -- El módulo `auth` cubre cuentas Y personal, y las dos mitades terminan en la ficha de staff.
+    WHEN p_module_key = 'auth'               THEN 'staff.read'
+    ELSE NULL
+  END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb) IS 'Permiso que exige la pantalla destino de un aviso, espejo de MODULE_ROUTE_PERMISSION/TYPE_ROUTE_PERMISSION en src/lib/notifications.ts. NULL si esa pantalla no exige ninguno. Para approval.reminder.weekly sale del contador poblado del payload, igual que su ruta (DESTINOS_POR_CONCEPTO). Lo usa notify_staff() para apagar el enlace del correo cuando el destinatario no puede abrirla.';
+
+
+--
+-- Name: notif_role_tiene(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_role_tiene(p_role_key text, p_type_key text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.notification_role_types
+     WHERE role_key = p_role_key AND type_key = p_type_key);
+$$;
+
+
+--
+-- Name: FUNCTION notif_role_tiene(p_role_key text, p_type_key text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_role_tiene(p_role_key text, p_type_key text) IS 'Si la matriz le concede ese tipo a ese rol. Helper de los emisores de recordatorio.';
+
+
+--
+-- Name: notif_scope_of(text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_scope_of(p_type_key text, p_staff_id uuid) RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- El alcance con el que la matriz le concede ese tipo al rol del destinatario, o NULL si
+  -- no se lo concede. `user_roles` es UNIQUE por usuario y la PK de la matriz es
+  -- (role_key, type_key), así que devuelve una fila como máximo.
+  SELECT nrt.scope_key
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+    JOIN public.notification_role_types nrt ON nrt.role_key = ur.role_key
+   WHERE s.staff_id = p_staff_id
+     AND nrt.type_key = p_type_key
+$$;
+
+
+--
+-- Name: FUNCTION notif_scope_of(p_type_key text, p_staff_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_scope_of(p_type_key text, p_staff_id uuid) IS 'Alcance (scope_key) con el que la matriz de notificaciones le concede un type_key al rol de un staff; NULL si no se lo concede. Lo usan los disparadores cuando el mismo tipo se reparte con alcances distintos segun el rol.';
+
+
+--
+-- Name: notif_staff_by_practice(uuid, text[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_staff_by_practice(p_practica_id uuid, p_role_keys text[]) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Alcance `practica`: los roles indicados, pero sólo los de esa línea de servicio. Con
+  -- `p_practica_id` NULL no devuelve a nadie — una ficha sin práctica no le corresponde a
+  -- ningún gerente en particular, y mandarlo a todos sería el alcance `firm`, que la matriz
+  -- reserva para ADM y Talento Humano.
+  SELECT DISTINCT s.staff_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE ur.role_key = ANY (p_role_keys)
+     AND s.practica_id = p_practica_id
+     AND s.is_active
+     AND s.deleted_at IS NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_staff_by_practice(p_practica_id uuid, p_role_keys text[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_staff_by_practice(p_practica_id uuid, p_role_keys text[]) IS 'Alcance `practica` de la matriz de notificaciones: staff activo con esos role_key dentro de una misma linea de servicio (staff.practica_id). NULL no devuelve a nadie.';
+
+
+--
+-- Name: notif_staff_by_roles(text[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_staff_by_roles(p_role_keys text[]) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT DISTINCT s.staff_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE ur.role_key = ANY (p_role_keys)
+     AND s.is_active
+     AND s.deleted_at IS NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_staff_by_roles(p_role_keys text[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_staff_by_roles(p_role_keys text[]) IS 'Traduce una lista de role_key a los staff_id activos que los tienen. Lo usan los disparadores para los alcances firm/department de la matriz de notificaciones.';
+
+
+--
+-- Name: notif_timesheet_period_leads(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_timesheet_period_leads(p_period_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- La conducción de los encargos donde esa boleta cargó horas reales. Se resuelve por
+  -- `period_id` porque es la misma columna que mira `submit_timesheet_safe` para decidir qué
+  -- líneas de aprobación crear: si un encargo no está ahí, no formó parte de este envío.
+  --
+  -- `encargado_id` queda AFUERA a propósito: lo ocupa un Senior o un Semi Senior, y la
+  -- matriz no les da `weekly_submitted` (su celda era el acuse propio, que tiene tipo
+  -- aparte). Los dos conjuntos que sí entran son los de PARTE 2, reutilizados tal cual.
+  SELECT DISTINCT r.staff_id
+    FROM (
+      SELECT DISTINCT te.engagement_id
+        FROM public.time_entries te
+       WHERE te.period_id = p_period_id
+         AND te.is_forecast = false
+    ) g
+    CROSS JOIN LATERAL (
+      SELECT staff_id FROM public.notif_engagement_partners(g.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_managers(g.engagement_id)
+    ) r
+   WHERE r.staff_id IS NOT NULL
+$$;
+
+
+--
+-- Name: FUNCTION notif_timesheet_period_leads(p_period_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_timesheet_period_leads(p_period_id uuid) IS 'Conduccion (socio/SQR/gerentes) de los encargos con horas reales en un periodo de timesheet. Alcance `assigned` del aviso informativo de envio; excluye encargado_id, que la matriz no incluye en ese tipo.';
+
+
+--
+-- Name: notif_timesheet_window_start(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_timesheet_window_start() RETURNS date
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $_$
+DECLARE
+  v_raw    text;
+  v_window integer := 4;
+  v_start  date;
+  v_from   date;
+BEGIN
+  -- Se valida con regex en vez de castear a ciegas: global_settings es texto libre y un valor
+  -- mal tipeado por el admin no debe tumbar la campana entera.
+  --
+  -- El `{1,9}` no es cosmetico: '^[0-9]+$' aceptaba 20 digitos, y el cast a integer revienta
+  -- ANTES de que el LEAST/GREATEST pueda acotar nada. Nueve digitos siempre entran en integer.
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'TS_ALERT_WINDOW_WEEKS';
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
+    v_window := LEAST(GREATEST(v_raw::integer, 1), 52);
+  END IF;
+
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'TS_TRACKING_START_DATE';
+  -- El regex da la FORMA; el cast va en su propio bloque porque la forma no alcanza. '2026-02-31'
+  -- pasa `\d{4}-\d{2}-\d{2}` y revienta al castear, y esta funcion no tiene manejo de excepcion:
+  -- la de adentro subia hasta get_my_notifications() y dejaba la campana en blanco para todos, que
+  -- es exactamente lo que el comentario de arriba dice que no puede pasar.
+  IF btrim(COALESCE(v_raw, '')) ~ '^\d{4}-\d{2}-\d{2}$' THEN
+    BEGIN
+      v_start := btrim(v_raw)::date;
+    EXCEPTION WHEN OTHERS THEN
+      -- Cae al default documentado del ajuste: vacio = sin recorte.
+      v_start := NULL;
+    END;
+  END IF;
+
+  -- Hora local, no CURRENT_DATE (UTC): ver 20260911100600_fecha_local_current_date.sql.
+  v_from := (now() AT TIME ZONE 'America/La_Paz')::date - (v_window * 7);
+
+  IF v_start IS NOT NULL THEN
+    -- La fecha de arranque tiene que caer LUNES para recortar de verdad. Quien consume esto es
+    -- `get_week_statuses()`, que rebobina lo que reciba al lunes de esa semana y después sólo
+    -- clampea contra hire/termination: con una fecha de arranque a mitad de semana, esa semana
+    -- entra ENTERA y la alarma termina reclamando horas de los días anteriores a que la firma
+    -- cargara en EMS — exactamente lo que este ajuste existe para evitar.
+    --
+    -- Se adelanta al lunes siguiente, o sea a la primera semana COMPLETA. Sí, así la semana
+    -- parcial del arranque tampoco alarma, y es a propósito: `get_week_statuses()` calcula las
+    -- horas esperadas sobre el lunes-viernes entero y no sabe arrancar a mitad, así que la única
+    -- alternativa es reclamar horas de días que no existían. Alarmar de menos una semana en el
+    -- cutover es el lado barato del error.
+    IF EXTRACT(ISODOW FROM v_start)::integer <> 1 THEN
+      v_start := v_start + (8 - EXTRACT(ISODOW FROM v_start)::integer);
+    END IF;
+
+    -- Y sólo puede ACORTAR la ventana, nunca alargarla.
+    IF v_start > v_from THEN
+      v_from := v_start;
+    END IF;
+  END IF;
+
+  RETURN v_from;
+END;
+$_$;
+
+
+--
+-- Name: FUNCTION notif_timesheet_window_start(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_timesheet_window_start() IS 'Inicio de la ventana de las alarmas de timesheet: TS_ALERT_WINDOW_WEEKS semanas atras, recortada por TS_TRACKING_START_DATE. La fecha de arranque se adelanta al lunes siguiente si no cae lunes, porque get_week_statuses() rebobina al lunes de esa semana y una semana parcial terminaria reclamando horas anteriores al arranque. Un valor mal tipeado cae al default de 4 semanas.';
+
+
+--
+-- Name: notif_wo_daily_scheduled(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_wo_daily_scheduled() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
+  v_rec   record;
+  v_sent  integer := 0;
+  c_riesgos constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
+BEGIN
+  -- ── 1. Plazo de emergencia por vencer (D-09: dos disparos del mismo tipo) ──
+  -- `risk_status = 'Emergency_Approved'` es la condición de "todavía debe los datos": en
+  -- cuanto el gerente los completa, useCompleteRiskAssessment lo devuelve a 'Pending' y el
+  -- recordatorio se apaga solo.
+  FOR v_rec IN
+    SELECT w.wo_id, w.engagement_id, w.currency, w.emergency_deadline_at,
+           COALESCE(e.engagement_code, '') AS engagement_code,
+           (w.emergency_deadline_at - v_today) AS days_left,
+           r.staff_id
+      FROM public.work_orders w
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+      CROSS JOIN LATERAL (
+        SELECT staff_id FROM public.notif_engagement_managers(w.engagement_id)
+        UNION
+        SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+      ) r
+     WHERE w.risk_status = 'Emergency_Approved'
+       AND w.emergency_deadline_at IS NOT NULL
+       AND (w.emergency_deadline_at - v_today) IN (3, 0)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM public.notifications n
+       WHERE n.type_key = 'wo.emergency.deadline_near'
+         AND n.entity_id = v_rec.wo_id::text
+         AND n.recipient_staff_id = v_rec.staff_id
+         AND n.payload->>'days_left' = v_rec.days_left::text
+    ) THEN
+      IF public.notify_staff('wo.emergency.deadline_near', v_rec.staff_id,
+           v_rec.wo_id::text,
+           jsonb_build_object('engagement_code', v_rec.engagement_code,
+                              'engagement_id',   v_rec.engagement_id,
+                              'currency',        v_rec.currency,
+                              'deadline',        v_rec.emergency_deadline_at,
+                              'days_left',       v_rec.days_left)
+           -- El último día no se anuncia como "quedan 0 días": `context` de i18next le da
+           -- su propio texto sin gastar un tipo del catálogo (D-09).
+           || CASE WHEN v_rec.days_left = 0
+                   THEN jsonb_build_object('context', 'last_day')
+                   ELSE '{}'::jsonb END) IS NOT NULL THEN
+        v_sent := v_sent + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- ── 2. Plazo de emergencia vencido ──
+  -- Un solo aviso por OT y destinatario, sin `days_left`: el hecho no cambia con los días.
+  FOR v_rec IN
+    SELECT w.wo_id, w.engagement_id, w.currency, w.emergency_deadline_at,
+           COALESCE(e.engagement_code, '') AS engagement_code,
+           r.staff_id
+      FROM public.work_orders w
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+      CROSS JOIN LATERAL (
+        SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+      ) r
+     WHERE w.risk_status = 'Emergency_Approved'
+       AND w.emergency_deadline_at IS NOT NULL
+       AND w.emergency_deadline_at < v_today
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM public.notifications n
+       WHERE n.type_key = 'wo.emergency.deadline_passed'
+         AND n.entity_id = v_rec.wo_id::text
+         AND n.recipient_staff_id = v_rec.staff_id
+    ) THEN
+      IF public.notify_staff('wo.emergency.deadline_passed', v_rec.staff_id,
+           v_rec.wo_id::text,
+           jsonb_build_object('engagement_code', v_rec.engagement_code,
+                              'engagement_id',   v_rec.engagement_id,
+                              'currency',        v_rec.currency,
+                              'deadline',        v_rec.emergency_deadline_at)) IS NOT NULL THEN
+        v_sent := v_sent + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- ── 3. Semana de facturación del cliente (D-22) ──
+  -- Una cuota entra en su semana de facturación cuando `agreed_invoice_date` cae en la semana
+  -- corriente (lunes a domingo) y todavía no se facturó. El dedup lleva installment_id porque
+  -- una OT puede tener dos cuotas facturables en la misma semana y el entity_id es la OT.
+  FOR v_rec IN
+    SELECT i.installment_id, i.installment_number, i.amount, i.agreed_invoice_date,
+           w.wo_id, w.engagement_id, w.currency,
+           COALESCE(e.engagement_code, '') AS engagement_code,
+           r.staff_id
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders w ON w.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+      CROSS JOIN LATERAL (
+        SELECT staff_id FROM public.notif_engagement_managers(w.engagement_id)
+      ) r
+     WHERE i.status = 'Pending'
+       AND i.agreed_invoice_date IS NOT NULL
+       AND i.agreed_invoice_date >= date_trunc('week', v_today)::date
+       AND i.agreed_invoice_date <= date_trunc('week', v_today)::date + 6
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM public.notifications n
+       WHERE n.type_key = 'wo.client.billing_week'
+         AND n.entity_id = v_rec.wo_id::text
+         AND n.recipient_staff_id = v_rec.staff_id
+         AND n.payload->>'installment_id' = v_rec.installment_id::text
+    ) THEN
+      IF public.notify_staff('wo.client.billing_week', v_rec.staff_id,
+           v_rec.wo_id::text,
+           jsonb_build_object('engagement_code',    v_rec.engagement_code,
+                              'engagement_id',      v_rec.engagement_id,
+                              'currency',           v_rec.currency,
+                              'installment_id',     v_rec.installment_id,
+                              'installment_number', v_rec.installment_number,
+                              'amount',             v_rec.amount,
+                              'invoice_date',       v_rec.agreed_invoice_date)) IS NOT NULL THEN
+        v_sent := v_sent + 1;
+      END IF;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_wo_daily_scheduled(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS 'FASE 3.b: los 3 eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
+
+
+--
+-- Name: notify_client_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_client_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_base        jsonb;
+  v_rec         record;
+  v_deactivated boolean;
+  c_firma constant text[] := ARRAY['senior_partner'];
+BEGIN
+  v_base := jsonb_build_object(
+    'client_id',         NEW.client_id,
+    'client_legal_name', COALESCE(NEW.client_legal_name, ''),
+    'unique_tax_id',     COALESCE(NEW.unique_tax_id, ''));
+
+  -- ── Alta (D-37) ──
+  IF TG_OP = 'INSERT' THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(c_firma)
+      UNION
+      -- El creador. Va por UNION y no con un IF aparte para que no reciba dos filas si
+      -- además es el Senior Partner.
+      SELECT NEW.created_by_staff_id WHERE NEW.created_by_staff_id IS NOT NULL
+    LOOP
+      PERFORM public.notify_staff('client.created', v_rec.staff_id,
+                                  NEW.client_id::text, v_base);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+
+  -- ── Inactivación ──
+  -- `is_active` es NULLABLE con DEFAULT true, así que se compara con COALESCE: un NULL
+  -- heredado no debe leerse como "estaba inactivo" y tragarse el aviso.
+  v_deactivated := COALESCE(OLD.is_active, true) AND NOT COALESCE(NEW.is_active, true);
+
+  IF v_deactivated THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(c_firma)
+      UNION
+      SELECT staff_id FROM public.notif_client_assigned(NEW.client_id)
+    LOOP
+      PERFORM public.notify_staff('client.deactivated', v_rec.staff_id,
+                                  NEW.client_id::text, v_base);
+    END LOOP;
+
+    -- La inactivación NO cuenta además como edición: es el mismo UPDATE y el aviso
+    -- específico ya salió, con más audiencia que el genérico.
+    RETURN NULL;
+  END IF;
+
+  -- ── Edición (D-04) ──
+  -- Cualquier cambio de la ficha, sin filtrar por campo: la matriz se lo da sólo a los
+  -- gerentes del cliente, que son pocos y para quienes el dato es de trabajo. Se exige un
+  -- cambio real —no basta con que corra el UPDATE— porque un "guardar sin tocar nada" no es
+  -- una edición y el formulario permite guardar sin cambios.
+  --
+  -- `updated_at` SE EXCLUYE DE LA COMPARACIÓN, y es la mitad que hace falta para que la frase
+  -- de arriba sea cierta. `update_clients_updated_at` es un trigger BEFORE UPDATE que le pone
+  -- `now()` en CADA update, así que para cuando corre este AFTER la fila nueva SIEMPRE difiere
+  -- de la vieja: `NEW IS DISTINCT FROM OLD` a secas da true siempre y le manda un aviso a cada
+  -- gerente por cada guardado, cambie algo o no.
+  --
+  -- Se compara sobre jsonb menos esa clave en vez de enumerar columnas: la lista se
+  -- desactualiza en cuanto alguien agrega un campo a `clients`, y el modo de fallar es
+  -- silencioso — dejaría de avisar de un campo nuevo sin que nada lo acuse.
+  IF to_jsonb(NEW) - 'updated_at' IS DISTINCT FROM to_jsonb(OLD) - 'updated_at' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_client_assigned(NEW.client_id)
+    LOOP
+      PERFORM public.notify_staff('client.updated', v_rec.staff_id,
+                                  NEW.client_id::text, v_base);
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_client_events fallo para % : %', NEW.client_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_client_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_client_events() IS 'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. Degrada a WARNING.';
+
+
+--
+-- Name: notify_engagement_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_engagement_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row      record;
+  v_base     jsonb;
+  v_rec      record;
+  v_owners   boolean;
+  v_finished boolean;
+  v_cliente  text;
+BEGIN
+  -- OLD en el borrado, NEW en todo lo demás: así el resto del cuerpo no repite el CASE.
+  IF TG_OP = 'DELETE' THEN v_row := OLD; ELSE v_row := NEW; END IF;
+
+  -- El CLIENTE viaja en el payload porque es lo que ubica al encargo: "Auditoria Externa 2026"
+  -- se repite entre clientes, y el correo de `engagement.specialist_assigned` sale SIN BOTÓN
+  -- —el portafolio de 0828-185 no contempla a los especialistas—, así que el texto es lo único
+  -- que el destinatario tiene para saber de qué encargo le hablan. `client_id` es NOT NULL, así que
+  -- esto sólo queda vacío si el cliente se borró en la misma transacción.
+  SELECT c.client_legal_name INTO v_cliente
+    FROM public.clients c
+   WHERE c.client_id = v_row.client_id;
+
+  v_base := jsonb_build_object(
+    'engagement_code', COALESCE(v_row.engagement_code, ''),
+    'engagement_name', COALESCE(v_row.engagement_name, ''),
+    'client_name',     COALESCE(v_cliente, ''),
+    'engagement_id',   v_row.engagement_id);
+
+  -- ── Borrado: sólo auditoría (la matriz se lo da a ADM con alcance firm) ──
+  IF TG_OP = 'DELETE' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+    LOOP
+      PERFORM public.notify_staff('engagement.deleted', v_rec.staff_id,
+                                  v_row.engagement_id::text, v_base);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+
+  -- ── Alta ──
+  IF TG_OP = 'INSERT' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_owners(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('engagement.created', v_rec.staff_id,
+                                  NEW.engagement_id::text, v_base);
+    END LOOP;
+  END IF;
+
+  -- ── Cambio de responsables ──
+  -- En el alta NO se emite: "cambiaron los responsables" de un encargo que acaba de nacer no
+  -- es un hecho — para eso está `engagement.created`.
+  IF TG_OP = 'UPDATE' THEN
+    v_owners := NEW.partner_id        IS DISTINCT FROM OLD.partner_id
+             OR NEW.manager_id        IS DISTINCT FROM OLD.manager_id
+             OR NEW.sqr_id            IS DISTINCT FROM OLD.sqr_id
+             OR NEW.encargado_id      IS DISTINCT FROM OLD.encargado_id
+             OR NEW.specialist_it_id  IS DISTINCT FROM OLD.specialist_it_id
+             OR NEW.specialist_tax_id IS DISTINCT FROM OLD.specialist_tax_id;
+
+    IF v_owners THEN
+      -- Admins por auditoría (firm) + la conducción nueva. Se notifica a la conducción
+      -- RESULTANTE, no a la anterior: al que sacaron ya no le corresponde el encargo.
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+        UNION
+        SELECT staff_id FROM public.notif_engagement_owners(NEW.engagement_id)
+      LOOP
+        PERFORM public.notify_staff('engagement.owners.changed', v_rec.staff_id,
+                                    NEW.engagement_id::text, v_base);
+      END LOOP;
+    END IF;
+  END IF;
+
+  -- ── "Te asignaron como SQR / Encargado" (alcance `own`) ──
+  -- Se emiten TAMBIÉN en el alta (decisión del operador 2026-09-10): el formulario pide las
+  -- dos personas al crear el encargo, y si sólo se emitieran al reasignar, un Encargado no se
+  -- enteraría nunca de su primer encargo — en `engagement.created` la columna Senior está en
+  -- `no`, así que ese aviso no le llega.
+  IF NEW.sqr_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.sqr_id IS DISTINCT FROM OLD.sqr_id) THEN
+    PERFORM public.notify_staff('engagement.sqr_assigned', NEW.sqr_id,
+                                NEW.engagement_id::text, v_base);
+  END IF;
+
+  IF NEW.encargado_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.encargado_id IS DISTINCT FROM OLD.encargado_id) THEN
+    PERFORM public.notify_staff('engagement.encargado_assigned', NEW.encargado_id,
+                                NEW.engagement_id::text, v_base);
+  END IF;
+
+  -- Y lo mismo para los dos gerentes ESPECIALISTAS (D-43). Sin esto, al Gerente ESPECIALISTA
+  -- ITA/TAX solo le llegaba `engagement.owners.changed` —"Cambiaron los responsables del
+  -- encargo"—, el mismo aviso generico que recibe cuando cambian al Socio o al SQR: tenia que
+  -- abrir el encargo para saber si el cambio era sobre el.
+  --
+  -- UN tipo y no dos, con la especialidad en `context`: el hecho es identico y lo unico que
+  -- cambia es la palabra. Mismo criterio que D-09 con `days_left`.
+  IF NEW.specialist_it_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.specialist_it_id IS DISTINCT FROM OLD.specialist_it_id) THEN
+    PERFORM public.notify_staff('engagement.specialist_assigned', NEW.specialist_it_id,
+              NEW.engagement_id::text, v_base || jsonb_build_object('context', 'it'));
+  END IF;
+
+  IF NEW.specialist_tax_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.specialist_tax_id IS DISTINCT FROM OLD.specialist_tax_id) THEN
+    PERFORM public.notify_staff('engagement.specialist_assigned', NEW.specialist_tax_id,
+              NEW.engagement_id::text, v_base || jsonb_build_object('context', 'tax'));
+  END IF;
+
+  -- ── Finalización ──
+  -- La señal es el override llegando a 7, venga del cron nocturno
+  -- (finalize_due_engagements) o del trigger BEFORE recompute_engagement_finalization, que
+  -- lo fija en cualquier UPDATE cuya fecha fin ya pasó. Las dos vías terminan acá.
+  v_finished := NEW.engagement_state_override = 7
+            AND (TG_OP = 'INSERT' OR OLD.engagement_state_override IS DISTINCT FROM 7);
+
+  IF v_finished THEN
+    -- Conducción + equipo vigente. Es el único evento del módulo que baja hasta los
+    -- asistentes, y por eso el único que necesita la tabla de staffing.
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+      UNION
+      SELECT staff_id FROM public.notif_engagement_owners(NEW.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_staffed(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('engagement.finalized', v_rec.staff_id,
+                NEW.engagement_id::text,
+                v_base || jsonb_build_object('end_date', NEW.end_date));
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_engagement_events fallo para % : %', v_row.engagement_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_engagement_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_engagement_events() IS 'FASE 3.c: 5 eventos de engagements (alta, cambio de responsables, asignacion de SQR/Encargado/especialista, finalizacion y borrado). La finalizacion baja hasta el staffing vigente porque es el unico evento que la matriz concede a seniors/semis/asistentes. Degrada a WARNING.';
+
+
+--
+-- Name: notify_engagement_staffing_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_engagement_staffing_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_viva_antes boolean;
+  v_viva_ahora boolean;
+  v_alta       boolean;
+  v_baja       boolean;
+  v_reemplazo  boolean;
+  v_avisos     jsonb;
+  v_aviso      jsonb;
+  v_staff      uuid;
+  v_eng        uuid;
+  v_es_alta    boolean;
+  v_code       text;
+  v_name       text;
+  v_who        text;
+  v_base       jsonb;
+  v_rec        record;
+BEGIN
+  -- TRES FORMAS DE SACAR A ALGUIEN, y las tres cuentan (decisión del operador 2026-09-10).
+  -- Durante un tiempo el comentario decía "tres" y el código miraba dos: el borrado lógico
+  -- (`deleted_at`, que es lo que escribe save_engagement_assignments) y el paso a CANCELLED.
+  --
+  -- La tercera es el REEMPLAZO: `save_engagement_assignments` cambia `staff_id` en la fila que ya
+  -- existe, sin tocar `deleted_at` ni `status`. No es un caso raro —esa función tiene una
+  -- validación dedicada para él (cero_02, "reasignar la fila a un staff DISTINTO exige la misma
+  -- elegibilidad que un insert nuevo")— y sin embargo no encendía ninguno de los dos predicados,
+  -- así que la reasignación no le avisaba a NADIE: ni a quien salía, ni a quien entraba, ni a los
+  -- gerentes.
+  --
+  -- Un reemplazo son DOS hechos y se emiten los dos, en ese orden: se fue uno, entró otro.
+  --
+  -- Los cambios de fechas/horas/porcentaje siguen sin avisar: el Scheduler reescribe esas
+  -- columnas seguido y sería puro ruido.
+  --
+  -- "Viva" se calcula una vez y las tres condiciones se leen de ahí. Antes cada predicado
+  -- enumeraba sus combinaciones de `deleted_at` y `status` por separado, y de paso eso hacía que
+  -- borrar una fila que YA estaba CANCELLED contara como una baja nueva.
+  IF TG_OP = 'INSERT' THEN
+    v_viva_antes := false;
+    v_viva_ahora := NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED';
+  ELSE
+    v_viva_antes := OLD.deleted_at IS NULL AND OLD.status <> 'CANCELLED';
+    v_viva_ahora := NEW.deleted_at IS NULL AND NEW.status <> 'CANCELLED';
+  END IF;
+
+  v_alta      := NOT v_viva_antes AND v_viva_ahora;
+  v_baja      := v_viva_antes AND NOT v_viva_ahora;
+  v_reemplazo := TG_OP <> 'INSERT'
+             AND v_viva_antes AND v_viva_ahora
+             AND NEW.staff_id IS DISTINCT FROM OLD.staff_id;
+
+  -- Cada aviso es (a quién, de qué encargo, si es alta). El reemplazo produce dos; el resto, uno.
+  --
+  -- La baja lleva el encargo VIEJO y el alta el nuevo, y no es una precaución vacía: nada en la
+  -- base impide que un UPDATE directo mueva `engagement_id` —`save_engagement_assignments` no lo
+  -- toca y su WHERE lo fija, pero eso es la aplicación, no una restricción—. Con los dos avisos
+  -- armados sobre `NEW`, un movimiento entre encargos le decía al que sale que lo sacaron de un
+  -- encargo donde nunca estuvo, y dejaba a los gerentes del encargo viejo sin enterarse.
+  IF v_reemplazo THEN
+    v_avisos := jsonb_build_array(
+      jsonb_build_object('staff', OLD.staff_id, 'eng', OLD.engagement_id, 'alta', false),
+      jsonb_build_object('staff', NEW.staff_id, 'eng', NEW.engagement_id, 'alta', true));
+  ELSIF v_alta OR v_baja THEN
+    v_avisos := jsonb_build_array(
+      jsonb_build_object('staff', NEW.staff_id, 'eng', NEW.engagement_id, 'alta', v_alta));
+  ELSE
+    RETURN NULL;
+  END IF;
+
+  FOR v_aviso IN SELECT * FROM jsonb_array_elements(v_avisos)
+  LOOP
+    v_staff   := (v_aviso->>'staff')::uuid;
+    v_eng     := (v_aviso->>'eng')::uuid;
+    v_es_alta := (v_aviso->>'alta')::boolean;
+
+    -- Encargo y persona se resuelven POR AVISO. En un reemplazo cada mitad nombra a una persona
+    -- distinta —el texto que leen los gerentes es "asignaron a Fulano" / "sacaron a Mengano"— y,
+    -- si además cambió el encargo, cada mitad habla del suyo.
+    SELECT COALESCE(e.engagement_code, ''), COALESCE(e.engagement_name, '')
+      INTO v_code, v_name
+      FROM public.engagements e
+     WHERE e.engagement_id = v_eng;
+
+    SELECT COALESCE(s.first_name || ' ' || s.last_name, '')
+      INTO v_who
+      FROM public.staff s WHERE s.staff_id = v_staff;
+
+    v_base := jsonb_build_object(
+      'engagement_code', v_code,
+      'engagement_name', v_name,
+      'engagement_id',   v_eng,
+      'staff_name',      v_who);
+
+    -- El MISMO type_key con dos redacciones, porque el hecho se lee distinto según de qué lado
+    -- estés: "te asignaron a X" vs "asignaron a Fulano a X". `context` es la clave reservada de
+    -- i18next y el panel hace t(label_key, {...payload}), así que cada destinatario recibe su
+    -- propia variante sin que el catálogo necesite cuatro tipos.
+    PERFORM public.notify_staff('engagement.staffing.changed', v_staff,
+              v_eng::text,
+              v_base || jsonb_build_object('context',
+                CASE WHEN v_es_alta THEN 'assigned' ELSE 'unassigned' END));
+
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    LOOP
+      -- Al propio afectado no se le manda dos veces si además es gerente del encargo.
+      IF v_rec.staff_id IS DISTINCT FROM v_staff THEN
+        PERFORM public.notify_staff('engagement.staffing.changed', v_rec.staff_id,
+                  v_eng::text,
+                  v_base || jsonb_build_object('context',
+                    CASE WHEN v_es_alta THEN 'team_assigned' ELSE 'team_unassigned' END));
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_engagement_staffing_events fallo para % : %', NEW.assignment_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_engagement_staffing_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_engagement_staffing_events() IS 'FASE 3.c: alta, baja y REEMPLAZO de staffing. Baja = deleted_at o status CANCELLED; reemplazo = cambia staff_id en la fila viva, que es como save_engagement_assignments reasigna una posicion y antes no avisaba a nadie. Un reemplazo emite dos hechos: baja del anterior y alta del nuevo. Los cambios de fechas/horas no avisan. El afectado y los gerentes reciben el mismo type_key con redaccion distinta via el `context` de i18next. Degrada a WARNING.';
+
+
+--
+-- Name: notify_fund_expense_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_fund_expense_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_requester uuid;
+  v_manager   uuid;
+  v_number    text;
+  v_payload   jsonb;
+  v_rec       record;
+  v_faltan    integer;
+  -- La bandeja de revision contable. Los dos eventos de abajo deben repartirse SIEMPRE al
+  -- mismo conjunto; tenerlos como constante evita que vuelvan a separarse.
+  c_contabilidad constant text[] := ARRAY['accounting_analyst', 'accounting_manager'];
+BEGIN
+  SELECT fr.requester_staff_id, COALESCE(fr.request_number, '')
+    INTO v_requester, v_number
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = NEW.fund_request_id;
+
+  -- El gerente que aprueba ESTE gasto es el de su OT, no el de toda la solicitud.
+  SELECT frw.manager_staff_id INTO v_manager
+    FROM public.fund_request_work_orders frw
+   WHERE frw.fund_request_id = NEW.fund_request_id
+     AND frw.wo_id = NEW.wo_id;
+
+  -- fund_request_id: lo consume notificationRoute() para armar /fund-requests/<id>/expenses.
+  v_payload := jsonb_build_object(
+    'fund_request_id', NEW.fund_request_id,
+    'request_number',  v_number,
+    'amount',          NEW.amount,
+    'currency',        NEW.currency,
+    'description',     COALESCE(NEW.description, ''));
+
+  -- Entro a aprobacion: al gerente de su OT (envio inicial y reenvios).
+  IF NEW.status = 'pendiente_aprobacion'
+     AND OLD.status IS DISTINCT FROM 'pendiente_aprobacion'
+     AND v_manager IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.expense.submitted_for_approval',
+                                v_manager, NEW.fre_id::text, v_payload);
+  END IF;
+
+  -- Decision del gerente sobre el gasto: al solicitante.
+  IF OLD.status = 'pendiente_aprobacion'
+     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado') THEN
+    PERFORM public.notify_staff('fund.expense.decided',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object('decision', NEW.status::text));
+  END IF;
+
+  -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
+  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    LOOP
+      PERFORM public.notify_staff('fund.expense.sent_to_support_review',
+                                  v_rec.staff_id, NEW.fre_id::text, v_payload);
+    END LOOP;
+  END IF;
+
+  -- Contabilidad devuelve por falta de respaldo: al solicitante. El flag solo lo puede
+  -- encender quien tenga expense_settlement.update (fre_validate_transition), asi que este
+  -- ES el rechazo de contabilidad, no el del gerente.
+  IF OLD.returned_by_assistant = false AND NEW.returned_by_assistant = true THEN
+    PERFORM public.notify_staff('fund.expense.returned_no_support',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object(
+                'reason', COALESCE(NEW.invoice_observation_notes, '')));
+  END IF;
+
+  -- El solicitante subio la factura y reenvia: vuelve DIRECTO a contabilidad, sin pasar por
+  -- el gerente. La senal es el flag apagandose y no un cambio de status, porque
+  -- useResendReturnedExpense() devuelve el status a 'aprobado_gerente' (de donde salio).
+  IF OLD.returned_by_assistant = true AND NEW.returned_by_assistant = false THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    LOOP
+      PERFORM public.notify_staff('fund.expense.resubmitted',
+                                  v_rec.staff_id, NEW.fre_id::text, v_payload);
+    END LOOP;
+  END IF;
+
+  -- Contabilidad aprobo ESTE gasto: solo al solicitante (uno por gasto).
+  IF NEW.status = 'revisado_asistente'
+     AND OLD.status IS DISTINCT FROM 'revisado_asistente' THEN
+    PERFORM public.notify_staff('fund.expense.reviewed',
+              v_requester, NEW.fre_id::text, v_payload);
+
+    -- Y si con este quedaron TODOS revisados, el consolidado al gerente.
+    --
+    -- 'rechazado' SI cuenta como pendiente, alineado con expensePhase() (src/lib/fundRequest.ts):
+    -- "rechazado sigue siendo corregible/reenviable -> no esta finalizado". Excluirlo
+    -- disparaba el hito "todos aprobados" mientras quedaba un gasto que el solicitante
+    -- todavia puede corregir, y la solicitud no aparecia como lista para liquidar.
+    SELECT COUNT(*) INTO v_faltan
+      FROM public.fund_request_expenses e
+     WHERE e.fund_request_id = NEW.fund_request_id
+       AND e.status <> 'revisado_asistente';
+
+    IF v_faltan = 0 THEN
+      FOR v_rec IN SELECT staff_id
+                     FROM public.notif_fund_request_managers(NEW.fund_request_id)
+      LOOP
+        PERFORM public.notify_staff('fund.expenses.all_reviewed',
+                  v_rec.staff_id, NEW.fund_request_id::text,
+                  jsonb_build_object('request_number', v_number,
+                                     'fund_request_id', NEW.fund_request_id));
+      END LOOP;
+    END IF;
+  END IF;
+
+  -- Multa IVA: al solicitante.
+  IF COALESCE(OLD.iva_penalty_amount, 0) = 0 AND COALESCE(NEW.iva_penalty_amount, 0) > 0 THEN
+    PERFORM public.notify_staff('fund.expense.iva_penalty',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object('penalty', NEW.iva_penalty_amount));
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_fund_expense_events fallo para % : %', NEW.fre_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_fund_expense_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_fund_expense_events() IS 'FASE 3.a: 8 eventos de fund_request_expenses. Contabilidad revisa gasto por gasto: el solicitante recibe uno por gasto (fund.expense.reviewed) y el gerente UNO solo cuando quedan todos revisados (fund.expenses.all_reviewed), que es el hito previo a la liquidacion. Degrada a WARNING: nunca bloquea la operacion.';
+
+
+--
+-- Name: notify_fund_request_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_fund_request_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_payload jsonb;
+  v_rec     record;
+BEGIN
+  v_payload := jsonb_build_object(
+    'request_number', COALESCE(NEW.request_number, ''),
+    'amount',         NEW.total_requested_amount,
+    'currency',       NEW.currency);
+
+  -- Entro a aprobacion: a CADA gerente de las OT. "Entro", no "salio de borrador": cubre el
+  -- envio inicial y los reenvios desde observado/rechazado por igual.
+  IF NEW.status = 'pendiente_aprobacion'
+     AND OLD.status IS DISTINCT FROM 'pendiente_aprobacion' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    LOOP
+      PERFORM public.notify_staff('fund.request.submitted_for_approval',
+                                  v_rec.staff_id, NEW.fund_request_id::text, v_payload);
+    END LOOP;
+  END IF;
+
+  -- Decision del gerente: al solicitante.
+  IF OLD.status = 'pendiente_aprobacion'
+     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado') THEN
+    PERFORM public.notify_staff('fund.request.decided',
+              NEW.requester_staff_id, NEW.fund_request_id::text,
+              v_payload || jsonb_build_object('decision', NEW.status::text));
+  END IF;
+
+  -- Desembolso / liquidacion / cierre: al solicitante Y a los gerentes. Se miran los
+  -- timestamps y no el status: son hitos independientes de la maquina de estados (la
+  -- liquidacion es de dos pasos manuales) y el status puede no moverse.
+  --
+  -- El UNION no es cosmetico y el DISTINCT de notif_fund_request_managers() no alcanza: el
+  -- solicitante PUEDE ser tambien gerente de la OT. `manager` tiene `fund_request.create`, y
+  -- `fr_wo_set_manager()` copia `manager_staff_id` desde `engagements.manager_id`, asi que un
+  -- Gerente que pide fondos contra una OT de su propio encargo cae en las dos listas. Como
+  -- notify_staff() no deduplica --inserta una fila por llamada, y el dedupe_key del correo es
+  -- el notification_id, distinto en cada INSERT-- recibia dos campanas y dos correos por hito.
+  -- Es el mismo patron que ya usaba la cancelacion, mas abajo.
+  IF OLD.disbursed_at IS NULL AND NEW.disbursed_at IS NOT NULL THEN
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    LOOP
+      PERFORM public.notify_staff('fund.disbursement.done',
+                v_rec.staff_id, NEW.fund_request_id::text,
+                v_payload || jsonb_build_object('disbursed', NEW.total_disbursed_amount));
+    END LOOP;
+  END IF;
+
+  IF OLD.settled_at IS NULL AND NEW.settled_at IS NOT NULL THEN
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    LOOP
+      PERFORM public.notify_staff('fund.settlement.recorded',
+                v_rec.staff_id, NEW.fund_request_id::text,
+                v_payload || jsonb_build_object('balance', NEW.settlement_balance));
+    END LOOP;
+  END IF;
+
+  IF OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL THEN
+    FOR v_rec IN
+      SELECT NEW.requester_staff_id AS staff_id
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    LOOP
+      PERFORM public.notify_staff('fund.request.closed',
+                v_rec.staff_id, NEW.fund_request_id::text, v_payload);
+    END LOOP;
+  END IF;
+
+  -- Cancelacion: admins (alcance firm) + los gerentes que la autorizaron.
+  IF NEW.status = 'cancelado' AND OLD.status IS DISTINCT FROM 'cancelado' THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+      UNION
+      SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+    LOOP
+      PERFORM public.notify_staff('fund.request.cancelled',
+                                  v_rec.staff_id, NEW.fund_request_id::text, v_payload);
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_fund_request_events fallo para % : %', NEW.fund_request_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: notify_staff(text, uuid, text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_staff(p_type_key text, p_recipient_staff_id uuid, p_entity_id text DEFAULT NULL::text, p_payload jsonb DEFAULT '{}'::jsonb) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_delivery        text;
+  v_email_enabled   boolean;
+  v_module_key      text;
+  v_permiso         text;
+  v_payload         jsonb := COALESCE(p_payload, '{}'::jsonb);
+  v_role_key        text;
+  v_scope_key       text;
+  v_notification_id uuid;
+  v_email           text;
+  v_nombre          text;
+  v_dedupe          text;
+BEGIN
+  IF p_type_key IS NULL OR p_recipient_staff_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- El tipo debe existir y estar activo. Un type_key con typo no crea filas huérfanas.
+  SELECT nt.delivery, nt.email_enabled, nt.module_key
+    INTO v_delivery, v_email_enabled, v_module_key
+    FROM public.notification_types nt
+   WHERE nt.type_key = p_type_key
+     AND nt.is_active;
+
+  -- Los `aggregate` se calculan al vuelo: no se persisten ni se mandan.
+  IF v_delivery IS NULL OR v_delivery = 'aggregate' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Rol del DESTINATARIO (no del que dispara). Sin cuenta vinculada o sin rol, no hay aviso.
+  -- El correo se trae acá mismo: es la misma fila.
+  SELECT ur.role_key, s.email,
+         btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))
+    INTO v_role_key, v_email, v_nombre
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE s.staff_id = p_recipient_staff_id
+     AND s.is_active
+     AND s.deleted_at IS NULL;
+
+  IF v_role_key IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- El portón: la matriz decide, y de paso dice con qué alcance.
+  SELECT nrt.scope_key INTO v_scope_key
+    FROM public.notification_role_types nrt
+   WHERE nrt.role_key = v_role_key
+     AND nrt.type_key = p_type_key;
+
+  IF v_scope_key IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- El enlace se apaga ACÁ y no al renderizar: el correo no tiene sesión contra la cual chequear
+  -- permisos, así que la única oportunidad de saber si el destinatario puede abrir la pantalla es
+  -- este momento, donde ya está resuelto su rol. `rutas.ts` sólo obedece la marca.
+  --
+  -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
+  -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
+  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
+  IF v_permiso IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.authorization_role_permissions arp
+        WHERE arp.role_key = v_role_key
+          AND arp.permission_key = v_permiso
+     ) THEN
+    v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+  END IF;
+
+  -- La campana, sólo para los tipos que viven ahí.
+  IF v_delivery = 'event' THEN
+    INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, payload)
+    VALUES (p_recipient_staff_id, p_type_key, p_entity_id, v_payload)
+    RETURNING notification_id INTO v_notification_id;
+  END IF;
+
+  -- El correo. Tres condiciones, y las tres tienen que darse:
+  --
+  --   * el tipo está marcado en la matriz (D-44),
+  --   * el destinatario tiene correo cargado — sin `staff.email` no hay a dónde mandarlo, y
+  --   * el alcance no es `firm`, SALVO que sea un recordatorio.
+  --
+  -- Lo último es la regla que reemplaza a marcar 419 celdas: `firm` significa "ve toda la firma".
+  -- Por campana eso es una lista; por correo POR SUCESO sería un mensaje por cada hecho de la
+  -- empresa. La excepción es el recordatorio (`delivery = 'email'`), que es justamente el formato
+  -- que le sirve a ese destinatario: un resumen por semana en vez de cien avisos sueltos.
+  -- Excluirlo de los dos lo dejaría sin ninguna vía de correo, que no es lo que se decidió.
+  IF v_email_enabled
+     AND v_email IS NOT NULL
+     AND btrim(v_email) <> ''
+     AND (v_scope_key <> 'firm' OR v_delivery = 'email') THEN
+
+    -- Para un evento alcanza el notification_id. Un recordatorio (delivery='email') no tiene, y
+    -- su unicidad la define quien llama: pasa la ventana en el payload (`dedupe`), y si no la
+    -- pasa cae a la fecha, que es la cadencia más fina que tiene sentido para un recordatorio.
+    v_dedupe := COALESCE(
+      v_notification_id::text,
+      p_type_key || '|' || p_recipient_staff_id::text || '|' ||
+        COALESCE(v_payload->>'dedupe', to_char(now(), 'YYYY-MM-DD')));
+
+    INSERT INTO public.notification_emails
+      (dedupe_key, notification_id, recipient_staff_id, to_email, to_name, type_key,
+       entity_id, payload)
+    VALUES
+      (v_dedupe, v_notification_id, p_recipient_staff_id, btrim(v_email),
+       NULLIF(v_nombre, ''), p_type_key, p_entity_id, v_payload)
+    ON CONFLICT (dedupe_key) DO NOTHING;
+  END IF;
+
+  RETURN v_notification_id;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_staff(p_type_key text, p_recipient_staff_id uuid, p_entity_id text, p_payload jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_staff(p_type_key text, p_recipient_staff_id uuid, p_entity_id text, p_payload jsonb) IS 'Porton unico de escritura. Inserta en la campana si delivery=event, y encola correo si el tipo tiene email_enabled, el destinatario tiene staff.email y su alcance no es firm (D-44). Marca el payload con sin_ruta=true cuando el rol del destinatario no tiene el permiso que exige la pantalla destino (notif_permiso_de_ruta), para que el correo no le ofrezca un boton a "Sin acceso". Devuelve el notification_id, o NULL si no corresponde (tambien cuando solo se encolo correo).';
+
+
+--
+-- Name: notify_staff_competency_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_staff_competency_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row   record;
+  v_skill text;
+  v_base  jsonb;
+BEGIN
+  IF TG_OP = 'DELETE' THEN v_row := OLD; ELSE v_row := NEW; END IF;
+
+  SELECT COALESCE(sk.name, '') INTO v_skill
+    FROM public.skills sk WHERE sk.skill_id = v_row.skill_id;
+
+  v_base := jsonb_build_object(
+    'staff_id',          v_row.staff_id,
+    'skill_id',          v_row.skill_id,
+    'skill_name',        v_skill,
+    'proficiency_level', COALESCE(v_row.proficiency_level, ''));
+
+  -- Dos tipos y no uno con `context` (D-03): ganar una competencia y perderla son hechos
+  -- distintos. Sólo al afectado, que es el único alcance que la matriz le da a esta fila.
+  IF TG_OP = 'INSERT' THEN
+    PERFORM public.notify_staff('staff.competency.assigned', NEW.staff_id,
+                                NEW.staff_id::text, v_base);
+  ELSIF TG_OP = 'DELETE' THEN
+    PERFORM public.notify_staff('staff.competency.removed', OLD.staff_id,
+                                OLD.staff_id::text, v_base);
+  END IF;
+
+  -- El UPDATE (subir o bajar el nivel de una competencia que ya tenías) no avisa: la matriz
+  -- tiene la asignación y la baja, no la reevaluación.
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_staff_competency_events fallo para % : %', v_row.staff_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_staff_competency_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_staff_competency_events() IS 'FASE 3.e: alta y baja de una competencia (staff_skills), al afectado. Dos type_key distintos (D-03); cambiar el nivel de una competencia existente no avisa. Degrada a WARNING.';
+
+
+--
+-- Name: notify_staff_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_staff_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_baja  boolean;
+  v_base  jsonb;
+  v_rec   record;
+  c_firma    constant text[] := ARRAY['admin', 'hr_manager', 'hr_analyst'];
+  c_gerentes constant text[] := ARRAY['manager', 'ita_manager', 'tax_manager'];
+  c_seguridad constant text[] := ARRAY['admin', 'it_security_manager'];
+BEGIN
+  v_base := jsonb_build_object(
+    'staff_id',    NEW.staff_id,
+    'staff_name',  COALESCE(NEW.first_name || ' ' || NEW.last_name, ''),
+    'email',       COALESCE(NEW.email, ''),
+    'practica_id', NEW.practica_id);
+
+  -- ── Alta de personal ──
+  -- Va al ADM y a Talento Humano (alcance `firm`) y a los gerentes de SU práctica (alcance
+  -- `practica`). Al recién dado de alta no: la matriz no le da la fila, y todavía no tiene
+  -- cuenta con la que mirar la campana.
+  IF TG_OP = 'INSERT' THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(c_firma)
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_practice(NEW.practica_id, c_gerentes)
+    LOOP
+      PERFORM public.notify_staff('staff.created', v_rec.staff_id,
+                                  NEW.staff_id::text, v_base);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+
+  -- ── Baja de personal: tres señales, un solo evento (D-35) ──
+  --
+  -- La primera señal es cargar `termination_date`, y esa fecha puede ser FUTURA: StaffForm sólo
+  -- exige la fecha cuando `is_active` pasa a false, no al revés, así que se puede registrar la
+  -- salida de alguien que sigue trabajando. El aviso sale igual —es lo que D-35 decidió, y a
+  -- Talento Humano le sirve saberlo cuando se registra, no el último día— pero por eso el texto
+  -- dice "Se registró la baja de X" y no "X dejó la firma": la fecha efectiva viaja en el payload.
+  --
+  -- Hacer que la fecha avise recién el día que llega pediría un emisor por calendario, como los
+  -- de plazo de emergencia. Hoy no existe, y sin él sacar esta señal dejaría la baja sin avisar
+  -- hasta que alguien apague `is_active` a mano.
+  -- La UI usa una u otra según la pantalla (fecha de baja, desactivar, borrado lógico) y el
+  -- hecho de negocio es uno. Hacer las tres en el mismo UPDATE deja UNA notificación.
+  v_baja := (OLD.termination_date IS NULL AND NEW.termination_date IS NOT NULL)
+         OR (COALESCE(OLD.is_active, true) AND NOT COALESCE(NEW.is_active, true))
+         OR (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL);
+
+  IF v_baja THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_staff_by_roles(c_firma)
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_practice(NEW.practica_id, c_gerentes)
+    LOOP
+      PERFORM public.notify_staff('staff.terminated', v_rec.staff_id,
+                NEW.staff_id::text,
+                v_base || jsonb_build_object('termination_date', NEW.termination_date));
+    END LOOP;
+  END IF;
+
+  -- ── Bloqueo de cuenta por seguridad (D-36) ──
+  -- Lo enciende record_failed_login() al agotarse los intentos. Al bloqueado NO se le avisa:
+  -- no puede entrar a ver la campana, y la pantalla de login ya se lo dice. El desbloqueo
+  -- tampoco emite — la matriz no le dio tipo.
+  IF NOT COALESCE(OLD.is_blocked, false) AND COALESCE(NEW.is_blocked, false) THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_seguridad)
+    LOOP
+      PERFORM public.notify_staff('auth.account.blocked', v_rec.staff_id,
+                                  NEW.staff_id::text, v_base);
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_staff_events fallo para % : %', NEW.staff_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_staff_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_staff_events() IS 'FASE 3.e: alta de personal, baja (termination_date / is_active / deleted_at, D-35) y bloqueo de cuenta (D-36). Alta y baja combinan alcance firm (ADM + Talento Humano) con practica (los gerentes de esa linea de servicio). Degrada a WARNING.';
+
+
+--
+-- Name: notify_timer_auto_stop_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_timer_auto_stop_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_code     text;
+  v_activity text;
+BEGIN
+  -- El cronómetro se cerró recién.
+  IF OLD.ended_at IS NOT NULL OR NEW.ended_at IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- LA MARCA DEL CIERRE AUTOMÁTICO (D-32): `finalize_all_stale_timers()` —el cron cada 15
+  -- min— y `finalize_my_stale_timers()` escriben `ended_at = started_at + 8h` EXACTAS. Un
+  -- cierre manual no puede producir esa igualdad: `stop_timer_entry()` pasa `now()`, y
+  -- `validate_timer_entry_duration` rechaza con excepción cualquier `ended_at` posterior a
+  -- las 8 h, así que ese borde superior sólo lo alcanza el cierre automático. Se mira la
+  -- marca y no quién escribió, porque el cron corre sin sesión.
+  IF NEW.ended_at IS DISTINCT FROM NEW.started_at + interval '8 hours' THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(e.engagement_code, '') INTO v_code
+    FROM public.engagements e WHERE e.engagement_id = NEW.engagement_id;
+  SELECT COALESCE(a.activity_code, '') INTO v_activity
+    FROM public.activity_codes a WHERE a.activity_id = NEW.activity_id;
+
+  PERFORM public.notify_staff('tracker.timer.auto_stopped', NEW.staff_id,
+            NEW.timer_id::text,
+            jsonb_build_object(
+              'engagement_code',  v_code,
+              'engagement_id',    NEW.engagement_id,
+              'activity_code',    v_activity,
+              'started_at',       NEW.started_at,
+              'ended_at',         NEW.ended_at,
+              'duration_minutes', NEW.duration_minutes,
+              'description',      COALESCE(NEW.description, '')));
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_timer_auto_stop_events fallo para % : %', NEW.timer_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_timer_auto_stop_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_timer_auto_stop_events() IS 'FASE 3.d: cronometro cerrado automaticamente por inactividad, a su dueno. Se detecta por la marca del cierre automatico (ended_at = started_at + 8h exactas, D-32) y no por el actor: el cron corre sin sesion. Degrada a WARNING.';
+
+
+--
+-- Name: notify_timesheet_line_approval_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_timesheet_line_approval_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_owner    uuid;
+  v_week     date;
+  v_code     text;
+  v_activity text;
+  v_reviewer text;
+  v_base     jsonb;
+  v_prev     text := CASE WHEN TG_OP = 'UPDATE' THEN OLD.status ELSE NULL END;
+BEGIN
+  -- El destinatario es siempre el dueño de la boleta (alcance `own`): el veredicto es sobre
+  -- SU línea. Quien aprueba ya lo sabe, y su gerencia no está en esta fila de la matriz.
+  SELECT tp.staff_id, tp.week_start_date
+    INTO v_owner, v_week
+    FROM public.timesheet_periods tp
+   WHERE tp.period_id = NEW.period_id;
+
+  IF v_owner IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(e.engagement_code, '') INTO v_code
+    FROM public.engagements e WHERE e.engagement_id = NEW.engagement_id;
+  SELECT COALESCE(a.activity_code, '') INTO v_activity
+    FROM public.activity_codes a WHERE a.activity_id = NEW.activity_id;
+  SELECT COALESCE(s.first_name || ' ' || s.last_name, '') INTO v_reviewer
+    FROM public.staff s WHERE s.staff_id = NEW.approved_by;
+
+  v_base := jsonb_build_object(
+    'engagement_code', v_code,
+    'engagement_id',   NEW.engagement_id,
+    'activity_code',   v_activity,
+    'week_start',      v_week,
+    'reviewer',        v_reviewer,
+    'notes',           COALESCE(NEW.review_notes, ''));
+
+  -- ── Aprobación de una línea ──
+  -- `approved_by <> dueño` es el filtro de la autoaprobación (D-30): submit_timesheet_safe
+  -- firma con el staff_id del propio dueño, y devolverle N filas "tu línea fue aprobada" en
+  -- cada envío habría vaciado de significado al evento.
+  IF NEW.status = 'approved'
+     AND v_prev IS DISTINCT FROM 'approved'
+     AND NEW.approved_by IS DISTINCT FROM v_owner THEN
+    PERFORM public.notify_staff('approval.line_approved', v_owner,
+                                NEW.approval_id::text, v_base);
+  END IF;
+
+  -- ── Rechazo ──
+  -- Sin filtro por `approved_by`: ningún camino automático escribe 'rejected', así que
+  -- siempre es la decisión de una persona.
+  IF NEW.status = 'rejected'
+     AND v_prev IS DISTINCT FROM 'rejected' THEN
+    PERFORM public.notify_staff('approval.line_rejected', v_owner,
+                                NEW.approval_id::text, v_base);
+  END IF;
+
+  -- ── Solicitud de revisión (D-33) ──
+  -- `approved -> pending` lo escribe solamente useRequestRevision. El otro camino a
+  -- `pending` —el reset de `rejected` que hace submit_timesheet_safe cuando el usuario
+  -- corrige y reenvía— no es una solicitud de revisión: avisaría al usuario de su propio
+  -- reenvío.
+  IF TG_OP = 'UPDATE'
+     AND OLD.status = 'approved'
+     AND NEW.status = 'pending' THEN
+    PERFORM public.notify_staff('approval.revision_requested', v_owner,
+                                NEW.approval_id::text, v_base);
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_timesheet_line_approval_events fallo para % : %', NEW.approval_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_timesheet_line_approval_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_timesheet_line_approval_events() IS 'FASE 3.d: los 3 veredictos sobre una linea de timesheet (aprobada, rechazada, revision solicitada), al dueno de la boleta. Calla la autoaprobacion (approved_by = el dueno, D-30) y el reset rejected->pending del reenvio (D-33). Degrada a WARNING.';
+
+
+--
+-- Name: notify_timesheet_period_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_timesheet_period_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_submitted boolean;
+  v_withdrawn boolean;
+  v_who       text;
+  v_base      jsonb;
+  v_approvers uuid[];
+  v_rec       record;
+  v_id        uuid;
+BEGIN
+  -- Sólo AFTER UPDATE: el período existe desde que el usuario carga la primera hora
+  -- (`submit_timesheet_safe` falla con PERIOD_NOT_FOUND si no está), así que el envío es
+  -- siempre un UPDATE. Un INSERT con `submitted_at` ya puesto es carga de datos, no un envío.
+  v_submitted := OLD.submitted_at IS NULL     AND NEW.submitted_at IS NOT NULL;
+  v_withdrawn := OLD.submitted_at IS NOT NULL AND NEW.submitted_at IS NULL;
+
+  IF NOT (v_submitted OR v_withdrawn) THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(s.first_name || ' ' || s.last_name, '')
+    INTO v_who
+    FROM public.staff s WHERE s.staff_id = NEW.staff_id;
+
+  v_base := jsonb_build_object(
+    'period_id',   NEW.period_id,
+    'week_start',  NEW.week_start_date,
+    'week_number', NEW.week_number,
+    'year',        NEW.year,
+    'total_hours', NEW.total_hours,
+    'staff_name',  v_who);
+
+  -- ── Acuse al dueño: el mismo tipo para el envío y para el retiro ──
+  -- Dos redacciones vía el `context` de i18next, mismo criterio que
+  -- `engagement.staffing.changed`: es el mismo hecho ("mi boleta cambió de estado") y
+  -- partirlo en dos tipos habría duplicado la fila de la matriz para siete roles.
+  PERFORM public.notify_staff('timesheet.own_submit_confirmed', NEW.staff_id,
+            NEW.period_id::text,
+            v_base || jsonb_build_object('context',
+              CASE WHEN v_submitted THEN 'submitted' ELSE 'withdrawn' END));
+
+  IF v_withdrawn THEN
+    RETURN NULL;
+  END IF;
+
+  -- ── A quien le toca aprobar ──
+  -- `get_timesheet_approvers()` es la autoridad, y no las columnas del encargo: descarta a
+  -- las categorías autoaprobadas y exige `timesheet_approval.approve` en el rol, así que un
+  -- Socio puesto como `partner_id` sin ese permiso no entra (hoy es el caso: el permiso lo
+  -- tienen admin y los tres gerentes). La lista se guarda para no volver a avisarles abajo.
+  SELECT COALESCE(array_agg(g.approver_staff_id), '{}'::uuid[])
+    INTO v_approvers
+    FROM public.get_timesheet_approvers(NEW.staff_id, NEW.week_start_date) g;
+
+  FOREACH v_id IN ARRAY v_approvers
+  LOOP
+    PERFORM public.notify_staff('timesheet.team_submitted_for_approval', v_id,
+                                NEW.period_id::text, v_base);
+  END LOOP;
+
+  -- ── Informativo a la conducción que NO aprueba ──
+  FOR v_rec IN SELECT staff_id FROM public.notif_timesheet_period_leads(NEW.period_id)
+  LOOP
+    -- Nadie recibe dos filas por el mismo envío (D-12): el dueño ya tiene su acuse, y el
+    -- aprobador su aviso accionable, que es el más específico de los dos.
+    IF v_rec.staff_id = NEW.staff_id OR v_rec.staff_id = ANY (v_approvers) THEN
+      CONTINUE;
+    END IF;
+
+    -- Y el alcance de la matriz manda: este tipo sólo se entrega como `assigned`. Sin el
+    -- chequeo, un Senior que ocupe `manager_id` recibiría la boleta de un colega.
+    IF public.notif_scope_of('timesheet.weekly_submitted', v_rec.staff_id)
+       IS DISTINCT FROM 'assigned' THEN
+      CONTINUE;
+    END IF;
+
+    PERFORM public.notify_staff('timesheet.weekly_submitted', v_rec.staff_id,
+                                NEW.period_id::text, v_base);
+  END LOOP;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_timesheet_period_events fallo para % : %', NEW.period_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_timesheet_period_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_timesheet_period_events() IS 'FASE 3.d: envio y retiro de la boleta semanal. Reparte el mismo hecho en tres audiencias disjuntas (dueno / aprobador / conduccion) y respeta el scope_key de la matriz via notif_scope_of, porque weekly_submitted solo se entrega como `assigned`. Degrada a WARNING: nunca bloquea el envio.';
+
+
+--
+-- Name: notify_user_account_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_user_account_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row      record;
+  v_staff    uuid;
+  v_name     text;
+  v_email    text;
+  v_base     jsonb;
+  v_rec      record;
+  v_rol_prev  text;
+  v_rol_nuevo text;
+  c_auditoria constant text[] := ARRAY['admin', 'it_security_manager'];
+BEGIN
+  IF TG_OP = 'DELETE' THEN v_row := OLD; ELSE v_row := NEW; END IF;
+
+  SELECT s.staff_id, COALESCE(s.first_name || ' ' || s.last_name, '')
+    INTO v_staff, v_name
+    FROM public.staff s
+   WHERE s.auth_user_id = v_row.user_id
+     AND s.deleted_at IS NULL;
+
+  -- El correo es el único identificador que existe siempre: en el alta la ficha todavía no
+  -- está vinculada, y en el borrado ya no la hay. Se lee con guarda porque el harness local
+  -- monta un `auth` mínimo y otros entornos podrían no exponerlo.
+  BEGIN
+    SELECT u.email INTO v_email FROM auth.users u WHERE u.id = v_row.user_id;
+  EXCEPTION WHEN OTHERS THEN
+    v_email := NULL;
+  END;
+
+  -- La marca gana sobre la lectura. En un DELETE por CASCADE `auth.users` ya se borro y el SELECT
+  -- de arriba no devuelve nada; `deletion_email` es lo que prepare_account_deletion() dejo ahi
+  -- justo para este momento (ver A.3). Fuera de un borrado en curso la marca es NULL y manda la
+  -- lectura, asi que el COALESCE no necesita saber en que operacion esta.
+  v_email := COALESCE(v_row.deletion_email, v_email);
+
+  v_base := jsonb_build_object(
+    'user_id',    v_row.user_id,
+    'staff_id',   v_staff,
+    'staff_name', COALESCE(v_name, ''),
+    'email',      COALESCE(v_email, ''),
+    'role_key',   COALESCE(v_row.role_key, ''));
+
+  -- ── Alta de cuenta: auditoría del ADM ──
+  IF TG_OP = 'INSERT' THEN
+    -- Salvo que sea una baja que se está deshaciendo. `manage-auth-user` repone la fila cuando
+    -- GoTrue no pudo borrar la cuenta, y eso no es un alta: la cuenta existía desde antes. Mismo
+    -- marcador y mismo motivo que la rama del DELETE de más abajo.
+    IF COALESCE(current_setting('ems.account_rollback', true), '') = '1' THEN
+      RETURN NULL;
+    END IF;
+
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+    LOOP
+      PERFORM public.notify_staff('auth.user.registered', v_rec.staff_id,
+                                  COALESCE(v_staff::text, NEW.user_id::text), v_base);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+
+  -- ── Eliminación de cuenta: sólo Seguridad TI (la matriz no se lo da al ADM) ──
+  IF TG_OP = 'DELETE' THEN
+    -- Salvo que sea un alta que se está deshaciendo. `register-user` borra la cuenta que acaba
+    -- de crear cuando el correo de confirmación no sale, y ese borrado llega hasta acá por el
+    -- CASCADE de user_roles.user_id -> auth.users. Avisarle a Seguridad TI de una "cuenta
+    -- eliminada" por un 503 de Microsoft Graph es una alarma falsa, y las alarmas falsas en un
+    -- canal de seguridad se pagan con que dejen de mirarse.
+    --
+    -- El marcador lo pone rollback_unconfirmed_signup() con `set_config(..., true)`: es
+    -- transaction-local, así que no puede quedarse pegado ni filtrarse a otra sesión del pool.
+    -- Mismo mecanismo que `ems.role_change_source` (ver notif_origen_cambio_rol).
+    IF COALESCE(current_setting('ems.account_rollback', true), '') = '1' THEN
+      RETURN NULL;
+    END IF;
+
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['it_security_manager'])
+    LOOP
+      PERFORM public.notify_staff('auth.account.deleted', v_rec.staff_id,
+                                  OLD.user_id::text, v_base);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+
+  -- ── Cambio de rol ──
+  -- `role_key` es la autoridad y `role` el espejo legacy, pero se miran los dos, y el enum NO es
+  -- cosmético: `is_admin()` y `has_role()` (cero_02) leen `user_roles.role`, así que mover sólo
+  -- el enum da o quita admin en todas las policies que las llaman. Es justamente el cambio que
+  -- más merece auditoría, no uno para ignorar.
+  --
+  -- Por eso los dos roles del payload salen de la columna QUE CAMBIÓ y no siempre de `role_key`:
+  -- `admin_set_user_role()` hace `UPDATE user_roles SET role = ...` y deja `role_key` intacto.
+  -- Está deprecado y ningún componente lo llama, pero sigue con GRANT a `authenticated`
+  -- (cero_06), o sea que se alcanza directo por PostgREST. Leyendo `role_key` de los dos lados,
+  -- ese camino mandaba un aviso de auditoría que decía "de X a X" — sin delta, que es peor que
+  -- no mandarlo: el lector concluye que no pasó nada justo cuando alguien ganó admin.
+  --
+  -- Si cambian las dos, manda `role_key`: es la autoridad, y el enum es su espejo.
+  IF NEW.role_key IS DISTINCT FROM OLD.role_key THEN
+    v_rol_prev  := COALESCE(OLD.role_key, '');
+    v_rol_nuevo := COALESCE(NEW.role_key, '');
+  ELSIF NEW.role IS DISTINCT FROM OLD.role THEN
+    v_rol_prev  := COALESCE(OLD.role::text, '');
+    v_rol_nuevo := COALESCE(NEW.role::text, '');
+  END IF;
+
+  IF v_rol_nuevo IS NOT NULL THEN
+    -- Al afectado (alcance `own`), con el rol anterior para que el texto pueda decir de qué
+    -- a qué. Sin ficha de staff no hay a quién notificar: notify_staff necesita un staff_id.
+    IF v_staff IS NOT NULL THEN
+      PERFORM public.notify_staff('auth.role.changed', v_staff,
+                COALESCE(v_staff::text, NEW.user_id::text),
+                v_base || jsonb_build_object('role_key',          v_rol_nuevo,
+                                             'previous_role_key', v_rol_prev,
+                                             -- De donde vino el cambio: `category` si lo escribio
+                                             -- sync_user_role_from_category, `direct` si no. El
+                                             -- correo elige el texto con esto (D-44); el trigger
+                                             -- ve el resultado y no la causa, asi que la causa la
+                                             -- anota quien la conoce.
+                                             'source', public.notif_origen_cambio_rol(),
+                                             'context', 'own'));
+    END IF;
+
+    -- Y a la auditoría (ADM + Seguridad TI, alcance `firm`, D-17). Al propio afectado no se
+    -- le manda dos veces si además es uno de ellos.
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_auditoria)
+    LOOP
+      IF v_rec.staff_id IS DISTINCT FROM v_staff THEN
+        PERFORM public.notify_staff('auth.role.changed', v_rec.staff_id,
+                  COALESCE(v_staff::text, NEW.user_id::text),
+                  v_base || jsonb_build_object('role_key',          v_rol_nuevo,
+                                               'previous_role_key', v_rol_prev));
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_user_account_events fallo para % : %', v_row.user_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_user_account_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_user_account_events() IS 'FASE 3.e: alta de cuenta, cambio de rol y eliminacion, leidos desde public.user_roles y no desde auth.users (D-34). El cambio de rol va al afectado con context=own y a la auditoria (ADM + Seguridad TI) sin duplicar, con role_key/previous_role_key tomados de la columna que cambio (role_key manda; si solo se movio el enum legacy `role`, van sus valores, porque is_admin()/has_role() lo leen). El borrado NO avisa si ems.account_rollback = 1 (alta deshecha, no baja real). Degrada a WARNING.';
+
+
+--
+-- Name: notify_wo_installment_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_wo_installment_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_code text;
+  v_curr text;
+  v_rec  record;
+  c_contabilidad constant text[] := ARRAY['accounting_manager', 'accounting_analyst'];
+BEGIN
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(e.engagement_code, ''), w.currency
+    INTO v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = NEW.wo_id;
+
+  -- entity_id = wo_id, no installment_id: la cuota no tiene pantalla propia, se edita dentro
+  -- de la pestaña "Plan de pagos" de su OT.
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+  LOOP
+    PERFORM public.notify_staff('wo.installment.status_changed', v_rec.staff_id,
+              NEW.wo_id::text,
+              jsonb_build_object(
+                'engagement_code',     v_code,
+                'currency',            v_curr,
+                'installment_id',      NEW.installment_id,
+                'installment_number',  NEW.installment_number,
+                'amount',              NEW.amount,
+                'agreed_payment_date', NEW.agreed_payment_date,
+                'status',              NEW.status));
+  END LOOP;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_wo_installment_events fallo para % : %', NEW.installment_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_wo_installment_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_wo_installment_events() IS 'FASE 3.b: cambio de estado de una cuota del plan de pagos, a la bandeja de Contabilidad. Degrada a WARNING: nunca bloquea la operacion.';
+
+
+--
+-- Name: notify_work_order_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_work_order_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_code       text;
+  v_base       jsonb;
+  v_rec        record;
+  v_submitted  boolean;
+  v_rev_socio  boolean;
+  v_rev_risk   boolean;
+  v_resubmit   boolean;
+  v_to_risk    boolean;
+  v_emergency  boolean;
+  v_has_plan   boolean;
+  c_riesgos   constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
+  c_cobranzas constant text[] := ARRAY['collections_analyst'];
+BEGIN
+  SELECT COALESCE(e.engagement_code, '') INTO v_code
+    FROM public.engagements e
+   WHERE e.engagement_id = NEW.engagement_id;
+
+  -- engagement_code lo pinta el panel como chip (notificationMeta); engagement_id no se usa
+  -- hoy en la ruta —el destino es /work-orders/<wo_id>— pero deja el encargo a mano para
+  -- cuando la Fase 3.c linkee al detalle del encargo.
+  v_base := jsonb_build_object(
+    'engagement_code', v_code,
+    'engagement_id',   NEW.engagement_id,
+    'currency',        NEW.currency);
+
+  -- ── Discriminadores ──
+  v_submitted := NEW.approval_status = 'Pending_Approval'
+             AND OLD.approval_status IN ('Draft', 'Rejected');
+
+  -- La reversión se detecta por la marca de la pista APAGÁNDOSE, no por approval_status:
+  -- useRevertSocioApproval/useRevertRiskApproval limpian la firma en la primera sentencia y
+  -- reabren la OT en la segunda, y sólo la primera distingue una reversión de un rechazo.
+  v_rev_socio := OLD.approved_at      IS NOT NULL AND NEW.approved_at      IS NULL;
+  v_rev_risk  := OLD.risk_approved_at IS NOT NULL AND NEW.risk_approved_at IS NULL;
+
+  -- Reenvío de datos de riesgo tras un veredicto (rechazo, o compleción de los datos que
+  -- quedaron pendientes de una aprobación de emergencia).
+  v_resubmit := NEW.risk_status = 'Pending'
+            AND OLD.risk_status IN ('Rejected', 'Emergency_Approved');
+
+  -- Entrada a la cola de Riesgos. Dos caminos, y ninguno es una transición de risk_status:
+  --   * el envío inicial —risk_status ya venía en 'Pending' por DEFAULT, así que no cambia—;
+  --   * la reversión de la aprobación de Riesgos (D-23), que devuelve trabajo a esa cola.
+  --
+  -- `NOT v_resubmit` es obligatorio y no una precaución: useSubmitWorkOrder con
+  -- `resetRiskToPending` (reenvío tras un rechazo de Riesgos) cumple las dos condiciones a la
+  -- vez, y sin esto el Supervisor recibiría el aviso de entrada Y el de reenvío por el mismo
+  -- hecho. Gana el más específico.
+  -- El COALESCE no es cosmético: es el único NOT de los discriminadores, y un NULL bajo un
+  -- NOT vuelve NULL toda la condición y se traga un aviso legítimo. Los demás se evalúan en
+  -- positivo, donde NULL ya se comporta como false (que es lo que queremos: fail-closed).
+  v_to_risk := NEW.risk_status = 'Pending'
+           AND (v_submitted OR v_rev_risk)
+           AND NOT COALESCE(v_resubmit, false);
+
+  -- Emergencia = el gerente envió SIN datos de riesgo, justificando. Es la misma condición
+  -- que habilita el flujo de dos firmas en el frontend.
+  v_emergency := NEW.risk_level IS NULL
+             AND NULLIF(btrim(COALESCE(NEW.emergency_justification, '')), '') IS NOT NULL;
+
+  -- ── Envío a aprobación del Socio ──
+  IF v_submitted THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.submitted_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', NEW.approval_status));
+    END LOOP;
+
+    -- Plan de pagos (D-24): no tiene aprobación propia, viaja con la de la OT. Sólo se avisa
+    -- si hay cuotas cargadas — sin cuotas no hay nada que revisar y Cobranzas recibiría ruido.
+    SELECT EXISTS (SELECT 1 FROM public.wo_payment_installments i WHERE i.wo_id = NEW.wo_id)
+      INTO v_has_plan;
+
+    IF v_has_plan THEN
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+        UNION
+        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
+      LOOP
+        PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
+                  NEW.wo_id::text, v_base);
+      END LOOP;
+    END IF;
+  END IF;
+
+  -- ── Entrada a la cola de Riesgos (absorbe assessment_assigned/emergency, D-10) ──
+  IF v_to_risk THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      -- `context` no es un dato mas: es la clave reservada de i18next. El panel hace
+      -- t(label_key, {...payload}), asi que un payload con context='emergency' resuelve
+      -- `notifications.types.wo.submitted_risk_emergency` y, si esa clave no existe, cae
+      -- sola a la base. Asi una variante de texto no necesita un tipo nuevo en la matriz.
+      PERFORM public.notify_staff('wo.submitted_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('risk_level', NEW.risk_level)
+                       || CASE WHEN v_emergency
+                               THEN jsonb_build_object('context', 'emergency')
+                               ELSE '{}'::jsonb END);
+    END LOOP;
+  END IF;
+
+  -- ── Reenvío de los datos de evaluación ──
+  IF v_resubmit THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      PERFORM public.notify_staff('wo.risk.resubmitted', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('risk_level', NEW.risk_level));
+    END LOOP;
+  END IF;
+
+  -- ── Firma del Socio ──
+  -- Se compara el timestamp y no `IS NULL -> IS NOT NULL`: un rechazo NO limpia approved_at,
+  -- así que tras rechazar y reenviar la segunda firma dejaría la marca ya no-nula y un
+  -- chequeo de nulidad se la perdería.
+  IF NEW.approved_at IS NOT NULL AND OLD.approved_at IS DISTINCT FROM NEW.approved_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.approved_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Approved'));
+    END LOOP;
+  END IF;
+
+  -- ── Rechazo del Socio ──
+  IF NEW.approval_status = 'Rejected'
+     AND OLD.approval_status IS DISTINCT FROM 'Rejected' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.rejected_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Rejected',
+                                             'reason', COALESCE(NEW.notes, '')));
+    END LOOP;
+  END IF;
+
+  -- ── Veredicto de Riesgos ──
+  -- Cubre las DOS formas de aprobar: la normal ('Approved') y la de emergencia
+  -- ('Emergency_Approved', las dos firmas). Decisión del operador 2026-09-10 (D-25): en la
+  -- rama de emergencia el Gerente recibe los dos avisos —"Riesgos aprobó la OT" y
+  -- "Emergencia aprobada: 7 días para completar"— porque son dos hechos distintos: uno
+  -- desbloquea la OT, el otro le abre un plazo con trabajo pendiente.
+  --
+  -- El `status` va desde la columna y no como literal: así el badge del panel dice
+  -- "Aprobada por emergencia" y no miente diciendo "Aprobada" a secas.
+  IF NEW.risk_status IN ('Approved', 'Emergency_Approved')
+     AND OLD.risk_status IS DISTINCT FROM NEW.risk_status THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.approved_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', NEW.risk_status));
+    END LOOP;
+  END IF;
+
+  -- El rechazo de Riesgos sube más arriba que la aprobación: la matriz se lo manda también a
+  -- socios y directores, porque frena la OT entera.
+  IF NEW.risk_status = 'Rejected' AND OLD.risk_status IS DISTINCT FROM 'Rejected' THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.rejected_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Rejected',
+                                             'reason', COALESCE(NEW.risk_notes, '')));
+    END LOOP;
+  END IF;
+
+  -- ── Reversión de Admin (cualquiera de las dos pistas) ──
+  IF v_rev_socio OR v_rev_risk THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      -- `context` = la pista revertida, para que el texto diga cual (ver la nota de
+      -- submitted_risk). Si algun dia se revierten las dos en una sola sentencia gana
+      -- 'partner'; la clave base es generica y sirve igual.
+      PERFORM public.notify_staff('wo.approval_reverted', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object(
+                  'context', CASE WHEN v_rev_socio THEN 'partner' ELSE 'risk' END,
+                  'status',  NEW.approval_status));
+    END LOOP;
+  END IF;
+
+  -- ── Emergencia: paso 1 (firma de Riesgos) ──
+  IF NEW.emergency_review_at IS NOT NULL
+     AND OLD.emergency_review_at IS DISTINCT FROM NEW.emergency_review_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      PERFORM public.notify_staff('wo.emergency.step1_done', v_rec.staff_id, NEW.wo_id::text,
+                v_base);
+    END LOOP;
+  END IF;
+
+  -- ── Emergencia: paso 2 firmado -> arranca el plazo de 7 días ──
+  -- La señal es `emergency_deadline_at` encendiéndose, que es lo que escribe la segunda firma
+  -- (useApproveEmergencyPartner). El aviso dice "tenés 7 días para completar los datos", así
+  -- que su dueño es el reloj, no la firma.
+  IF NEW.emergency_deadline_at IS NOT NULL
+     AND OLD.emergency_deadline_at IS DISTINCT FROM NEW.emergency_deadline_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.emergency.created', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('deadline', NEW.emergency_deadline_at,
+                                             'status',   NEW.risk_status));
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_work_order_events fallo para % : %', NEW.wo_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_work_order_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_work_order_events() IS 'FASE 3.b: 11 eventos de work_orders. Las aprobaciones se detectan por la marca de cada pista (approved_at / risk_status) y no por approval_status, porque la aprobacion se escribe en dos sentencias y el trigger corre dos veces. Degrada a WARNING: nunca bloquea la operacion.';
+
+
+--
+-- Name: notify_worksheet_events(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_worksheet_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_code text;
+  v_name text;
+  v_base jsonb;
+  v_rec  record;
+BEGIN
+  -- La transición, y sólo esa. `archived` no es una revisión y volver a `draft` tampoco.
+  IF NOT (NEW.status = 'approved' AND OLD.status IS DISTINCT FROM 'approved') THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(e.engagement_code, ''), COALESCE(e.engagement_name, '')
+    INTO v_code, v_name
+    FROM public.engagements e
+   WHERE e.engagement_id = NEW.engagement_id;
+
+  -- `engagement_id` en el payload y `worksheet_id` en entity_id: el destino es la hoja
+  -- (/worksheets/<id>), y el COT viaja como chip.
+  v_base := jsonb_build_object(
+    'worksheet_id',    NEW.id,
+    'engagement_id',   NEW.engagement_id,
+    'engagement_code', v_code,
+    'engagement_name', v_name,
+    'version',         NEW.version);
+
+  -- Los 6 cargos del encargo. Los que la matriz no contempla —los dos especialistas y el
+  -- Encargado— los descarta notify_staff(); mandar de más es explícitamente aceptable, y
+  -- así este disparador no repite la lista de roles que ya vive en la matriz.
+  FOR v_rec IN SELECT staff_id FROM public.notif_engagement_owners(NEW.engagement_id)
+  LOOP
+    PERFORM public.notify_staff('worksheet.sent_to_quality', v_rec.staff_id,
+                                NEW.id::text, v_base);
+  END LOOP;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_worksheet_events fallo para % : %', NEW.id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notify_worksheet_events(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notify_worksheet_events() IS 'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy ninguna via del producto escribe ese status: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
+
+
+--
 -- Name: permission_scope(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4715,6 +8347,75 @@ CREATE FUNCTION public.permission_scope(p_permission_key text) RETURNS text
     and rp.permission_key = p_permission_key
   limit 1;
 $$;
+
+
+--
+-- Name: prepare_account_deletion(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.prepare_account_deletion(p_user_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff   uuid;
+  v_email   text;
+  v_existe  boolean;
+  v_filas   integer;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
+  END IF;
+
+  -- GUARDA. Esto anuncia una baja, y la única razón para anunciarla es que se esté borrando la
+  -- cuenta. `manage-auth-user` ya lo verifica antes de llamar; si igual llega una cuenta con ficha
+  -- vinculada, alguien se equivocó y no se toca.
+  SELECT s.staff_id INTO v_staff
+    FROM public.staff s
+   WHERE s.auth_user_id = p_user_id
+     AND s.deleted_at IS NULL;
+
+  IF v_staff IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'LINKED_STAFF');
+  END IF;
+
+  -- Se leen las DOS cosas por separado, y no se deduce una de la otra: "no hay correo" y "no hay
+  -- cuenta" no son lo mismo, y quien llama necesita distinguirlas. Si `deleteUser()` despues
+  -- falla, `existe_auth = false` dice que la cuenta ya no estaba —el borrado es idempotente y la
+  -- baja es real—; `true` dice que el borrado fallo de verdad.
+  BEGIN
+    SELECT u.email, true INTO v_email, v_existe
+      FROM auth.users u WHERE u.id = p_user_id;
+    v_existe := COALESCE(v_existe, false);
+  EXCEPTION WHEN OTHERS THEN
+    -- El harness local monta un `auth` mínimo: no se puede afirmar nada, y NULL lo dice.
+    v_email  := NULL;
+    v_existe := NULL;
+  END;
+
+  -- UPDATE, no DELETE. Es toda la diferencia: esto no borra ni anuncia nada, así que no hay
+  -- estado intermedio que reponer si lo que viene después no llega a pasar.
+  UPDATE public.user_roles
+     SET deletion_email = NULLIF(btrim(COALESCE(v_email, '')), '')
+   WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true,
+                            'marcado', v_filas,
+                            -- NULL cuando no se pudo mirar `auth` (harness local).
+                            'existe_auth', v_existe,
+                            -- false = el aviso va a salir sin dirección. No es un error: el
+                            -- borrado igual tiene que seguir.
+                            'con_correo', COALESCE(btrim(v_email), '') <> '');
+END;
+$$;
+
+
+--
+-- Name: FUNCTION prepare_account_deletion(p_user_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.prepare_account_deletion(p_user_id uuid) IS 'Copia el correo de la cuenta a user_roles.deletion_email y devuelve en existe_auth si la cuenta seguia en auth.users para que el aviso auth.account.deleted identifique la cuenta cuando el CASCADE borre la fila con auth.users ya vacia. NO borra ni anuncia nada: el aviso lo dispara el borrado real, asi que una invocacion interrumpida no deja ni una cuenta sin rol ni una alarma falsa. Se niega si la cuenta tiene ficha de staff vinculada.';
 
 
 --
@@ -4898,6 +8599,167 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: purge_old_auth_email_throttle(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_auth_email_throttle() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_borradas integer;
+BEGIN
+  DELETE FROM public.auth_email_throttle
+   WHERE window_start < now() - interval '1 day';
+  GET DIAGNOSTICS v_borradas = ROW_COUNT;
+  RETURN v_borradas;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_auth_email_throttle(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_auth_email_throttle() IS 'Borra las filas de auth_email_throttle cuya ventana venció hace más de un día. Devuelve cuántas borró.';
+
+
+--
+-- Name: purge_old_notification_emails(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_notification_emails() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_borrados integer;
+BEGIN
+  DELETE FROM public.notification_emails
+   WHERE status = 'sent'
+     AND COALESCE(sent_at, created_at) < now() - interval '30 days';
+  GET DIAGNOSTICS v_borrados = ROW_COUNT;
+  RETURN v_borrados;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION purge_old_notification_emails(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_notification_emails() IS 'Borra los correos enviados hace mas de 30 dias. Conserva los failed: son el registro de lo que no llego.';
+
+
+--
+-- Name: purge_old_notifications(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.purge_old_notifications() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $_$
+DECLARE
+  v_raw    text;
+  v_read   integer := 30;
+  v_unread integer := 90;
+  v_count  integer;
+BEGIN
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_READ_DAYS';
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
+    v_read := LEAST(GREATEST(v_raw::integer, 1), 3650);
+  END IF;
+
+  SELECT setting_value INTO v_raw
+    FROM public.global_settings WHERE setting_key = 'NOTIF_RETENTION_UNREAD_DAYS';
+  IF v_raw ~ '^[0-9]{1,9}$' THEN
+    v_unread := LEAST(GREATEST(v_raw::integer, 1), 3650);
+  END IF;
+
+  -- Una no leída nunca vive MENOS que una leída: si el admin invierte los valores, gana el
+  -- más conservador en vez de borrar avisos que nadie vio todavía.
+  v_unread := GREATEST(v_unread, v_read);
+
+  -- El descarte se evalúa PRIMERO y con su propia fecha base. Sin este brazo, una fila
+  -- descartada caía en el de "no leída" —90 días contados desde que se creó— y una descartada
+  -- que ya estaba leída, en el de 30: ninguno de los dos mide lo que importa acá, que es cuánto
+  -- silencio le compró el descarte al cron.
+  DELETE FROM public.notifications n
+   WHERE ((n.dismissed_at IS NOT NULL AND n.dismissed_at < now() - make_interval(days => v_read))
+       OR (n.dismissed_at IS NULL AND n.read_at IS NOT NULL
+           AND n.created_at < now() - make_interval(days => v_read))
+       OR (n.dismissed_at IS NULL AND n.read_at IS NULL
+           AND n.created_at < now() - make_interval(days => v_unread)))
+     -- ...SALVO que la fila todavía esté haciendo de registro de emisión.
+     --
+     -- Los emisores del cron deduplican con NOT EXISTS contra esta tabla: la fila es a la vez el
+     -- aviso Y la constancia de que ya salió. Borrarla mientras el hecho sigue vigente devuelve
+     -- el NOT EXISTS a verdadero y el cron reemite, con un correo nuevo detrás. Es exactamente
+     -- lo que ya arregló `dismiss_notifications` marcando en vez de borrar (ver su comentario);
+     -- la retención abría la misma puerta un poco más tarde.
+     --
+     -- Sin esto, la ventana de retención pasaba a gobernar la CADENCIA de una alarma:
+     -- NOTIF_RETENTION_READ_DAYS acepta hasta 1, y con ese valor el aviso volvía todos los días.
+     -- Ni siquiera hacía falta descartarlo; alcanzaba con leerlo.
+     --
+     -- NINGUNA de las dos exenciones es permanente. Las dos preguntan por el hecho, no por el
+     -- type_key: cuando el hecho deja de ser cierto, la fila vuelve a envejecer con las reglas
+     -- normales y se va. Por eso esto no hace crecer la tabla sin fin.
+     --
+     -- De los cuatro dedupes del cron, los otros dos (`wo.emergency.deadline_near` y
+     -- `engagement.ending_soon`) no necesitan exención: llevan `days_left` en el payload, y esa
+     -- condición es cierta dos días del calendario y nunca más. Ya vencidos, que se borre la
+     -- fila no reabre nada.
+     AND NOT (
+       -- 1) El plazo de emergencia vencido. Es el que no perdona: mientras la OT siga en
+       --    Emergency_Approved con el plazo pasado, la condición es cierta PARA SIEMPRE, así que
+       --    con cualquier retención la alarma se repetía indefinidamente. Se apaga cuando el
+       --    Gerente completa los datos de riesgo y `risk_status` vuelve a 'Pending'.
+       n.type_key = 'wo.emergency.deadline_passed'
+       AND EXISTS (
+         SELECT 1 FROM public.work_orders w
+          WHERE w.wo_id::text = n.entity_id
+            AND w.risk_status = 'Emergency_Approved'
+            AND w.emergency_deadline_at IS NOT NULL
+            AND w.emergency_deadline_at < (now() AT TIME ZONE 'America/La_Paz')::date
+       )
+     )
+     AND NOT (
+       -- 2) La semana de facturación. Acá la condición SÍ muere sola —el domingo—, así que sólo
+       --    se rompe con la retención por debajo de 7 días: la fila se purgaba el martes y el
+       --    cron del miércoles volvía a avisar la misma cuota. Más angosto que el caso 1, misma
+       --    causa, y el arreglo es el mismo.
+       --
+       --    El dedupe de este tipo va por `installment_id` del payload y no por entity_id: el
+       --    entity_id es la OT, y una OT puede tener dos cuotas facturables en la misma semana.
+       n.type_key = 'wo.client.billing_week'
+       AND EXISTS (
+         SELECT 1 FROM public.wo_payment_installments i
+          WHERE i.installment_id::text = n.payload->>'installment_id'
+            AND i.status = 'Pending'
+            AND i.agreed_invoice_date IS NOT NULL
+            AND i.agreed_invoice_date
+                  >= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date
+            AND i.agreed_invoice_date
+                  <= date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6
+       )
+     );
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$_$;
+
+
+--
+-- Name: FUNCTION purge_old_notifications(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.purge_old_notifications() IS 'Retencion de public.notifications, tres ventanas: las DESCARTADAS mas de NOTIF_RETENTION_READ_DAYS (30) dias atras contados desde dismissed_at, las leidas mas viejas que ese mismo plazo desde created_at, y las no leidas mas viejas que NOTIF_RETENTION_UNREAD_DAYS (90). Una no leida nunca vive menos que una leida. EXCEPCION: no borra las filas que todavia sirven de dedupe a un emisor del cron cuyo hecho sigue vigente (wo.emergency.deadline_passed con la OT en Emergency_Approved y plazo vencido; wo.client.billing_week con la cuota Pending dentro de su semana), porque sin ellas la alarma se repetiria cada vez que vence la retencion. Las exenciones preguntan por el hecho, no por el type_key: al apagarse el hecho la fila caduca normal. Devuelve cuantas borro.';
 
 
 --
@@ -5132,6 +8994,88 @@ $_$;
 
 
 --
+-- Name: reject_engagement_assignment_move(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_engagement_assignment_move() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.engagement_id IS DISTINCT FROM OLD.engagement_id THEN
+    RAISE EXCEPTION
+      'ASSIGNMENT_ENGAGEMENT_IMMUTABLE: una asignacion no cambia de encargo (% -> %). Cerrar la asignacion en el encargo actual y crear una nueva en el destino.',
+      OLD.engagement_id, NEW.engagement_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION reject_engagement_assignment_move(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.reject_engagement_assignment_move() IS 'Rechaza cambiarle el engagement_id a una asignacion existente. La fila lleva datos atados a su encargo —requirement_id (sin FK), fechas, horas, categoria, y el solapamiento validado contra ese encargo— que un movimiento deja apuntando a otro lado sin que nada se queje. La via soportada es cerrar la asignacion y abrir otra.';
+
+
+--
+-- Name: release_auth_email_slot(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.release_auth_email_slot(p_email text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_email  text := lower(trim(coalesce(p_email, '')));
+  v_filas  integer;
+  c_global constant text := '*';
+BEGIN
+  -- Mismo guard que el claim: la fila global no es un destinatario y no se devuelve por nombre.
+  IF v_email = '' OR position('@' in v_email) = 0 THEN
+    RETURN false;
+  END IF;
+
+  -- Mismo orden de candados que claim_auth_email_slot(): global primero. Acá se toma con un
+  -- SELECT ... FOR UPDATE y no con el UPDATE directo para que el orden sea el mismo aunque el
+  -- destinatario no tenga nada que devolver y el UPDATE global no llegue a ejecutarse.
+  PERFORM 1 FROM public.auth_email_throttle
+   WHERE email_normalized = c_global
+     FOR UPDATE;
+
+  UPDATE public.auth_email_throttle
+     SET sent_count   = GREATEST(sent_count - 1, 0),
+         last_sent_at = NULL
+   WHERE email_normalized = v_email
+     -- Sin cupo consumido no hay nada que devolver, y restar igual regalaría cupo de más.
+     AND sent_count > 0;
+  GET DIAGNOSTICS v_filas = ROW_COUNT;
+
+  IF v_filas = 0 THEN
+    RETURN false;
+  END IF;
+
+  -- `last_sent_at` de la fila global NO se limpia: no gobierna ningún chequeo (el mínimo entre
+  -- correos es por destinatario) y borrarlo perdería el único rastro de cuándo se movió.
+  UPDATE public.auth_email_throttle
+     SET sent_count = GREATEST(sent_count - 1, 0)
+   WHERE email_normalized = c_global
+     AND sent_count > 0;
+
+  RETURN true;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION release_auth_email_slot(p_email text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.release_auth_email_slot(p_email text) IS 'Devuelve los cupos que claim_auth_email_slot() ya descontó —el del destinatario y el de la firma—, para cuando el correo no llegó a salir (falla de Graph). Devuelve true si había algo que devolver. NO se usa cuando el correo sí salió.';
+
+
+--
 -- Name: reorder_practice_activity(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5299,6 +9243,94 @@ CREATE FUNCTION public.resolve_wo_req_skill_engagement_id(p_requirement_id uuid)
     JOIN public.work_orders wo ON wo.wo_id = r.wo_id
    WHERE r.id = p_requirement_id
 $$;
+
+
+--
+-- Name: rollback_unconfirmed_signup(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rollback_unconfirmed_signup(p_user_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_confirmado boolean;
+  v_avisos     uuid[];
+  v_correos    integer := 0;
+  v_roles      integer := 0;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'NULL_USER_ID');
+  END IF;
+
+  -- GUARDA. Esto solo puede tocar una cuenta que nunca se confirmo. Es service_role y hoy la
+  -- llama un unico sitio, pero el costo de equivocarse es borrarle el acceso a alguien que lo
+  -- estaba usando, asi que la condicion se verifica aca y no se confia en quien llama.
+  BEGIN
+    SELECT u.email_confirmed_at IS NOT NULL INTO v_confirmado
+      FROM auth.users u WHERE u.id = p_user_id;
+  EXCEPTION WHEN OTHERS THEN
+    -- El harness local monta un `auth` minimo. Ahi no hay nada que proteger.
+    v_confirmado := NULL;
+  END;
+
+  IF v_confirmado THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'ACCOUNT_CONFIRMED');
+  END IF;
+
+  -- Transaction-local: vale para todo lo que siga en ESTA transaccion y para nada mas.
+  PERFORM set_config('ems.account_rollback', '1', true);
+
+  -- Los avisos de alta que el trigger emitio a los ADM. Se buscan por `payload->>'user_id'` y
+  -- no por `entity_id`, que en un alta es el user_id pero pasaria a ser el staff_id si alguna
+  -- vez la ficha llegara a estar vinculada a tiempo.
+  SELECT COALESCE(array_agg(notification_id), ARRAY[]::uuid[]) INTO v_avisos
+    FROM public.notifications
+   WHERE type_key = 'auth.user.registered'
+     AND payload->>'user_id' = p_user_id::text;
+
+  -- El correo primero: solo lo que TODAVIA no salio. Un correo ya enviado es un hecho y su fila
+  -- es el registro de ese hecho — borrarla no lo desmiente, solo esconde que paso.
+  --
+  -- `<> 'sent'` y no `IN ('pending','failed')`, porque falta el tercer estado: `sending`. El
+  -- drenaje corre cada 5 minutos y puede haber RECLAMADO el correo del alta mientras register-user
+  -- todavia peleaba con Graph. Esa fila no entraba en el filtro viejo, y el DELETE de
+  -- `notifications` que viene abajo solo le pone `notification_id` en NULL (la FK es ON DELETE SET
+  -- NULL): el drenaje seguia y le mandaba al ADM el aviso de un alta que se acababa de deshacer.
+  --
+  -- Borrarla la cancela sin mecanismo nuevo: `begin_notification_email_attempt` solo actualiza
+  -- `WHERE status = 'sending'`, asi que devuelve NULL, y el drenaje ya sabe saltear ese caso
+  -- ("La fila dejo de estar arrendada entre el claim y esto").
+  --
+  -- No cierra la ventana ENTERA, y conviene saberlo: si el drenaje ya paso ese punto y esta dentro
+  -- de la llamada a Graph, el correo sale igual. Eso no lo arregla ninguna bandera — el mensaje
+  -- salio o no salio. Lo que se cierra del todo es el caso "reclamado y todavia sin intentar".
+  DELETE FROM public.notification_emails
+   WHERE notification_id = ANY (v_avisos)
+     AND status <> 'sent';
+  GET DIAGNOSTICS v_correos = ROW_COUNT;
+
+  DELETE FROM public.notifications WHERE notification_id = ANY (v_avisos);
+
+  -- Y la fila que dispara el CASCADE. Borrarla aca, con el marcador puesto, es lo que evita el
+  -- `auth.account.deleted` cuando despues GoTrue borre la cuenta: para entonces ya no queda
+  -- nada que cascadear.
+  DELETE FROM public.user_roles WHERE user_id = p_user_id;
+  GET DIAGNOSTICS v_roles = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true,
+                            'notificaciones', COALESCE(array_length(v_avisos, 1), 0),
+                            'correos', v_correos,
+                            'roles', v_roles);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION rollback_unconfirmed_signup(p_user_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.rollback_unconfirmed_signup(p_user_id uuid) IS 'Deshace el rastro en public de un alta que quedo a medias (el correo de confirmacion no salio): borra los avisos auth.user.registered, sus correos que no llegaron a salir —incluidos los ya reclamados por el drenaje, que se cancelan solos porque begin_notification_email_attempt deja de encontrarlos en sending— y la fila de user_roles, con ems.account_rollback puesto para que el trigger no reporte una baja de cuenta a Seguridad TI. Rechaza cuentas ya confirmadas. La cuenta en auth la borra GoTrue por su API.';
 
 
 --
@@ -5769,14 +9801,27 @@ $$;
 CREATE FUNCTION public.set_fund_request_number() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+DECLARE
+  v_seq bigint;
 BEGIN
   IF NEW.request_number IS NULL THEN
+    v_seq := nextval('public.fund_request_number_seq');
     NEW.request_number := 'FR-' || to_char(now(), 'YYYY') || '-' ||
-      lpad(nextval('public.fund_request_number_seq')::text, 4, '0');
+      CASE WHEN v_seq < 10000
+           THEN lpad(v_seq::text, 4, '0')   -- 0001..9999, formato historico
+           ELSE v_seq::text                 -- 10000+, sin truncar
+      END;
   END IF;
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: FUNCTION set_fund_request_number(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.set_fund_request_number() IS 'Numera las solicitudes de fondos como FR-<anio>-<secuencia>. La secuencia se rellena a 4 digitos SOLO mientras entre: lpad() trunca por la derecha y con valores mas largos generaba numeros duplicados (hallazgo 2026-09-10).';
 
 
 --
@@ -9714,6 +13759,46 @@ CREATE TABLE public.activity_worksheets (
 
 
 --
+-- Name: auth_email_throttle; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.auth_email_throttle (
+    email_normalized text NOT NULL,
+    window_start timestamp with time zone DEFAULT now() NOT NULL,
+    sent_count integer DEFAULT 0 NOT NULL,
+    last_sent_at timestamp with time zone
+);
+
+
+--
+-- Name: TABLE auth_email_throttle; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.auth_email_throttle IS 'Freno de los correos de cuenta emitidos por la app (recuperación, alta). Una fila por destinatario, más la fila "*" que lleva el contador de toda la firma. Se escribe únicamente vía claim_auth_email_slot() / release_auth_email_slot().';
+
+
+--
+-- Name: COLUMN auth_email_throttle.email_normalized; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.auth_email_throttle.email_normalized IS 'Destinatario en minúsculas y sin espacios, o "*" para el contador global. Los dos conviven en la misma tabla sin poder pisarse: un correo válido siempre lleva "@", y las dos funciones rechazan lo que no lo tenga.';
+
+
+--
+-- Name: COLUMN auth_email_throttle.window_start; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.auth_email_throttle.window_start IS 'Inicio de la ventana móvil de una hora. Se reinicia cuando la ventana vence.';
+
+
+--
+-- Name: COLUMN auth_email_throttle.sent_count; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.auth_email_throttle.sent_count IS 'Correos concedidos dentro de la ventana en curso.';
+
+
+--
 -- Name: auth_login_attempts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10204,6 +14289,162 @@ CREATE TABLE public.migration_run_log (
 
 
 --
+-- Name: notification_emails; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_emails (
+    email_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    dedupe_key text NOT NULL,
+    notification_id uuid,
+    recipient_staff_id uuid NOT NULL,
+    to_email text NOT NULL,
+    to_name text,
+    type_key text NOT NULL,
+    entity_id text,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    sent_at timestamp with time zone,
+    claimed_at timestamp with time zone,
+    CONSTRAINT notification_emails_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, 'failed'::text, 'sent'::text])))
+);
+
+
+--
+-- Name: TABLE notification_emails; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification_emails IS 'Bandeja de salida de correos. Se escribe UNICAMENTE via notify_staff(); la drena la edge function send-notification-emails. Sin policies: no se lee desde el cliente.';
+
+
+--
+-- Name: COLUMN notification_emails.dedupe_key; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_emails.dedupe_key IS 'Clave de idempotencia. Derivado de un suceso: el notification_id. Recordatorio: type_key|staff_id|ventana.';
+
+
+--
+-- Name: COLUMN notification_emails.notification_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_emails.notification_id IS 'La fila de la campana que lo origino, si la hay. NULL en los recordatorios (delivery=email) y cuando la notificacion se descarta: el correo ya mandado sigue siendo un hecho.';
+
+
+--
+-- Name: COLUMN notification_emails.claimed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_emails.claimed_at IS 'Cuando el drenaje reclamo la fila. Vence a los 15 minutos: un sending mas viejo que eso es una invocacion que murio sin cerrar, y el claim siguiente lo vuelve a tomar. NULL cuando la fila no esta en manos de nadie.';
+
+
+--
+-- Name: notification_role_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_role_types (
+    role_key text NOT NULL,
+    type_key text NOT NULL,
+    scope_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_role_types_scope_check CHECK ((scope_key = ANY (ARRAY['own'::text, 'assigned'::text, 'practice'::text, 'department'::text, 'society'::text, 'firm'::text])))
+);
+
+
+--
+-- Name: TABLE notification_role_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification_role_types IS 'Matriz rol x tipo de notificación (una fila = una concesión). Las siembra la migración 02, que es un archivo generado: no editarlas a mano.';
+
+
+--
+-- Name: COLUMN notification_role_types.scope_key; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_role_types.scope_key IS 'Qué registros disparan la notificación para ese rol. Lo consume el disparador de cada módulo; notify_staff() no lo evalúa.';
+
+
+--
+-- Name: notification_types; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_types (
+    type_key text NOT NULL,
+    module_key text NOT NULL,
+    label_key text NOT NULL,
+    delivery text NOT NULL,
+    display_order integer DEFAULT 0 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    email_enabled boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_types_delivery_check CHECK ((delivery = ANY (ARRAY['event'::text, 'aggregate'::text, 'email'::text]))),
+    CONSTRAINT notification_types_key_not_empty CHECK ((btrim(type_key) <> ''::text))
+);
+
+
+--
+-- Name: TABLE notification_types; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notification_types IS 'Catálogo de tipos de notificación. Las filas las siembra la migración 02, que es un archivo generado: no editarlas a mano.';
+
+
+--
+-- Name: COLUMN notification_types.label_key; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_types.label_key IS 'Clave i18n: notifications.types.<type_key>, en src/locales/{es,en}.json.';
+
+
+--
+-- Name: COLUMN notification_types.delivery; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_types.delivery IS 'event = una fila por suceso en public.notifications; aggregate = contador calculado al vuelo, nunca se persiste; email = solo correo, sin fila en la campana (los recordatorios periodicos).';
+
+
+--
+-- Name: COLUMN notification_types.email_enabled; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notification_types.email_enabled IS 'Si el tipo ademas sale por correo (D-44). Independiente de delivery: un event puede mandar los dos, y un email solo correo.';
+
+
+--
+-- Name: notifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notifications (
+    notification_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    recipient_staff_id uuid NOT NULL,
+    type_key text NOT NULL,
+    entity_id text,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    read_at timestamp with time zone,
+    dismissed_at timestamp with time zone
+);
+
+
+--
+-- Name: TABLE notifications; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.notifications IS 'Instancias de notificación de tipo event. Se escriben ÚNICAMENTE vía notify_staff(); no hay policy de INSERT para authenticated. Una fila descartada (dismissed_at) NO se borra: es el registro de que el aviso ya salió, y sin ella los emisores del cron lo repiten.';
+
+
+--
+-- Name: COLUMN notifications.dismissed_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.notifications.dismissed_at IS 'Cuando el usuario apreto la "x". La fila deja de verse pero sobrevive como registro de emision, para que el cron no vuelva a avisar lo mismo. La borra el cron de retencion.';
+
+
+--
 -- Name: parametro; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10444,8 +14685,16 @@ CREATE TABLE public.user_roles (
     user_id uuid NOT NULL,
     role public.app_role DEFAULT 'staff'::public.app_role NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    role_key text
+    role_key text,
+    deletion_email text
 );
+
+
+--
+-- Name: COLUMN user_roles.deletion_email; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.user_roles.deletion_email IS 'Correo de la cuenta, copiado por prepare_account_deletion() justo antes de que GoTrue la borre. Lo lee el trigger en el DELETE por CASCADE, cuando auth.users ya no existe y el aviso a Seguridad TI se quedaria sin identificar la cuenta. NULL fuera de un borrado en curso.';
 
 
 --
@@ -10530,111 +14779,137 @@ CREATE VIEW public.vw_budget_vs_actual_hours_by_category_activity WITH (security
 --
 
 CREATE VIEW public.vw_staffing_alerts WITH (security_invoker='true') AS
- SELECT 'timesheet_pending_approval'::text AS alert_type,
-    c.category_name,
-    (((((s_sub.first_name)::text || ' '::text) || (s_sub.last_name)::text) || ' — '::text) || (e.engagement_name)::text) AS description,
-    tla.created_at AS detected_at,
-    e.engagement_id,
-    e.engagement_name,
-    e.engagement_code,
-    (tla.approval_id)::text AS entity_id,
-        CASE
-            WHEN (tla.created_at < (now() - '3 days'::interval)) THEN 'high'::text
-            ELSE 'medium'::text
-        END AS priority_level,
-    tla.approved_by AS staff_id,
-    (((s_apr.first_name)::text || ' '::text) || (s_apr.last_name)::text) AS staff_name,
-    (1)::numeric AS required_count,
-    tp.week_start_date AS start_date,
-    (tp.week_start_date + 6) AS end_date
-   FROM (((((public.timesheet_line_approvals tla
-     JOIN public.timesheet_periods tp ON ((tp.period_id = tla.period_id)))
-     JOIN public.engagements e ON ((e.engagement_id = tla.engagement_id)))
-     JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
-     JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
-     JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
-  WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL))
-UNION ALL
- SELECT 'work_order_pending_approval'::text AS alert_type,
-    NULL::character varying AS category_name,
-    ('WO pendiente de aprobación — '::text || (e.engagement_name)::text) AS description,
-    wo.created_at AS detected_at,
-    e.engagement_id,
-    e.engagement_name,
-    e.engagement_code,
-    (wo.wo_id)::text AS entity_id,
-    'medium'::text AS priority_level,
-    e.partner_id AS staff_id,
-    (((s_partner.first_name)::text || ' '::text) || (s_partner.last_name)::text) AS staff_name,
-    (1)::numeric AS required_count,
-    e.start_date,
-    e.end_date
-   FROM ((public.work_orders wo
-     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
-     JOIN public.staff s_partner ON ((s_partner.staff_id = e.partner_id)))
-  WHERE (((wo.approval_status)::text = 'Pending_Approval'::text) AND (e.partner_id IS NOT NULL))
-UNION ALL
- SELECT 'engagement_created'::text AS alert_type,
-    NULL::character varying AS category_name,
-    cl.client_legal_name AS description,
-    e.created_at AS detected_at,
-    e.engagement_id,
-    e.engagement_name,
-    e.engagement_code,
-    (e.engagement_id)::text AS entity_id,
-    'medium'::text AS priority_level,
-    e.partner_id AS staff_id,
-    (((s.first_name)::text || ' '::text) || (s.last_name)::text) AS staff_name,
-    (1)::numeric AS required_count,
-    e.start_date,
-    e.end_date
-   FROM ((public.engagements e
-     JOIN public.clients cl ON ((cl.client_id = e.client_id)))
-     JOIN public.staff s ON ((s.staff_id = e.partner_id)))
-  WHERE ((e.partner_id IS NOT NULL) AND (e.created_at >= (now() - '7 days'::interval)))
-UNION ALL
- SELECT 'engagement_created'::text AS alert_type,
-    NULL::character varying AS category_name,
-    cl.client_legal_name AS description,
-    e.created_at AS detected_at,
-    e.engagement_id,
-    e.engagement_name,
-    e.engagement_code,
-    (e.engagement_id)::text AS entity_id,
-    'medium'::text AS priority_level,
-    e.manager_id AS staff_id,
-    (((s.first_name)::text || ' '::text) || (s.last_name)::text) AS staff_name,
-    (1)::numeric AS required_count,
-    e.start_date,
-    e.end_date
-   FROM ((public.engagements e
-     JOIN public.clients cl ON ((cl.client_id = e.client_id)))
-     JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE ((e.manager_id IS NOT NULL) AND (e.manager_id IS DISTINCT FROM e.partner_id) AND (e.created_at >= (now() - '7 days'::interval)))
-UNION ALL
- SELECT 'new_user_registered'::text AS alert_type,
-    c.category_name,
-    (((s_new.first_name)::text || ' '::text) || (s_new.last_name)::text) AS description,
-    s_new.created_at AS detected_at,
-    NULL::uuid AS engagement_id,
-    NULL::character varying AS engagement_name,
-    NULL::character varying AS engagement_code,
-    (s_new.staff_id)::text AS entity_id,
-    'medium'::text AS priority_level,
-    s_admin.staff_id,
-    (((s_admin.first_name)::text || ' '::text) || (s_admin.last_name)::text) AS staff_name,
-    (1)::numeric AS required_count,
-    NULL::date AS start_date,
-    NULL::date AS end_date
-   FROM ((public.staff s_new
-     JOIN public.categories c ON ((c.category_id = s_new.category_id)))
-     CROSS JOIN ( SELECT s.staff_id,
-            s.first_name,
-            s.last_name
-           FROM (public.staff s
-             JOIN public.user_roles ur ON ((ur.user_id = s.auth_user_id)))
-          WHERE ((ur.role = 'admin'::public.app_role) AND (s.is_active = true) AND (s.auth_user_id IS NOT NULL))) s_admin)
-  WHERE ((s_new.is_active = true) AND (s_new.created_at >= (now() - '30 days'::interval)) AND (s_new.staff_id <> s_admin.staff_id));
+ WITH base AS (
+         SELECT 'timesheet_pending_approval'::text AS alert_type,
+            c.category_name,
+            (((((s_sub.first_name)::text || ' '::text) || (s_sub.last_name)::text) || ' — '::text) || (e.engagement_name)::text) AS description,
+            tla.created_at AS detected_at,
+            e.engagement_id,
+            e.engagement_name,
+            e.engagement_code,
+            (tla.approval_id)::text AS entity_id,
+                CASE
+                    WHEN (tla.created_at < (now() - '3 days'::interval)) THEN 'high'::text
+                    ELSE 'medium'::text
+                END AS priority_level,
+            tla.approved_by AS staff_id,
+            (((s_apr.first_name)::text || ' '::text) || (s_apr.last_name)::text) AS staff_name,
+            (1)::numeric AS required_count,
+            tp.week_start_date AS start_date,
+            (tp.week_start_date + 6) AS end_date
+           FROM (((((public.timesheet_line_approvals tla
+             JOIN public.timesheet_periods tp ON ((tp.period_id = tla.period_id)))
+             JOIN public.engagements e ON ((e.engagement_id = tla.engagement_id)))
+             JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
+             JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
+             JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
+          WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL) AND (tp.submitted_at IS NOT NULL))
+        UNION ALL
+         SELECT 'work_order_pending_approval'::text AS alert_type,
+            NULL::character varying AS category_name,
+            ('WO pendiente de aprobación — '::text || (e.engagement_name)::text) AS description,
+            wo.created_at AS detected_at,
+            e.engagement_id,
+            e.engagement_name,
+            e.engagement_code,
+            (wo.wo_id)::text AS entity_id,
+            'medium'::text AS priority_level,
+            e.partner_id AS staff_id,
+            (((s_partner.first_name)::text || ' '::text) || (s_partner.last_name)::text) AS staff_name,
+            (1)::numeric AS required_count,
+            e.start_date,
+            e.end_date
+           FROM ((public.work_orders wo
+             JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
+             JOIN public.staff s_partner ON ((s_partner.staff_id = e.partner_id)))
+          WHERE (((wo.approval_status)::text = 'Pending_Approval'::text) AND (e.partner_id IS NOT NULL))
+        UNION ALL
+         SELECT 'engagement_created'::text AS alert_type,
+            NULL::character varying AS category_name,
+            cl.client_legal_name AS description,
+            e.created_at AS detected_at,
+            e.engagement_id,
+            e.engagement_name,
+            e.engagement_code,
+            (e.engagement_id)::text AS entity_id,
+            'medium'::text AS priority_level,
+            e.partner_id AS staff_id,
+            (((s.first_name)::text || ' '::text) || (s.last_name)::text) AS staff_name,
+            (1)::numeric AS required_count,
+            e.start_date,
+            e.end_date
+           FROM ((public.engagements e
+             JOIN public.clients cl ON ((cl.client_id = e.client_id)))
+             JOIN public.staff s ON ((s.staff_id = e.partner_id)))
+          WHERE ((e.partner_id IS NOT NULL) AND (e.created_at >= (now() - '7 days'::interval)))
+        UNION ALL
+         SELECT 'engagement_created'::text AS alert_type,
+            NULL::character varying AS category_name,
+            cl.client_legal_name AS description,
+            e.created_at AS detected_at,
+            e.engagement_id,
+            e.engagement_name,
+            e.engagement_code,
+            (e.engagement_id)::text AS entity_id,
+            'medium'::text AS priority_level,
+            e.manager_id AS staff_id,
+            (((s.first_name)::text || ' '::text) || (s.last_name)::text) AS staff_name,
+            (1)::numeric AS required_count,
+            e.start_date,
+            e.end_date
+           FROM ((public.engagements e
+             JOIN public.clients cl ON ((cl.client_id = e.client_id)))
+             JOIN public.staff s ON ((s.staff_id = e.manager_id)))
+          WHERE ((e.manager_id IS NOT NULL) AND (e.manager_id IS DISTINCT FROM e.partner_id) AND (e.created_at >= (now() - '7 days'::interval)))
+        UNION ALL
+         SELECT 'new_user_registered'::text AS alert_type,
+            c.category_name,
+            (((s_new.first_name)::text || ' '::text) || (s_new.last_name)::text) AS description,
+            s_new.created_at AS detected_at,
+            NULL::uuid AS engagement_id,
+            NULL::character varying AS engagement_name,
+            NULL::character varying AS engagement_code,
+            (s_new.staff_id)::text AS entity_id,
+            'medium'::text AS priority_level,
+            s_admin.staff_id,
+            (((s_admin.first_name)::text || ' '::text) || (s_admin.last_name)::text) AS staff_name,
+            (1)::numeric AS required_count,
+            NULL::date AS start_date,
+            NULL::date AS end_date
+           FROM ((public.staff s_new
+             JOIN public.categories c ON ((c.category_id = s_new.category_id)))
+             CROSS JOIN ( SELECT s.staff_id,
+                    s.first_name,
+                    s.last_name
+                   FROM (public.staff s
+                     JOIN public.user_roles ur ON ((ur.user_id = s.auth_user_id)))
+                  WHERE ((ur.role = 'admin'::public.app_role) AND (s.is_active = true) AND (s.auth_user_id IS NOT NULL))) s_admin)
+          WHERE ((s_new.is_active = true) AND (s_new.created_at >= (now() - '30 days'::interval)) AND (s_new.staff_id <> s_admin.staff_id))
+        )
+ SELECT b.alert_type,
+    b.category_name,
+    b.description,
+    b.detected_at,
+    b.engagement_id,
+    b.engagement_name,
+    b.engagement_code,
+    b.entity_id,
+    b.priority_level,
+    b.staff_id,
+    b.staff_name,
+    b.required_count,
+    b.start_date,
+    b.end_date,
+    sas.seen_at
+   FROM (base b
+     LEFT JOIN public.staff_alert_seen sas ON (((sas.staff_id = b.staff_id) AND (sas.entity_id = b.entity_id) AND (sas.alert_type = b.alert_type))));
+
+
+--
+-- Name: VIEW vw_staffing_alerts; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.vw_staffing_alerts IS 'Feed legacy de alertas de la campana. `seen_at` viene de staff_alert_seen (LEFT JOIN): NULL = no vista. Se reemplaza por el catálogo de notificaciones (notification_types/notifications) en la Fase 3.';
 
 
 --
@@ -10769,10 +15044,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_10; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_10 (
+CREATE TABLE realtime.messages_2026_09_16 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10785,10 +15060,10 @@ CREATE TABLE realtime.messages_2026_09_10 (
 
 
 --
--- Name: messages_2026_09_11; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_11 (
+CREATE TABLE realtime.messages_2026_09_17 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10801,10 +15076,10 @@ CREATE TABLE realtime.messages_2026_09_11 (
 
 
 --
--- Name: messages_2026_09_12; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_12 (
+CREATE TABLE realtime.messages_2026_09_18 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10817,10 +15092,10 @@ CREATE TABLE realtime.messages_2026_09_12 (
 
 
 --
--- Name: messages_2026_09_13; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_19; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_13 (
+CREATE TABLE realtime.messages_2026_09_19 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -10833,10 +15108,10 @@ CREATE TABLE realtime.messages_2026_09_13 (
 
 
 --
--- Name: messages_2026_09_14; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_20; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_14 (
+CREATE TABLE realtime.messages_2026_09_20 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -11129,38 +15404,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_10; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_10 FOR VALUES FROM ('2026-09-10 00:00:00') TO ('2026-09-11 00:00:00');
-
-
---
--- Name: messages_2026_09_11; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_11 FOR VALUES FROM ('2026-09-11 00:00:00') TO ('2026-09-12 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_16 FOR VALUES FROM ('2026-09-16 00:00:00') TO ('2026-09-17 00:00:00');
 
 
 --
--- Name: messages_2026_09_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_12 FOR VALUES FROM ('2026-09-12 00:00:00') TO ('2026-09-13 00:00:00');
-
-
---
--- Name: messages_2026_09_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_13 FOR VALUES FROM ('2026-09-13 00:00:00') TO ('2026-09-14 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_17 FOR VALUES FROM ('2026-09-17 00:00:00') TO ('2026-09-18 00:00:00');
 
 
 --
--- Name: messages_2026_09_14; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_14 FOR VALUES FROM ('2026-09-14 00:00:00') TO ('2026-09-15 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_18 FOR VALUES FROM ('2026-09-18 00:00:00') TO ('2026-09-19 00:00:00');
+
+
+--
+-- Name: messages_2026_09_19; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_19 FOR VALUES FROM ('2026-09-19 00:00:00') TO ('2026-09-20 00:00:00');
+
+
+--
+-- Name: messages_2026_09_20; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_20 FOR VALUES FROM ('2026-09-20 00:00:00') TO ('2026-09-21 00:00:00');
 
 
 --
@@ -11506,6 +15781,14 @@ ALTER TABLE ONLY public.activity_worksheets
 
 
 --
+-- Name: auth_email_throttle auth_email_throttle_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_email_throttle
+    ADD CONSTRAINT auth_email_throttle_pkey PRIMARY KEY (email_normalized);
+
+
+--
 -- Name: auth_login_attempts auth_login_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11735,6 +16018,46 @@ ALTER TABLE ONLY public.migration_run_log
 
 ALTER TABLE ONLY public.migration_run_log
     ADD CONSTRAINT migration_run_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_emails notification_emails_dedupe_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_emails
+    ADD CONSTRAINT notification_emails_dedupe_key_key UNIQUE (dedupe_key);
+
+
+--
+-- Name: notification_emails notification_emails_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_emails
+    ADD CONSTRAINT notification_emails_pkey PRIMARY KEY (email_id);
+
+
+--
+-- Name: notification_role_types notification_role_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_role_types
+    ADD CONSTRAINT notification_role_types_pkey PRIMARY KEY (role_key, type_key);
+
+
+--
+-- Name: notification_types notification_types_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_types
+    ADD CONSTRAINT notification_types_pkey PRIMARY KEY (type_key);
+
+
+--
+-- Name: notifications notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_pkey PRIMARY KEY (notification_id);
 
 
 --
@@ -12018,43 +16341,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_10 messages_2026_09_10_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16 messages_2026_09_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_10
-    ADD CONSTRAINT messages_2026_09_10_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_11 messages_2026_09_11_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_11
-    ADD CONSTRAINT messages_2026_09_11_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_16
+    ADD CONSTRAINT messages_2026_09_16_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_12 messages_2026_09_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17 messages_2026_09_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_12
-    ADD CONSTRAINT messages_2026_09_12_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_13 messages_2026_09_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_13
-    ADD CONSTRAINT messages_2026_09_13_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_17
+    ADD CONSTRAINT messages_2026_09_17_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_14 messages_2026_09_14_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18 messages_2026_09_18_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_14
-    ADD CONSTRAINT messages_2026_09_14_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_18
+    ADD CONSTRAINT messages_2026_09_18_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_19 messages_2026_09_19_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_19
+    ADD CONSTRAINT messages_2026_09_19_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_20 messages_2026_09_20_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_20
+    ADD CONSTRAINT messages_2026_09_20_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -12788,6 +17111,41 @@ CREATE INDEX idx_fre_wo ON public.fund_request_expenses USING btree (wo_id);
 
 
 --
+-- Name: idx_notification_emails_reclamables; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notification_emails_reclamables ON public.notification_emails USING btree (created_at) WHERE (status = ANY (ARRAY['pending'::text, 'sending'::text]));
+
+
+--
+-- Name: idx_notification_role_types_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notification_role_types_type ON public.notification_role_types USING btree (type_key);
+
+
+--
+-- Name: idx_notifications_emitidas; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notifications_emitidas ON public.notifications USING btree (type_key, entity_id, recipient_staff_id);
+
+
+--
+-- Name: idx_notifications_inbox; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notifications_inbox ON public.notifications USING btree (recipient_staff_id, created_at DESC) WHERE (dismissed_at IS NULL);
+
+
+--
+-- Name: idx_notifications_unread; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notifications_unread ON public.notifications USING btree (recipient_staff_id) WHERE ((read_at IS NULL) AND (dismissed_at IS NULL));
+
+
+--
 -- Name: idx_one_running_timer_per_staff; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -12998,38 +17356,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_10_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_10_inserted_at_topic_idx ON realtime.messages_2026_09_10 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_11_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_11_inserted_at_topic_idx ON realtime.messages_2026_09_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_16_inserted_at_topic_idx ON realtime.messages_2026_09_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_12_inserted_at_topic_idx ON realtime.messages_2026_09_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_13_inserted_at_topic_idx ON realtime.messages_2026_09_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_17_inserted_at_topic_idx ON realtime.messages_2026_09_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_14_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_14_inserted_at_topic_idx ON realtime.messages_2026_09_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_18_inserted_at_topic_idx ON realtime.messages_2026_09_18 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_19_inserted_at_topic_idx ON realtime.messages_2026_09_19 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_20_inserted_at_topic_idx ON realtime.messages_2026_09_20 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -13131,73 +17489,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_10_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_10_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_10_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_10_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_16_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_11_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_11_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_11_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_11_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_16_pkey;
 
 
 --
--- Name: messages_2026_09_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_12_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_12_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_12_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_17_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_13_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_13_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_13_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_17_pkey;
 
 
 --
--- Name: messages_2026_09_14_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_14_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_18_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_14_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_18_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_14_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_18_pkey;
+
+
+--
+-- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_19_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_19_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_19_pkey;
+
+
+--
+-- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_20_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_20_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_20_pkey;
 
 
 --
@@ -13338,6 +17696,111 @@ CREATE TRIGGER tr_fund_requests_set_number BEFORE INSERT ON public.fund_requests
 --
 
 CREATE TRIGGER tr_fund_requests_touch BEFORE UPDATE ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fund_requests_touch_updated_at();
+
+
+--
+-- Name: clients tr_notify_client; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_client AFTER INSERT OR UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.notify_client_events();
+
+
+--
+-- Name: engagements tr_notify_engagement; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_engagement AFTER INSERT OR DELETE OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.notify_engagement_events();
+
+
+--
+-- Name: engagement_assignments tr_notify_engagement_staffing; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_engagement_staffing AFTER INSERT OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.notify_engagement_staffing_events();
+
+
+--
+-- Name: fund_request_expenses tr_notify_fund_expense; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_fund_expense AFTER UPDATE ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.notify_fund_expense_events();
+
+
+--
+-- Name: fund_requests tr_notify_fund_request; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_fund_request AFTER UPDATE ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.notify_fund_request_events();
+
+
+--
+-- Name: staff tr_notify_staff; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_staff AFTER INSERT OR UPDATE ON public.staff FOR EACH ROW EXECUTE FUNCTION public.notify_staff_events();
+
+
+--
+-- Name: staff_skills tr_notify_staff_competency; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_staff_competency AFTER INSERT OR DELETE ON public.staff_skills FOR EACH ROW EXECUTE FUNCTION public.notify_staff_competency_events();
+
+
+--
+-- Name: timer_entries tr_notify_timer_auto_stop; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_timer_auto_stop AFTER UPDATE ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.notify_timer_auto_stop_events();
+
+
+--
+-- Name: timesheet_line_approvals tr_notify_timesheet_line_approval; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_timesheet_line_approval AFTER INSERT OR UPDATE ON public.timesheet_line_approvals FOR EACH ROW EXECUTE FUNCTION public.notify_timesheet_line_approval_events();
+
+
+--
+-- Name: timesheet_periods tr_notify_timesheet_period; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_timesheet_period AFTER UPDATE ON public.timesheet_periods FOR EACH ROW EXECUTE FUNCTION public.notify_timesheet_period_events();
+
+
+--
+-- Name: user_roles tr_notify_user_account; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_user_account AFTER INSERT OR DELETE OR UPDATE ON public.user_roles FOR EACH ROW EXECUTE FUNCTION public.notify_user_account_events();
+
+
+--
+-- Name: wo_payment_installments tr_notify_wo_installment; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_wo_installment AFTER UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.notify_wo_installment_events();
+
+
+--
+-- Name: work_orders tr_notify_work_order; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_work_order AFTER UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.notify_work_order_events();
+
+
+--
+-- Name: activity_worksheets tr_notify_worksheet; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_notify_worksheet AFTER UPDATE ON public.activity_worksheets FOR EACH ROW EXECUTE FUNCTION public.notify_worksheet_events();
+
+
+--
+-- Name: engagement_assignments tr_reject_engagement_assignment_move; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_reject_engagement_assignment_move BEFORE UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.reject_engagement_assignment_move();
 
 
 --
@@ -14180,6 +18643,62 @@ ALTER TABLE ONLY public.fund_requests
 
 ALTER TABLE ONLY public.holidays
     ADD CONSTRAINT holidays_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: notification_emails notification_emails_notification_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_emails
+    ADD CONSTRAINT notification_emails_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES public.notifications(notification_id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_emails notification_emails_recipient_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_emails
+    ADD CONSTRAINT notification_emails_recipient_staff_id_fkey FOREIGN KEY (recipient_staff_id) REFERENCES public.staff(staff_id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_emails notification_emails_type_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_emails
+    ADD CONSTRAINT notification_emails_type_key_fkey FOREIGN KEY (type_key) REFERENCES public.notification_types(type_key) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_role_types notification_role_types_role_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_role_types
+    ADD CONSTRAINT notification_role_types_role_key_fkey FOREIGN KEY (role_key) REFERENCES public.authorization_roles(role_key) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_role_types notification_role_types_type_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_role_types
+    ADD CONSTRAINT notification_role_types_type_key_fkey FOREIGN KEY (type_key) REFERENCES public.notification_types(type_key) ON DELETE CASCADE;
+
+
+--
+-- Name: notifications notifications_recipient_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_recipient_staff_id_fkey FOREIGN KEY (recipient_staff_id) REFERENCES public.staff(staff_id) ON DELETE CASCADE;
+
+
+--
+-- Name: notifications notifications_type_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notifications
+    ADD CONSTRAINT notifications_type_key_fkey FOREIGN KEY (type_key) REFERENCES public.notification_types(type_key) ON DELETE CASCADE;
 
 
 --
@@ -15257,6 +19776,12 @@ CREATE POLICY "activity_codes write update" ON public.activity_codes FOR UPDATE 
 ALTER TABLE public.activity_worksheets ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: auth_email_throttle; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.auth_email_throttle ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: auth_login_attempts; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -15818,6 +20343,51 @@ CREATE POLICY "industries write update" ON public.industries FOR UPDATE TO authe
 
 
 --
+-- Name: notification_emails; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notification_emails ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_role_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notification_role_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_role_types notification_role_types_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY notification_role_types_read ON public.notification_role_types FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: notification_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notification_types ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_types notification_types_read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY notification_types_read ON public.notification_types FOR SELECT TO authenticated USING (true);
+
+
+--
+-- Name: notifications; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notifications notifications_select_own; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY notifications_select_own ON public.notifications FOR SELECT TO authenticated USING (((recipient_staff_id = public.get_my_staff_id()) AND (dismissed_at IS NULL)));
+
+
+--
 -- Name: parametro; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -16310,6 +20880,13 @@ CREATE PUBLICATION supabase_realtime WITH (publish = 'insert, update, delete, tr
 
 
 --
+-- Name: supabase_realtime notifications; Type: PUBLICATION TABLE; Schema: public; Owner: -
+--
+
+ALTER PUBLICATION supabase_realtime ADD TABLE ONLY public.notifications;
+
+
+--
 -- Name: issue_graphql_placeholder; Type: EVENT TRIGGER; Schema: -; Owner: -
 --
 
@@ -16365,5 +20942,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict QQNNfG3feOimLEYMA3bW5hKVcHw4RY18dPzCHeLMwKMgTg26NWqy8BVrtrmgmVL
+\unrestrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
 

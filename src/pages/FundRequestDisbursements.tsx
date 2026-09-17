@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,6 +33,16 @@ type Tab =
   | "in_settlement"
   | "closed";
 
+/** Los mismos valores del type, en runtime: hacen falta para validar el ?tab= de la URL. */
+const TABS: readonly Tab[] = [
+  "to_disburse",
+  "delivered",
+  "expenses_review",
+  "ready_to_settle",
+  "in_settlement",
+  "closed",
+];
+
 const FundRequestDisbursements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -45,7 +55,21 @@ const FundRequestDisbursements = () => {
   // admin y accounting_manager.
   const { can, isLoading: authzLoading } = useAuthorization();
   const canSeeDisbursements = can("fund_disbursement.read");
-  const [tab, setTab] = useState<Tab>("to_disburse");
+  // El tab lo MANDA la URL (?tab=in_settlement), no un useState: los contadores de la campana
+  // llevan directo a su bandeja, y con estado local eso solo funcionaba la primera vez.
+  // Estando ya en esta pantalla, hacer click en otro contador cambia la URL pero no
+  // remonta el componente, asi que el inicializador de useState no volvia a correr y el tab
+  // se quedaba donde estaba. Derivarlo en cada render lo arregla; ademas el tab queda en la
+  // URL, o sea compartible y con boton atras.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fromUrl = searchParams.get("tab");
+  const tab: Tab = TABS.includes(fromUrl as Tab) ? (fromUrl as Tab) : "to_disburse";
+  const setTab = (next: Tab) => {
+    const params = new URLSearchParams(searchParams);
+    params.set("tab", next);
+    // replace: cambiar de pestania no deberia llenar el historial de entradas.
+    setSearchParams(params, { replace: true });
+  };
 
   const tabOf = useCallback(
     (fr: FundRequest): Tab | null => {

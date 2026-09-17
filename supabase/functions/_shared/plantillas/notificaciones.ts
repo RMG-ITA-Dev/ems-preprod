@@ -1,0 +1,199 @@
+// supabase/functions/_shared/plantillas/notificaciones.ts
+
+/**
+ * Arma el correo de un tipo del catálogo: los 22 por suceso y los 4 recordatorios (D-44).
+ *
+ * Lo consume el drenaje de la bandeja de salida (`send-notification-emails`), que sólo pasa la
+ * fila tal como la dejó `notify_staff()` y despacha el resultado.
+ *
+ * TypeScript puro, sin APIs de Deno ni imports por URL: vitest importa este archivo tal cual.
+ */
+
+import { renderizar, type Copia, type CorreoRenderizado } from "./layout.ts";
+import { DETALLES_PAYLOAD, TEXTOS_NOTIFICACION } from "./constants/notificaciones.ts";
+import {
+  destinoDeRecordatorio,
+  TEXTOS_RECORDATORIO,
+  type CopiaRecordatorio,
+} from "./constants/recordatorios.ts";
+import { rutaDeNotificacion, urlAbsoluta } from "./rutas.ts";
+
+export class TipoSinPlantilla extends Error {
+  constructor(typeKey: string) {
+    super(`El tipo "${typeKey}" no tiene plantilla de correo.`);
+    this.name = "TipoSinPlantilla";
+  }
+}
+
+export type DatosNotificacion = {
+  typeKey: string;
+  entityId?: string | null;
+  payload?: Record<string, unknown> | null;
+  /** Origen de la aplicación: https://ems.ruizmier.com, http://localhost:8080… */
+  urlApp: string;
+  nombre?: string | null;
+};
+
+/** Todos los tipos que este módulo sabe renderizar. Lo usa el test de cobertura contra el seed. */
+export function tiposConPlantilla(): string[] {
+  return [
+    ...Object.keys(TEXTOS_NOTIFICACION).filter((k) => !k.includes(":")),
+    ...Object.keys(TEXTOS_RECORDATORIO),
+  ];
+}
+
+function esRecordatorio(typeKey: string): boolean {
+  return typeKey in TEXTOS_RECORDATORIO;
+}
+
+function conteo(payload: Record<string, unknown>, clave: string): number {
+  const bloque = payload[clave];
+  if (!bloque || typeof bloque !== "object") return 0;
+  const valor = (bloque as Record<string, unknown>).count;
+  const numero = typeof valor === "number" ? valor : Number(valor);
+  return Number.isFinite(numero) && numero > 0 ? Math.trunc(numero) : 0;
+}
+
+/** Las líneas de un recordatorio: un concepto por contador, salteando los que están en cero. */
+function detallesDeRecordatorio(
+  copia: CopiaRecordatorio,
+  payload: Record<string, unknown>,
+): { etiqueta: string; valor: string }[] {
+  return copia.conceptos
+    .map((concepto) => ({ concepto, total: conteo(payload, concepto.clave) }))
+    .filter(({ total }) => total > 0)
+    .map(({ concepto, total }) => ({
+      etiqueta: total === 1 ? concepto.singular : concepto.plural,
+      valor: String(total),
+    }));
+}
+
+/**
+ * Fecha ISO a DD/MM/YYYY (regla 3 de AGENTS.md).
+ *
+ * Reordena TEXTO y no construye un `Date` a propósito: `new Date("2026-09-18")` se interpreta como
+ * medianoche UTC, y formatearla en cualquier zona al oeste de Greenwich —La Paz es UTC-4— devuelve
+ * el día anterior. El payload ya trae la fecha tal como la escribió Postgres desde una columna
+ * `date`; no hay nada que convertir, sólo que acomodar.
+ *
+ * Lo que no calce con el patrón sale tal cual: mostrar una fecha en ISO es peor que la regla, pero
+ * mucho mejor que tragarse el dato.
+ */
+function fechaDdMmAaaa(valor: string): string {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]|$)/.exec(valor);
+  return partes ? `${partes[3]}/${partes[2]}/${partes[1]}` : valor;
+}
+
+/**
+ * Monto con separador de miles y sin decimales (regla 4 de AGENTS.md), precedido por la moneda.
+ *
+ * Los miles se ponen a mano y no con `toLocaleString("es-BO")` porque el separador de esa locale
+ * depende de la versión de ICU del runtime: acá corre Deno y en las pruebas corre Node, y el
+ * correo no puede salir distinto según quién lo renderice.
+ *
+ * Redondea, como `formatAmount()` en la aplicación (src/lib/utils.ts): la cifra exacta vive en la
+ * pantalla a la que lleva el botón, y el detalle del correo es una referencia.
+ *
+ * Lo que no sea un número sale tal cual, igual que las fechas.
+ */
+function montoConMoneda(valor: string, moneda: unknown): string {
+  const numero = Number(valor);
+  if (!Number.isFinite(numero)) return valor;
+
+  const entero = Math.round(Math.abs(numero)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const conSigno = `${numero < 0 ? "-" : ""}${entero}`;
+  const divisa = typeof moneda === "string" && moneda.trim() ? `${moneda.trim()} ` : "";
+  return `${divisa}${conSigno}`;
+}
+
+/** Las líneas de un evento: las claves del payload que existan, en el orden declarado. */
+function detallesDeEvento(payload: Record<string, unknown>): { etiqueta: string; valor: string }[] {
+  const salida: { etiqueta: string; valor: string }[] = [];
+
+  // La semana se compone: el payload trae `week_number` y `year` por separado, y "Semana: 37"
+  // seguido de "Año: 2026" son dos líneas para un solo dato.
+  const semana = payload.week_number;
+  const anio = payload.year;
+  if (semana !== undefined && semana !== null && anio !== undefined && anio !== null) {
+    payload = { ...payload, semana: `${semana}/${anio}` };
+  }
+  // El encargo se compone igual: el codigo identifica y el nombre explica, pero separados gastan
+  // dos renglones para decir una sola cosa. Con uno solo de los dos sale ese, tal cual:
+  // `engagement_code` es nullable en la tabla y `engagement_name` no.
+  const codigo = typeof payload.engagement_code === "string" ? payload.engagement_code.trim() : "";
+  const nombre = typeof payload.engagement_name === "string" ? payload.engagement_name.trim() : "";
+  if (codigo && nombre) {
+    payload = { ...payload, engagement_code: `${codigo} — ${nombre}` };
+  } else if (!codigo && nombre) {
+    payload = { ...payload, engagement_code: nombre };
+  }
+
+  for (const { clave, etiqueta, formato } of DETALLES_PAYLOAD) {
+    const valor = payload[clave];
+    if (valor === null || valor === undefined) continue;
+    const texto = typeof valor === "string" ? valor.trim() : String(valor);
+    if (!texto) continue;
+    let mostrado = texto;
+    if (formato === "fecha") mostrado = fechaDdMmAaaa(texto);
+    else if (formato === "monto") mostrado = montoConMoneda(texto, payload.currency);
+    salida.push({ etiqueta, valor: mostrado });
+  }
+  return salida;
+}
+
+/**
+ * Un mismo tipo puede tener varias redacciones, porque el hecho se lee distinto según la variante:
+ * el cambio de rol directo o derivado de la categoría (`payload.source`), el envío o el retiro de
+ * la boleta (`payload.context`). Es la misma idea que usa el panel con el `context` de i18next, y
+ * evita partir un tipo en dos sólo para cambiar una frase.
+ *
+ * Se prueban las variantes y se cae al texto base, que siempre existe.
+ */
+function copiaDeEvento(typeKey: string, payload: Record<string, unknown>): Copia {
+  for (const clave of ["context", "source"]) {
+    const variante = payload[clave];
+    if (typeof variante === "string" && variante) {
+      const copia = TEXTOS_NOTIFICACION[`${typeKey}:${variante}`];
+      if (copia) return copia;
+    }
+  }
+  const copia = TEXTOS_NOTIFICACION[typeKey];
+  if (!copia) throw new TipoSinPlantilla(typeKey);
+  return copia;
+}
+
+export function renderizarCorreoNotificacion(datos: DatosNotificacion): CorreoRenderizado {
+  const payload = datos.payload ?? {};
+  // SIN RUTA NO HAY ENLACE, y sin enlace no hay boton. Antes esto era `urlAbsoluta(urlApp, ruta)`
+  // a secas, y `urlAbsoluta` devuelve el origen pelado cuando la ruta es null: el correo salia
+  // con "Ver encargo" o "Ir a aprobaciones" apuntando a la portada. Le pasaba a TODOS los
+  // `sin_ruta` —riesgo, plan de pagos, revision de gastos— y ahora tambien a los avisos que
+  // nacen sin destino, como `engagement.specialist_assigned`.
+  const ruta = rutaDeNotificacion({ typeKey: datos.typeKey, entityId: datos.entityId, payload });
+  const enlace = ruta === null ? null : urlAbsoluta(datos.urlApp, ruta);
+
+  if (esRecordatorio(datos.typeKey)) {
+    const copia = TEXTOS_RECORDATORIO[datos.typeKey];
+    // El botón tiene que nombrar la pantalla a la que lleva, y esa pantalla puede cambiar según
+    // los contadores del destinatario: "Ir a aprobaciones" sobre un enlace a la hoja de tiempo
+    // propia es la misma mentira que el enlace roto, sólo que más difícil de notar.
+    //
+    // Y por eso `sin_ruta` también apaga el texto por concepto, no sólo el enlace. Cuando el
+    // destinatario no puede abrir la pantalla, `rutaDeNotificacion` devuelve null y el botón
+    // termina apuntando al inicio de la aplicación: dejarle encima "Ir a revisión de gastos" es
+    // exactamente la mentira que este bloque existe para evitar. Se cae a la copia genérica del
+    // tipo, que no promete ninguna pantalla en particular.
+    const destino = payload.sin_ruta === true
+      ? null
+      : destinoDeRecordatorio(datos.typeKey, payload);
+    return renderizar(destino ? { ...copia, boton: destino.boton, intro: destino.intro } : copia, enlace, {
+      nombre: datos.nombre,
+      detalles: detallesDeRecordatorio(copia, payload),
+    });
+  }
+
+  return renderizar(copiaDeEvento(datos.typeKey, payload), enlace, {
+    nombre: datos.nombre,
+    detalles: detallesDeEvento(payload),
+  });
+}

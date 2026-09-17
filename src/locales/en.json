@@ -160,7 +160,7 @@
     "importDescription": "Select entries to import to your timesheet.",
     "noEntriesToImport": "No entries to import this week.",
     "selectedEntries": "{{count}} selected",
-    "hours": "hours",
+    "hours": "Hours",
     "useExplicitTimes": "Specify times",
     "willAddToTimesheet": "Will be added to timesheet",
     "importSelected": "Import Selected",
@@ -222,7 +222,6 @@
     "recordDeleted": "Record deleted successfully",
     "deleteSelectedConfirm": "This will permanently delete {{count}} selected time record(s).",
     "recordsDeleted": "{{count}} record(s) deleted successfully",
-    "hours": "Hours",
     "maxHoursExceeded": "Maximum allowed is 8 hours",
     "timerAutoStopped": "Timer auto-stopped at 8 hours maximum.",
     "timerAlreadyRunning": "You already have a running timer. Resuming it.",
@@ -388,7 +387,13 @@
     "holidayEngagement": "Holiday Engagement",
     "holidayEngagementHelp": "Select the engagement allowed for time entries on holiday dates",
     "holidayNotConfigured": "Holiday blocking is inactive until an engagement is selected",
-    "holidayEngagementApprovalWarning": "This engagement has automatic approval enabled. Holiday date validation still applies regardless, but you may want to review this configuration."
+    "holidayEngagementApprovalWarning": "This engagement has automatic approval enabled. Holiday date validation still applies regardless, but you may want to review this configuration.",
+    "notificationsSection": "Notifications",
+    "alertWindowWeeks": "Alert window (weeks)",
+    "alertWindowWeeksHelp": "How many weeks back the bell's timesheet alarms look. Does not affect how many weeks can be edited.",
+    "alertWindowWeeksRangeError": "The alert window must be between 1 and 52 weeks.",
+    "trackingStartDate": "Time tracking start date",
+    "trackingStartDateHelp": "Date the firm started logging hours in EMS 2.0. Earlier weeks raise no alarms. Leave blank for no cutoff."
   },
   "userRoles": {
     "title": "User Roles Management",
@@ -730,6 +735,9 @@
     "engagements": "Engagements",
     "newClient": "New Client",
     "editClient": "Edit Client",
+    "loadError": "We couldn't load this client. Please try again.",
+    "retry": "Retry",
+    "unavailable": "This client is not available to you. It may have been deactivated, or you may not have access to it.",
     "createClient": "Create Client",
     "deleteClient": "Delete Client",
     "searchPlaceholder": "Search by client name, NIT, or contact...",
@@ -795,38 +803,38 @@
     "approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission",
     "internal": "Internal",
     "timesheetPolicy": "Timesheet Policy",
-    "oficina":                "Office",
-    "selectOficina":          "Select office",
-    "practica":               "Practice",
-    "selectPractica":         "Select practice",
-    "anioFiscal":             "Fiscal Year",
-    "selectAnioFiscal":       "Select fiscal year",
-    "oficina_ambos":          "Both Offices",
-    "oficina_laPaz":          "La Paz",
-    "oficina_santaCruz":      "Santa Cruz",
-    "funcion":           "Function",
-    "selectFuncion":     "Select function",
-    "funcion_adm":       "Administrative",
-    "funcion_cli":       "Client",
-    "funcion_cap":       "Training",
-    "funcion_calidad":   "Quality Control",
+    "oficina": "Office",
+    "selectOficina": "Select office",
+    "practica": "Practice",
+    "selectPractica": "Select practice",
+    "anioFiscal": "Fiscal Year",
+    "selectAnioFiscal": "Select fiscal year",
+    "oficina_ambos": "Both Offices",
+    "oficina_laPaz": "La Paz",
+    "oficina_santaCruz": "Santa Cruz",
+    "funcion": "Function",
+    "selectFuncion": "Select function",
+    "funcion_adm": "Administrative",
+    "funcion_cli": "Client",
+    "funcion_cap": "Training",
+    "funcion_calidad": "Quality Control",
     "requiredAnioFiscal": "Fiscal year is required",
-    "requiredOficina":    "Office is required",
-    "requiredPractica":   "Practice is required",
-    "requiredFuncion":    "Function is required",
-    "society":            "Society",
-    "selectSociety":      "Select society",
-    "requiredSociety":    "Society is required",
-    "profileScopeHint":   "Assigned automatically from your staff profile",
+    "requiredOficina": "Office is required",
+    "requiredPractica": "Practice is required",
+    "requiredFuncion": "Function is required",
+    "society": "Society",
+    "selectSociety": "Select society",
+    "requiredSociety": "Society is required",
+    "profileScopeHint": "Assigned automatically from your staff profile",
     "profileMissingStaff": "No linked staff profile",
-    "closingDate":            "Closing Date",
-    "selectClosingDate":      "Select closing date",
-    "closingDate_otro":       "Other",
-    "closingDateCustom":      "Custom Closing Date",
-    "fiscalYearHelper":       "The fiscal year is calculated from the engagement closing date",
-    "fiscalYearOverride":     "Manual override (admin)",
-    "immutabilityHint":      "Verify fiscal year, office, practice, function and society before saving: the engagement code cannot be changed afterward; to correct it you must create a new engagement.",
-    "requiredClosingDate":       "Closing date is required",
+    "closingDate": "Closing Date",
+    "selectClosingDate": "Select closing date",
+    "closingDate_otro": "Other",
+    "closingDateCustom": "Custom Closing Date",
+    "fiscalYearHelper": "The fiscal year is calculated from the engagement closing date",
+    "fiscalYearOverride": "Manual override (admin)",
+    "immutabilityHint": "Verify fiscal year, office, practice, function and society before saving: the engagement code cannot be changed afterward; to correct it you must create a new engagement.",
+    "requiredClosingDate": "Closing date is required",
     "requiredClosingDateCustom": "Custom closing date is required",
     "creationDate": "Creation Date",
     "creationDateHelp": "This date will be assigned automatically when you save.",
@@ -840,11 +848,11 @@
     "contractFileTooLarge": "The file must be smaller than 5MB",
     "downloadContract": "Download Contract",
     "removeContract": "Remove file",
-    "taxonomy":           "Service",
-    "selectTaxonomy":     "Select service",
-    "searchTaxonomy":     "Search service...",
+    "taxonomy": "Service",
+    "selectTaxonomy": "Select service",
+    "searchTaxonomy": "Search service...",
     "noMatchingTaxonomies": "No matching services.",
-    "noAplicaTaxonomy":   "Not applicable",
+    "noAplicaTaxonomy": "Not applicable",
     "requiredTaxonomyCliente": "Service is required for Client engagements",
     "sectionClassification": "Classification",
     "requiredFieldsLegend": "* Required fields",
@@ -973,7 +981,7 @@
     "november": "November",
     "december": "December"
   },
- "holiday": {
+  "holiday": {
     "addHoliday": "Add Holiday",
     "editHoliday": "Edit Holiday",
     "deleteHoliday": "Delete Holiday",
@@ -992,7 +1000,7 @@
     "generatePreviewUpdate": "Will be corrected",
     "generatePreviewOccupied": "Date occupied by another holiday — will not be created"
   },
- "dashboard": {
+  "dashboard": {
     "noData": "No data available for the selected period",
     "noEngagementsFound": "No engagements found",
     "selectEngagement": "Select an engagement to view details",
@@ -1564,6 +1572,7 @@
     "emailHelper": "Corporate emails only",
     "emailHelperWithDomain": "Corporate @{{domain}} emails only",
     "invalidDomain": "Only corporate domain emails allowed",
+    "signupFailed": "Could not complete the registration. Try again; if the problem persists, contact your administrator.",
     "password": "Password",
     "dontHaveAccount": "Don't have an account?",
     "alreadyHaveAccount": "Already have an account?",
@@ -1719,8 +1728,225 @@
       "timesheet_pending_approval": "{{staff}}'s timesheet — {{engagement}}",
       "work_order_pending_approval": "Work order pending approval — {{engagement}}",
       "engagement_created": "New engagement: {{engagement}} ({{client}})",
-      "new_user_registered": "New user registered: {{subject}}"
-    }
+      "new_user_registered": "New user registered: {{subject}}",
+      "fund": {
+        "request": {
+          "submitted_for_approval": "Request sent for your approval · {{currency}} {{amount}}",
+          "cancelled": "Request cancelled",
+          "decided": "Your request",
+          "closed": "Request closed",
+          "closure_pending": "Requests pending closure"
+        },
+        "expense": {
+          "submitted_for_approval": "Expense of {{currency}} {{amount}} sent for your approval",
+          "decided": "Your expense of {{currency}} {{amount}}",
+          "returned_no_support": "Expense returned for missing support",
+          "iva_penalty": "VAT penalty of {{penalty}} applied to your expense",
+          "sent_to_support_review": "Expense sent to support review",
+          "resubmitted": "Corrected expense resubmitted",
+          "reviewed": "Accounting approved your expense of {{currency}} {{amount}}",
+          "review_pending": "Expenses to review"
+        },
+        "disbursement": {
+          "done": "Disbursement of {{currency}} {{disbursed}} completed",
+          "pending": "Pending disbursements"
+        },
+        "settlement": {
+          "recorded": "Settlement recorded",
+          "pending": "Settlements pending"
+        },
+        "expenses": {
+          "all_reviewed": "Accounting approved all expenses"
+        }
+      },
+      "engagement": {
+        "created": "New engagement under your responsibility: {{engagement_name}}",
+        "owners": {
+          "changed": "The engagement leads changed"
+        },
+        "finalized": "The engagement was finalized",
+        "deleted": "Engagement {{engagement_name}} was deleted",
+        "sqr_assigned": "You were assigned as SQR of the engagement",
+        "encargado_assigned": "You were assigned as Lead of the engagement",
+        "specialist_assigned": "You were assigned as specialist of engagement {{engagement_name}}",
+        "specialist_assigned_it": "You were assigned as ITA specialist of engagement {{engagement_name}}",
+        "specialist_assigned_tax": "You were assigned as TAX specialist of engagement {{engagement_name}}",
+        "staffing": {
+          "changed": "The engagement staffing changed",
+          "changed_assigned": "You were staffed on engagement {{engagement_name}}",
+          "changed_unassigned": "You were removed from engagement {{engagement_name}}",
+          "changed_team_assigned": "{{staff_name}} was staffed on the engagement",
+          "changed_team_unassigned": "{{staff_name}} was removed from the engagement"
+        },
+        "ending_soon": "Engagement ends in {{days_left}} days",
+        "ending_soon_last_day": "Engagement ends tomorrow"
+      },
+      "wo": {
+        "submitted_partner": "Work order sent for your approval",
+        "submitted_risk": "Work order sent for Risk assessment",
+        "submitted_risk_emergency": "EMERGENCY work order sent to Risk (no assessment data)",
+        "approved_partner": "The Partner approved the work order",
+        "rejected_partner": "The Partner rejected the work order",
+        "approved_risk": "Risk approved the work order",
+        "rejected_risk": "Risk rejected the work order",
+        "approval_reverted": "An Admin reverted an approval on this work order",
+        "approval_reverted_partner": "An Admin reverted the Partner approval",
+        "approval_reverted_risk": "An Admin reverted the Risk approval",
+        "risk": {
+          "resubmitted": "The Manager resubmitted the risk assessment data"
+        },
+        "emergency": {
+          "created": "Emergency approved: 7 days to complete the data",
+          "step1_done": "Emergency signed at step 1 — your signature is pending",
+          "deadline_near": "Emergency deadline: {{days_left}} days left",
+          "deadline_near_last_day": "Last day to complete the emergency data",
+          "deadline_passed": "Emergency deadline passed without the data"
+        },
+        "payment_plan": {
+          "pending_approval": "Payment plan pending approval"
+        },
+        "installment": {
+          "status_changed": "Installment {{installment_number}} changed status",
+          "due_this_week": "Installments due this week",
+          "overdue": "Overdue installments"
+        },
+        "client": {
+          "billing_week": "Client billing week — installment {{installment_number}}"
+        }
+      },
+      "timesheet": {
+        "weekly_submitted": "{{staff_name}} submitted their weekly timesheet",
+        "own_submit_confirmed": "Your weekly timesheet changed status",
+        "own_submit_confirmed_submitted": "You submitted your weekly timesheet",
+        "own_submit_confirmed_withdrawn": "You withdrew your weekly timesheet",
+        "team_submitted_for_approval": "{{staff_name}} submitted a timesheet for your approval"
+      },
+      "tracker": {
+        "timer": {
+          "auto_stopped": "Your timer closed itself on reaching 8 hours"
+        }
+      },
+      "approval": {
+        "line_approved": "{{reviewer}} approved your time line",
+        "line_rejected": "{{reviewer}} rejected your time line",
+        "revision_requested": "A revision was requested on your time line",
+        "training_pending": "Training approvals pending"
+      },
+      "auth": {
+        "user": {
+          "registered": "New user registered: {{email}}"
+        },
+        "role": {
+          "changed": "{{staff_name}} changed role",
+          "changed_own": "Your role changed"
+        },
+        "account": {
+          "blocked": "Account blocked for security: {{staff_name}}",
+          "deleted": "Account {{email}} was deleted"
+        }
+      },
+      "staff": {
+        "created": "New staff member: {{staff_name}}",
+        "terminated": "Termination recorded for {{staff_name}}",
+        "competency": {
+          "assigned": "You were given a new competency",
+          "removed": "A competency was removed from you"
+        }
+      },
+      "client": {
+        "created": "New client: {{client_legal_name}}",
+        "updated": "{{client_legal_name}} details were edited",
+        "deactivated": "Client deactivated: {{client_legal_name}}"
+      },
+      "scheduler": {
+        "coverage_gap": "Positions to cover"
+      }
+    },
+    "pending": "Pending",
+    "dismissError": "Could not dismiss the notification.",
+    "news": "What's new",
+    "allClear": "All caught up",
+    "allClearDescription": "You have nothing pending right now.",
+    "sections": {
+      "time_control": "Time Control",
+      "engagement_status": "Generated Engagements Status",
+      "fund_request": "Fund Requests",
+      "payment_plan": "Payment Plan",
+      "training": "Training",
+      "coverage": "Coverage"
+    },
+    "alarms": {
+      "timesheet": {
+        "overdue": "Overdue Timesheets",
+        "reverted": "Reverted Timesheets",
+        "pending_approval": "Pending Timesheet Approvals"
+      },
+      "engagement": {
+        "rejected_by_partner": "Rejected Engagements",
+        "pending_partner_approval": "Engagements Pending Approval"
+      },
+      "fund": {
+        "disbursement": {
+          "pending": "Pending disbursements"
+        },
+        "settlement": {
+          "pending": "Settlements pending"
+        },
+        "request": {
+          "closure_pending": "Requests pending closure"
+        },
+        "expense": {
+          "review_pending": "Expenses to review"
+        }
+      },
+      "wo": {
+        "installment": {
+          "overdue": "Overdue Installments",
+          "due_this_week": "Installments Due This Week"
+        }
+      },
+      "approval": {
+        "training_pending": "Training Approvals"
+      },
+      "scheduler": {
+        "coverage_gap": "Positions to Cover"
+      }
+    },
+    "missingHours": "{{hours}} h missing",
+    "genericEvent": "System update",
+    "markAllRead": "Mark all as read",
+    "modules": {
+      "auth": "Accounts",
+      "client": "Clients",
+      "engagement": "Engagements",
+      "worksheet": "Worksheets",
+      "work_order": "Work Orders",
+      "fund_request": "Fund Requests",
+      "timesheet": "Timesheets",
+      "timesheet_approval": "Timesheet Approvals",
+      "tracker": "Tracker",
+      "scheduler": "Scheduler"
+    },
+    "states": {
+      "aprobado_gerente": "Approved",
+      "observado": "Needs changes",
+      "rechazado": "Rejected",
+      "cancelado": "Cancelled",
+      "cerrado": "Closed",
+      "fondos_entregados": "Funds delivered",
+      "en_liquidacion": "Settling",
+      "pendiente_aprobacion": "Pending approval",
+      "Approved": "Approved",
+      "Rejected": "Rejected",
+      "Pending_Approval": "Pending approval",
+      "Draft": "Draft",
+      "Emergency_Approved": "Emergency approved",
+      "Pending": "Pending",
+      "Invoiced": "Invoiced",
+      "Completed": "Collected",
+      "Overdue": "Overdue"
+    },
+    "dismiss": "Dismiss"
   },
   "fundRequest": {
     "title": "Fund Requests",

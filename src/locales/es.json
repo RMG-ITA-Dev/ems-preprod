@@ -160,7 +160,7 @@
     "importDescription": "Selecciona las entradas a importar a tu hoja de tiempo.",
     "noEntriesToImport": "No hay entradas para importar esta semana.",
     "selectedEntries": "{{count}} seleccionadas",
-    "hours": "horas",
+    "hours": "Horas",
     "useExplicitTimes": "Especificar horas",
     "willAddToTimesheet": "Se agregará a la hoja de tiempo",
     "importSelected": "Importar Seleccionadas",
@@ -222,7 +222,6 @@
     "recordDeleted": "Registro eliminado exitosamente",
     "deleteSelectedConfirm": "Esta acción eliminará permanentemente {{count}} registro(s) de tiempo seleccionado(s).",
     "recordsDeleted": "{{count}} registro(s) eliminado(s) exitosamente",
-    "hours": "Horas",
     "maxHoursExceeded": "El máximo permitido es 8 horas",
     "timerAutoStopped": "El cronómetro se detuvo automáticamente al máximo de 8 horas.",
     "timerAlreadyRunning": "Ya tiene un cronómetro en curso. Retomándolo.",
@@ -388,7 +387,13 @@
     "holidayEngagement": "Encargo de Feriados",
     "holidayEngagementHelp": "Seleccione el encargo permitido para registros en dias feriados",
     "holidayNotConfigured": "El bloqueo de feriados esta inactivo hasta seleccionar un encargo",
-    "holidayEngagementApprovalWarning": "Este encargo tiene la aprobación automática activada. La validación de fechas de feriado sigue aplicándose igual, pero considere revisar esta configuración."
+    "holidayEngagementApprovalWarning": "Este encargo tiene la aprobación automática activada. La validación de fechas de feriado sigue aplicándose igual, pero considere revisar esta configuración.",
+    "notificationsSection": "Notificaciones",
+    "alertWindowWeeks": "Ventana de alarmas (semanas)",
+    "alertWindowWeeksHelp": "Semanas hacia atrás que miran las alarmas de timesheet de la campana. No afecta cuántas semanas se pueden editar.",
+    "alertWindowWeeksRangeError": "La ventana de alarmas debe estar entre 1 y 52 semanas.",
+    "trackingStartDate": "Inicio de carga de horas",
+    "trackingStartDateHelp": "Fecha desde la que la firma carga horas en EMS 2.0. Las semanas anteriores no generan alarmas. Dejar vacío para no aplicar recorte."
   },
   "userRoles": {
     "title": "Gestión de Roles de Usuario",
@@ -730,6 +735,9 @@
     "engagements": "Encargos",
     "newClient": "Nuevo Cliente",
     "editClient": "Editar Cliente",
+    "loadError": "No pudimos cargar este cliente. Por favor, intente de nuevo.",
+    "retry": "Reintentar",
+    "unavailable": "Este cliente no está disponible para usted. Puede haber sido dado de baja, o quizás no tiene acceso a él.",
     "createClient": "Crear Cliente",
     "deleteClient": "Eliminar Cliente",
     "searchPlaceholder": "Buscar por nombre, NIT, o contacto...",
@@ -795,38 +803,38 @@
     "approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar",
     "internal": "Interno",
     "timesheetPolicy": "Política de Planilla",
-    "oficina":                "Oficina",
-    "selectOficina":          "Seleccionar oficina",
-    "practica":               "Práctica",
-    "selectPractica":         "Seleccionar práctica",
-    "anioFiscal":             "Año Fiscal",
-    "selectAnioFiscal":       "Seleccionar año fiscal",
-    "oficina_ambos":          "Ambos",
-    "oficina_laPaz":          "La Paz",
-    "oficina_santaCruz":      "Santa Cruz",
-    "funcion":           "Función",
-    "selectFuncion":     "Seleccionar función",
-    "funcion_adm":       "Administrativa",
-    "funcion_cli":       "Cliente",
-    "funcion_cap":       "Capacitación",
-    "funcion_calidad":   "Control de Calidad",
+    "oficina": "Oficina",
+    "selectOficina": "Seleccionar oficina",
+    "practica": "Práctica",
+    "selectPractica": "Seleccionar práctica",
+    "anioFiscal": "Año Fiscal",
+    "selectAnioFiscal": "Seleccionar año fiscal",
+    "oficina_ambos": "Ambos",
+    "oficina_laPaz": "La Paz",
+    "oficina_santaCruz": "Santa Cruz",
+    "funcion": "Función",
+    "selectFuncion": "Seleccionar función",
+    "funcion_adm": "Administrativa",
+    "funcion_cli": "Cliente",
+    "funcion_cap": "Capacitación",
+    "funcion_calidad": "Control de Calidad",
     "requiredAnioFiscal": "El año fiscal es requerido",
-    "requiredOficina":    "La oficina es requerida",
-    "requiredPractica":   "La práctica es requerida",
-    "requiredFuncion":    "La función es requerida",
-    "society":            "Sociedad",
-    "selectSociety":      "Seleccionar sociedad",
-    "requiredSociety":    "La sociedad es requerida",
-    "profileScopeHint":   "Asignado automáticamente según tu ficha de personal",
+    "requiredOficina": "La oficina es requerida",
+    "requiredPractica": "La práctica es requerida",
+    "requiredFuncion": "La función es requerida",
+    "society": "Sociedad",
+    "selectSociety": "Seleccionar sociedad",
+    "requiredSociety": "La sociedad es requerida",
+    "profileScopeHint": "Asignado automáticamente según tu ficha de personal",
     "profileMissingStaff": "Sin ficha de personal vinculada",
-    "closingDate":            "Fecha de Corte",
-    "selectClosingDate":      "Seleccionar fecha de corte",
-    "closingDate_otro":       "Otro",
-    "closingDateCustom":      "Fecha de Corte Personalizada",
-    "fiscalYearHelper":       "El año fiscal se calcula según la fecha de corte del encargo",
-    "fiscalYearOverride":     "Override manual (admin)",
-    "immutabilityHint":      "Verifique el año fiscal, oficina, práctica, función y sociedad antes de guardar: el código del encargo no puede modificarse después; para corregirlo deberá crear un encargo nuevo.",
-    "requiredClosingDate":       "La fecha de corte es requerida",
+    "closingDate": "Fecha de Corte",
+    "selectClosingDate": "Seleccionar fecha de corte",
+    "closingDate_otro": "Otro",
+    "closingDateCustom": "Fecha de Corte Personalizada",
+    "fiscalYearHelper": "El año fiscal se calcula según la fecha de corte del encargo",
+    "fiscalYearOverride": "Override manual (admin)",
+    "immutabilityHint": "Verifique el año fiscal, oficina, práctica, función y sociedad antes de guardar: el código del encargo no puede modificarse después; para corregirlo deberá crear un encargo nuevo.",
+    "requiredClosingDate": "La fecha de corte es requerida",
     "requiredClosingDateCustom": "La fecha de corte personalizada es requerida",
     "creationDate": "Fecha de Creación",
     "creationDateHelp": "Esta fecha se asignará automáticamente al guardar.",
@@ -840,11 +848,11 @@
     "contractFileTooLarge": "El archivo debe pesar menos de 5MB",
     "downloadContract": "Descargar Contrato",
     "removeContract": "Quitar archivo",
-    "taxonomy":           "Servicio",
-    "selectTaxonomy":     "Seleccionar servicio",
-    "searchTaxonomy":     "Buscar servicio...",
+    "taxonomy": "Servicio",
+    "selectTaxonomy": "Seleccionar servicio",
+    "searchTaxonomy": "Buscar servicio...",
     "noMatchingTaxonomies": "No se encontraron servicios.",
-    "noAplicaTaxonomy":   "No aplica",
+    "noAplicaTaxonomy": "No aplica",
     "requiredTaxonomyCliente": "El servicio es requerido para encargos de tipo Cliente",
     "sectionClassification": "Clasificación",
     "requiredFieldsLegend": "* Campos obligatorios",
@@ -973,7 +981,7 @@
     "november": "Noviembre",
     "december": "Diciembre"
   },
- "holiday": {
+  "holiday": {
     "addHoliday": "Agregar Feriado",
     "editHoliday": "Editar Feriado",
     "deleteHoliday": "Eliminar Feriado",
@@ -992,7 +1000,7 @@
     "generatePreviewUpdate": "Se corregirá",
     "generatePreviewOccupied": "Fecha ocupada por otro feriado — no se creará"
   },
- "dashboard": {
+  "dashboard": {
     "noData": "Sin datos disponibles para el período seleccionado",
     "noEngagementsFound": "No se encontraron encargos",
     "selectEngagement": "Seleccione un encargo para ver los detalles",
@@ -1564,6 +1572,7 @@
     "emailHelper": "Solo correos corporativos",
     "emailHelperWithDomain": "Solo correos corporativos @{{domain}}",
     "invalidDomain": "Solo se permiten correos del dominio corporativo",
+    "signupFailed": "No se pudo completar el registro. Reintente; si el problema persiste, avise al administrador.",
     "password": "Contraseña",
     "dontHaveAccount": "¿No tiene una cuenta?",
     "alreadyHaveAccount": "¿Ya tiene una cuenta?",
@@ -1719,8 +1728,225 @@
       "timesheet_pending_approval": "Timesheet de {{staff}} — {{engagement}}",
       "work_order_pending_approval": "WO pendiente de aprobación — {{engagement}}",
       "engagement_created": "Nuevo encargo: {{engagement}} ({{client}})",
-      "new_user_registered": "Nuevo usuario registrado: {{subject}}"
-    }
+      "new_user_registered": "Nuevo usuario registrado: {{subject}}",
+      "fund": {
+        "request": {
+          "submitted_for_approval": "Solicitud enviada a tu aprobación · {{currency}} {{amount}}",
+          "cancelled": "Solicitud cancelada",
+          "decided": "Tu solicitud",
+          "closed": "Solicitud cerrada",
+          "closure_pending": "Solicitudes por cerrar"
+        },
+        "expense": {
+          "submitted_for_approval": "Gasto de {{currency}} {{amount}} enviado a tu aprobación",
+          "decided": "Tu gasto de {{currency}} {{amount}}",
+          "returned_no_support": "Gasto devuelto por falta de respaldo",
+          "iva_penalty": "Multa IVA de {{penalty}} aplicada a tu gasto",
+          "sent_to_support_review": "Gasto a revisión de respaldo",
+          "resubmitted": "Gasto corregido reenviado",
+          "reviewed": "Contabilidad aprobó tu gasto de {{currency}} {{amount}}",
+          "review_pending": "Gastos por revisar"
+        },
+        "disbursement": {
+          "done": "Desembolso de {{currency}} {{disbursed}} realizado",
+          "pending": "Desembolsos pendientes"
+        },
+        "settlement": {
+          "recorded": "Liquidación registrada",
+          "pending": "Liquidaciones por registrar"
+        },
+        "expenses": {
+          "all_reviewed": "Contabilidad aprobó todos los gastos"
+        }
+      },
+      "engagement": {
+        "created": "Nuevo encargo a tu cargo: {{engagement_name}}",
+        "owners": {
+          "changed": "Cambiaron los responsables del encargo"
+        },
+        "finalized": "El encargo finalizó",
+        "deleted": "Se eliminó el encargo {{engagement_name}}",
+        "sqr_assigned": "Te asignaron como SQR del encargo",
+        "encargado_assigned": "Te asignaron como Encargado del encargo",
+        "specialist_assigned": "Te asignaron como especialista del encargo {{engagement_name}}",
+        "specialist_assigned_it": "Te asignaron como especialista ITA del encargo {{engagement_name}}",
+        "specialist_assigned_tax": "Te asignaron como especialista TAX del encargo {{engagement_name}}",
+        "staffing": {
+          "changed": "Cambió el staffing del encargo",
+          "changed_assigned": "Te asignaron al encargo {{engagement_name}}",
+          "changed_unassigned": "Te dieron de baja del encargo {{engagement_name}}",
+          "changed_team_assigned": "Asignaron a {{staff_name}} al encargo",
+          "changed_team_unassigned": "Dieron de baja a {{staff_name}} del encargo"
+        },
+        "ending_soon": "El encargo termina en {{days_left}} días",
+        "ending_soon_last_day": "El encargo termina mañana"
+      },
+      "wo": {
+        "submitted_partner": "OT enviada a tu aprobación",
+        "submitted_risk": "OT enviada a evaluación de Riesgos",
+        "submitted_risk_emergency": "OT de EMERGENCIA enviada a Riesgos (sin datos de evaluación)",
+        "approved_partner": "El Socio aprobó la OT",
+        "rejected_partner": "El Socio rechazó la OT",
+        "approved_risk": "Riesgos aprobó la OT",
+        "rejected_risk": "Riesgos rechazó la OT",
+        "approval_reverted": "Un Admin revirtió una aprobación de la OT",
+        "approval_reverted_partner": "Un Admin revirtió la aprobación del Socio",
+        "approval_reverted_risk": "Un Admin revirtió la aprobación de Riesgos",
+        "risk": {
+          "resubmitted": "El Gerente reenvió los datos de evaluación de riesgos"
+        },
+        "emergency": {
+          "created": "Emergencia aprobada: 7 días para completar los datos",
+          "step1_done": "Emergencia firmada en el paso 1 — falta tu firma",
+          "deadline_near": "Plazo de emergencia: quedan {{days_left}} días",
+          "deadline_near_last_day": "Último día para completar los datos de la emergencia",
+          "deadline_passed": "Plazo de emergencia vencido sin completar los datos"
+        },
+        "payment_plan": {
+          "pending_approval": "Plan de pagos pendiente de aprobación"
+        },
+        "installment": {
+          "status_changed": "Cuota {{installment_number}} cambió de estado",
+          "due_this_week": "Cuotas por vencer esta semana",
+          "overdue": "Cuotas vencidas"
+        },
+        "client": {
+          "billing_week": "Semana de facturación del cliente — cuota {{installment_number}}"
+        }
+      },
+      "timesheet": {
+        "weekly_submitted": "{{staff_name}} envió su boleta semanal",
+        "own_submit_confirmed": "Tu boleta semanal cambió de estado",
+        "own_submit_confirmed_submitted": "Enviaste tu boleta semanal",
+        "own_submit_confirmed_withdrawn": "Retiraste tu boleta semanal",
+        "team_submitted_for_approval": "{{staff_name}} envió su boleta a tu aprobación"
+      },
+      "tracker": {
+        "timer": {
+          "auto_stopped": "Tu cronómetro se cerró solo al llegar a las 8 horas"
+        }
+      },
+      "approval": {
+        "line_approved": "{{reviewer}} aprobó tu línea de tiempo",
+        "line_rejected": "{{reviewer}} rechazó tu línea de tiempo",
+        "revision_requested": "Te pidieron revisar tu línea de tiempo",
+        "training_pending": "Capacitaciones por aprobar"
+      },
+      "auth": {
+        "user": {
+          "registered": "Nuevo usuario registrado: {{email}}"
+        },
+        "role": {
+          "changed": "Cambió el rol de {{staff_name}}",
+          "changed_own": "Tu rol cambió"
+        },
+        "account": {
+          "blocked": "Cuenta bloqueada por seguridad: {{staff_name}}",
+          "deleted": "Se eliminó la cuenta {{email}}"
+        }
+      },
+      "staff": {
+        "created": "Alta de personal: {{staff_name}}",
+        "terminated": "Se registró la baja de {{staff_name}}",
+        "competency": {
+          "assigned": "Te asignaron una competencia",
+          "removed": "Te quitaron una competencia"
+        }
+      },
+      "client": {
+        "created": "Nuevo cliente: {{client_legal_name}}",
+        "updated": "Se edito la ficha de {{client_legal_name}}",
+        "deactivated": "Cliente inactivado: {{client_legal_name}}"
+      },
+      "scheduler": {
+        "coverage_gap": "Posiciones por cubrir"
+      }
+    },
+    "pending": "Pendientes",
+    "dismissError": "No se pudo descartar la notificación",
+    "news": "Novedades",
+    "allClear": "Todo al día",
+    "allClearDescription": "No tenés nada pendiente por ahora.",
+    "sections": {
+      "time_control": "Control de Tiempo",
+      "engagement_status": "Estado de Encargos Generados",
+      "fund_request": "Solicitudes de Fondos",
+      "payment_plan": "Plan de Pagos",
+      "training": "Capacitación",
+      "coverage": "Cobertura"
+    },
+    "alarms": {
+      "timesheet": {
+        "overdue": "Timesheets Vencidos",
+        "reverted": "Timesheets Revertidos",
+        "pending_approval": "Aprobaciones Pendientes de Timesheets"
+      },
+      "engagement": {
+        "rejected_by_partner": "Encargos Rechazados",
+        "pending_partner_approval": "Encargos en Aprobación"
+      },
+      "fund": {
+        "disbursement": {
+          "pending": "Desembolsos pendientes"
+        },
+        "settlement": {
+          "pending": "Liquidaciones por registrar"
+        },
+        "request": {
+          "closure_pending": "Solicitudes por cerrar"
+        },
+        "expense": {
+          "review_pending": "Gastos por revisar"
+        }
+      },
+      "wo": {
+        "installment": {
+          "overdue": "Cuotas Vencidas",
+          "due_this_week": "Cuotas por Vencer esta Semana"
+        }
+      },
+      "approval": {
+        "training_pending": "Capacitaciones por Aprobar"
+      },
+      "scheduler": {
+        "coverage_gap": "Posiciones por Cubrir"
+      }
+    },
+    "missingHours": "{{hours}} h faltantes",
+    "genericEvent": "Novedad del sistema",
+    "markAllRead": "Marcar todo como leído",
+    "modules": {
+      "auth": "Cuentas",
+      "client": "Clientes",
+      "engagement": "Encargos",
+      "worksheet": "Hojas de Trabajo",
+      "work_order": "Órdenes de Trabajo",
+      "fund_request": "Solicitudes de Fondos",
+      "timesheet": "Timesheets",
+      "timesheet_approval": "Aprobaciones de Timesheet",
+      "tracker": "Tracker",
+      "scheduler": "Scheduler"
+    },
+    "states": {
+      "aprobado_gerente": "Aprobado",
+      "observado": "Observado",
+      "rechazado": "Rechazado",
+      "cancelado": "Cancelado",
+      "cerrado": "Cerrado",
+      "fondos_entregados": "Fondos entregados",
+      "en_liquidacion": "En liquidación",
+      "pendiente_aprobacion": "Pendiente de aprobación",
+      "Approved": "Aprobada",
+      "Rejected": "Rechazada",
+      "Pending_Approval": "Pendiente de aprobación",
+      "Draft": "Borrador",
+      "Emergency_Approved": "Aprobada por emergencia",
+      "Pending": "Pendiente",
+      "Invoiced": "Facturada",
+      "Completed": "Cobrada",
+      "Overdue": "Vencida"
+    },
+    "dismiss": "Descartar"
   },
   "fundRequest": {
     "title": "Solicitudes de Fondos",
