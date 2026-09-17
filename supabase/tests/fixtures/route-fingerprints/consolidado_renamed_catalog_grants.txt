@@ -239,6 +239,20 @@
  public       | service_role  | activity_worksheets                            | TRIGGER
  public       | service_role  | activity_worksheets                            | TRUNCATE
  public       | service_role  | activity_worksheets                            | UPDATE
+ public       | postgres      | auth_email_throttle                            | DELETE
+ public       | postgres      | auth_email_throttle                            | INSERT
+ public       | postgres      | auth_email_throttle                            | REFERENCES
+ public       | postgres      | auth_email_throttle                            | SELECT
+ public       | postgres      | auth_email_throttle                            | TRIGGER
+ public       | postgres      | auth_email_throttle                            | TRUNCATE
+ public       | postgres      | auth_email_throttle                            | UPDATE
+ public       | service_role  | auth_email_throttle                            | DELETE
+ public       | service_role  | auth_email_throttle                            | INSERT
+ public       | service_role  | auth_email_throttle                            | REFERENCES
+ public       | service_role  | auth_email_throttle                            | SELECT
+ public       | service_role  | auth_email_throttle                            | TRIGGER
+ public       | service_role  | auth_email_throttle                            | TRUNCATE
+ public       | service_role  | auth_email_throttle                            | UPDATE
  public       | postgres      | auth_login_attempts                            | DELETE
  public       | postgres      | auth_login_attempts                            | INSERT
  public       | postgres      | auth_login_attempts                            | REFERENCES
@@ -778,6 +792,104 @@
  public       | service_role  | migration_run_log                              | TRIGGER
  public       | service_role  | migration_run_log                              | TRUNCATE
  public       | service_role  | migration_run_log                              | UPDATE
+ public       | postgres      | notification_emails                            | DELETE
+ public       | postgres      | notification_emails                            | INSERT
+ public       | postgres      | notification_emails                            | REFERENCES
+ public       | postgres      | notification_emails                            | SELECT
+ public       | postgres      | notification_emails                            | TRIGGER
+ public       | postgres      | notification_emails                            | TRUNCATE
+ public       | postgres      | notification_emails                            | UPDATE
+ public       | service_role  | notification_emails                            | DELETE
+ public       | service_role  | notification_emails                            | INSERT
+ public       | service_role  | notification_emails                            | REFERENCES
+ public       | service_role  | notification_emails                            | SELECT
+ public       | service_role  | notification_emails                            | TRIGGER
+ public       | service_role  | notification_emails                            | TRUNCATE
+ public       | service_role  | notification_emails                            | UPDATE
+ public       | anon          | notification_role_types                        | DELETE
+ public       | anon          | notification_role_types                        | INSERT
+ public       | anon          | notification_role_types                        | REFERENCES
+ public       | anon          | notification_role_types                        | SELECT
+ public       | anon          | notification_role_types                        | TRIGGER
+ public       | anon          | notification_role_types                        | TRUNCATE
+ public       | anon          | notification_role_types                        | UPDATE
+ public       | authenticated | notification_role_types                        | DELETE
+ public       | authenticated | notification_role_types                        | INSERT
+ public       | authenticated | notification_role_types                        | REFERENCES
+ public       | authenticated | notification_role_types                        | SELECT
+ public       | authenticated | notification_role_types                        | TRIGGER
+ public       | authenticated | notification_role_types                        | TRUNCATE
+ public       | authenticated | notification_role_types                        | UPDATE
+ public       | postgres      | notification_role_types                        | DELETE
+ public       | postgres      | notification_role_types                        | INSERT
+ public       | postgres      | notification_role_types                        | REFERENCES
+ public       | postgres      | notification_role_types                        | SELECT
+ public       | postgres      | notification_role_types                        | TRIGGER
+ public       | postgres      | notification_role_types                        | TRUNCATE
+ public       | postgres      | notification_role_types                        | UPDATE
+ public       | service_role  | notification_role_types                        | DELETE
+ public       | service_role  | notification_role_types                        | INSERT
+ public       | service_role  | notification_role_types                        | REFERENCES
+ public       | service_role  | notification_role_types                        | SELECT
+ public       | service_role  | notification_role_types                        | TRIGGER
+ public       | service_role  | notification_role_types                        | TRUNCATE
+ public       | service_role  | notification_role_types                        | UPDATE
+ public       | anon          | notification_types                             | DELETE
+ public       | anon          | notification_types                             | INSERT
+ public       | anon          | notification_types                             | REFERENCES
+ public       | anon          | notification_types                             | SELECT
+ public       | anon          | notification_types                             | TRIGGER
+ public       | anon          | notification_types                             | TRUNCATE
+ public       | anon          | notification_types                             | UPDATE
+ public       | authenticated | notification_types                             | DELETE
+ public       | authenticated | notification_types                             | INSERT
+ public       | authenticated | notification_types                             | REFERENCES
+ public       | authenticated | notification_types                             | SELECT
+ public       | authenticated | notification_types                             | TRIGGER
+ public       | authenticated | notification_types                             | TRUNCATE
+ public       | authenticated | notification_types                             | UPDATE
+ public       | postgres      | notification_types                             | DELETE
+ public       | postgres      | notification_types                             | INSERT
+ public       | postgres      | notification_types                             | REFERENCES
+ public       | postgres      | notification_types                             | SELECT
+ public       | postgres      | notification_types                             | TRIGGER
+ public       | postgres      | notification_types                             | TRUNCATE
+ public       | postgres      | notification_types                             | UPDATE
+ public       | service_role  | notification_types                             | DELETE
+ public       | service_role  | notification_types                             | INSERT
+ public       | service_role  | notification_types                             | REFERENCES
+ public       | service_role  | notification_types                             | SELECT
+ public       | service_role  | notification_types                             | TRIGGER
+ public       | service_role  | notification_types                             | TRUNCATE
+ public       | service_role  | notification_types                             | UPDATE
+ public       | anon          | notifications                                  | DELETE
+ public       | anon          | notifications                                  | INSERT
+ public       | anon          | notifications                                  | REFERENCES
+ public       | anon          | notifications                                  | SELECT
+ public       | anon          | notifications                                  | TRIGGER
+ public       | anon          | notifications                                  | TRUNCATE
+ public       | anon          | notifications                                  | UPDATE
+ public       | authenticated | notifications                                  | DELETE
+ public       | authenticated | notifications                                  | INSERT
+ public       | authenticated | notifications                                  | REFERENCES
+ public       | authenticated | notifications                                  | SELECT
+ public       | authenticated | notifications                                  | TRIGGER
+ public       | authenticated | notifications                                  | TRUNCATE
+ public       | authenticated | notifications                                  | UPDATE
+ public       | postgres      | notifications                                  | DELETE
+ public       | postgres      | notifications                                  | INSERT
+ public       | postgres      | notifications                                  | REFERENCES
+ public       | postgres      | notifications                                  | SELECT
+ public       | postgres      | notifications                                  | TRIGGER
+ public       | postgres      | notifications                                  | TRUNCATE
+ public       | postgres      | notifications                                  | UPDATE
+ public       | service_role  | notifications                                  | DELETE
+ public       | service_role  | notifications                                  | INSERT
+ public       | service_role  | notifications                                  | REFERENCES
+ public       | service_role  | notifications                                  | SELECT
+ public       | service_role  | notifications                                  | TRIGGER
+ public       | service_role  | notifications                                  | TRUNCATE
+ public       | service_role  | notifications                                  | UPDATE
  public       | anon          | parametro                                      | DELETE
  public       | anon          | parametro                                      | INSERT
  public       | anon          | parametro                                      | REFERENCES
@@ -1647,5 +1759,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1647 rows)
+(1759 rows)
 
