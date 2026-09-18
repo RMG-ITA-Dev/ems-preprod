@@ -94,6 +94,59 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(toast.error).toHaveBeenCalledWith("workOrders.paymentPlan.errorExchangeRateForbidden");
     });
+
+    // dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
+    // latest_exchange_rate(); un `null` explícito debe omitirse del payload (no
+    // enviarse como `null`) para que PostgREST aplique el DEFAULT en vez de fallar
+    // con 23502.
+    it("PEX11: exchange_rate null is omitted from the upsert payload (undefined, not null)", async () => {
+      const mockData = {
+        plan_id: "plan-1",
+        wo_id: "wo-1",
+        exchange_rate: 10.99,
+        payment_days: 30,
+        exchange_rate_mode: "fijo",
+      };
+      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockUpsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as any);
+
+      const { result } = renderHook(() => useUpsertPaymentPlan(), { wrapper: createWrapper() });
+      result.current.mutate({
+        wo_id: "wo-1",
+        exchange_rate: null,
+        payment_days: 30,
+        exchange_rate_mode: "fijo",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      const payload = mockUpsert.mock.calls[0][0];
+      // El objeto JS conserva la clave con valor `undefined` (in-operator sigue
+      // siendo true), pero JSON.stringify -- lo que realmente viaja a PostgREST --
+      // la omite, que es lo que hace que el DEFAULT de la columna se aplique.
+      expect(payload.exchange_rate).toBeUndefined();
+      // JSON.parse(JSON.stringify(...)) reproduce lo que PostgREST recibe: la clave
+      // con valor undefined desaparece por completo (a diferencia de una comprobación
+      // directa con "in"/toHaveProperty sobre el objeto JS original).
+      expect(JSON.parse(JSON.stringify(payload))).not.toHaveProperty("exchange_rate");
+    });
+
+    it("PEX12: 23502 NOT NULL violation on exchange_rate shows the unavailable-rate toast", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: "23502", message: 'null value in column "exchange_rate" of relation "wo_payment_plan" violates not-null constraint' },
+      });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockUpsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as any);
+
+      const { result } = renderHook(() => useUpsertPaymentPlan(), { wrapper: createWrapper() });
+      result.current.mutate({ wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("workOrders.paymentPlan.errorExchangeRateUnavailable");
+    });
   });
 
   describe("useBatchUpsertInstallments", () => {

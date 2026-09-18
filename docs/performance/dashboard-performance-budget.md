@@ -24,7 +24,9 @@ Measured under typical conditions: a single user hitting one tab with the standa
 | Cartera `weeklyTrend` (sparkline) | ≤ 2 round-trips (1 if user has no engagements) | S-03 (was 1 + 8 before) |
 | Encargo full tab load (6 queryFns) | ≤ 7 round-trips | S-05, S-06 |
 | Personal full tab load (6 queryFns) | ≤ 6 round-trips | S-03, S-06 |
-| **Total typical first dashboard load (active tab + practiceMetrics)** | **≤ 12 round-trips** | sum of above |
+| Socio `partner_overview` query | ≤ 1 round-trip (constant — does not scale with engagements, managers, or clients; single `SECURITY DEFINER` RPC) | dash_socio (2026-09-15) |
+| Socio `partner_overview_engagements` query (Bloque F) | ≤ 1 round-trip, **fires on every initial tab load, not on demand** (updated 2026-09-17, review.md iteración 4, MF-03) — since the 2026-09-17 Bloque F redesign this is the sole source of that block's rows (server-side sort/filter), so it always runs alongside `partner_overview`; "Ver todos" reuses the same query with a higher `limit`, no extra round-trip. This row previously said "on demand", which stopped being true when the redesign shipped and was never corrected here. | dash_socio (2026-09-15), corrected 2026-09-17 |
+| **Total typical first dashboard load (active tab + practiceMetrics)** | **≤ 13 round-trips** (was ≤ 12 — bumped by 1 for the Socio tab's 2nd always-on RPC, see row above) | sum of above |
 
 ### Bundle size budgets
 
@@ -34,10 +36,18 @@ Measured by inspecting `dist/assets/` after `npm run build`. Sizes are uncompres
 |---|---|---|
 | Dashboard route shell `Index-<hash>.js` | ≤ 50 KB | ~10.7 KB ✅ |
 | Per-tab chunk (`PracticaTab`, `CarteraTab`, `EncargoTab`, `PersonalTab`) | ≤ 30 KB each | 13–18 KB ✅ |
+| `PartnerTab` chunk | ≤ 60 KB (bumped from the 30 KB per-tab cap — see note below) | ~69.4 KB (16.52 KB gzip) ⚠️ — dash_socio (2026-09-15/16), fila D+E+G (dos donas de sector + tabla de gerentes + barra de Top clientes sobre el total) + tabla de Bloque F (Horas por encargo, con pp de cumplimiento y orden) sumaron ~9.5 KB el 2026-09-16. **Decisión del operador (review.md iteración 1, MF-10, 2026-09-17): aceptado tal cual por ahora** — no hay lentitud reportada; ver la nota de remediación futura más abajo en vez de tocar código hoy. |
 | Pure aggregation helper chunks (when split out) | ≤ 5 KB each | varies (most fold into tab chunks) |
 | Shared sparkline/recharts chunk (`weeklyHoursBucket-<hash>.js`) | ≤ 400 KB | ~376 KB (recharts dependency dominates — accepted) |
 
 **Note on the recharts chunk:** the 376 KB shared chunk is dominated by the `recharts` library imported transitively via `Sparkline.tsx`. It's loaded once on first sparkline-using tab visit, then cached. Replacing recharts with a lighter charting library would unlock the next significant improvement here, but is out of remediation scope.
+
+**Note on the `PartnerTab` bump (dash_socio, 2026-09-16, intentional):** an earlier CSS-only version of `PartnerTab` fit the standard 30 KB per-tab cap, but the operator decided to prioritize visual fidelity over bundle size — `PartnerTab` uses real Recharts components (`BarChart`, `PieChart`/donut, interactive `Tooltip`s) instead of CSS-only bars, matching the approved layout in `bugs/dashboard/socio/plan_v2.md` §3 more closely than the CSS version could. This is the only per-tab chunk that exceeds 30 KB; the other four (`PracticaTab`, `CarteraTab`, `EncargoTab`, `PersonalTab`) stay within the original cap. Do not silently raise this further — any additional growth needs the same explicit sign-off.
+
+**Future remediation if slowness is ever reported (review.md iteración 1, MF-10):** the chunk is currently ~69.4 KB against a 60 KB cap, and the operator explicitly parked this — no code change now, just documented here so it isn't rediscovered from scratch later. If a future PR needs to actually shrink it, the two options evaluated (not started) are:
+1. **Split the D/E/G row and the Bloque F table into their own lazily-loaded sub-chunks**, loaded only when `PartnerTab` mounts and its data resolves (they're the ~9.5 KB added on 2026-09-16) — same per-file lazy-loading pattern S-10 already uses for the top-level tab chunks.
+2. **Defer the Recharts imports used only by the donut/table blocks** (`PieChart`, table-only `BarChart` variants) behind a dynamic `import()` gated on the first render of those specific blocks, instead of importing them eagerly at the top of `PartnerTab.tsx`.
+Either option is a `PartnerTab.tsx`-only change (no RPC/contract impact). Re-measure with `npm run build` after either one before closing this note.
 
 ### Query semantics — invariants that must hold
 
@@ -62,6 +72,7 @@ These are not "budgets" in the size sense; they are **structural rules** future 
 | Slow query warning threshold | 500 ms (`SLOW_QUERY_THRESHOLD_MS` in `src/lib/queryPerfLogger.ts`). Dev-only `console.warn` via opt-in `withPerfLogging()` wrapper. |
 | Sparkline week-bucket cache | Must invalidate on Monday boundary via `getWeekStamp()` from `src/components/dashboard/weeklyHoursBucket.ts` |
 | KPI parity per dashboard PR | Snapshot 5 representative engagements (small / medium / large by hours) before and after; cell-by-cell diff must be 0 |
+| p95 of `partner_overview` (Test) | ≤ 500 ms (same `SLOW_QUERY_THRESHOLD_MS` convention as above). Not yet measured in this PR — no telemetry exists for it and this workstream does not touch Supabase; measure with `EXPLAIN ANALYZE` in Test before/at merge (bugs/dashboard/socio/plan_v2.md §9.4, §11). |
 
 ---
 
@@ -129,7 +140,7 @@ Unacceptable reasons:
 Review and revise this doc when:
 
 1. A dashboard tab gets a new queryFn → update the round-trip table
-2. A new tab is added → add its budget rows
+2. A new tab is added → add its budget rows (e.g. the Socio tab added 2026-09-15, dash_socio: `partner_overview` + `partner_overview_engagements`, `PartnerTab` chunk)
 3. `Index.tsx` or any tab gets a major refactor → re-measure bundle sizes
 4. The deferred S-09/S-11 plan is executed → all budgets are re-derived for the new architecture
 5. Production telemetry shows actual p95s diverging from the budgets (drift in either direction is informative)

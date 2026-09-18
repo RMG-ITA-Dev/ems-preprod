@@ -54,7 +54,8 @@ BEGIN
   SELECT count(*) INTO n FROM public.authorization_roles;
   IF n <> 23 THEN RAISE EXCEPTION 'FAIL — authorization_roles: esperado 23, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_permissions;
-  IF n <> 84 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 84, encontrado %', n; END IF;
+  -- +1 de 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read).
+  IF n <> 85 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 85, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_role_permissions;
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
@@ -62,9 +63,13 @@ BEGIN
   -- esa migración sobre is_assigned_to_engagement()) - 2 de
   -- 20251204001004_cero_13_seed_authorization_rbac.sql (0722-156b review iteración 15: se
   -- quitó work_order.create de senior_partner/partner — un socio nunca debió poder crear una
-  -- OT; ver plan_v2.md Amendment 2026-09-10 punto 1 y review.md Iteración 15).
-  IF n <> 751 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 751, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 84 permisos / 751 concesiones';
+  -- OT; ver plan_v2.md Amendment 2026-09-10 punto 1 y review.md Iteración 15) + 6 de
+  -- 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read para
+  -- senior_partner/admin/partner/director/sqr/risk_partner — admin y risk_partner
+  -- corregidos a incluidos el 2026-09-16; risk_partner con scope 'assigned_engagements'
+  -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7).
+  IF n <> 757 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 757, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 757 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
@@ -82,8 +87,9 @@ BEGIN
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 20 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 20 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 20 claves';
+  -- +1 de 20260915130000_dash_socio_partner_overview.sql (default_exchange_rate).
+  IF n <> 21 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 21 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 21 claves';
 
   -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
   -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea
@@ -92,6 +98,15 @@ BEGIN
     RAISE EXCEPTION 'FAIL — falta la clave EXCHANGE_RATE_API_URL (endpoint del microservicio TC Ruizmier)';
   END IF;
   RAISE NOTICE 'PASS — EXCHANGE_RATE_API_URL presente';
+
+  -- default_exchange_rate (dash_socio, 20260915130000_dash_socio_partner_overview.sql):
+  -- TC de respaldo para latest_exchange_rate() / wo_payment_plan.exchange_rate DEFAULT
+  -- cuando exchange_rate_history está vacía. Sin esta fila, latest_exchange_rate() puede
+  -- devolver NULL y cualquier INSERT/UPDATE que dependa del DEFAULT falla con NOT NULL.
+  IF NOT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'default_exchange_rate') THEN
+    RAISE EXCEPTION 'FAIL — falta la clave default_exchange_rate (respaldo de latest_exchange_rate())';
+  END IF;
+  RAISE NOTICE 'PASS — default_exchange_rate presente';
 
   -- LANGUAGE/ALLOW_WEEKEND_TRACKING (hallazgo de review de PR #310): Settings.handleSaveSettings
   -- las escribe siempre vía una mutación update-only — sin estas 2 filas, cualquier guardado de

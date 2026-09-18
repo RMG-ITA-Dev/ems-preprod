@@ -65,6 +65,14 @@ export interface DataTableProps<T> {
   filters?: FilterConfig[];
   headerActions?: React.ReactNode;
   getRowId: (row: T) => string;
+  /**
+   * dash_socio: valores iniciales de filtro leídos de la URL (deep-links desde el
+   * tablero de Socio, ej. `/engagements?state=4` o `?manager=<uuid>`). Aditiva y
+   * opcional: sin ella, `statusValue`/`filterValues` inicializan exactamente igual
+   * que antes ("all" / {}). La clave que coincide con `statusFilter.key` siembra el
+   * status; el resto siembra `filterValues` (solo valores no vacíos).
+   */
+  initialFilters?: Record<string, string>;
 }
 
 type SortDirection = "asc" | "desc" | null;
@@ -92,14 +100,21 @@ export function DataTable<T extends Record<string, unknown>>({
   filters = [],
   headerActions,
   getRowId,
+  initialFilters,
 }: DataTableProps<T>) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
-  const [statusValue, setStatusValue] = useState("all");
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [statusValue, setStatusValue] = useState(
+    () => (statusFilter && initialFilters?.[statusFilter.key]) || "all"
+  );
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(initialFilters ?? {}).filter(([k, v]) => v && k !== statusFilter?.key)
+    )
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);

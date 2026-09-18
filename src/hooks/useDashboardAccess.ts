@@ -19,10 +19,17 @@ const TAB_PERMISSION: Record<DashboardTab, string> = {
   cartera: 'dashboard.portfolio.read',
   encargo: 'dashboard.engagement.read',
   personal: 'dashboard.personal.read',
+  // dash_socio: nueva pestaña Socio, senior_partner/admin/partner/director/sqr.
+  socio: 'dashboard.partner.read',
 };
 
 // Orden de privilegio (más amplio primero) para elegir el tab por defecto.
-const TAB_ORDER: DashboardTab[] = ['practica', 'cartera', 'encargo', 'personal'];
+// 'practica' se oculta (2026-09-16, decisión del operador): la vieja pestaña Práctica
+// (dashboard.practice_financials.read) deja de mostrarse -- su lugar en la UI lo toma la
+// pestaña 'socio', re-etiquetada "Práctica" en Index.tsx (TAB_CONFIG). PracticaTab.tsx, su
+// ruta y el permiso dashboard.practice_financials.read NO se tocan (reversible); solo se
+// saca 'practica' de este orden para que nunca entre a allowedTabs/defaultTab.
+const TAB_ORDER: DashboardTab[] = ['cartera', 'encargo', 'personal', 'socio'];
 
 interface DashboardAccess {
   allowedTabs: DashboardTab[];

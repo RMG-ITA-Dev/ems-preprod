@@ -8,7 +8,7 @@ import {
   formatDateForApi,
 } from '@/lib/fiscalCalculations';
 
-export type DashboardTab = 'practica' | 'cartera' | 'encargo' | 'personal';
+export type DashboardTab = 'practica' | 'cartera' | 'encargo' | 'personal' | 'socio';
 
 interface DashboardContextType {
   // Period state
@@ -33,6 +33,18 @@ interface DashboardContextType {
   // Engagement selection (for Encargo tab)
   selectedEngagementId: string | null;
   setSelectedEngagementId: (id: string | null) => void;
+
+  // dash_socio: filtros exclusivos de la pestaña Socio. Viven acá (y no en un
+  // estado local de PartnerTab) porque la fila de filtros la renderiza Index.tsx
+  // en la fila de pestañas, fuera del árbol que Radix desmonta al cambiar de tab.
+  selectedClientId: string | null;
+  setSelectedClientId: (id: string | null) => void;
+  selectedIndustryId: string | null;
+  setSelectedIndustryId: (id: string | null) => void;
+  // dash_socio (2026-09-17): filtro de Sociedad, solo visible para admin/senior_partner
+  // (los demás roles ya están acotados a su propia sociedad o a sus encargos).
+  selectedSocietyId: string | null;
+  setSelectedSocietyId: (id: string | null) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -58,7 +70,16 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
   
   // Engagement selection
   const [selectedEngagementId, setSelectedEngagementId] = useState<string | null>(null);
-  
+
+  // dash_socio: filtros Cliente/Sector, exclusivos de la pestaña Socio. El filtro de
+  // Gerente se retiró de la UI (2026-09-16/17, review.md iteración 1 NH-01 lo terminó de
+  // limpiar): quedaba redundante con el clic-para-navegar del Bloque E. `p_manager_id`
+  // sigue declarado en el contrato del RPC (plan_v2.md §7.1), pero PartnerTab.tsx ya no
+  // lee este estado -- le pasa `null` directo.
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedIndustryId, setSelectedIndustryId] = useState<string | null>(null);
+  const [selectedSocietyId, setSelectedSocietyId] = useState<string | null>(null);
+
   // Calculate current period based on selections
   const period = useMemo<FiscalPeriod>(() => {
     if (periodType === 'custom' && customStart && customEnd) {
@@ -107,6 +128,12 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
     setActiveTab,
     selectedEngagementId,
     setSelectedEngagementId,
+    selectedClientId,
+    setSelectedClientId,
+    selectedIndustryId,
+    setSelectedIndustryId,
+    selectedSocietyId,
+    setSelectedSocietyId,
   }), [
     period,
     periodType,
@@ -119,6 +146,9 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
     endDateStr,
     activeTab,
     selectedEngagementId,
+    selectedClientId,
+    selectedIndustryId,
+    selectedSocietyId,
   ]);
   
   return (

@@ -1013,7 +1013,8 @@
       "practica": "Práctica",
       "cartera": "Cartera",
       "encargo": "Encargo",
-      "personal": "Personal"
+      "personal": "Personal",
+      "socio": "Socio"
     },
     "tabError": {
       "title": "Error en pestaña {{tab}}",
@@ -1143,6 +1144,146 @@
       "partnerLeaderboard": "Tabla de Socios",
       "engagements": "Encargos",
       "risks": "Riesgos"
+    },
+    "socio": {
+      "scope": {
+        "firm": "Toda la firma",
+        "society": "Sociedad: {{name}}",
+        "own": "Mis encargos (como socio)"
+      },
+      "filters": {
+        "client": "Cliente",
+        "clientGlobal": "Global",
+        "society": "Sociedad",
+        "societyBoth": "Ambas sociedades",
+        "sectorChip": "Sector: {{name}}",
+        "clearSector": "Quitar filtro de sector"
+      },
+      "empty": {
+        "scope": "No hay encargos en el alcance de tu cartera.",
+        "filters": "Ningún encargo coincide con los filtros seleccionados."
+      },
+      "kpi": {
+        "engagements": {
+          "title": "Encargos en cartera",
+          "breakdown": "{{approved}} aprobados · {{emergency}} emergencia · {{finalized}} finalizados",
+          "segmentApproved": "{{count}} aprobados",
+          "segmentEmergency": "{{count}} en emergencia",
+          "segmentFinalized": "{{count}} finalizados en el periodo"
+        },
+        "fees": {
+          "title": "Honorarios contratados",
+          "netNote": "Honorarios netos",
+          "variableRateNote": "{{count}} encargos con TC variable: los importes en Bs pueden cambiar hasta que concluya el plan de pagos.",
+          "nonconvertibleNote": "{{count}} encargos en USDT sin tipo de cambio (se muestran en su moneda).",
+          "vsPriorYear": "vs. mismo periodo del FY anterior"
+        },
+        "partnerHours": {
+          "title": "Mis horas como socio"
+        },
+        "sqrHours": {
+          "title": "Mis horas como SQR",
+          "inEngagements": "en {{count}} encargos"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "alerts": {
+          "title": "Revisión",
+          "target": "objetivo: 0 · 0",
+          "riskPending": "{{count}} pendientes de riesgo "
+        }
+      },
+      "blocks": {
+        "profitability": {
+          "title": "Rentabilidad de la cartera",
+          "feeAdjusted": "Honorario ajustado",
+          "hoursBudgeted": "Horas presupuestadas",
+          "hoursExecuted": "Horas ejecutadas",
+          "expensesExecuted": "Gastos ejecutados",
+          "expensesBudgeted": "Gastos presupuestados",
+          "expensesOverBudget": "Excede presupuesto ({{pct}}%)"
+        },
+        "installmentBaseNote": "base: cuotas (con IVA y gastos)",
+        "economicCycle": {
+          "overdue90": "Vencido > 90 d",
+          "avgDays": "{{days}} días promedio de cobro"
+        },
+        "collections": {
+          "title": "Ciclo económico y cobranza",
+          "collected": "cobradas",
+          "invoiced": "facturadas sin pagar",
+          "inArrears": "en mora (no facturadas)",
+          "upcoming": "pendientes",
+          "next7Days": "Próximos 7 días",
+          "toCollect": "cobrar",
+          "toInvoice": "facturar",
+          "overdueChip": "{{count}} vencidas · {{amount}}"
+        },
+        "sectors": {
+          "title": "Cartera por sector",
+          "byFee": "Honorarios ajustados",
+          "byCount": "Cantidad de encargos",
+          "others": "Otros"
+        },
+        "topN": "top {{count}}",
+        "managers": {
+          "title": "Gerentes en mi cartera",
+          "engagements": "{{count}} enc.",
+          "pendingWo": "{{count}} OT pendiente",
+          "columns": {
+            "name": "Nombre",
+            "engagements": "# Enc",
+            "progress": "Avance %",
+            "start": "Inicio",
+            "end": "Fin"
+          }
+        },
+        "engagementHours": {
+          "title": "Horas por encargo",
+          "viewAll": "Ver todos",
+          "overBudgetOnly": "Solo sobregirados",
+          "error": "No se pudo cargar la lista de encargos.",
+          "sort": {
+            "startDate": "Fecha inicio",
+            "endDate": "Fecha fin",
+            "progress": "% avance",
+            "pendingPct": "% pendientes"
+          },
+          "columns": {
+            "engagement": "Encargo · Cliente",
+            "hours": "Horas",
+            "executedPct": "% Ejec",
+            "pendingPct": "% Pend",
+            "start": "Inicio",
+            "end": "Fin",
+            "compliance": "pp",
+            "complianceTooltip": "Puntos porcentuales de cumplimiento: % de horas consumidas (aprobadas + pendientes) menos % de tiempo transcurrido del encargo. En rojo si el desvío supera 10 pp, adelantado o atrasado."
+          }
+        },
+        "topClients": {
+          "title": "Top clientes",
+          "ofTotal": "{{amount}} / {{total}}"
+        },
+        "alerts": {
+          "title": "Alertas",
+          "pendingWo": "{{count}} OT por aprobar",
+          "overBudget": "{{count}} sobregirados",
+          "inArrears": "{{count}} cuotas en mora",
+          "overdue90": "{{count}} cartera > 90 d",
+          "closingSoon": "{{count}} cierres en 30 d",
+          "riskPending": "{{count}} riesgos pendientes",
+          "draftWorksheets": "{{count}} matrices en borrador sin OT"
+        }
+      },
+      "tooltip": {
+        "total": "Total",
+        "approved": "Aprobadas",
+        "pending": "Pendientes de aprobación",
+        "rejected": "Rechazadas",
+        "budget": "Presupuesto",
+        "consumed": "{{pct}}% consumido",
+        "original": "Original: {{amount}} {{currency}}",
+        "managerApprovedExpenses": "Aprobados por el gerente, sin revisión contable: {{amount}}"
+      }
     }
   },
   "timesheet": {
@@ -1419,6 +1560,9 @@
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
+      "errorExchangeRateUnavailable": "No hay tipo de cambio disponible (historial BCB vacío y sin valor por defecto configurado).",
+      "validationExchangeRateRequired": "El TC inicial es obligatorio cuando existen cuotas.",
+      "exchangeRateRequiredHint": "Obligatorio",
       "validationCannotRemoveInvoiced": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "paymentDays": "Días Hábiles de Pago",
       "numInstallments": "Número de Cuotas",

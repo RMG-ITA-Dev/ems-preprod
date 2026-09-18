@@ -208,6 +208,16 @@ run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
 # conserva esas 2 filas. DELETE forward-only, no depende de un paso manual por ambiente.
 run supabase/migrations/20260910100000_0722-156b_revoke_wo_create_partner_senior_partner.sql
 
+# dash_socio: prerrequisito de TC (wo_payment_plan.exchange_rate NOT NULL DEFAULT
+# latest_exchange_rate(), con backfill y CHECK > 0), permiso dashboard.partner.read (6
+# concesiones: senior_partner/admin/partner/director/sqr/risk_partner -- comentario
+# corregido en review.md iteracion 2/SF-03, admin y risk_partner ya estaban incluidos en
+# el SQL desde las correcciones del operador del 2026-09-16, este comentario habia quedado
+# desactualizado), effective_engagement_state() (espejo SQL de src/lib/engagementStatus.ts)
+# y los RPC partner_overview()/partner_overview_engagements() del tablero Socio. Ejercitado
+# por rpc-dash-socio-partner-overview.sql.
+run supabase/migrations/20260915130000_dash_socio_partner_overview.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -251,5 +261,6 @@ assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENG
 assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156 y 0722-156b aplicadas sobre base scratch; las 16 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y dash_socio aplicadas sobre base scratch; las 17 suites de RLS/RPC/schema-convergence/trigger pasaron"
