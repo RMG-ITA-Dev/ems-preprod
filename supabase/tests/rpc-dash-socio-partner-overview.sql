@@ -242,21 +242,31 @@ ON CONFLICT (plan_id) DO NOTHING;
 --   i1 Completed  (cobrada, TC pago != TC factura para probar que collected usa payment_exchange_rate)
 --   i2 Invoiced   (facturada hace > 90 dias -> vencido>90d; agreed_payment_date = hoy-2 -> chip vencidas)
 --   i3 Pending    (agreed_invoice_date = hoy-1 -> en mora / Bloque C)
+-- "hoy" aca es SIEMPRE ((now() AT TIME ZONE 'America/La_Paz')::date) -- el mismo calculo
+-- exacto de la CTE now_ctx del RPC (linea 192 de la migracion). Usar CURRENT_DATE (UTC del
+-- servidor) en vez de esto es un bug real de fixture: entre las 00:00 y las ~04:00 UTC,
+-- Bolivia (UTC-4) todavia esta en el dia anterior, y un offset de "-1 dia" en UTC puede
+-- coincidir con el "hoy" del RPC en vez de ser estrictamente anterior -- rompe la asercion
+-- 16 (in_arrears) de forma intermitente, solo durante esa ventana horaria (detectado
+-- corriendo test:rls de verdad por primera vez con esta ventana activa).
 INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, installment_number,
     percentage, amount, status,
     agreed_invoice_date, agreed_payment_date, collection_invoice_date, collection_payment_date, payment_date_actual,
     invoice_exchange_rate, payment_exchange_rate) VALUES
   ('f0da5c10-0000-4000-8000-000000000001', 'e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 1,
    40, NULL, 'Completed',
-   CURRENT_DATE - 60, CURRENT_DATE - 20, CURRENT_DATE - 50, CURRENT_DATE - 10, CURRENT_DATE - 10,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 60, ((now() AT TIME ZONE 'America/La_Paz')::date) - 20,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 50, ((now() AT TIME ZONE 'America/La_Paz')::date) - 10,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 10,
    6.96, 6.90),
   ('f0da5c10-0000-4000-8000-000000000002', 'e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 2,
    30, NULL, 'Invoiced',
-   CURRENT_DATE - 100, CURRENT_DATE - 2, CURRENT_DATE - 100, NULL, NULL,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 100, ((now() AT TIME ZONE 'America/La_Paz')::date) - 2,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 100, NULL, NULL,
    6.96, NULL),
   ('f0da5c10-0000-4000-8000-000000000003', 'e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 3,
    30, NULL, 'Pending',
-   CURRENT_DATE - 1, CURRENT_DATE + 29, NULL, NULL, NULL,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 1, ((now() AT TIME ZONE 'America/La_Paz')::date) + 29, NULL, NULL, NULL,
    NULL, NULL)
 ON CONFLICT (installment_id) DO NOTHING;
 
@@ -267,7 +277,8 @@ INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, inst
     invoice_exchange_rate, payment_exchange_rate) VALUES
   ('f0da5c10-0000-4000-8000-000000000004', 'e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 1,
    100, NULL, 'Invoiced',
-   CURRENT_DATE - 10, CURRENT_DATE + 3, CURRENT_DATE - 5, NULL, NULL,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 10, ((now() AT TIME ZONE 'America/La_Paz')::date) + 3,
+   ((now() AT TIME ZONE 'America/La_Paz')::date) - 5, NULL, NULL,
    6.96, NULL)
 ON CONFLICT (installment_id) DO NOTHING;
 
