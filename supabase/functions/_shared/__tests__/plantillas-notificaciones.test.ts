@@ -144,6 +144,50 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     expect(porCategoria.cuerpoTexto).toContain("/staff/s-1");
   });
 
+  it("un cambio de rol muestra nombres legibles y conserva un role_key futuro como fallback", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "auth.role.changed",
+        entityId: null,
+        payload: { staff_id: "s-1", previous_role_key: "hr_analyst", role_key: "director" },
+      }),
+    );
+    const desconocido = renderizarCorreoNotificacion(
+      base({
+        typeKey: "auth.role.changed",
+        entityId: null,
+        payload: { staff_id: "s-1", role_key: "future_role" },
+      }),
+    );
+    const legacy = renderizarCorreoNotificacion(
+      base({
+        typeKey: "auth.role.changed",
+        entityId: null,
+        payload: { staff_id: "s-1", previous_role_key: "staff", role_key: "viewer" },
+      }),
+    );
+    const legacyEspecialista = renderizarCorreoNotificacion(
+      base({
+        typeKey: "auth.role.changed",
+        entityId: null,
+        payload: {
+          staff_id: "s-1",
+          previous_role_key: "specialist_it",
+          role_key: "specialist_tax",
+        },
+      }),
+    );
+
+    expect(correo.cuerpoTexto).toContain("- Rol anterior: Analista de Talento Humano");
+    expect(correo.cuerpoTexto).toContain("- Rol actual: Director");
+    expect(correo.cuerpoTexto).not.toContain("hr_analyst");
+    expect(desconocido.cuerpoTexto).toContain("- Rol actual: future_role");
+    expect(legacy.cuerpoTexto).toContain("- Rol anterior: Asistente");
+    expect(legacy.cuerpoTexto).toContain("- Rol actual: Visualizador");
+    expect(legacyEspecialista.cuerpoTexto).toContain("- Rol anterior: Especialista IT");
+    expect(legacyEspecialista.cuerpoTexto).toContain("- Rol actual: Especialista Tax");
+  });
+
   it("sin ruta el correo igual sale, pero SIN boton y sin enlace", () => {
     // El hecho ya ocurrio y vale por si mismo, asi que el correo sale igual. Lo que no sale es
     // el boton: hasta 2026-09-16 la ruta null se convertia en el origen pelado y el mensaje
