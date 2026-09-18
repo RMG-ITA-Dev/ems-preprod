@@ -238,6 +238,16 @@ run supabase/migrations/20260911100600_fecha_local_current_date.sql
 # publico de "olvide mi contrasena".
 run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
 
+# 0722-160: las dos sociedades reales deben existir antes de aplicar la migración,
+# pues sus clientes internos se siembran y validan contra este catálogo.
+psql -v ON_ERROR_STOP=1 -d "$DB" -c "
+INSERT INTO public.society (society_id, name) VALUES
+  ('50c00000-0000-4000-8000-000000000001', 'Ruizmier Pelaez S.R.L.'),
+  ('50c00000-0000-4000-8000-000000000002', 'Ruizmier Jauregui S.R.L.')
+ON CONFLICT DO NOTHING;
+"
+run supabase/migrations/20260918120000_0722_160_administrative_engagements.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -285,5 +295,6 @@ assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1:
 assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fecha-local.sql 'FECHA LOCAL: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y notificaciones/correos aplicadas sobre base scratch; las 20 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"

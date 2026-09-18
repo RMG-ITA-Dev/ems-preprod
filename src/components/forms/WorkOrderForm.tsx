@@ -113,6 +113,8 @@ interface WorkOrderFormProps {
   emergencyJustification?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
+  /** Funciones distintas de Cliente: no facturan ni requieren evaluación de riesgo. */
+  isAdministrative?: boolean;
   isDirty?: boolean;
   hasNonRiskDirty?: boolean;
   rejectionNote?: string | null;
@@ -236,6 +238,7 @@ export interface WorkOrderTrackStatusProps {
   onRevertSocio?: () => void;
   onRevertRisk?: () => void;
   isSubmitting: boolean;
+  isAdministrative?: boolean;
   className?: string;
 }
 
@@ -247,6 +250,7 @@ export function WorkOrderTrackStatus({
   onRevertSocio,
   onRevertRisk,
   isSubmitting,
+  isAdministrative = false,
   className,
 }: WorkOrderTrackStatusProps) {
   const { t } = useTranslation();
@@ -255,7 +259,7 @@ export function WorkOrderTrackStatus({
   const isRejected = approvalStatus === "Rejected";
   const socioApproved = !!approvedAt;
   const socioRejected = isRejected;
-  const riskApproved = riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const riskApproved = !isAdministrative && (riskStatus === "Approved" || riskStatus === "Emergency_Approved");
   const isRiskRejected = riskStatus === "Rejected";
   // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
   // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
@@ -264,7 +268,7 @@ export function WorkOrderTrackStatus({
     socioApproved ||
     socioRejected ||
     riskApproved ||
-    isRiskRejected ||
+    (!isAdministrative && isRiskRejected) ||
     isPending ||
     isApproved ||
     isRejected;
@@ -302,7 +306,7 @@ export function WorkOrderTrackStatus({
           </button>
         )}
       </span>
-      <span className="flex items-center gap-1.5">
+      {!isAdministrative && <span className="flex items-center gap-1.5">
         <span className="text-muted-foreground">
           {t("workOrders.riskActionsLabel")}:
         </span>
@@ -339,7 +343,7 @@ export function WorkOrderTrackStatus({
               <Undo2 className="h-3.5 w-3.5" />
             </button>
           )}
-      </span>
+      </span>}
     </div>
   );
 }
@@ -366,6 +370,7 @@ export function WorkOrderForm({
   emergencyPartnerAt,
   emergencyJustification,
   isNew = false,
+  isAdministrative = false,
   isDirty = false,
   hasNonRiskDirty = false,
   rejectionNote,
@@ -433,6 +438,7 @@ export function WorkOrderForm({
   // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
   // rechazado -> pest.3; si no, pest.1 por defecto.
   const [activeTab, setActiveTab] = useState<WorkOrderFormTabId>(() => {
+    if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
     return "budget";
@@ -542,8 +548,9 @@ export function WorkOrderForm({
   // global, para que la pista aprobada nunca se edite ni pierda su indicador "Aprobado".
   const socioApproved = !!approvedAt;
   const socioRejected = isRejected;
-  const riskApproved =
-    riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const riskApproved = !isAdministrative && (
+    riskStatus === "Approved" || riskStatus === "Emergency_Approved"
+  );
   // Pista Socio en modo corrección tras un rechazo (gastos/ajuste vuelven a editarse).
   const socioCorrecting = socioRejected;
   // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
@@ -582,7 +589,7 @@ export function WorkOrderForm({
     !riskLevel;
   // Submit is all-or-nothing: fully complete (normal) or fully empty (emergency).
   // Partial risk data is blocked.
-  const canSubmitForApproval = riskApprovalReady || riskAllEmpty;
+  const canSubmitForApproval = isAdministrative || riskApprovalReady || riskAllEmpty;
 
   const isEmergencyApproved = riskStatus === "Emergency_Approved";
   // Riesgos rejected its track: the OT stays Pending/Approved (Socio untouched); the
@@ -670,7 +677,7 @@ export function WorkOrderForm({
     | "billing-red"
     | "billing-complete"
     | "billing-unconfigured";
-  const otFullyApproved = socioApproved && riskApproved;
+  const otFullyApproved = socioApproved && (isAdministrative || riskApproved);
 
   // Pestaña 1 (Presupuesto, pista Socio): terminal > "!" no revisada > sin indicador.
   const budgetIndicatorKind: TabIndicatorKind | null = socioRejected
@@ -830,19 +837,23 @@ export function WorkOrderForm({
   // Riesgos: al fallar la validación de riesgo en "Enviar para Aprobación", activar
   // la pestaña 3 (operador §Proposed Fix #5).
   useEffect(() => {
-    if (riskFocusSignal > 0) {
+    if (!isAdministrative && riskFocusSignal > 0) {
       setActiveTab("risk");
     }
-  }, [riskFocusSignal]);
+  }, [isAdministrative, riskFocusSignal]);
 
   // Pagos: al fallar la validación de porcentajes en persistNonRiskChanges, activar
   // la pestaña 2 (Decisión del operador #4: auto-switch ante fallo de validación al
   // guardar/enviar, generalizado igual que staffing/riesgo).
   useEffect(() => {
-    if (paymentFocusSignal > 0) {
+    if (!isAdministrative && paymentFocusSignal > 0) {
       setActiveTab("payment");
     }
-  }, [paymentFocusSignal]);
+  }, [isAdministrative, paymentFocusSignal]);
+
+  useEffect(() => {
+    if (isAdministrative) setActiveTab("budget");
+  }, [isAdministrative]);
 
   // Al montar/actualizar: abrir la pestaña de la pista rechazada (operador #4). Solo
   // reacciona a cambios reales de estado (no en cada render) — el mount ya queda
@@ -2025,6 +2036,7 @@ export function WorkOrderForm({
               approvalStatus={approvalStatus}
               approvedAt={approvedAt}
               riskStatus={riskStatus}
+              isAdministrative={isAdministrative}
               canRevert={canRevert}
               onRevertSocio={onRevertSocio}
               onRevertRisk={onRevertRisk}
@@ -2035,7 +2047,7 @@ export function WorkOrderForm({
         </Card>
       )}
 
-      {isNew ? (
+      {isNew && !isAdministrative ? (
         <>
           {budgetGridCard}
           {expensesSummaryGrid}
@@ -2053,20 +2065,24 @@ export function WorkOrderForm({
                 ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
               )}
             </TabsTrigger>
-            <TabsTrigger value="payment" className="shrink-0">
-              {t("workOrders.tabs.payment")}
-              {renderTabIndicator(
-                paymentIndicatorKind,
-                ariaLabelForIndicator(paymentIndicatorKind, "workOrders.tabs.status.incomplete"),
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="risk" className="shrink-0">
-              {t("workOrders.tabs.risk")}
-              {renderTabIndicator(
-                riskIndicatorKind,
-                ariaLabelForIndicator(riskIndicatorKind, "workOrders.tabs.status.incomplete"),
-              )}
-            </TabsTrigger>
+            {!isAdministrative && (
+              <TabsTrigger value="payment" className="shrink-0">
+                {t("workOrders.tabs.payment")}
+                {renderTabIndicator(
+                  paymentIndicatorKind,
+                  ariaLabelForIndicator(paymentIndicatorKind, "workOrders.tabs.status.incomplete"),
+                )}
+              </TabsTrigger>
+            )}
+            {!isAdministrative && (
+              <TabsTrigger value="risk" className="shrink-0">
+                {t("workOrders.tabs.risk")}
+                {renderTabIndicator(
+                  riskIndicatorKind,
+                  ariaLabelForIndicator(riskIndicatorKind, "workOrders.tabs.status.incomplete"),
+                )}
+              </TabsTrigger>
+            )}
             {isSchedulerEnabled() && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
@@ -2112,12 +2128,15 @@ export function WorkOrderForm({
               </div>
             )}
           </TabsContent>
-          <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
-            {paymentPlanSection}
-          </TabsContent>
-          <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
-            {riskAssessmentCard}
-            {showRiskActions && hasRiskAction && (
+          {!isAdministrative && (
+            <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
+              {paymentPlanSection}
+            </TabsContent>
+          )}
+          {!isAdministrative && (
+            <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
+              {riskAssessmentCard}
+              {showRiskActions && hasRiskAction && (
               <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
@@ -2174,8 +2193,9 @@ export function WorkOrderForm({
             </div>
           </div>
               </div>
-            )}
-          </TabsContent>
+              )}
+            </TabsContent>
+          )}
           {isSchedulerEnabled() && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
@@ -2191,6 +2211,7 @@ export function WorkOrderForm({
         approvalStatus={approvalStatus}
         approvedAt={approvedAt}
         riskStatus={riskStatus}
+        isAdministrative={isAdministrative}
         canRevert={canRevert}
         onRevertSocio={onRevertSocio}
         onRevertRisk={onRevertRisk}
@@ -2252,7 +2273,7 @@ export function WorkOrderForm({
                     // Empty risk data + risk NOT yet approved => new emergency: capture motive.
                     // If risk is already Emergency_Approved (re-submitting Socio track only),
                     // skip the modal — no new justification needed.
-                    if (riskAllEmpty && !riskApproved) {
+                    if (!isAdministrative && riskAllEmpty && !riskApproved) {
                       setSubmitJustification("");
                       setEmergencyDialogMode("submit");
                       setSubmitEmergencyDialogOpen(true);

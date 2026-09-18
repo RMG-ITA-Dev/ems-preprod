@@ -35,7 +35,12 @@ const Engagements = () => {
   const { can } = useAuthorization();
   const canCreate = can("engagement.create");
 
-  const rows: EngagementRow[] = (engagements || []).map((e) => ({
+  // Administrativa, Capacitación y Calidad tienen su propio módulo. El listado
+  // general queda reservado para Cliente. Las filas históricas sin función se
+  // conservan aquí: antes de este módulo eran encargos de cliente.
+  const clientEngagements = (engagements || []).filter((e) => e.funcion == null || e.funcion === 1);
+
+  const rows: EngagementRow[] = clientEngagements.map((e) => ({
     ...e,
     effective_state: String(effectiveEngagementState(e, e.work_order)),
   })) as EngagementRow[];
@@ -47,13 +52,13 @@ const Engagements = () => {
   // societyOptions memo.
   const societyFilterOptions = useMemo(() => {
     const bySocietyId = new Map((societies ?? []).map((s) => [s.society_id, s]));
-    (engagements ?? []).forEach((e) => {
+    clientEngagements.forEach((e) => {
       if (e.society && !bySocietyId.has(e.society.society_id)) {
         bySocietyId.set(e.society.society_id, e.society);
       }
     });
     return [...bySocietyId.values()].map((soc) => ({ value: soc.society_id, label: soc.name }));
-  }, [societies, engagements]);
+  }, [societies, clientEngagements]);
 
   // Bug 0722-158 (extension a Encargos): 9 columnas -> 7. Cada fusion conserva
   // TODOS sus ordenamientos y filtros via `secondary`, el campo opcional que

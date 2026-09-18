@@ -77,7 +77,7 @@ const mockServices = [
 // is supplied through the engagement's `society` embed instead, same as production.
 const mockSocieties = [
   { society_id: "soc-active-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-active-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-active-2", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "" },
 ];
 
 const inactiveSociety = { society_id: "soc-inactive", name: "Old Society S.R.L.", is_active: false, created_at: "" };
@@ -239,7 +239,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." })).toBeInTheDocument();
-      expect(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "Old Society S.R.L." })).not.toBeInTheDocument();
     });
   });
@@ -295,8 +295,8 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
       render(<EngagementForm engagement={mockEngagementWithSociety} />);
 
       await user.click(screen.getByLabelText(/engagement\.society/));
-      await waitFor(() => screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
-      await user.click(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
 
       await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
 

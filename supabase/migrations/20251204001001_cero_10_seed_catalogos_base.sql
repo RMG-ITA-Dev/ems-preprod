@@ -8,7 +8,7 @@
 -- migración no pasa al set consolidado (plan §2.1: cero datos fuera de Fase 4).
 INSERT INTO public.society (name, is_active) VALUES
   ('Ruizmier Pelaez S.R.L.',   true),
-  ('Ruizmier Juaregui S.R.L.', true)
+  ('Ruizmier Jauregui S.R.L.', true)
 ON CONFLICT (name) DO NOTHING;
 
 -- 2. Industrias (public.industries) — 10 filas, sin "Otro" (decisión del catálogo maestro).

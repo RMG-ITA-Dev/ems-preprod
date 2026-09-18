@@ -34,7 +34,7 @@ vi.mock("@/components/layout/AppLayout", () => ({
 
 const mockSocieties = [
   { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-2", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "" },
 ];
 
 const mockEngagements = [
@@ -62,6 +62,15 @@ const mockEngagements = [
     // REVIEW FIX: society deactivated after this engagement was created — useSocieties()
     // (active-only) would never surface it, so it must come from the engagement embed.
     society: { society_id: "soc-inactive", name: "Old Society S.R.L." },
+    work_order: null,
+  },
+  {
+    engagement_id: "eng-admin",
+    engagement_code: "2027.110.001",
+    engagement_name: "Administrativo que no pertenece a Encargos",
+    funcion: 0,
+    client: { client_legal_name: "Ruizmier Pelaez S.R.L." },
+    society: { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L." },
     work_order: null,
   },
 ];
@@ -103,6 +112,12 @@ describe("Engagements — Sociedad column and filter (FEAT 0714-155)", () => {
     expect(screen.getByTestId("data-table-stub")).toBeInTheDocument();
   });
 
+  it("excluye los encargos administrativos de la vista general", () => {
+    wrap(<Engagements />);
+    expect(capturedProps.data.map((row: { engagement_id: string }) => row.engagement_id))
+      .not.toContain("eng-admin");
+  });
+
   // Bug 0722-158 (extension a Encargos): Sociedad dejo de ser columna propia y
   // vive dentro de «Cliente» — como chip en la celda y como control `secondary`
   // en la cabecera. La CAPACIDAD es la misma: se muestra y se filtra por
@@ -138,7 +153,7 @@ describe("Engagements — Sociedad column and filter (FEAT 0714-155)", () => {
     expect(filter.options).toEqual(
       expect.arrayContaining([
         { value: "soc-1", label: "Ruizmier Pelaez S.R.L." },
-        { value: "soc-2", label: "Ruizmier Juaregui S.R.L." },
+        { value: "soc-2", label: "Ruizmier Jauregui S.R.L." },
       ])
     );
   });

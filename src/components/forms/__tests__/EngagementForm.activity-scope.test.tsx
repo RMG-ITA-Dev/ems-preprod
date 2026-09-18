@@ -41,7 +41,13 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "en" } }),
 }));
 
-const stableClients = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
+const stableClients = [{
+  client_id: "client-1",
+  client_legal_name: "Ruizmier Pelaez S.R.L.",
+  unique_tax_id: "1006979026",
+  is_active: true,
+}];
+const stableSocieties = [{ society_id: "society-1", name: "Ruizmier Pelaez S.R.L.", is_active: true }];
 const stableServices: never[] = [];
 const stableTaxonomies: never[] = [];
 const stableAssignments: never[] = [];
@@ -52,7 +58,7 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: stableServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: [] }),
+  useSocieties: () => ({ data: stableSocieties }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -122,7 +128,7 @@ const baseEngagement: Engagement = {
   specialist_tax_id: null,
   taxonomy_id: null,
   contract_file_path: null,
-  society_id: null,
+  society_id: "society-1",
   engagement_state_override: null,
   work_order: { approval_status: "Approved", approved_at: "2026-09-01T00:00:00Z", risk_status: "Approved" },
 };
@@ -156,8 +162,11 @@ describe("EngagementForm — activity_required derived from funcion (0827-184)",
     const user = userEvent.setup();
     render(<EngagementForm engagement={baseEngagement} />);
 
-    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+    // Wait for the edit-form hydration that supplies `funcion`; administrative
+    // policy defaults are applied immediately after that hydration.
+    await waitFor(() => expect(getActivityRequiredSwitch()).toHaveAttribute("aria-checked", "false"));
 
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
     await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
     const [[call]] = mockUpdateMutateAsync.mock.calls;
     expect(call.data).toMatchObject({ activity_required: false });

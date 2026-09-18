@@ -315,6 +315,7 @@ const WorkOrderEdit = () => {
   // assigned) intentionally leaves staffing unscoped (matches save_wo_staffing,
   // which skips the cross-service check when the engagement has no practica).
   const practica = workOrder?.engagement?.practica ?? null;
+  const isAdministrativeEngagement = workOrder?.engagement?.funcion != null && workOrder.engagement.funcion !== 1;
   const engagementService = useMemo(
     () => (services ?? []).find((s) => s.code === practica),
     [services, practica],
@@ -505,7 +506,7 @@ const WorkOrderEdit = () => {
     if (!workOrder) return false;
 
     // Validate before any mutations to avoid partial saves
-    if (paymentInstallments.length > 0) {
+    if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
         setPaymentFocusSignal((n) => n + 1);
@@ -580,7 +581,7 @@ const WorkOrderEdit = () => {
     }
 
     // Persist payment plan
-    if (paymentInstallments.length > 0) {
+    if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
       const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
       const exchangeRate = paymentPlan?.exchange_rate ?? null;
       const savedPlan = await upsertPaymentPlan.mutateAsync({
@@ -606,7 +607,7 @@ const WorkOrderEdit = () => {
       setPaymentInstallments(syncedInstallments);
       setOriginalPaymentPlan(updatedPlan);
       setOriginalInstallments(JSON.parse(JSON.stringify(syncedInstallments)));
-    } else if (paymentPlan?.plan_id) {
+    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id) {
       // All installments removed → delete the plan (cascades to installments)
       await deletePaymentPlan.mutateAsync({
         planId: paymentPlan.plan_id,
@@ -675,6 +676,12 @@ const WorkOrderEdit = () => {
       });
       return;
     }
+    if (isAdministrativeEngagement) {
+      await submitWorkOrder.mutateAsync({
+        woId: workOrder.wo_id,
+      });
+      return;
+    }
     const CEAC_NUM_RE = /^\d{10}$/;
     const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
     const allComplete =
@@ -720,6 +727,7 @@ const WorkOrderEdit = () => {
     await approveWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
+      administrative: isAdministrativeEngagement,
     });
   };
 
@@ -919,6 +927,7 @@ const WorkOrderEdit = () => {
                   approvalStatus={approvalStatus}
                   approvedAt={workOrder.approved_at}
                   riskStatus={workOrder.risk_status}
+                  isAdministrative={isAdministrativeEngagement}
                   canRevert={isAdmin}
                   onRevertSocio={handleRevertSocio}
                   onRevertRisk={handleRevertRisk}
@@ -941,6 +950,7 @@ const WorkOrderEdit = () => {
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
           isNew={false}
+          isAdministrative={isAdministrativeEngagement}
           isDirty={isDirty}
           hasNonRiskDirty={hasNonRiskDirty}
           onCurrencyChange={setCurrency}
@@ -980,10 +990,10 @@ const WorkOrderEdit = () => {
           ceacNumber={ceacNumber}
           sanApprovalId={sanApprovalId}
           riskLevel={riskLevel}
-          onRiskAssessmentChange={handleRiskAssessmentChange}
+          onRiskAssessmentChange={isAdministrativeEngagement ? undefined : handleRiskAssessmentChange}
           woId={workOrder.wo_id}
-          paymentPlan={paymentPlan}
-          paymentInstallments={paymentInstallments}
+          paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
+          paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
@@ -999,8 +1009,8 @@ const WorkOrderEdit = () => {
           isPaymentPlanDirty={
             isPaymentPlanRestDirty(paymentInstallments, originalInstallments, paymentPlan, originalPaymentPlan)
           }
-          onPaymentPlanChange={setPaymentPlan}
-          onPaymentInstallmentsChange={setPaymentInstallments}
+          onPaymentPlanChange={isAdministrativeEngagement ? undefined : setPaymentPlan}
+          onPaymentInstallmentsChange={isAdministrativeEngagement ? undefined : setPaymentInstallments}
           staffingRequirements={staffing}
           onStaffingRequirementsChange={handleStaffingRequirementsChange}
           staffingCategories={staffingCategories}

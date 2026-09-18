@@ -77,8 +77,20 @@ BEGIN
   -- 18.a El seed trae la bandera, y la trae para los tipos que decidió D-44 (+ D-43, que agrego
   -- el aviso de asignacion a los gerentes especialistas).
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
-  IF v_n <> 28 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 28', v_n;
+  IF v_n <> 32 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 32', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n
+    FROM public.notification_types
+   WHERE type_key IN (
+     'engagement.created',
+     'engagement.owners.changed',
+     'engagement.staffing.changed',
+     'timesheet.team_submitted_for_approval'
+   )
+     AND email_enabled;
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION 'TEST FAIL - faltan correos de asignacion/aprobacion (activos: %)', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types
@@ -86,7 +98,7 @@ BEGIN
   IF v_n <> 4 THEN
     RAISE EXCEPTION 'TEST FAIL - hay % recordatorios (delivery=email con correo), se esperaban 4', v_n;
   END IF;
-  RAISE NOTICE 'PASS - el seed trae 27 tipos con correo, 4 de ellos recordatorios';
+  RAISE NOTICE 'PASS - el seed trae 32 tipos con correo, 4 de ellos recordatorios';
 
   -- 18.b Un tipo marcado, con destinatario de alcance `own`: campana Y correo.
   v_id := public.notify_staff('auth.role.changed', c_own, 'ent-1', '{}'::jsonb);

@@ -143,9 +143,11 @@ export function useApproveWorkOrder() {
     mutationFn: async ({
       woId,
       staffId,
+      administrative = false,
     }: {
       woId: string;
       staffId: string;
+      administrative?: boolean;
     }) => {
       // Socio track: record the business approver.
       const { data: result, error } = await supabase
@@ -162,11 +164,13 @@ export function useApproveWorkOrder() {
       // Atomic close: flip to Approved only if the Risk track is already done.
       // Single conditional UPDATE (no read-then-write) avoids a lost-update race
       // between the Socio and Riesgos tracks.
-      const { error: closeError } = await supabase
+      const closeQuery = supabase
         .from("work_orders")
         .update({ approval_status: "Approved" })
-        .eq("wo_id", woId)
-        .in("risk_status", ["Approved", "Emergency_Approved"]);
+        .eq("wo_id", woId);
+      const { error: closeError } = administrative
+        ? await closeQuery
+        : await closeQuery.in("risk_status", ["Approved", "Emergency_Approved"]);
       if (closeError) throw closeError;
       return result;
     },

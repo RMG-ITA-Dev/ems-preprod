@@ -45,6 +45,26 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
   },
 
   // ── Encargos ──
+  "timesheet.team_submitted_for_approval": {
+    asunto: "Boleta semanal pendiente de aprobación",
+    intro: "Una boleta de su equipo espera su revisión.",
+    boton: "Ir a aprobaciones",
+  },
+  "engagement.created": {
+    asunto: "Nuevo encargo asignado",
+    intro: "Se creó un encargo bajo su responsabilidad.",
+    boton: "Ver encargo",
+  },
+  "engagement.owners.changed": {
+    asunto: "Cambios en responsables del encargo",
+    intro: "Se actualizaron los responsables de un encargo bajo su responsabilidad.",
+    boton: "Ver encargo",
+  },
+  "engagement.staffing.changed": {
+    asunto: "Asignación de personal actualizada",
+    intro: "Se actualizó la asignación de personal de un encargo.",
+    boton: "Ver encargo",
+  },
   "engagement.ending_soon": {
     asunto: "Encargo próximo a finalizar",
     intro: "Un encargo a su cargo está por llegar a su fecha de fin.",

@@ -65,7 +65,7 @@ const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
 const mockSocieties = [
   { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-2", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "" },
 ];
 // 0722-157: "Ir a Matriz de Trabajo forwards..." exercises funcion=Cliente, which requires a
 // real taxonomy pick (0602-136) — "No aplica" is hidden for Cliente.

@@ -202,6 +202,7 @@ const FUNCION_LABEL_KEYS: Record<number, string> = {
   3: "engagement.funcion_calidad",
 }
 const FUNCION_CLIENTE = 1
+const ADMINISTRATIVE_CLIENT_NITS = new Set(["1006979026", "184046021"])
 
 const formSchema = z.object({
   engagement_name: z.string()
@@ -216,8 +217,8 @@ const formSchema = z.object({
   // required-in-creation is validated manually, mirroring oficina/practica/funcion.
   society_id:  z.string().optional(),
   client_id: z.string().min(1, "Client is required"),
-  partner_id: z.string().min(1, "Partner/Director is required"),
-  manager_id: z.string().min(1, "Manager is required"),
+  partner_id: z.string().optional(),
+  manager_id: z.string().optional(),
   start_date: z.date({ required_error: "Start date is required" }),
   end_date: z.date({ required_error: "End date is required" }),
   status: z.string(),
@@ -243,13 +244,14 @@ type FormData = z.infer<typeof formSchema>;
 
 interface EngagementFormProps {
   engagement?: Engagement | null;
+  administrativeMode?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onSaveSuccess?: () => void;
   onGoToWorkMatrix?: (engagementId?: string) => void;
 }
 
-export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
+export function EngagementForm({ engagement, administrativeMode = false, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // `isAdmin` ya NO sale del enum legacy: se deriva de `role_key`, que es la
@@ -506,6 +508,36 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     },
   });
 
+  const selectedFuncion = form.watch("funcion");
+  const selectedClientId = form.watch("client_id");
+  const isAdministrativeFunction = selectedFuncion != null && selectedFuncion !== FUNCION_CLIENTE;
+  const administrativeClientOptions = useMemo(
+    () => {
+      const controlledClients = clientOptions.filter((client) => ADMINISTRATIVE_CLIENT_NITS.has(client.unique_tax_id));
+      // Historical administrative engagements remain editable. Their existing client
+      // stays visible, but the selector offers only the controlled internal clients
+      // for any new choice; the database trigger enforces that transition.
+      const historicalClient = isEdit && selectedClientId
+        ? clientOptions.find((client) => client.client_id === selectedClientId)
+        : undefined;
+      return historicalClient && !controlledClients.some((client) => client.client_id === historicalClient.client_id)
+        ? [...controlledClients, historicalClient]
+        : controlledClients;
+    },
+    [clientOptions, isEdit, selectedClientId]
+  );
+  const administrativeSocietyIdByClientId = useMemo(() => {
+    const societyIdByNit: Record<string, string | undefined> = {
+      "1006979026": societyOptions.find((society) => society.name === "Ruizmier Pelaez S.R.L.")?.society_id,
+      "184046021": societyOptions.find((society) => society.name === "Ruizmier Jauregui S.R.L.")?.society_id,
+    };
+    return new Map(administrativeClientOptions.map((client) => [client.client_id, societyIdByNit[client.unique_tax_id]]));
+  }, [administrativeClientOptions, societyOptions]);
+  // La sociedad se deriva del cliente administrativo elegido. No se filtra la
+  // lista por la sociedad actual: hacerlo deja visible solamente el cliente ya
+  // seleccionado e impide cambiar a la otra sociedad.
+  const visibleClientOptions = isAdministrativeFunction ? administrativeClientOptions : clientOptions;
+
   // BUG #0603-140: data assigned by the server, shown in a confirmation modal after create
   const [createdInfo, setCreatedInfo] = useState<{
     code: string;
@@ -575,11 +607,26 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // no espera a ningún catálogo (a diferencia de la tríada de arriba). `shouldValidate: false`
   // por el mismo motivo que la siembra de sociedad/práctica/oficina.
   useEffect(() => {
-    if (isEdit || canChooseFuncionFreely) return;
+    if (isEdit || canChooseFuncionFreely || administrativeMode) return;
     if (form.getValues("funcion") !== FUNCION_CLIENTE) {
       form.setValue("funcion", FUNCION_CLIENTE, { shouldDirty: false, shouldValidate: false });
     }
-  }, [isEdit, canChooseFuncionFreely, form]);
+  }, [isEdit, canChooseFuncionFreely, administrativeMode, form]);
+
+  useEffect(() => {
+    if (!isEdit && administrativeMode && form.getValues("funcion") == null) {
+      form.setValue("funcion", 0, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [isEdit, administrativeMode, form]);
+
+  useEffect(() => {
+    if (isAdministrativeFunction) {
+      setIsInternal(true);
+      setOverrideOn(false);
+      setWorkOrderRequired(true);
+      setApprovalRequired(true);
+    }
+  }, [isAdministrativeFunction]);
 
   useEffect(() => {
     if (
@@ -675,8 +722,8 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
   // made a Manager/Partner save silently discard an admin's override (it forced the derived value
   // and wrote anio_fiscal_override: false). `isAdmin` still gates whether the editable Select
   // (vs. the read-only Input) is rendered.
-  const effectiveOverride = overrideOn;
-  const showOverrideSelect = isAdmin && overrideOn;
+  const effectiveOverride = isAdministrativeFunction ? false : overrideOn;
+  const showOverrideSelect = isAdmin && overrideOn && !isAdministrativeFunction;
 
   // Keep the effective anio_fiscal in sync with the derived value unless an override is active.
   // BUG #0819-181: in edit mode, wait for the engagement's real data to be loaded into the form
@@ -707,7 +754,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
 
   const showContractSection = isEdit
     ? !!engagement?.contract_file_path && canViewContract
-    : !isInternal;
+    : true;
 
   const handleContractFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -828,12 +875,28 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
     // BUG #0625-151: el contrato escaneado es obligatorio solo para encargos de cliente
     // (no aplica a internos). El archivo ya se subió a Storage al seleccionarlo, así que
     // solo validamos que exista una ruta antes de crear el encargo.
-    if (!isEdit && !isInternal && !contractFilePath) {
+    if (!isEdit && data.funcion === FUNCION_CLIENTE && !isInternal && !contractFilePath) {
       setContractError(t("engagement.contractRequired"));
       focusFirstInvalidField();
       return;
     }
     setContractError(null);
+
+    if (!isEdit) {
+      let missingTeamRole = false;
+      if (!data.partner_id) {
+        form.setError("partner_id", { message: t("engagement.requiredPartner") });
+        missingTeamRole = true;
+      }
+      if (!data.manager_id) {
+        form.setError("manager_id", { message: t("engagement.requiredManager") });
+        missingTeamRole = true;
+      }
+      if (missingTeamRole) {
+        focusFirstInvalidField();
+        return;
+      }
+    }
 
     // 0602-136: taxonomy is mandatory for Cliente engagements — "No aplica" does not
     // satisfy it (unlike other funciones, where it's a valid explicit opt-out).
@@ -880,7 +943,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
           // funcion is unset (legacy row) so an unrelated edit doesn't stomp the value the
           // backfill deliberately left untouched (`WHERE funcion IS NOT NULL`).
           ...(data.funcion != null ? { activity_required: data.funcion === FUNCION_CLIENTE } : {}),
-          is_internal:         isInternal,
+          is_internal:         isAdministrativeFunction ? true : isInternal,
           approval_required:   approvalRequired,
           sqr_id:              data.sqr_id ?? null,
           encargado_id:        data.encargado_id ?? null,
@@ -945,7 +1008,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       anio_fiscal_override: effectiveOverride,
       work_order_required: workOrderRequired,
       activity_required:   data.funcion === FUNCION_CLIENTE,
-      is_internal:         isInternal,
+      is_internal:         isAdministrativeFunction ? true : isInternal,
       approval_required:   approvalRequired,
       sqr_id:              data.sqr_id ?? null,
       encargado_id:        data.encargado_id ?? null,
@@ -957,7 +1020,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       // engagements" RLS policy, which a creator who isn't the assigned partner/manager/admin
       // (e.g. a Director assigning others) would fail, silently saving a client engagement
       // without its mandatory contract. The file itself is already durably in Storage either way.
-      contract_file_path:  !isInternal ? contractFilePath : null,
+      contract_file_path:  contractFilePath,
     });
 
     // BUG #0603-140: the engagement is now persisted, so clear the dirty state before the
@@ -1173,7 +1236,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       anio_fiscal: suggestFiscalYear(),
       oficina: canChooseProfileScopeFreely ? undefined : derivedOficina,
       practica: canChooseProfileScopeFreely ? undefined : derivedPractica,
-      funcion: canChooseFuncionFreely ? undefined : FUNCION_CLIENTE,
+      funcion: administrativeMode ? 0 : (canChooseFuncionFreely ? undefined : FUNCION_CLIENTE),
       taxonomy_id: undefined,
       society_id: canChooseProfileScopeFreely ? undefined : derivedSocietyId,
       client_id: "",
@@ -1190,7 +1253,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
       start_date: startOfDay(new Date()),
     });
     setWorkOrderRequired(true);
-    setIsInternal(false);
+    setIsInternal(administrativeMode);
     setApprovalRequired(true);
     setOverrideOn(false);
     // BUG #0625-151 (Codex review): the previous engagement's contract was already uploaded
@@ -1398,16 +1461,27 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("engagement.client")} <span className="text-destructive">*</span></FormLabel>
-                      <Select disabled={readOnly} onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        disabled={readOnly}
+                        onValueChange={(clientId) => {
+                          field.onChange(clientId);
+                          if (isAdministrativeFunction) {
+                            const societyId = administrativeSocietyIdByClientId.get(clientId);
+                            if (societyId) form.setValue("society_id", societyId, { shouldValidate: true });
+                          }
+                        }}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100">
                             <SelectValue placeholder={t("engagement.selectClient")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {clientOptions.map((client) => (
+                          {visibleClientOptions.map((client) => (
                             <SelectItem key={client.client_id} value={client.client_id}>
                               {client.client_legal_name}
+                              {isAdministrativeFunction && ` — ${societyOptions.find((society) => society.society_id === administrativeSocietyIdByClientId.get(client.client_id))?.name ?? t("engagement.society")}`}
                               {!client.is_active && ` (${t("status.inactive")})`}
                             </SelectItem>
                           ))}
@@ -1488,7 +1562,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <div className="space-y-2">
                     <Label className={cn(contractError && "text-destructive")}>
                       {t("engagement.contractScanned")}
-                      {!isEdit && <span className="text-destructive"> *</span>}
+                      {!isEdit && selectedFuncion === FUNCION_CLIENTE && !isInternal && <span className="text-destructive"> *</span>}
                     </Label>
 
                     {!isEdit ? (
@@ -1740,7 +1814,7 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                         className="font-mono"
                       />
                     )}
-                    {isAdmin && (
+                    {isAdmin && !isAdministrativeFunction && (
                       <div className="flex items-center gap-2 pt-1">
                         <Switch checked={overrideOn} onCheckedChange={handleOverrideToggle} />
                         <span className="text-xs text-muted-foreground">{t("engagement.fiscalYearOverride")}</span>
@@ -1801,14 +1875,14 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                   <FormItem>
                     <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit || !canChooseFuncionFreely}
+                      disabled={isEdit || !(canChooseFuncionFreely || administrativeMode)}
                       onValueChange={(v) => field.onChange(Number(v))}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
-                        <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>
+                        {!administrativeMode && <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>}
                         <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>
                         <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>
                       </SelectContent>
@@ -1985,9 +2059,11 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">{t("engagement.workOrderRequired")}</p>
-                    <p className="text-xs text-muted-foreground">{t("engagement.workOrderRequiredHelp")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(isAdministrativeFunction ? "engagement.workOrderRequiredAdministrativeHelp" : "engagement.workOrderRequiredHelp")}
+                    </p>
                   </div>
-                  <Switch checked={workOrderRequired} onCheckedChange={setWorkOrderRequired} />
+                  <Switch checked={workOrderRequired} onCheckedChange={setWorkOrderRequired} disabled={!isAdmin} />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -2001,14 +2077,16 @@ export function EngagementForm({ engagement, onDirtyChange, onCancel, onSaveSucc
                     <p className="text-sm font-medium">{t("engagement.isInternal")}</p>
                     <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
                   </div>
-                  <Switch checked={isInternal} onCheckedChange={setIsInternal} />
+                  <Switch checked={isInternal} onCheckedChange={setIsInternal} disabled={!isAdmin || isAdministrativeFunction} />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">{t("engagement.approvalRequired")}</p>
-                    <p className="text-xs text-muted-foreground">{t("engagement.approvalRequiredHelp")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(isAdministrativeFunction ? "engagement.approvalRequiredAdministrativeHelp" : "engagement.approvalRequiredHelp")}
+                    </p>
                   </div>
-                  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} />
+                  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} disabled={!isAdmin} />
                 </div>
                 </div>
                 </div>
