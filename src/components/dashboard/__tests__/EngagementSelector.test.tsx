@@ -1,96 +1,74 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 import { EngagementSelector } from "../EngagementSelector";
+import type { DashboardEngagementItem } from "@/components/dashboard/tabs/encargoOverviewTypes";
 
-// Mock dependencies
+// dash_encargo (bugs/dashboard/encargo/plan_v2.md §9.3): EngagementSelector pasa a ser
+// presentacional (options/value/onChange/isLoading vía props) -- ya NO consulta Supabase ni
+// depende de useDashboardAccess/useCurrentStaff/useDashboard (list_dashboard_engagements()
+// resuelve el alcance en el servidor). No se mockea supabase ni ningún hook de dashboard: si
+// el componente los importara por error, este archivo fallaría al no encontrar el mock.
+
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: "en" },
-  }),
+  useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: vi.fn(() => ({
-    staffRecord: { staff_id: "staff-1" },
-  })),
-}));
-
-const mockSetSelectedEngagementId = vi.fn();
-vi.mock("@/contexts/DashboardContext", () => ({
-  useDashboard: vi.fn(() => ({
-    selectedEngagementId: null,
-    setSelectedEngagementId: mockSetSelectedEngagementId,
-    startDateStr: "2026-01-01",
-    endDateStr: "2026-01-31",
-  })),
-}));
-
-vi.mock("@/hooks/useDashboardAccess", () => ({
-  useDashboardAccess: vi.fn(() => ({
-    isPartner: true,
-    isManager: false,
-  })),
-}));
-
-// Mock supabase query to return empty or populated engagements
-const mockSelect = vi.fn();
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: mockSelect,
-    })),
-  },
-}));
-
-function createWrapper() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
-  return ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>{children}</MemoryRouter>
-    </QueryClientProvider>
-  );
+// Polyfills for Radix UI Select which requires APIs not implemented in jsdom (mismo patrón
+// que StaffHoursDetailDialog.test.tsx).
+if (typeof window !== "undefined") {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => undefined;
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => undefined;
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => undefined;
+  }
 }
 
-describe("EngagementSelector (BUG 0220-49)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+const OPTIONS: DashboardEngagementItem[] = [
+  { engagement_id: "e1", engagement_code: "E-001", engagement_name: "Encargo Uno", client_legal_name: "Cliente A", end_date: null },
+  { engagement_id: "e2", engagement_code: "E-002", engagement_name: "Encargo Dos", client_legal_name: "Cliente B", end_date: null },
+];
+
+describe("EngagementSelector (presentacional)", () => {
+  it("(a) 0 opciones -> noEngagements", async () => {
+    render(<EngagementSelector options={[]} value={null} onChange={vi.fn()} isLoading={false} />);
+    await userEvent.click(screen.getByRole("combobox"));
+    expect(screen.getByText("dashboard.encargo.noEngagements")).toBeInTheDocument();
   });
 
-  it("renders select trigger without crashing when engagement list is empty", async () => {
-    // Mock supabase chain: from().select().eq().order()
-    mockSelect.mockReturnValue({
-      eq: vi.fn().mockReturnValue({
-        order: vi.fn().mockResolvedValue({ data: [], error: null }),
-      }),
-    });
-
-    render(<EngagementSelector />, { wrapper: createWrapper() });
-
-    // Wait for loading state to resolve, then check combobox renders
-    await vi.waitFor(() => {
-      expect(screen.getByRole("combobox")).toBeInTheDocument();
-    });
+  it("(b) N opciones -> N SelectItem en el orden recibido", async () => {
+    render(<EngagementSelector options={OPTIONS} value={null} onChange={vi.fn()} isLoading={false} />);
+    await userEvent.click(screen.getByRole("combobox"));
+    const items = screen.getAllByRole("option");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("E-001");
+    expect(items[1]).toHaveTextContent("E-002");
   });
 
-  it("does not crash when rendering with zero engagements", () => {
-    mockSelect.mockReturnValue({
-      eq: vi.fn().mockReturnValue({
-        order: vi.fn().mockResolvedValue({ data: [], error: null }),
-      }),
-    });
+  it("(c) elegir uno llama onChange", async () => {
+    const onChange = vi.fn();
+    render(<EngagementSelector options={OPTIONS} value={null} onChange={onChange} isLoading={false} />);
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("option", { name: /E-002/ }));
+    expect(onChange).toHaveBeenCalledWith("e2");
+  });
 
-    // Should not throw
-    expect(() => {
-      render(<EngagementSelector />, { wrapper: createWrapper() });
-    }).not.toThrow();
+  it("(d) value que no está en options no rompe el render", () => {
+    expect(() =>
+      render(<EngagementSelector options={OPTIONS} value="not-in-list" onChange={vi.fn()} isLoading={false} />),
+    ).not.toThrow();
+  });
+
+  it("isLoading=true -> skeleton, sin combobox", () => {
+    render(<EngagementSelector options={[]} value={null} onChange={vi.fn()} isLoading />);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 });

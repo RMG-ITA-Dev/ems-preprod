@@ -226,6 +226,15 @@ run supabase/migrations/20260915130000_dash_socio_partner_overview.sql
 # rpc-dash-cartera-portfolio-overview.sql.
 run supabase/migrations/20260917160000_dash_cartera_portfolio_overview.sql
 
+# dash_encargo: rediseño de la pestaña Encargo -- can_read_engagement_dashboard() (única
+# materialización del alcance por rol de decisiones.md §2), list_dashboard_engagements()
+# (selector, filtrado a funcion=1/Cliente) y engagement_overview() (payload completo: 4 KPI,
+# consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9
+# semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona).
+# Dependencia dura: usa latest_exchange_rate() de la migración dash_socio de arriba.
+# Ejercitado por rpc-dash-encargo-engagement-overview.sql.
+run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -271,5 +280,6 @@ assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY
 assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio y dash_cartera aplicadas sobre base scratch; las 18 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio, dash_cartera y dash_encargo aplicadas sobre base scratch; las 19 suites de RLS/RPC/schema-convergence/trigger pasaron"

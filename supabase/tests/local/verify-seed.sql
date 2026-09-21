@@ -67,9 +67,11 @@ BEGIN
   -- 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read para
   -- senior_partner/admin/partner/director/sqr/risk_partner — admin y risk_partner
   -- corregidos a incluidos el 2026-09-16; risk_partner con scope 'assigned_engagements'
-  -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7).
-  IF n <> 757 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 757, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 757 concesiones';
+  -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7) + 1 de
+  -- 20260918120000_dash_encargo_engagement_overview.sql (dashboard.engagement.read para
+  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/).
+  IF n <> 758 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 758, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 758 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
@@ -87,9 +89,10 @@ BEGIN
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
   SELECT count(*) INTO n FROM public.global_settings;
-  -- +1 de 20260915130000_dash_socio_partner_overview.sql (default_exchange_rate).
-  IF n <> 21 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 21 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 21 claves';
+  -- +1 de 20260915130000_dash_socio_partner_overview.sql (default_exchange_rate) + 1 de
+  -- 20260918120000_dash_encargo_engagement_overview.sql (DASH_ENGAGEMENT_PENDING_ALERT_WEEKS).
+  IF n <> 22 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 22 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 22 claves';
 
   -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
   -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea

@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useDashboard } from "@/contexts/DashboardContext";
+import { useDashboardEngagements } from "@/hooks/useDashboardEngagements";
+import { useEncargoOverview } from "@/hooks/useEncargoOverview";
 import { EngagementSelector } from "@/components/dashboard/EngagementSelector";
+import { EngagementStaffingDialog } from "@/components/dashboard/EngagementStaffingDialog";
+import { StaffHoursDetailDialog } from "@/components/dashboard/StaffHoursDetailDialog";
+import { StatCard } from "@/components/dashboard/StatCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -12,552 +15,581 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow
+  TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  DollarSign,
   Clock,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-  BarChart3,
-  Layers,
+  Users,
   FolderKanban,
-  Users
+  CalendarClock,
+  CheckCircle2,
+  Receipt,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { safeNumber, hasItems } from "@/lib/queryHelpers";
+import { safeNumber } from "@/lib/queryHelpers";
 import {
-  aggregateActualHoursByCategory,
-  mergeCategoryBreakdown,
-  type ActualHoursTimeEntryRow,
-} from "@/components/dashboard/encargoActualByCategory";
-import { Button } from "@/components/ui/button";
-import { StaffHoursDetailDialog } from "@/components/dashboard/StaffHoursDetailDialog";
+  groupBreakdownByCategory,
+  buildStaffingRows,
+  buildTeamRows,
+  formatDaysSince,
+  staffingRatioLabel,
+  approvalQueueSeverity,
+  type TeamRoleKey,
+} from "./encargoOverviewAggregation";
+import { formatShortDate } from "./partnerOverviewAggregation";
+import type { ExpenseItem, RequestDisplayStatus } from "./encargoOverviewTypes";
 
-interface EngagementDataWithWorkOrder {
-  work_order?: {
-    currency: "BOB" | "USD" | null;
-  } | null;
-}
+// dash_encargo (bugs/dashboard/encargo/plan_v2.md §5.4): pestaña Encargo -- 4 KPI sin
+// montos, consumo de presupuesto, desglose Categoría->Actividad, equipo responsable,
+// staffing (semana actual + modal de 9 semanas precargadas) y gastos, alimentados por un
+// solo RPC `engagement_overview`. EncargoTab es el único dueño de datos de la pestaña --
+// EngagementSelector pasa a ser presentacional (useDashboardEngagements() vive acá).
+
+const TEAM_LABEL_KEY: Record<TeamRoleKey, string> = {
+  partner: "dashboard.encargo.team.partner",
+  manager: "dashboard.encargo.team.manager",
+  encargado: "dashboard.encargo.team.encargado",
+  specialist_it: "dashboard.encargo.team.specialistIt",
+  specialist_tax: "dashboard.encargo.team.specialistTax",
+  sqr: "dashboard.encargo.team.sqr",
+};
+
+const REQUEST_STATUS_KEY: Record<RequestDisplayStatus, string> = {
+  pendiente_gerente: "dashboard.encargo.expenses.status.pendingManager",
+  aprobado_pendiente_desembolso: "dashboard.encargo.expenses.status.pendingDisbursement",
+  desembolsado: "dashboard.encargo.expenses.status.disbursed",
+  observado: "dashboard.encargo.expenses.status.observed",
+  rechazado: "dashboard.encargo.expenses.status.rejected",
+};
+
+const REQUEST_STATUS_VARIANT: Record<RequestDisplayStatus, "default" | "secondary" | "destructive"> = {
+  pendiente_gerente: "secondary",
+  aprobado_pendiente_desembolso: "secondary",
+  desembolsado: "default",
+  observado: "secondary",
+  rechazado: "destructive",
+};
 
 export function EncargoTab() {
   const { t, i18n } = useTranslation();
-  const { selectedEngagementId, startDateStr, endDateStr } = useDashboard();
+  const { selectedEngagementId, setSelectedEngagementId, startDateStr, endDateStr } = useDashboard();
   const [detailOpen, setDetailOpen] = useState(false);
-  const locale = i18n.language === 'es' ? 'es-BO' : 'en-US';
+  const [staffingOpen, setStaffingOpen] = useState(false);
+  const [accessChangedNotice, setAccessChangedNotice] = useState(false);
 
-  // Fetch engagement details with work order
-  const { data: engagementData, isLoading: engagementLoading } = useQuery({
-    queryKey: ['encargo-detail', selectedEngagementId],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return null;
+  const { data: engagements, isLoading: engagementsLoading } = useDashboardEngagements();
+  const { data, isLoading, isError, error } = useEncargoOverview(selectedEngagementId, startDateStr, endDateStr);
 
-      const { data, error } = await supabase
-        .from('engagements')
-        .select(`
-          engagement_id,
-          engagement_code,
-          engagement_name,
-          status,
-          client:clients(client_legal_name),
-          partner:staff!engagements_partner_id_fkey(short_name, first_name, last_name),
-          manager:staff!engagements_manager_id_fkey(short_name, first_name, last_name),
-          work_order:work_orders(
-            wo_id,
-            currency,
-            season_mode,
-            approval_status,
-            adjustment_amount,
-            tax_rate
-          )
-        `)
-        .eq('engagement_id', selectedEngagementId)
-        .abortSignal(signal)
-        .single();
+  // selected_accessible=false (encargo fuera de alcance/inexistente): limpiar la selección
+  // y avisar -- la lista sigue usable, NO es un error de pestaña ni una lista vacía
+  // (plan_v2.md §4.5).
+  useEffect(() => {
+    if (data?.meta.selected_accessible === false && selectedEngagementId) {
+      setSelectedEngagementId(null);
+      setAccessChangedNotice(true);
+    }
+  }, [data, selectedEngagementId, setSelectedEngagementId]);
 
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!selectedEngagementId,
-  });
+  // Autoselección (corrección post-ejecución acordada con el operador, no estaba en
+  // decisiones.md original): al montar, si no hay selección y la lista de encargos ya
+  // cargó, preselecciona el de `end_date` más próxima -- incluidos vencidos, NULL al final
+  // (nunca se autoseleccionan si hay al menos uno con end_date no nulo). El orden visible
+  // del selector (por engagement_code) no cambia -- este cálculo es aparte. Corre una sola
+  // vez por montaje del componente: `autoSelectedRef` queda en true apenas ya hay una
+  // selección (venía de otra pestaña/sesión) o apenas se autoselecciona, y el handler de
+  // selección manual también lo marca, para no pelear con una deselección intencional del
+  // usuario.
+  const autoSelectedRef = useRef(false);
+  useEffect(() => {
+    if (autoSelectedRef.current) return;
+    if (selectedEngagementId) {
+      autoSelectedRef.current = true;
+      return;
+    }
+    if (!engagements || engagements.length === 0) return;
+    autoSelectedRef.current = true;
 
-  // Fetch budget vs actual from the view
-  const { data: budgetData, isLoading: budgetLoading } = useQuery({
-    queryKey: ['encargo-budget', selectedEngagementId],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return null;
+    const withEndDate = engagements.filter((e) => e.end_date !== null) as (typeof engagements[number] & {
+      end_date: string;
+    })[];
+    if (withEndDate.length === 0) return;
 
-      const { data, error } = await supabase
-        .from('vw_budget_vs_actual_hours_by_category_activity')
-        .select('activity_id, activity_code, activity_description, actual_hours, budget_hours, category_display_order')
-        .eq('engagement_id', selectedEngagementId)
-        .order('category_display_order')
-        .order('activity_code')
-        .abortSignal(signal);
+    const earliest = withEndDate.reduce((min, e) => (e.end_date < min.end_date ? e : min));
+    setSelectedEngagementId(earliest.engagement_id);
+  }, [engagements, selectedEngagementId, setSelectedEngagementId]);
 
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!selectedEngagementId,
-  });
-
-  // Fetch work order summary for financial data
-  const { data: woSummary, isLoading: woLoading } = useQuery({
-    queryKey: ['encargo-wo-summary', selectedEngagementId],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return null;
-
-      const { data, error } = await supabase
-        .from('work_order_summary')
-        .select('fee_with_tax_gross_up, total_standard_fee, realization_percent')
-        .eq('engagement_id', selectedEngagementId)
-        .abortSignal(signal)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
-    },
-    enabled: !!selectedEngagementId,
-  });
-
-  // Fetch budget lines for category totals
-  const { data: categoryBudget, isLoading: categoryLoading } = useQuery({
-    queryKey: ['encargo-category-budget', selectedEngagementId],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return [];
-
-      const { data, error } = await supabase
-        .from('vw_wo_budget_hours_by_category')
-        .select('category_id, category_name, total_budget_hours, category_display_order')
-        .eq('engagement_id', selectedEngagementId)
-        .order('category_display_order')
-        .abortSignal(signal);
-
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!selectedEngagementId,
-  });
-
-  // INVARIANT: every queryKey parameter must affect the query body. Do not add date params
-  // to the key without filtering on them — see CHANGELOG S-05 for the bug this prevents.
-  // Fetch actual hours by category (period-filtered, aggregated in JS).
-  const { data: actualByCategory, isLoading: actualLoading } = useQuery({
-    queryKey: ['encargo-actual-category', selectedEngagementId, startDateStr, endDateStr],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return [];
-
-      const { data, error } = await supabase
-        .from('time_entries')
-        .select(`
-          hours_logged,
-          staff:staff!inner(
-            category:categories!staff_category_id_fkey!inner(category_id, category_name, display_order)
-          )
-        `)
-        .eq('engagement_id', selectedEngagementId)
-        .eq('is_forecast', false)
-        .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr)
-        .abortSignal(signal);
-
-      if (error) throw error;
-
-      return aggregateActualHoursByCategory(
-        (data ?? []) as unknown as ActualHoursTimeEntryRow[],
-      );
-    },
-    enabled: !!selectedEngagementId,
-  });
-
-  // BUG #35: Fetch hours by approval status using direct query
-  const { data: hoursByStatus, isLoading: statusLoading } = useQuery({
-    queryKey: ['encargo-hours-by-status', selectedEngagementId],
-    queryFn: async ({ signal }) => {
-      if (!selectedEngagementId) return { approved: 0, pending: 0 };
-
-      // Get time entries with their approval status
-      const { data: entries, error: entriesError } = await supabase
-        .from('time_entries')
-        .select(`
-          hours_logged,
-          period_id,
-          activity_id
-        `)
-        .eq('engagement_id', selectedEngagementId)
-        .eq('is_forecast', false)
-        .abortSignal(signal);
-
-      if (entriesError) throw entriesError;
-      if (!hasItems(entries)) return { approved: 0, pending: 0 };
-
-      // Get unique period IDs
-      const periodIds = [...new Set(entries.filter(e => e.period_id).map(e => e.period_id!))] as string[];
-
-      if (!hasItems(periodIds)) {
-        // No periods = all pending
-        const totalHours = entries.reduce((sum, e) => sum + safeNumber(e.hours_logged), 0);
-        return { approved: 0, pending: totalHours };
-      }
-
-      // Get line approvals for this engagement
-      const { data: approvals, error: approvalsError } = await supabase
-        .from('timesheet_line_approvals')
-        .select('period_id, activity_id, status')
-        .eq('engagement_id', selectedEngagementId)
-        .in('period_id', periodIds)
-        .abortSignal(signal);
-
-      if (approvalsError) throw approvalsError;
-
-      // Key by (period_id, activity_id) so each activity's status is independent
-      const approvalMap = new Map<string, string>();
-      approvals?.forEach(a => approvalMap.set(`${a.period_id}:${a.activity_id}`, a.status));
-
-      // Sum hours by status — each entry is classified by its own (period, activity) pair
-      let approved = 0;
-      let pending = 0;
-      entries.forEach(entry => {
-        const key = entry.period_id && entry.activity_id
-          ? `${entry.period_id}:${entry.activity_id}`
-          : null;
-        const status = key ? approvalMap.get(key) : null;
-        if (status === 'approved') {
-          approved += safeNumber(entry.hours_logged);
-        } else {
-          pending += safeNumber(entry.hours_logged);
-        }
-      });
-
-      return { approved, pending };
-    },
-    enabled: !!selectedEngagementId,
-  });
-
-  const isLoading = engagementLoading || budgetLoading || woLoading || categoryLoading || actualLoading || statusLoading;
-
-  // Calculate totals
-  const totalBudgetHours = categoryBudget?.reduce((sum, c) => sum + safeNumber(c.total_budget_hours), 0) ?? 0;
-  const totalActualHours = actualByCategory?.reduce((sum, c) => sum + safeNumber(c.actual_hours), 0) ?? 0;
-  const budgetConsumedPercent = totalBudgetHours > 0 ? Math.round((totalActualHours / totalBudgetHours) * 100) : 0;
-  const varianceHours = totalBudgetHours - totalActualHours;
-
-  const currency = (engagementData as EngagementDataWithWorkOrder | null)?.work_order?.currency || 'BOB';
-  const agreedFee = woSummary?.fee_with_tax_gross_up || 0;
-  const standardFee = woSummary?.total_standard_fee || 0;
-  const realizationPercent = woSummary?.realization_percent || 100;
-  const marginPercent = standardFee > 0 ? ((agreedFee - standardFee) / standardFee) * 100 : 0;
-
-  // Format currency
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat(locale, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(Math.round(amount));
+  const handleSelectEngagement = (id: string | null) => {
+    autoSelectedRef.current = true;
+    setAccessChangedNotice(false);
+    setSelectedEngagementId(id);
   };
 
-  // Merge category budget and actual
-  const categoryBreakdown = mergeCategoryBreakdown(
-    categoryBudget ?? [],
-    actualByCategory ?? [],
-  );
-
-  // Activity breakdown (top 10 by hours)
-  const activityBreakdown = budgetData
-    ?.filter(a => safeNumber(a.actual_hours) > 0 || safeNumber(a.budget_hours) > 0)
-    .sort((a, b) => safeNumber(b.actual_hours) - safeNumber(a.actual_hours))
-    .slice(0, 10) || [];
-
-  // Risk status
-  const isAtRisk = budgetConsumedPercent > 80 || marginPercent < 0;
-  const isOverBudget = budgetConsumedPercent > 100;
-
-  if (!selectedEngagementId) {
-    return (
-      <div className="space-y-4">
-        <EngagementSelector />
-        <div className="rounded-xl border border-border bg-card/50 backdrop-blur-sm p-12 text-center">
-          <FolderKanban className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-foreground">{t('dashboard.encargo.selectEngagement')}</h3>
-          <p className="text-muted-foreground mt-2">{t('dashboard.encargo.noSelection')}</p>
-        </div>
-      </div>
-    );
+  // Un solo payload: un error del RPC no se degrada a ceros -- se propaga para que
+  // TabErrorBoundary lo capture (mismo patrón que CarteraTab.tsx).
+  if (isError) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error);
+    throw new Error(message);
   }
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <EngagementSelector />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 bg-muted rounded-xl" />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const detail = data?.detail ?? null;
 
   return (
     <div className="space-y-4">
-      {/* Engagement Selector */}
-      <EngagementSelector />
+      <EngagementSelector
+        options={engagements ?? []}
+        value={selectedEngagementId}
+        onChange={handleSelectEngagement}
+        isLoading={engagementsLoading}
+      />
 
-      {/* Top Row: KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Budget Hours */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              {t('dashboard.encargo.budgetHours')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
-              <span className="text-3xl font-bold text-foreground font-mono">{totalBudgetHours.toFixed(0)}</span>
-              <span className="text-sm text-muted-foreground mb-1">h</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {t('dashboard.encargo.standardFee')}: {currency} {formatAmount(standardFee)}
-            </p>
-          </CardContent>
-        </Card>
+      {accessChangedNotice && !selectedEngagementId && (
+        <p className="text-sm text-warning">{t("dashboard.encargo.accessChanged")}</p>
+      )}
 
-        {/* Actual Hours - BUG #35: Show approved vs pending breakdown */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              {t('dashboard.encargo.actualHours')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
-              <span className={cn(
-                "text-3xl font-bold font-mono",
-                isOverBudget ? "text-destructive" : "text-foreground"
-              )}>
-                {totalActualHours.toFixed(1)}
-              </span>
-              <span className="text-sm text-muted-foreground mb-1">h</span>
-            </div>
-            {/* Approved vs Pending breakdown */}
-            <div className="flex gap-3 mt-2 text-xs">
-              <span className="text-success flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" />
-                {(hoursByStatus?.approved || 0).toFixed(1)}h {t('dashboard.encargo.approved')}
-              </span>
-              {(hoursByStatus?.pending || 0) > 0 && (
-                <span className="text-warning flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {(hoursByStatus?.pending || 0).toFixed(1)}h {t('dashboard.encargo.pending')}
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Realization */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border hover:shadow-lg hover:border-primary/30 transition-all duration-300">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              {t('dashboard.encargo.realization')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
-              <span className={cn(
-                "text-3xl font-bold font-mono",
-                realizationPercent >= 100 ? "text-success" : 
-                realizationPercent >= 80 ? "text-foreground" : "text-warning"
-              )}>
-                {realizationPercent.toFixed(0)}%
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {t('dashboard.encargo.agreedFee')}: {currency} {formatAmount(agreedFee)}
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Status */}
-        <Card className={cn(
-          "bg-card/80 backdrop-blur-sm border-border hover:shadow-lg transition-all duration-300",
-          isAtRisk ? "hover:border-warning/30" : "hover:border-success/30"
-        )}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              {isAtRisk ? (
-                <AlertTriangle className="h-4 w-4 text-warning" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 text-success" />
-              )}
-              {t('dashboard.encargo.status')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <span className={cn(
-                "text-lg font-semibold",
-                isOverBudget ? "text-destructive" : 
-                isAtRisk ? "text-warning" : "text-success"
-              )}>
-                {isOverBudget 
-                  ? t('dashboard.encargo.overBudget')
-                  : isAtRisk 
-                    ? t('dashboard.encargo.atRisk')
-                    : t('dashboard.encargo.onTrack')
-                }
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {budgetConsumedPercent}% {t('dashboard.encargo.consumed')}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Budget Consumption Progress */}
-      <Card className="bg-card/80 backdrop-blur-sm border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            {t('dashboard.encargo.budgetConsumption')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            <Progress 
-              value={Math.min(budgetConsumedPercent, 100)} 
-              className={cn(
-                "h-4 flex-1",
-                isOverBudget ? "[&>div]:bg-destructive" : 
-                budgetConsumedPercent > 80 ? "[&>div]:bg-warning" : ""
-              )}
-            />
-            <span className={cn(
-              "text-lg font-bold font-mono min-w-[60px] text-right",
-              isOverBudget ? "text-destructive" : 
-              budgetConsumedPercent > 80 ? "text-warning" : "text-foreground"
-            )}>
-              {budgetConsumedPercent}%
-            </span>
-          </div>
-          <div className="flex justify-between text-xs text-muted-foreground mt-2">
-            <span>{totalActualHours.toFixed(1)}h {t('dashboard.encargo.used')}</span>
-            <span>{totalBudgetHours.toFixed(0)}h {t('dashboard.encargo.budgeted')}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Two Column Layout: Category & Activity Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Category Breakdown */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border">
-          <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-medium">
-              {t('dashboard.encargo.categoryBreakdown')}
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs h-7 gap-1 shrink-0"
-              onClick={() => setDetailOpen(true)}
-            >
-              <Users className="h-3 w-3" />
-              {t('dashboard.encargo.viewHoursDetail')}
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs">{t('category.name')}</TableHead>
-                  <TableHead className="text-xs text-right">{t('dashboard.encargo.budget')}</TableHead>
-                  <TableHead className="text-xs text-right">{t('dashboard.encargo.actual')}</TableHead>
-                  <TableHead className="text-xs text-right">{t('dashboard.encargo.variance')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {categoryBreakdown.length > 0 ? (
-                  categoryBreakdown.map((cat) => (
-                    <TableRow key={cat.category_id} className="text-sm">
-                      <TableCell className="py-2">{cat.category_name}</TableCell>
-                      <TableCell className="py-2 text-right font-mono">{cat.budget_hours.toFixed(0)}</TableCell>
-                      <TableCell className="py-2 text-right font-mono">{cat.actual_hours.toFixed(1)}</TableCell>
-                      <TableCell className={cn(
-                        "py-2 text-right font-mono font-semibold",
-                        cat.variance >= 0 ? "text-success" : "text-destructive"
-                      )}>
-                        {cat.variance >= 0 ? '+' : ''}{cat.variance.toFixed(1)}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
-                      {t('dashboard.encargo.noData')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        {/* Activity Breakdown */}
-        <Card className="bg-card/80 backdrop-blur-sm border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">
-              {t('dashboard.encargo.activityBreakdown')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs">{t('activity.code')}</TableHead>
-                  <TableHead className="text-xs">{t('activity.description')}</TableHead>
-                  <TableHead className="text-xs text-right">{t('workOrders.hours')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {activityBreakdown.length > 0 ? (
-                  activityBreakdown.map((act, idx) => (
-                    <TableRow key={`${act.activity_id}-${idx}`} className="text-sm">
-                      <TableCell className="py-2 font-medium text-primary">
-                        {act.activity_code}
-                      </TableCell>
-                      <TableCell className="py-2 truncate max-w-[150px]">
-                        {act.activity_description}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-mono">
-                        {safeNumber(act.actual_hours).toFixed(1)}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground py-4">
-                      {t('dashboard.encargo.noData')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
+      {!selectedEngagementId ? (
+        <div className="rounded-xl border border-border bg-card/50 backdrop-blur-sm p-12 text-center">
+          <FolderKanban className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-foreground">{t("dashboard.encargo.selectEngagement")}</h3>
+          <p className="text-muted-foreground mt-2">{t("dashboard.encargo.noSelection")}</p>
+        </div>
+      ) : isLoading || !detail ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-32 w-full" />
+          ))}
+          <Skeleton className="h-16 w-full sm:col-span-2 lg:col-span-4" />
+          <Skeleton className="h-64 w-full lg:col-span-2" />
+          <Skeleton className="h-64 w-full lg:col-span-2" />
+        </div>
+      ) : (
+        <EncargoDetail
+          detail={detail}
+          today={data!.meta.today}
+          alertWeeks={data!.meta.alert_weeks}
+          locale={i18n.language}
+          onViewHoursDetail={() => setDetailOpen(true)}
+          onViewOtherWeeks={() => setStaffingOpen(true)}
+        />
+      )}
 
       <StaffHoursDetailDialog
         open={detailOpen}
         onOpenChange={setDetailOpen}
         engagementId={selectedEngagementId}
-        engagementCode={engagementData?.engagement_code ?? ''}
+        engagementCode={data?.meta.engagement_code ?? ""}
       />
+      {detail && (
+        <EngagementStaffingDialog
+          open={staffingOpen}
+          onOpenChange={setStaffingOpen}
+          people={detail.staffing.people}
+          weeks={detail.staffing.weeks}
+        />
+      )}
     </div>
+  );
+}
+
+function EncargoDetail({
+  detail,
+  alertWeeks,
+  locale,
+  onViewHoursDetail,
+  onViewOtherWeeks,
+}: {
+  detail: NonNullable<ReturnType<typeof useEncargoOverview>["data"]>["detail"];
+  today: string;
+  alertWeeks: number;
+  locale: string;
+  onViewHoursDetail: () => void;
+  onViewOtherWeeks: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!detail) return null;
+
+  const { kpis, budget, breakdown, team, staffing, expenses, approval_queue } = detail;
+  const consumedPercent = Math.round(safeNumber(budget.consumed_percent));
+  const isOverBudget = consumedPercent > 100;
+
+  const currentRatio = staffingRatioLabel(kpis.staffing.current.logged, kpis.staffing.current.assigned);
+  const previousRatio = staffingRatioLabel(kpis.staffing.previous.logged, kpis.staffing.previous.assigned);
+
+  const lastEntryLabel = formatDaysSince(kpis.last_time_entry.days);
+  const lastApprovalLabel = formatDaysSince(kpis.last_approval.days);
+  const formatKpiDate = (label: ReturnType<typeof formatDaysSince>) =>
+    label.kind === "never"
+      ? t("dashboard.encargo.kpis.never")
+      : label.kind === "today"
+        ? t("dashboard.encargo.kpis.today")
+        : t("dashboard.encargo.kpis.daysAgo", { count: label.count });
+
+  const groupedBreakdown = groupBreakdownByCategory(breakdown);
+  const teamRows = buildTeamRows(team);
+  const currentWeek = staffing.weeks.find((w) => w.offset === 0);
+  const staffingRows = buildStaffingRows(staffing.people, currentWeek);
+
+  // Cola de Aprobación (corrección post-ejecución #2): mismo patrón "top 5 + N más" que la
+  // de dash_cartera (CarteraTab.tsx) -- "+N más" cuenta personas que quedaron fuera de las 5
+  // mostradas, no líneas.
+  const approvalItemsShown = approval_queue.items.slice(0, 5);
+  const approvalRemaining = Math.max(approval_queue.distinct_people - approvalItemsShown.length, 0);
+  const expensesPercent = Math.round(safeNumber(expenses.executed_percent));
+
+  // Solo se llama para expenses.pending (pendiente_aprobacion | aprobado_gerente) --
+  // revisado_asistente nunca llega acá, esos ítems viven en expenses.approved.
+  const expenseStatusLabel = (status: ExpenseItem["status"]) =>
+    status === "aprobado_gerente"
+      ? t("dashboard.encargo.expenses.status.pendingAccounting")
+      : t("dashboard.encargo.expenses.status.pendingManager");
+
+  return (
+    <>
+      {/* 4 KPI cards, ninguna con montos (decisiones.md §4.1) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title={t("dashboard.encargo.kpis.staffing")}
+          icon={<Users className="h-5 w-5" />}
+          value={
+            currentRatio.noAssignments
+              ? t("dashboard.encargo.kpis.noAssignments")
+              : `${currentRatio.logged}/${currentRatio.assigned}`
+          }
+          subtitle={`${t("dashboard.encargo.kpis.thisWeek")} · ${t("dashboard.encargo.kpis.lastWeek")}: ${
+            previousRatio.noAssignments ? t("dashboard.encargo.kpis.noAssignments") : `${previousRatio.logged}/${previousRatio.assigned}`
+          }`}
+        />
+        <StatCard
+          title={t("dashboard.encargo.kpis.pendingApproval")}
+          icon={<Clock className="h-5 w-5" />}
+          value={`${Math.round(kpis.pending_approval.last_week_hours)}${t("dashboard.encargo.units.hours")}`}
+          subtitle={t("dashboard.encargo.kpis.pendingLastWeek")}
+          footer={
+            kpis.pending_approval.aged_hours > 0 ? (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                {t("dashboard.encargo.kpis.agedPending", {
+                  hours: Math.round(kpis.pending_approval.aged_hours),
+                  weeks: 3,
+                })}
+              </p>
+            ) : undefined
+          }
+        />
+        <StatCard
+          title={t("dashboard.encargo.kpis.lastTimeEntry")}
+          icon={<CalendarClock className="h-5 w-5" />}
+          value={formatKpiDate(lastEntryLabel)}
+        />
+        <StatCard
+          title={t("dashboard.encargo.kpis.lastApproval")}
+          icon={<CheckCircle2 className="h-5 w-5" />}
+          value={formatKpiDate(lastApprovalLabel)}
+        />
+      </div>
+
+      {/* Consumo de presupuesto -- sin cambios funcionales (decisiones.md §4.2) */}
+      <Card className="bg-card/80 backdrop-blur-sm border-border">
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4">
+            <Progress
+              value={Math.min(consumedPercent, 100)}
+              className={cn(
+                "h-4 flex-1",
+                isOverBudget ? "[&>div]:bg-destructive" : consumedPercent > 80 ? "[&>div]:bg-warning" : "",
+              )}
+            />
+            <span
+              className={cn(
+                "text-lg font-bold font-mono min-w-[60px] text-right",
+                isOverBudget ? "text-destructive" : consumedPercent > 80 ? "text-warning" : "text-foreground",
+              )}
+            >
+              {consumedPercent}%
+            </span>
+          </div>
+          <div className="flex justify-between text-xs text-muted-foreground mt-2">
+            <span>
+              {Math.round(budget.actual_hours)}
+              {t("dashboard.encargo.units.hours")} {t("dashboard.encargo.used")}
+            </span>
+            <span>
+              {Math.round(budget.budget_hours)}
+              {t("dashboard.encargo.units.hours")} {t("dashboard.encargo.budgeted")}
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Desglose Categoría->Actividad (2/3) + Equipo/Staffing (1/3 cada bloque, misma col) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="bg-card/80 backdrop-blur-sm border-border">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-medium">{t("dashboard.encargo.categoryActivity.title")}</CardTitle>
+            <Button variant="outline" size="sm" className="text-xs h-7 gap-1 shrink-0" onClick={onViewHoursDetail}>
+              <Users className="h-3 w-3" />
+              {t("dashboard.encargo.viewHoursDetail")}
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            {groupedBreakdown.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="text-xs">{t("category.name")}</TableHead>
+                    <TableHead className="text-xs text-right">{t("dashboard.encargo.budget")}</TableHead>
+                    <TableHead className="text-xs text-right">{t("dashboard.encargo.actual")}</TableHead>
+                    <TableHead className="text-xs text-right">{t("dashboard.encargo.variance")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {groupedBreakdown.map((group) => (
+                    <Fragment key={group.category_id ?? "none"}>
+                      <TableRow className="text-sm font-medium">
+                        <TableCell className="py-2">{group.category_name ?? "—"}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{Math.round(group.budget_hours)}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{Math.round(group.actual_hours)}</TableCell>
+                        <TableCell
+                          className={cn(
+                            "py-2 text-right font-mono",
+                            group.variance_hours >= 0 ? "text-success" : "text-destructive",
+                          )}
+                        >
+                          {group.variance_hours >= 0 ? "+" : ""}
+                          {Math.round(group.variance_hours)}
+                        </TableCell>
+                      </TableRow>
+                      {group.activities.map((activity) => (
+                        <TableRow key={activity.activity_id} className="text-sm text-muted-foreground">
+                          <TableCell className="py-1.5 pl-6">{activity.activity_description ?? activity.activity_code}</TableCell>
+                          <TableCell className="py-1.5 text-right font-mono">{Math.round(activity.budget_hours)}</TableCell>
+                          <TableCell className="py-1.5 text-right font-mono">{Math.round(activity.actual_hours)}</TableCell>
+                          <TableCell
+                            className={cn(
+                              "py-1.5 text-right font-mono",
+                              activity.variance_hours >= 0 ? "text-success" : "text-destructive",
+                            )}
+                          >
+                            {activity.variance_hours >= 0 ? "+" : ""}
+                            {Math.round(activity.variance_hours)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-center text-muted-foreground py-8 text-sm">{t("dashboard.encargo.noData")}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          <Card className="bg-card/80 backdrop-blur-sm border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium">{t("dashboard.encargo.team.title")}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              {teamRows.map(({ role, member }) => (
+                <div key={role} className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">{t(TEAM_LABEL_KEY[role])}</span>
+                  <span className="font-medium truncate">{member?.display_name ?? "—"}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card/80 backdrop-blur-sm border-border">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm font-medium">{t("dashboard.encargo.staffing.title")}</CardTitle>
+              <Button variant="outline" size="sm" className="text-xs h-7 gap-1 shrink-0" onClick={onViewOtherWeeks}>
+                <Users className="h-3 w-3" />
+                {t("dashboard.encargo.staffing.otherWeeks")}
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {staffingRows.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="text-xs">{t("dashboard.encargo.hoursDetail.staffName")}</TableHead>
+                      <TableHead className="text-xs text-right">{t("dashboard.encargo.staffing.loaded")}</TableHead>
+                      <TableHead className="text-xs text-right">{t("dashboard.encargo.staffing.utilized")}</TableHead>
+                      <TableHead className="text-xs text-right">{t("dashboard.encargo.staffing.assigned")}</TableHead>
+                      <TableHead className="text-xs text-center" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {staffingRows.map((row) => (
+                      <TableRow key={row.staff_id} className="text-sm">
+                        <TableCell className="py-2">{row.display_name}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{Math.round(row.logged_hours)}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{Math.round(row.used_hours)}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{Math.round(row.assigned_hours)}</TableCell>
+                        <TableCell className="py-2 text-center">
+                          {row.zero_week_alert && (
+                            <AlertTriangle
+                              className="h-3.5 w-3.5 text-warning inline-block"
+                              aria-label={t("dashboard.encargo.staffing.zeroWeekAlert")}
+                            />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <p className="text-center text-muted-foreground py-8 text-sm">{t("dashboard.encargo.staffing.noRows")}</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Gastos (2/3) + Cola de Aprobación por persona (1/3) -- corrección post-ejecución #2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="bg-card/80 backdrop-blur-sm border-border lg:col-span-2">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Receipt className="h-4 w-4" />
+            {t("dashboard.encargo.expenses.title")}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">{t("dashboard.encargo.expenses.amountsInBob")}</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <div className="flex items-center gap-4">
+              <Progress value={Math.min(expensesPercent, 100)} className={expensesPercent > 100 ? "[&>div]:bg-destructive" : undefined} />
+              <span className="text-sm font-mono min-w-[48px] text-right">{expensesPercent}%</span>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground mt-2">
+              <span>
+                {t("dashboard.encargo.expenses.executed")}: {Math.round(expenses.executed_bob)}
+              </span>
+              <span>
+                {t("dashboard.encargo.expenses.budgeted")}: {Math.round(expenses.budget_bob)}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="font-medium mb-2">{t("dashboard.encargo.expenses.approvedRecent")}</p>
+              {expenses.approved.length === 0 ? (
+                <p className="text-muted-foreground text-xs">{t("dashboard.encargo.expenses.empty")}</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {expenses.approved.map((item) => (
+                    <li key={item.fre_id} className="flex justify-between gap-2 text-xs">
+                      <span className="truncate">{item.description ?? formatShortDate(item.expense_date, locale)}</span>
+                      <span className="font-mono shrink-0">{Math.round(item.amount_bob)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="font-medium mb-2">{t("dashboard.encargo.expenses.requests")}</p>
+              {expenses.requests.length === 0 ? (
+                <p className="text-muted-foreground text-xs">{t("dashboard.encargo.expenses.empty")}</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {expenses.requests.map((item) => (
+                    <li key={item.fr_wo_id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">{item.request_number ?? formatShortDate(item.submitted_at, locale)}</span>
+                      <Badge variant={REQUEST_STATUS_VARIANT[item.display_status]} className="text-[10px] shrink-0">
+                        {t(REQUEST_STATUS_KEY[item.display_status])}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="font-medium mb-2">{t("dashboard.encargo.expenses.pendingExpenses")}</p>
+              {expenses.pending.length === 0 ? (
+                <p className="text-muted-foreground text-xs">{t("dashboard.encargo.expenses.empty")}</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {expenses.pending.map((item) => (
+                    <li key={item.fre_id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">{item.description ?? formatShortDate(item.expense_date, locale)}</span>
+                      <Badge variant="secondary" className="text-[10px] shrink-0">
+                        {expenseStatusLabel(item.status)}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card/80 backdrop-blur-sm border-border lg:col-span-1">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            {t("dashboard.encargo.approvalQueue.title")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {approval_queue.items.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8 text-xs">{t("dashboard.encargo.approvalQueue.empty")}</p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("dashboard.encargo.approvalQueue.summary", {
+                  hours: Math.round(approval_queue.total_hours),
+                  people: approval_queue.distinct_people,
+                })}
+              </p>
+              {approvalItemsShown.map((item) => {
+                const severity = approvalQueueSeverity(item.weeks_old, alertWeeks, item.alert);
+                return (
+                  <div key={item.staff_id} className="flex items-center justify-between p-2 rounded-md bg-muted/30">
+                    <div className="text-xs font-medium truncate min-w-0">
+                      {item.staff_name} · {Math.round(item.hours)}{t("dashboard.encargo.units.hours")}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {severity !== "ok" && (
+                        <AlertTriangle
+                          className={cn("h-3 w-3", severity === "critical" ? "text-destructive" : "text-warning")}
+                          aria-hidden
+                        />
+                      )}
+                      <Badge
+                        variant={severity === "critical" ? "destructive" : "secondary"}
+                        className="text-[10px]"
+                        aria-label={severity === "critical" ? t("dashboard.encargo.approvalQueue.critical") : undefined}
+                      >
+                        {t("dashboard.encargo.approvalQueue.weeks", { count: item.weeks_old })}
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+              {approvalRemaining > 0 && (
+                <p className="text-[10px] text-muted-foreground text-center">
+                  {t("dashboard.encargo.approvalQueue.more", { count: approvalRemaining })}
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+      </div>
+    </>
   );
 }
