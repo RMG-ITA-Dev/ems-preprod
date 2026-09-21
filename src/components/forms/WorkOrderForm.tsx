@@ -664,7 +664,13 @@ export function WorkOrderForm({
   // —o una aprobada y la otra rechazada— no hay pendiente => no se muestra (se corrige
   // en sitio). El guard !isDraft evita mostrarlo en una OT nueva en borrador.
   const socioPending = isPending && !socioApproved;
-  const riskPending = !isDraft && (riskStatus === "Pending" || !riskStatus);
+  // Administrativa no tiene pista de Riesgos real (risk_status queda fijo en 'Pending' como
+  // sentinela de "no aplica", nunca se aprueba/rechaza) — riskPending debe ser siempre false para
+  // que "Retirar de Aprobación" no reaparezca sobre una OT ya cerrada por la firma del Socio. El
+  // trigger administrativo solo auto-cierra en la transición null→no-null de approved_at, así que
+  // un "Retirar" + reenvío posterior dejaría la OT varada en Pending_Approval sin forma de volver
+  // a Approved.
+  const riskPending = !isAdministrative && !isDraft && (riskStatus === "Pending" || !riskStatus);
   const showWithdraw = !!onUnsubmit && (socioPending || riskPending);
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────

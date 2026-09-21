@@ -826,6 +826,8 @@
     "requiredOficina": "Office is required",
     "requiredPractica": "Practice is required",
     "requiredFuncion": "Function is required",
+    "requiredPartner": "Partner/Director is required",
+    "requiredManager": "Manager/Supervisor is required",
     "society": "Society",
     "selectSociety": "Select society",
     "requiredSociety": "Society is required",

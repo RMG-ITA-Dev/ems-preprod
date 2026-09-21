@@ -261,44 +261,65 @@ COMMENT ON FUNCTION public.enforce_administrative_work_order_rules() IS
 
 CREATE OR REPLACE FUNCTION public.list_administrative_engagements()
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path TO public
 AS $$
-  SELECT COALESCE(
-    jsonb_agg(
-      jsonb_build_object(
-        'engagement_id', e.engagement_id,
-        'engagement_code', e.engagement_code,
-        'engagement_name', e.engagement_name,
-        'funcion', e.funcion,
-        'society_id', e.society_id,
-        'society_name', s.name,
-        'client_id', e.client_id,
-        'client_name', c.client_legal_name,
-        'oficina', e.oficina,
-        'practica', e.practica,
-        'practica_name', p.name,
-        'anio_fiscal', e.anio_fiscal,
-        'start_date', e.start_date,
-        'end_date', e.end_date,
-        'status', e.status
+DECLARE
+  v_can_see_history boolean;
+  v_current_fiscal_year int;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN '[]'::jsonb;
+  END IF;
+
+  v_can_see_history := public.has_permission('engagement.create');
+
+  -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
+  -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
+  -- fiscal del año calendario siguiente.
+  v_current_fiscal_year := CASE
+    WHEN EXTRACT(MONTH FROM now()) >= 10 THEN EXTRACT(YEAR FROM now())::int + 1
+    ELSE EXTRACT(YEAR FROM now())::int
+  END;
+
+  RETURN COALESCE(
+    (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'engagement_id', e.engagement_id,
+          'engagement_code', e.engagement_code,
+          'engagement_name', e.engagement_name,
+          'funcion', e.funcion,
+          'society_id', e.society_id,
+          'society_name', s.name,
+          'client_id', e.client_id,
+          'client_name', c.client_legal_name,
+          'oficina', e.oficina,
+          'practica', e.practica,
+          'practica_name', p.name,
+          'anio_fiscal', e.anio_fiscal,
+          'start_date', e.start_date,
+          'end_date', e.end_date,
+          'status', e.status
+        )
+        ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
       )
-      ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
+        FROM public.engagements e
+        JOIN public.clients c ON c.client_id = e.client_id
+        JOIN public.society s ON s.society_id = e.society_id
+        LEFT JOIN public.practicas p ON p.code = e.practica
+       WHERE e.funcion <> 1
+         AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
     ),
     '[]'::jsonb
-  )
-    FROM public.engagements e
-    JOIN public.clients c ON c.client_id = e.client_id
-    JOIN public.society s ON s.society_id = e.society_id
-    LEFT JOIN public.practicas p ON p.code = e.practica
-   WHERE auth.uid() IS NOT NULL
-     AND e.funcion <> 1;
+  );
+END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad para todo usuario autenticado; no concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;

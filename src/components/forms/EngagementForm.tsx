@@ -882,7 +882,9 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     }
     setContractError(null);
 
-    if (!isEdit) {
+    // Socio y Gerente son obligatorios tanto en creación como en edición: de ellos
+    // depende el ruteo de aprobaciones y notificaciones (0722-160 review fix).
+    {
       let missingTeamRole = false;
       if (!data.partner_id) {
         form.setError("partner_id", { message: t("engagement.requiredPartner") });
