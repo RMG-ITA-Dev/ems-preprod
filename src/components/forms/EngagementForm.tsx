@@ -515,6 +515,10 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   const selectedFuncion = form.watch("funcion");
   const selectedClientId = form.watch("client_id");
   const isAdministrativeFunction = selectedFuncion != null && selectedFuncion !== FUNCION_CLIENTE;
+  const administrativeSocietyIdByNit = useMemo<Record<string, string | undefined>>(() => ({
+    "1006979026": societyOptions.find((society) => society.name === "Ruizmier Pelaez S.R.L.")?.society_id,
+    "184046021": societyOptions.find((society) => society.name === "Ruizmier Jauregui S.R.L.")?.society_id,
+  }), [societyOptions]);
   const administrativeClientOptions = useMemo(
     () => {
       // Sourced from the narrow list_administrative_internal_clients() RPC, not clientOptions:
@@ -522,7 +526,16 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       // on the full `clients` table) is empty for them and they'd never be able to select the
       // required internal client. The RPC only ever returns the two controlled clients, gated on
       // engagement.create instead.
-      const controlledClients = administrativeInternalClients ?? [];
+      const allInternalClients = administrativeInternalClients ?? [];
+      // Review fix (Codex): enforce_engagement_profile_scope() pins a NEW engagement's
+      // society_id to the creator's own staff.society_id for every non-admin/senior_partner
+      // role. Offering both internal clients (and therefore both societies) to a creator who
+      // can only ever save one of them lets the enabled selector offer a choice that always
+      // fails at submit with a generic FORBIDDEN. Admin/senior_partner already choose society
+      // freely everywhere else in this form, so they keep both.
+      const controlledClients = (!isEdit && !canChooseProfileScopeFreely && derivedSocietyId)
+        ? allInternalClients.filter((client) => administrativeSocietyIdByNit[client.unique_tax_id] === derivedSocietyId)
+        : allInternalClients;
       // Historical administrative engagements remain editable. Their existing client
       // stays visible, but the selector offers only the controlled internal clients
       // for any new choice; the database trigger enforces that transition.
@@ -533,15 +546,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
         ? [...controlledClients, historicalClient]
         : controlledClients;
     },
-    [administrativeInternalClients, clientOptions, isEdit, selectedClientId]
+    [administrativeInternalClients, administrativeSocietyIdByNit, canChooseProfileScopeFreely, clientOptions, derivedSocietyId, isEdit, selectedClientId]
   );
-  const administrativeSocietyIdByClientId = useMemo(() => {
-    const societyIdByNit: Record<string, string | undefined> = {
-      "1006979026": societyOptions.find((society) => society.name === "Ruizmier Pelaez S.R.L.")?.society_id,
-      "184046021": societyOptions.find((society) => society.name === "Ruizmier Jauregui S.R.L.")?.society_id,
-    };
-    return new Map(administrativeClientOptions.map((client) => [client.client_id, societyIdByNit[client.unique_tax_id]]));
-  }, [administrativeClientOptions, societyOptions]);
+  const administrativeSocietyIdByClientId = useMemo(
+    () => new Map(administrativeClientOptions.map((client) => [client.client_id, administrativeSocietyIdByNit[client.unique_tax_id]])),
+    [administrativeClientOptions, administrativeSocietyIdByNit]
+  );
   // La sociedad se deriva del cliente administrativo elegido. No se filtra la
   // lista por la sociedad actual: hacerlo deja visible solamente el cliente ya
   // seleccionado e impide cambiar a la otra sociedad.

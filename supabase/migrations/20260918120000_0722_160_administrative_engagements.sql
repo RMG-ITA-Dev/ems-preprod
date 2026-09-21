@@ -16,8 +16,31 @@ BEGIN
     SET is_active = true;
 
   -- Corrección de la primera versión de 0722-160: "Juaregui" fue un error
-  -- ortográfico. Se conserva la fila antigua para no romper referencias,
-  -- pero deja de ser elegible en catálogos activos.
+  -- ortográfico. Se conserva la fila antigua (no se borra: staff/engagements
+  -- podrían referenciarla y la FK es ON DELETE RESTRICT), pero deja de ser
+  -- elegible en catálogos activos.
+  --
+  -- Review fix (Codex): desactivar sin repuntar dejaba varado a cualquier staff cuya ficha
+  -- ya apuntara al UUID viejo -- enforce_engagement_profile_scope() exige NEW.society_id =
+  -- staff.society_id EXACTO (por UUID), mientras enforce_administrative_engagement_rules()
+  -- exige que ese society_id resuelva (por NOMBRE) a 'Ruizmier Jauregui S.R.L.' canónico. Un
+  -- creador con la ficha en el UUID viejo no podía satisfacer ambos triggers a la vez -> no
+  -- podía crear NINGÚN encargo administrativo de esa sociedad. Se repuntan las dos únicas FKs
+  -- reales (staff.society_id, engagements.society_id) al UUID canónico antes de desactivar.
+  UPDATE public.staff st
+     SET society_id = canonical.society_id
+    FROM public.society legacy
+    JOIN public.society canonical ON canonical.name = 'Ruizmier Jauregui S.R.L.'
+   WHERE legacy.name = 'Ruizmier Juaregui S.R.L.'
+     AND st.society_id = legacy.society_id;
+
+  UPDATE public.engagements e
+     SET society_id = canonical.society_id
+    FROM public.society legacy
+    JOIN public.society canonical ON canonical.name = 'Ruizmier Jauregui S.R.L.'
+   WHERE legacy.name = 'Ruizmier Juaregui S.R.L.'
+     AND e.society_id = legacy.society_id;
+
   UPDATE public.society
      SET is_active = false
    WHERE name = 'Ruizmier Juaregui S.R.L.'
@@ -30,6 +53,9 @@ BEGIN
   -- El mirror conserva un cliente histórico con el NIT correcto y el sufijo
   -- "ADMIN". Se conserva su id (y por tanto sus relaciones) y se normaliza al
   -- nombre oficial de su sociedad antes de validar/sembrar el catálogo.
+  -- Review fix (Greptile): reactivar (is_active=true) es una condición del SET, no del WHERE —
+  -- si el nombre ya coincidía pero la fila estaba inactiva, el WHERE original (solo por nombre)
+  -- la dejaba afuera y list_administrative_internal_clients() nunca la habría reactivado.
   UPDATE public.clients c
      SET client_legal_name = s.name,
          is_active = true
@@ -39,7 +65,7 @@ BEGIN
     ) AS v(society_name, nit)
     JOIN public.society s ON s.name = v.society_name
    WHERE c.unique_tax_id = v.nit
-     AND lower(trim(c.client_legal_name)) <> lower(trim(s.name));
+     AND (lower(trim(c.client_legal_name)) <> lower(trim(s.name)) OR c.is_active = false);
 
   INSERT INTO public.clients (client_legal_name, unique_tax_id, is_active)
   SELECT s.name, v.nit, true
@@ -354,11 +380,12 @@ AS $$
   )
     FROM public.clients c
    WHERE c.unique_tax_id IN ('1006979026', '184046021')
+     AND c.is_active
      AND public.has_permission('engagement.create');
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_internal_clients() IS
-  '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados.';
+  '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT -- defensa en profundidad, independiente de que el DO block de arriba ya deba haber reactivado ambas filas canonicas.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_internal_clients() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_internal_clients() TO authenticated;
@@ -401,3 +428,39 @@ CREATE TRIGGER trg_enforce_administrative_no_payment_plan
   BEFORE INSERT OR UPDATE ON public.wo_payment_plan
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_administrative_no_payment_plan();
+
+-- Review fix (Codex): el guard de arriba solo cubre wo_payment_plan. wo_payment_installments
+-- tiene su propia columna wo_id (denormalizada) y su propio RPC de escritura
+-- (sync_wo_payment_installments, SECURITY DEFINER) -- ninguno de los dos pasa por
+-- wo_payment_plan, asi que un plan administrativo que ya existiera antes de este fix (o una
+-- llamada directa) podia seguir recibiendo cuotas. Guard simetrico sobre la tabla de cuotas.
+CREATE OR REPLACE FUNCTION public.enforce_administrative_no_payment_installments()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_funcion smallint;
+BEGIN
+  SELECT e.funcion INTO v_funcion
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = NEW.wo_id;
+
+  IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
+    RAISE EXCEPTION '0722-160: las OTs administrativas no facturan; no admiten cuotas de plan de pagos';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.enforce_administrative_no_payment_installments() IS
+  '0722-160: defensa en profundidad, simetrica a enforce_administrative_no_payment_plan pero sobre wo_payment_installments -- cierra el camino de sync_wo_payment_installments() y de un plan administrativo preexistente al que ya no se le pueden agregar cuotas nuevas.';
+
+DROP TRIGGER IF EXISTS trg_enforce_administrative_no_payment_installments ON public.wo_payment_installments;
+CREATE TRIGGER trg_enforce_administrative_no_payment_installments
+  BEFORE INSERT OR UPDATE ON public.wo_payment_installments
+  FOR EACH ROW
+  EXECUTE FUNCTION public.enforce_administrative_no_payment_installments();
