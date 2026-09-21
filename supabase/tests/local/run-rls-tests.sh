@@ -218,6 +218,14 @@ run supabase/migrations/20260910100000_0722-156b_revoke_wo_create_partner_senior
 # por rpc-dash-socio-partner-overview.sql.
 run supabase/migrations/20260915130000_dash_socio_partner_overview.sql
 
+# dash_cartera: rediseño de la pestaña Cartera -- tabla portfolio_events (bitácora
+# append-only de partner_id/manager_id, sin backfill), trigger log_engagement_assignment_
+# change() y el RPC portfolio_overview() (5 KPI + 5 filas de bloques, un round-trip).
+# Dependencia dura: usa effective_engagement_state()/latest_exchange_rate() de la migración
+# dash_socio de arriba -- por eso corre inmediatamente después. Ejercitado por
+# rpc-dash-cartera-portfolio-overview.sql.
+run supabase/migrations/20260917160000_dash_cartera_portfolio_overview.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -262,5 +270,6 @@ assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC 
 assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b y dash_socio aplicadas sobre base scratch; las 17 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio y dash_cartera aplicadas sobre base scratch; las 18 suites de RLS/RPC/schema-convergence/trigger pasaron"

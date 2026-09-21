@@ -172,6 +172,16 @@ export interface PartnerOverviewAlerts {
   draft_worksheets: number;
 }
 
+/** Fila resumen "Encargos finalizados" (pedido del operador 2026-09-19): extiende
+ * kpis.engagements.finalized_in_period con presupuesto/ejecutado/honorarios pagados.
+ * budget_hours/executed_hours son de vida completa del encargo (desempeño final). */
+export interface PartnerFinalizedSummary {
+  count: number;
+  budget_hours: number;
+  executed_hours: number;
+  collected_bob: number;
+}
+
 export interface PartnerOverviewPayload {
   meta: PartnerOverviewMeta;
   filters: PartnerOverviewFilterOption;
@@ -183,6 +193,7 @@ export interface PartnerOverviewPayload {
   managers: PartnerOverviewManager[];
   top_clients: PartnerOverviewTopClient[];
   alerts: PartnerOverviewAlerts;
+  finalized_summary: PartnerFinalizedSummary;
 }
 
 export interface PartnerOverviewEngagementsPage {
@@ -270,5 +281,6 @@ export function emptyPartnerOverviewPayload(): PartnerOverviewPayload {
       risk_pending: 0,
       draft_worksheets: 0,
     },
+    finalized_summary: { count: 0, budget_hours: 0, executed_hours: 0, collected_bob: 0 },
   };
 }

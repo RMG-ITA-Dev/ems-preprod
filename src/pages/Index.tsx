@@ -17,6 +17,11 @@ const PracticaTab = lazy(() =>
 const CarteraTab = lazy(() =>
   import("@/components/dashboard/tabs/CarteraTab").then((m) => ({ default: m.CarteraTab }))
 );
+// dash_cartera: filtro Cliente, exclusivo de la pestaña Cartera (mismo patrón que
+// PartnerFilters/PartnerTab.tsx).
+const CarteraFilters = lazy(() =>
+  import("@/components/dashboard/tabs/CarteraTab").then((m) => ({ default: m.CarteraFilters }))
+);
 const EncargoTab = lazy(() =>
   import("@/components/dashboard/tabs/EncargoTab").then((m) => ({ default: m.EncargoTab }))
 );
@@ -107,6 +112,13 @@ function DashboardContent() {
           {activeTab === 'socio' && (
             <Suspense fallback={null}>
               <PartnerFilters />
+            </Suspense>
+          )}
+          {/* dash_cartera: filtro Cliente, exclusivo de la pestaña Cartera (decisiones.md
+              §7.4 layout). Solo se monta cuando la pestaña está activa. */}
+          {activeTab === 'cartera' && (
+            <Suspense fallback={null}>
+              <CarteraFilters />
             </Suspense>
           )}
         </div>

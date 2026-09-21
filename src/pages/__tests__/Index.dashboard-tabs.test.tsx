@@ -35,6 +35,12 @@ vi.mock("@/contexts/DashboardContext", () => ({
     setSelectedIndustryId: vi.fn(),
     selectedSocietyId: null,
     setSelectedSocietyId: vi.fn(),
+    // dash_cartera: filtro Cliente exclusivo de Cartera, estado propio (no el de Socio).
+    selectedCarteraClientId: null,
+    setSelectedCarteraClientId: vi.fn(),
+    // dash_cartera (2026-09-19): filtro de Práctica, solo admin/senior_partner.
+    selectedCarteraPracticaId: null,
+    setSelectedCarteraPracticaId: vi.fn(),
   }),
 }));
 
@@ -58,6 +64,7 @@ vi.mock("@/components/dashboard/tabs/PracticaTab", () => ({
 }));
 vi.mock("@/components/dashboard/tabs/CarteraTab", () => ({
   CarteraTab: () => <div data-testid="cartera-tab" />,
+  CarteraFilters: () => null,
 }));
 vi.mock("@/components/dashboard/tabs/EncargoTab", () => ({
   EncargoTab: () => <div data-testid="encargo-tab" />,

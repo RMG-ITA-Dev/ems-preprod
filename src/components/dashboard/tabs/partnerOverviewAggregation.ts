@@ -327,5 +327,11 @@ export function toViewModel(payload: PartnerOverviewPayload | null | undefined):
       draft_worksheets: n(payload.alerts?.draft_worksheets),
     },
     filters: payload.filters ?? { clients: [], managers: [], industries: [], societies: [] },
+    finalized_summary: {
+      count: n(payload.finalized_summary?.count),
+      budget_hours: n(payload.finalized_summary?.budget_hours),
+      executed_hours: n(payload.finalized_summary?.executed_hours),
+      collected_bob: n(payload.finalized_summary?.collected_bob),
+    },
   };
 }

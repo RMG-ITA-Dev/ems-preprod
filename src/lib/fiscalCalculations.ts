@@ -35,10 +35,15 @@ export function getCalendarYearPeriod(year: number, quarter?: QuarterType): Fisc
   }
   
   if (quarter === 'ytd') {
+    // Bug reportado 2026-09-18: con getAvailableYears() habilitando el año siguiente
+    // (todavía no arrancado), "today" cae ANTES de yearStart -- sin este clamp, endDate <
+    // startDate y el backend responde INVALID_RANGE. Un año futuro que no arrancó tiene
+    // YTD vacío por definición, no un rango invertido.
     const today = new Date();
+    const endDate = today < yearStart ? yearStart : today;
     return {
       startDate: yearStart,
-      endDate: today,
+      endDate,
       label: `YTD ${year}`,
       type: 'calendar',
       year,
@@ -80,10 +85,13 @@ export function getFiscalYearPeriod(fiscalYear: number, quarter?: QuarterType): 
   }
   
   if (quarter === 'ytd') {
+    // Mismo clamp que getCalendarYearPeriod (ver comentario ahí): un año fiscal futuro que
+    // todavía no arrancó tiene YTD vacío, no un rango invertido (endDate < startDate).
     const today = new Date();
+    const endDate = today < yearStart ? yearStart : today;
     return {
       startDate: yearStart,
-      endDate: today,
+      endDate,
       label: `${fiscalYear} YTD`,
       type: 'tax_bolivia',
       year: fiscalYear,
@@ -131,17 +139,21 @@ export function formatFiscalYear(year: number): string {
 }
 
 /**
- * Get available years for selection (current fiscal year + 2 previous)
+ * Get available years for selection (current fiscal year, 2 previous, and the next one).
+ * Decisión del operador 2026-09-18 (dash_cartera bug-fixing): un encargo puede tener
+ * fecha_cierre / anio_fiscal en el ejercicio que todavía no arrancó (p.ej. creado en
+ * septiembre para un cierre de octubre) -- sin el año siguiente, era imposible seleccionarlo
+ * en ningún selector de periodo del dashboard hasta que rodara el calendario.
  */
 export function getAvailableYears(): number[] {
   const today = new Date();
   const currentMonth = today.getMonth();
   // Fiscal year runs Oct-Sep, so October or later means next fiscal year
-  const currentFiscalYear = currentMonth >= FISCAL_YEAR_START_MONTH 
-    ? today.getFullYear() + 1 
+  const currentFiscalYear = currentMonth >= FISCAL_YEAR_START_MONTH
+    ? today.getFullYear() + 1
     : today.getFullYear();
-  
-  return [currentFiscalYear - 2, currentFiscalYear - 1, currentFiscalYear];
+
+  return [currentFiscalYear - 2, currentFiscalYear - 1, currentFiscalYear, currentFiscalYear + 1];
 }
 
 /**

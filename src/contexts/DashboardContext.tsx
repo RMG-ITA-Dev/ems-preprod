@@ -45,6 +45,16 @@ interface DashboardContextType {
   // (los demás roles ya están acotados a su propia sociedad o a sus encargos).
   selectedSocietyId: string | null;
   setSelectedSocietyId: (id: string | null) => void;
+
+  // dash_cartera: filtro Cliente exclusivo de Cartera; estado propio (no el de Socio) para
+  // que elegir un cliente en una pestaña no filtre la otra.
+  selectedCarteraClientId: string | null;
+  setSelectedCarteraClientId: (id: string | null) => void;
+  // dash_cartera (2026-09-19): filtro de Práctica, solo visible para admin/senior_partner
+  // (scope_kind='firm') -- soluciona nombres de categoría/actividad duplicados al mezclar
+  // varias prácticas. Post-alcance (como Cliente), NO es un cambio de autorización.
+  selectedCarteraPracticaId: string | null;
+  setSelectedCarteraPracticaId: (id: string | null) => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -79,6 +89,11 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedIndustryId, setSelectedIndustryId] = useState<string | null>(null);
   const [selectedSocietyId, setSelectedSocietyId] = useState<string | null>(null);
+
+  // dash_cartera: filtro Cliente exclusivo de Cartera -- estado propio (no el de Socio) para
+  // que elegir un cliente en una pestaña no filtre la otra.
+  const [selectedCarteraClientId, setSelectedCarteraClientId] = useState<string | null>(null);
+  const [selectedCarteraPracticaId, setSelectedCarteraPracticaId] = useState<string | null>(null);
 
   // Calculate current period based on selections
   const period = useMemo<FiscalPeriod>(() => {
@@ -134,6 +149,10 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
     setSelectedIndustryId,
     selectedSocietyId,
     setSelectedSocietyId,
+    selectedCarteraClientId,
+    setSelectedCarteraClientId,
+    selectedCarteraPracticaId,
+    setSelectedCarteraPracticaId,
   }), [
     period,
     periodType,
@@ -149,6 +168,8 @@ export function DashboardProvider({ children, defaultTab = 'personal' }: Dashboa
     selectedClientId,
     selectedIndustryId,
     selectedSocietyId,
+    selectedCarteraClientId,
+    selectedCarteraPracticaId,
   ]);
   
   return (

@@ -1325,6 +1325,40 @@ export function PartnerTab() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Fila resumen "Encargos finalizados" (pedido del operador 2026-09-19) */}
+          <Card>
+            <CardContent className="py-4">
+              {vm.finalized_summary.count === 0 ? (
+                <p className="text-xs text-muted-foreground text-center">
+                  {t("dashboard.socio.blocks.finalizedSummary.empty")}
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-4 text-xs">
+                  <span className="font-medium text-muted-foreground">
+                    {t("dashboard.socio.blocks.finalizedSummary.title")}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-6">
+                    <span>
+                      {t("dashboard.socio.blocks.finalizedSummary.count", { count: vm.finalized_summary.count })}
+                    </span>
+                    <span>
+                      {vm.finalized_summary.budget_hours > 0
+                        ? t("dashboard.socio.blocks.finalizedSummary.compliance", {
+                            pct: Math.round((vm.finalized_summary.executed_hours / vm.finalized_summary.budget_hours) * 100),
+                          })
+                        : t("dashboard.socio.blocks.finalizedSummary.noBudget")}
+                    </span>
+                    <span>
+                      {t("dashboard.socio.blocks.finalizedSummary.collected", {
+                        amount: formatBsCompact(vm.finalized_summary.collected_bob),
+                      })}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

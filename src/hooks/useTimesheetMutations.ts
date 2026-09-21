@@ -238,6 +238,9 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva (plan_v2.md §5.4, R6).
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "cartera"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       // BUG 0526-122: the holiday-engagement line now validates dynamically per date
@@ -313,6 +316,9 @@ export function useUnsubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva (plan_v2.md §5.4, R6).
+      queryClient.invalidateQueries({ queryKey: ["dashboard", "cartera"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(i18n.t("timesheet.unsubmitted"));

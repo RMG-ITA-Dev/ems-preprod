@@ -1070,19 +1070,161 @@
       }
     },
     "cartera": {
-      "activeEngagements": "Encargos Activos",
       "totalFees": "Honorarios Totales",
-      "totalHours": "Horas Totales",
-      "portfolioUtilization": "Utilización de Cartera",
-      "profitabilityTable": "Tabla de Rentabilidad",
       "engagement": "Encargo",
       "client": "Cliente",
       "consumption": "Consumo",
-      "topRisks": "Principales Riesgos",
-      "noRisks": "Sin encargos en riesgo",
       "approvalQueue": "Cola de Aprobaciones",
       "noApprovals": "Sin aprobaciones pendientes",
-      "noEngagements": "No hay encargos en tu cartera"
+      "noEngagements": "No hay encargos en tu cartera",
+      "scope": {
+        "firm": "Toda la firma",
+        "own": "Mis encargos (como socio o gerente)"
+      },
+      "filters": {
+        "client": "Cliente",
+        "clientGlobal": "Global",
+        "practica": "Práctica",
+        "practicaGlobal": "Todas"
+      },
+      "updating": "Actualizando datos…",
+      "empty": {
+        "scope": "No hay encargos en el alcance de tu cartera.",
+        "filters": "Ningún encargo coincide con el cliente seleccionado."
+      },
+      "fullFiscalYear": "año fiscal completo",
+      "kpi": {
+        "engagements": {
+          "title": "Encargos",
+          "breakdown": "{{approved}} aprobados · {{emergency}} emergencia"
+        },
+        "clientsServices": {
+          "title": "Clientes / Servicios",
+          "value": "{{clients}} · {{services}}",
+          "vsPriorYear": "{{pct}}% vs año anterior",
+          "noPriorYear": "sin datos del año anterior"
+        },
+        "roleHours": {
+          "title": "Horas como {{role}}",
+          "titleGeneric": "Mis horas en la cartera"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "progress": {
+          "title": "Avance de cartera",
+          "subtitle": "{{logged}} / {{budget}} h · toda mi cartera · año fiscal completo"
+        },
+        "review": {
+          "title": "Revisión",
+          "subtitle": "Sobregirados · Por aprobar Socio · Por aprobar Riesgos"
+        }
+      },
+      "blocks": {
+        "activities": {
+          "title": "Cartera de actividades · avance acumulado",
+          "subtitle": "Cada bloque comienza donde terminó la actividad anterior dentro de su propia serie",
+          "practice": "práctica: {{name}}",
+          "total": "TOTAL",
+          "empty": "Sin matriz de trabajo aprobada en la cartera",
+          "footer": "Total: 100% presup. · {{execPct}}% ejec. ({{approvedPct}}% aprob. · {{pendingPct}}% pend.)",
+          "overrun": "{{name}} pasa su presupuesto ({{execPct}}% ejecutado vs {{budgetPct}}% presupuestado)",
+          "tableCaption": "Detalle de horas por actividad"
+        },
+        "categories": {
+          "title": "Horas por categoría",
+          "subtitle": "Comparación desde cero por categoría · % de la cartera presupuestada",
+          "scale": "Escala: {{pct}}% ({{name}}, la categoría mayor) = ancho completo",
+          "total": "TOTAL CARTERA · 100% presupuestado · {{execPct}}% ejecutado",
+          "approvedPct": "{{pct}}% aprobado",
+          "pendingPct": "{{pct}}% pendiente",
+          "uncategorized": "Sin categoría",
+          "empty": "Sin horas presupuestadas ni ejecutadas en el periodo"
+        },
+        "staffing": {
+          "title": "Presupuesto de personal",
+          "subtitle": "Requisitos de Staffing de la OT vs personas distintas que cargaron horas",
+          "columns": {
+            "category": "Categoría",
+            "budgeted": "Presup.",
+            "executed": "Ejec."
+          },
+          "noBudgetNote": "Fila sin presupuesto: categoría con ejecución pero sin requisito de staffing en la OT."
+        },
+        "collections": {
+          "title": "Facturación y cobranza",
+          "baseNote": "base: cuotas (con IVA y gastos)",
+          "avgDays": "{{days}} días promedio de cobro",
+          "collected": "cobradas",
+          "invoiced": "facturadas",
+          "inArrears": "en mora",
+          "upcoming": "por facturar",
+          "next7Days": "Próximos 7 días",
+          "toInvoice": "facturar"
+        },
+        "expenses": {
+          "title": "Gastos de la cartera",
+          "summary": "{{executed}} ejecutado / {{budget}} presupuestado · {{pct}}%",
+          "requests": "{{pending}} solicitudes por aprobar · {{approved}} aprobadas",
+          "top3": "Top 3 · % gastos ejecutados",
+          "noBudgetNote": "Se excluyen los encargos sin presupuesto de gastos."
+        },
+        "approvalQueue": {
+          "summary": "{{hours}} h pendientes · {{people}} personas distintas",
+          "weeks": "{{count}} sem",
+          "week": "Sem {{date}}",
+          "more": "+{{count}} más"
+        },
+        "engagementHours": {
+          "title": "Horas por encargo",
+          "subtitle": "Reacciona al filtro de Cliente · clic para abrir el encargo",
+          "open": "Abrir encargo {{name}}",
+          "columns": {
+            "code": "Código",
+            "hours": "Horas (act. / presup.)",
+            "consumption": "% consumo"
+          },
+          "status": {
+            "onTrack": "En curso",
+            "atRisk": "En riesgo",
+            "overBudget": "Sobregirado"
+          }
+        },
+        "milestones": {
+          "title": "Hitos",
+          "subtitle": "Ventana fija: mes anterior / mes siguiente",
+          "past": "Mes pasado",
+          "upcoming": "Mes que viene",
+          "kind": {
+            "closing": "Cierre: {{code}}",
+            "newEngagement": "Nuevo: {{code}}",
+            "woApproved": "OT aprobada: {{code}}",
+            "riskApproved": "Riesgos aprobado: {{code}}",
+            "assignment": "Ingreso a cartera: {{code}}",
+            "lockDeadline": "Plazo de carga: Sem {{date}}"
+          },
+          "empty": "Sin hitos en la ventana"
+        },
+        "finalizedSummary": {
+          "title": "Encargos finalizados",
+          "count": "{{count}} finalizados",
+          "compliance": "{{pct}}% de cumplimiento",
+          "noBudget": "sin presupuesto",
+          "expenses": "{{amount}} en gastos ejecutados",
+          "empty": "Sin encargos finalizados en el periodo"
+        }
+      },
+      "legend": {
+        "approved": "Ejecutado aprobado",
+        "pending": "Ejecutado pendiente",
+        "budget": "Presupuestado"
+      },
+      "tooltip": {
+        "executed": "Ejecutado",
+        "approved": "Aprobadas",
+        "pending": "Pendientes",
+        "budget": "Presupuesto",
+        "ofPortfolio": "{{pct}}% de la cartera",
+        "cumulative": "Acumulado: {{cum}} h / {{total}} h"
+      }
     },
     "encargo": {
       "selectEngagement": "Seleccionar Encargo",
@@ -1272,6 +1414,14 @@
           "closingSoon": "{{count}} cierres en 30 d",
           "riskPending": "{{count}} riesgos pendientes",
           "draftWorksheets": "{{count}} matrices en borrador sin OT"
+        },
+        "finalizedSummary": {
+          "title": "Encargos finalizados",
+          "count": "{{count}} finalizados",
+          "compliance": "{{pct}}% de cumplimiento",
+          "noBudget": "sin presupuesto",
+          "collected": "{{amount}} en honorarios pagados",
+          "empty": "Sin encargos finalizados en el periodo"
         }
       },
       "tooltip": {

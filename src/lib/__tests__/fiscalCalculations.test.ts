@@ -80,6 +80,13 @@ describe("getCalendarYearPeriod", () => {
       expect(period.endDate.getDate()).toBe(15);
       expect(period.label).toBe("YTD 2024");
     });
+
+    it("clamps endDate to startDate for a year that hasn't started yet (no inverted range)", () => {
+      vi.setSystemTime(new Date(2026, 8, 18)); // Sep 18, 2026 -- before 2027 starts
+      const period = getCalendarYearPeriod(2027, "ytd");
+      expect(period.endDate.getTime()).toBe(period.startDate.getTime());
+      expect(period.startDate.getTime() <= period.endDate.getTime()).toBe(true);
+    });
   });
 });
 
@@ -147,6 +154,17 @@ describe("getFiscalYearPeriod", () => {
       expect(period.endDate.getMonth()).toBe(1); // Feb 2025
       expect(period.endDate.getDate()).toBe(15);
     });
+
+    it("clamps endDate to startDate for a fiscal year that hasn't started yet (no INVALID_RANGE)", () => {
+      // Reproduce exacto del bug reportado 2026-09-18: hoy 18-sep-2026 (todavía FY26,
+      // termina 30-sep-2026), FY27 arranca 01-oct-2026 -- sin el clamp, YTD de FY27 daba
+      // startDate (01-oct-2026) > endDate (hoy), y portfolio_overview() lanzaba
+      // INVALID_RANGE (p_start > p_end).
+      vi.setSystemTime(new Date(2026, 8, 18)); // Sep 18, 2026
+      const period = getFiscalYearPeriod(2027, "ytd");
+      expect(period.endDate.getTime()).toBe(period.startDate.getTime());
+      expect(period.startDate.getTime() <= period.endDate.getTime()).toBe(true);
+    });
   });
 });
 
@@ -199,22 +217,22 @@ describe("getAvailableYears", () => {
     vi.useRealTimers();
   });
 
-  it("returns current fiscal year and 2 previous (before October)", () => {
+  it("returns current fiscal year, 2 previous, and the next one (before October)", () => {
     vi.setSystemTime(new Date(2026, 0, 15)); // January 2026 → FY26
     const years = getAvailableYears();
-    expect(years).toEqual([2024, 2025, 2026]);
+    expect(years).toEqual([2024, 2025, 2026, 2027]);
   });
 
-  it("returns next fiscal year when in October or later", () => {
+  it("returns next fiscal year when in October or later, plus the one after that", () => {
     vi.setSystemTime(new Date(2025, 9, 15)); // October 2025 → FY26
     const years = getAvailableYears();
-    expect(years).toEqual([2024, 2025, 2026]);
+    expect(years).toEqual([2024, 2025, 2026, 2027]);
   });
 
   it("updates correctly for different years", () => {
     vi.setSystemTime(new Date(2027, 5, 1)); // June 2027 → FY27
     const years = getAvailableYears();
-    expect(years).toEqual([2025, 2026, 2027]);
+    expect(years).toEqual([2025, 2026, 2027, 2028]);
   });
 });
 

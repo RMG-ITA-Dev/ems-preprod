@@ -842,6 +842,65 @@ BEGIN
   ),
   finalized_count AS (
     SELECT COUNT(*) AS cnt FROM finalized_scope
+  ),
+
+  -- ── 19b. Fila resumen "Encargos finalizados" (pedido del operador 2026-09-19): extiende
+  -- finalized_scope/finalized_count (arriba, ya usado por kpis.engagements.finalized_in_period)
+  -- con presupuesto/ejecutado/honorarios pagados. budget_hours/executed_hours son de VIDA
+  -- COMPLETA del encargo (desempeño final, no solo lo cargado durante la ventana de
+  -- cierre); collected_bob usa el mismo criterio "Completed" que collections_by_status.
+  finalized_wo_raw AS (
+    SELECT
+      fs.engagement_id, wo.wo_id, wo.currency, wo.season_mode,
+      COALESCE(wo.tax_rate, 0.13) AS tax_rate,
+      COALESCE(wo.adjustment_amount, 0) AS adjustment_amount,
+      COALESCE(bl.fee, 0) AS total_standard_fee,
+      COALESCE(eb.amt, 0) AS expense_budget,
+      p.exchange_rate AS plan_exchange_rate
+    FROM finalized_scope fs
+    JOIN public.work_orders wo ON wo.engagement_id = fs.engagement_id AND wo.approval_status = 'Approved'
+    LEFT JOIN LATERAL (
+      SELECT SUM(bl.budgeted_hours * bl.standard_rate) AS fee
+      FROM public.wo_budget_lines bl WHERE bl.wo_id = wo.wo_id
+    ) bl ON true
+    LEFT JOIN LATERAL (
+      SELECT SUM(eb.budgeted_amount) AS amt
+      FROM public.wo_expense_budget eb WHERE eb.wo_id = wo.wo_id
+    ) eb ON true
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+  ),
+  finalized_wo AS (
+    SELECT
+      fwr.*,
+      (fwr.total_standard_fee + fwr.adjustment_amount) AS fee_net,
+      CASE
+        WHEN fwr.currency = 'BOB' THEN 1
+        WHEN fwr.plan_exchange_rate IS NOT NULL THEN fwr.plan_exchange_rate
+        WHEN fwr.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM finalized_wo_raw fwr
+  ),
+  finalized_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS budget_hours
+    FROM finalized_wo fw
+    JOIN public.wo_budget_lines bl ON bl.wo_id = fw.wo_id
+  ),
+  finalized_hours AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS executed_hours
+    FROM finalized_scope fs
+    JOIN public.time_entries te ON te.engagement_id = fs.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+    WHERE tla.status IS DISTINCT FROM 'rejected'
+  ),
+  finalized_collected AS (
+    SELECT COALESCE(SUM(
+      COALESCE(i.amount, i.percentage * ((fw.fee_net + fw.expense_budget) / NULLIF(1 - fw.tax_rate, 0)) / 100)
+      * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
+    ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
+    FROM finalized_wo fw
+    JOIN public.wo_payment_installments i ON i.wo_id = fw.wo_id
   )
 
   -- ── 20. Ensamblado final ─────────────────────────────────────────────────────────────
@@ -915,6 +974,10 @@ BEGIN
       'pending_wo', wp.pending_wo_count, 'over_budget', oba.cnt, 'in_arrears', (cbs.by_status->'in_arrears'->>'count')::int,
       'overdue_90', ec.overdue_90_count, 'closing_soon', ae.closing_soon, 'risk_pending', ae.risk_pending,
       'draft_worksheets', dwa.cnt
+    ),
+    'finalized_summary', jsonb_build_object(
+      'count', fc.cnt, 'budget_hours', fzb.budget_hours,
+      'executed_hours', fzh.executed_hours, 'collected_bob', fzcol.collected_bob
     )
   )
   FROM caller c
@@ -943,6 +1006,9 @@ BEGIN
   CROSS JOIN top_clients_agg tca
   CROSS JOIN alerts_extra ae
   CROSS JOIN draft_worksheets_agg dwa
+  CROSS JOIN finalized_budget fzb
+  CROSS JOIN finalized_hours fzh
+  CROSS JOIN finalized_collected fzcol
   );
 
   RETURN COALESCE(v_result, '{}'::jsonb);

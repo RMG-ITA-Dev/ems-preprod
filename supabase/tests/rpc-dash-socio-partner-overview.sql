@@ -717,6 +717,25 @@ BEGIN
   RAISE NOTICE 'OK 9: finalized_in_period=1 (E4), total=6 excluye E4';
 END $$;
 
+-- ── 9b. finalized_summary (fila resumen "Encargos finalizados", pedido del operador
+-- 2026-09-19): E4 (override=7, end_date en el periodo) cuenta en finalized_summary.count;
+-- sin OT, así que budget_hours/executed_hours/collected_bob quedan en 0 -- no crashea ────
+DO $$
+DECLARE v jsonb;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(1));
+  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  IF (v->'finalized_summary'->>'count')::int <> 1 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 1 (E4), obtuvo %', v->'finalized_summary'->>'count';
+  END IF;
+  IF (v->'finalized_summary'->>'budget_hours')::numeric <> 0
+     OR (v->'finalized_summary'->>'executed_hours')::numeric <> 0
+     OR (v->'finalized_summary'->>'collected_bob')::numeric <> 0 THEN
+    RAISE EXCEPTION 'FAIL: E4 no tiene OT -- budget/executed/honorarios pagados debían ser 0, obtuvo %', v->'finalized_summary';
+  END IF;
+  RAISE NOTICE 'OK 9b: finalized_summary -- count=1 (E4); budget/executed/honorarios pagados=0 (sin OT, sin crash)';
+END $$;
+
 -- ── 10. kpis.fees.total_bob = fee_net(E1) * 6.96; E5 administrativo suma 0 ─────────────────
 DO $$
 DECLARE v jsonb; v_expected numeric;

@@ -1070,19 +1070,161 @@
       }
     },
     "cartera": {
-      "activeEngagements": "Active Engagements",
       "totalFees": "Total Fees",
-      "totalHours": "Total Hours",
-      "portfolioUtilization": "Portfolio Utilization",
-      "profitabilityTable": "Profitability Table",
       "engagement": "Engagement",
       "client": "Client",
       "consumption": "Consumption",
-      "topRisks": "Top Risks",
-      "noRisks": "No engagements at risk",
       "approvalQueue": "Approval Queue",
       "noApprovals": "No pending approvals",
-      "noEngagements": "No engagements in your portfolio"
+      "noEngagements": "No engagements in your portfolio",
+      "scope": {
+        "firm": "Whole firm",
+        "own": "My engagements (as partner or manager)"
+      },
+      "filters": {
+        "client": "Client",
+        "clientGlobal": "Global",
+        "practica": "Practice",
+        "practicaGlobal": "All"
+      },
+      "updating": "Updating data…",
+      "empty": {
+        "scope": "No engagements in your portfolio scope.",
+        "filters": "No engagement matches the selected client."
+      },
+      "fullFiscalYear": "full fiscal year",
+      "kpi": {
+        "engagements": {
+          "title": "Engagements",
+          "breakdown": "{{approved}} approved · {{emergency}} emergency"
+        },
+        "clientsServices": {
+          "title": "Clients / Services",
+          "value": "{{clients}} · {{services}}",
+          "vsPriorYear": "{{pct}}% vs prior year",
+          "noPriorYear": "no prior-year data"
+        },
+        "roleHours": {
+          "title": "Hours as {{role}}",
+          "titleGeneric": "My hours in the portfolio"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "progress": {
+          "title": "Portfolio progress",
+          "subtitle": "{{logged}} / {{budget}} h · my whole portfolio · full fiscal year"
+        },
+        "review": {
+          "title": "Review",
+          "subtitle": "Over budget · Pending partner approval · Pending risk approval"
+        }
+      },
+      "blocks": {
+        "activities": {
+          "title": "Activity portfolio · cumulative progress",
+          "subtitle": "Each block starts where the previous activity ended within its own series",
+          "practice": "practice: {{name}}",
+          "total": "TOTAL",
+          "empty": "No approved work matrix in the portfolio",
+          "footer": "Total: 100% budget · {{execPct}}% executed ({{approvedPct}}% approved · {{pendingPct}}% pending)",
+          "overrun": "{{name}} exceeds its budget ({{execPct}}% executed vs {{budgetPct}}% budgeted)",
+          "tableCaption": "Hours detail by activity"
+        },
+        "categories": {
+          "title": "Hours by category",
+          "subtitle": "From-zero comparison by category · % of budgeted portfolio",
+          "scale": "Scale: {{pct}}% ({{name}}, largest category) = full width",
+          "total": "PORTFOLIO TOTAL · 100% budgeted · {{execPct}}% executed",
+          "approvedPct": "{{pct}}% approved",
+          "pendingPct": "{{pct}}% pending",
+          "uncategorized": "Uncategorized",
+          "empty": "No budgeted or executed hours in the period"
+        },
+        "staffing": {
+          "title": "Staffing budget",
+          "subtitle": "WO staffing requirements vs distinct people who logged hours",
+          "columns": {
+            "category": "Category",
+            "budgeted": "Budget",
+            "executed": "Actual"
+          },
+          "noBudgetNote": "Row without budget: category with execution but no staffing requirement in the WO."
+        },
+        "collections": {
+          "title": "Invoicing and collections",
+          "baseNote": "base: installments (incl. VAT and expenses)",
+          "avgDays": "{{days}} days average collection",
+          "collected": "collected",
+          "invoiced": "invoiced",
+          "inArrears": "in arrears",
+          "upcoming": "upcoming",
+          "next7Days": "Next 7 days",
+          "toInvoice": "invoice"
+        },
+        "expenses": {
+          "title": "Portfolio expenses",
+          "summary": "{{executed}} executed / {{budget}} budgeted · {{pct}}%",
+          "requests": "{{pending}} requests pending approval · {{approved}} approved",
+          "top3": "Top 3 · % expenses executed",
+          "noBudgetNote": "Engagements without an expense budget are excluded."
+        },
+        "approvalQueue": {
+          "summary": "{{hours}} h pending · {{people}} distinct people",
+          "weeks": "{{count}} wk",
+          "week": "Wk {{date}}",
+          "more": "+{{count}} more"
+        },
+        "engagementHours": {
+          "title": "Hours by engagement",
+          "subtitle": "Reacts to the Client filter · click to open the engagement",
+          "open": "Open engagement {{name}}",
+          "columns": {
+            "code": "Code",
+            "hours": "Hours (actual / budget)",
+            "consumption": "% consumption"
+          },
+          "status": {
+            "onTrack": "On track",
+            "atRisk": "At risk",
+            "overBudget": "Over budget"
+          }
+        },
+        "milestones": {
+          "title": "Milestones",
+          "subtitle": "Fixed window: previous / next month",
+          "past": "Last month",
+          "upcoming": "Next month",
+          "kind": {
+            "closing": "Closing: {{code}}",
+            "newEngagement": "New: {{code}}",
+            "woApproved": "WO approved: {{code}}",
+            "riskApproved": "Risk approved: {{code}}",
+            "assignment": "Added to portfolio: {{code}}",
+            "lockDeadline": "Logging deadline: Wk {{date}}"
+          },
+          "empty": "No milestones in the window"
+        },
+        "finalizedSummary": {
+          "title": "Finalized engagements",
+          "count": "{{count}} finalized",
+          "compliance": "{{pct}}% compliance",
+          "noBudget": "no budget",
+          "expenses": "{{amount}} in executed expenses",
+          "empty": "No finalized engagements in the period"
+        }
+      },
+      "legend": {
+        "approved": "Executed approved",
+        "pending": "Executed pending",
+        "budget": "Budgeted"
+      },
+      "tooltip": {
+        "executed": "Executed",
+        "approved": "Approved",
+        "pending": "Pending",
+        "budget": "Budget",
+        "ofPortfolio": "{{pct}}% of portfolio",
+        "cumulative": "Cumulative: {{cum}} h / {{total}} h"
+      }
     },
     "encargo": {
       "selectEngagement": "Select Engagement",
@@ -1272,6 +1414,14 @@
           "closingSoon": "{{count}} closing within 30 d",
           "riskPending": "{{count}} risk reviews pending",
           "draftWorksheets": "{{count}} draft worksheets without WO"
+        },
+        "finalizedSummary": {
+          "title": "Finalized engagements",
+          "count": "{{count}} finalized",
+          "compliance": "{{pct}}% compliance",
+          "noBudget": "no budget",
+          "collected": "{{amount}} in fees collected",
+          "empty": "No finalized engagements in the period"
         }
       },
       "tooltip": {
