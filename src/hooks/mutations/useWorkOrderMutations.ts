@@ -143,11 +143,9 @@ export function useApproveWorkOrder() {
     mutationFn: async ({
       woId,
       staffId,
-      administrative = false,
     }: {
       woId: string;
       staffId: string;
-      administrative?: boolean;
     }) => {
       // Socio track: record the business approver.
       const { data: result, error } = await supabase
@@ -164,13 +162,17 @@ export function useApproveWorkOrder() {
       // Atomic close: flip to Approved only if the Risk track is already done.
       // Single conditional UPDATE (no read-then-write) avoids a lost-update race
       // between the Socio and Riesgos tracks.
-      const closeQuery = supabase
+      //
+      // 0722-160 (review fix): las OTs administrativas NO necesitan una rama propia acá.
+      // enforce_administrative_work_order_rules() ya las cierra en la sentencia de arriba
+      // (BEFORE UPDATE, approved_at NULL -> no NULL => approval_status := 'Approved') y además
+      // les fuerza risk_status = 'Pending', así que este UPDATE condicional matchea 0 filas y
+      // no hace nada. Una rama que saltee el filtro sólo duplicaría esa lógica en el cliente.
+      const { error: closeError } = await supabase
         .from("work_orders")
         .update({ approval_status: "Approved" })
-        .eq("wo_id", woId);
-      const { error: closeError } = administrative
-        ? await closeQuery
-        : await closeQuery.in("risk_status", ["Approved", "Emergency_Approved"]);
+        .eq("wo_id", woId)
+        .in("risk_status", ["Approved", "Emergency_Approved"]);
       if (closeError) throw closeError;
       return result;
     },

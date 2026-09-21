@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { administrativeRowsForViewer } from "../AdministrativeEngagements";
+import { administrativeRowsForViewer, administrativeSearchKeys } from "../AdministrativeEngagements";
 
 const row = (anio_fiscal: number | null) => ({
   engagement_id: String(anio_fiscal),
@@ -28,5 +28,23 @@ describe("administrativeRowsForViewer", () => {
 
   it("hides historical and incomplete-fiscal-year rows for read-only viewers", () => {
     expect(administrativeRowsForViewer(rows, false, 2026)).toEqual([row(2026), row(2027)]);
+  });
+});
+
+describe("administrativeSearchKeys", () => {
+  it("lets the operational list search by client and society", () => {
+    expect(administrativeSearchKeys(true)).toEqual([
+      "engagement_code",
+      "engagement_name",
+      "client_name",
+      "society_name",
+    ]);
+  });
+
+  it("does not let read-only viewers search by fields their columns hide", () => {
+    const keys = administrativeSearchKeys(false);
+    expect(keys).toEqual(["engagement_code", "engagement_name"]);
+    expect(keys).not.toContain("client_name");
+    expect(keys).not.toContain("society_name");
   });
 });

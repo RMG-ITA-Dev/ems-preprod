@@ -251,6 +251,27 @@ interface EngagementFormProps {
   onGoToWorkMatrix?: (engagementId?: string) => void;
 }
 
+/**
+ * 0722-160 — `is_internal` y el override de año fiscal son clasificación del sistema en un
+ * encargo administrativo: el trigger enforce_administrative_engagement_rules() fuerza
+ * is_internal=true en la base, onSubmit manda `isAdministrativeFunction ? true : isInternal` y
+ * sus controles están deshabilitados. Se fuerzan siempre.
+ *
+ * work_order_required/approval_required NO son eso: sus switches quedan habilitados para
+ * administrativas y su texto de ayuda dice explícitamente que se pueden desactivar
+ * ("desactívelo cuando no la necesite" / "desactívelo solo en encargos que no requieran
+ * aprobación"). Review fix (Codex): forzarlos siempre los pisaba al EDITAR — el efecto de
+ * hidratación siembra el valor guardado, eso resuelve `funcion`, isAdministrativeFunction pasa
+ * a true y el efecto los devolvía a true; la política guardada se mostraba mal y cualquier
+ * guardado ajeno la sobrescribía en silencio. Son valores por defecto del alta, nada más.
+ */
+export function shouldSeedAdministrativePolicyDefaults(
+  isAdministrativeFunction: boolean,
+  isEdit: boolean,
+): boolean {
+  return isAdministrativeFunction && !isEdit;
+}
+
 export function EngagementForm({ engagement, administrativeMode = false, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -639,13 +660,14 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   }, [isEdit, administrativeMode, form]);
 
   useEffect(() => {
-    if (isAdministrativeFunction) {
-      setIsInternal(true);
-      setOverrideOn(false);
+    if (!isAdministrativeFunction) return;
+    setIsInternal(true);
+    setOverrideOn(false);
+    if (shouldSeedAdministrativePolicyDefaults(isAdministrativeFunction, isEdit)) {
       setWorkOrderRequired(true);
       setApprovalRequired(true);
     }
-  }, [isAdministrativeFunction]);
+  }, [isAdministrativeFunction, isEdit]);
 
   useEffect(() => {
     if (

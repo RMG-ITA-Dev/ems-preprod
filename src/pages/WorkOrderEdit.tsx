@@ -727,7 +727,6 @@ const WorkOrderEdit = () => {
     await approveWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       staffId: staffRecord.staff_id,
-      administrative: isAdministrativeEngagement,
     });
   };
 

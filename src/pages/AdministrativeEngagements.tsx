@@ -38,6 +38,17 @@ export function administrativeRowsForViewer(
   return rows.filter((row) => row.anio_fiscal != null && row.anio_fiscal >= currentFiscalYear);
 }
 
+/**
+ * Review fix (Codex): el resto de la superficie ya se gatea por `canCreate` (columnas, filtros,
+ * alta, clic de fila). La búsqueda no lo hacía, así que la vista de consulta seguía matcheando
+ * por cliente y sociedad — campos que esa vista no muestra.
+ */
+export function administrativeSearchKeys(canCreate: boolean): string[] {
+  return canCreate
+    ? ["engagement_code", "engagement_name", "client_name", "society_name"]
+    : ["engagement_code", "engagement_name"];
+}
+
 const AdministrativeEngagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -161,7 +172,7 @@ const AdministrativeEngagements = () => {
         data={rows}
         columns={canCreate ? columns : viewerColumns}
         searchPlaceholder={t("engagement.searchPlaceholder")}
-        searchKeys={["engagement_code", "engagement_name", "client_name", "society_name"]}
+        searchKeys={administrativeSearchKeys(canCreate)}
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("engagement.newAdministrativeEngagement") : undefined}
         onNewClick={canCreate ? () => navigate("/engagements/new?mode=administrative") : undefined}
