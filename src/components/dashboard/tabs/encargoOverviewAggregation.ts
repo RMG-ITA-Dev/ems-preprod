@@ -124,15 +124,13 @@ export function staffingRatioLabel(logged: number, assigned: number): StaffingRa
   return { logged, assigned, noAssignments: assigned === 0 };
 }
 
-export type ApprovalQueueSeverity = "ok" | "warning" | "critical";
+export type ApprovalQueueSeverity = "ok" | "critical";
 
-/** Cola de Aprobación (corrección post-ejecución #2): severidad visual del badge de
- * antigüedad de cada persona. "warning" ya viene calculado en el backend (item.alert,
- * weeks_old >= alert_weeks -- mismo umbral que kpis.pending_approval.aged_hours);
- * "critical" es el doble de ese umbral y es puramente de presentación (no agrega una
- * fuente de verdad nueva al contrato del RPC). */
-export function approvalQueueSeverity(weeksOld: number, alertWeeks: number, alert: boolean): ApprovalQueueSeverity {
-  if (weeksOld >= alertWeeks * 2) return "critical";
-  if (alert) return "warning";
-  return "ok";
+/** Cola de Aprobación: severidad visual del badge de antigüedad de cada persona (review.md
+ * iteración 1, MF-05 -- decisión del operador). "critical" es exactamente `item.alert` tal
+ * como lo calcula el backend (weeks_old >= alert_weeks, mismo umbral que kpis.pending_
+ * approval.aged_hours) -- no hay un escalón intermedio ni un múltiplo adicional: para el
+ * negocio, llegar a alert_weeks (3 por defecto) YA es crítico. */
+export function approvalQueueSeverity(alert: boolean): ApprovalQueueSeverity {
+  return alert ? "critical" : "ok";
 }

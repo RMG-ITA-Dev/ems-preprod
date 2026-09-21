@@ -156,18 +156,13 @@ describe("staffingRatioLabel", () => {
 });
 
 describe("approvalQueueSeverity", () => {
-  it("por debajo de alert_weeks y sin alert del backend -> ok", () => {
-    expect(approvalQueueSeverity(2, 3, false)).toBe("ok");
+  // review.md iteración 1, MF-05: sin escalón intermedio -- crítico es exactamente el mismo
+  // umbral que ya usa el backend para item.alert (weeks_old >= alert_weeks), decisión del
+  // operador ("que no pase de alert_weeks, ya es crítico").
+  it("alert=false del backend -> ok", () => {
+    expect(approvalQueueSeverity(false)).toBe("ok");
   });
-  it("alert=true del backend (>= alert_weeks) pero por debajo de 2x -> warning", () => {
-    expect(approvalQueueSeverity(3, 3, true)).toBe("warning");
-    expect(approvalQueueSeverity(5, 3, true)).toBe("warning");
-  });
-  it(">= 2x alert_weeks -> critical, sin importar el flag alert del backend", () => {
-    expect(approvalQueueSeverity(6, 3, true)).toBe("critical");
-  });
-  it("alert_weeks distinto de 3 -- el umbral crítico escala con él", () => {
-    expect(approvalQueueSeverity(9, 5, true)).toBe("warning"); // 9 < 10 (2x5)
-    expect(approvalQueueSeverity(10, 5, true)).toBe("critical");
+  it("alert=true del backend -> critical", () => {
+    expect(approvalQueueSeverity(true)).toBe("critical");
   });
 });

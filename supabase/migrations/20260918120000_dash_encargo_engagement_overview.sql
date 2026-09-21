@@ -23,6 +23,16 @@
 --   #1. list_dashboard_engagements(): filtro funcion=1 (Cliente) + campo end_date.
 --   #2. engagement_overview(): bloque approval_queue (Cola de Aprobación por persona, junto
 --       a Gastos en el frontend) -- ver detalle en el COMMENT ON de la función.
+--   #3. (review.md iteración 1, MF-01) pending_lines: el LATERAL de horas por línea pendiente
+--       no filtraba is_forecast -- una hora Pronóstico en el mismo period_id/engagement_id/
+--       activity_id que una línea realmente enviada a aprobar se sumaba igual. Decisión del
+--       operador: KPI "Horas pendientes de aprobación" y Cola de Aprobación cuentan SOLO
+--       horas efectivamente mandadas a aprobar (is_forecast=false), igual que el resto del
+--       archivo -- el widget de Staffing y el modal de 9 semanas ya filtraban forecast desde
+--       la primera versión y no cambian.
+--   #4. (review.md iteración 1, SF-02) staff_category: el fallback a la categoría de la
+--       asignación más reciente no excluía asignaciones con deleted_at IS NOT NULL (sí
+--       excluía CANCELLED). Corregido para que coincida con el resto de las CTEs del archivo.
 
 -- ═══════════════════════════════════════════════════════════════════════════════════════
 -- 1-2. Catálogo: permiso de semisenior + setting del umbral de antigüedad (decisiones.md §3)
@@ -281,7 +291,8 @@ BEGIN
     LEFT JOIN LATERAL (
       SELECT SUM(te.hours_logged) AS hours
       FROM public.time_entries te
-      WHERE te.period_id = tla.period_id AND te.engagement_id = tla.engagement_id AND te.activity_id = tla.activity_id
+      WHERE te.period_id = tla.period_id AND te.engagement_id = tla.engagement_id
+        AND te.activity_id = tla.activity_id AND COALESCE(te.is_forecast, false) = false
     ) tesum ON true
     WHERE tla.engagement_id = p_engagement_id AND tla.status = 'pending'
   ),
@@ -298,10 +309,10 @@ BEGIN
   -- (suma de TODAS sus líneas pendientes, no solo la más vieja) y weeks_old de su línea más
   -- antigua (MAX, ya que week_start_date más chico = más vieja = days_old/weeks_old más
   -- grande). `alert` reutiliza v_alert_weeks -- MISMO umbral que ya usa aged_hours arriba,
-  -- ninguna fuente de verdad nueva. El umbral "crítico" (más severo) es una decisión de
-  -- presentación pura (sin aportar filas nuevas al contrato) y se calcula en el frontend
-  -- (encargoOverviewAggregation.ts) a partir de alert_weeks -- no viaja un segundo umbral
-  -- acá. ───────────────────────────────────────────────────────────────────────────────
+  -- ninguna fuente de verdad nueva (review.md iteración 1, MF-05, decisión del operador:
+  -- "crítico" en el frontend es exactamente este `alert` -- sin un segundo escalón más
+  -- severo; encargoOverviewAggregation.ts no recibe ni calcula ningún umbral adicional).
+  -- ─────────────────────────────────────────────────────────────────────────────────────
   approval_queue_staff AS (
     SELECT pl.staff_id, COALESCE(SUM(pl.hours), 0) AS hours,
       MAX(FLOOR((v_today - pl.week_start_date) / 7.0))::int AS weeks_old
@@ -452,7 +463,8 @@ BEGIN
       SELECT c.category_name
       FROM public.engagement_assignments ea2
       JOIN public.categories c ON c.category_id = ea2.category_id
-      WHERE ea2.staff_id = su.staff_id AND ea2.engagement_id = p_engagement_id AND ea2.status <> 'CANCELLED'
+      WHERE ea2.staff_id = su.staff_id AND ea2.engagement_id = p_engagement_id
+        AND ea2.status <> 'CANCELLED' AND ea2.deleted_at IS NULL
       ORDER BY ea2.updated_at DESC
       LIMIT 1
     ) cat_fallback ON true
@@ -693,7 +705,7 @@ COMMENT ON FUNCTION public.can_read_engagement_dashboard(uuid) IS 'dash_encargo 
 
 COMMENT ON FUNCTION public.list_dashboard_engagements() IS 'dash_encargo (plan_v2.md §7.2; corrección post-ejecución): alimenta EngagementSelector con el alcance completo de decisiones.md §2 (encargado_id/specialist_it_id/specialist_tax_id incluidos, no solo partner_id/manager_id como el filtro legacy de EngagementSelector.tsx). Mismo mapeo rol->campo que can_read_engagement_dashboard(), inline por rendimiento. Filtro de "activo" idéntico al legacy: status=active y engagement_state_override NOT IN (6,7). Agrega funcion=1 (Cliente, no en can_read_engagement_dashboard() a propósito -- ver comentario en el CREATE) para no listar encargos administrativos, y devuelve end_date (nullable) para que el frontend autoseleccione el encargo con fecha de fin más próxima.';
 
-COMMENT ON FUNCTION public.engagement_overview(uuid, date, date) IS 'dash_encargo (decisiones.md §4, plan_v2.md §7.3-§7.5; corrección post-ejecución #2): payload completo de la pestaña Encargo (4 KPI sin montos, consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9 semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona) en un único round-trip/instantánea MVCC. Un encargo fuera de alcance o inexistente devuelve selected_accessible=false + detail=null, SIN excepción (no distingue "no existe" de "no es tuyo"). R-1: las vistas vw_* que usa son security_invoker=on pero corren sin RLS dentro de este SECURITY DEFINER -- por eso can_read_engagement_dashboard() corre antes de cualquier CTE y cada CTE que toca una vista filtra por engagement_id. R-3 (heredado, sin cambios): vw_wo_budget_hours_by_category no filtra por version/status de la worksheet, puede doble-contar si un WO tiene mas de una hoja -- mismo comportamiento que la pestaña actual. R-4 (deliberado, decisiones.md §4.1): horas cargadas sin fila en timesheet_line_approvals NUNCA cuentan como "pendientes", pero sí como Cargado/consumo -- también aplica a approval_queue, que se alimenta de la misma pending_lines. D-1: "semanas del rango" para Asignado = semanas calendario tocadas (lunes a lunes), no fracciones. Gastos: "ejecutado" = SOLO revisado_asistente (decisiones.md §4.6, corrige la inconsistencia de portfolio_overview() que sí cuenta aprobado_gerente -- ese bug de Cartera queda fuera de alcance de esta migración). Solicitudes excluyen fund_requests.status=borrador. approval_queue: consolida pending_lines POR PERSONA (staff_id) -- hours es la SUMA de todas sus líneas pendientes en este encargo (no solo la más vieja, a diferencia de portfolio_overview() en dash_cartera), weeks_old es el de su línea más antigua, alert reutiliza el mismo v_alert_weeks que aged_hours (ninguna fuente de verdad nueva); el umbral "crítico" (más severo que alert) es puramente de presentación y se calcula en el frontend.';
+COMMENT ON FUNCTION public.engagement_overview(uuid, date, date) IS 'dash_encargo (decisiones.md §4, plan_v2.md §7.3-§7.5; corrección post-ejecución #2): payload completo de la pestaña Encargo (4 KPI sin montos, consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9 semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona) en un único round-trip/instantánea MVCC. Un encargo fuera de alcance o inexistente devuelve selected_accessible=false + detail=null, SIN excepción (no distingue "no existe" de "no es tuyo"). R-1: las vistas vw_* que usa son security_invoker=on pero corren sin RLS dentro de este SECURITY DEFINER -- por eso can_read_engagement_dashboard() corre antes de cualquier CTE y cada CTE que toca una vista filtra por engagement_id. R-3 (heredado, sin cambios): vw_wo_budget_hours_by_category no filtra por version/status de la worksheet, puede doble-contar si un WO tiene mas de una hoja -- mismo comportamiento que la pestaña actual. R-4 (deliberado, decisiones.md §4.1): horas cargadas sin fila en timesheet_line_approvals NUNCA cuentan como "pendientes", pero sí como Cargado/consumo -- también aplica a approval_queue, que se alimenta de la misma pending_lines. D-1: "semanas del rango" para Asignado = semanas calendario tocadas (lunes a lunes), no fracciones. Gastos: "ejecutado" = SOLO revisado_asistente (decisiones.md §4.6, corrige la inconsistencia de portfolio_overview() que sí cuenta aprobado_gerente -- ese bug de Cartera queda fuera de alcance de esta migración). Solicitudes excluyen fund_requests.status=borrador. approval_queue: consolida pending_lines POR PERSONA (staff_id) -- hours es la SUMA de todas sus líneas pendientes en este encargo (no solo la más vieja, a diferencia de portfolio_overview() en dash_cartera), weeks_old es el de su línea más antigua, alert reutiliza el mismo v_alert_weeks que aged_hours (ninguna fuente de verdad nueva); "crítico" en el frontend (review.md iteración 1, MF-05) es exactamente este alert, sin un segundo escalón más severo -- encargoOverviewAggregation.ts no calcula ningún umbral adicional.';
 
 REVOKE ALL ON FUNCTION public.can_read_engagement_dashboard(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.can_read_engagement_dashboard(uuid) TO authenticated, service_role;

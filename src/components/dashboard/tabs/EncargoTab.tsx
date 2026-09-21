@@ -81,7 +81,12 @@ export function EncargoTab() {
   const [staffingOpen, setStaffingOpen] = useState(false);
   const [accessChangedNotice, setAccessChangedNotice] = useState(false);
 
-  const { data: engagements, isLoading: engagementsLoading } = useDashboardEngagements();
+  const {
+    data: engagements,
+    isLoading: engagementsLoading,
+    isError: engagementsIsError,
+    error: engagementsError,
+  } = useDashboardEngagements();
   const { data, isLoading, isError, error } = useEncargoOverview(selectedEngagementId, startDateStr, endDateStr);
 
   // selected_accessible=false (encargo fuera de alcance/inexistente): limpiar la selección
@@ -129,14 +134,17 @@ export function EncargoTab() {
   };
 
   // Un solo payload: un error del RPC no se degrada a ceros -- se propaga para que
-  // TabErrorBoundary lo capture (mismo patrón que CarteraTab.tsx).
-  if (isError) {
+  // TabErrorBoundary lo capture (mismo patrón que CarteraTab.tsx). Cubre tanto el detalle
+  // (engagement_overview) como la lista (list_dashboard_engagements, MF-03 review.md
+  // iteración 1) -- un error en la lista antes se degradaba silenciosamente a "sin encargos".
+  if (isError || engagementsIsError) {
+    const rawError = isError ? error : engagementsError;
     const message =
-      error instanceof Error
-        ? error.message
-        : typeof error === "object" && error !== null && "message" in error
-          ? String((error as { message: unknown }).message)
-          : String(error);
+      rawError instanceof Error
+        ? rawError.message
+        : typeof rawError === "object" && rawError !== null && "message" in rawError
+          ? String((rawError as { message: unknown }).message)
+          : String(rawError);
     throw new Error(message);
   }
 
@@ -278,7 +286,7 @@ function EncargoDetail({
                 <AlertTriangle className="h-3 w-3" />
                 {t("dashboard.encargo.kpis.agedPending", {
                   hours: Math.round(kpis.pending_approval.aged_hours),
-                  weeks: 3,
+                  weeks: alertWeeks,
                 })}
               </p>
             ) : undefined
@@ -491,7 +499,16 @@ function EncargoDetail({
                   {expenses.approved.map((item) => (
                     <li key={item.fre_id} className="flex justify-between gap-2 text-xs">
                       <span className="truncate">{item.description ?? formatShortDate(item.expense_date, locale)}</span>
-                      <span className="font-mono shrink-0">{Math.round(item.amount_bob)}</span>
+                      <span
+                        className="font-mono shrink-0"
+                        title={
+                          item.currency !== "BOB"
+                            ? `${t("dashboard.encargo.expenses.originalAmount")}: ${item.amount} ${item.currency}`
+                            : undefined
+                        }
+                      >
+                        {Math.round(item.amount_bob)}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -556,19 +573,14 @@ function EncargoDetail({
                 })}
               </p>
               {approvalItemsShown.map((item) => {
-                const severity = approvalQueueSeverity(item.weeks_old, alertWeeks, item.alert);
+                const severity = approvalQueueSeverity(item.alert);
                 return (
                   <div key={item.staff_id} className="flex items-center justify-between p-2 rounded-md bg-muted/30">
                     <div className="text-xs font-medium truncate min-w-0">
                       {item.staff_name} · {Math.round(item.hours)}{t("dashboard.encargo.units.hours")}
                     </div>
                     <div className="flex items-center gap-1 shrink-0 ml-2">
-                      {severity !== "ok" && (
-                        <AlertTriangle
-                          className={cn("h-3 w-3", severity === "critical" ? "text-destructive" : "text-warning")}
-                          aria-hidden
-                        />
-                      )}
+                      {severity === "critical" && <AlertTriangle className="h-3 w-3 text-destructive" aria-hidden />}
                       <Badge
                         variant={severity === "critical" ? "destructive" : "secondary"}
                         className="text-[10px]"

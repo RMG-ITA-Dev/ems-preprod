@@ -337,6 +337,21 @@ INSERT INTO public.engagement_assignments (assignment_id, engagement_id, staff_i
    '50e07a60-0000-4000-8000-000000000018', pg_temp.week(-3), pg_temp.week(0) + 6, 40, 100, 'CANCELLED', 'c0e07a60-0000-4000-8000-000000000001')
 ON CONFLICT (assignment_id) DO NOTHING;
 
+-- SF-02 (review.md iteración 1): quinta asignación de workerD, MÁS RECIENTE (updated_at)
+-- que la válida de arriba (...0003, CategoriaB) pero soft-deleted (deleted_at IS NOT NULL),
+-- con OTRA categoría (CategoriaA). El fallback de categoría debe seguir devolviendo
+-- CategoriaB -- si el filtro deleted_at faltara, el ORDER BY updated_at DESC la elegiría a
+-- ella (CategoriaA) por error. now() es constante dentro de la transacción del harness, así
+-- que "+ interval '1 second'" alcanza para quedar estrictamente después del DEFAULT now()
+-- de la fila ...0003.
+INSERT INTO public.engagement_assignments (assignment_id, engagement_id, staff_id, start_date,
+                                           end_date, hours_per_week, allocation_percent, status,
+                                           category_id, deleted_at, updated_at) VALUES
+  ('ea0e07a6-0000-4000-8000-000000000005', '70e07a60-0000-4000-8000-000000000001',
+   '50e07a60-0000-4000-8000-000000000019', pg_temp.week(-2) + 1, pg_temp.week(-2) + 3, 20, 50,
+   'CONFIRMED', 'c0e07a60-0000-4000-8000-000000000001', now(), now() + interval '1 second')
+ON CONFLICT (assignment_id) DO NOTHING;
+
 -- ── Horas cargadas sobre E1 ───────────────────────────────────────────────────────────────
 -- workerA: 10h/semana en EA1, semanas -3,-2,-1,0 (usado para KPI Staffing + used_hours
 -- acumulado). workerB: 10h SOLO en semana -2 (semana -1 queda en cero -> alerta). workerC:
@@ -372,7 +387,12 @@ INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, e
   -- ACT2 (no ACT1): workerA ya tiene una entrada en ACT1 fechada hoy si "hoy" cae lunes de
   -- la semana actual (pg_temp.week(0) == pg_temp.today() en ese caso) -- idx_time_entries_
   -- unique_entry es (staff_id, engagement_id, activity_id, date_worked, is_forecast).
-  ('16e07a60-0000-4000-8000-000000000009', pg_temp.today(), 3, '50e07a60-0000-4000-8000-000000000016', '70e07a60-0000-4000-8000-000000000001', 'ace07a60-0000-4000-8000-000000000002', '15e07a60-0000-4000-8000-000000000003', false)
+  ('16e07a60-0000-4000-8000-000000000009', pg_temp.today(), 3, '50e07a60-0000-4000-8000-000000000016', '70e07a60-0000-4000-8000-000000000001', 'ace07a60-0000-4000-8000-000000000002', '15e07a60-0000-4000-8000-000000000003', false),
+  -- MF-01 (review.md iteración 1): hora Pronóstico en el MISMO period_id/engagement_id/
+  -- activity_id que la línea pendiente 0007 (workerA, ACT2, semana -1, 7h) -- is_forecast=true
+  -- no debe sumarse en kpis.pending_approval.last_week_hours ni en approval_queue. 50h para
+  -- que, si el filtro faltara, la aserción 15 (esperado 7) fallara de forma inconfundible.
+  ('16e07a60-0000-4000-8000-00000000000a', pg_temp.week(-1) + 2, 50, '50e07a60-0000-4000-8000-000000000016', '70e07a60-0000-4000-8000-000000000001', 'ace07a60-0000-4000-8000-000000000002', '15e07a60-0000-4000-8000-000000000001', true)
 ON CONFLICT (time_id) DO NOTHING;
 
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_at) VALUES
@@ -719,7 +739,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL: KPI Staffing esperado current=1/1, previous=1/2, obtuvo %', v->'detail'->'kpis'->'staffing';
   END IF;
 
-  -- ── 15. KPI pendientes: last_week_hours=7 (semana -1), aged_hours=4 (semana -4, >=3) ──
+  -- ── 15. KPI pendientes: last_week_hours=7 (semana -1), aged_hours=4 (semana -4, >=3) --
+  -- este valor de 7, sin las 50h Pronóstico de la fixture 0x0a (MF-01, review.md iteración 1),
+  -- es lo que prueba que pending_lines excluye is_forecast ──────────────────────────────────
   IF (v->'detail'->'kpis'->'pending_approval'->>'last_week_hours')::numeric <> 7
      OR (v->'detail'->'kpis'->'pending_approval'->>'aged_hours')::numeric <> 4 THEN
     RAISE EXCEPTION 'FAIL: KPI pendientes esperado last_week_hours=7/aged_hours=4, obtuvo %', v->'detail'->'kpis'->'pending_approval';
@@ -790,6 +812,14 @@ BEGIN
                  WHERE (p->>'staff_id')::uuid = '50e07a60-0000-4000-8000-000000000019'::uuid
                    AND (p->>'assigned_hours')::numeric = 10) THEN
     RAISE EXCEPTION 'FAIL: workerD (D-1, asignación parcial) esperada assigned_hours=10 (1 semana completa), obtuvo %', v->'detail'->'staffing'->'people';
+  END IF;
+  -- SF-02 (review.md iteración 1): el fallback de categoría de workerD debe seguir
+  -- resolviendo CategoriaB (asignación válida), NO CategoriaA (asignación ...0005, más
+  -- reciente pero soft-deleted) -- prueba que el fallback excluye deleted_at IS NOT NULL.
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v->'detail'->'staffing'->'people') p
+                 WHERE (p->>'staff_id')::uuid = '50e07a60-0000-4000-8000-000000000019'::uuid
+                   AND p->>'category_name' = 'CategoriaB E07A60') THEN
+    RAISE EXCEPTION 'FAIL: workerD (SF-02) esperada category_name=CategoriaB E07A60 (fallback debe ignorar la asignación soft-deleted), obtuvo %', v->'detail'->'staffing'->'people';
   END IF;
 
   -- ── 21. Staffing.weeks: exactamente 9, offsets -4..4, week_start consecutivos de 7 días ─

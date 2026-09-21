@@ -146,8 +146,8 @@ const FULL_DETAIL: EngagementOverviewPayload["detail"] = {
     total_hours: 18,
     distinct_people: 2,
     items: [
-      { staff_id: "s7", staff_name: "Worker Warn", hours: 7, weeks_old: 3, alert: true },
-      { staff_id: "s8", staff_name: "Worker Crit", hours: 11, weeks_old: 6, alert: true },
+      { staff_id: "s7", staff_name: "Worker Alert1", hours: 7, weeks_old: 3, alert: true },
+      { staff_id: "s8", staff_name: "Worker Alert2", hours: 11, weeks_old: 6, alert: true },
     ],
   },
 };
@@ -218,18 +218,18 @@ describe("EncargoTab", () => {
     expect(screen.getByText("dashboard.encargo.expenses.requests")).toBeInTheDocument();
     expect(screen.getByText("dashboard.encargo.expenses.pendingExpenses")).toBeInTheDocument();
     expect(screen.getByText("dashboard.encargo.approvalQueue.title")).toBeInTheDocument();
-    expect(screen.getByText(/Worker Warn/)).toBeInTheDocument();
-    expect(screen.getByText(/Worker Crit/)).toBeInTheDocument();
+    expect(screen.getByText(/Worker Alert1/)).toBeInTheDocument();
+    expect(screen.getByText(/Worker Alert2/)).toBeInTheDocument();
   });
 
-  it("(j) Cola de Aprobación: severidad warning vs critical (2x alert_weeks) y '+N más' por persona", async () => {
+  it("(j) Cola de Aprobación: severidad critical = item.alert del backend (review.md iteración 1, MF-05, sin escalón 2x) y '+N más' por persona", async () => {
     // Orden descendente por weeks_old, igual que ya lo entrega el backend (ORDER BY
     // weeks_old DESC) -- el frontend no reordena, solo corta a 5.
     const manyItems = [
       { staff_id: "p1", staff_name: "Persona 1 Critica", hours: 5, weeks_old: 6, alert: true },
-      { staff_id: "p2", staff_name: "Persona 2", hours: 5, weeks_old: 5, alert: true },
-      { staff_id: "p3", staff_name: "Persona 3", hours: 5, weeks_old: 4, alert: true },
-      { staff_id: "p4", staff_name: "Persona 4", hours: 5, weeks_old: 3, alert: true },
+      { staff_id: "p2", staff_name: "Persona 2 Critica", hours: 5, weeks_old: 5, alert: true },
+      { staff_id: "p3", staff_name: "Persona 3 Critica", hours: 5, weeks_old: 4, alert: true },
+      { staff_id: "p4", staff_name: "Persona 4 Critica", hours: 5, weeks_old: 3, alert: true },
       { staff_id: "p5", staff_name: "Persona 5", hours: 5, weeks_old: 2, alert: false },
       { staff_id: "p6", staff_name: "Persona 6 Oculta", hours: 5, weeks_old: 1, alert: false },
     ];
@@ -245,11 +245,14 @@ describe("EncargoTab", () => {
     render(<EncargoTab />, { wrapper: createWrapper() });
     await screen.findByText("dashboard.encargo.approvalQueue.title");
 
-    // alert_weeks por default (payloadWith/emptyEngagementOverviewPayload) es 3 -> crítico a
-    // partir de 6 semanas (2x). Solo Persona 1 Critica (weeks_old=6) debe llevar el badge
-    // rojo con el aria-label "critical".
-    expect(screen.getByLabelText("dashboard.encargo.approvalQueue.critical")).toBeInTheDocument();
+    // Sin escalón intermedio (MF-05): TODAS las filas con alert=true llevan el badge rojo
+    // con aria-label "critical", sin importar cuántas semanas de antigüedad tengan -- p1..p4
+    // son las 4 primeras (orden por weeks_old DESC, ya lo entrega así el backend).
+    expect(screen.getAllByLabelText("dashboard.encargo.approvalQueue.critical")).toHaveLength(4);
     expect(screen.getByText(/Persona 1 Critica/)).toBeInTheDocument();
+    expect(screen.getByText(/Persona 4 Critica/)).toBeInTheDocument();
+    // Persona 5 (alert=false) no lleva badge crítico.
+    expect(screen.getByText(/Persona 5/)).toBeInTheDocument();
 
     // Se muestran las primeras 5 -- "Persona 6 Oculta" queda en la 6ta posición y no se
     // renderiza, pero sí se cuenta en el "+1 más".
@@ -348,5 +351,35 @@ describe("EncargoTab", () => {
     );
     expect(screen.getByText("dashboard.tabError.retry")).toBeInTheDocument();
     expect(screen.queryByText("dashboard.encargo.kpis.staffing")).not.toBeInTheDocument();
+  });
+
+  it("(i) el texto de horas envejecidas usa meta.alert_weeks, no un 3 hardcodeado (review.md iteración 1, MF-02)", async () => {
+    mockUseEncargoOverview.mockReturnValue({
+      data: payloadWith(FULL_DETAIL, { alert_weeks: 5 }),
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    render(<EncargoTab />, { wrapper: createWrapper() });
+    await screen.findByText("dashboard.encargo.kpis.staffing");
+    expect(screen.getByText("dashboard.encargo.kpis.agedPending(hours=4,weeks=5)")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard.encargo.kpis.agedPending(hours=4,weeks=3)")).not.toBeInTheDocument();
+  });
+
+  it("(h) error de list_dashboard_engagements también lanza -- no se degrada a 'sin encargos' (review.md iteración 1, MF-03)", () => {
+    mockUseDashboardEngagements.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error("list_dashboard_engagements boom"),
+    });
+    render(
+      <TabErrorBoundary tabLabel="Encargo">
+        <EncargoTab />
+      </TabErrorBoundary>,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByText("dashboard.tabError.retry")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard.encargo.noEngagements")).not.toBeInTheDocument();
   });
 });
