@@ -103,7 +103,7 @@ INSERT INTO public.servicios (taxonomy_id, code, name, practica_id) VALUES
 ON CONFLICT (taxonomy_id) DO NOTHING;
 
 -- ── Personal: 7 con rol (u1-u7) + 1 worker puro (u8, sin user_roles) ──────────────────────
--- u1 admin (firm) · u2 senior_partner (firm) · u3 partner (socio de E1/E2/E5/E6/E9, categoría
+-- u1 admin (firm) · u2 senior_partner (firm) · u3 partner (socio de E1/E2/E5/E6/E9/E10, categoría
 -- Socio) · u4 manager (gerente de E1/E3, categoría Gerente) · u5 ita_manager (gerente de E4,
 -- funcion=0 -> scope_count=0) · u6 senior SIN el permiso nuevo (categoría "Sin Categoria
 -- Presupuestada", worker que carga horas igual) · u7 risk_partner (socio de E7, categoría
@@ -154,8 +154,22 @@ SELECT '50ca27e0-0000-4000-8000-000000000010', 'CA27E0', 'Sujeto10', 'CA27E0-10'
   FROM public.practicas p WHERE p.code = 2;
 
 -- u9: staff puro (sin auth.users/user_roles) usado SOLO como manager_id "de utilería" de E8
--- (Gastos sobregirado) -- fund_request_work_orders exige que el encargo de la OT tenga
--- gerente asignado; ningún llamante impersona a u9, así que no altera ningún alcance probado.
+-- (Gastos sobregirado) y de E10 -- fund_request_work_orders exige que el encargo de la OT
+-- tenga gerente asignado; ningún llamante impersona a u9, así que no altera ningún alcance
+-- probado.
+
+-- u11 (MF-03, review.md iteración 1): staff puro con MUCHAS líneas pendientes, para
+-- reproducir el caso en que una sola persona agota el LIMIT 20 de la Cola y esconde a todas
+-- las demás. Nadie lo impersona y no carga NINGUNA hora (sus aprobaciones no tienen
+-- time_entries detrás, así que aportan 0 h): así el escenario no mueve ningún total ya
+-- fijado por las otras aserciones.
+INSERT INTO public.staff (staff_id, first_name, last_name, short_name, is_active,
+                          practica_id, society_id, category_id)
+VALUES ('50ca27e0-0000-4000-8000-000000000011', 'CA27E0', 'Sujeto11', 'CA27E0-11', true,
+        (SELECT practica_id FROM public.practicas WHERE code = 1),
+        (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
+        'c0ca27e0-0000-4000-8000-000000000003')
+ON CONFLICT (staff_id) DO NOTHING;
 
 INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('a0ca27e0-0000-4000-8000-000000000001', 'admin'),
@@ -235,6 +249,21 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'CA27E0 E8 gastos', 'CA27E0-E8', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000006', '50ca27e0-0000-4000-8000-000000000009',
+   true, 2026, NULL, 1, NULL, NULL),
+  -- E10 (SF-02, review.md iteración 1): finalizado CON datos reales -- partner=u3, OT
+  -- Approved, presupuesto, horas en los tres estados y gastos en dos estados. Complementa a
+  -- E5 (finalizado SIN OT, que cubre el camino de los ceros). manager=u9 de utilería:
+  -- fund_request_work_orders exige gerente en el encargo.
+  -- override arranca en NULL (no 7): check_wo_approved() bloquea CUALQUIER INSERT en
+  -- time_entries cuando el override ya está en un estado no cargable -- solo 4/5 o NULL+OT-
+  -- Approved permiten cargar horas. El override a 7 se aplica DESPUÉS de que las horas y
+  -- aprobaciones de E10 ya existen (ver el UPDATE tras el bloque de aprobaciones, más abajo).
+  -- Estado efectivo 7 -> queda fuera de scope/scope_all, así que NO mueve ningún conteo
+  -- de las aserciones 3-21 (KPIs, cascada, categorías, cola, Horas por encargo).
+  ('70ca27e0-0000-4000-8000-000000000010', '60ca27e0-0000-4000-8000-000000000003',
+   'CA27E0 E10 finalizado con OT', 'CA27E0-E10', 'active', pg_temp.today() + 300,
+   (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
+   '50ca27e0-0000-4000-8000-000000000003', '50ca27e0-0000-4000-8000-000000000009',
    true, 2026, NULL, 1, NULL, NULL)
 ON CONFLICT (engagement_id) DO NOTHING;
 
@@ -242,8 +271,10 @@ ON CONFLICT (engagement_id) DO NOTHING;
 -- aserción 27) -- sin OT (a propósito, ver comentario de arriba), así que budget/executed/
 -- gastos deben quedar en 0 pese a contar en finalized_summary.count. UUID literal (no
 -- pg_temp.e()) porque ese helper todavía no está definido en este punto del archivo.
+-- E10 (SF-02) cierra el mismo día: las dos filas caen dentro de la ventana de la aserción 27.
 UPDATE public.engagements SET end_date = pg_temp.today()
-WHERE engagement_id = '70ca27e0-0000-4000-8000-000000000005'::uuid;
+WHERE engagement_id IN ('70ca27e0-0000-4000-8000-000000000005'::uuid,
+                        '70ca27e0-0000-4000-8000-000000000010'::uuid);
 
 -- ── Aserción 26: la tabla de bitácora arranca vacía (sin backfill) ───────────────────────
 DO $$
@@ -272,7 +303,10 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax
   ('d0ca27e0-0000-4000-8000-000000000009', '70ca27e0-0000-4000-8000-000000000009',
    'BOB', 'High', 0.13, 0, 'Draft', NULL, 'Pending', NULL),
   ('d0ca27e0-0000-4000-8000-000000000008', '70ca27e0-0000-4000-8000-000000000008',
-   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.today() - 50)::timestamptz, 'Approved', (pg_temp.today() - 50)::timestamptz)
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.today() - 50)::timestamptz, 'Approved', (pg_temp.today() - 50)::timestamptz),
+  -- E10 (SF-02): OT Approved BOB -> rate_to_bob = 1, gastos y presupuesto directos en Bs.
+  ('d0ca27e0-0000-4000-8000-000000000010', '70ca27e0-0000-4000-8000-000000000010',
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.today() - 60)::timestamptz, 'Approved', (pg_temp.today() - 60)::timestamptz)
 ON CONFLICT (wo_id) DO NOTHING;
 -- E4/E5: sin OT (work_order_required=false en E4; override manda en E5 independientemente del wo_id).
 
@@ -284,7 +318,8 @@ INSERT INTO public.wo_budget_lines (wo_line_id, wo_id, category_id, budgeted_hou
   ('b1ca27e0-0000-4000-8000-000000000004', 'd0ca27e0-0000-4000-8000-000000000001', 'c0ca27e0-0000-4000-8000-000000000005', 6, 70),    -- Especialista IT (NO manager)
   ('b1ca27e0-0000-4000-8000-000000000005', 'd0ca27e0-0000-4000-8000-000000000001', 'c0ca27e0-0000-4000-8000-000000000006', 5, 70),    -- Especialista Tax (NO manager)
   ('b1ca27e0-0000-4000-8000-000000000006', 'd0ca27e0-0000-4000-8000-000000000001', 'c0ca27e0-0000-4000-8000-000000000003', 20, 50),   -- Senior
-  ('b1ca27e0-0000-4000-8000-000000000007', 'd0ca27e0-0000-4000-8000-000000000002', 'c0ca27e0-0000-4000-8000-000000000003', 5, 50)     -- E2 Senior
+  ('b1ca27e0-0000-4000-8000-000000000007', 'd0ca27e0-0000-4000-8000-000000000002', 'c0ca27e0-0000-4000-8000-000000000003', 5, 50),    -- E2 Senior
+  ('b1ca27e0-0000-4000-8000-000000000010', 'd0ca27e0-0000-4000-8000-000000000010', 'c0ca27e0-0000-4000-8000-000000000003', 12, 50)    -- E10 Senior (SF-02: finalized_summary.budget_hours = 12)
 ON CONFLICT (wo_line_id) DO NOTHING;
 -- E1 total budget = 10+8+4+6+5+20 = 53h; KPI3 (solo Gerente+LEG) = 8+4 = 12h.
 
@@ -345,23 +380,32 @@ ALTER TABLE public.wo_payment_plan ENABLE TRIGGER trg_wo_payment_plan_guard_exch
 -- E8 es ajeno a u3, así que esta pieza se verifica con admin -- firm-wide, aserción 18) ──
 INSERT INTO public.fund_requests (fund_request_id, request_number, requester_staff_id, total_requested_amount, currency, status) VALUES
   ('f3ca27e0-0000-4000-8000-000000000001', 'FR-CA27E0-1', '50ca27e0-0000-4000-8000-000000000004', 800, 'BOB', 'borrador'),
-  ('f3ca27e0-0000-4000-8000-000000000002', 'FR-CA27E0-2', '50ca27e0-0000-4000-8000-000000000009', 150, 'BOB', 'borrador')
+  ('f3ca27e0-0000-4000-8000-000000000002', 'FR-CA27E0-2', '50ca27e0-0000-4000-8000-000000000009', 150, 'BOB', 'borrador'),
+  -- SF-02: gastos de E10 (finalizado con datos reales)
+  ('f3ca27e0-0000-4000-8000-000000000003', 'FR-CA27E0-3', '50ca27e0-0000-4000-8000-000000000009', 370, 'BOB', 'borrador')
 ON CONFLICT (fund_request_id) DO NOTHING;
 
 -- fre_validate_wo_in_request() exige que el wo_id de cada gasto esté enlazado a su fund
 -- request via fund_request_work_orders antes de poder insertar el gasto.
 INSERT INTO public.fund_request_work_orders (fr_wo_id, fund_request_id, wo_id, allocated_amount) VALUES
   ('f4ca27e0-0000-4000-8000-000000000001', 'f3ca27e0-0000-4000-8000-000000000001', 'd0ca27e0-0000-4000-8000-000000000001', 800),
-  ('f4ca27e0-0000-4000-8000-000000000002', 'f3ca27e0-0000-4000-8000-000000000002', 'd0ca27e0-0000-4000-8000-000000000008', 150)
+  ('f4ca27e0-0000-4000-8000-000000000002', 'f3ca27e0-0000-4000-8000-000000000002', 'd0ca27e0-0000-4000-8000-000000000008', 150),
+  ('f4ca27e0-0000-4000-8000-000000000003', 'f3ca27e0-0000-4000-8000-000000000003', 'd0ca27e0-0000-4000-8000-000000000010', 370)
 ON CONFLICT (fr_wo_id) DO NOTHING;
 
 INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_type_id, expense_date, amount, currency, status) VALUES
   ('f2ca27e0-0000-4000-8000-000000000001', 'f3ca27e0-0000-4000-8000-000000000001', 'd0ca27e0-0000-4000-8000-000000000001', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 400, 'BOB', 'revisado_asistente'),
   ('f2ca27e0-0000-4000-8000-000000000002', 'f3ca27e0-0000-4000-8000-000000000001', 'd0ca27e0-0000-4000-8000-000000000001', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 300, 'BOB', 'aprobado_gerente'),
   ('f2ca27e0-0000-4000-8000-000000000003', 'f3ca27e0-0000-4000-8000-000000000001', 'd0ca27e0-0000-4000-8000-000000000001', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 100, 'BOB', 'pendiente_aprobacion'),
-  ('f2ca27e0-0000-4000-8000-000000000004', 'f3ca27e0-0000-4000-8000-000000000002', 'd0ca27e0-0000-4000-8000-000000000008', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 150, 'BOB', 'revisado_asistente')
+  ('f2ca27e0-0000-4000-8000-000000000004', 'f3ca27e0-0000-4000-8000-000000000002', 'd0ca27e0-0000-4000-8000-000000000008', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 150, 'BOB', 'revisado_asistente'),
+  -- E10 (SF-02): 250 revisado_asistente SÍ cuenta como ejecutado; 120 aprobado_gerente NO
+  -- (§18.6). finalized_summary.executed_expenses_bob debe dar exactamente 250.
+  ('f2ca27e0-0000-4000-8000-000000000005', 'f3ca27e0-0000-4000-8000-000000000003', 'd0ca27e0-0000-4000-8000-000000000010', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 250, 'BOB', 'revisado_asistente'),
+  ('f2ca27e0-0000-4000-8000-000000000006', 'f3ca27e0-0000-4000-8000-000000000003', 'd0ca27e0-0000-4000-8000-000000000010', '9eca27e0-0000-4000-8000-000000000001', pg_temp.today(), 120, 'BOB', 'aprobado_gerente')
 ON CONFLICT (fre_id) DO NOTHING;
 -- E1: executed=700/budget=1000 -> 70%. E8: executed=150/budget=100 -> 150% (sobregirado, primero en top3).
+-- E10 no entra al bloque de Gastos (estado 7, fuera de `scope`): sus gastos solo se ven en
+-- finalized_summary.executed_expenses_bob.
 
 -- ── Matriz de trabajo de E1: v1 (10h) y v2 (53h, la que cuenta -- sin doble conteo) ───────
 INSERT INTO public.activity_worksheets (id, engagement_id, wo_id, version, status, updated_at) VALUES
@@ -385,7 +429,22 @@ INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week
   ('15ca27e0-0000-4000-8000-000000000002', '50ca27e0-0000-4000-8000-000000000004', '2025-10-06', 2, 2025),          -- P2 u4 (dentro del FY, fuera del periodo visible)
   ('15ca27e0-0000-4000-8000-000000000003', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 7, 1, 2026),   -- P3 u8
   ('15ca27e0-0000-4000-8000-000000000004', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 14, 2, 2026),  -- P4 u8 (rechazada)
-  ('15ca27e0-0000-4000-8000-000000000006', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 35, 3, 2026)   -- P6 u8 (Cola: antigua, alert)
+  ('15ca27e0-0000-4000-8000-000000000006', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 35, 3, 2026),  -- P6 u8 (Cola: antigua, alert)
+  -- P7/P8 u8 (SF-02): horas de E10, el finalizado con datos reales
+  ('15ca27e0-0000-4000-8000-000000000007', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 21, 4, 2026),
+  ('15ca27e0-0000-4000-8000-000000000008', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 28, 5, 2026)
+ON CONFLICT (period_id) DO NOTHING;
+
+-- MF-03: 21 periodos de u11, todos MÁS ANTIGUOS que los de u4 (today-7) y u8 (today-35) --
+-- con el LIMIT 20 aplicado sobre líneas crudas y ORDER BY week_start_date ASC, estas 21
+-- barrían el cupo entero y u4/u8 desaparecían del payload. Los week_start van de today-42
+-- hacia atrás, así que su plazo de carga (week_start + 6 + 30) cae SIEMPRE antes de hoy y
+-- no agrega hitos "lock_deadline" a la ventana de la aserción 20.
+INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year)
+SELECT ('15ca27e0-0000-4000-8000-' || lpad((100 + i)::text, 12, '0'))::uuid,
+       '50ca27e0-0000-4000-8000-000000000011',
+       pg_temp.today() - 42 - (7 * i), 10 + i, 2026
+  FROM generate_series(0, 20) i
 ON CONFLICT (period_id) DO NOTHING;
 
 -- ── Horas cargadas sobre E1 (orden real: primero las horas, después las aprobaciones -- ver
@@ -446,7 +505,19 @@ INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, e
   -- abrir una segunda fila homónima.
   ('16ca27e0-0000-4000-8000-000000000012', pg_temp.today() - 5, 7, '50ca27e0-0000-4000-8000-000000000010',
    '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000003',
-   NULL, false)
+   NULL, false),
+  -- SF-02, horas de E10 (finalizado): 7 aprobadas + 2 pendientes = 9 ejecutadas de vida
+  -- completa; las 3 rechazadas NO cuentan. E10 está fuera de `scope` (estado 7), así que
+  -- estas horas solo se ven en finalized_summary.executed_hours.
+  ('16ca27e0-0000-4000-8000-000000000013', pg_temp.today() - 20, 7, '50ca27e0-0000-4000-8000-000000000008',
+   '70ca27e0-0000-4000-8000-000000000010', 'acca27e0-0000-4000-8000-000000000001',
+   '15ca27e0-0000-4000-8000-000000000007', false),
+  ('16ca27e0-0000-4000-8000-000000000014', pg_temp.today() - 19, 2, '50ca27e0-0000-4000-8000-000000000008',
+   '70ca27e0-0000-4000-8000-000000000010', 'acca27e0-0000-4000-8000-000000000002',
+   NULL, false),
+  ('16ca27e0-0000-4000-8000-000000000015', pg_temp.today() - 27, 3, '50ca27e0-0000-4000-8000-000000000008',
+   '70ca27e0-0000-4000-8000-000000000010', 'acca27e0-0000-4000-8000-000000000001',
+   '15ca27e0-0000-4000-8000-000000000008', false)
 ON CONFLICT (time_id) DO NOTHING;
 
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status) VALUES
@@ -455,8 +526,30 @@ INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_
   ('17ca27e0-0000-4000-8000-000000000003', '15ca27e0-0000-4000-8000-000000000003', '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000001', 'approved'),  -- te4
   ('17ca27e0-0000-4000-8000-000000000004', '15ca27e0-0000-4000-8000-000000000004', '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000001', 'rejected'),  -- te6
   ('17ca27e0-0000-4000-8000-000000000005', '15ca27e0-0000-4000-8000-000000000001', '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000002', 'pending'),   -- te8 (Cola: reciente, weeks_old=1)
-  ('17ca27e0-0000-4000-8000-000000000006', '15ca27e0-0000-4000-8000-000000000006', '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000001', 'pending')    -- te9 (Cola: antigua, weeks_old=5, alert)
+  ('17ca27e0-0000-4000-8000-000000000006', '15ca27e0-0000-4000-8000-000000000006', '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000001', 'pending'),   -- te9 (Cola: antigua, weeks_old=5, alert)
+  -- SF-02, E10: te13 aprobada / te15 rechazada (te14 va sin periodo -> pendiente por defecto)
+  ('17ca27e0-0000-4000-8000-000000000007', '15ca27e0-0000-4000-8000-000000000007', '70ca27e0-0000-4000-8000-000000000010', 'acca27e0-0000-4000-8000-000000000001', 'approved'),
+  ('17ca27e0-0000-4000-8000-000000000008', '15ca27e0-0000-4000-8000-000000000008', '70ca27e0-0000-4000-8000-000000000010', 'acca27e0-0000-4000-8000-000000000001', 'rejected')
 ON CONFLICT (approval_id) DO NOTHING;
+
+-- MF-03: las 21 líneas pendientes de u11 sobre E1. A propósito SIN time_entries detrás --
+-- la Cola las cuenta igual (hours = COALESCE(SUM(...), 0) = 0), así que reproducen el
+-- escenario del LIMIT sin tocar ni una sola suma de horas del resto del tablero.
+INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status)
+SELECT ('17ca27e0-0000-4000-8000-' || lpad((100 + i)::text, 12, '0'))::uuid,
+       ('15ca27e0-0000-4000-8000-' || lpad((100 + i)::text, 12, '0'))::uuid,
+       '70ca27e0-0000-4000-8000-000000000001',
+       'acca27e0-0000-4000-8000-000000000001',
+       'pending'
+  FROM generate_series(0, 20) i
+ON CONFLICT (approval_id) DO NOTHING;
+
+-- E10 (SF-02): AHORA que sus horas y aprobaciones ya existen, se fuerza el override a 7
+-- (Finalizado) -- igual que en la vida real, un encargo se finaliza DESPUÉS de haber
+-- registrado su trabajo, nunca antes. check_wo_approved() habría rechazado cualquier
+-- time_entries insertado con override=7 desde el inicio.
+UPDATE public.engagements SET engagement_state_override = 7
+WHERE engagement_id = '70ca27e0-0000-4000-8000-000000000010'::uuid;
 
 -- ── Helpers (patrón de rpc-dash-socio-partner-overview.sql) ──────────────────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -630,8 +723,9 @@ BEGIN
      OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(4))
      OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(5))
      OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(3))
-     OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(9)) THEN
-    RAISE EXCEPTION 'FAIL: partner NO debía ver E7 (ajeno), E4 (funcion 0), E5 (finalizado), E3 (pendiente) ni E9 (borrador)';
+     OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(9))
+     OR pg_temp.has_eng(v_partner->'engagement_rows', pg_temp.e(10)) THEN
+    RAISE EXCEPTION 'FAIL: partner NO debía ver E7 (ajeno), E4 (funcion 0), E5/E10 (finalizados), E3 (pendiente) ni E9 (borrador)';
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(7));
@@ -1040,21 +1134,40 @@ BEGIN
   RAISE NOTICE 'OK 18: Gastos (admin, firm-wide) -- executed_bob=550 (solo revisado_asistente), pending_count=2; top3 ordena E8 (150%%, sobregirado) antes que E1 (40%%)';
 END $$;
 
--- ── 19. Cola: agrupa sin duplicar horas; total_hours/distinct_people; antigüedad y alerta ─
+-- ── 19. Cola: agrupa sin duplicar horas; total_hours/distinct_people; antigüedad y alerta.
+-- MF-03 (review.md iteración 1): además, la consolidación por persona ocurre ANTES del
+-- LIMIT 20 -- u11 tiene 21 líneas pendientes más antiguas que las de u4/u8 y, sin el fix,
+-- se llevaba el cupo entero dejando a las otras dos personas fuera del payload ──────────
 DO $$
-DECLARE v jsonb; v_old jsonb; v_recent jsonb;
+DECLARE v jsonb; v_old jsonb; v_recent jsonb; v_bulk jsonb; v_items jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
   v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_items := v->'approval_queue'->'items';
 
   IF (v->'approval_queue'->>'total_hours')::numeric <> 8.5 THEN
-    RAISE EXCEPTION 'FAIL: approval_queue.total_hours esperado 8.5 (2.5+6), obtuvo %', v->'approval_queue'->>'total_hours';
+    RAISE EXCEPTION 'FAIL: approval_queue.total_hours esperado 8.5 (2.5+6; las 21 líneas de u11 aportan 0 h), obtuvo %', v->'approval_queue'->>'total_hours';
   END IF;
-  IF (v->'approval_queue'->>'distinct_people')::int <> 2 THEN
-    RAISE EXCEPTION 'FAIL: approval_queue.distinct_people esperado 2 (u4,u8), obtuvo %', v->'approval_queue'->>'distinct_people';
+  IF (v->'approval_queue'->>'distinct_people')::int <> 3 THEN
+    RAISE EXCEPTION 'FAIL: approval_queue.distinct_people esperado 3 (u4,u8,u11), obtuvo %', v->'approval_queue'->>'distinct_people';
   END IF;
-  IF (v->'approval_queue'->>'total_count')::int <> 2 THEN
-    RAISE EXCEPTION 'FAIL: approval_queue.total_count esperado 2, obtuvo %', v->'approval_queue'->>'total_count';
+  IF (v->'approval_queue'->>'total_count')::int <> 23 THEN
+    RAISE EXCEPTION 'FAIL: approval_queue.total_count esperado 23 (2 + 21 de u11), obtuvo %', v->'approval_queue'->>'total_count';
+  END IF;
+
+  -- El corazón de MF-03: 3 personas, 3 filas -- ni una fila por línea, ni personas perdidas.
+  IF jsonb_array_length(v_items) <> 3 THEN
+    RAISE EXCEPTION 'FAIL: la Cola debía traer exactamente 3 ítems (uno por persona), obtuvo %', jsonb_array_length(v_items);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_items) e WHERE (e->>'staff_id')::uuid = pg_temp.s(4))
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_items) e WHERE (e->>'staff_id')::uuid = pg_temp.s(8))
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_items) e WHERE (e->>'staff_id')::uuid = pg_temp.s(11)) THEN
+    RAISE EXCEPTION 'FAIL: la Cola debía incluir a u4, u8 y u11 -- con el LIMIT antes de consolidar, las 21 líneas de u11 escondían a u4/u8. Obtuvo %', v_items;
+  END IF;
+  -- De las 21 líneas de u11 se conserva la MÁS ANTIGUA (today-42-140 = today-182 -> 26 semanas).
+  SELECT e INTO v_bulk FROM jsonb_array_elements(v_items) e WHERE (e->>'staff_id')::uuid = pg_temp.s(11);
+  IF (v_bulk->>'weeks_old')::int <> 26 OR (v_bulk->>'alert')::boolean <> true THEN
+    RAISE EXCEPTION 'FAIL: la fila de u11 debía quedarse con su línea más antigua (weeks_old=26, alert), obtuvo %', v_bulk;
   END IF;
 
   SELECT e INTO v_old FROM jsonb_array_elements(v->'approval_queue'->'items') e WHERE e->>'hours' = '6';
@@ -1068,7 +1181,7 @@ BEGIN
   IF (v->'meta'->>'retro_days')::int <> 30 THEN
     RAISE EXCEPTION 'FAIL: meta.retro_days esperado 30 (default), obtuvo %', v->'meta'->>'retro_days';
   END IF;
-  RAISE NOTICE 'OK 19: Cola -- total_hours=8.5, distinct_people=2, línea antigua weeks_old=5/alert; reciente weeks_old=1/sin alerta; retro_days=30';
+  RAISE NOTICE 'OK 19: Cola -- total_hours=8.5, distinct_people=3, 3 ítems (uno por persona, consolidados ANTES del LIMIT: u11 con 21 líneas no esconde a u4/u8); línea antigua weeks_old=5/alert; reciente weeks_old=1/sin alerta; retro_days=30';
 END $$;
 
 -- ── 20. Hitos: closing del mes siguiente (E1); wo_approved del último mes (E1); un
@@ -1177,23 +1290,34 @@ BEGIN
 END $$;
 
 -- ── 27. finalized_summary (fila resumen "Encargos finalizados", pedido del operador
--- 2026-09-19): E5 (override=7, end_date=hoy, partner=u3) cuenta en finalized_summary.count;
--- sin OT, así que budget_hours/executed_hours/executed_expenses_bob quedan en 0 -- no
--- crashea con NULL de por medio (LEFT/JOIN correctos) ────────────────────────────────────
+-- 2026-09-19): dos encargos finalizados hoy, ambos de u3. E5 sin OT cubre el camino de los
+-- ceros (LEFT/JOIN correctos con NULL de por medio, no crashea). E10 (SF-02, review.md
+-- iteración 1) cubre el camino CON datos reales: presupuesto de OT, horas de vida completa
+-- en los tres estados y gastos en dos estados -- antes solo se probaba que todo diera 0, así
+-- que un error de cálculo en los tres agregados habría pasado inadvertido ─────────────────
 DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
   v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date);
-  IF (v->'finalized_summary'->>'count')::int <> 1 THEN
-    RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 1 (E5, end_date=hoy), obtuvo %', v->'finalized_summary'->>'count';
+  IF (v->'finalized_summary'->>'count')::int <> 2 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 2 (E5 sin OT + E10 con OT, ambos end_date=hoy), obtuvo %', v->'finalized_summary'->>'count';
   END IF;
-  IF (v->'finalized_summary'->>'budget_hours')::numeric <> 0
-     OR (v->'finalized_summary'->>'executed_hours')::numeric <> 0
-     OR (v->'finalized_summary'->>'executed_expenses_bob')::numeric <> 0 THEN
-    RAISE EXCEPTION 'FAIL: E5 no tiene OT -- budget/executed/gastos debían ser 0, obtuvo %', v->'finalized_summary';
+  -- Solo E10 aporta: E5 no tiene OT ni horas ni gastos.
+  IF (v->'finalized_summary'->>'budget_hours')::numeric <> 12 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.budget_hours esperado 12 (línea Senior de E10; E5 aporta 0), obtuvo %', v->'finalized_summary'->>'budget_hours';
   END IF;
-  RAISE NOTICE 'OK 27: finalized_summary -- count=1 (E5, finalizado hoy); budget/executed/gastos=0 (sin OT, sin crash)';
+  IF (v->'finalized_summary'->>'executed_hours')::numeric <> 9 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.executed_hours esperado 9 (7 aprobadas + 2 pendientes de E10; las 3 rechazadas NO cuentan), obtuvo %', v->'finalized_summary'->>'executed_hours';
+  END IF;
+  IF (v->'finalized_summary'->>'executed_expenses_bob')::numeric <> 250 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.executed_expenses_bob esperado 250 (solo revisado_asistente; los 120 de aprobado_gerente NO cuentan, §18.6), obtuvo %', v->'finalized_summary'->>'executed_expenses_bob';
+  END IF;
+  -- E10 está finalizado: no debe filtrarse al cuerpo del tablero por ninguna vía.
+  IF pg_temp.has_eng(v->'engagement_rows', pg_temp.e(10)) THEN
+    RAISE EXCEPTION 'FAIL: E10 (estado 7) no debía aparecer en engagement_rows';
+  END IF;
+  RAISE NOTICE 'OK 27: finalized_summary -- count=2; E5 (sin OT) aporta 0 sin crashear y E10 aporta budget=12/executed=9 (rechazadas fuera)/gastos=250 (solo revisado_asistente)';
 END $$;
 
 -- ── 28. p_practica_id (pedido del operador 2026-09-19, admin/senior_partner): filtra por el

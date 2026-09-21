@@ -104,6 +104,27 @@ describe("CarteraTab", () => {
     expect(screen.queryByText("dashboard.cartera.empty.scope")).not.toBeInTheDocument();
   });
 
+  // MF-02 (review.md iteración 1): el mensaje se mostraba ARRIBA del tablero y el cuerpo
+  // seguía renderizando los 5 KPIs y todos los bloques en cero -- indistinguible de "hay
+  // encargos pero sin horas cargadas".
+  it("CT3b: el vacío por filtros NO renderiza KPIs ni bloques (el tablero en cero no debe verse)", () => {
+    mockUseCarteraOverview.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: payloadWith({ meta: { ...emptyCarteraOverviewPayload().meta, scope_count: 0, unfiltered_scope_count: 5 } }),
+    });
+    render(<CarteraTab />, { wrapper: createWrapper() });
+    for (const key of [
+      "dashboard.cartera.kpi.engagements.title",
+      "dashboard.cartera.kpi.review.title",
+      "dashboard.cartera.blocks.activities.title",
+      "dashboard.cartera.blocks.collections.title",
+      "dashboard.cartera.blocks.engagementHours.title",
+    ]) {
+      expect(screen.queryByText(key)).not.toBeInTheDocument();
+    }
+  });
+
   it("CT4: KPI2 muestra kpi.clientsServices.value y la variación calculada con pctChange", () => {
     mockUseCarteraOverview.mockReturnValue({
       isLoading: false,
@@ -134,6 +155,25 @@ describe("CarteraTab", () => {
     });
     render(<CarteraTab />, { wrapper: createWrapper() });
     expect(screen.getByText("2 · 1 · 3")).toBeInTheDocument();
+  });
+
+  // SF-03 (review.md iteración 1): alertCardTone() solo pondera sobregiros y OT pendientes,
+  // así que la tarjeta salía en VERDE con riesgos por aprobar a la vista.
+  it("CT5b: KPI5 con solo riesgos pendientes (0 · 0 · 3) no queda en tono success", () => {
+    mockUseCarteraOverview.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: payloadWith({
+        kpis: {
+          ...emptyCarteraOverviewPayload().kpis,
+          review: { over_budget_count: 0, pending_wo_count: 0, pending_risk_count: 3 },
+        },
+      }),
+    });
+    const { container } = render(<CarteraTab />, { wrapper: createWrapper() });
+    expect(screen.getByText("0 · 0 · 3")).toBeInTheDocument();
+    expect(container.querySelector("svg.text-success")).not.toBeInTheDocument();
+    expect(container.querySelector("svg.text-warning")).toBeInTheDocument();
   });
 
   it("CT6: Cascada -- con actividades renderiza título; con items=[] muestra blocks.activities.empty", () => {
@@ -274,6 +314,39 @@ describe("CarteraTab", () => {
     const { container } = render(<CarteraTab />, { wrapper: createWrapper() });
     expect(screen.getByText("dashboard.cartera.blocks.approvalQueue.summary(hours=9,people=2)")).toBeInTheDocument();
     expect(container.querySelector("svg.text-warning")).toBeInTheDocument();
+  });
+
+  // MF-03 (review.md iteración 1): el "+N más" contaba lo que sobraba de la lista RECIBIDA,
+  // que el servidor ya recortó a 20 líneas -- las personas que el LIMIT dejó afuera no se
+  // contaban en ningún lado. Ahora sale de distinct_people, que el RPC calcula sobre TODAS.
+  it("CT9b: el '+N más' cuenta las personas que el servidor dejó fuera, no el resto de la lista recibida", () => {
+    mockUseCarteraOverview.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: payloadWith({
+        meta: { ...emptyCarteraOverviewPayload().meta, scope_count: 3, unfiltered_scope_count: 3, today: "2026-09-17", retro_days: 30 },
+        approval_queue: {
+          total_hours: 40,
+          distinct_people: 12, // 12 personas con pendientes...
+          total_count: 60,
+          items: Array.from({ length: 6 }, (_, i) => ({
+            // ...pero solo llegaron 6 (el resto lo cortó el LIMIT del servidor)
+            approval_id: `ap${i}`,
+            staff_id: `s${i}`,
+            staff_name: `Persona ${i}`,
+            engagement_id: "e1",
+            engagement_code: "E1",
+            week_start_date: "2026-09-07",
+            hours: 2,
+            weeks_old: 1,
+            alert: false,
+          })),
+        },
+      }),
+    });
+    render(<CarteraTab />, { wrapper: createWrapper() });
+    // Se renderizan 5; quedan 12 - 5 = 7 personas fuera (antes decía "+1", contando filas).
+    expect(screen.getByText("dashboard.cartera.blocks.approvalQueue.more(count=7)")).toBeInTheDocument();
   });
 
   it("CT10: Hitos -- ítems agrupados en past/upcoming según meta.today", () => {

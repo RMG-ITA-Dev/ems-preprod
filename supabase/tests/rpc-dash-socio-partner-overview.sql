@@ -190,7 +190,19 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
    '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, NULL, NULL, 1, NULL),
   ('70da5c10-0000-4000-8000-000000000011', '60da5c10-0000-4000-8000-000000000003',
    'DA5C10 E11 Norte anio anterior', 'active', '2026-06-30',
-   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, '2025-06-30', NULL, 1, '2025-01-01')
+   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, '2025-06-30', NULL, 1, '2025-01-01'),
+  -- E12 Sur (SF-02, review.md iteracion 1 de bugs/dashboard/cartera): finalizado CON datos
+  -- reales -- end_date dentro del periodo de prueba, OT Approved BOB, presupuesto, horas en
+  -- los tres estados y una cuota Completed. Complementa a E4, que cubre el camino de los
+  -- ceros (finalizado sin OT). Cliente=C2 (ya usado por E2/E8/E10) para no sumar cliente ni
+  -- industria a filters.*
+  -- override arranca en NULL (no 7): check_wo_approved() bloquea CUALQUIER INSERT en
+  -- time_entries cuando el override ya es 7/8/etc -- solo 4/5 o NULL+OT-Approved permiten
+  -- cargar horas. Igual que en la vida real, el override a 7 se aplica DESPUES de que las
+  -- horas ya existen (ver el UPDATE al final del bloque de horas, mas abajo).
+  ('70da5c10-0000-4000-8000-000000000012', '60da5c10-0000-4000-8000-000000000002',
+   'DA5C10 E12 Sur finalizado con OT', 'active', '2027-06-30',
+   '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, '2026-08-31', NULL, 1, NULL)
 ON CONFLICT (engagement_id) DO NOTHING;
 
 -- ── Ordenes de trabajo ──────────────────────────────────────────────────────────────────────
@@ -211,7 +223,9 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax
   ('d0da5c10-0000-4000-8000-000000000010', '70da5c10-0000-4000-8000-000000000010',
    'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000011', '70da5c10-0000-4000-8000-000000000011',
-   'BOB', 'High', 0.13, 0, 'Approved', '2025-03-01T00:00:00Z', 'Approved')
+   'BOB', 'High', 0.13, 0, 'Approved', '2025-03-01T00:00:00Z', 'Approved'),
+  ('d0da5c10-0000-4000-8000-000000000012', '70da5c10-0000-4000-8000-000000000012',
+   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved')
 ON CONFLICT (wo_id) DO NOTHING;
 
 INSERT INTO public.wo_budget_lines (wo_line_id, wo_id, category_id, budgeted_hours, standard_rate) VALUES
@@ -219,7 +233,8 @@ INSERT INTO public.wo_budget_lines (wo_line_id, wo_id, category_id, budgeted_hou
   ('b1da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000001', 'c0da5c10-0000-4000-8000-000000000002', 5, 50),    -- E1 Senior
   ('b1da5c10-0000-4000-8000-000000000006', 'd0da5c10-0000-4000-8000-000000000006', 'c0da5c10-0000-4000-8000-000000000003', 8, 0),     -- E6 SQR ($0, no aporta honorario)
   ('b1da5c10-0000-4000-8000-000000000010', 'd0da5c10-0000-4000-8000-000000000010', 'c0da5c10-0000-4000-8000-000000000001', 10, 50),   -- E10: presupuesto 10h, categoria Socio (matchea la de w1, asercion 12/13 predecible)
-  ('b1da5c10-0000-4000-8000-000000000011', 'd0da5c10-0000-4000-8000-000000000011', 'c0da5c10-0000-4000-8000-000000000002', 5, 200)    -- E11: fee_net = 5*200 = 1000 BOB (MF-02)
+  ('b1da5c10-0000-4000-8000-000000000011', 'd0da5c10-0000-4000-8000-000000000011', 'c0da5c10-0000-4000-8000-000000000002', 5, 200),   -- E11: fee_net = 5*200 = 1000 BOB (MF-02)
+  ('b1da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 'c0da5c10-0000-4000-8000-000000000002', 9, 100)    -- E12: finalized_summary.budget_hours = 9 (SF-02)
 ON CONFLICT (wo_line_id) DO NOTHING;
 
 INSERT INTO public.wo_expense_budget (wo_exp_id, wo_id, expense_type_id, budgeted_amount) VALUES
@@ -280,6 +295,27 @@ INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, inst
    ((now() AT TIME ZONE 'America/La_Paz')::date) - 10, ((now() AT TIME ZONE 'America/La_Paz')::date) + 3,
    ((now() AT TIME ZONE 'America/La_Paz')::date) - 5, NULL, NULL,
    6.96, NULL)
+ON CONFLICT (installment_id) DO NOTHING;
+
+-- E12 (SF-02): plan BOB + 2 cuotas. La Completed (500 Bs) es la unica que debe entrar a
+-- finalized_summary.collected_bob; la Invoiced (400 Bs) NO, aunque este facturada -- mismo
+-- criterio "Completed" que collections_by_status.collected. Moneda BOB -> rate_to_bob = 1.
+INSERT INTO public.wo_payment_plan (plan_id, wo_id, exchange_rate, exchange_rate_mode, payment_days) VALUES
+  ('e0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 1, 'fijo', 30)
+ON CONFLICT (plan_id) DO NOTHING;
+
+INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, installment_number,
+    percentage, amount, status,
+    agreed_invoice_date, agreed_payment_date, collection_invoice_date, collection_payment_date, payment_date_actual,
+    invoice_exchange_rate, payment_exchange_rate) VALUES
+  ('f0da5c10-0000-4000-8000-000000000012', 'e0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 1,
+   0, 500, 'Completed',
+   '2026-07-01', '2026-07-31', '2026-07-01', '2026-07-30', '2026-07-30',
+   1, 1),
+  ('f0da5c10-0000-4000-8000-000000000013', 'e0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 2,
+   0, 400, 'Invoiced',
+   '2026-08-01', '2026-08-31', '2026-08-01', NULL, NULL,
+   1, NULL)
 ON CONFLICT (installment_id) DO NOTHING;
 
 ALTER TABLE public.wo_payment_plan ENABLE TRIGGER trg_wo_payment_plan_guard_exchange_rate;
@@ -389,7 +425,20 @@ INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, e
   -- en kpis.my_partner_hours.approved -- la asercion 11b confirma que NO aparecen.
   ('13da5c10-0000-4000-8000-000000000013', '2026-03-03', 4, '50da5c10-0000-4000-8000-000000000002',
    '70da5c10-0000-4000-8000-000000000009', 'acda5c10-0000-4000-8000-000000000001',
-   '11da5c10-0000-4000-8000-000000000004', false)
+   '11da5c10-0000-4000-8000-000000000004', false),
+  -- E12 (SF-02): 6h aprobadas + 1h pendiente = 7h de vida completa; las 4h RECHAZADAS no
+  -- cuentan. Mismos periodos de w1 (la aprobacion se resuelve por (period_id,
+  -- engagement_id, activity_id), no por staff). E12 esta finalizado (estado 7), asi que
+  -- estas horas solo se ven en finalized_summary.executed_hours.
+  ('13da5c10-0000-4000-8000-000000000014', '2026-03-03', 6, '50da5c10-0000-4000-8000-000000000008',
+   '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
+   '11da5c10-0000-4000-8000-000000000001', false),
+  ('13da5c10-0000-4000-8000-000000000015', '2026-03-04', 1, '50da5c10-0000-4000-8000-000000000008',
+   '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
+   NULL, false),
+  ('13da5c10-0000-4000-8000-000000000016', '2026-03-07', 4, '50da5c10-0000-4000-8000-000000000008',
+   '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
+   '11da5c10-0000-4000-8000-000000000003', false)
 ON CONFLICT (time_id) DO NOTHING;
 
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status) VALUES
@@ -406,8 +455,20 @@ INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_
   -- te13 (SF-01) queda aprobada -- el peor caso para probar la exclusion: si `funcion=1`
   -- no filtrara, esta linea aparecería como horas APROBADAS en my_partner_hours.
   ('12da5c10-0000-4000-8000-000000000012', '11da5c10-0000-4000-8000-000000000004',
-   '70da5c10-0000-4000-8000-000000000009', 'acda5c10-0000-4000-8000-000000000001', 'approved')
+   '70da5c10-0000-4000-8000-000000000009', 'acda5c10-0000-4000-8000-000000000001', 'approved'),
+  -- E12 (SF-02): una linea aprobada y una rechazada
+  ('12da5c10-0000-4000-8000-000000000013', '11da5c10-0000-4000-8000-000000000001',
+   '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001', 'approved'),
+  ('12da5c10-0000-4000-8000-000000000014', '11da5c10-0000-4000-8000-000000000003',
+   '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001', 'rejected')
 ON CONFLICT (approval_id) DO NOTHING;
+
+-- E12 (SF-02): AHORA que sus horas y aprobaciones ya existen, se fuerza el override a 7
+-- (Finalizado) -- igual que en la vida real, un encargo se finaliza DESPUES de haber
+-- registrado su trabajo, nunca antes. check_wo_approved() habria rechazado cualquier
+-- time_entries insertado con override=7 desde el inicio.
+UPDATE public.engagements SET engagement_state_override = 7
+WHERE engagement_id = '70da5c10-0000-4000-8000-000000000012'::uuid;
 
 -- ── Helpers (patron de rpc-0828-185-engagement-portfolio.sql) ───────────────────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -707,33 +768,40 @@ DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
   v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
-  IF (v->'kpis'->'engagements'->>'finalized_in_period')::int <> 1 THEN
-    RAISE EXCEPTION 'FAIL: finalized_in_period esperado 1 (E4), obtuvo %', v->'kpis'->'engagements'->>'finalized_in_period';
+  IF (v->'kpis'->'engagements'->>'finalized_in_period')::int <> 2 THEN
+    RAISE EXCEPTION 'FAIL: finalized_in_period esperado 2 (E4 sin OT + E12 con OT), obtuvo %', v->'kpis'->'engagements'->>'finalized_in_period';
   END IF;
   IF (v->'kpis'->'engagements'->>'total')::int <> 6 THEN
-    RAISE EXCEPTION 'FAIL: kpis.engagements.total esperado 6 (E1,E2,E5,E6,E8,E10 -- E4 excluido), obtuvo %',
+    RAISE EXCEPTION 'FAIL: kpis.engagements.total esperado 6 (E1,E2,E5,E6,E8,E10 -- E4/E12 excluidos por estado 7), obtuvo %',
       v->'kpis'->'engagements'->>'total';
   END IF;
-  RAISE NOTICE 'OK 9: finalized_in_period=1 (E4), total=6 excluye E4';
+  RAISE NOTICE 'OK 9: finalized_in_period=2 (E4,E12), total=6 excluye los finalizados';
 END $$;
 
 -- ── 9b. finalized_summary (fila resumen "Encargos finalizados", pedido del operador
--- 2026-09-19): E4 (override=7, end_date en el periodo) cuenta en finalized_summary.count;
--- sin OT, así que budget_hours/executed_hours/collected_bob quedan en 0 -- no crashea ────
+-- 2026-09-19): dos finalizados dentro del periodo. E4 (override=7, sin OT) cubre el camino
+-- de los ceros -- no crashea con NULL de por medio. E12 (SF-02, review.md iteracion 1 de
+-- bugs/dashboard/cartera) cubre el camino CON datos reales: antes la asercion solo verificaba
+-- que los tres agregados dieran 0, asi que un error de calculo pasaba inadvertido ─────────
 DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
   v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
-  IF (v->'finalized_summary'->>'count')::int <> 1 THEN
-    RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 1 (E4), obtuvo %', v->'finalized_summary'->>'count';
+  IF (v->'finalized_summary'->>'count')::int <> 2 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 2 (E4 sin OT + E12 con OT), obtuvo %', v->'finalized_summary'->>'count';
   END IF;
-  IF (v->'finalized_summary'->>'budget_hours')::numeric <> 0
-     OR (v->'finalized_summary'->>'executed_hours')::numeric <> 0
-     OR (v->'finalized_summary'->>'collected_bob')::numeric <> 0 THEN
-    RAISE EXCEPTION 'FAIL: E4 no tiene OT -- budget/executed/honorarios pagados debían ser 0, obtuvo %', v->'finalized_summary';
+  -- Solo E12 aporta: E4 no tiene OT ni horas ni cuotas.
+  IF (v->'finalized_summary'->>'budget_hours')::numeric <> 9 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.budget_hours esperado 9 (linea Senior de E12), obtuvo %', v->'finalized_summary'->>'budget_hours';
   END IF;
-  RAISE NOTICE 'OK 9b: finalized_summary -- count=1 (E4); budget/executed/honorarios pagados=0 (sin OT, sin crash)';
+  IF (v->'finalized_summary'->>'executed_hours')::numeric <> 7 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.executed_hours esperado 7 (6 aprobadas + 1 pendiente de E12; las 4 rechazadas NO cuentan), obtuvo %', v->'finalized_summary'->>'executed_hours';
+  END IF;
+  IF (v->'finalized_summary'->>'collected_bob')::numeric <> 500 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.collected_bob esperado 500 (solo la cuota Completed de E12; la Invoiced de 400 NO cuenta), obtuvo %', v->'finalized_summary'->>'collected_bob';
+  END IF;
+  RAISE NOTICE 'OK 9b: finalized_summary -- count=2; E4 (sin OT) aporta 0 sin crashear y E12 aporta budget=9/executed=7 (rechazadas fuera)/cobrado=500 (solo Completed)';
 END $$;
 
 -- ── 10. kpis.fees.total_bob = fee_net(E1) * 6.96; E5 administrativo suma 0 ─────────────────

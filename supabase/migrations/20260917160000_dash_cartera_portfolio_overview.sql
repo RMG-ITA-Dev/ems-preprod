@@ -818,13 +818,26 @@ BEGIN
       COUNT(*) AS total_count
     FROM approval_queue_derived
   ),
+  -- MF-03 (review.md iteración 1): la consolidación por persona va ANTES del LIMIT. Cuando
+  -- el recorte se hacía sobre líneas crudas, una sola persona con 20 líneas pendientes
+  -- agotaba el cupo y TODAS las demás desaparecían del payload -- el frontend, que agrupa
+  -- después, no tenía forma de saberlo y el "+N más" tampoco las contaba. Se conserva la
+  -- línea MÁS ANTIGUA de cada persona (mayor days_old), que es la que decide la alerta.
+  approval_queue_per_person AS (
+    SELECT DISTINCT ON (aqd.staff_id) aqd.*
+    FROM approval_queue_derived aqd
+    ORDER BY aqd.staff_id, aqd.days_old DESC, aqd.week_start_date ASC, aqd.approval_id
+  ),
   approval_queue_items AS (
+    -- staff_id viaja para que el cliente deduplique por identidad y no por nombre visible.
+    -- No es PII: la aserción #22 de la suite prohíbe email / id_number / auth_user_id.
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
-      'approval_id', approval_id, 'staff_name', staff_name, 'engagement_id', engagement_id,
+      'approval_id', approval_id, 'staff_id', staff_id, 'staff_name', staff_name,
+      'engagement_id', engagement_id,
       'engagement_code', engagement_code, 'week_start_date', week_start_date, 'hours', hours,
       'weeks_old', weeks_old, 'alert', alert
     ) ORDER BY week_start_date ASC), '[]'::jsonb) AS items
-    FROM (SELECT * FROM approval_queue_derived ORDER BY week_start_date ASC LIMIT 20) t
+    FROM (SELECT * FROM approval_queue_per_person ORDER BY week_start_date ASC LIMIT 20) t
   ),
 
   -- ── 23. Hitos: ventana fija ±1 mes (decisiones.md §7.2); ignoran Periodo, respetan
@@ -1059,7 +1072,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) IS 'dash_cartera (decisiones.md §4-§8, plan_v2.md §7.1-§7.3): payload único de la pestaña Cartera (5 KPI + 5 filas de bloques) en un round-trip. Gateado por dashboard.portfolio.read (ya concedido a admin/senior_partner/partner/director/manager/ita_manager/tax_manager/risk_partner, cero_13:323-330 -- esta migración no toca esa tabla). Alcance: admin/senior_partner ven toda la firma; el resto SOLO donde es partner_id o manager_id del encargo (role_scope), sin distinción de rol y SIN leer authorization_role_permissions.scope_key -- risk_partner nunca recibe alcance departamental. Base = estado efectivo 4/5 + funcion=1 (Cliente), SIN filtro de fecha a nivel encargo -- los bloques por periodo filtran horas/cuotas/gastos, no encargos. KPI 3 (2026-09-20, decisión del operador) dejó de ser "Horas como Gerente" fijo -- que para un socio daba 0/0 por construcción -- y se adapta a la categoría de la ficha del llamante: my_role_hours.role_label da el título y role_key dirige el cálculo (encargos donde ocupo ese rol estructural + líneas de presupuesto que comparten mi default_role_key, con respaldo por nombre si la categoría no lo tiene poblado). D-1 sobrevive como mecanismo: un gerente sigue sumando ''Gerente'' + ''Gerente/Asociado Senior'' y excluyendo los especialistas. KPI 4 (Avance de cartera) opera sobre scope_fy completo, contando el encargo si el llamante es su socio O su gerente (D-2). p_practica_id (2026-09-19): filtro de Práctica post-alcance, pedido del operador para admin/senior_partner -- NO es un cambio de autorización, role_scope no lo usa. "Horas por categoría"/"Presupuesto de personal" atribuyen cada hora a la categoría homónima de la práctica DEL ENCARGO (hours.exec_category_id), no a la de la ficha de quien la cargó: sin eso, alguien de otra práctica trabajando el encargo abría una segunda fila con el mismo nombre (BUG 2026-09-20, ver el comentario del CTE `hours`). Cada fila viaja con practica_abbr para que la UI desambigüe los homónimos legítimos de la vista "Todas". Depende de public.effective_engagement_state() y public.latest_exchange_rate(), creadas por 20260915130000_dash_socio_partner_overview.sql -- debe aplicarse después de esa migración. Ver bugs/dashboard/cartera/plan_v2.md §7.3 para el contrato exacto del payload.';
+COMMENT ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) IS 'dash_cartera (decisiones.md §4-§8, plan_v2.md §7.1-§7.3): payload único de la pestaña Cartera (5 KPI + 5 filas de bloques) en un round-trip. Gateado por dashboard.portfolio.read (ya concedido a admin/senior_partner/partner/director/manager/ita_manager/tax_manager/risk_partner, cero_13:323-330 -- esta migración no toca esa tabla). Alcance: admin/senior_partner ven toda la firma; el resto SOLO donde es partner_id o manager_id del encargo (role_scope), sin distinción de rol y SIN leer authorization_role_permissions.scope_key -- risk_partner nunca recibe alcance departamental. Base = estado efectivo 4/5 + funcion=1 (Cliente), SIN filtro de fecha a nivel encargo -- los bloques por periodo filtran horas/cuotas/gastos, no encargos. KPI 3 (2026-09-20, decisión del operador) dejó de ser "Horas como Gerente" fijo -- que para un socio daba 0/0 por construcción -- y se adapta a la categoría de la ficha del llamante: my_role_hours.role_label da el título y role_key dirige el cálculo (encargos donde ocupo ese rol estructural + líneas de presupuesto que comparten mi default_role_key, con respaldo por nombre si la categoría no lo tiene poblado). D-1 sobrevive como mecanismo: un gerente sigue sumando ''Gerente'' + ''Gerente/Asociado Senior'' y excluyendo los especialistas. KPI 4 (Avance de cartera) opera sobre scope_fy completo, contando el encargo si el llamante es su socio O su gerente (D-2). p_practica_id (2026-09-19): filtro de Práctica post-alcance, pedido del operador para admin/senior_partner -- NO es un cambio de autorización, role_scope no lo usa. "Horas por categoría"/"Presupuesto de personal" atribuyen cada hora a la categoría homónima de la práctica DEL ENCARGO (hours.exec_category_id), no a la de la ficha de quien la cargó: sin eso, alguien de otra práctica trabajando el encargo abría una segunda fila con el mismo nombre (BUG 2026-09-20, ver el comentario del CTE `hours`). Cada fila viaja con practica_abbr para que la UI desambigüe los homónimos legítimos de la vista "Todas". La Cola de aprobación se consolida por persona (una fila por staff_id, la línea más antigua) ANTES de su LIMIT 20 y emite staff_id: cortando líneas crudas, una sola persona con 20 pendientes escondía a todas las demás del payload (review.md iteración 1, MF-03). Depende de public.effective_engagement_state() y public.latest_exchange_rate(), creadas por 20260915130000_dash_socio_partner_overview.sql -- debe aplicarse después de esa migración. Ver bugs/dashboard/cartera/plan_v2.md §7.3 para el contrato exacto del payload.';
 
 REVOKE ALL ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) TO authenticated, service_role;

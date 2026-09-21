@@ -213,6 +213,29 @@ describe("consolidateApprovalQueue", () => {
   it("lista vacía o null no crashea", () => {
     expect(consolidateApprovalQueue([])).toEqual([]);
   });
+
+  // MF-03 (review.md iteración 1): la clave de consolidación es staff_id, no el nombre
+  // visible. `short_name` es único por designación de la firma, pero el respaldo que arma el
+  // RPC cuando está NULL (nombre + apellido) no lo es.
+  it("MF-03: dos personas distintas con el MISMO nombre visible no se fusionan si traen staff_id", () => {
+    const items = [
+      { approval_id: "a1", staff_id: "s-1", staff_name: "Juan Perez", engagement_id: "e1", engagement_code: "E1", week_start_date: "2026-09-07", hours: 4, weeks_old: 1, alert: false },
+      { approval_id: "a2", staff_id: "s-2", staff_name: "Juan Perez", engagement_id: "e1", engagement_code: "E1", week_start_date: "2026-08-10", hours: 6, weeks_old: 5, alert: true },
+    ];
+    const rows = consolidateApprovalQueue(items);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.staff_id)).toEqual(["s-2", "s-1"]); // peor primero
+  });
+
+  it("MF-03: un payload sin staff_id (versión anterior del RPC) sigue consolidando por nombre", () => {
+    const items = [
+      { approval_id: "a1", staff_name: "Juan Perez", engagement_id: "e1", engagement_code: "E1", week_start_date: "2026-09-07", hours: 4, weeks_old: 1, alert: false },
+      { approval_id: "a2", staff_name: "Juan Perez", engagement_id: "e1", engagement_code: "E1", week_start_date: "2026-08-10", hours: 6, weeks_old: 5, alert: true },
+    ];
+    const rows = consolidateApprovalQueue(items);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].approval_id).toBe("a2");
+  });
 });
 
 describe("groupMilestones", () => {
@@ -252,5 +275,69 @@ describe("toCarteraViewModel", () => {
     expect(vm.kpis.engagements.approved).toBe(2);
     expect(vm.activities.items.map((i) => i.activity_id)).toEqual(["z", "a"]); // orden estable, sin reordenar
     expect(vm.activities.items[0].budget_hours).toBe(5);
+  });
+
+  // SF-01 (review.md iteración 1): estos cinco bloques se pasaban TAL CUAL desde el JSON --
+  // un numeric serializado como string llegaba intacto a Math.round() y a sumas que se
+  // convertían en concatenación ("5" + "3" = "53").
+  it("CA12b: collections/expenses/approval_queue/milestones/engagement_rows también se coaccionan", () => {
+    const s = (v: string) => v as unknown as number;
+    const payload = {
+      ...emptyCarteraOverviewPayload(),
+      collections: {
+        by_status: {
+          collected: { count: s("2"), amount_bob: s("1500.5") },
+          invoiced: { count: s("1"), amount_bob: s("300") },
+          in_arrears: { count: 0, amount_bob: 0 },
+          upcoming: { count: 0, amount_bob: 0 },
+        },
+        next_7_days: [
+          { installment_id: "i1", wo_id: "w1", engagement_id: "e1", client_legal_name: "C", kind: "collect" as const, date: "2026-09-20", amount_bob: s("250") },
+        ],
+        avg_collection_days: s("7"),
+      },
+      expenses: {
+        budget_bob: s("1000"),
+        executed_bob: s("400"),
+        pending_count: s("2"),
+        approved_count: s("1"),
+        top3: [{ engagement_id: "e1", engagement_code: "E1", client_legal_name: "C", budget_bob: s("1000"), executed_bob: s("400"), pct: s("40") }],
+      },
+      approval_queue: {
+        total_hours: s("8.5"),
+        distinct_people: s("2"),
+        total_count: s("23"),
+        items: [
+          { approval_id: "a1", staff_id: "s1", staff_name: "P", engagement_id: "e1", engagement_code: "E1", week_start_date: "2026-08-10", hours: s("6"), weeks_old: s("5"), alert: true },
+        ],
+      },
+      milestones: [
+        { kind: "lock_deadline" as const, date: "2026-10-05", engagement_id: null, engagement_code: null, engagement_name: null, weeks: s("5") },
+      ],
+      engagement_rows: [
+        { engagement_id: "e1", engagement_code: "E1", engagement_name: "E1", client_legal_name: "C", budget_hours: s("53"), approved_hours: s("8"), pending_hours: s("18.5"), over_budget: false },
+      ],
+    };
+    const vm = toCarteraViewModel(payload);
+
+    expect(vm.collections.by_status.collected.amount_bob).toBe(1500.5);
+    expect(vm.collections.next_7_days[0].amount_bob).toBe(250);
+    expect(vm.collections.avg_collection_days).toBe(7);
+    expect(vm.expenses.executed_bob).toBe(400);
+    expect(vm.expenses.top3[0].pct).toBe(40);
+    expect(vm.approval_queue.distinct_people).toBe(2);
+    expect(vm.approval_queue.items[0].hours).toBe(6);
+    expect(vm.milestones[0].weeks).toBe(5);
+    // El caso concreto que rompía: la suma se hacía sobre strings.
+    expect(vm.engagement_rows[0].approved_hours + vm.engagement_rows[0].pending_hours).toBe(26.5);
+
+    // Los null que el contrato SÍ admite se conservan como null, no se vuelven 0.
+    const withNulls = toCarteraViewModel({
+      ...emptyCarteraOverviewPayload(),
+      collections: { ...emptyCarteraOverviewPayload().collections, avg_collection_days: null },
+      milestones: [{ kind: "closing" as const, date: "2026-10-05", engagement_id: null, engagement_code: null, engagement_name: null, weeks: null }],
+    });
+    expect(withNulls.collections.avg_collection_days).toBeNull();
+    expect(withNulls.milestones[0].weeks).toBeNull();
   });
 });

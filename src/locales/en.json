@@ -1090,7 +1090,7 @@
       "updating": "Updating data…",
       "empty": {
         "scope": "No engagements in your portfolio scope.",
-        "filters": "No engagement matches the selected client."
+        "filters": "No engagement matches the selected filters."
       },
       "fullFiscalYear": "full fiscal year",
       "kpi": {
@@ -1199,7 +1199,7 @@
             "woApproved": "WO approved: {{code}}",
             "riskApproved": "Risk approved: {{code}}",
             "assignment": "Added to portfolio: {{code}}",
-            "lockDeadline": "Logging deadline: Wk {{date}}"
+            "lockDeadline": "Logging deadline"
           },
           "empty": "No milestones in the window"
         },

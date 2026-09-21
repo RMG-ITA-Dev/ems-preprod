@@ -1090,7 +1090,7 @@
       "updating": "Actualizando datos…",
       "empty": {
         "scope": "No hay encargos en el alcance de tu cartera.",
-        "filters": "Ningún encargo coincide con el cliente seleccionado."
+        "filters": "Ningún encargo coincide con los filtros seleccionados."
       },
       "fullFiscalYear": "año fiscal completo",
       "kpi": {
@@ -1199,7 +1199,7 @@
             "woApproved": "OT aprobada: {{code}}",
             "riskApproved": "Riesgos aprobado: {{code}}",
             "assignment": "Ingreso a cartera: {{code}}",
-            "lockDeadline": "Plazo de carga: Sem {{date}}"
+            "lockDeadline": "Plazo de carga"
           },
           "empty": "Sin hitos en la ventana"
         },

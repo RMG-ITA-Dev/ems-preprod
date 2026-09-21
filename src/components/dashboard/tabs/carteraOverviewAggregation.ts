@@ -8,6 +8,7 @@ import {
   type CarteraStaffingRow,
   type CarteraMilestoneItem,
   type CarteraApprovalQueueItem,
+  type CarteraCollectionsBucket,
 } from "./carteraOverviewTypes";
 
 // dash_cartera (bugs/dashboard/cartera/plan_v2.md §5.3): funciones puras sin React /
@@ -244,20 +245,26 @@ export function isApprovalStale(weekStart: string, today: string, retroDays: num
 /** Consolida la Cola de aprobación por persona (decisión del operador 2026-09-18): antes
  * se repetía una fila por cada línea pendiente, así que la misma persona con varias
  * semanas atrasadas ocupaba varias filas (y "0 sem"/"1 sem" mezclados). Ahora una sola
- * fila por `staff_name`, quedándose con la línea de MAYOR weeks_old (la más antigua sin
+ * fila por persona, quedándose con la línea de MAYOR weeks_old (la más antigua sin
  * aprobar) -- si la semana pasada y esta semana están ambas pendientes, se muestra "1 sem"
- * (la más vieja), no "0 sem". Dedup por nombre visible, no por staff_id -- el payload no
- * expone staff_id en approval_queue.items (memoria del proyecto: staff.SELECT endurecida
- * por columna, el RPC ya evita exponer más de lo necesario). */
+ * (la más vieja), no "0 sem".
+ *
+ * MF-03 (review.md iteración 1): la clave es `staff_id`, no el nombre visible. El RPC ahora
+ * lo emite (es un uuid interno, no PII -- la aserción #22 de la suite prohíbe email/
+ * id_number/auth_user_id, no el id) y además consolida por persona ANTES de su LIMIT, así
+ * que esta función ya no es la única defensa. Se conserva el nombre como respaldo para un
+ * payload viejo o cacheado, sin el campo: `short_name` es único por designación de la firma,
+ * pero el respaldo `nombre + apellido` que arma el RPC cuando está NULL no lo es. */
 export function consolidateApprovalQueue(items: CarteraApprovalQueueItem[]): CarteraApprovalQueueItem[] {
-  const byName = new Map<string, CarteraApprovalQueueItem>();
+  const byPerson = new Map<string, CarteraApprovalQueueItem>();
   for (const item of items ?? []) {
-    const current = byName.get(item.staff_name);
+    const key = item.staff_id ?? `name:${item.staff_name}`;
+    const current = byPerson.get(key);
     if (!current || item.weeks_old > current.weeks_old) {
-      byName.set(item.staff_name, item);
+      byPerson.set(key, item);
     }
   }
-  return Array.from(byName.values()).sort((a, b) => b.weeks_old - a.weeks_old);
+  return Array.from(byPerson.values()).sort((a, b) => b.weeks_old - a.weeks_old);
 }
 
 export interface CarteraMilestoneGroups {
@@ -278,6 +285,11 @@ export function groupMilestones(items: CarteraMilestoneItem[], today: string): C
   past.sort((a, b) => a.date.localeCompare(b.date));
   upcoming.sort((a, b) => a.date.localeCompare(b.date));
   return { past, upcoming };
+}
+
+/** Un bucket de Facturación coaccionado (SF-01): `count`/`amount_bob` siempre numéricos. */
+function coerceBucket(bucket: CarteraCollectionsBucket | null | undefined): CarteraCollectionsBucket {
+  return { count: safeNumber(bucket?.count), amount_bob: safeNumber(bucket?.amount_bob) };
 }
 
 /** Coerción defensiva de todo el payload: cualquier número que llegue como string, null o
@@ -363,11 +375,79 @@ export function toCarteraViewModel(payload: CarteraOverviewPayload | null | unde
       budgeted: s.budgeted == null ? null : n(s.budgeted),
       executed: n(s.executed),
     })),
-    collections: payload.collections ?? empty.collections,
-    expenses: payload.expenses ?? empty.expenses,
-    approval_queue: payload.approval_queue ?? empty.approval_queue,
-    milestones: payload.milestones ?? [],
-    engagement_rows: payload.engagement_rows ?? [],
+    // SF-01 (review.md iteración 1): estos cinco bloques se pasaban TAL CUAL desde el JSON
+    // mientras el resto del payload se coaccionaba -- un numeric serializado como string
+    // llegaba a Math.round()/toFixed() y, peor, a sumas como `approved_hours +
+    // pending_hours`, que se convertían en concatenación silenciosa. Ahora se normalizan
+    // igual que los demás, preservando los null que el contrato sí admite
+    // (avg_collection_days, weeks, engagement_code).
+    collections: {
+      by_status: {
+        collected: coerceBucket(payload.collections?.by_status?.collected),
+        invoiced: coerceBucket(payload.collections?.by_status?.invoiced),
+        in_arrears: coerceBucket(payload.collections?.by_status?.in_arrears),
+        upcoming: coerceBucket(payload.collections?.by_status?.upcoming),
+      },
+      next_7_days: (payload.collections?.next_7_days ?? []).map((i) => ({
+        installment_id: i.installment_id,
+        wo_id: i.wo_id,
+        engagement_id: i.engagement_id,
+        client_legal_name: i.client_legal_name,
+        kind: i.kind === "invoice" ? "invoice" : "collect",
+        date: i.date,
+        amount_bob: n(i.amount_bob),
+      })),
+      avg_collection_days:
+        payload.collections?.avg_collection_days == null ? null : n(payload.collections.avg_collection_days),
+    },
+    expenses: {
+      budget_bob: n(payload.expenses?.budget_bob),
+      executed_bob: n(payload.expenses?.executed_bob),
+      pending_count: n(payload.expenses?.pending_count),
+      approved_count: n(payload.expenses?.approved_count),
+      top3: (payload.expenses?.top3 ?? []).map((i) => ({
+        engagement_id: i.engagement_id,
+        engagement_code: i.engagement_code ?? null,
+        client_legal_name: i.client_legal_name,
+        budget_bob: n(i.budget_bob),
+        executed_bob: n(i.executed_bob),
+        pct: n(i.pct),
+      })),
+    },
+    approval_queue: {
+      total_hours: n(payload.approval_queue?.total_hours),
+      distinct_people: n(payload.approval_queue?.distinct_people),
+      total_count: n(payload.approval_queue?.total_count),
+      items: (payload.approval_queue?.items ?? []).map((i) => ({
+        approval_id: i.approval_id,
+        staff_id: i.staff_id ?? null,
+        staff_name: i.staff_name,
+        engagement_id: i.engagement_id,
+        engagement_code: i.engagement_code ?? null,
+        week_start_date: i.week_start_date,
+        hours: n(i.hours),
+        weeks_old: n(i.weeks_old),
+        alert: Boolean(i.alert),
+      })),
+    },
+    milestones: (payload.milestones ?? []).map((m) => ({
+      kind: m.kind,
+      date: m.date,
+      engagement_id: m.engagement_id ?? null,
+      engagement_code: m.engagement_code ?? null,
+      engagement_name: m.engagement_name ?? null,
+      weeks: m.weeks == null ? null : n(m.weeks),
+    })),
+    engagement_rows: (payload.engagement_rows ?? []).map((r) => ({
+      engagement_id: r.engagement_id,
+      engagement_code: r.engagement_code ?? null,
+      engagement_name: r.engagement_name,
+      client_legal_name: r.client_legal_name,
+      budget_hours: n(r.budget_hours),
+      approved_hours: n(r.approved_hours),
+      pending_hours: n(r.pending_hours),
+      over_budget: Boolean(r.over_budget),
+    })),
     finalized_summary: {
       count: n(payload.finalized_summary?.count),
       budget_hours: n(payload.finalized_summary?.budget_hours),

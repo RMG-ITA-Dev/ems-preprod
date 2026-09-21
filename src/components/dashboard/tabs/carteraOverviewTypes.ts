@@ -128,6 +128,12 @@ export interface CarteraOverviewExpenses {
 
 export interface CarteraApprovalQueueItem {
   approval_id: string;
+  /** Identidad real de la persona, para consolidar la cola sin depender del nombre visible
+   * (MF-03, review.md iteración 1). Opcional a propósito, igual que practica_abbr: un payload
+   * servido por una versión anterior del RPC (o un caché del cliente) no lo trae y la UI debe
+   * seguir funcionando cayendo al nombre. No es PII: la aserción #22 de la suite SQL prohíbe
+   * email / id_number / auth_user_id, no el uuid interno de staff. */
+  staff_id?: string | null;
   staff_name: string;
   engagement_id: string;
   engagement_code: string | null;

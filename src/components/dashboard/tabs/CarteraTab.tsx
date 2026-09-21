@@ -109,9 +109,10 @@ function BicolorBar({ approved, pending, budget }: { approved: number; pending: 
             content={({ active }) =>
               active ? (
                 <div className="rounded-md border bg-card px-2 py-1.5 text-xs shadow-md space-y-0.5">
-                  <p>{t("dashboard.cartera.tooltip.approved")}: {approved.toFixed(1)}</p>
-                  <p>{t("dashboard.cartera.tooltip.pending")}: {pending.toFixed(1)}</p>
-                  <p>{t("dashboard.cartera.tooltip.budget")}: {budget.toFixed(1)}</p>
+                  {/* Cero decimales en horas (plan_v2.md §8.3) -- MF-05, review.md iteración 1. */}
+                  <p>{t("dashboard.cartera.tooltip.approved")}: {Math.round(approved)}</p>
+                  <p>{t("dashboard.cartera.tooltip.pending")}: {Math.round(pending)}</p>
+                  <p>{t("dashboard.cartera.tooltip.budget")}: {Math.round(budget)}</p>
                   {pctConsumed !== null && <p>{pctConsumed}%</p>}
                 </div>
               ) : null
@@ -278,15 +279,27 @@ export function CarteraTab() {
     setActiveTab("encargo");
   };
 
-  if (kind === "scope") {
+  // Los dos vacíos cortan el render del tablero (plan_v2.md §4.2: el cuerpo completo solo se
+  // pinta con scope_count > 0). MF-02 de review.md iteración 1: "filters" antes solo agregaba
+  // un mensaje ARRIBA del tablero y seguía pintando los 5 KPIs y todos los bloques en cero --
+  // indistinguible de "no hay horas cargadas". El selector que permite deshacer el filtro vive
+  // en Index.tsx (<CarteraFilters />), así que sigue visible con el cuerpo cortado.
+  if (kind === "scope" || kind === "filters") {
     return (
       <div className="text-center py-12 text-muted-foreground text-sm">
-        {t("dashboard.cartera.empty.scope")}
+        {t(kind === "scope" ? "dashboard.cartera.empty.scope" : "dashboard.cartera.empty.filters")}
       </div>
     );
   }
 
-  const kpi5Tone = alertCardTone(vm.kpis.review.over_budget_count, vm.kpis.review.pending_wo_count);
+  // MF-03 de review.md iteración 1 (SF-03): alertCardTone() solo pondera 2 contadores y la
+  // tarjeta muestra 3 -- con "0 · 0 · 3" (solo riesgos por aprobar) el ícono salía en verde.
+  // El tono se calcula acá y no se cambia el helper, que es compartido con PartnerTab
+  // (plan_v2.md §15: no tocar ese archivo desde esta feature).
+  const kpi5Tone =
+    vm.kpis.review.pending_risk_count > 0 && vm.kpis.review.over_budget_count === 0
+      ? "warning"
+      : alertCardTone(vm.kpis.review.over_budget_count, vm.kpis.review.pending_wo_count);
   const engagementsSegment = engagementSegmentPct(vm.kpis.engagements.approved, vm.kpis.engagements.emergency, 0);
   const servicesPct = pctChange(vm.kpis.clients_services.clients, vm.kpis.clients_services.previous_clients);
 
@@ -302,6 +315,12 @@ export function CarteraTab() {
 
   const next7 = splitNext7Days(vm.collections.next_7_days, vm.meta.today);
   const consolidatedApprovals = consolidateApprovalQueue(vm.approval_queue.items);
+  const approvalsShown = consolidatedApprovals.slice(0, 5);
+  // MF-03 (review.md iteración 1): el "+N más" cuenta PERSONAS distintas que quedaron fuera,
+  // tomando el total del servidor (distinct_people, calculado sobre TODAS las líneas
+  // pendientes) y no la longitud de la lista recibida -- que ya viene recortada a 20 filas y
+  // por lo tanto nunca vería a las personas que el LIMIT dejó afuera.
+  const approvalsRemaining = Math.max(vm.approval_queue.distinct_people - approvalsShown.length, 0);
   const finalizedPct =
     vm.finalized_summary.budget_hours > 0
       ? (vm.finalized_summary.executed_hours / vm.finalized_summary.budget_hours) * 100
@@ -314,12 +333,6 @@ export function CarteraTab() {
     <div className="space-y-6" aria-busy={isPlaceholderData}>
       {isPlaceholderData && (
         <p className="text-xs text-muted-foreground">{t("dashboard.cartera.updating")}</p>
-      )}
-
-      {kind === "filters" && (
-        <div className="text-center py-4 text-muted-foreground text-sm">
-          {t("dashboard.cartera.empty.filters")}
-        </div>
       )}
 
       {/* Fila 1 -- 5 KPIs */}
@@ -437,9 +450,11 @@ export function CarteraTab() {
                   {waterfall.map((row) => (
                     <tr key={row.activity_id}>
                       <td>{row.is_total ? t("dashboard.cartera.blocks.activities.total") : row.description}</td>
-                      <td>{row.budget_hours.toFixed(1)}</td>
-                      <td>{row.approved_hours.toFixed(1)}</td>
-                      <td>{row.pending_hours.toFixed(1)}</td>
+                      {/* La tabla es sr-only pero la LEE un lector de pantalla: mismas reglas
+                          de formato que la versión visual (cero decimales, §8.3). */}
+                      <td>{Math.round(row.budget_hours)}</td>
+                      <td>{Math.round(row.approved_hours)}</td>
+                      <td>{Math.round(row.pending_hours)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -471,9 +486,9 @@ export function CarteraTab() {
                   const categoryLabel = row.practica_suffix ? `${baseLabel} · ${row.practica_suffix}` : baseLabel;
                   const rowTooltip = [
                     categoryLabel,
-                    `${t("dashboard.cartera.tooltip.budget")}: ${row.budget_hours.toFixed(1)} h`,
-                    `${t("dashboard.cartera.tooltip.approved")}: ${row.approved_hours.toFixed(1)} h`,
-                    `${t("dashboard.cartera.tooltip.pending")}: ${row.pending_hours.toFixed(1)} h`,
+                    `${t("dashboard.cartera.tooltip.budget")}: ${Math.round(row.budget_hours)} h`,
+                    `${t("dashboard.cartera.tooltip.approved")}: ${Math.round(row.approved_hours)} h`,
+                    `${t("dashboard.cartera.tooltip.pending")}: ${Math.round(row.pending_hours)} h`,
                   ].join("\n");
                   return (
                     <div key={row.category_id ?? "uncategorized"} className="space-y-1">
@@ -636,7 +651,7 @@ export function CarteraTab() {
                     people: vm.approval_queue.distinct_people,
                   })}
                 </p>
-                {consolidatedApprovals.slice(0, 5).map((item) => {
+                {approvalsShown.map((item) => {
                   const weeks = approvalAgeWeeks(item.week_start_date, vm.meta.today);
                   const stale = isApprovalStale(item.week_start_date, vm.meta.today, vm.meta.retro_days);
                   return (
@@ -653,11 +668,9 @@ export function CarteraTab() {
                     </div>
                   );
                 })}
-                {consolidatedApprovals.length > 5 && (
+                {approvalsRemaining > 0 && (
                   <p className="text-[10px] text-muted-foreground text-center">
-                    {t("dashboard.cartera.blocks.approvalQueue.more", {
-                      count: consolidatedApprovals.length - 5,
-                    })}
+                    {t("dashboard.cartera.blocks.approvalQueue.more", { count: approvalsRemaining })}
                   </p>
                 )}
               </div>
@@ -709,7 +722,7 @@ export function CarteraTab() {
                           <TableCell className="text-xs font-medium">{row.engagement_code ?? row.engagement_name}</TableCell>
                           <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">{row.client_legal_name}</TableCell>
                           <TableCell className="text-xs text-right font-mono">
-                            {totalHours.toFixed(1)} / {row.budget_hours.toFixed(1)}
+                            {Math.round(totalHours)} / {Math.round(row.budget_hours)}
                           </TableCell>
                           <TableCell className="text-center">
                             <div className="flex flex-col items-center gap-0.5">
@@ -805,8 +818,16 @@ function MilestoneGroup({
           return (
             <div key={`${item.kind}-${idx}`} className="flex items-center gap-2 text-xs">
               <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
+              {/* MF-05 (review.md iteración 1): `date` se interpolaba CRUDO (ISO
+                  "2026-10-20") dentro del texto, y además la misma fecha se repetía ya
+                  formateada en el extremo derecho. Ahora la etiqueta no lleva fecha (la
+                  clave lockDeadline dejó de usar {{date}}) y lo que se interpola, si alguna
+                  clave futura lo necesita, ya viene en DD/MM/YYYY. */}
               <span className="truncate">
-                {t(MILESTONE_LABEL_KEY[item.kind], { code: item.engagement_code ?? "", date: item.date })}
+                {t(MILESTONE_LABEL_KEY[item.kind], {
+                  code: item.engagement_code ?? "",
+                  date: formatShortDate(item.date, i18n.language),
+                })}
               </span>
               <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                 {formatShortDate(item.date, i18n.language)}
@@ -867,9 +888,9 @@ function ActivityWaterfallChart({
           return (
             <div className="rounded-md border bg-card px-2 py-1.5 text-xs shadow-md space-y-0.5">
               <p className="font-medium">{row.is_total ? t("dashboard.cartera.blocks.activities.total") : row.description}</p>
-              <p>{t("dashboard.cartera.tooltip.approved")}: {row.approved_hours.toFixed(1)} h</p>
-              <p>{t("dashboard.cartera.tooltip.pending")}: {row.pending_hours.toFixed(1)} h</p>
-              <p>{t("dashboard.cartera.tooltip.budget")}: {row.budget_hours.toFixed(1)} h</p>
+              <p>{t("dashboard.cartera.tooltip.approved")}: {Math.round(row.approved_hours)} h</p>
+              <p>{t("dashboard.cartera.tooltip.pending")}: {Math.round(row.pending_hours)} h</p>
+              <p>{t("dashboard.cartera.tooltip.budget")}: {Math.round(row.budget_hours)} h</p>
               <p>{t("dashboard.cartera.tooltip.ofPortfolio", { pct: Math.round(row.budget_pct) })}</p>
               {/* BUG reportado 2026-09-18: mostraba exec_offset_pct+approved_pct+pending_pct
                   (un %, 0-100) rotulado con sufijo "h" -- ahora usa cumulative_hours (horas
