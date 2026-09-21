@@ -48,6 +48,7 @@ import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
+import { useAdministrativeInternalClients } from "@/hooks/useAdministrativeEngagements";
 import {
   withSavedStaff,
   withSelfCandidate,
@@ -202,7 +203,6 @@ const FUNCION_LABEL_KEYS: Record<number, string> = {
   3: "engagement.funcion_calidad",
 }
 const FUNCION_CLIENTE = 1
-const ADMINISTRATIVE_CLIENT_NITS = new Set(["1006979026", "184046021"])
 
 const formSchema = z.object({
   engagement_name: z.string()
@@ -313,6 +313,10 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       savedEffectiveState === EngagementState.Finalizado);
 
   const { data: clients } = useClients();
+  // Review fix (Codex): hr_manager/hr_analyst have engagement.create but not client.read, so
+  // useClients() above returns nothing for them. This narrow RPC exposes only the two controlled
+  // internal clients regardless of client.read — see administrativeClientOptions below.
+  const { data: administrativeInternalClients } = useAdministrativeInternalClients();
   const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
   const { data: societies } = useSocieties();
@@ -513,7 +517,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   const isAdministrativeFunction = selectedFuncion != null && selectedFuncion !== FUNCION_CLIENTE;
   const administrativeClientOptions = useMemo(
     () => {
-      const controlledClients = clientOptions.filter((client) => ADMINISTRATIVE_CLIENT_NITS.has(client.unique_tax_id));
+      // Sourced from the narrow list_administrative_internal_clients() RPC, not clientOptions:
+      // hr_manager/hr_analyst have engagement.create but not client.read, so clientOptions (RLS
+      // on the full `clients` table) is empty for them and they'd never be able to select the
+      // required internal client. The RPC only ever returns the two controlled clients, gated on
+      // engagement.create instead.
+      const controlledClients = administrativeInternalClients ?? [];
       // Historical administrative engagements remain editable. Their existing client
       // stays visible, but the selector offers only the controlled internal clients
       // for any new choice; the database trigger enforces that transition.
@@ -524,7 +533,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
         ? [...controlledClients, historicalClient]
         : controlledClients;
     },
-    [clientOptions, isEdit, selectedClientId]
+    [administrativeInternalClients, clientOptions, isEdit, selectedClientId]
   );
   const administrativeSocietyIdByClientId = useMemo(() => {
     const societyIdByNit: Record<string, string | undefined> = {

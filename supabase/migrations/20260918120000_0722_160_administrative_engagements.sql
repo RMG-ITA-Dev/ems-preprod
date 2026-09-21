@@ -324,3 +324,80 @@ COMMENT ON FUNCTION public.list_administrative_engagements() IS
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO service_role;
+
+-- Review fix (Codex): hr_manager/hr_analyst reciben engagement.create justamente para crear
+-- encargos Administrativa/Capacitacion (20260826221706), pero nunca recibieron client.read
+-- (misma migracion). El selector de cliente interno de EngagementForm filtra sobre useClients(),
+-- que corre bajo RLS -- para esos dos roles vuelve vacio, asi que no pueden completar client_id
+-- y la creacion queda bloqueada pese a tener el permiso pensado para este flujo exacto.
+-- Se resuelve con un RPC angosto (mismo patron que list_administrative_engagements): expone
+-- solo los dos clientes internos controlados, nunca la cartera real, a cualquiera con
+-- engagement.create -- evita ademas otorgar client.read de alcance amplio solo para esto.
+CREATE OR REPLACE FUNCTION public.list_administrative_internal_clients()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'client_id', c.client_id,
+        'client_legal_name', c.client_legal_name,
+        'unique_tax_id', c.unique_tax_id,
+        'is_active', c.is_active
+      )
+      ORDER BY c.client_legal_name
+    ),
+    '[]'::jsonb
+  )
+    FROM public.clients c
+   WHERE c.unique_tax_id IN ('1006979026', '184046021')
+     AND public.has_permission('engagement.create');
+$$;
+
+COMMENT ON FUNCTION public.list_administrative_internal_clients() IS
+  '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados.';
+
+REVOKE ALL ON FUNCTION public.list_administrative_internal_clients() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_administrative_internal_clients() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_administrative_internal_clients() TO service_role;
+
+-- Review fix (Codex): el trigger de arriba (enforce_administrative_work_order_rules) ya limpia
+-- Riesgos en OTs administrativas segun su propio comentario ("no facturan ni pasan por Riesgos"),
+-- pero el "no facturan" solo se aplicaba en la UI (WorkOrderForm oculta la pestana de plan de
+-- pagos para isAdministrative). La policy "Manager can manage payment plans"
+-- (20260908150000_0722-156b) solo chequea e.manager_id, sin mirar funcion -- un gerente de
+-- encargo administrativo puede insertar wo_payment_plan/wo_payment_installments via llamada
+-- directa. Este trigger cierra esa escritura a nivel de base, simetrico al de Riesgos.
+CREATE OR REPLACE FUNCTION public.enforce_administrative_no_payment_plan()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_funcion smallint;
+BEGIN
+  SELECT e.funcion INTO v_funcion
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = NEW.wo_id;
+
+  IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
+    RAISE EXCEPTION '0722-160: las OTs administrativas no facturan; no admiten plan de pagos';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.enforce_administrative_no_payment_plan() IS
+  '0722-160: defensa en profundidad -- bloquea a nivel de base la escritura de wo_payment_plan para OTs administrativas; hasta ahora solo la UI ocultaba la pestana.';
+
+DROP TRIGGER IF EXISTS trg_enforce_administrative_no_payment_plan ON public.wo_payment_plan;
+CREATE TRIGGER trg_enforce_administrative_no_payment_plan
+  BEFORE INSERT OR UPDATE ON public.wo_payment_plan
+  FOR EACH ROW
+  EXECUTE FUNCTION public.enforce_administrative_no_payment_plan();

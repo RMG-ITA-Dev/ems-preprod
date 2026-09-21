@@ -29,3 +29,25 @@ export function useAdministrativeEngagements() {
     },
   });
 }
+
+export interface AdministrativeInternalClient {
+  client_id: string;
+  client_legal_name: string;
+  unique_tax_id: string;
+  is_active: boolean;
+}
+
+// Review fix (Codex): hr_manager/hr_analyst have engagement.create but not client.read, so
+// useClients() (RLS-gated) returns nothing for them and they can't pick the internal client an
+// administrative engagement requires. This RPC exposes only the two controlled internal clients
+// to anyone with engagement.create, without granting broader client.read.
+export function useAdministrativeInternalClients() {
+  return useQuery({
+    queryKey: ["clients", "administrative-internal"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("list_administrative_internal_clients" as never);
+      if (error) throw error;
+      return (data ?? []) as unknown as AdministrativeInternalClient[];
+    },
+  });
+}
