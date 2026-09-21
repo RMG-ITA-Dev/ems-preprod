@@ -605,4 +605,87 @@ describe("0625-148 — role-based service restriction", () => {
     });
     expect(screen.queryByText("engagement.goToWorkMatrix")).not.toBeInTheDocument();
   }, 15000);
+
+  // 0722-160 (review fix, Codex): elegir una función administrativa y volver a Cliente dejaba
+  // `is_internal` encendido para siempre — el efecto lo escribía al entrar y nadie lo apagaba al
+  // salir. Consecuencia: un encargo de Cliente se creaba como interno y, de paso, se salteaba el
+  // contrato obligatorio (que sólo se exige para Cliente NO interno). Hoy el valor se DERIVA de
+  // la función, así que no queda estado viejo que limpiar.
+  it("no deja is_internal encendido al volver de una función administrativa a Cliente", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.003", engagement_id: "eng-ghi" });
+
+    render(<EngagementForm />);
+
+    await user.type(screen.getByLabelText(/engagement\.name/), "Vuelta a Cliente");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    // La sociedad se elige ANTES de pasar por Administrativa: en función administrativa el
+    // selector queda bloqueado porque lo deriva el cliente interno (review fix, Codex).
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await user.click(practica);
+    await waitFor(() => screen.getByRole("option", { name: "Auditoría" }));
+    await user.click(screen.getByRole("option", { name: "Auditoría" }));
+
+    // Ida: función administrativa -> el encargo pasa a interno.
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled());
+
+    // Vuelta: Cliente otra vez.
+    await user.click(screen.getByLabelText(/engagement\.funcion/));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+    await waitFor(() => screen.getByText("Test Taxonomy"));
+    await user.click(screen.getByText("Test Taxonomy"));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => expect(mockCreateMutateAsync).toHaveBeenCalled());
+    expect(mockCreateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ funcion: 1, is_internal: false }),
+    );
+  }, 20000);
 });

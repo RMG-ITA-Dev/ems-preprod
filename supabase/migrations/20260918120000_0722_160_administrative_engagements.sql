@@ -305,9 +305,17 @@ BEGIN
   -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
   -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
   -- fiscal del año calendario siguiente.
+  --
+  -- Review fix (Codex): en America/La_Paz y no en now() a secas. Supabase deja la base en UTC
+  -- (ninguna migracion cambia el GUC TimeZone) y La Paz es UTC-4, asi que el 30 de septiembre
+  -- entre las 20:00 y la medianoche hora local now() ya esta en octubre: el servidor adelantaba
+  -- el corte cuatro horas y dejaba de devolver las filas del FY vigente mientras el navegador
+  -- —que resuelve getCurrentFiscalPeriod() en hora local— seguia en el anterior. Mismo problema
+  -- y misma solucion que 20260911100600_fecha_local_current_date.sql.
   v_current_fiscal_year := CASE
-    WHEN EXTRACT(MONTH FROM now()) >= 10 THEN EXTRACT(YEAR FROM now())::int + 1
-    ELSE EXTRACT(YEAR FROM now())::int
+    WHEN EXTRACT(MONTH FROM (now() AT TIME ZONE 'America/La_Paz')) >= 10
+      THEN EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int + 1
+    ELSE EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int
   END;
 
   RETURN COALESCE(
@@ -345,7 +353,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). No concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;

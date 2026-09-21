@@ -832,6 +832,7 @@
     "selectSociety": "Select society",
     "requiredSociety": "Society is required",
     "profileScopeHint": "Assigned automatically from your staff profile",
+    "societyFromInternalClientHint": "Set by the internal client you select",
     "profileMissingStaff": "No linked staff profile",
     "closingDate": "Closing Date",
     "selectClosingDate": "Select closing date",

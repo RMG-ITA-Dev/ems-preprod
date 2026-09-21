@@ -10,8 +10,19 @@ DECLARE
   v_pelaez_client uuid;
   v_juaregui_client uuid;
   v_engagement uuid;
+  v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
+  -- Review fix (Codex): el anio fiscal del fixture NO puede ir hardcodeado. El JWT de mas abajo
+  -- no tiene fila en user_roles, asi que cae en la rama consultiva de
+  -- list_administrative_engagements(), que filtra `anio_fiscal >= FY vigente`. Con 2026 fijo el
+  -- test pasaba hoy y empezaba a fallar solo el 2026-10-01, cuando el FY vigente salta a 2027.
+  -- Se deriva con la misma regla (y la misma zona horaria) que la RPC.
+  v_fiscal_year int := CASE
+    WHEN EXTRACT(MONTH FROM (now() AT TIME ZONE 'America/La_Paz')) >= 10
+      THEN EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int + 1
+    ELSE EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int
+  END;
 BEGIN
   SELECT society_id INTO v_pelaez_society
     FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.';
@@ -33,7 +44,7 @@ BEGIN
     approval_required, fecha_cierre, society_id
   ) VALUES (
     v_pelaez_client, '0722-160 Administrative fixture', DATE '2026-09-01', DATE '2026-09-30',
-    'active', 1, 1, 0, 2026, true, true, false, true, DATE '2026-09-30', v_pelaez_society
+    'active', 1, 1, 0, v_fiscal_year, true, true, false, true, DATE '2026-09-30', v_pelaez_society
   ) RETURNING engagement_id INTO v_engagement;
 
   IF NOT EXISTS (
@@ -91,6 +102,18 @@ BEGIN
     END IF;
   END;
 
+  -- Fila historica: mismo cliente interno y misma sociedad, dos anios fiscales atras. Sin ella la
+  -- asercion "exactamente 1 fila" se cumplia sola, porque no habia ninguna otra fila que filtrar;
+  -- con ella, el corte por anio fiscal de la rama consultiva queda realmente ejercitado.
+  INSERT INTO public.engagements (
+    client_id, engagement_name, start_date, end_date, status, oficina, practica,
+    funcion, anio_fiscal, work_order_required, activity_required, is_internal,
+    approval_required, fecha_cierre, society_id
+  ) VALUES (
+    v_pelaez_client, '0722-160 Historical fixture', DATE '2024-09-01', DATE '2024-09-30',
+    'active', 1, 1, 0, v_fiscal_year - 2, true, true, false, true, DATE '2024-09-30', v_pelaez_society
+  ) RETURNING engagement_id INTO v_historical;
+
   IF public.list_administrative_engagements() <> '[]'::jsonb THEN
     RAISE EXCEPTION '0722-160 list leaked rows without an authenticated caller';
   END IF;
@@ -106,6 +129,13 @@ BEGIN
      OR v_payload -> 0 ->> 'society_name' <> 'Ruizmier Pelaez S.R.L.'
      OR (v_payload -> 0 ->> 'funcion')::smallint <> 0 THEN
     RAISE EXCEPTION '0722-160 administrative list did not return the expected minimal row';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_payload) AS elem
+     WHERE (elem ->> 'engagement_id')::uuid = v_historical
+  ) THEN
+    RAISE EXCEPTION '0722-160 administrative list leaked a historical row to a read-only caller';
   END IF;
 
   RAISE NOTICE '0722-160: internal client mapping, trigger and authenticated list passed';

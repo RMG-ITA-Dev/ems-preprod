@@ -253,9 +253,9 @@ interface EngagementFormProps {
 
 /**
  * 0722-160 — `is_internal` y el override de año fiscal son clasificación del sistema en un
- * encargo administrativo: el trigger enforce_administrative_engagement_rules() fuerza
- * is_internal=true en la base, onSubmit manda `isAdministrativeFunction ? true : isInternal` y
- * sus controles están deshabilitados. Se fuerzan siempre.
+ * encargo administrativo, y por eso se DERIVAN (`effectiveIsInternal` / `effectiveOverride`) en
+ * vez de escribirse sobre el estado: el trigger enforce_administrative_engagement_rules() fuerza
+ * is_internal=true en la base y sus controles están deshabilitados.
  *
  * work_order_required/approval_required NO son eso: sus switches quedan habilitados para
  * administrativas y su texto de ayuda dice explícitamente que se pueden desactivar
@@ -600,18 +600,27 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
   // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
   const [overrideOn, setOverrideOn] = useState(engagement?.anio_fiscal_override ?? false);
+
+  // 0722-160 — un encargo administrativo SIEMPRE es interno (lo fuerza también el trigger
+  // enforce_administrative_engagement_rules()). Review fix (Codex): eso se deriva, no se escribe
+  // sobre `isInternal`. Escribirlo era irreversible: admin/hr elegían una función administrativa
+  // en el alta y volvían a Cliente, y el flag quedaba encendido — para hr el switch está
+  // deshabilitado y no podía corregirlo, y el encargo de Cliente se creaba como interno,
+  // salteándose además el contrato obligatorio. `isInternal` guarda sólo la elección del modo
+  // Cliente; este derivado es el que manda. Mismo criterio que `effectiveOverride`.
+  const effectiveIsInternal = isAdministrativeFunction || isInternal;
   // BUG #0604-143: dated closing-date options (upcoming quarter-ends, each carrying its full
   // date so the derived FY is unambiguous). "Otro" reveals a calendar for client-specific dates.
   const closingDateOptions = useMemo(() => getUpcomingClosingDates(), []);
 
   // BUG #0206-19 + #0220-48: Minimum allowed start date (bypassed for internal)
   const minStartDate = useMemo(() => {
-    if (isInternal) return undefined;
+    if (effectiveIsInternal) return undefined;
     if (isEdit && engagement?.created_at) {
       return startOfDay(new Date(engagement.created_at));
     }
     return startOfDay(new Date());
-  }, [isInternal, isEdit, engagement?.created_at]);
+  }, [effectiveIsInternal, isEdit, engagement?.created_at]);
 
   // BUG #0602-134: admin has no floor on start_date at all — create or edit
   const effectiveMinStartDate = isAdmin ? undefined : minStartDate;
@@ -660,9 +669,6 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   }, [isEdit, administrativeMode, form]);
 
   useEffect(() => {
-    if (!isAdministrativeFunction) return;
-    setIsInternal(true);
-    setOverrideOn(false);
     if (shouldSeedAdministrativePolicyDefaults(isAdministrativeFunction, isEdit)) {
       setWorkOrderRequired(true);
       setApprovalRequired(true);
@@ -885,7 +891,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
 
   const onSubmit = async (data: FormData) => {
     // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor
-    if (!isInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
+    if (!effectiveIsInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
@@ -916,7 +922,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     // BUG #0625-151: el contrato escaneado es obligatorio solo para encargos de cliente
     // (no aplica a internos). El archivo ya se subió a Storage al seleccionarlo, así que
     // solo validamos que exista una ruta antes de crear el encargo.
-    if (!isEdit && data.funcion === FUNCION_CLIENTE && !isInternal && !contractFilePath) {
+    if (!isEdit && data.funcion === FUNCION_CLIENTE && !effectiveIsInternal && !contractFilePath) {
       setContractError(t("engagement.contractRequired"));
       focusFirstInvalidField();
       return;
@@ -986,7 +992,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
           // funcion is unset (legacy row) so an unrelated edit doesn't stomp the value the
           // backfill deliberately left untouched (`WHERE funcion IS NOT NULL`).
           ...(data.funcion != null ? { activity_required: data.funcion === FUNCION_CLIENTE } : {}),
-          is_internal:         isAdministrativeFunction ? true : isInternal,
+          is_internal:         effectiveIsInternal,
           approval_required:   approvalRequired,
           sqr_id:              data.sqr_id ?? null,
           encargado_id:        data.encargado_id ?? null,
@@ -1051,7 +1057,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       anio_fiscal_override: effectiveOverride,
       work_order_required: workOrderRequired,
       activity_required:   data.funcion === FUNCION_CLIENTE,
-      is_internal:         isAdministrativeFunction ? true : isInternal,
+      is_internal:         effectiveIsInternal,
       approval_required:   approvalRequired,
       sqr_id:              data.sqr_id ?? null,
       encargado_id:        data.encargado_id ?? null,
@@ -1539,7 +1545,21 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                   <FormItem>
                     <FormLabel>{t("engagement.society")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit ? (!isAdmin || readOnly) : !canChooseProfileScopeFreely}
+                      // Review fix (Codex): en el ALTA de una función administrativa la sociedad
+                      // la deriva el cliente interno elegido (ver el onValueChange del selector
+                      // de cliente). Dejarla editable —admin y senior_partner tienen
+                      // canChooseProfileScopeFreely— ofrecía un par cliente/sociedad que
+                      // enforce_administrative_engagement_rules() rechaza siempre: las dos
+                      // opciones se presentaban como válidas y el guardado moría en el trigger.
+                      //
+                      // En EDICIÓN no se bloquea, y no es una concesión: el trigger revalida el
+                      // par cuando cambia cualquiera de los dos, y ahí el selector de cliente
+                      // sigue habilitado. Bloquear sólo la sociedad dejaría al admin sin forma de
+                      // re-emparejar — justo la reparación que el trigger espera. Además 0722-157
+                      // le concede explícitamente esa edición (EngagementForm.society.test.tsx).
+                      disabled={isEdit
+                        ? (!isAdmin || readOnly)
+                        : (isAdministrativeFunction || !canChooseProfileScopeFreely)}
                       onValueChange={field.onChange}
                       value={field.value ?? ""}
                     >
@@ -1553,8 +1573,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                       </SelectContent>
                     </Select>
                     {/* BUG 0817-180: el creador restringido ve estos tres campos pre-llenados
-                        y bloqueados — la elección libre es solo de admin/senior_partner. */}
-                    {!isEdit && !canChooseProfileScopeFreely && (
+                        y bloqueados — la elección libre es solo de admin/senior_partner.
+                        0722-160: en el alta de una función administrativa la sociedad sale del
+                        cliente interno para cualquier rol, así que el motivo del bloqueo es otro. */}
+                    {!isEdit && isAdministrativeFunction ? (
+                      <p className="text-xs text-muted-foreground">{t("engagement.societyFromInternalClientHint")}</p>
+                    ) : !isEdit && !canChooseProfileScopeFreely && (
                       <p className="text-xs text-muted-foreground">{t("engagement.profileScopeHint")}</p>
                     )}
                     <FormMessage />
@@ -1605,7 +1629,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                   <div className="space-y-2">
                     <Label className={cn(contractError && "text-destructive")}>
                       {t("engagement.contractScanned")}
-                      {!isEdit && selectedFuncion === FUNCION_CLIENTE && !isInternal && <span className="text-destructive"> *</span>}
+                      {!isEdit && selectedFuncion === FUNCION_CLIENTE && !effectiveIsInternal && <span className="text-destructive"> *</span>}
                     </Label>
 
                     {!isEdit ? (
@@ -2120,7 +2144,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                     <p className="text-sm font-medium">{t("engagement.isInternal")}</p>
                     <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
                   </div>
-                  <Switch checked={isInternal} onCheckedChange={setIsInternal} disabled={!isAdmin || isAdministrativeFunction} />
+                  <Switch checked={effectiveIsInternal} onCheckedChange={setIsInternal} disabled={!isAdmin || isAdministrativeFunction} />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>

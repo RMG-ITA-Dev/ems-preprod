@@ -832,6 +832,7 @@
     "selectSociety": "Seleccionar sociedad",
     "requiredSociety": "La sociedad es requerida",
     "profileScopeHint": "Asignado automáticamente según tu ficha de personal",
+    "societyFromInternalClientHint": "Se asigna según el cliente interno elegido",
     "profileMissingStaff": "Sin ficha de personal vinculada",
     "closingDate": "Fecha de Corte",
     "selectClosingDate": "Seleccionar fecha de corte",
