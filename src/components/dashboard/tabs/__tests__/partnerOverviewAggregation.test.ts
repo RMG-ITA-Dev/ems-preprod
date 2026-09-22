@@ -4,6 +4,7 @@ import {
   consumptionTone,
   alertCardTone,
   splitNext7Days,
+  next7DayLabelFormat,
   sectorLegend,
   emptyKind,
   fiscalYearParam,
@@ -72,6 +73,20 @@ describe("partnerOverviewAggregation", () => {
     it("excludes overdue items and items beyond today+7", () => {
       const result = splitNext7Days(items, today);
       expect(result.map((r) => r.installment_id)).toEqual(["i1", "i4"]);
+    });
+  });
+
+  describe("next7DayLabelFormat", () => {
+    // review.md iteración 7, G-03: "lun 15" (weekday) es ambiguo si la ventana de
+    // 7 días cruza de mes -- en ese caso se usa día + mes corto en vez de weekday.
+    it("stays 'weekday' when the 7-day window doesn't cross a month", () => {
+      expect(next7DayLabelFormat("2026-09-15")).toBe("weekday");
+    });
+    it("switches to 'day-month' when the window crosses into the next month", () => {
+      expect(next7DayLabelFormat("2026-11-29")).toBe("day-month");
+    });
+    it("switches to 'day-month' when the window crosses into the next year", () => {
+      expect(next7DayLabelFormat("2026-12-29")).toBe("day-month");
     });
   });
 

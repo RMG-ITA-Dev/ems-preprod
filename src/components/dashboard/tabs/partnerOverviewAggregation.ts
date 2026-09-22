@@ -101,6 +101,18 @@ export function splitNext7Days(
   });
 }
 
+/** review.md iteración 7, G-03: "lun 15" (weekday + dia) es ambiguo si la ventana de
+ * "Proximos 7 dias" cruza de mes -- "vie 1" no dice si es de este mes o del que viene.
+ * Cuando la ventana cruza, se usa dia + mes corto ("29 nov") en vez de weekday + dia --
+ * misma longitud aproximada, para no desbordar el ancho fijo de la etiqueta en la UI
+ * (PartnerTab.tsx, `w-14`). */
+export function next7DayLabelFormat(today: string): "weekday" | "day-month" {
+  const start = new Date(`${today}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  return start.getMonth() === end.getMonth() ? "weekday" : "day-month";
+}
+
 export interface SectorLegendItem {
   industry_id: string;
   industry_name: string;

@@ -46,6 +46,7 @@ import {
   consumptionTone,
   alertCardTone,
   splitNext7Days,
+  next7DayLabelFormat,
   sectorLegend,
   emptyKind,
   fiscalYearParam,
@@ -555,10 +556,15 @@ export function PartnerTab() {
     }, {}),
   ).sort(([a], [b]) => a.localeCompare(b));
   const shortDateLocale = i18n.language?.startsWith("es") ? "es-BO" : "en-US";
-  const dateFormatter = new Intl.DateTimeFormat(shortDateLocale, {
-    weekday: "short",
-    day: "numeric",
-  });
+  // review.md iteración 7, G-03: si la ventana de 7 días cruza de mes, "vie 1" es
+  // ambiguo -- se cambia a día + mes corto ("29 nov"), mismo largo aproximado que
+  // "lun 15", para no desbordar el ancho fijo de la etiqueta (w-14 más abajo).
+  const dateFormatter = new Intl.DateTimeFormat(
+    shortDateLocale,
+    next7DayLabelFormat(vm.meta.today) === "weekday"
+      ? { weekday: "short", day: "numeric" }
+      : { day: "numeric", month: "short" },
+  );
   const legend = sectorLegend(vm.sectors, 6);
   // 2026-09-16: el operador bajó ambos topes de 10/3 a 5.
   const TOP_N = 5;
