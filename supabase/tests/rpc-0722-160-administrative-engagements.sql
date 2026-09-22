@@ -90,6 +90,68 @@ BEGIN
     RAISE EXCEPTION '0722-160 administrative work order did not close with partner approval only';
   END IF;
 
+  -- Retiro tras la firma. useUnsubmitWorkOrder escribe approval_status='Draft' y NO limpia
+  -- approved_at; para una administrativa esa firma vieja rompe el unico cierre que tiene, porque
+  -- la re-aprobacion deja de ser la transicion NULL -> no NULL que dispara el trigger y la OT
+  -- queda varada en Pending_Approval. El trigger la limpia al volver a Draft.
+  UPDATE public.work_orders SET approval_status = 'Draft' WHERE wo_id = v_work_order;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.work_orders
+     WHERE wo_id = v_work_order
+       AND approval_status = 'Draft'
+       AND approved_at IS NULL
+       AND approved_by IS NULL
+  ) THEN
+    RAISE EXCEPTION '0722-160 el retiro dejo la firma del Socio pegada en una OT administrativa';
+  END IF;
+
+  -- Y con la firma limpia, reenvio + nueva firma vuelve a cerrarla.
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approved_at = now() WHERE wo_id = v_work_order;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.work_orders
+     WHERE wo_id = v_work_order AND approval_status = 'Approved'
+  ) THEN
+    RAISE EXCEPTION '0722-160 una OT administrativa reenviada tras un retiro no volvio a cerrarse';
+  END IF;
+
+  -- Y la reparacion de datos para las filas que YA llegaron asi (retiradas antes de instalar el
+  -- trigger). Se reproduce ese estado con el trigger apagado y se corre la misma sentencia de la
+  -- migracion, que ademas debe ser idempotente.
+  ALTER TABLE public.work_orders DISABLE TRIGGER trg_enforce_administrative_work_order_rules;
+  UPDATE public.work_orders
+     SET approval_status = 'Draft', approved_at = now()
+   WHERE wo_id = v_work_order;
+  ALTER TABLE public.work_orders ENABLE TRIGGER trg_enforce_administrative_work_order_rules;
+
+  UPDATE public.work_orders wo
+     SET approved_by = NULL,
+         approved_at = NULL
+    FROM public.engagements e
+   WHERE e.engagement_id = wo.engagement_id
+     AND e.funcion IS NOT NULL
+     AND e.funcion <> 1
+     AND wo.approval_status = 'Draft'
+     AND (wo.approved_at IS NOT NULL OR wo.approved_by IS NOT NULL);
+
+  IF EXISTS (
+    SELECT 1
+      FROM public.work_orders wo
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+     WHERE e.funcion IS NOT NULL
+       AND e.funcion <> 1
+       AND wo.approval_status = 'Draft'
+       AND (wo.approved_at IS NOT NULL OR wo.approved_by IS NOT NULL)
+  ) THEN
+    RAISE EXCEPTION '0722-160 quedaron OTs administrativas en Draft con firma de Socio vieja';
+  END IF;
+
+  -- La suite sigue asumiendo una OT administrativa cerrada (el plan de pagos de mas abajo).
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approved_at = now() WHERE wo_id = v_work_order;
+
   BEGIN
     INSERT INTO public.engagements (
       client_id, engagement_name, start_date, end_date, status, oficina, practica,

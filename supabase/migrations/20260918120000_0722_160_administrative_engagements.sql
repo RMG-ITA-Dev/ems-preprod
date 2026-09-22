@@ -518,6 +518,13 @@ BEGIN
     NEW.emergency_partner_by := NULL;
     NEW.emergency_partner_at := NULL;
 
+    IF TG_OP = 'UPDATE'
+       AND NEW.approval_status = 'Draft'
+       AND OLD.approval_status IS DISTINCT FROM 'Draft' THEN
+      NEW.approved_by := NULL;
+      NEW.approved_at := NULL;
+    END IF;
+
     -- Para administrativas, la firma del Socio cierra la OT sin una segunda
     -- aprobación. Cliente conserva el motor de dos pistas.
     IF TG_OP = 'UPDATE'
@@ -575,6 +582,33 @@ UPDATE public.work_orders wo
    AND e.funcion <> 1
    AND wo.approval_status = 'Pending_Approval'
    AND wo.approved_at IS NOT NULL;
+
+-- Review fix (Codex, 3ra vuelta): el UPDATE de arriba sólo alcanza las firmadas que quedaron en
+-- Pending_Approval. Falta el otro estado histórico: una OT administrativa RETIRADA después de la
+-- firma del Socio. useUnsubmitWorkOrder escribe approval_status='Draft' y nunca limpia
+-- approved_at, así que esa fila llega a esta migración en Draft con una firma vieja encima — y
+-- con el trigger ya instalado no hay forma de cerrarla nunca (la re-aprobación deja de ser la
+-- transición NULL -> no NULL que lo dispara). Se limpia la firma, que es lo coherente con Draft:
+-- la OT no está aprobada, y su próxima firma vuelve a ser una transición válida.
+--
+-- El trigger de notificaciones se apaga durante la reparación. `v_rev_socio` en
+-- notify_work_order_events() es exactamente `OLD.approved_at IS NOT NULL AND NEW.approved_at IS
+-- NULL` y NO está gateado por `v_is_client` (a diferencia de la pista de Riesgos, porque una
+-- reversión de Socio sí aplica a una administrativa), así que sin esto el despliegue mandaría
+-- avisos y correos reales de "aprobación revertida" a socios y gerentes por una limpieza de datos.
+ALTER TABLE public.work_orders DISABLE TRIGGER tr_notify_work_order;
+
+UPDATE public.work_orders wo
+   SET approved_by = NULL,
+       approved_at = NULL
+  FROM public.engagements e
+ WHERE e.engagement_id = wo.engagement_id
+   AND e.funcion IS NOT NULL
+   AND e.funcion <> 1
+   AND wo.approval_status = 'Draft'
+   AND (wo.approved_at IS NOT NULL OR wo.approved_by IS NOT NULL);
+
+ALTER TABLE public.work_orders ENABLE TRIGGER tr_notify_work_order;
 
 COMMENT ON FUNCTION public.enforce_administrative_work_order_rules() IS
   '0722-160: OTs administrativas omiten Riesgos; la aprobación del Socio las cierra.';

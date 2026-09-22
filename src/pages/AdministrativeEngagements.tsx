@@ -9,7 +9,6 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
-import { getCurrentFiscalPeriod } from "@/lib/fiscalCalculations";
 
 const FUNCION_LABEL_KEYS: Record<number, string> = {
   0: "engagement.funcion_adm",
@@ -22,6 +21,29 @@ const OFFICE_LABEL_KEYS: Record<number, string> = {
   1: "engagement.oficina_laPaz",
   2: "engagement.oficina_santaCruz",
 };
+
+/**
+ * Review fix (Codex): el año fiscal sale de la fecha en Bolivia, no de `new Date()` del
+ * navegador. `list_administrative_engagements()` recorta su rama consultiva con
+ * `(now() AT TIME ZONE 'America/La_Paz')`, y este filtro de cliente lo repite: con la fecha
+ * local del dispositivo, alguien en Europa o Asia cruza el 1 de octubre horas antes que
+ * La Paz, adelanta el FY y esconde justo las filas del FY vigente que el RPC acababa de
+ * devolver. Mismo criterio que `workOrderPaymentPlan.ts` para "hoy en Bolivia".
+ *
+ * El mes se compara en base 1 (10 = octubre) para leerse igual que la regla del RPC
+ * (`EXTRACT(MONTH ...) >= 10`), en vez del `getMonth()` 0-indexado de fiscalCalculations.
+ */
+export function currentBoliviaFiscalYear(now: Date = new Date()): number {
+  const [year, month] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/La_Paz",
+    year: "numeric",
+    month: "2-digit",
+  })
+    .format(now)
+    .split("-")
+    .map(Number);
+  return month >= 10 ? year + 1 : year;
+}
 
 /**
  * Quien crea encargos conserva el listado operativo completo. La consulta para
@@ -60,7 +82,7 @@ const AdministrativeEngagements = () => {
     const visibleRows = administrativeRowsForViewer(
       data ?? [],
       canCreate,
-      getCurrentFiscalPeriod().year,
+      currentBoliviaFiscalYear(),
     );
     return funcionFilter === "all"
       ? visibleRows

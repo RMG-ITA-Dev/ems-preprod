@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { administrativeRowsForViewer, administrativeSearchKeys } from "../AdministrativeEngagements";
+import {
+  administrativeRowsForViewer,
+  administrativeSearchKeys,
+  currentBoliviaFiscalYear,
+} from "../AdministrativeEngagements";
 
 const row = (anio_fiscal: number | null) => ({
   engagement_id: String(anio_fiscal),
@@ -46,5 +50,29 @@ describe("administrativeSearchKeys", () => {
     expect(keys).toEqual(["engagement_code", "engagement_name"]);
     expect(keys).not.toContain("client_name");
     expect(keys).not.toContain("society_name");
+  });
+});
+
+// Review fix (Codex): el corte del cliente usaba `new Date()` del navegador mientras
+// list_administrative_engagements() recorta con la fecha de La Paz. En un dispositivo por
+// delante de Bolivia (Europa/Asia) el 1 de octubre llega horas antes, el FY se adelanta y el
+// filtro escondia justo las filas del FY vigente que el RPC acababa de devolver.
+describe("currentBoliviaFiscalYear", () => {
+  // 2026-10-01 02:00 UTC = 2026-09-30 22:00 en La Paz (UTC-4): todavia FY 2026.
+  // El mismo instante ya es 1 de octubre en Europa (UTC+2) y en Asia.
+  it("sigue en el FY vigente mientras en Bolivia no cambio de mes, aunque el UTC ya sea octubre", () => {
+    expect(currentBoliviaFiscalYear(new Date("2026-10-01T02:00:00Z"))).toBe(2026);
+  });
+
+  it("salta al FY siguiente recien cuando octubre empieza en Bolivia", () => {
+    expect(currentBoliviaFiscalYear(new Date("2026-10-01T04:00:00Z"))).toBe(2027);
+  });
+
+  it("septiembre en Bolivia es el FY en curso", () => {
+    expect(currentBoliviaFiscalYear(new Date("2026-09-15T12:00:00Z"))).toBe(2026);
+  });
+
+  it("enero en Bolivia sigue en el FY que arranco en octubre", () => {
+    expect(currentBoliviaFiscalYear(new Date("2027-01-15T12:00:00Z"))).toBe(2027);
   });
 });
