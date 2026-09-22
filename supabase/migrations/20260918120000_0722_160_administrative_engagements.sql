@@ -518,6 +518,16 @@ BEGIN
     NEW.emergency_partner_by := NULL;
     NEW.emergency_partner_at := NULL;
 
+    -- Review fix (Codex, 3ra vuelta): volver a Draft (retiro) limpia la firma del Socio. Para
+    -- una OT administrativa esa firma es lo UNICO que la cierra: useApproveWorkOrder deja el
+    -- cierre a este trigger porque su UPDATE condicional filtra por
+    -- risk_status IN ('Approved','Emergency_Approved') y aca risk_status queda clavado en
+    -- 'Pending'. Si la firma vieja sobrevive al retiro, la re-aprobacion ya no es la transicion
+    -- NULL -> no NULL de mas abajo y la OT queda varada en Pending_Approval sin forma de
+    -- cerrarse. Hoy la UI evita llegar ahi (WorkOrderForm fuerza riskPending=false para
+    -- administrativas, con ese mismo razonamiento escrito), pero la invariante no puede depender
+    -- de un flag del frontend: useUnsubmitWorkOrder escribe approval_status='Draft' por
+    -- PostgREST sin tocar approved_at.
     IF TG_OP = 'UPDATE'
        AND NEW.approval_status = 'Draft'
        AND OLD.approval_status IS DISTINCT FROM 'Draft' THEN
