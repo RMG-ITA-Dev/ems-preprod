@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
+\restrict S8UWZsBfav34Xof6M8PWCZg3iHsfQUmExqTBlVbePdRacZgOD06zLWl51mJv5VY
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -2444,6 +2444,208 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: enforce_administrative_engagement_rules(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_administrative_engagement_rules() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_client_nit text;
+  v_society_name text;
+BEGIN
+  -- Review fix (Codex, 3ra vuelta): `funcion` es inmutable despues de crear. EngagementForm
+  -- ya lo trata asi (el payload de update la omite a proposito), pero la base no lo exigia y
+  -- la policy "Team can update engagements" deja hacer el PATCH directo por PostgREST. Sin
+  -- este guard, convertir un encargo Cliente ya aprobado a 0/2/3 pasaba sin tocar sus OTs:
+  -- los triggers de work_orders y de plan de pagos son BEFORE INSERT OR UPDATE sobre SUS
+  -- tablas, asi que la aprobacion de Riesgos, el plan y las cuotas quedaban vivas (Cobranzas
+  -- las sigue viendo) mientras la UI ya escondia Riesgos y facturacion por la funcion nueva.
+  -- Se bloquea el cambio en vez de cascadearlo: ademas, `funcion` va dentro de
+  -- engagement_code (FY.[oficina][practica][funcion].[correlativo]), asi que moverla
+  -- desincroniza el codigo ya emitido.
+  --
+  -- Unica excepcion: NULL -> 1. Las filas legacy tienen funcion NULL y todo el sistema las
+  -- lee como Cliente (COALESCE(funcion, 1) = 1), asi que clasificarlas explicitamente no
+  -- cambia nada. NULL -> 0/2/3 si es una conversion real y cae en el mismo bloqueo.
+  IF TG_OP = 'UPDATE'
+     AND OLD.funcion IS DISTINCT FROM NEW.funcion
+     AND NOT (OLD.funcion IS NULL AND NEW.funcion = 1) THEN
+    RAISE EXCEPTION '0722-160: la funcion del encargo no se puede cambiar despues de crearlo';
+  END IF;
+
+  IF NEW.funcion IS NULL OR NEW.funcion = 1 THEN
+    RETURN NEW;
+  END IF;
+
+  -- Do not make historical administrative rows uneditable merely because their
+  -- original client/society predates this flow. A new administrative row, or a
+  -- change to its function/client/society, must use the controlled mapping.
+  IF TG_OP = 'UPDATE'
+     AND OLD.funcion = NEW.funcion
+     AND OLD.client_id IS NOT DISTINCT FROM NEW.client_id
+     AND OLD.society_id IS NOT DISTINCT FROM NEW.society_id THEN
+    NEW.is_internal := true;
+    NEW.activity_required := false;
+    RETURN NEW;
+  END IF;
+
+  SELECT c.unique_tax_id, s.name
+    INTO v_client_nit, v_society_name
+    FROM public.clients c
+    JOIN public.society s ON s.society_id = NEW.society_id
+   WHERE c.client_id = NEW.client_id;
+
+  IF (v_society_name = 'Ruizmier Pelaez S.R.L.' AND v_client_nit = '1006979026')
+     OR (v_society_name = 'Ruizmier Jauregui S.R.L.' AND v_client_nit = '184046021') THEN
+    NEW.is_internal := true;
+    NEW.activity_required := false;
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION '0722-160: el cliente interno debe corresponder a la sociedad del encargo';
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_administrative_engagement_rules(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_administrative_engagement_rules() IS '0722-160: para funciones Administrativa/Capacitacion/Calidad exige el cliente interno de su sociedad y fuerza interno=true/activity_required=false. Ademas hace `funcion` inmutable tras crear (unica excepcion NULL -> 1), porque cambiarla dejaria las OTs del encargo sin normalizar y desincronizaria engagement_code.';
+
+
+--
+-- Name: enforce_administrative_no_payment_installments(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_administrative_no_payment_installments() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+BEGIN
+  -- Se resuelve por NEW.wo_id y NO por NEW.plan_id -> wo_payment_plan.wo_id, aunque la fila
+  -- lleve las dos referencias denormalizadas y la policy "Manager can manage payment
+  -- installments" autorice solo por plan_id. Alcanza porque la igualdad entre las dos ya es
+  -- invariante de la tabla: wo_payment_installments_guard_exchange_rate() rechaza todo INSERT
+  -- con `plan.wo_id IS DISTINCT FROM NEW.wo_id` (INSTALLMENT_WO_MISMATCH,
+  -- 20260910090000_0722-156b_fixed_mode_rate_guard.sql) y congela plan_id/wo_id en todo UPDATE.
+  -- La suite cubre las dos entradas -- cuota cruzada y wo_id administrativo directo -- para que
+  -- el dia que ese guard cambie, esto falle en vez de degradarse en silencio.
+  SELECT e.funcion INTO v_funcion
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = NEW.wo_id;
+
+  IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
+    RAISE EXCEPTION '0722-160: las OTs administrativas no facturan; no admiten cuotas de plan de pagos';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_administrative_no_payment_installments(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_administrative_no_payment_installments() IS '0722-160: defensa en profundidad, simetrica a enforce_administrative_no_payment_plan pero sobre wo_payment_installments -- cierra el camino de sync_wo_payment_installments() y de un plan administrativo preexistente al que ya no se le pueden agregar cuotas nuevas. Resuelve la funcion por NEW.wo_id; la igualdad con wo_payment_plan.wo_id ya la garantiza wo_payment_installments_guard_exchange_rate() (INSTALLMENT_WO_MISMATCH).';
+
+
+--
+-- Name: enforce_administrative_no_payment_plan(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_administrative_no_payment_plan() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+BEGIN
+  SELECT e.funcion INTO v_funcion
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = NEW.wo_id;
+
+  IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
+    RAISE EXCEPTION '0722-160: las OTs administrativas no facturan; no admiten plan de pagos';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_administrative_no_payment_plan(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_administrative_no_payment_plan() IS '0722-160: defensa en profundidad -- bloquea a nivel de base la escritura de wo_payment_plan para OTs administrativas; hasta ahora solo la UI ocultaba la pestana.';
+
+
+--
+-- Name: enforce_administrative_work_order_rules(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_administrative_work_order_rules() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+BEGIN
+  SELECT funcion INTO v_funcion
+    FROM public.engagements
+   WHERE engagement_id = NEW.engagement_id;
+
+  IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
+    -- Las OTs administrativas pueden presupuestar gastos, pero no facturan ni
+    -- pasan por Riesgos. Pending representa una pista no aplicable, no aprobada.
+    NEW.risk_status := 'Pending';
+    NEW.risk_approved_by := NULL;
+    NEW.risk_approved_at := NULL;
+    NEW.ceac_completed_at := NULL;
+    NEW.ceac_notes := NULL;
+    NEW.ceac_number := NULL;
+    NEW.san_completed_at := NULL;
+    NEW.san_notes := NULL;
+    NEW.san_approval_id := NULL;
+    NEW.risk_level := NULL;
+    NEW.risk_notes := NULL;
+    NEW.emergency_deadline_at := NULL;
+    NEW.emergency_justification := NULL;
+    NEW.emergency_review_by := NULL;
+    NEW.emergency_review_at := NULL;
+    NEW.emergency_partner_by := NULL;
+    NEW.emergency_partner_at := NULL;
+
+    -- Para administrativas, la firma del Socio cierra la OT sin una segunda
+    -- aprobación. Cliente conserva el motor de dos pistas.
+    IF TG_OP = 'UPDATE'
+       AND NEW.approved_at IS NOT NULL
+       AND OLD.approved_at IS NULL THEN
+      NEW.approval_status := 'Approved';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_administrative_work_order_rules(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_administrative_work_order_rules() IS '0722-160: OTs administrativas omiten Riesgos; la aprobación del Socio las cierra.';
 
 
 --
@@ -4998,6 +5200,116 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: list_administrative_engagements(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_administrative_engagements() RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_can_see_history boolean;
+  v_current_fiscal_year int;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN '[]'::jsonb;
+  END IF;
+
+  v_can_see_history := public.has_permission('engagement.create');
+
+  -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
+  -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
+  -- fiscal del año calendario siguiente.
+  --
+  -- Review fix (Codex): en America/La_Paz y no en now() a secas. Supabase deja la base en UTC
+  -- (ninguna migracion cambia el GUC TimeZone) y La Paz es UTC-4, asi que el 30 de septiembre
+  -- entre las 20:00 y la medianoche hora local now() ya esta en octubre: el servidor adelantaba
+  -- el corte cuatro horas y dejaba de devolver las filas del FY vigente mientras el navegador
+  -- —que resuelve getCurrentFiscalPeriod() en hora local— seguia en el anterior. Mismo problema
+  -- y misma solucion que 20260911100600_fecha_local_current_date.sql.
+  v_current_fiscal_year := CASE
+    WHEN EXTRACT(MONTH FROM (now() AT TIME ZONE 'America/La_Paz')) >= 10
+      THEN EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int + 1
+    ELSE EXTRACT(YEAR FROM (now() AT TIME ZONE 'America/La_Paz'))::int
+  END;
+
+  RETURN COALESCE(
+    (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'engagement_id', e.engagement_id,
+          'engagement_code', e.engagement_code,
+          'engagement_name', e.engagement_name,
+          'funcion', e.funcion,
+          'society_id', e.society_id,
+          'society_name', s.name,
+          'client_id', e.client_id,
+          'client_name', c.client_legal_name,
+          'oficina', e.oficina,
+          'practica', e.practica,
+          'practica_name', p.name,
+          'anio_fiscal', e.anio_fiscal,
+          'start_date', e.start_date,
+          'end_date', e.end_date,
+          'status', e.status
+        )
+        ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
+      )
+        FROM public.engagements e
+        JOIN public.clients c ON c.client_id = e.client_id
+        JOIN public.society s ON s.society_id = e.society_id
+        LEFT JOIN public.practicas p ON p.code = e.practica
+       WHERE e.funcion <> 1
+         AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+    ),
+    '[]'::jsonb
+  );
+END;
+$$;
+
+
+--
+-- Name: FUNCTION list_administrative_engagements(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+
+
+--
+-- Name: list_administrative_internal_clients(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_administrative_internal_clients() RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'client_id', c.client_id,
+        'client_legal_name', c.client_legal_name,
+        'unique_tax_id', c.unique_tax_id,
+        'is_active', c.is_active
+      )
+      ORDER BY c.client_legal_name
+    ),
+    '[]'::jsonb
+  )
+    FROM public.clients c
+   WHERE c.unique_tax_id IN ('1006979026', '184046021')
+     AND c.is_active
+     AND public.has_permission('engagement.create');
+$$;
+
+
+--
+-- Name: FUNCTION list_administrative_internal_clients(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_administrative_internal_clients() IS '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT -- defensa en profundidad, independiente de que el DO block de arriba ya deba haber reactivado ambas filas canonicas.';
 
 
 --
@@ -8055,6 +8367,8 @@ CREATE FUNCTION public.notify_work_order_events() RETURNS trigger
     AS $$
 DECLARE
   v_code       text;
+  v_funcion    smallint;
+  v_is_client  boolean;
   v_base       jsonb;
   v_rec        record;
   v_submitted  boolean;
@@ -8067,7 +8381,7 @@ DECLARE
   c_riesgos   constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
   c_cobranzas constant text[] := ARRAY['collections_analyst'];
 BEGIN
-  SELECT COALESCE(e.engagement_code, '') INTO v_code
+  SELECT COALESCE(e.engagement_code, ''), e.funcion INTO v_code, v_funcion
     FROM public.engagements e
    WHERE e.engagement_id = NEW.engagement_id;
 
@@ -8079,6 +8393,10 @@ BEGIN
     'engagement_id',   NEW.engagement_id,
     'currency',        NEW.currency);
 
+  -- 0722-160: Cliente es la unica funcion con pista de Riesgos. COALESCE trata funcion NULL
+  -- como Cliente, que es el default historico de la columna.
+  v_is_client := COALESCE(v_funcion, 1) = 1;
+
   -- ── Discriminadores ──
   v_submitted := NEW.approval_status = 'Pending_Approval'
              AND OLD.approval_status IN ('Draft', 'Rejected');
@@ -8087,11 +8405,12 @@ BEGIN
   -- useRevertSocioApproval/useRevertRiskApproval limpian la firma en la primera sentencia y
   -- reabren la OT en la segunda, y sólo la primera distingue una reversión de un rechazo.
   v_rev_socio := OLD.approved_at      IS NOT NULL AND NEW.approved_at      IS NULL;
-  v_rev_risk  := OLD.risk_approved_at IS NOT NULL AND NEW.risk_approved_at IS NULL;
+  v_rev_risk  := v_is_client AND OLD.risk_approved_at IS NOT NULL AND NEW.risk_approved_at IS NULL;
 
   -- Reenvío de datos de riesgo tras un veredicto (rechazo, o compleción de los datos que
   -- quedaron pendientes de una aprobación de emergencia).
-  v_resubmit := NEW.risk_status = 'Pending'
+  v_resubmit := v_is_client
+            AND NEW.risk_status = 'Pending'
             AND OLD.risk_status IN ('Rejected', 'Emergency_Approved');
 
   -- Entrada a la cola de Riesgos. Dos caminos, y ninguno es una transición de risk_status:
@@ -8105,7 +8424,20 @@ BEGIN
   -- El COALESCE no es cosmético: es el único NOT de los discriminadores, y un NULL bajo un
   -- NOT vuelve NULL toda la condición y se traga un aviso legítimo. Los demás se evalúan en
   -- positivo, donde NULL ya se comporta como false (que es lo que queremos: fail-closed).
-  v_to_risk := NEW.risk_status = 'Pending'
+  --
+  -- 0722-160: en una OT administrativa `risk_status = 'Pending'` significa "no aplica", no
+  -- "en cola". enforce_administrative_work_order_rules() es BEFORE y lo fuerza a 'Pending'
+  -- antes de que este trigger (AFTER) lo lea, asi que sin `v_is_client` TODO envio
+  -- administrativo avisaba por panel y correo a risk_partner/risk_supervisor sobre una pista
+  -- que la feature elimino y que la UI ni siquiera muestra.
+  --
+  -- Review fix (Codex, 2da vuelta): el gate NO alcanza con ponerlo aca. `v_resubmit` y
+  -- `v_rev_risk` alimentan wo.risk.resubmitted y wo.approval_reverted, y las reparaciones de
+  -- datos de mas abajo (bajan risk_status a 'Pending' y limpian risk_approved_at en OTs
+  -- administrativas historicas) cumplen las dos condiciones. Por eso los tres discriminadores
+  -- de la pista de Riesgos llevan `v_is_client`, no solo este.
+  v_to_risk := v_is_client
+           AND NEW.risk_status = 'Pending'
            AND (v_submitted OR v_rev_risk)
            AND NOT COALESCE(v_resubmit, false);
 
@@ -8272,7 +8604,7 @@ $$;
 -- Name: FUNCTION notify_work_order_events(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notify_work_order_events() IS 'FASE 3.b: 11 eventos de work_orders. Las aprobaciones se detectan por la marca de cada pista (approved_at / risk_status) y no por approval_status, porque la aprobacion se escribe en dos sentencias y el trigger corre dos veces. Degrada a WARNING: nunca bloquea la operacion.';
+COMMENT ON FUNCTION public.notify_work_order_events() IS 'FASE 3.b: 11 eventos de work_orders. Las aprobaciones se detectan por la marca de cada pista (approved_at / risk_status) y no por approval_status, porque la aprobacion se escribe en dos sentencias y el trigger corre dos veces. Degrada a WARNING: nunca bloquea la operacion. 0722-160: las OTs de encargos administrativos (funcion <> 1) no tienen pista de Riesgos, asi que no disparan wo.submitted_risk, wo.risk.resubmitted ni la reversion de Riesgos.';
 
 
 --
@@ -10878,28 +11210,33 @@ CREATE FUNCTION public.wo_guard_risk_approval() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-begin
-  if public.is_admin() then
-    return new;
-  end if;
+BEGIN
+  IF public.is_admin() THEN
+    RETURN NEW;
+  END IF;
 
-  -- Acto de aprobación / rechazo de Riesgos:
-  --   * registrar aprobador (risk_approved_by no nulo)
-  --   * transición de risk_status a un veredicto (Approved / Rejected / Emergency_Approved).
-  --     'Pending' queda fuera: lo escriben submit/complete/revert (no es aprobación).
-  --   * pasos de emergencia (review / partner sign-off).
-  if (
-    (new.risk_approved_by is distinct from old.risk_approved_by and new.risk_approved_by is not null)
-    or (new.risk_status is distinct from old.risk_status
-        and new.risk_status in ('Approved', 'Rejected', 'Emergency_Approved'))
-    or (new.emergency_review_by is distinct from old.emergency_review_by and new.emergency_review_by is not null)
-    or (new.emergency_partner_by is distinct from old.emergency_partner_by and new.emergency_partner_by is not null)
-  ) and not public.can_approve_wo_risk(new.engagement_id) then
-    raise exception 'Solo un aprobador de Riesgos autorizado puede aprobar o rechazar la seccion de Riesgos de esta OT';
-  end if;
+  IF EXISTS (
+    SELECT 1
+      FROM public.engagements e
+     WHERE e.engagement_id = NEW.engagement_id
+       AND e.funcion IS NOT NULL
+       AND e.funcion <> 1
+  ) THEN
+    RETURN NEW;
+  END IF;
 
-  return new;
-end;
+  IF (
+    (NEW.risk_approved_by IS DISTINCT FROM OLD.risk_approved_by AND NEW.risk_approved_by IS NOT NULL)
+    OR (NEW.risk_status IS DISTINCT FROM OLD.risk_status
+        AND NEW.risk_status IN ('Approved', 'Rejected', 'Emergency_Approved'))
+    OR (NEW.emergency_review_by IS DISTINCT FROM OLD.emergency_review_by AND NEW.emergency_review_by IS NOT NULL)
+    OR (NEW.emergency_partner_by IS DISTINCT FROM OLD.emergency_partner_by AND NEW.emergency_partner_by IS NOT NULL)
+  ) AND NOT public.can_approve_wo_risk(NEW.engagement_id) THEN
+    RAISE EXCEPTION 'Solo un aprobador de Riesgos autorizado puede aprobar o rechazar la seccion de Riesgos de esta OT';
+  END IF;
+
+  RETURN NEW;
+END;
 $$;
 
 
@@ -15044,10 +15381,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_16; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_16 (
+CREATE TABLE realtime.messages_2026_09_21 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15060,10 +15397,10 @@ CREATE TABLE realtime.messages_2026_09_16 (
 
 
 --
--- Name: messages_2026_09_17; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_17 (
+CREATE TABLE realtime.messages_2026_09_22 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15076,10 +15413,10 @@ CREATE TABLE realtime.messages_2026_09_17 (
 
 
 --
--- Name: messages_2026_09_18; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_18 (
+CREATE TABLE realtime.messages_2026_09_23 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15092,10 +15429,10 @@ CREATE TABLE realtime.messages_2026_09_18 (
 
 
 --
--- Name: messages_2026_09_19; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_19 (
+CREATE TABLE realtime.messages_2026_09_24 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15108,10 +15445,10 @@ CREATE TABLE realtime.messages_2026_09_19 (
 
 
 --
--- Name: messages_2026_09_20; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_25; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_20 (
+CREATE TABLE realtime.messages_2026_09_25 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15404,38 +15741,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_16 FOR VALUES FROM ('2026-09-16 00:00:00') TO ('2026-09-17 00:00:00');
-
-
---
--- Name: messages_2026_09_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_17 FOR VALUES FROM ('2026-09-17 00:00:00') TO ('2026-09-18 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_21 FOR VALUES FROM ('2026-09-21 00:00:00') TO ('2026-09-22 00:00:00');
 
 
 --
--- Name: messages_2026_09_18; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_18 FOR VALUES FROM ('2026-09-18 00:00:00') TO ('2026-09-19 00:00:00');
-
-
---
--- Name: messages_2026_09_19; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_19 FOR VALUES FROM ('2026-09-19 00:00:00') TO ('2026-09-20 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_22 FOR VALUES FROM ('2026-09-22 00:00:00') TO ('2026-09-23 00:00:00');
 
 
 --
--- Name: messages_2026_09_20; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_20 FOR VALUES FROM ('2026-09-20 00:00:00') TO ('2026-09-21 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_23 FOR VALUES FROM ('2026-09-23 00:00:00') TO ('2026-09-24 00:00:00');
+
+
+--
+-- Name: messages_2026_09_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_24 FOR VALUES FROM ('2026-09-24 00:00:00') TO ('2026-09-25 00:00:00');
+
+
+--
+-- Name: messages_2026_09_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_25 FOR VALUES FROM ('2026-09-25 00:00:00') TO ('2026-09-26 00:00:00');
 
 
 --
@@ -16341,43 +16678,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_16 messages_2026_09_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21 messages_2026_09_21_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_16
-    ADD CONSTRAINT messages_2026_09_16_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_17 messages_2026_09_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_17
-    ADD CONSTRAINT messages_2026_09_17_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_21
+    ADD CONSTRAINT messages_2026_09_21_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_18 messages_2026_09_18_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22 messages_2026_09_22_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_18
-    ADD CONSTRAINT messages_2026_09_18_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_19 messages_2026_09_19_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_19
-    ADD CONSTRAINT messages_2026_09_19_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_22
+    ADD CONSTRAINT messages_2026_09_22_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_20 messages_2026_09_20_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23 messages_2026_09_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_20
-    ADD CONSTRAINT messages_2026_09_20_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_23
+    ADD CONSTRAINT messages_2026_09_23_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_24 messages_2026_09_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_24
+    ADD CONSTRAINT messages_2026_09_24_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_25 messages_2026_09_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_25
+    ADD CONSTRAINT messages_2026_09_25_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -17356,38 +17693,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_16_inserted_at_topic_idx ON realtime.messages_2026_09_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_17_inserted_at_topic_idx ON realtime.messages_2026_09_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_21_inserted_at_topic_idx ON realtime.messages_2026_09_21 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_18_inserted_at_topic_idx ON realtime.messages_2026_09_18 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_19_inserted_at_topic_idx ON realtime.messages_2026_09_19 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_22_inserted_at_topic_idx ON realtime.messages_2026_09_22 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_20_inserted_at_topic_idx ON realtime.messages_2026_09_20 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_23_inserted_at_topic_idx ON realtime.messages_2026_09_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_24_inserted_at_topic_idx ON realtime.messages_2026_09_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_25_inserted_at_topic_idx ON realtime.messages_2026_09_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -17489,73 +17826,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_16_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_16_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_21_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_21_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_17_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_17_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_21_pkey;
 
 
 --
--- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_18_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_18_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_18_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_22_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_19_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_19_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_19_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_22_pkey;
 
 
 --
--- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_20_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_23_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_20_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_20_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_23_pkey;
+
+
+--
+-- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_24_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_24_pkey;
+
+
+--
+-- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_25_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_25_pkey;
 
 
 --
@@ -17864,6 +18201,34 @@ CREATE TRIGGER trg_clients_created_by BEFORE INSERT OR UPDATE ON public.clients 
 --
 
 CREATE TRIGGER trg_enforce_activity_default BEFORE INSERT OR UPDATE ON public.time_entries FOR EACH ROW EXECUTE FUNCTION public.enforce_activity_default();
+
+
+--
+-- Name: engagements trg_enforce_administrative_engagement_rules; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_administrative_engagement_rules BEFORE INSERT OR UPDATE OF funcion, client_id, society_id, is_internal, activity_required ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_administrative_engagement_rules();
+
+
+--
+-- Name: wo_payment_installments trg_enforce_administrative_no_payment_installments; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_administrative_no_payment_installments BEFORE INSERT OR UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.enforce_administrative_no_payment_installments();
+
+
+--
+-- Name: wo_payment_plan trg_enforce_administrative_no_payment_plan; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_administrative_no_payment_plan BEFORE INSERT OR UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.enforce_administrative_no_payment_plan();
+
+
+--
+-- Name: work_orders trg_enforce_administrative_work_order_rules; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_enforce_administrative_work_order_rules BEFORE INSERT OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.enforce_administrative_work_order_rules();
 
 
 --
@@ -20942,5 +21307,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
+\unrestrict S8UWZsBfav34Xof6M8PWCZg3iHsfQUmExqTBlVbePdRacZgOD06zLWl51mJv5VY
 
