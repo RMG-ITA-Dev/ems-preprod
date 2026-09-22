@@ -745,6 +745,14 @@ AS $$
 DECLARE
   v_funcion smallint;
 BEGIN
+  -- Se resuelve por NEW.wo_id y NO por NEW.plan_id -> wo_payment_plan.wo_id, aunque la fila
+  -- lleve las dos referencias denormalizadas y la policy "Manager can manage payment
+  -- installments" autorice solo por plan_id. Alcanza porque la igualdad entre las dos ya es
+  -- invariante de la tabla: wo_payment_installments_guard_exchange_rate() rechaza todo INSERT
+  -- con `plan.wo_id IS DISTINCT FROM NEW.wo_id` (INSTALLMENT_WO_MISMATCH,
+  -- 20260910090000_0722-156b_fixed_mode_rate_guard.sql) y congela plan_id/wo_id en todo UPDATE.
+  -- La suite cubre las dos entradas -- cuota cruzada y wo_id administrativo directo -- para que
+  -- el dia que ese guard cambie, esto falle en vez de degradarse en silencio.
   SELECT e.funcion INTO v_funcion
     FROM public.work_orders wo
     JOIN public.engagements e ON e.engagement_id = wo.engagement_id
@@ -759,7 +767,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.enforce_administrative_no_payment_installments() IS
-  '0722-160: defensa en profundidad, simetrica a enforce_administrative_no_payment_plan pero sobre wo_payment_installments -- cierra el camino de sync_wo_payment_installments() y de un plan administrativo preexistente al que ya no se le pueden agregar cuotas nuevas.';
+  '0722-160: defensa en profundidad, simetrica a enforce_administrative_no_payment_plan pero sobre wo_payment_installments -- cierra el camino de sync_wo_payment_installments() y de un plan administrativo preexistente al que ya no se le pueden agregar cuotas nuevas. Resuelve la funcion por NEW.wo_id; la igualdad con wo_payment_plan.wo_id ya la garantiza wo_payment_installments_guard_exchange_rate() (INSTALLMENT_WO_MISMATCH).';
 
 DROP TRIGGER IF EXISTS trg_enforce_administrative_no_payment_installments ON public.wo_payment_installments;
 CREATE TRIGGER trg_enforce_administrative_no_payment_installments

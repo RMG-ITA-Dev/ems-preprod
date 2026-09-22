@@ -12,6 +12,8 @@ DECLARE
   v_engagement uuid;
   v_legacy_engagement uuid;
   v_pre_trigger uuid;
+  v_client_wo uuid;
+  v_admin_plan uuid;
   v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
@@ -142,6 +144,48 @@ BEGIN
     RAISE EXCEPTION '0722-160 accepted a funcion change on a just-classified legacy row';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM <> '0722-160: la funcion del encargo no se puede cambiar despues de crearlo' THEN
+      RAISE;
+    END IF;
+  END;
+
+  -- Cuotas cruzadas: wo_payment_installments guarda `wo_id` denormalizado ADEMAS de `plan_id`, y
+  -- la policy "Manager can manage payment installments" autoriza solo por plan_id. Un INSERT
+  -- directo puede entonces declarar el plan administrativo y el wo_id de una OT de Cliente, y
+  -- enforce_administrative_no_payment_installments() resuelve la funcion por NEW.wo_id, asi que
+  -- no lo ve. Ese camino lo cierra el guard de 156b, que exige que las dos referencias coincidan.
+  -- Esta asercion fija esa dependencia: si INSTALLMENT_WO_MISMATCH desaparece, falla aca en vez
+  -- de dejar entrar una cuota facturable colgada de un plan administrativo.
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode)
+  VALUES (v_legacy_engagement, 'BOB', 'High')
+  RETURNING wo_id INTO v_client_wo;
+
+  -- Plan administrativo "preexistente": se siembra con el guard apagado, que es exactamente el
+  -- estado de una base actualizada desde antes de esta migracion.
+  ALTER TABLE public.wo_payment_plan DISABLE TRIGGER trg_enforce_administrative_no_payment_plan;
+  ALTER TABLE public.wo_payment_plan DISABLE TRIGGER trg_wo_payment_plan_guard_exchange_rate;
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days)
+  VALUES (v_work_order, 30)
+  RETURNING plan_id INTO v_admin_plan;
+  ALTER TABLE public.wo_payment_plan ENABLE TRIGGER trg_wo_payment_plan_guard_exchange_rate;
+  ALTER TABLE public.wo_payment_plan ENABLE TRIGGER trg_enforce_administrative_no_payment_plan;
+
+  BEGIN
+    INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage)
+    VALUES (v_admin_plan, v_client_wo, 1, 100);
+    RAISE EXCEPTION '0722-160 accepted an installment on an administrative plan via a client wo_id';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'INSTALLMENT_WO_MISMATCH: el wo_id de la cuota no coincide con el de su plan de pagos' THEN
+      RAISE;
+    END IF;
+  END;
+
+  -- Y el camino directo (wo_id administrativo) sigue bloqueado.
+  BEGIN
+    INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage)
+    VALUES (v_admin_plan, v_work_order, 1, 100);
+    RAISE EXCEPTION '0722-160 accepted an installment on an administrative work order';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> '0722-160: las OTs administrativas no facturan; no admiten cuotas de plan de pagos' THEN
       RAISE;
     END IF;
   END;
