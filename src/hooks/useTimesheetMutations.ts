@@ -238,9 +238,12 @@ export function useSubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
-      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
-      // no ["pending-approvals"] -- invalidación aditiva (plan_v2.md §5.4, R6).
-      queryClient.invalidateQueries({ queryKey: ["dashboard", "cartera"] });
+      // dash_cartera/encargo/personal/socio: sus RPC (portfolio_overview,
+      // engagement_overview, personal_overview, partner_overview) leen horas/aprobaciones,
+      // no ["pending-approvals"] -- invalidación aditiva por prefijo (plan_v2.md §5.4, R6;
+      // ampliada review.md dash_cartera iteración 3, G-02, 2026-09-22: antes solo invalidaba
+      // "cartera", dejando desactualizadas las otras 3 pestañas del dashboard).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       // BUG 0526-122: the holiday-engagement line now validates dynamically per date
@@ -316,9 +319,12 @@ export function useUnsubmitTimesheet() {
       queryClient.invalidateQueries({ queryKey: ["timesheet-period"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
-      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
-      // no ["pending-approvals"] -- invalidación aditiva (plan_v2.md §5.4, R6).
-      queryClient.invalidateQueries({ queryKey: ["dashboard", "cartera"] });
+      // dash_cartera/encargo/personal/socio: sus RPC (portfolio_overview,
+      // engagement_overview, personal_overview, partner_overview) leen horas/aprobaciones,
+      // no ["pending-approvals"] -- invalidación aditiva por prefijo (plan_v2.md §5.4, R6;
+      // ampliada review.md dash_cartera iteración 3, G-02, 2026-09-22: antes solo invalidaba
+      // "cartera", dejando desactualizadas las otras 3 pestañas del dashboard).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
       toast.success(i18n.t("timesheet.unsubmitted"));
