@@ -537,9 +537,18 @@ BEGIN
 
     -- Para administrativas, la firma del Socio cierra la OT sin una segunda
     -- aprobación. Cliente conserva el motor de dos pistas.
+    --
+    -- Review fix (Codex, 5ta vuelta): la transicion exige que la OT ESTE en Pending_Approval.
+    -- Sin `OLD.approval_status = 'Pending_Approval'` alcanzaba con escribir approved_at sobre una
+    -- OT en Draft para que saliera Approved de una, saltandose el envio y la aprobacion del
+    -- Socio. Esa puerta la abre este cierre automatico y no existe en Cliente, donde
+    -- approval_status lo escribe una sentencia aparte. Se mira OLD y no NEW porque lo que
+    -- autoriza el cierre es el estado del que se viene: un UPDATE que traiga Draft y
+    -- approval_status='Approved' juntos no puede usar este atajo.
     IF TG_OP = 'UPDATE'
        AND NEW.approved_at IS NOT NULL
-       AND OLD.approved_at IS NULL THEN
+       AND OLD.approved_at IS NULL
+       AND OLD.approval_status = 'Pending_Approval' THEN
       NEW.approval_status := 'Approved';
     END IF;
   END IF;

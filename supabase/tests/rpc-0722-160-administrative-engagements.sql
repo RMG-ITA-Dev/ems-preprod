@@ -77,10 +77,10 @@ BEGIN
     RAISE EXCEPTION '0722-160 administrative work order did not bypass risk evaluation';
   END IF;
 
-  UPDATE public.work_orders
-     SET approval_status = 'Pending_Approval',
-         approved_at = now()
-   WHERE wo_id = v_work_order;
+  -- Dos sentencias, como la app: useSubmitWorkOrder envia y useApproveWorkOrder firma despues.
+  -- El cierre automatico exige que la OT YA este en Pending_Approval.
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approved_at = now() WHERE wo_id = v_work_order;
 
   IF NOT EXISTS (
     SELECT 1 FROM public.work_orders
@@ -90,6 +90,27 @@ BEGIN
   ) THEN
     RAISE EXCEPTION '0722-160 administrative work order did not close with partner approval only';
   END IF;
+
+  -- Una OT en Draft NO se cierra escribiendo approved_at: eso salteaba el envio y la aprobacion
+  -- del Socio de un saque. El cierre automatico solo aplica viniendo de Pending_Approval.
+  UPDATE public.work_orders
+     SET approval_status = 'Draft', approved_by = NULL, approved_at = NULL
+   WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approved_at = now() WHERE wo_id = v_work_order;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.work_orders
+     WHERE wo_id = v_work_order AND approval_status = 'Draft'
+  ) THEN
+    RAISE EXCEPTION '0722-160 una OT administrativa en Draft se cerro con solo escribir approved_at';
+  END IF;
+
+  -- Se vuelve al camino normal para lo que sigue.
+  UPDATE public.work_orders
+     SET approval_status = 'Draft', approved_by = NULL, approved_at = NULL
+   WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = v_work_order;
+  UPDATE public.work_orders SET approved_at = now() WHERE wo_id = v_work_order;
 
   -- Retiro tras la firma. useUnsubmitWorkOrder escribe approval_status='Draft' y NO limpia
   -- approved_at; para una administrativa esa firma vieja rompe el unico cierre que tiene, porque
