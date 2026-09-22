@@ -569,6 +569,10 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     },
     [administrativeInternalClients, administrativeSocietyIdByNit, canChooseProfileScopeFreely, clientOptions, derivedSocietyId, isEdit, selectedClientId]
   );
+  const internalClientIds = useMemo(
+    () => new Set((administrativeInternalClients ?? []).map((client) => client.client_id)),
+    [administrativeInternalClients]
+  );
   const administrativeSocietyIdByClientId = useMemo(
     () => new Map(administrativeClientOptions.map((client) => [client.client_id, administrativeSocietyIdByNit[client.unique_tax_id]])),
     [administrativeClientOptions, administrativeSocietyIdByNit]
@@ -674,6 +678,42 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       setApprovalRequired(true);
     }
   }, [isAdministrativeFunction, isEdit]);
+
+  // 0722-160 (review fix, Greptile + Codex) — el par cliente/sociedad cruzaba mal la frontera
+  // Cliente ↔ administrativa, y la derivación del `onValueChange` del cliente era de un solo
+  // disparo. Tres síntomas, una sola causa:
+  //
+  //   * Cliente → administrativa: el cliente externo ya elegido desaparece de la lista
+  //     (`visibleClientOptions` cambia) pero sigue en el formulario, y el alta muere en
+  //     enforce_administrative_engagement_rules() con un cliente que el selector ya no muestra.
+  //   * administrativa → Cliente: queda seleccionado un cliente interno de la firma, y ahí la
+  //     base NO valida nada — el trigger sólo mira `funcion <> 1`. Se creaba un encargo de
+  //     Cliente contra la propia sociedad.
+  //   * `societyOptions` (useSocieties) y `administrativeInternalClients` (RPC) cargan por
+  //     separado: si el catálogo de sociedades no llegó todavía cuando se elige el cliente
+  //     interno, `administrativeSocietyIdByClientId` devuelve undefined y `society_id` queda
+  //     vacío. Con el selector de sociedad deshabilitado en el alta administrativa, el
+  //     formulario quedaba trabado en requiredSociety sin ningún control para corregirlo.
+  //
+  // En edición no corre: ahí el par lo repara el admin a mano con los dos selectores abiertos
+  // (ver el `disabled` del selector de sociedad).
+  useEffect(() => {
+    if (isEdit || !selectedClientId) return;
+    if (!isAdministrativeFunction) {
+      if (internalClientIds.has(selectedClientId)) {
+        form.setValue("client_id", "", { shouldDirty: false, shouldValidate: false });
+      }
+      return;
+    }
+    if (!administrativeSocietyIdByClientId.has(selectedClientId)) {
+      form.setValue("client_id", "", { shouldDirty: false, shouldValidate: false });
+      return;
+    }
+    const derived = administrativeSocietyIdByClientId.get(selectedClientId);
+    if (derived && form.getValues("society_id") !== derived) {
+      form.setValue("society_id", derived, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [isEdit, isAdministrativeFunction, selectedClientId, internalClientIds, administrativeSocietyIdByClientId, form]);
 
   useEffect(() => {
     if (
@@ -1512,13 +1552,10 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                       <FormLabel>{t("engagement.client")} <span className="text-destructive">*</span></FormLabel>
                       <Select
                         disabled={readOnly}
-                        onValueChange={(clientId) => {
-                          field.onChange(clientId);
-                          if (isAdministrativeFunction) {
-                            const societyId = administrativeSocietyIdByClientId.get(clientId);
-                            if (societyId) form.setValue("society_id", societyId, { shouldValidate: true });
-                          }
-                        }}
+                        // La sociedad la deriva el efecto de arriba, no este handler: derivar acá
+                        // era de un solo disparo y no reintentaba si el catálogo de sociedades
+                        // llegaba después (review fix, Greptile).
+                        onValueChange={field.onChange}
                         value={field.value}
                       >
                         <FormControl>

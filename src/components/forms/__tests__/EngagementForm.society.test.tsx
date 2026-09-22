@@ -356,11 +356,16 @@ describe("EngagementForm — Sociedad required in creation (real submit, FEAT 07
     await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
     await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
 
-    // funcion_adm (0) avoids the Cliente-only taxonomy requirement, same as the sibling fixture.
+    // 0722-160: ya no sirve funcion_adm (0) para esquivar el requisito de taxonomía de Cliente.
+    // En una función administrativa la sociedad la DERIVA el cliente interno elegido, así que
+    // "dejar Sociedad sin seleccionar" dejó de ser un estado alcanzable ahí. Se ejercita con
+    // Cliente (1), que es donde la sociedad sigue siendo una elección libre del admin; el guard
+    // de sociedad corre en el bloque `missingCodeField`, antes que los de contrato y taxonomía,
+    // así que sigue siendo el primer error que aparece.
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);

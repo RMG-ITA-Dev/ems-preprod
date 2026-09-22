@@ -190,6 +190,261 @@ BEGIN
 END;
 $$;
 
+-- Review fix (Codex): notify_work_order_events() (20260911100200) decide la entrada a la cola
+-- de Riesgos con `risk_status = 'Pending' AND v_submitted`. Para una OT administrativa esa
+-- combinacion se cumple SIEMPRE -- enforce_administrative_work_order_rules() (BEFORE) fuerza
+-- 'Pending' antes de que el trigger de notificaciones (AFTER) lo lea -- asi que cada envio
+-- disparaba wo.submitted_risk (panel + correo) a risk_partner/risk_supervisor por una pista
+-- que esta misma migracion elimina y que WorkOrderEdit ni siquiera renderiza. Se redefine la
+-- funcion entera (unico cambio: el gate por funcion; el resto es copia literal) porque esta
+-- migracion corre despues y no se debe reeditar la original.
+--
+-- Review fix (Codex, 2da vuelta): va ANTES de las reparaciones de datos de mas abajo, no al final
+-- del archivo. Esos UPDATE bajan risk_status a 'Pending' y limpian risk_approved_at en OTs
+-- administrativas historicas; con la definicion vieja todavia instalada, el trigger AFTER las
+-- leia como un reenvio de datos (wo.risk.resubmitted) y como una reversion de Riesgos
+-- (wo.approval_reverted) y mandaba notificaciones y correos reales durante el despliegue.
+CREATE OR REPLACE FUNCTION public.notify_work_order_events() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_code       text;
+  v_funcion    smallint;
+  v_is_client  boolean;
+  v_base       jsonb;
+  v_rec        record;
+  v_submitted  boolean;
+  v_rev_socio  boolean;
+  v_rev_risk   boolean;
+  v_resubmit   boolean;
+  v_to_risk    boolean;
+  v_emergency  boolean;
+  v_has_plan   boolean;
+  c_riesgos   constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
+  c_cobranzas constant text[] := ARRAY['collections_analyst'];
+BEGIN
+  SELECT COALESCE(e.engagement_code, ''), e.funcion INTO v_code, v_funcion
+    FROM public.engagements e
+   WHERE e.engagement_id = NEW.engagement_id;
+
+  -- engagement_code lo pinta el panel como chip (notificationMeta); engagement_id no se usa
+  -- hoy en la ruta —el destino es /work-orders/<wo_id>— pero deja el encargo a mano para
+  -- cuando la Fase 3.c linkee al detalle del encargo.
+  v_base := jsonb_build_object(
+    'engagement_code', v_code,
+    'engagement_id',   NEW.engagement_id,
+    'currency',        NEW.currency);
+
+  -- 0722-160: Cliente es la unica funcion con pista de Riesgos. COALESCE trata funcion NULL
+  -- como Cliente, que es el default historico de la columna.
+  v_is_client := COALESCE(v_funcion, 1) = 1;
+
+  -- ── Discriminadores ──
+  v_submitted := NEW.approval_status = 'Pending_Approval'
+             AND OLD.approval_status IN ('Draft', 'Rejected');
+
+  -- La reversión se detecta por la marca de la pista APAGÁNDOSE, no por approval_status:
+  -- useRevertSocioApproval/useRevertRiskApproval limpian la firma en la primera sentencia y
+  -- reabren la OT en la segunda, y sólo la primera distingue una reversión de un rechazo.
+  v_rev_socio := OLD.approved_at      IS NOT NULL AND NEW.approved_at      IS NULL;
+  v_rev_risk  := v_is_client AND OLD.risk_approved_at IS NOT NULL AND NEW.risk_approved_at IS NULL;
+
+  -- Reenvío de datos de riesgo tras un veredicto (rechazo, o compleción de los datos que
+  -- quedaron pendientes de una aprobación de emergencia).
+  v_resubmit := v_is_client
+            AND NEW.risk_status = 'Pending'
+            AND OLD.risk_status IN ('Rejected', 'Emergency_Approved');
+
+  -- Entrada a la cola de Riesgos. Dos caminos, y ninguno es una transición de risk_status:
+  --   * el envío inicial —risk_status ya venía en 'Pending' por DEFAULT, así que no cambia—;
+  --   * la reversión de la aprobación de Riesgos (D-23), que devuelve trabajo a esa cola.
+  --
+  -- `NOT v_resubmit` es obligatorio y no una precaución: useSubmitWorkOrder con
+  -- `resetRiskToPending` (reenvío tras un rechazo de Riesgos) cumple las dos condiciones a la
+  -- vez, y sin esto el Supervisor recibiría el aviso de entrada Y el de reenvío por el mismo
+  -- hecho. Gana el más específico.
+  -- El COALESCE no es cosmético: es el único NOT de los discriminadores, y un NULL bajo un
+  -- NOT vuelve NULL toda la condición y se traga un aviso legítimo. Los demás se evalúan en
+  -- positivo, donde NULL ya se comporta como false (que es lo que queremos: fail-closed).
+  --
+  -- 0722-160: en una OT administrativa `risk_status = 'Pending'` significa "no aplica", no
+  -- "en cola". enforce_administrative_work_order_rules() es BEFORE y lo fuerza a 'Pending'
+  -- antes de que este trigger (AFTER) lo lea, asi que sin `v_is_client` TODO envio
+  -- administrativo avisaba por panel y correo a risk_partner/risk_supervisor sobre una pista
+  -- que la feature elimino y que la UI ni siquiera muestra.
+  --
+  -- Review fix (Codex, 2da vuelta): el gate NO alcanza con ponerlo aca. `v_resubmit` y
+  -- `v_rev_risk` alimentan wo.risk.resubmitted y wo.approval_reverted, y las reparaciones de
+  -- datos de mas abajo (bajan risk_status a 'Pending' y limpian risk_approved_at en OTs
+  -- administrativas historicas) cumplen las dos condiciones. Por eso los tres discriminadores
+  -- de la pista de Riesgos llevan `v_is_client`, no solo este.
+  v_to_risk := v_is_client
+           AND NEW.risk_status = 'Pending'
+           AND (v_submitted OR v_rev_risk)
+           AND NOT COALESCE(v_resubmit, false);
+
+  -- Emergencia = el gerente envió SIN datos de riesgo, justificando. Es la misma condición
+  -- que habilita el flujo de dos firmas en el frontend.
+  v_emergency := NEW.risk_level IS NULL
+             AND NULLIF(btrim(COALESCE(NEW.emergency_justification, '')), '') IS NOT NULL;
+
+  -- ── Envío a aprobación del Socio ──
+  IF v_submitted THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.submitted_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', NEW.approval_status));
+    END LOOP;
+
+    -- Plan de pagos (D-24): no tiene aprobación propia, viaja con la de la OT. Sólo se avisa
+    -- si hay cuotas cargadas — sin cuotas no hay nada que revisar y Cobranzas recibiría ruido.
+    SELECT EXISTS (SELECT 1 FROM public.wo_payment_installments i WHERE i.wo_id = NEW.wo_id)
+      INTO v_has_plan;
+
+    IF v_has_plan THEN
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+        UNION
+        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
+      LOOP
+        PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
+                  NEW.wo_id::text, v_base);
+      END LOOP;
+    END IF;
+  END IF;
+
+  -- ── Entrada a la cola de Riesgos (absorbe assessment_assigned/emergency, D-10) ──
+  IF v_to_risk THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      -- `context` no es un dato mas: es la clave reservada de i18next. El panel hace
+      -- t(label_key, {...payload}), asi que un payload con context='emergency' resuelve
+      -- `notifications.types.wo.submitted_risk_emergency` y, si esa clave no existe, cae
+      -- sola a la base. Asi una variante de texto no necesita un tipo nuevo en la matriz.
+      PERFORM public.notify_staff('wo.submitted_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('risk_level', NEW.risk_level)
+                       || CASE WHEN v_emergency
+                               THEN jsonb_build_object('context', 'emergency')
+                               ELSE '{}'::jsonb END);
+    END LOOP;
+  END IF;
+
+  -- ── Reenvío de los datos de evaluación ──
+  IF v_resubmit THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      PERFORM public.notify_staff('wo.risk.resubmitted', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('risk_level', NEW.risk_level));
+    END LOOP;
+  END IF;
+
+  -- ── Firma del Socio ──
+  -- Se compara el timestamp y no `IS NULL -> IS NOT NULL`: un rechazo NO limpia approved_at,
+  -- así que tras rechazar y reenviar la segunda firma dejaría la marca ya no-nula y un
+  -- chequeo de nulidad se la perdería.
+  IF NEW.approved_at IS NOT NULL AND OLD.approved_at IS DISTINCT FROM NEW.approved_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.approved_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Approved'));
+    END LOOP;
+  END IF;
+
+  -- ── Rechazo del Socio ──
+  IF NEW.approval_status = 'Rejected'
+     AND OLD.approval_status IS DISTINCT FROM 'Rejected' THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.rejected_partner', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Rejected',
+                                             'reason', COALESCE(NEW.notes, '')));
+    END LOOP;
+  END IF;
+
+  -- ── Veredicto de Riesgos ──
+  -- Cubre las DOS formas de aprobar: la normal ('Approved') y la de emergencia
+  -- ('Emergency_Approved', las dos firmas). Decisión del operador 2026-09-10 (D-25): en la
+  -- rama de emergencia el Gerente recibe los dos avisos —"Riesgos aprobó la OT" y
+  -- "Emergencia aprobada: 7 días para completar"— porque son dos hechos distintos: uno
+  -- desbloquea la OT, el otro le abre un plazo con trabajo pendiente.
+  --
+  -- El `status` va desde la columna y no como literal: así el badge del panel dice
+  -- "Aprobada por emergencia" y no miente diciendo "Aprobada" a secas.
+  IF NEW.risk_status IN ('Approved', 'Emergency_Approved')
+     AND OLD.risk_status IS DISTINCT FROM NEW.risk_status THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.approved_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', NEW.risk_status));
+    END LOOP;
+  END IF;
+
+  -- El rechazo de Riesgos sube más arriba que la aprobación: la matriz se lo manda también a
+  -- socios y directores, porque frena la OT entera.
+  IF NEW.risk_status = 'Rejected' AND OLD.risk_status IS DISTINCT FROM 'Rejected' THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.rejected_risk', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('status', 'Rejected',
+                                             'reason', COALESCE(NEW.risk_notes, '')));
+    END LOOP;
+  END IF;
+
+  -- ── Reversión de Admin (cualquiera de las dos pistas) ──
+  IF v_rev_socio OR v_rev_risk THEN
+    FOR v_rec IN
+      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      -- `context` = la pista revertida, para que el texto diga cual (ver la nota de
+      -- submitted_risk). Si algun dia se revierten las dos en una sola sentencia gana
+      -- 'partner'; la clave base es generica y sirve igual.
+      PERFORM public.notify_staff('wo.approval_reverted', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object(
+                  'context', CASE WHEN v_rev_socio THEN 'partner' ELSE 'risk' END,
+                  'status',  NEW.approval_status));
+    END LOOP;
+  END IF;
+
+  -- ── Emergencia: paso 1 (firma de Riesgos) ──
+  IF NEW.emergency_review_at IS NOT NULL
+     AND OLD.emergency_review_at IS DISTINCT FROM NEW.emergency_review_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
+    LOOP
+      PERFORM public.notify_staff('wo.emergency.step1_done', v_rec.staff_id, NEW.wo_id::text,
+                v_base);
+    END LOOP;
+  END IF;
+
+  -- ── Emergencia: paso 2 firmado -> arranca el plazo de 7 días ──
+  -- La señal es `emergency_deadline_at` encendiéndose, que es lo que escribe la segunda firma
+  -- (useApproveEmergencyPartner). El aviso dice "tenés 7 días para completar los datos", así
+  -- que su dueño es el reloj, no la firma.
+  IF NEW.emergency_deadline_at IS NOT NULL
+     AND OLD.emergency_deadline_at IS DISTINCT FROM NEW.emergency_deadline_at THEN
+    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
+    LOOP
+      PERFORM public.notify_staff('wo.emergency.created', v_rec.staff_id, NEW.wo_id::text,
+                v_base || jsonb_build_object('deadline', NEW.emergency_deadline_at,
+                                             'status',   NEW.risk_status));
+    END LOOP;
+  END IF;
+
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_work_order_events fallo para % : %', NEW.wo_id, SQLERRM;
+  RETURN NULL;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notify_work_order_events() IS
+  'FASE 3.b: 11 eventos de work_orders. Las aprobaciones se detectan por la marca de cada pista (approved_at / risk_status) y no por approval_status, porque la aprobacion se escribe en dos sentencias y el trigger corre dos veces. Degrada a WARNING: nunca bloquea la operacion. 0722-160: las OTs de encargos administrativos (funcion <> 1) no tienen pista de Riesgos, asi que no disparan wo.submitted_risk, wo.risk.resubmitted ni la reversion de Riesgos.';
+
 CREATE OR REPLACE FUNCTION public.enforce_administrative_work_order_rules()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -473,240 +728,3 @@ CREATE TRIGGER trg_enforce_administrative_no_payment_installments
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_administrative_no_payment_installments();
 
--- Review fix (Codex): notify_work_order_events() (20260911100200) decide la entrada a la cola
--- de Riesgos con `risk_status = 'Pending' AND v_submitted`. Para una OT administrativa esa
--- combinacion se cumple SIEMPRE -- enforce_administrative_work_order_rules() (BEFORE) fuerza
--- 'Pending' antes de que el trigger de notificaciones (AFTER) lo lea -- asi que cada envio
--- disparaba wo.submitted_risk (panel + correo) a risk_partner/risk_supervisor por una pista
--- que esta misma migracion elimina y que WorkOrderEdit ni siquiera renderiza. Se redefine la
--- funcion entera (unico cambio: el gate por funcion; el resto es copia literal) porque esta
--- migracion corre despues y no se debe reeditar la original.
-CREATE OR REPLACE FUNCTION public.notify_work_order_events() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $BODY$
-DECLARE
-  v_code       text;
-  v_funcion    smallint;
-  v_base       jsonb;
-  v_rec        record;
-  v_submitted  boolean;
-  v_rev_socio  boolean;
-  v_rev_risk   boolean;
-  v_resubmit   boolean;
-  v_to_risk    boolean;
-  v_emergency  boolean;
-  v_has_plan   boolean;
-  c_riesgos   constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
-  c_cobranzas constant text[] := ARRAY['collections_analyst'];
-BEGIN
-  SELECT COALESCE(e.engagement_code, ''), e.funcion INTO v_code, v_funcion
-    FROM public.engagements e
-   WHERE e.engagement_id = NEW.engagement_id;
-
-  -- engagement_code lo pinta el panel como chip (notificationMeta); engagement_id no se usa
-  -- hoy en la ruta —el destino es /work-orders/<wo_id>— pero deja el encargo a mano para
-  -- cuando la Fase 3.c linkee al detalle del encargo.
-  v_base := jsonb_build_object(
-    'engagement_code', v_code,
-    'engagement_id',   NEW.engagement_id,
-    'currency',        NEW.currency);
-
-  -- ── Discriminadores ──
-  v_submitted := NEW.approval_status = 'Pending_Approval'
-             AND OLD.approval_status IN ('Draft', 'Rejected');
-
-  -- La reversión se detecta por la marca de la pista APAGÁNDOSE, no por approval_status:
-  -- useRevertSocioApproval/useRevertRiskApproval limpian la firma en la primera sentencia y
-  -- reabren la OT en la segunda, y sólo la primera distingue una reversión de un rechazo.
-  v_rev_socio := OLD.approved_at      IS NOT NULL AND NEW.approved_at      IS NULL;
-  v_rev_risk  := OLD.risk_approved_at IS NOT NULL AND NEW.risk_approved_at IS NULL;
-
-  -- Reenvío de datos de riesgo tras un veredicto (rechazo, o compleción de los datos que
-  -- quedaron pendientes de una aprobación de emergencia).
-  v_resubmit := NEW.risk_status = 'Pending'
-            AND OLD.risk_status IN ('Rejected', 'Emergency_Approved');
-
-  -- Entrada a la cola de Riesgos. Dos caminos, y ninguno es una transición de risk_status:
-  --   * el envío inicial —risk_status ya venía en 'Pending' por DEFAULT, así que no cambia—;
-  --   * la reversión de la aprobación de Riesgos (D-23), que devuelve trabajo a esa cola.
-  --
-  -- `NOT v_resubmit` es obligatorio y no una precaución: useSubmitWorkOrder con
-  -- `resetRiskToPending` (reenvío tras un rechazo de Riesgos) cumple las dos condiciones a la
-  -- vez, y sin esto el Supervisor recibiría el aviso de entrada Y el de reenvío por el mismo
-  -- hecho. Gana el más específico.
-  -- El COALESCE no es cosmético: es el único NOT de los discriminadores, y un NULL bajo un
-  -- NOT vuelve NULL toda la condición y se traga un aviso legítimo. Los demás se evalúan en
-  -- positivo, donde NULL ya se comporta como false (que es lo que queremos: fail-closed).
-  --
-  -- 0722-160: en una OT administrativa `risk_status = 'Pending'` significa "no aplica", no
-  -- "en cola". enforce_administrative_work_order_rules() es BEFORE y lo fuerza a 'Pending'
-  -- antes de que este trigger (AFTER) lo lea, asi que sin este gate TODO envio administrativo
-  -- avisaba por panel y correo a risk_partner/risk_supervisor sobre una pista que la feature
-  -- elimino y que la UI ni siquiera muestra. El COALESCE trata funcion NULL como Cliente, que
-  -- es el default historico de la columna.
-  v_to_risk := NEW.risk_status = 'Pending'
-           AND (v_submitted OR v_rev_risk)
-           AND NOT COALESCE(v_resubmit, false)
-           AND COALESCE(v_funcion, 1) = 1;
-
-  -- Emergencia = el gerente envió SIN datos de riesgo, justificando. Es la misma condición
-  -- que habilita el flujo de dos firmas en el frontend.
-  v_emergency := NEW.risk_level IS NULL
-             AND NULLIF(btrim(COALESCE(NEW.emergency_justification, '')), '') IS NOT NULL;
-
-  -- ── Envío a aprobación del Socio ──
-  IF v_submitted THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.submitted_partner', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('status', NEW.approval_status));
-    END LOOP;
-
-    -- Plan de pagos (D-24): no tiene aprobación propia, viaja con la de la OT. Sólo se avisa
-    -- si hay cuotas cargadas — sin cuotas no hay nada que revisar y Cobranzas recibiría ruido.
-    SELECT EXISTS (SELECT 1 FROM public.wo_payment_installments i WHERE i.wo_id = NEW.wo_id)
-      INTO v_has_plan;
-
-    IF v_has_plan THEN
-      FOR v_rec IN
-        SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
-        UNION
-        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
-      LOOP
-        PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
-                  NEW.wo_id::text, v_base);
-      END LOOP;
-    END IF;
-  END IF;
-
-  -- ── Entrada a la cola de Riesgos (absorbe assessment_assigned/emergency, D-10) ──
-  IF v_to_risk THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
-    LOOP
-      -- `context` no es un dato mas: es la clave reservada de i18next. El panel hace
-      -- t(label_key, {...payload}), asi que un payload con context='emergency' resuelve
-      -- `notifications.types.wo.submitted_risk_emergency` y, si esa clave no existe, cae
-      -- sola a la base. Asi una variante de texto no necesita un tipo nuevo en la matriz.
-      PERFORM public.notify_staff('wo.submitted_risk', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('risk_level', NEW.risk_level)
-                       || CASE WHEN v_emergency
-                               THEN jsonb_build_object('context', 'emergency')
-                               ELSE '{}'::jsonb END);
-    END LOOP;
-  END IF;
-
-  -- ── Reenvío de los datos de evaluación ──
-  IF v_resubmit THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
-    LOOP
-      PERFORM public.notify_staff('wo.risk.resubmitted', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('risk_level', NEW.risk_level));
-    END LOOP;
-  END IF;
-
-  -- ── Firma del Socio ──
-  -- Se compara el timestamp y no `IS NULL -> IS NOT NULL`: un rechazo NO limpia approved_at,
-  -- así que tras rechazar y reenviar la segunda firma dejaría la marca ya no-nula y un
-  -- chequeo de nulidad se la perdería.
-  IF NEW.approved_at IS NOT NULL AND OLD.approved_at IS DISTINCT FROM NEW.approved_at THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.approved_partner', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('status', 'Approved'));
-    END LOOP;
-  END IF;
-
-  -- ── Rechazo del Socio ──
-  IF NEW.approval_status = 'Rejected'
-     AND OLD.approval_status IS DISTINCT FROM 'Rejected' THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.rejected_partner', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('status', 'Rejected',
-                                             'reason', COALESCE(NEW.notes, '')));
-    END LOOP;
-  END IF;
-
-  -- ── Veredicto de Riesgos ──
-  -- Cubre las DOS formas de aprobar: la normal ('Approved') y la de emergencia
-  -- ('Emergency_Approved', las dos firmas). Decisión del operador 2026-09-10 (D-25): en la
-  -- rama de emergencia el Gerente recibe los dos avisos —"Riesgos aprobó la OT" y
-  -- "Emergencia aprobada: 7 días para completar"— porque son dos hechos distintos: uno
-  -- desbloquea la OT, el otro le abre un plazo con trabajo pendiente.
-  --
-  -- El `status` va desde la columna y no como literal: así el badge del panel dice
-  -- "Aprobada por emergencia" y no miente diciendo "Aprobada" a secas.
-  IF NEW.risk_status IN ('Approved', 'Emergency_Approved')
-     AND OLD.risk_status IS DISTINCT FROM NEW.risk_status THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.approved_risk', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('status', NEW.risk_status));
-    END LOOP;
-  END IF;
-
-  -- El rechazo de Riesgos sube más arriba que la aprobación: la matriz se lo manda también a
-  -- socios y directores, porque frena la OT entera.
-  IF NEW.risk_status = 'Rejected' AND OLD.risk_status IS DISTINCT FROM 'Rejected' THEN
-    FOR v_rec IN
-      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
-      UNION
-      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.rejected_risk', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('status', 'Rejected',
-                                             'reason', COALESCE(NEW.risk_notes, '')));
-    END LOOP;
-  END IF;
-
-  -- ── Reversión de Admin (cualquiera de las dos pistas) ──
-  IF v_rev_socio OR v_rev_risk THEN
-    FOR v_rec IN
-      SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
-      UNION
-      SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      -- `context` = la pista revertida, para que el texto diga cual (ver la nota de
-      -- submitted_risk). Si algun dia se revierten las dos en una sola sentencia gana
-      -- 'partner'; la clave base es generica y sirve igual.
-      PERFORM public.notify_staff('wo.approval_reverted', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object(
-                  'context', CASE WHEN v_rev_socio THEN 'partner' ELSE 'risk' END,
-                  'status',  NEW.approval_status));
-    END LOOP;
-  END IF;
-
-  -- ── Emergencia: paso 1 (firma de Riesgos) ──
-  IF NEW.emergency_review_at IS NOT NULL
-     AND OLD.emergency_review_at IS DISTINCT FROM NEW.emergency_review_at THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_riesgos)
-    LOOP
-      PERFORM public.notify_staff('wo.emergency.step1_done', v_rec.staff_id, NEW.wo_id::text,
-                v_base);
-    END LOOP;
-  END IF;
-
-  -- ── Emergencia: paso 2 firmado -> arranca el plazo de 7 días ──
-  -- La señal es `emergency_deadline_at` encendiéndose, que es lo que escribe la segunda firma
-  -- (useApproveEmergencyPartner). El aviso dice "tenés 7 días para completar los datos", así
-  -- que su dueño es el reloj, no la firma.
-  IF NEW.emergency_deadline_at IS NOT NULL
-     AND OLD.emergency_deadline_at IS DISTINCT FROM NEW.emergency_deadline_at THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_engagement_managers(NEW.engagement_id)
-    LOOP
-      PERFORM public.notify_staff('wo.emergency.created', v_rec.staff_id, NEW.wo_id::text,
-                v_base || jsonb_build_object('deadline', NEW.emergency_deadline_at,
-                                             'status',   NEW.risk_status));
-    END LOOP;
-  END IF;
-
-  RETURN NULL;
-EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'notify_work_order_events fallo para % : %', NEW.wo_id, SQLERRM;
-  RETURN NULL;
-END;
-$BODY$;
-
-COMMENT ON FUNCTION public.notify_work_order_events() IS
-  'FASE 3.b: 11 eventos de work_orders. Las aprobaciones se detectan por la marca de cada pista (approved_at / risk_status) y no por approval_status, porque la aprobacion se escribe en dos sentencias y el trigger corre dos veces. Degrada a WARNING: nunca bloquea la operacion. 0722-160: las OTs de encargos administrativos (funcion <> 1) no entran a la cola de Riesgos.';

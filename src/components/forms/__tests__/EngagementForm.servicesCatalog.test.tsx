@@ -108,6 +108,22 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
+// 0722-160: los dos clientes internos controlados que devuelve
+// list_administrative_internal_clients(). Sin este mock el hook resuelve undefined (el vi.mock
+// de Storage de mas abajo pisa al del cliente de Supabase y deja `rpc` sin definir), y el
+// formulario no tiene ningun cliente valido que ofrecer en una funcion administrativa.
+// `vi.hoisted` porque vi.mock se iza por encima de los const del modulo.
+const { mockInternalClients } = vi.hoisted(() => ({
+  mockInternalClients: [
+    { client_id: "int-pelaez", client_legal_name: "Ruizmier Pelaez S.R.L.", unique_tax_id: "1006979026", is_active: true },
+    { client_id: "int-jauregui", client_legal_name: "Ruizmier Jauregui S.R.L.", unique_tax_id: "184046021", is_active: true },
+  ],
+}));
+vi.mock("@/hooks/useAdministrativeEngagements", () => ({
+  useAdministrativeEngagements: () => ({ data: [], isLoading: false }),
+  useAdministrativeInternalClients: () => ({ data: mockInternalClients, isLoading: false }),
+}));
+
 vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({
     partners: [{ staff_id: "p1", first_name: "Juan", last_name: "Partner" }],
@@ -589,6 +605,13 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
 
+    // 0722-160: al cruzar a una función administrativa, un cliente externo deja de ser elegible
+    // y el formulario lo limpia — hay que elegir uno de los dos clientes internos controlados.
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
+    await user.click(screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
+
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
@@ -663,10 +686,17 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled());
 
+    // El cruce limpia el cliente externo: ya no es elegible en una función administrativa.
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
+
     // Vuelta: Cliente otra vez.
     await user.click(screen.getByLabelText(/engagement\.funcion/));
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
 
     await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
     await waitFor(() => screen.getByText("Test Taxonomy"));
@@ -685,7 +715,7 @@ describe("0625-148 — role-based service restriction", () => {
 
     await waitFor(() => expect(mockCreateMutateAsync).toHaveBeenCalled());
     expect(mockCreateMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ funcion: 1, is_internal: false }),
+      expect.objectContaining({ funcion: 1, is_internal: false, client_id: "c1" }),
     );
   }, 20000);
 });
