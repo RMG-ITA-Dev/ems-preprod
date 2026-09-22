@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Vk47bGndEnLrGhPGIGa91lv0q9xqJcOz4ybbyGp9M566sJUb28YZrc1QSPJWb9d
+\restrict MiSlJ2V3Dw2X1kE0rN58aFQyG0GhEVMb7sdI6hVXSdjSyfbv7EM75qvKPhBGqfE
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -9369,6 +9369,32 @@ COMMENT ON FUNCTION public.reject_engagement_assignment_move() IS 'Rechaza cambi
 
 
 --
+-- Name: reject_work_order_engagement_move(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_work_order_engagement_move() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.engagement_id IS DISTINCT FROM OLD.engagement_id THEN
+    RAISE EXCEPTION
+      'WO_ENGAGEMENT_IMMUTABLE: una orden de trabajo no cambia de encargo (% -> %). Crear la OT en el encargo destino.',
+      OLD.engagement_id, NEW.engagement_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION reject_work_order_engagement_move(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.reject_work_order_engagement_move() IS '0722-160: rechaza cambiarle el engagement_id a una OT existente. Las tablas de facturacion (wo_payment_plan, wo_payment_installments) y las aprobaciones cuelgan de wo_id, asi que un movimiento a un encargo administrativo las dejaba vivas y facturables fuera del alcance de los guards por funcion. Mismo patron que reject_engagement_assignment_move().';
+
+
+--
 -- Name: release_auth_email_slot(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -18158,6 +18184,13 @@ CREATE TRIGGER tr_reject_engagement_assignment_move BEFORE UPDATE ON public.enga
 
 
 --
+-- Name: work_orders tr_reject_work_order_engagement_move; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_reject_work_order_engagement_move BEFORE UPDATE OF engagement_id ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.reject_work_order_engagement_move();
+
+
+--
 -- Name: work_orders tr_wo_guard_risk_approval; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -21324,5 +21357,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Vk47bGndEnLrGhPGIGa91lv0q9xqJcOz4ybbyGp9M566sJUb28YZrc1QSPJWb9d
+\unrestrict MiSlJ2V3Dw2X1kE0rN58aFQyG0GhEVMb7sdI6hVXSdjSyfbv7EM75qvKPhBGqfE
 
