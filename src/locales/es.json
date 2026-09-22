@@ -1022,51 +1022,132 @@
       "retry": "Intentar de nuevo"
     },
     "personal": {
-      "thisWeek": "Esta Semana",
-      "thisMonth": "Este Mes",
-      "weeklyHours": "Horas Semanales",
-      "hoursRemaining": "{{hours}}h restantes",
-      "capacityReached": "Capacidad alcanzada",
-      "utilization": "Utilización",
-      "onTrack": "En buen ritmo",
-      "progressing": "Progresando",
-      "needsAttention": "Necesita atención",
-      "deadline": "Fecha Límite",
-      "days": "días",
-      "today": "Hoy",
-      "overdue": "Vencida",
-      "pendingApprovals": "Aprobaciones Pendientes",
-      "awaitingReview": "Esperando revisión",
-      "timesheetStatus": "Estado de Hoja",
-      "submitted": "Enviada",
-      "draft": "Borrador",
-      "weekOf": "Semana del {{date}}",
-      "myEngagements": "Mis Encargos",
-      "hoursByEngagement": "Horas por Encargo",
-      "noEngagements": "Sin encargos en este período",
-      "recentEntries": "Entradas Recientes",
-      "noRecentEntries": "Sin entradas recientes",
-      "pendingHours": {
-        "title": "Reporte de Estado Semanal",
-        "summary": "{{weeks}} semana(s) con {{hours}} horas sin registrar",
-        "summaryNotLogged": "{{count}} sin registrar ({{hours}}h faltantes)",
-        "summaryPending": "{{count}} pendiente(s) de aprobación",
-        "summaryRejected": "{{count}} rechazada(s)",
-        "summaryApproved": "{{count}} aprobada(s)",
-        "weekOf": "Semana del {{date}}",
-        "expected": "Esperadas",
-        "logged": "Registradas",
-        "missing": "Faltantes",
-        "status": "Estado",
-        "statusApproved": "Aprobado",
-        "statusPending": "Pendiente",
-        "statusNotLogged": "Sin Registrar",
-        "statusNotSubmitted": "No Enviado",
-        "statusDraft": "Borrador",
-        "statusRejected": "Rechazado",
-        "statusCurrent": "Semana Actual",
-        "goToTimesheet": "Ir a Hoja de Tiempo",
-        "andMore": "...y {{count}} semana(s) más"
+      "empty": {
+        "noStaffRecord": "Tu usuario no tiene una ficha de personal asociada",
+        "noAttention": "No hay acciones pendientes",
+        "noAssignments": "No hay asignaciones para esta semana",
+        "noFunds": "No hay fondos o rendiciones activas",
+        "noDeadlines": "No hay vencimientos en la ventana operativa",
+        "noHistorical": "No hay horas guardadas en el período"
+      },
+      "header": {
+        "operationalWindow": "Esta semana y las 3 siguientes",
+        "historicalPeriod": "Período histórico: {{start}}–{{end}}"
+      },
+      "units": {
+        "hours": "{{hours}} h"
+      },
+      "attention": {
+        "title": "Acciones requieren atención",
+        "viewAll": "Ver todo",
+        "showLess": "Ver menos",
+        "resolve": "Resolver",
+        "timesheetNotSubmitted": "Timesheet {{week}}: {{hours}} h guardadas, falta enviar",
+        "timesheetRejected": "Timesheet {{week}} rechazado",
+        "expenseObserved": "{{code}}: gastos observados ({{count}})",
+        "expenseRejected": "{{code}}: gastos rechazados ({{count}})",
+        "missingReceipt": "{{code}}: gastos sin respaldo ({{count}})",
+        "fundDueToday": "{{code}}: rendición vence hoy",
+        "fundOverdue": "{{code}}: rendición vencida",
+        "fundDueSoon": "{{code}}: rendición vence el {{date}}"
+      },
+      "kpi": {
+        "thisWeek": "Esta semana",
+        "savedOfPlanned": "{{saved}} h de {{planned}} h",
+        "forecastHours": "Pronosticadas: {{hours}} h",
+        "remaining": "{{hours}} h por registrar",
+        "weeklyStatus": "Semana: {{status}}",
+        "approvedHours": "Aprobadas: {{hours}} h",
+        "nextAssignment": "Próxima asignación",
+        "startsOn": "Inicia {{date}}",
+        "hoursPerWeek": "{{hours}} h por semana",
+        "noUpcomingAssignment": "Sin asignaciones próximas",
+        "funds": "Fondos y rendiciones",
+        "noFundActions": "Sin acciones pendientes",
+        "expenseIssues": "Gastos por resolver: {{count}}"
+      },
+      "load": {
+        "title": "Horas planificadas vs. guardadas",
+        "planned": "Planificadas",
+        "saved": "Guardadas",
+        "thisWeek": "Esta semana",
+        "weekPlus": "+{{count}} semana"
+      },
+      "assignments": {
+        "title": "Carga por encargo y función",
+        "engagement": "Encargo",
+        "function": "Función",
+        "assigned": "Asignadas",
+        "saved": "Guardadas",
+        "total": "Total",
+        "clientTotal": "Cliente",
+        "nonClientTotal": "No cliente"
+      },
+      "function": {
+        "administrative": "Administrativa",
+        "client": "Cliente",
+        "training": "Capacitación",
+        "quality": "Calidad",
+        "unclassified": "Sin clasificar"
+      },
+      "compliance": {
+        "title": "Cumplimiento de timesheets",
+        "savedHours": "Horas guardadas",
+        "approvedHours": "Horas aprobadas",
+        "deadline": "Vencimiento",
+        "reviewNotes": "Observaciones de revisión",
+        "openTimesheet": "Abrir timesheet",
+        "status": {
+          "approved": "Aprobado",
+          "pending": "Enviado · pendiente de aprobación",
+          "rejected": "Rechazado",
+          "draft": "Borrador",
+          "notSubmitted": "Sin enviar",
+          "notLogged": "Sin registrar",
+          "future": "Futuro"
+        }
+      },
+      "funds": {
+        "title": "Fondos y rendiciones",
+        "currency": {
+          "bob": "Bolivianos (BOB)",
+          "usd": "Dólares estadounidenses (USD)"
+        },
+        "disbursed": "Desembolsado",
+        "loaded": "Gastos cargados",
+        "pendingAccounting": "Pendiente de contabilidad",
+        "reviewedAccounting": "Revisado por contabilidad",
+        "withoutReceipt": "Sin respaldo",
+        "resolve": "Resolver",
+        "status": {
+          "draft": "Borrador",
+          "pendingApproval": "Pendiente de aprobación",
+          "pendingAccounting": "Pendiente de contabilidad",
+          "observed": "Observado",
+          "rejected": "Rechazado",
+          "delivered": "Fondos entregados",
+          "inSettlement": "En liquidación",
+          "reviewed": "Revisado por contabilidad"
+        }
+      },
+      "deadlines": {
+        "title": "Próximos vencimientos",
+        "timesheetDue": "Enviar timesheet antes del {{date}}",
+        "fundDueToday": "Rendición vence hoy",
+        "fundDueSoon": "Rendición vence el {{date}}",
+        "fundOverdue": "Rendición vencida",
+        "assignmentStarts": "{{code}} inicia el {{date}}",
+        "assignmentEnds": "{{code}} finaliza el {{date}}",
+        "expenseCorrection": "{{code}} requiere corregir gastos"
+      },
+      "management": {
+        "title": "Acciones de gestión",
+        "approvals": "Ir a aprobaciones"
+      },
+      "historical": {
+        "title": "Análisis histórico",
+        "savedHours": "Horas guardadas",
+        "byEngagement": "Horas por encargo"
       }
     },
     "cartera": {

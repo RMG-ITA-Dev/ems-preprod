@@ -270,6 +270,14 @@ run supabase/migrations/20260917160000_dash_cartera_portfolio_overview.sql
 # Ejercitado por rpc-dash-encargo-engagement-overview.sql.
 run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
 
+# dash_personal: rediseño de la pestaña Personal -- un único RPC personal_overview() (payload
+# operativo e histórico: semana actual + 3 siguientes, carga por encargo/función, 12 semanas
+# de cumplimiento de timesheets, fondos/gastos separados por moneda de fuente, próximos
+# vencimientos). No agrega ningún permiso nuevo (dashboard.personal.read ya está concedido a
+# los 22 role_key reales desde cero_13) ni ninguna policy de RLS -- filtra explícitamente por
+# staff_id = get_my_staff_id() en cada CTE. Ejercitado por rpc-dash-personal-overview.sql.
+run supabase/migrations/20260921140000_dash_personal_overview.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -316,5 +324,6 @@ assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMEN
 assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio, dash_cartera y dash_encargo aplicadas sobre base scratch; las 19 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio, dash_cartera, dash_encargo y dash_personal aplicadas sobre base scratch; las 20 suites de RLS/RPC/schema-convergence/trigger pasaron"

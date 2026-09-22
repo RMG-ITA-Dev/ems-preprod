@@ -1022,51 +1022,132 @@
       "retry": "Try again"
     },
     "personal": {
-      "thisWeek": "This Week",
-      "thisMonth": "This Month",
-      "weeklyHours": "Weekly Hours",
-      "hoursRemaining": "{{hours}}h remaining",
-      "capacityReached": "Capacity reached",
-      "utilization": "Utilization",
-      "onTrack": "On track",
-      "progressing": "Progressing",
-      "needsAttention": "Needs attention",
-      "deadline": "Deadline",
-      "days": "days",
-      "today": "Today",
-      "overdue": "Overdue",
-      "pendingApprovals": "Pending Approvals",
-      "awaitingReview": "Awaiting review",
-      "timesheetStatus": "Timesheet Status",
-      "submitted": "Submitted",
-      "draft": "Draft",
-      "weekOf": "Week of {{date}}",
-      "myEngagements": "My Engagements",
-      "hoursByEngagement": "Hours by Engagement",
-      "noEngagements": "No engagements in this period",
-      "recentEntries": "Recent Entries",
-      "noRecentEntries": "No recent entries",
-      "pendingHours": {
-        "title": "Week Status Report",
-        "summary": "{{weeks}} week(s) with {{hours}} unreported hours",
-        "summaryNotLogged": "{{count}} not reported ({{hours}}h missing)",
-        "summaryPending": "{{count}} pending approval",
-        "summaryRejected": "{{count}} rejected",
-        "summaryApproved": "{{count}} approved",
-        "weekOf": "Week of {{date}}",
-        "expected": "Expected",
-        "logged": "Logged",
-        "missing": "Missing",
-        "status": "Status",
-        "statusApproved": "Approved",
-        "statusPending": "Pending",
-        "statusNotLogged": "Not Logged",
-        "statusNotSubmitted": "Not Submitted",
-        "statusDraft": "Draft",
-        "statusRejected": "Rejected",
-        "statusCurrent": "Current Week",
-        "goToTimesheet": "Go to Timesheet",
-        "andMore": "...and {{count}} more week(s)"
+      "empty": {
+        "noStaffRecord": "Your user has no associated staff record",
+        "noAttention": "There are no pending actions",
+        "noAssignments": "There are no assignments for this week",
+        "noFunds": "There are no active funds or expense reports",
+        "noDeadlines": "There are no deadlines in the operational window",
+        "noHistorical": "There are no saved hours in the period"
+      },
+      "header": {
+        "operationalWindow": "This week and the next 3",
+        "historicalPeriod": "Historical period: {{start}}–{{end}}"
+      },
+      "units": {
+        "hours": "{{hours}} h"
+      },
+      "attention": {
+        "title": "Actions require attention",
+        "viewAll": "View all",
+        "showLess": "Show less",
+        "resolve": "Resolve",
+        "timesheetNotSubmitted": "Timesheet {{week}}: {{hours}} h saved, submission pending",
+        "timesheetRejected": "Timesheet {{week}} rejected",
+        "expenseObserved": "{{code}}: observed expenses ({{count}})",
+        "expenseRejected": "{{code}}: rejected expenses ({{count}})",
+        "missingReceipt": "{{code}}: expenses missing receipts ({{count}})",
+        "fundDueToday": "{{code}}: expense report due today",
+        "fundOverdue": "{{code}}: expense report overdue",
+        "fundDueSoon": "{{code}}: expense report due on {{date}}"
+      },
+      "kpi": {
+        "thisWeek": "This week",
+        "savedOfPlanned": "{{saved}} h of {{planned}} h",
+        "forecastHours": "Forecast: {{hours}} h",
+        "remaining": "{{hours}} h remaining",
+        "weeklyStatus": "Week: {{status}}",
+        "approvedHours": "Approved: {{hours}} h",
+        "nextAssignment": "Next assignment",
+        "startsOn": "Starts {{date}}",
+        "hoursPerWeek": "{{hours}} h per week",
+        "noUpcomingAssignment": "No upcoming assignments",
+        "funds": "Funds and expense reports",
+        "noFundActions": "No pending actions",
+        "expenseIssues": "Expenses to resolve: {{count}}"
+      },
+      "load": {
+        "title": "Planned vs. saved hours",
+        "planned": "Planned",
+        "saved": "Saved",
+        "thisWeek": "This week",
+        "weekPlus": "+{{count}} week"
+      },
+      "assignments": {
+        "title": "Workload by engagement and function",
+        "engagement": "Engagement",
+        "function": "Function",
+        "assigned": "Assigned",
+        "saved": "Saved",
+        "total": "Total",
+        "clientTotal": "Client",
+        "nonClientTotal": "Non-client"
+      },
+      "function": {
+        "administrative": "Administrative",
+        "client": "Client",
+        "training": "Training",
+        "quality": "Quality",
+        "unclassified": "Unclassified"
+      },
+      "compliance": {
+        "title": "Timesheet compliance",
+        "savedHours": "Saved hours",
+        "approvedHours": "Approved hours",
+        "deadline": "Deadline",
+        "reviewNotes": "Review notes",
+        "openTimesheet": "Open timesheet",
+        "status": {
+          "approved": "Approved",
+          "pending": "Submitted · pending approval",
+          "rejected": "Rejected",
+          "draft": "Draft",
+          "notSubmitted": "Not submitted",
+          "notLogged": "Not logged",
+          "future": "Future"
+        }
+      },
+      "funds": {
+        "title": "Funds and expense reports",
+        "currency": {
+          "bob": "Bolivianos (BOB)",
+          "usd": "US dollars (USD)"
+        },
+        "disbursed": "Disbursed",
+        "loaded": "Expenses loaded",
+        "pendingAccounting": "Pending accounting",
+        "reviewedAccounting": "Reviewed by accounting",
+        "withoutReceipt": "Missing receipt",
+        "resolve": "Resolve",
+        "status": {
+          "draft": "Draft",
+          "pendingApproval": "Pending approval",
+          "pendingAccounting": "Pending accounting",
+          "observed": "Observed",
+          "rejected": "Rejected",
+          "delivered": "Funds delivered",
+          "inSettlement": "In settlement",
+          "reviewed": "Reviewed by accounting"
+        }
+      },
+      "deadlines": {
+        "title": "Upcoming deadlines",
+        "timesheetDue": "Submit timesheet by {{date}}",
+        "fundDueToday": "Expense report due today",
+        "fundDueSoon": "Expense report due on {{date}}",
+        "fundOverdue": "Expense report overdue",
+        "assignmentStarts": "{{code}} starts on {{date}}",
+        "assignmentEnds": "{{code}} ends on {{date}}",
+        "expenseCorrection": "{{code}} requires expense corrections"
+      },
+      "management": {
+        "title": "Management actions",
+        "approvals": "Go to approvals"
+      },
+      "historical": {
+        "title": "Historical analysis",
+        "savedHours": "Saved hours",
+        "byEngagement": "Hours by engagement"
       }
     },
     "cartera": {
