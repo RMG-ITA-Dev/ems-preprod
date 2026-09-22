@@ -172,6 +172,25 @@ CREATE TRIGGER trg_enforce_administrative_engagement_rules
 COMMENT ON FUNCTION public.enforce_administrative_engagement_rules() IS
   '0722-160: para funciones Administrativa/Capacitacion/Calidad exige el cliente interno de su sociedad y fuerza interno=true/activity_required=false. Ademas hace `funcion` inmutable tras crear (unica excepcion NULL -> 1), porque cambiarla dejaria las OTs del encargo sin normalizar y desincronizaria engagement_code.';
 
+-- Review fix (Codex, 3ra vuelta): repara los encargos administrativos creados ANTES de esta
+-- regla, igual que mas abajo se reparan sus OTs. El trigger solo corrige una fila cuando
+-- alguien la vuelve a escribir, asi que una fila historica con funcion 0/2/3 se quedaba con
+-- el default `is_internal = false`. Consecuencia concreta: useApprovedEngagements (Tracker)
+-- excluye por `is_internal` y NO por `funcion` (src/hooks/useApprovedEngagements.ts), asi que
+-- esos encargos seguian siendo seleccionables para cargar horas en el Tracker, y en
+-- Engagements.tsx seguian sin el distintivo de interno. `activity_required` ya venia
+-- backfilleado por 20260828123000_0827-184; `is_internal` era la mitad que faltaba.
+--
+-- El UPDATE dispara el trigger de arriba (UPDATE OF is_internal), que para una fila sin cambio
+-- de funcion/cliente/sociedad entra por la rama historica y reafirma los dos flags sin exigir
+-- el mapeo de cliente interno. Por eso una fila con cliente/sociedad heredados no explota.
+UPDATE public.engagements
+   SET is_internal = true,
+       activity_required = false
+ WHERE funcion IS NOT NULL
+   AND funcion <> 1
+   AND (is_internal IS DISTINCT FROM true OR activity_required IS DISTINCT FROM false);
+
 -- `tr_wo_guard_risk_approval` corre antes que el trigger administrativo por
 -- orden alfabético. Mantiene su bloqueo para Cliente, pero deja pasar una OT
 -- administrativa para que el trigger siguiente descarte cualquier dato Riesgos.

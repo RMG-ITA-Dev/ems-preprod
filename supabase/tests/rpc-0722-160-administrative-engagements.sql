@@ -11,6 +11,7 @@ DECLARE
   v_juaregui_client uuid;
   v_engagement uuid;
   v_legacy_engagement uuid;
+  v_pre_trigger uuid;
   v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
@@ -156,6 +157,52 @@ BEGIN
     v_pelaez_client, '0722-160 Historical fixture', DATE '2024-09-01', DATE '2024-09-30',
     'active', 1, 1, 0, v_fiscal_year - 2, true, true, false, true, DATE '2024-09-30', v_pelaez_society
   ) RETURNING engagement_id INTO v_historical;
+
+  -- Backfill de filas historicas: un encargo con funcion 0/2/3 creado ANTES de esta migracion
+  -- se quedaba con el default `is_internal = false`, y useApprovedEngagements (Tracker) excluye
+  -- por `is_internal`, no por `funcion` -- seguia siendo seleccionable para cargar horas. Se
+  -- simula esa fila apagando el trigger (que es justo lo que no existia entonces) y se corre la
+  -- misma sentencia que la migracion, que ademas debe ser idempotente.
+  ALTER TABLE public.engagements DISABLE TRIGGER trg_enforce_administrative_engagement_rules;
+  INSERT INTO public.engagements (
+    client_id, engagement_name, start_date, end_date, status, oficina, practica,
+    funcion, anio_fiscal, work_order_required, activity_required, is_internal,
+    approval_required, fecha_cierre, society_id
+  ) VALUES (
+    v_pelaez_client, '0722-160 Pre-trigger fixture', DATE '2024-09-01', DATE '2024-09-30',
+    'active', 1, 1, 0, v_fiscal_year - 2, true, true, false, true, DATE '2024-09-30', v_pelaez_society
+  ) RETURNING engagement_id INTO v_pre_trigger;
+  ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.engagements
+     WHERE engagement_id = v_pre_trigger AND is_internal = false AND activity_required = true
+  ) THEN
+    RAISE EXCEPTION '0722-160 pre-trigger fixture did not reproduce the historical state';
+  END IF;
+
+  -- Copia literal del UPDATE de la migracion (no hay forma de re-ejecutar solo esa sentencia).
+  UPDATE public.engagements
+     SET is_internal = true,
+         activity_required = false
+   WHERE funcion IS NOT NULL
+     AND funcion <> 1
+     AND (is_internal IS DISTINCT FROM true OR activity_required IS DISTINCT FROM false);
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.engagements
+     WHERE engagement_id = v_pre_trigger AND is_internal = true AND activity_required = false
+  ) THEN
+    RAISE EXCEPTION '0722-160 backfill did not normalize a pre-trigger administrative row';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.engagements
+     WHERE funcion IS NOT NULL AND funcion <> 1
+       AND (is_internal IS DISTINCT FROM true OR activity_required IS DISTINCT FROM false)
+  ) THEN
+    RAISE EXCEPTION '0722-160 administrative rows left with is_internal/activity_required drift';
+  END IF;
 
   IF public.list_administrative_engagements() <> '[]'::jsonb THEN
     RAISE EXCEPTION '0722-160 list leaked rows without an authenticated caller';
