@@ -774,4 +774,3 @@ CREATE TRIGGER trg_enforce_administrative_no_payment_installments
   BEFORE INSERT OR UPDATE ON public.wo_payment_installments
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_administrative_no_payment_installments();
-
