@@ -109,6 +109,26 @@ DECLARE
   v_client_nit text;
   v_society_name text;
 BEGIN
+  -- Review fix (Codex, 3ra vuelta): `funcion` es inmutable despues de crear. EngagementForm
+  -- ya lo trata asi (el payload de update la omite a proposito), pero la base no lo exigia y
+  -- la policy "Team can update engagements" deja hacer el PATCH directo por PostgREST. Sin
+  -- este guard, convertir un encargo Cliente ya aprobado a 0/2/3 pasaba sin tocar sus OTs:
+  -- los triggers de work_orders y de plan de pagos son BEFORE INSERT OR UPDATE sobre SUS
+  -- tablas, asi que la aprobacion de Riesgos, el plan y las cuotas quedaban vivas (Cobranzas
+  -- las sigue viendo) mientras la UI ya escondia Riesgos y facturacion por la funcion nueva.
+  -- Se bloquea el cambio en vez de cascadearlo: ademas, `funcion` va dentro de
+  -- engagement_code (FY.[oficina][practica][funcion].[correlativo]), asi que moverla
+  -- desincroniza el codigo ya emitido.
+  --
+  -- Unica excepcion: NULL -> 1. Las filas legacy tienen funcion NULL y todo el sistema las
+  -- lee como Cliente (COALESCE(funcion, 1) = 1), asi que clasificarlas explicitamente no
+  -- cambia nada. NULL -> 0/2/3 si es una conversion real y cae en el mismo bloqueo.
+  IF TG_OP = 'UPDATE'
+     AND OLD.funcion IS DISTINCT FROM NEW.funcion
+     AND NOT (OLD.funcion IS NULL AND NEW.funcion = 1) THEN
+    RAISE EXCEPTION '0722-160: la funcion del encargo no se puede cambiar despues de crearlo';
+  END IF;
+
   IF NEW.funcion IS NULL OR NEW.funcion = 1 THEN
     RETURN NEW;
   END IF;
@@ -150,7 +170,7 @@ CREATE TRIGGER trg_enforce_administrative_engagement_rules
   EXECUTE FUNCTION public.enforce_administrative_engagement_rules();
 
 COMMENT ON FUNCTION public.enforce_administrative_engagement_rules() IS
-  '0722-160: para funciones Administrativa/Capacitacion/Calidad exige el cliente interno de su sociedad y fuerza interno=true/activity_required=false.';
+  '0722-160: para funciones Administrativa/Capacitacion/Calidad exige el cliente interno de su sociedad y fuerza interno=true/activity_required=false. Ademas hace `funcion` inmutable tras crear (unica excepcion NULL -> 1), porque cambiarla dejaria las OTs del encargo sin normalizar y desincronizaria engagement_code.';
 
 -- `tr_wo_guard_risk_approval` corre antes que el trigger administrativo por
 -- orden alfabético. Mantiene su bloqueo para Cliente, pero deja pasar una OT

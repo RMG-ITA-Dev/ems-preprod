@@ -10,6 +10,7 @@ DECLARE
   v_pelaez_client uuid;
   v_juaregui_client uuid;
   v_engagement uuid;
+  v_legacy_engagement uuid;
   v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
@@ -98,6 +99,48 @@ BEGIN
     RAISE EXCEPTION '0722-160 accepted a client from another society';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM <> '0722-160: el cliente interno debe corresponder a la sociedad del encargo' THEN
+      RAISE;
+    END IF;
+  END;
+
+  -- `funcion` es inmutable tras crear. Sin el guard, un PATCH directo por PostgREST bajo la
+  -- policy "Team can update engagements" convertia un encargo Cliente aprobado en 0/2/3 sin
+  -- normalizar sus OTs: la aprobacion de Riesgos, el plan de pagos y las cuotas quedaban vivas
+  -- mientras la UI ya las escondia por la funcion nueva.
+  BEGIN
+    UPDATE public.engagements SET funcion = 2 WHERE engagement_id = v_engagement;
+    RAISE EXCEPTION '0722-160 accepted a funcion change after create';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> '0722-160: la funcion del encargo no se puede cambiar despues de crearlo' THEN
+      RAISE;
+    END IF;
+  END;
+
+  -- Unica excepcion: clasificar una fila legacy (funcion NULL) como Cliente. Todo el sistema ya
+  -- la lee asi via COALESCE(funcion, 1) = 1, de modo que el UPDATE no cambia comportamiento.
+  INSERT INTO public.engagements (
+    client_id, engagement_name, start_date, end_date, status, oficina, practica,
+    funcion, anio_fiscal, work_order_required, activity_required, is_internal,
+    approval_required, fecha_cierre, society_id
+  ) VALUES (
+    v_pelaez_client, '0722-160 Legacy funcion fixture', DATE '2026-09-01', DATE '2026-09-30',
+    'active', 1, 1, NULL, v_fiscal_year, true, true, false, true, DATE '2026-09-30', v_pelaez_society
+  ) RETURNING engagement_id INTO v_legacy_engagement;
+
+  UPDATE public.engagements SET funcion = 1 WHERE engagement_id = v_legacy_engagement;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.engagements WHERE engagement_id = v_legacy_engagement AND funcion = 1
+  ) THEN
+    RAISE EXCEPTION '0722-160 blocked the legacy NULL -> 1 funcion classification';
+  END IF;
+
+  -- Y una vez clasificada, ya no se puede volver a mover.
+  BEGIN
+    UPDATE public.engagements SET funcion = 0 WHERE engagement_id = v_legacy_engagement;
+    RAISE EXCEPTION '0722-160 accepted a funcion change on a just-classified legacy row';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> '0722-160: la funcion del encargo no se puede cambiar despues de crearlo' THEN
       RAISE;
     END IF;
   END;

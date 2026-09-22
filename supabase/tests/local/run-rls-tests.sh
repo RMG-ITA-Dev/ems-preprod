@@ -240,10 +240,16 @@ run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
 
 # 0722-160: las dos sociedades reales deben existir antes de aplicar la migración,
 # pues sus clientes internos se siembran y validan contra este catálogo.
+#
+# Los UUID llevan el sufijo 0160 a propósito: ...0001 ya lo ocupa 'D5 Test Society', que
+# rls-engagement-assignments-d5.sql inserta dentro de su propia transacción. Como este seed
+# corre antes y fuera de ella, el UUID compartido reventaba esa suite —y con ella el harness
+# entero— con `duplicate key value violates unique constraint "society_pkey"`. La migración
+# empareja cliente y sociedad por NOMBRE, así que el UUID es libre.
 psql -v ON_ERROR_STOP=1 -d "$DB" -c "
 INSERT INTO public.society (society_id, name) VALUES
-  ('50c00000-0000-4000-8000-000000000001', 'Ruizmier Pelaez S.R.L.'),
-  ('50c00000-0000-4000-8000-000000000002', 'Ruizmier Jauregui S.R.L.')
+  ('50c00000-0000-4000-8000-000000000160', 'Ruizmier Pelaez S.R.L.'),
+  ('50c00000-0000-4000-8000-000000000161', 'Ruizmier Jauregui S.R.L.')
 ON CONFLICT DO NOTHING;
 "
 run supabase/migrations/20260918120000_0722_160_administrative_engagements.sql

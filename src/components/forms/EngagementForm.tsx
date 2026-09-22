@@ -1120,7 +1120,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     // BUG #0603-140: show the assigned code in a confirmation modal; navigation is
     // deferred until it closes. Defensive fallback: if no code came back, navigate as before.
     if (created?.engagement_code) {
-      const clientName = clientOptions.find((c) => c.client_id === data.client_id)?.client_legal_name ?? "";
+      // Review fix (Codex): se resuelve sobre visibleClientOptions y no sobre clientOptions.
+      // hr_manager/hr_analyst tienen engagement.create pero no client.read, asi que para ellos
+      // clientOptions viene vacio y el cliente interno solo existe en administrativeClientOptions
+      // (el RPC list_administrative_internal_clients). Con clientOptions el modal de confirmacion
+      // mostraba el cliente en blanco aunque el encargo se hubiera guardado bien.
+      const clientName = visibleClientOptions.find((c) => c.client_id === data.client_id)?.client_legal_name ?? "";
       setCreatedInfo({
         code: created.engagement_code,
         name: data.engagement_name,

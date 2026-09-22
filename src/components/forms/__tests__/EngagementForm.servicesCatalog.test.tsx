@@ -214,9 +214,12 @@ vi.mock("@/components/ui/popover", () => ({
 // 0722-157: honors showGoToWorkMatrix so tests can verify the real hide/show wiring, not just
 // that the callback works once clicked.
 vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
-  EngagementCreatedDialog: ({ open, showGoToWorkMatrix, onCreateAnother, onGoToWorkMatrix }: any) =>
+  EngagementCreatedDialog: ({ open, clientName, showGoToWorkMatrix, onCreateAnother, onGoToWorkMatrix }: any) =>
     open ? (
       <>
+        {/* 0722-160 (review fix, Codex): el nombre del cliente se expone para poder afirmar que
+            un encargo administrativo no abre el modal con el cliente en blanco. */}
+        <span data-testid="created-client-name">{clientName}</span>
         <button type="button" onClick={onCreateAnother}>
           engagement.createAnother
         </button>
@@ -627,6 +630,12 @@ describe("0625-148 — role-based service restriction", () => {
       expect(screen.getByText("engagement.createAnother")).toBeInTheDocument();
     });
     expect(screen.queryByText("engagement.goToWorkMatrix")).not.toBeInTheDocument();
+
+    // 0722-160 (review fix, Codex): el resumen resolvia el cliente contra clientOptions, que
+    // nunca contiene a los clientes internos — vienen del RPC list_administrative_internal_clients.
+    // Para hr_manager/hr_analyst (engagement.create sin client.read) clientOptions ademas viene
+    // vacio, asi que el modal mostraba el cliente en blanco pese a haberse guardado bien.
+    expect(screen.getByTestId("created-client-name")).toHaveTextContent("Ruizmier Pelaez S.R.L.");
   }, 15000);
 
   // 0722-160 (review fix, Codex): elegir una función administrativa y volver a Cliente dejaba
