@@ -535,6 +535,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
 
   const selectedFuncion = form.watch("funcion");
   const selectedClientId = form.watch("client_id");
+  const selectedSocietyId = form.watch("society_id");
   const isAdministrativeFunction = selectedFuncion != null && selectedFuncion !== FUNCION_CLIENTE;
   const administrativeSocietyIdByNit = useMemo<Record<string, string | undefined>>(() => ({
     "1006979026": societyOptions.find((society) => society.name === "Ruizmier Pelaez S.R.L.")?.society_id,
@@ -554,8 +555,23 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       // can only ever save one of them lets the enabled selector offer a choice that always
       // fails at submit with a generic FORBIDDEN. Admin/senior_partner already choose society
       // freely everywhere else in this form, so they keep both.
-      const controlledClients = (!isEdit && !canChooseProfileScopeFreely && derivedSocietyId)
-        ? allInternalClients.filter((client) => administrativeSocietyIdByNit[client.unique_tax_id] === derivedSocietyId)
+      //
+      // Review fix (Codex, 2da vuelta): el filtro corre igual en EDICIÓN. El selector de
+      // cliente sólo se deshabilita por `readOnly`, así que un hr_manager/hr_analyst puede
+      // cambiarlo — pero su selector de sociedad está deshabilitado (`isEdit ? !isAdmin`) y
+      // `society_id` no viaja en el payload salvo para Admin (0722-157), y el efecto que
+      // deriva la sociedad del cliente no corre en edición. La sociedad guardada NO se mueve,
+      // así que ofrecer el cliente interno de la OTRA sociedad es ofrecer una opción que
+      // enforce_administrative_engagement_rules() rechaza siempre — el mismo defecto que el
+      // párrafo de arriba arregló para el alta.
+      //
+      // La sociedad de referencia sale del formulario, no de la ficha del editor: en el alta
+      // el efecto de más abajo la siembra desde `derivedSocietyId`, pero en edición es la del
+      // ENCARGO, que puede no coincidir con la del staff que lo edita (un Admin pudo moverla
+      // con 0722-157, o la ficha del editor pudo cambiar de sociedad después).
+      const scopedSocietyId = isEdit ? selectedSocietyId : derivedSocietyId;
+      const controlledClients = (!canChooseProfileScopeFreely && scopedSocietyId)
+        ? allInternalClients.filter((client) => administrativeSocietyIdByNit[client.unique_tax_id] === scopedSocietyId)
         : allInternalClients;
       // Historical administrative engagements remain editable. Their existing client
       // stays visible, but the selector offers only the controlled internal clients
@@ -567,7 +583,7 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
         ? [...controlledClients, historicalClient]
         : controlledClients;
     },
-    [administrativeInternalClients, administrativeSocietyIdByNit, canChooseProfileScopeFreely, clientOptions, derivedSocietyId, isEdit, selectedClientId]
+    [administrativeInternalClients, administrativeSocietyIdByNit, canChooseProfileScopeFreely, clientOptions, derivedSocietyId, isEdit, selectedClientId, selectedSocietyId]
   );
   const internalClientIds = useMemo(
     () => new Set((administrativeInternalClients ?? []).map((client) => client.client_id)),

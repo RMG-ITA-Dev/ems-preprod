@@ -268,6 +268,33 @@ const mockEngagementInactiveService: Engagement = {
   society_id:          null,
 };
 
+// 0722-160 (review fix, Codex): encargo ADMINISTRATIVO en edicion, de la sociedad soc-2
+// (Jauregui). `completeStaffRecord` pone al editor en soc-1 (Pelaez) a proposito: la sociedad de
+// referencia para filtrar los clientes internos es la del ENCARGO, no la de la ficha de quien
+// edita, porque en edicion `society_id` no viaja en el payload salvo para Admin (0722-157).
+const mockEngagementAdministrative: Engagement = {
+  engagement_id:       "eng-adm-1",
+  client_id:           "int-jauregui",
+  engagement_name:     "Administrativa Jauregui",
+  engagement_code:     "2026.010.003",
+  partner_id:          null,
+  manager_id:          null,
+  status:              "active",
+  start_date:          "2025-10-01",
+  end_date:            "2026-09-30",
+  created_at:          "2025-10-01T00:00:00Z",
+  work_order_required: true,
+  activity_required:   false,
+  is_internal:         true,
+  approval_required:   true,
+  oficina:             1,
+  practica:            1,
+  funcion:             0,
+  anio_fiscal:         2026,
+  taxonomy_id:         null,
+  society_id:          "soc-2",
+};
+
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -727,4 +754,42 @@ describe("0625-148 — role-based service restriction", () => {
       expect.objectContaining({ funcion: 1, is_internal: false, client_id: "c1" }),
     );
   }, 20000);
+});
+
+
+// 0722-160 (review fix, Codex): el filtro de clientes internos por sociedad corria solo en el
+// ALTA. En EDICION el selector de cliente sigue habilitado (solo lo apaga `readOnly`), pero el de
+// sociedad esta deshabilitado para un no-admin y `society_id` no viaja en el payload (0722-157),
+// y el efecto que deriva la sociedad del cliente no corre en edicion. Ofrecer el cliente interno
+// de la otra sociedad era ofrecer una opcion que enforce_administrative_engagement_rules()
+// rechaza siempre.
+describe("0722-160 — clientes internos filtrados por sociedad en EDICION", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
+  });
+
+  it("no-admin: solo ofrece el cliente interno de la sociedad DEL ENCARGO, no el de su propia ficha", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={mockEngagementAdministrative} />);
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    // El encargo es de soc-2 (Jauregui) y la ficha del editor es soc-1 (Pelaez): gana el encargo.
+    expect(screen.getByRole("option", { name: /Ruizmier Jauregui S\.R\.L\./ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ })).not.toBeInTheDocument();
+  });
+
+  it("admin: sigue viendo los dos, porque es quien repara un par cliente/sociedad historico", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={mockEngagementAdministrative} />);
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+
+    await waitFor(() => screen.getByRole("option", { name: /Ruizmier Jauregui S\.R\.L\./ }));
+    expect(screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ })).toBeInTheDocument();
+  });
 });
