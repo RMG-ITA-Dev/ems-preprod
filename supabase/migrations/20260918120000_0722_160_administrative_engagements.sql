@@ -554,6 +554,48 @@ CREATE TRIGGER trg_enforce_administrative_work_order_rules
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_administrative_work_order_rules();
 
+-- Review fix (Codex, 4ta vuelta): una OT no cambia de encargo. El trigger de arriba normaliza la
+-- fila de `work_orders` cuando el encargo destino es administrativo, pero las tablas de
+-- facturacion cuelgan de `wo_id`, no de `engagement_id`: enforce_administrative_no_payment_plan y
+-- enforce_administrative_no_payment_installments son BEFORE INSERT OR UPDATE sobre SUS tablas y
+-- no corren si nadie las escribe. Mover una OT de Cliente a un encargo administrativo dejaba
+-- entonces el plan de pagos y las cuotas vivas -- Cobranzas las sigue procesando -- mientras la
+-- UI ya esconde la facturacion por la funcion nueva.
+--
+-- Se rechaza el movimiento en vez de cascadearlo, igual que con `engagements.funcion`: la fila
+-- lleva datos atados a su encargo (plan de pagos, cuotas, aprobaciones de Socio y Riesgos,
+-- staffing) que un movimiento deja apuntando a otro lado sin que nada se queje. Es el mismo
+-- criterio y el mismo patron que reject_engagement_assignment_move() (20260911100200).
+--
+-- NINGUN camino de la aplicacion se rompe: `engagement_id` solo aparece en el INSERT de
+-- useCreateWorkOrder; ningun update de la app, ni RPC, ni migracion lo escribe. La via para
+-- "mover" trabajo sigue siendo crear la OT en el encargo correcto.
+--
+-- Va como trigger y no como CHECK porque hay que comparar OLD con NEW.
+CREATE OR REPLACE FUNCTION public.reject_work_order_engagement_move()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO public
+AS $$
+BEGIN
+  IF NEW.engagement_id IS DISTINCT FROM OLD.engagement_id THEN
+    RAISE EXCEPTION
+      'WO_ENGAGEMENT_IMMUTABLE: una orden de trabajo no cambia de encargo (% -> %). Crear la OT en el encargo destino.',
+      OLD.engagement_id, NEW.engagement_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.reject_work_order_engagement_move() IS
+  '0722-160: rechaza cambiarle el engagement_id a una OT existente. Las tablas de facturacion (wo_payment_plan, wo_payment_installments) y las aprobaciones cuelgan de wo_id, asi que un movimiento a un encargo administrativo las dejaba vivas y facturables fuera del alcance de los guards por funcion. Mismo patron que reject_engagement_assignment_move().';
+
+DROP TRIGGER IF EXISTS tr_reject_work_order_engagement_move ON public.work_orders;
+CREATE TRIGGER tr_reject_work_order_engagement_move
+  BEFORE UPDATE OF engagement_id ON public.work_orders
+  FOR EACH ROW
+  EXECUTE FUNCTION public.reject_work_order_engagement_move();
+
 -- Repara OTs administrativas creadas antes de instalar esta regla. El trigger
 -- limpia los metadatos de Riesgos al ejecutar este update.
 UPDATE public.work_orders wo

@@ -14,6 +14,7 @@ DECLARE
   v_pre_trigger uuid;
   v_client_wo uuid;
   v_admin_plan uuid;
+  v_move_target uuid;
   v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
@@ -220,6 +221,40 @@ BEGIN
   INSERT INTO public.work_orders (engagement_id, currency, season_mode)
   VALUES (v_legacy_engagement, 'BOB', 'High')
   RETURNING wo_id INTO v_client_wo;
+
+  -- Una OT no cambia de encargo. Las tablas de facturacion cuelgan de `wo_id`, asi que mover una
+  -- OT de Cliente a un encargo administrativo dejaba su plan de pagos y sus cuotas vivas: los
+  -- guards por funcion son BEFORE INSERT OR UPDATE sobre SUS tablas y no corren si nadie las
+  -- escribe.
+  --
+  -- El destino tiene que ser un encargo administrativo SIN OT: work_orders lleva
+  -- UNIQUE (engagement_id) (cero_03), asi que mover hacia uno que ya tiene OT lo frena esa
+  -- constraint y no este guard -- y entonces la asercion no probaria nada. El caso real es
+  -- justamente el encargo administrativo recien creado, que todavia no tiene la suya.
+  --
+  -- Va dos anios fiscales atras a proposito: la rama consultiva de
+  -- list_administrative_engagements() corta por `anio_fiscal >= FY vigente`, y una fila mas en el
+  -- FY actual rompe la asercion de "exactamente 1 fila" de mas abajo.
+  INSERT INTO public.engagements (
+    client_id, engagement_name, start_date, end_date, status, oficina, practica,
+    funcion, anio_fiscal, work_order_required, activity_required, is_internal,
+    approval_required, fecha_cierre, society_id
+  ) VALUES (
+    v_pelaez_client, '0722-160 Move target fixture', DATE '2024-09-01', DATE '2024-09-30',
+    'active', 1, 1, 2, v_fiscal_year - 2, true, true, false, true, DATE '2024-09-30', v_pelaez_society
+  ) RETURNING engagement_id INTO v_move_target;
+
+  BEGIN
+    UPDATE public.work_orders SET engagement_id = v_move_target WHERE wo_id = v_client_wo;
+    RAISE EXCEPTION '0722-160 accepted moving a work order to another engagement';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'WO_ENGAGEMENT_IMMUTABLE:%' THEN
+      RAISE;
+    END IF;
+  END;
+
+  -- Y un UPDATE que no toca engagement_id sigue pasando.
+  UPDATE public.work_orders SET notes = '0722-160 touch' WHERE wo_id = v_client_wo;
 
   -- Plan administrativo "preexistente": se siembra con el guard apagado, que es exactamente el
   -- estado de una base actualizada desde antes de esta migracion.
