@@ -58,3 +58,15 @@ DO $$ BEGIN
     CREATE ROLE service_role NOLOGIN;
   END IF;
 END $$;
+
+-- Y el privilegio por defecto que trae un proyecto Supabase sobre el esquema `public`. Sin esto
+-- el harness NO puede ver una clase entera de bug, y ya se pago una vez: una funcion nueva con
+-- `REVOKE ... FROM PUBLIC` a secas pasaba local y quedaba EJECUTABLE en el proyecto real, donde
+-- este default le dio a anon/authenticated un grant DIRECTO que revocar PUBLIC no toca. PostgREST
+-- publica en /rest/v1/rpc/ todo lo que el rol pueda ejecutar, asi que eso es un endpoint abierto.
+-- Lo detecto el guard de la migracion 03 recien al pegarla en el mirror (2026-09-15).
+--
+-- Solo FUNCTIONS, a proposito: es la clase que los guards del modulo verifican, y tocar los
+-- defaults de TABLES/SEQUENCES cambiaria el piso de permisos de todas las suites por algo que
+-- ninguna afirma.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;

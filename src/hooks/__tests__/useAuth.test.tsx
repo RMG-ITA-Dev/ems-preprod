@@ -268,25 +268,16 @@ describe("useAuth", () => {
     expect(supabase.auth.setSession).not.toHaveBeenCalled();
   });
 
-  it("signUp calls supabase signUp with metadata and assigns role", async () => {
-    const mockSession = {
-      user: { id: "user-123" },
-      access_token: "token",
-    };
-
-    vi.mocked(supabase.auth.signUp).mockResolvedValue({
-      data: { user: mockSession.user as any, session: mockSession as any },
-      error: null,
-    });
-
+  it("signUp llama a la edge function register-user, no a GoTrue", async () => {
+    // GoTrue crea la cuenta Y manda la confirmacion en el mismo paso, asi que mientras el alta
+    // salga del navegador el correo lo despacha el servicio integrado de Supabase, con su techo
+    // de 2 por hora.
     vi.mocked(supabase.functions.invoke).mockResolvedValue({
-      data: { role: "admin", isFirstUser: true },
+      data: { ok: true, emailConfirmationRequired: true },
       error: null,
-    });
+    } as any);
 
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: createWrapper(),
-    });
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
 
     await act(async () => {
       const response = await result.current.signUp(
@@ -296,26 +287,81 @@ describe("useAuth", () => {
         "Doe"
       );
       expect(response.error).toBe(null);
-      expect(response.roleData?.isFirstUser).toBe(true);
-      expect(response.roleData?.role).toBe("admin");
+      expect(response.emailConfirmationRequired).toBe(true);
     });
 
-    expect(supabase.auth.signUp).toHaveBeenCalledWith({
-      email: "new@example.com",
-      password: "password123",
-      options: expect.objectContaining({
-        data: {
-          first_name: "John",
-          last_name: "Doe",
-        },
-      }),
-    });
-
-    // Should call assign-user-role after successful sign up
     expect(supabase.functions.invoke).toHaveBeenCalledWith(
-      "assign-user-role",
-      expect.any(Object)
+      "register-user",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          email: "new@example.com",
+          password: "password123",
+          firstName: "John",
+          lastName: "Doe",
+        }),
+      })
     );
+    expect(supabase.auth.signUp).not.toHaveBeenCalled();
+  });
+
+  it("signUp devuelve el codigo de validacion del servidor", async () => {
+    // En producción un 400 llega como FunctionsHttpError; el código queda en el cuerpo de
+    // `context`, no en `data`.
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: null,
+      error: {
+        name: "FunctionsHttpError",
+        context: {
+          json: async () => ({ ok: false, code: "INVALID_DOMAIN" }),
+        },
+      },
+    } as any);
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signUp("fuera@gmail.com", "password123", "John", "Doe");
+      expect(response.error?.message).toBe("INVALID_DOMAIN");
+    });
+  });
+
+  it("signUp no delata que el correo ya tiene cuenta", async () => {
+    // La funcion responde igual que en un alta nueva: distinguirlos convertiria el registro en
+    // un detector de usuarios. El aviso viaja por correo.
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { ok: true, emailConfirmationRequired: true },
+      error: null,
+    } as any);
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signUp(
+        "ya.existe@ruizmier.com",
+        "password123",
+        "John",
+        "Doe"
+      );
+      expect(response.error).toBe(null);
+      expect(response.emailConfirmationRequired).toBe(true);
+    });
+  });
+
+  it("signOut limpia la sesion local cuando el cierre global falla", async () => {
+    // La sesion del servidor ya no existe (la revoco un cambio de contrasena, o vencio). Sin
+    // este respaldo el usuario queda encerrado: el boton no hace nada y sigue adentro.
+    vi.mocked(supabase.auth.signOut)
+      .mockResolvedValueOnce({ error: new Error("Session from session_id claim in JWT does not exist") as any })
+      .mockResolvedValueOnce({ error: null });
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      await result.current.signOut();
+    });
+
+    expect(supabase.auth.signOut).toHaveBeenCalledTimes(2);
+    expect(supabase.auth.signOut).toHaveBeenLastCalledWith({ scope: "local" });
   });
 
   it("signOut calls supabase signOut", async () => {
@@ -417,11 +463,14 @@ describe("useAuth", () => {
     );
   });
 
-  it("resetPasswordForEmail calls supabase resetPasswordForEmail", async () => {
-    vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
-      data: {},
+  it("resetPasswordForEmail llama a la edge function, no a GoTrue", async () => {
+    // El correo sale por Microsoft Graph. Si esto volviera a llamar a
+    // supabase.auth.resetPasswordForEmail, el flujo quedaria otra vez atado al limite de 2
+    // correos por hora del servicio integrado de Supabase.
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: { ok: true },
       error: null,
-    });
+    } as any);
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createWrapper(),
@@ -432,20 +481,24 @@ describe("useAuth", () => {
       expect(response.error).toBe(null);
     });
 
-    expect(supabase.auth.resetPasswordForEmail).toHaveBeenCalledWith(
-      "test@example.com",
+    expect(supabase.functions.invoke).toHaveBeenCalledWith(
+      "request-password-reset",
       expect.objectContaining({
-        redirectTo: expect.stringContaining("/reset-password"),
+        body: expect.objectContaining({
+          email: "test@example.com",
+          redirectTo: expect.stringContaining("/reset-password"),
+        }),
       })
     );
+    expect(supabase.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 
   it("resetPasswordForEmail returns error on failure", async () => {
-    const mockError = new Error("Rate limited");
-    vi.mocked(supabase.auth.resetPasswordForEmail).mockResolvedValue({
-      data: {},
+    const mockError = new Error("Function not reachable");
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: null,
       error: mockError as any,
-    });
+    } as any);
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createWrapper(),

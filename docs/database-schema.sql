@@ -2786,6 +2786,7 @@ DECLARE
   v_actual numeric;
   v_gap numeric;
   v_result jsonb := '[]'::jsonb;
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
 BEGIN
   SELECT s.hire_date, s.weekly_capacity_hours, s.termination_date, s.city
   INTO v_hire_date, v_capacity, v_end_date, v_staff_city
@@ -2795,7 +2796,7 @@ BEGIN
     RETURN '[]'::jsonb;
   END IF;
 
-  v_end_date := LEAST(COALESCE(v_end_date, CURRENT_DATE), CURRENT_DATE);
+  v_end_date := LEAST(COALESCE(v_end_date, v_today), v_today);
   v_daily := COALESCE(v_capacity, 40) / 5.0;
 
   -- Start from Monday of hire_date's week
@@ -2805,7 +2806,7 @@ BEGIN
     v_week_end := v_cursor + 4;  -- Friday
 
     -- Skip current/incomplete week (ascending order, so EXIT is safe)
-    IF v_week_end >= CURRENT_DATE THEN
+    IF v_week_end >= v_today THEN
       EXIT;
     END IF;
 
@@ -3100,7 +3101,7 @@ DECLARE
   v_approval_approved integer;
   v_approval_rejected integer;
   v_result jsonb := '[]'::jsonb;
-  v_today date := CURRENT_DATE;
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
 BEGIN
   -- Get staff info
   SELECT s.hire_date, s.termination_date, s.weekly_capacity_hours, s.city

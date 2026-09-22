@@ -88,11 +88,13 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — global_settings.ADM_ACTIVITY_ID resuelve a la fila ADM';
 
+  -- 20 claves vigentes antes de notificaciones/correo y dash_*, mas 5 que notificaciones/correo
+  -- requieren (TS_ALERT_WINDOW_WEEKS, TS_TRACKING_START_DATE, las dos retenciones y el tope
+  -- global auth) y 2 de dash_socio/dash_encargo (default_exchange_rate,
+  -- DASH_ENGAGEMENT_PENDING_ALERT_WEEKS) = 27.
   SELECT count(*) INTO n FROM public.global_settings;
-  -- +1 de 20260915130000_dash_socio_partner_overview.sql (default_exchange_rate) + 1 de
-  -- 20260918120000_dash_encargo_engagement_overview.sql (DASH_ENGAGEMENT_PENDING_ALERT_WEEKS).
-  IF n <> 22 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 22 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 22 claves';
+  IF n <> 27 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 27 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 27 claves';
 
   -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
   -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea

@@ -9,9 +9,10 @@
 //   Input:  { staffId: string }
 //   Output (success):
 //     { ok: true, resetEmailSent: boolean }
-//     resetEmailSent is false when the account was unblocked but GoTrue
-//     rejected the reset-password email (SMTP/rate limit/redirect not allowed),
-//     so the UI can warn the admin instead of claiming the email was sent.
+//     resetEmailSent is false when the account was unblocked but the recovery
+//     email could not be produced or delivered (generateLink rejected the
+//     redirect, or Microsoft Graph refused the send), so the UI can warn the
+//     admin instead of claiming the email went out.
 //   Output (not admin):
 //     { ok: false, code: "NOT_ADMIN" }
 //   Output (staff not found):
@@ -23,12 +24,16 @@
 //   1. Verify caller JWT → resolve user → check admin role.
 //   2. Call admin_unblock_account(p_staff_id) RPC — atomically clears
 //      staff.is_blocked and deletes the auth_login_attempts row.
-//   3. Call GoTrue resetPasswordForEmail so the user receives the same
-//      reset-password email as "Forgot password", prompting them to set
-//      a new password. The redirectTo includes reason=admin_unlock so the
-//      /reset-password page can show a contextual banner.
+//   3. Ask GoTrue for a recovery link with generateLink() — which sends no
+//      email — and deliver it through Microsoft Graph. The user gets the same
+//      reset-password email as "Forgot password", prompting them to set a new
+//      password. The redirectTo includes reason=admin_unlock so the
+//      /reset-password page can show a contextual banner, and the email copy
+//      reflects that an admin did this rather than the user asking for it.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { devolverCupoDeCorreo, generarYEnviarCorreoAuth } from "../_shared/correo-auth.ts";
+import { enviarCorreo } from "../_shared/mail-graph.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,9 +59,10 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+  // SUPABASE_ANON_KEY ya no hace falta: el correo de recuperacion lo emite el cliente de
+  // servicio con generateLink(), no un cliente anonimo llamando a resetPasswordForEmail().
 
-  if (!SUPABASE_URL || !SERVICE_ROLE || !ANON_KEY) {
+  if (!SUPABASE_URL || !SERVICE_ROLE) {
     return jsonResponse({ ok: false, code: "INTERNAL_ERROR", message: "Server not configured" }, 500);
   }
 
@@ -126,16 +132,60 @@ Deno.serve(async (req) => {
     ? body.redirectTo
     : `${req.headers.get("origin") ?? SUPABASE_URL}/reset-password?reason=admin_unlock`;
 
-  const supabaseAnon = createClient(SUPABASE_URL, ANON_KEY);
-  const { error: resetError } = await supabaseAnon.auth.resetPasswordForEmail(email, {
-    redirectTo,
+  //    The email goes out through Microsoft Graph, not GoTrue: generateLink()
+  //    hands us the recovery token WITHOUT sending anything, so this no longer
+  //    burns the project's per-hour email quota. An admin unblocking several
+  //    accounts in a row used to hit that limit from the fourth one onwards.
+  //    GoTrue still issues and validates the token — only the delivery moved.
+  //
+  //    El freno propio SI se aplica, y faltaba. La migracion del throttle dice tres veces que
+  //    cubre "desbloqueo", y esta era la unica de las tres vias de correo de cuenta que no lo
+  //    reclamaba: `AUTH_EMAIL_GLOBAL_MAX_PER_HOUR` decia ser el tope de toda la firma y en los
+  //    hechos contaba dos flujos de tres. Y `admin_unblock_account` devuelve ok aunque la cuenta
+  //    no estuviera bloqueada, asi que repetir la llamada —un doble clic alcanza— mandaba un
+  //    correo cada vez, saltando el minimo entre correos al mismo destinatario.
+  //
+  //    El tope global de 120/hora no reintroduce el problema que esta rama vino a resolver: el de
+  //    GoTrue eran 2 por proyecto, y un admin desbloqueando de a uno no se acerca a 120.
+  const { data: hayCupo, error: errorCupo } = await supabaseAdmin.rpc("claim_auth_email_slot", {
+    p_email: email,
   });
 
-  if (resetError) {
+  if (errorCupo || !hayCupo) {
+    // A diferencia de `request-password-reset`, que es publico y responde siempre igual para no
+    // delatar que correos existen, ACA quien llama es un admin y necesita saber que el correo no
+    // salio: la cuenta ya quedo desbloqueada, y sin el enlace la persona no puede entrar. Se le
+    // devuelve el mismo `resetEmailSent: false` que ya usa el fallo de Graph.
+    console.warn(
+      errorCupo
+        ? `[unlock-account] claim_auth_email_slot fallo: ${errorCupo.message}`
+        : "[unlock-account] frenado por throttle.",
+    );
+    return jsonResponse({ ok: true, resetEmailSent: false });
+  }
+
+  try {
+    const resultado = await generarYEnviarCorreoAuth({
+      admin: supabaseAdmin,
+      enviar: enviarCorreo,
+      tipo: "recovery",
+      email,
+      redirectTo,
+      supabaseUrl: SUPABASE_URL,
+    });
+    console.log(`[unlock-account] recovery: ${resultado.estado}.`);
+  } catch (error) {
     // The account is already unblocked, so this is not fatal — but the user
     // received no recovery link. Report resetEmailSent: false so the admin is
     // warned and can re-send the reset manually instead of being told it went out.
-    console.error("[unlock-account] resetPasswordForEmail failed:", resetError);
+    //
+    // El cupo vuelve: ningun mensaje llego a esa casilla, asi que el admin puede reintentar en el
+    // acto en vez de chocar con el minimo entre correos por un envio que nunca ocurrio.
+    await devolverCupoDeCorreo(supabaseAdmin, email, "unlock-account");
+    console.error(
+      "[unlock-account] recovery email failed:",
+      error instanceof Error ? error.message : String(error),
+    );
     return jsonResponse({ ok: true, resetEmailSent: false });
   }
 

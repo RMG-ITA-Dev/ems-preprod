@@ -160,39 +160,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null };
   };
 
+  // El alta la hace la edge function `register-user`, no `supabase.auth.signUp()`.
+  //
+  // `signUp()` crea la cuenta Y manda la confirmación en un solo paso, así que mientras el alta
+  // salga del navegador el correo lo despacha el servicio integrado de Supabase, con su techo de
+  // 2 por hora. La función usa `generateLink({ type: "signup" })` —que crea la cuenta y devuelve
+  // el token sin mandar nada— y despacha el correo por Microsoft Graph.
+  //
+  // Nunca devuelve sesión: la cuenta nace sin confirmar y el usuario entra después de confirmar,
+  // por la pantalla de ingreso. Por eso tampoco se asigna el rol acá — lo hace `signIn`, que ya
+  // lo hacía para las cuentas creadas antes de este cambio.
+  //
+  // Un correo que ya tiene cuenta devuelve `{ ok: true, emailConfirmationRequired: true }`, igual
+  // que un alta nueva: responder distinto convertiría el registro en un detector de usuarios. El
+  // aviso de que la cuenta ya existe viaja por correo.
   const signUp = async (email: string, password: string, firstName: string, lastName: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: {
-          first_name: firstName,
-          last_name: lastName,
-        },
+    const { data, error } = await supabase.functions.invoke("register-user", {
+      body: {
+        email,
+        password,
+        firstName,
+        lastName,
+        redirectTo: `${window.location.origin}/`,
       },
     });
-    
-    if (!error && data.user && !data.session) {
-      // Email confirmation required - user exists but no session yet
-      if (data.user.identities && data.user.identities.length > 0) {
-        return { error: null, emailConfirmationRequired: true };
+
+    if (error) {
+      // `functions.invoke()` convierte un 4xx/5xx en FunctionsHttpError y deja el cuerpo en
+      // `context`. Sin leerlo, los códigos `INVALID_*` del endpoint nunca llegan a Auth.tsx.
+      const context = (error as { context?: Response }).context;
+      if (context && typeof context.json === "function") {
+        try {
+          const cuerpo = await context.json();
+          const codigo = cuerpo?.code ?? cuerpo?.error?.code;
+          if (typeof codigo === "string") return { error: new Error(codigo) };
+        } catch {
+          // Conserva el error del SDK cuando la respuesta no es JSON legible.
+        }
       }
+      return { error: error as Error };
     }
 
-    if (!error && data.session) {
-      // Auto-confirm is on (shouldn't happen now, but handle gracefully)
-      const roleData = await assignUserRole(data.session);
-      return { error: null, roleData: roleData || undefined };
+    const resultado = data as
+      | { ok: true; emailConfirmationRequired: boolean }
+      | { ok: false; code: string }
+      | null;
+
+    if (!resultado?.ok) {
+      // Los códigos de validación viajan tal cual para que Auth.tsx los traduzca; el dominio es
+      // el único que la pantalla ya sabe explicar con el dominio configurado.
+      return { error: new Error(resultado?.code ?? "INTERNAL_ERROR") };
     }
-    
-    return { error: error as Error | null };
+
+    return { error: null, emailConfirmationRequired: resultado.emailConfirmationRequired };
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    // El cierre de sesión por defecto es global: le pide al servidor que revoque la sesión. Si esa
+    // sesión ya no existe —la revocó un cambio de contraseña, o venció— el pedido falla y la
+    // sesión local se queda guardada en el navegador. El usuario queda encerrado: aprieta
+    // "cerrar sesión", el botón no hace nada visible, y al volver a /auth entra de nuevo.
+    //
+    // No poder revocar algo que ya está revocado no es motivo para dejarlo adentro: se limpia
+    // localmente, que es lo único que faltaba.
+    if (error) {
+      console.warn('[auth] signOut global falló, limpiando la sesión local:', error.message);
+      await supabase.auth.signOut({ scope: 'local' });
+    }
   };
 
   const updatePassword = async (newPassword: string) => {
@@ -213,10 +249,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  // El correo de recuperación sale por Microsoft Graph, no por GoTrue: la edge function pide el
+  // token con generateLink() —que no manda correo— y despacha el mensaje ella misma. GoTrue sigue
+  // emitiendo y validando el token; lo que cambió es quién entrega el sobre.
+  //
+  // El motivo es el límite de 2 correos por hora del servicio integrado de Supabase, que dejaba
+  // el flujo inutilizable. Como para GoTrue ya no hay correo, ese límite no aplica; el freno
+  // ahora es claim_auth_email_slot() del lado nuestro.
+  //
+  // La función responde `{ ok: true }` exista o no la cuenta, así que acá sólo puede fallar la
+  // llamada en sí (red, función caída). Eso es deliberado: distinguir el caso convertiría el
+  // formulario en un detector de usuarios.
   const resetPasswordForEmail = async (email: string) => {
-    const redirectUrl = `${window.location.origin}/reset-password`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: redirectUrl,
+    const { error } = await supabase.functions.invoke("request-password-reset", {
+      body: {
+        email,
+        redirectTo: `${window.location.origin}/reset-password`,
+      },
     });
     return { error: error as Error | null };
   };

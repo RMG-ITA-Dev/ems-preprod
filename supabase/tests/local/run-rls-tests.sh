@@ -243,6 +243,36 @@ run supabase/migrations/20260910090000_0722-156b_fixed_mode_rate_guard.sql
 # conserva esas 2 filas. DELETE forward-only, no depende de un paso manual por ambiente.
 run supabase/migrations/20260910100000_0722-156b_revoke_wo_create_partner_senior_partner.sql
 
+# Notificaciones: un archivo por CAPA, y en este orden.
+#   01 catalogo     tablas, notify_staff() como porton unico, los contadores,
+#                   get_my_notifications(), la bandeja de salida de correos, el drenaje,
+#                   la vista legacy con seen_at, RLS y grants.
+#   02 seed         archivo generado desde la matriz de notificaciones. Va segundo por la FK
+#                   a notification_types (y a authorization_roles, de cero_13).
+#   03 disparadores los emisores de los modulos con triggers: Fondos, Ordenes de Trabajo,
+#                   Encargos, Tiempos (timesheets/aprobaciones/tracker), Cuentas/Auth
+#                   (cuentas, personal y competencias), Clientes y Hojas de Trabajo, mas los
+#                   recordatorios periodicos. Sin los tipos sembrados, notify_staff los
+#                   descarta en silencio, asi que va despues del seed.
+# Ejercitado por rpc-notificaciones-fase1.sql y rpc-notificaciones-correos.sql.
+run supabase/migrations/20260911100000_notificaciones_01_catalogo.sql
+run supabase/migrations/20260911100100_notificaciones_02_seed.sql
+run supabase/migrations/20260911100200_notificaciones_03_disparadores.sql
+
+# Fix del numerador de solicitudes de fondos (lpad truncando). NO es de notificaciones: se
+# encontro probando ese flujo y vive aparte para poder revertirse por separado.
+run supabase/migrations/20260911100500_fund_request_number_lpad.sql
+
+# Fecha local en get_week_statuses/get_my_pending_hours. Tampoco es de notificaciones: CURRENT_DATE
+# se evaluaba en UTC y adelantaba el dia a partir de las 20:00 en Bolivia. Recrea las dos funciones
+# de cero_02 con CREATE OR REPLACE, asi que tiene que correr DESPUES de el.
+run supabase/migrations/20260911100600_fecha_local_current_date.sql
+
+# Throttle de los correos de cuenta. Desde que los correos de cuenta salen por Microsoft
+# Graph, GoTrue ya no cuenta ninguno, y este es el freno que lo reemplaza para el formulario
+# publico de "olvide mi contrasena".
+run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
+
 # dash_socio: prerrequisito de TC (wo_payment_plan.exchange_rate NOT NULL DEFAULT
 # latest_exchange_rate(), con backfill y CHECK > 0), permiso dashboard.partner.read (6
 # concesiones: senior_partner/admin/partner/director/sqr/risk_partner -- comentario
@@ -321,9 +351,13 @@ assert_suite supabase/tests/rpc-0828-185-engagement-portfolio.sql 'PORTFOLIO ENG
 assert_suite supabase/tests/rpc-0820-182-sync-user-role-from-category.sql 'SYNC USER ROLE FROM CATEGORY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-exchange-rate-history.sql 'EXCHANGE RATE HISTORY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0722-156b-payment-exchange-rates.sql 'PAYMENT EXCHANGE RATES TRIGGERS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-fecha-local.sql 'FECHA LOCAL: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, dash_socio, dash_cartera, dash_encargo y dash_personal aplicadas sobre base scratch; las 20 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, notificaciones/correos, dash_socio, dash_cartera, dash_encargo y dash_personal aplicadas sobre base scratch; las 24 suites de RLS/RPC/schema-convergence/trigger pasaron"
