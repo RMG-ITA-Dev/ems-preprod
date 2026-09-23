@@ -578,22 +578,30 @@ BEGIN
   PERFORM set_config('request.jwt.claims',
                      json_build_object('sub',  'a9c00000-0000-4000-8000-000000000001',
                                        'role', 'authenticated')::text, true);
-  INSERT INTO public.wo_payment_plan (wo_id, payment_days)
-  VALUES (v_wo, 30) RETURNING plan_id INTO v_plan;
+  -- exchange_rate explicito (no confiar en el DEFAULT latest_exchange_rate() de dash_socio):
+  -- este grupo prueba recordatorios de fondos, no tipo de cambio, y exchange_rate_mode sigue
+  -- en su DEFAULT 'fijo' -- con un TC real acá, las 2 cuotas de abajo deben declarar el mismo
+  -- valor o el guard EXCHANGE_RATE_LOCKED las rechaza (mismo hallazgo que en
+  -- rpc-notificaciones-fase1.sql, grupo 9: antes exchange_rate era NULL por default y NULL
+  -- "coincidia" gratis con el NULL de una cuota nueva).
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate)
+  VALUES (v_wo, 30, 6.96) RETURNING plan_id INTO v_plan;
   PERFORM set_config('request.jwt.claims', '', true);
 
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
-  VALUES (v_plan, v_wo, 1, 50, 500, 'Pending', v_hoy - 14, v_hoy - 7);
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
+  VALUES (v_plan, v_wo, 1, 50, 500, 'Pending', v_hoy - 14, v_hoy - 7, 6.96, 6.96);
 
   -- El domingo de esta semana: cae siempre entre hoy y el fin de la ventana, sea cual sea el
   -- dia en que corra la suite.
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
   VALUES (v_plan, v_wo, 2, 50, 500, 'Pending', v_hoy,
-          date_trunc('week', v_hoy)::date + 6);
+          date_trunc('week', v_hoy)::date + 6, 6.96, 6.96);
 
   -- ---- 19.a Fondos: el analista lee SOLO el contador que la matriz le concede ---------------
   DELETE FROM public.notification_emails;

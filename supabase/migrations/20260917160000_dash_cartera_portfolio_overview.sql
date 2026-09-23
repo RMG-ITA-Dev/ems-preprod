@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_events_engagement_occurred
 -- directo. La única escritura es el trigger de bitácora (SECURITY DEFINER); la única lectura
 -- es portfolio_overview() (SECURITY DEFINER, ya filtrado por alcance).
 ALTER TABLE public.portfolio_events ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.portfolio_events FROM PUBLIC, authenticated;
+REVOKE ALL ON TABLE public.portfolio_events FROM PUBLIC, authenticated, anon;
 
 -- Append-only incluso para el owner/service_role: ni el propio trigger de bitácora hace
 -- UPDATE/DELETE nunca, así que esto no le afecta a él, solo bloquea correcciones manuales.
@@ -68,6 +68,12 @@ DROP TRIGGER IF EXISTS trg_portfolio_events_append_only ON public.portfolio_even
 CREATE TRIGGER trg_portfolio_events_append_only
   BEFORE UPDATE OR DELETE ON public.portfolio_events
   FOR EACH ROW EXECUTE FUNCTION public.portfolio_events_append_only();
+
+-- Solo se invoca via trigger; no es un RPC. anon/authenticated no tienen ningun motivo para
+-- poder invocarla directo (ver review.md de dash_personal, mismo patron: REVOKE ALL ... FROM
+-- PUBLIC a secas no alcanza el grant directo que Supabase da por defecto a anon/authenticated
+-- en funciones nuevas).
+REVOKE ALL ON FUNCTION public.portfolio_events_append_only() FROM PUBLIC, anon, authenticated;
 
 COMMENT ON TABLE public.portfolio_events IS 'dash_cartera (decisiones.md §7.2, plan_v2.md §6.2): bitácora append-only de cambios de partner_id/manager_id en engagements -- únicos 2 eventos de Hitos que no se pueden derivar de una columna real ya existente. RLS activo SIN policies (nadie la lee/escribe directo) + trigger anti-UPDATE/DELETE. Arranca vacía -- SIN backfill retroactivo (decisiones.md §7.2 lo prohíbe explícitamente); hasta que acumule datos, el hito "assignment" no tiene qué mostrar.';
 
@@ -94,6 +100,9 @@ DROP TRIGGER IF EXISTS trg_engagements_log_assignment ON public.engagements;
 CREATE TRIGGER trg_engagements_log_assignment
   AFTER UPDATE OF partner_id, manager_id ON public.engagements
   FOR EACH ROW EXECUTE FUNCTION public.log_engagement_assignment_change();
+
+-- Idem portfolio_events_append_only(): solo se invoca via trigger, nunca via RPC directo.
+REVOKE ALL ON FUNCTION public.log_engagement_assignment_change() FROM PUBLIC, anon, authenticated;
 
 COMMENT ON FUNCTION public.log_engagement_assignment_change() IS 'dash_cartera (decisiones.md §7.2, plan_v2.md §6.2): inserta en portfolio_events cuando partner_id/manager_id cambian de valor (IS DISTINCT FROM, cubre NULL). AFTER UPDATE OF esas 2 columnas -> un UPDATE de engagements que no las toque nunca dispara este trigger. RETURN NULL (AFTER trigger, el valor de retorno se ignora). SECURITY DEFINER porque portfolio_events no tiene ninguna policy de INSERT para authenticated.';
 
@@ -1079,5 +1088,5 @@ $$;
 
 COMMENT ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) IS 'dash_cartera (decisiones.md §4-§8, plan_v2.md §7.1-§7.3): payload único de la pestaña Cartera (5 KPI + 5 filas de bloques) en un round-trip. Gateado por dashboard.portfolio.read (ya concedido a admin/senior_partner/partner/director/manager/ita_manager/tax_manager/risk_partner, cero_13:323-330 -- esta migración no toca esa tabla). Alcance: admin/senior_partner ven toda la firma; el resto SOLO donde es partner_id o manager_id del encargo (role_scope), sin distinción de rol y SIN leer authorization_role_permissions.scope_key -- risk_partner nunca recibe alcance departamental. Base = estado efectivo 4/5 + funcion=1 (Cliente), SIN filtro de fecha a nivel encargo -- los bloques por periodo filtran horas/cuotas/gastos, no encargos. KPI 3 (2026-09-20, decisión del operador) dejó de ser "Horas como Gerente" fijo -- que para un socio daba 0/0 por construcción -- y se adapta a la categoría de la ficha del llamante: my_role_hours.role_label da el título y role_key dirige el cálculo (encargos donde ocupo ese rol estructural + líneas de presupuesto que comparten mi default_role_key, con respaldo por nombre si la categoría no lo tiene poblado). D-1 sobrevive como mecanismo: un gerente sigue sumando ''Gerente'' + ''Gerente/Asociado Senior'' y excluyendo los especialistas. KPI 4 (Avance de cartera) opera sobre scope_fy completo, contando el encargo si el llamante es su socio O su gerente (D-2). p_practica_id (2026-09-19): filtro de Práctica post-alcance, pedido del operador para admin/senior_partner -- NO es un cambio de autorización, role_scope no lo usa. "Horas por categoría"/"Presupuesto de personal" atribuyen cada hora a la categoría homónima de la práctica DEL ENCARGO (hours.exec_category_id), no a la de la ficha de quien la cargó: sin eso, alguien de otra práctica trabajando el encargo abría una segunda fila con el mismo nombre (BUG 2026-09-20, ver el comentario del CTE `hours`). Cada fila viaja con practica_abbr para que la UI desambigüe los homónimos legítimos de la vista "Todas". La Cola de aprobación se consolida por persona (una fila por staff_id, la línea más antigua) ANTES de su LIMIT 20 y emite staff_id: cortando líneas crudas, una sola persona con 20 pendientes escondía a todas las demás del payload (review.md iteración 1, MF-03). Depende de public.effective_engagement_state() y public.latest_exchange_rate(), creadas por 20260915130000_dash_socio_partner_overview.sql -- debe aplicarse después de esa migración. Ver bugs/dashboard/cartera/plan_v2.md §7.3 para el contrato exacto del payload.';
 
-REVOKE ALL ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.portfolio_overview(date, date, integer, date, date, uuid, uuid) TO authenticated, service_role;

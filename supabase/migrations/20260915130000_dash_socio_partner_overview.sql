@@ -38,7 +38,7 @@ $$;
 
 COMMENT ON FUNCTION public.latest_exchange_rate() IS 'dash_socio (decisiones.md §4.1): TC de respaldo para wo_payment_plan.exchange_rate DEFAULT y para convertir honorarios/cuotas a Bs. Mismo orden que el navbar (useExchangeRate.ts:28): compra mas reciente de exchange_rate_history, si no hay historial cae a global_settings.default_exchange_rate. Devuelve NULL si ninguna fuente existe -- el INSERT que dependa del DEFAULT falla entonces con NOT NULL, nunca guarda basura.';
 
-REVOKE ALL ON FUNCTION public.latest_exchange_rate() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.latest_exchange_rate() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.latest_exchange_rate() TO authenticated, service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════════════════
@@ -110,7 +110,7 @@ $$;
 
 COMMENT ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz) IS 'dash_socio (decisiones.md §2/§8 obs.8, plan_v2.md §6.6): espejo SQL exacto de effectiveEngagementState()/deriveEngagementState() en src/lib/engagementStatus.ts. Usado por partner_overview()/partner_overview_engagements() para derivar el conjunto "cartera" (estado 4/5). Mantener sincronizado con el TS -- ver comentario cruzado alla.';
 
-REVOKE ALL ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz) TO authenticated, service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1024,7 +1024,7 @@ $$;
 
 COMMENT ON FUNCTION public.partner_overview(date, date, integer, uuid, uuid, uuid, uuid) IS 'dash_socio (decisiones.md, plan_v2.md §7.1): payload unico del tablero "Practica" (re-etiquetado 2026-09-16, reemplaza visualmente al viejo tab practica/dashboard.practice_financials.read -- ver Index.tsx) con 5 KPI + bloques A-H en un round-trip. Gateado por dashboard.partner.read; alcance por role_key (senior_partner/admin=firma, partner=sociedad, director/sqr/risk_partner=SOLO partner_id = yo -- ser sqr_id ya no basta, ver comentario en role_scope), conjunto base = estado efectivo 4/5 + funcion=1/Cliente (2026-09-17: excluye Administrativo/Capacitacion/Calidad de TODO el tablero, incl. KPI 3/4), filtrado por periodo via solapamiento start_date/end_date u anio_fiscal si el selector es FY completo (revertido 2026-09-17, ver comentario en scope_all). p_society_id (2026-09-17) angosta por sociedad, solo lo setea la UI para admin/senior_partner. El Bloque F ya no viaja en este payload -- ver partner_overview_engagements(). Ver bugs/dashboard/socio/plan_v2.md §7.3 para el contrato exacto del payload.';
 
-REVOKE ALL ON FUNCTION public.partner_overview(date, date, integer, uuid, uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.partner_overview(date, date, integer, uuid, uuid, uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.partner_overview(date, date, integer, uuid, uuid, uuid, uuid) TO authenticated, service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════════════════
@@ -1226,5 +1226,5 @@ $$;
 
 COMMENT ON FUNCTION public.partner_overview_engagements(date, date, integer, uuid, uuid, uuid, uuid, text, boolean, integer, integer) IS 'dash_socio (plan_v2.md §7.2, reescrito 2026-09-17): fuente única del Bloque F -- misma llamada sirve la vista compacta (p_limit=10) y "Ver todos" (p_limit mayor); p_sort_key (start_date|end_date|progress|pending_pct) y p_over_budget_only controlan orden/filtro del lado del servidor para que el top-N sea real sobre toda la cartera, no solo sobre un preview recortado. Mismo alcance que partner_overview(): estado 4/5 + funcion=1/Cliente, periodo por solapamiento start_date/end_date o anio_fiscal.';
 
-REVOKE ALL ON FUNCTION public.partner_overview_engagements(date, date, integer, uuid, uuid, uuid, uuid, text, boolean, integer, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.partner_overview_engagements(date, date, integer, uuid, uuid, uuid, uuid, text, boolean, integer, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.partner_overview_engagements(date, date, integer, uuid, uuid, uuid, uuid, text, boolean, integer, integer) TO authenticated, service_role;

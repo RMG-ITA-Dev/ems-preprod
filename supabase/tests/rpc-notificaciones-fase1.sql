@@ -622,7 +622,11 @@ END $$;
 
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
 DO $$
-DECLARE v_agg jsonb; v_before int; v_after int; v_dia int;
+DECLARE
+  v_agg jsonb; v_before int; v_after int; v_dia int;
+  -- Ancla dinamica para las aserciones de ISODOW mas abajo (antes un DATE '2026-09-14' fijo):
+  -- ver la nota extensa junto al loop de ISODOW.
+  v_monday date := date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 7;
 BEGIN
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000001');  -- assistant
 
@@ -724,32 +728,41 @@ BEGIN
   -- semana y despues solo clampea contra hire/termination, asi que una fecha de mitad de semana
   -- deja entrar la semana ENTERA — y la alarma reclama horas de los dias anteriores a que la
   -- firma cargara en EMS, que es justo lo que este ajuste existe para evitar.
+  --
+  -- v_monday NO puede ser un DATE literal fijo (encontrado corriendo la suite real dias despues de
+  -- escribirla): notif_timesheet_window_start() solo "acorta, nunca alarga" la ventana de
+  -- TS_ALERT_WINDOW_WEEKS (aca en '1', ver arriba) contra HOY -- v_start solo gana si
+  -- v_start > hoy - 7. Con una fecha fija, en cuanto el calendario real avanza lo suficiente
+  -- (aca, mas de una semana), la comparacion cae del otro lado, la funcion ignora el fixture y
+  -- devuelve `hoy - 7` en su lugar -- que tiene el ISODOW de HOY, no necesariamente lunes. v_monday
+  -- se recalcula en cada corrida a partir de `now()`, asi que siempre cae varios dias en el futuro
+  -- respecto de hoy y la asercion no vence.
   FOR v_dia IN 0..6 LOOP
-    -- Un dia de cada ISODOW, sobre una semana fija para que la prueba no dependa de hoy.
+    -- Un dia de cada ISODOW, sobre una semana relativa a hoy para que la prueba no venza.
     UPDATE public.global_settings
-       SET setting_value = to_char(DATE '2026-09-14' + v_dia, 'YYYY-MM-DD')
+       SET setting_value = to_char(v_monday + v_dia, 'YYYY-MM-DD')
      WHERE setting_key = 'TS_TRACKING_START_DATE';
 
     IF EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int <> 1 THEN
       RAISE EXCEPTION 'TEST FAIL - con arranque % la ventana empieza en ISODOW %, y no en lunes',
-        DATE '2026-09-14' + v_dia,
+        v_monday + v_dia,
         EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int;
     END IF;
   END LOOP;
 
   -- Un lunes se respeta tal cual: adelantarlo se comeria una semana entera de alarmas.
-  UPDATE public.global_settings SET setting_value = '2026-09-14'   -- lunes
+  UPDATE public.global_settings SET setting_value = to_char(v_monday, 'YYYY-MM-DD')   -- lunes
    WHERE setting_key = 'TS_TRACKING_START_DATE';
-  IF public.notif_timesheet_window_start() <> DATE '2026-09-14' THEN
+  IF public.notif_timesheet_window_start() <> v_monday THEN
     RAISE EXCEPTION 'TEST FAIL - un lunes se movio a %', public.notif_timesheet_window_start();
   END IF;
 
   -- Y el martes siguiente cae en el lunes de la semana QUE VIENE, no en el de la suya.
-  UPDATE public.global_settings SET setting_value = '2026-09-15'   -- martes
+  UPDATE public.global_settings SET setting_value = to_char(v_monday + 1, 'YYYY-MM-DD')   -- martes
    WHERE setting_key = 'TS_TRACKING_START_DATE';
-  IF public.notif_timesheet_window_start() <> DATE '2026-09-21' THEN
-    RAISE EXCEPTION 'TEST FAIL - el martes 15 se resolvio a % y no al lunes 21',
-      public.notif_timesheet_window_start();
+  IF public.notif_timesheet_window_start() <> v_monday + 7 THEN
+    RAISE EXCEPTION 'TEST FAIL - el martes siguiente se resolvio a % y no al lunes %',
+      public.notif_timesheet_window_start(), v_monday + 7;
   END IF;
   RAISE NOTICE 'PASS - una fecha de arranque a mitad de semana se adelanta al lunes siguiente';
 
@@ -1554,8 +1567,15 @@ BEGIN
   -- get_my_staff_id() son falsos los dos y el INSERT se rechaza.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR, gerente de E_FIVE
 
-  INSERT INTO public.wo_payment_plan (wo_id, payment_days)
-  VALUES (v_wo, 30) RETURNING plan_id INTO v_plan;
+  -- exchange_rate explicito (no confiar en el DEFAULT latest_exchange_rate() de dash_socio,
+  -- que depende de exchange_rate_history/default_exchange_rate del ambiente): este grupo
+  -- prueba contadores de notificaciones, no tipo de cambio, y exchange_rate_mode sigue en su
+  -- DEFAULT 'fijo' -- con un TC real y determinista acá, las 2 cuotas de abajo deben
+  -- declarar el mismo valor o el guard EXCHANGE_RATE_LOCKED las rechaza (encontrado corriendo
+  -- test:rls de verdad tras dash_socio: antes exchange_rate era NULL por default y NULL
+  -- "coincidia" gratis con el NULL de una cuota nueva).
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate)
+  VALUES (v_wo, 30, 6.96) RETURNING plan_id INTO v_plan;
 
   -- De vuelta sin sesion: las cuotas y el resto del grupo se cargan como el resto de los
   -- fixtures, y el contador de mora se mide sin que auth.uid() lo filtre.
@@ -1574,10 +1594,11 @@ BEGIN
   -- fecha de pago ya pasada el contador la cuenta igual, sin necesidad del estado 'Overdue'.
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
   VALUES (v_plan, v_wo, 1, 60, 600, 'Pending',
           (now() AT TIME ZONE 'America/La_Paz')::date - 14,
-          (now() AT TIME ZONE 'America/La_Paz')::date - 7)
+          (now() AT TIME ZONE 'America/La_Paz')::date - 7, 6.96, 6.96)
   RETURNING installment_id INTO v_inst;
 
   -- Cuota 2: se queda en 'Pending' toda la prueba, con la fecha de facturación de ESTA
@@ -1586,10 +1607,11 @@ BEGIN
   -- no puede reusarse para eso.
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
   VALUES (v_plan, v_wo, 2, 40, 400, 'Pending',
           date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 2,
-          (now() AT TIME ZONE 'America/La_Paz')::date + 30)
+          (now() AT TIME ZONE 'America/La_Paz')::date + 30, 6.96, 6.96)
   RETURNING installment_id INTO v_inst2;
 
   -- 9.a Ahora SI hay cuotas: el envio anuncia el plan de pagos al Socio.
