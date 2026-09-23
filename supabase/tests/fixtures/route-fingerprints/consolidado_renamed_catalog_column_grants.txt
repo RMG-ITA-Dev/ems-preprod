@@ -5525,6 +5525,70 @@
  service_role  | public       | parametro                                      | valor                        | REFERENCES
  service_role  | public       | parametro                                      | valor                        | SELECT
  service_role  | public       | parametro                                      | valor                        | UPDATE
+ postgres      | public       | portfolio_events                               | actor_user_id                | INSERT
+ postgres      | public       | portfolio_events                               | actor_user_id                | REFERENCES
+ postgres      | public       | portfolio_events                               | actor_user_id                | SELECT
+ postgres      | public       | portfolio_events                               | actor_user_id                | UPDATE
+ service_role  | public       | portfolio_events                               | actor_user_id                | INSERT
+ service_role  | public       | portfolio_events                               | actor_user_id                | REFERENCES
+ service_role  | public       | portfolio_events                               | actor_user_id                | SELECT
+ service_role  | public       | portfolio_events                               | actor_user_id                | UPDATE
+ postgres      | public       | portfolio_events                               | created_at                   | INSERT
+ postgres      | public       | portfolio_events                               | created_at                   | REFERENCES
+ postgres      | public       | portfolio_events                               | created_at                   | SELECT
+ postgres      | public       | portfolio_events                               | created_at                   | UPDATE
+ service_role  | public       | portfolio_events                               | created_at                   | INSERT
+ service_role  | public       | portfolio_events                               | created_at                   | REFERENCES
+ service_role  | public       | portfolio_events                               | created_at                   | SELECT
+ service_role  | public       | portfolio_events                               | created_at                   | UPDATE
+ postgres      | public       | portfolio_events                               | engagement_id                | INSERT
+ postgres      | public       | portfolio_events                               | engagement_id                | REFERENCES
+ postgres      | public       | portfolio_events                               | engagement_id                | SELECT
+ postgres      | public       | portfolio_events                               | engagement_id                | UPDATE
+ service_role  | public       | portfolio_events                               | engagement_id                | INSERT
+ service_role  | public       | portfolio_events                               | engagement_id                | REFERENCES
+ service_role  | public       | portfolio_events                               | engagement_id                | SELECT
+ service_role  | public       | portfolio_events                               | engagement_id                | UPDATE
+ postgres      | public       | portfolio_events                               | event_id                     | INSERT
+ postgres      | public       | portfolio_events                               | event_id                     | REFERENCES
+ postgres      | public       | portfolio_events                               | event_id                     | SELECT
+ postgres      | public       | portfolio_events                               | event_id                     | UPDATE
+ service_role  | public       | portfolio_events                               | event_id                     | INSERT
+ service_role  | public       | portfolio_events                               | event_id                     | REFERENCES
+ service_role  | public       | portfolio_events                               | event_id                     | SELECT
+ service_role  | public       | portfolio_events                               | event_id                     | UPDATE
+ postgres      | public       | portfolio_events                               | event_type                   | INSERT
+ postgres      | public       | portfolio_events                               | event_type                   | REFERENCES
+ postgres      | public       | portfolio_events                               | event_type                   | SELECT
+ postgres      | public       | portfolio_events                               | event_type                   | UPDATE
+ service_role  | public       | portfolio_events                               | event_type                   | INSERT
+ service_role  | public       | portfolio_events                               | event_type                   | REFERENCES
+ service_role  | public       | portfolio_events                               | event_type                   | SELECT
+ service_role  | public       | portfolio_events                               | event_type                   | UPDATE
+ postgres      | public       | portfolio_events                               | occurred_at                  | INSERT
+ postgres      | public       | portfolio_events                               | occurred_at                  | REFERENCES
+ postgres      | public       | portfolio_events                               | occurred_at                  | SELECT
+ postgres      | public       | portfolio_events                               | occurred_at                  | UPDATE
+ service_role  | public       | portfolio_events                               | occurred_at                  | INSERT
+ service_role  | public       | portfolio_events                               | occurred_at                  | REFERENCES
+ service_role  | public       | portfolio_events                               | occurred_at                  | SELECT
+ service_role  | public       | portfolio_events                               | occurred_at                  | UPDATE
+ postgres      | public       | portfolio_events                               | previous_staff_id            | INSERT
+ postgres      | public       | portfolio_events                               | previous_staff_id            | REFERENCES
+ postgres      | public       | portfolio_events                               | previous_staff_id            | SELECT
+ postgres      | public       | portfolio_events                               | previous_staff_id            | UPDATE
+ service_role  | public       | portfolio_events                               | previous_staff_id            | INSERT
+ service_role  | public       | portfolio_events                               | previous_staff_id            | REFERENCES
+ service_role  | public       | portfolio_events                               | previous_staff_id            | SELECT
+ service_role  | public       | portfolio_events                               | previous_staff_id            | UPDATE
+ postgres      | public       | portfolio_events                               | subject_staff_id             | INSERT
+ postgres      | public       | portfolio_events                               | subject_staff_id             | REFERENCES
+ postgres      | public       | portfolio_events                               | subject_staff_id             | SELECT
+ postgres      | public       | portfolio_events                               | subject_staff_id             | UPDATE
+ service_role  | public       | portfolio_events                               | subject_staff_id             | INSERT
+ service_role  | public       | portfolio_events                               | subject_staff_id             | REFERENCES
+ service_role  | public       | portfolio_events                               | subject_staff_id             | SELECT
+ service_role  | public       | portfolio_events                               | subject_staff_id             | UPDATE
  anon          | public       | practicas                                      | abbreviation                 | INSERT
  anon          | public       | practicas                                      | abbreviation                 | REFERENCES
  anon          | public       | practicas                                      | abbreviation                 | SELECT
@@ -10276,5 +10340,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(10276 rows)
+(10340 rows)
 

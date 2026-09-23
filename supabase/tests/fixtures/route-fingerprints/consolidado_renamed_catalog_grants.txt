@@ -918,6 +918,20 @@
  public       | service_role  | parametro                                      | TRIGGER
  public       | service_role  | parametro                                      | TRUNCATE
  public       | service_role  | parametro                                      | UPDATE
+ public       | postgres      | portfolio_events                               | DELETE
+ public       | postgres      | portfolio_events                               | INSERT
+ public       | postgres      | portfolio_events                               | REFERENCES
+ public       | postgres      | portfolio_events                               | SELECT
+ public       | postgres      | portfolio_events                               | TRIGGER
+ public       | postgres      | portfolio_events                               | TRUNCATE
+ public       | postgres      | portfolio_events                               | UPDATE
+ public       | service_role  | portfolio_events                               | DELETE
+ public       | service_role  | portfolio_events                               | INSERT
+ public       | service_role  | portfolio_events                               | REFERENCES
+ public       | service_role  | portfolio_events                               | SELECT
+ public       | service_role  | portfolio_events                               | TRIGGER
+ public       | service_role  | portfolio_events                               | TRUNCATE
+ public       | service_role  | portfolio_events                               | UPDATE
  public       | anon          | practicas                                      | DELETE
  public       | anon          | practicas                                      | INSERT
  public       | anon          | practicas                                      | REFERENCES
@@ -1759,5 +1773,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1759 rows)
+(1773 rows)
 
