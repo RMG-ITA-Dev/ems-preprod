@@ -31,7 +31,16 @@ vi.mock("@/components/forms/WorkOrderForm", () => ({
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
-  return { ...actual, useNavigate: () => vi.fn(), useParams: () => ({ id: "wo-1" }) };
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+    useParams: () => ({ id: "wo-1" }),
+    // dash_socio: WorkOrderEdit.tsx ahora lee ?tab=payment vía useSearchParams (deep-link
+    // desde el tablero de Socio, Bloque C) -- sin este mock, useSearchParams revienta con
+    // "useLocation() may be used only in the context of a <Router>" porque este archivo
+    // no envuelve WorkOrderEdit en un MemoryRouter.
+    useSearchParams: () => [new URLSearchParams()],
+  };
 });
 
 vi.mock("@/hooks/usePageLeaveLock", () => ({

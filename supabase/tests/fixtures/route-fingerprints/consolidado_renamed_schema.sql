@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
+\restrict Cov2V2gkwdrkcIBZ6OyHJDaxWX55xXagJDzblmxlha19siHdHtX0df2I0EEDb7e
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1349,6 +1349,52 @@ $$;
 
 
 --
+-- Name: can_read_engagement_dashboard(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.can_read_engagement_dashboard(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT
+    auth.uid() IS NOT NULL
+    AND public.has_permission('dashboard.engagement.read')
+    AND EXISTS (
+      SELECT 1
+      FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id
+        AND (
+          public.current_role_key() IN ('admin', 'senior_partner')
+          OR (
+            public.get_my_staff_id() IS NOT NULL
+            AND CASE public.current_role_key()
+                  WHEN 'partner'      THEN e.partner_id = public.get_my_staff_id()
+                  WHEN 'director'     THEN e.partner_id = public.get_my_staff_id()
+                  WHEN 'risk_partner' THEN e.partner_id = public.get_my_staff_id()
+                  WHEN 'sqr'          THEN e.partner_id = public.get_my_staff_id()
+                  WHEN 'manager'      THEN e.manager_id = public.get_my_staff_id()
+                  WHEN 'ita_manager'  THEN e.manager_id = public.get_my_staff_id()
+                  WHEN 'tax_manager'  THEN e.manager_id = public.get_my_staff_id()
+                  WHEN 'senior'       THEN e.encargado_id = public.get_my_staff_id()
+                  WHEN 'semisenior'   THEN e.encargado_id = public.get_my_staff_id()
+                  WHEN 'ita_senior'   THEN e.specialist_it_id = public.get_my_staff_id()
+                  WHEN 'tax_senior'   THEN e.specialist_tax_id = public.get_my_staff_id()
+                  ELSE false
+                END
+          )
+        )
+    );
+$$;
+
+
+--
+-- Name: FUNCTION can_read_engagement_dashboard(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.can_read_engagement_dashboard(p_engagement_id uuid) IS 'dash_encargo (decisiones.md §2, plan_v2.md §7.1): única materialización del alcance por rol de la pestaña Encargo. Fail-closed (ELSE false); NUNCA lee authorization_role_permissions.scope_key -- risk_partner se trata igual que partner/director. sqr entra SOLO por partner_id (ser sqr_id de un encargo no da acceso aqui, esas horas ya se ven en Práctica).';
+
+
+--
 -- Name: cascade_practice_abbreviation_rename(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2407,6 +2453,32 @@ COMMENT ON FUNCTION public.dismiss_notifications(p_ids uuid[]) IS 'Descarta noti
 
 
 --
+-- Name: effective_engagement_state(smallint, boolean, uuid, text, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone) RETURNS smallint
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  SELECT CASE
+    WHEN p_override BETWEEN 1 AND 8 THEN p_override
+    WHEN NOT p_wo_required THEN 4
+    WHEN p_wo_id IS NULL THEN 1
+    WHEN p_approval_status = 'Rejected' OR p_risk_status = 'Rejected' THEN 8
+    WHEN p_approval_status = 'Approved' THEN CASE WHEN p_risk_status = 'Emergency_Approved' THEN 5 ELSE 4 END
+    WHEN p_approved_at IS NOT NULL THEN 2
+    WHEN p_risk_status IN ('Approved','Emergency_Approved') THEN 3
+    ELSE 1 END;
+$$;
+
+
+--
+-- Name: FUNCTION effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone) IS 'dash_socio (decisiones.md §2/§8 obs.8, plan_v2.md §6.6): espejo SQL exacto de effectiveEngagementState()/deriveEngagementState() en src/lib/engagementStatus.ts. Usado por partner_overview()/partner_overview_engagements() para derivar el conjunto "cartera" (estado 4/5). Mantener sincronizado con el TS -- ver comentario cruzado alla.';
+
+
+--
 -- Name: enforce_activity_default(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3032,6 +3104,541 @@ BEGIN
   );
 END;
 $$;
+
+
+--
+-- Name: engagement_overview(uuid, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_overview(p_engagement_id uuid, p_start date, p_end date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_today           date;
+  v_week_start      date;
+  v_prev_week_start date;
+  v_alert_weeks     int;
+  v_role            text;
+  v_result          jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: no session';
+  END IF;
+  IF NOT public.has_permission('dashboard.engagement.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.engagement.read';
+  END IF;
+  IF p_start IS NULL OR p_end IS NULL OR p_start > p_end THEN
+    RAISE EXCEPTION 'INVALID_RANGE';
+  END IF;
+
+  v_today := ((now() AT TIME ZONE 'America/La_Paz')::date);
+  v_week_start := date_trunc('week', v_today)::date;
+  v_prev_week_start := v_week_start - 7;
+  v_role := public.current_role_key();
+
+  -- Lectura tolerante del setting (plan_v2.md §6.2, R-5): vacío/no numérico/fuera de
+  -- [1,52] -> 3. Nunca lanza (::int sobre 'abc' sí lanzaría sin el regexp_replace).
+  v_alert_weeks := COALESCE(
+    NULLIF(regexp_replace(
+      COALESCE((SELECT setting_value FROM public.global_settings
+                 WHERE setting_key = 'DASH_ENGAGEMENT_PENDING_ALERT_WEEKS'), ''),
+      '[^0-9]', '', 'g'), '')::int, 3);
+  IF v_alert_weeks < 1 OR v_alert_weeks > 52 THEN
+    v_alert_weeks := 3;
+  END IF;
+
+  IF NOT public.can_read_engagement_dashboard(p_engagement_id) THEN
+    RETURN jsonb_build_object(
+      'meta', jsonb_build_object(
+        'engagement_id', p_engagement_id,
+        'selected_accessible', false,
+        'today', v_today,
+        'alert_weeks', v_alert_weeks
+      ),
+      'detail', null
+    );
+  END IF;
+
+  v_result := (
+  WITH
+  -- ── Encargo + cliente ─────────────────────────────────────────────────────────────────
+  eng AS (
+    SELECT e.*, cl.client_legal_name
+    FROM public.engagements e
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    WHERE e.engagement_id = p_engagement_id
+  ),
+
+  -- ── KPI Staffing (§4.1/§7.3): fracción de asignados con Cargado > 0, semana actual y
+  -- semana pasada. Asignaciones vigentes = deleted_at IS NULL, status <> 'CANCELLED', con
+  -- solape [start_date,end_date] contra la semana (D-2). ────────────────────────────────
+  assigned_current AS (
+    SELECT DISTINCT ea.staff_id
+    FROM public.engagement_assignments ea
+    WHERE ea.engagement_id = p_engagement_id
+      AND ea.deleted_at IS NULL AND ea.status <> 'CANCELLED'
+      AND ea.start_date <= (v_week_start + 6) AND ea.end_date >= v_week_start
+  ),
+  assigned_previous AS (
+    SELECT DISTINCT ea.staff_id
+    FROM public.engagement_assignments ea
+    WHERE ea.engagement_id = p_engagement_id
+      AND ea.deleted_at IS NULL AND ea.status <> 'CANCELLED'
+      AND ea.start_date <= (v_prev_week_start + 6) AND ea.end_date >= v_prev_week_start
+  ),
+  logged_current AS (
+    SELECT te.staff_id, SUM(te.hours_logged) AS hours
+    FROM public.time_entries te
+    WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+      AND date_trunc('week', te.date_worked) = v_week_start
+    GROUP BY te.staff_id
+  ),
+  logged_previous AS (
+    SELECT te.staff_id, SUM(te.hours_logged) AS hours
+    FROM public.time_entries te
+    WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+      AND date_trunc('week', te.date_worked) = v_prev_week_start
+    GROUP BY te.staff_id
+  ),
+  kpi_staffing AS (
+    SELECT
+      (SELECT COUNT(*) FROM assigned_current) AS current_assigned,
+      (SELECT COUNT(*) FROM assigned_current ac JOIN logged_current lc ON lc.staff_id = ac.staff_id WHERE lc.hours > 0) AS current_logged,
+      (SELECT COUNT(*) FROM assigned_previous) AS previous_assigned,
+      (SELECT COUNT(*) FROM assigned_previous ap JOIN logged_previous lp ON lp.staff_id = ap.staff_id WHERE lp.hours > 0) AS previous_logged
+  ),
+
+  -- ── KPI Horas pendientes de aprobación (§4.1): join a timesheet_line_approvals
+  -- status='pending' -- horas sin fila de aprobación NUNCA cuentan acá (R-4). staff_id viaja
+  -- acá (corrección post-ejecución #2) para alimentar approval_queue_* más abajo sin un
+  -- segundo barrido de timesheet_line_approvals -- no cambia kpi_pending, que sigue leyendo
+  -- exactamente las mismas columnas que ya usaba. ─────────────────────────────────────────
+  pending_lines AS (
+    SELECT tla.approval_id, tp.week_start_date, tp.staff_id, tesum.hours
+    FROM public.timesheet_line_approvals tla
+    JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(te.hours_logged) AS hours
+      FROM public.time_entries te
+      WHERE te.period_id = tla.period_id AND te.engagement_id = tla.engagement_id
+        AND te.activity_id = tla.activity_id AND COALESCE(te.is_forecast, false) = false
+    ) tesum ON true
+    WHERE tla.engagement_id = p_engagement_id AND tla.status = 'pending'
+  ),
+  kpi_pending AS (
+    SELECT
+      COALESCE(SUM(hours) FILTER (WHERE week_start_date = v_prev_week_start), 0) AS last_week_hours,
+      COALESCE(SUM(hours) FILTER (WHERE FLOOR((v_today - week_start_date) / 7.0) >= v_alert_weeks), 0) AS aged_hours
+    FROM pending_lines
+  ),
+
+  -- ── Cola de Aprobación por persona (corrección post-ejecución #2, acordada con el
+  -- operador): a diferencia del KPI de arriba (agregado, sin desglose), acá se consolida
+  -- pending_lines POR PERSONA -- horas totales pendientes de esa persona en este encargo
+  -- (suma de TODAS sus líneas pendientes, no solo la más vieja) y weeks_old de su línea más
+  -- antigua (MAX, ya que week_start_date más chico = más vieja = days_old/weeks_old más
+  -- grande). `alert` reutiliza v_alert_weeks -- MISMO umbral que ya usa aged_hours arriba,
+  -- ninguna fuente de verdad nueva (review.md iteración 1, MF-05, decisión del operador:
+  -- "crítico" en el frontend es exactamente este `alert` -- sin un segundo escalón más
+  -- severo; encargoOverviewAggregation.ts no recibe ni calcula ningún umbral adicional).
+  -- ─────────────────────────────────────────────────────────────────────────────────────
+  approval_queue_staff AS (
+    SELECT pl.staff_id, COALESCE(SUM(pl.hours), 0) AS hours,
+      MAX(FLOOR((v_today - pl.week_start_date) / 7.0))::int AS weeks_old
+    FROM pending_lines pl
+    WHERE pl.staff_id IS NOT NULL
+    GROUP BY pl.staff_id
+  ),
+  approval_queue_rows AS (
+    SELECT
+      aqs.staff_id,
+      COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))) AS staff_name,
+      aqs.hours, aqs.weeks_old,
+      (aqs.weeks_old >= v_alert_weeks) AS alert
+    FROM approval_queue_staff aqs
+    LEFT JOIN public.staff s ON s.staff_id = aqs.staff_id
+  ),
+  approval_queue_json AS (
+    SELECT
+      COALESCE(SUM(hours), 0) AS total_hours,
+      COUNT(*) AS distinct_people,
+      COALESCE(jsonb_agg(jsonb_build_object(
+        'staff_id', staff_id, 'staff_name', staff_name, 'hours', hours,
+        'weeks_old', weeks_old, 'alert', alert
+      ) ORDER BY weeks_old DESC, hours DESC, staff_name), '[]'::jsonb) AS items
+    FROM approval_queue_rows
+  ),
+
+  -- ── KPI Última carga / Última aprobación (§4.1) ─────────────────────────────────────
+  kpi_last_entry AS (
+    SELECT MAX(te.date_worked) AS last_date
+    FROM public.time_entries te
+    WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+  ),
+  kpi_last_approval AS (
+    SELECT MAX(tla.approved_at) AS last_at
+    FROM public.timesheet_line_approvals tla
+    WHERE tla.engagement_id = p_engagement_id AND tla.status = 'approved'
+  ),
+
+  -- ── Consumo de presupuesto (§4.2, sin cambios) -- mismas fuentes que EncargoTab hoy ──
+  budget_hours_cte AS (
+    SELECT COALESCE(SUM(total_budget_hours), 0) AS hours
+    FROM public.vw_wo_budget_hours_by_category
+    WHERE engagement_id = p_engagement_id
+  ),
+  actual_hours_cte AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS hours
+    FROM public.time_entries te
+    WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+      AND te.date_worked BETWEEN p_start AND p_end
+  ),
+
+  -- ── Desglose Categoría->Actividad unificado (§4.3): fuente única, sin filtro de fecha,
+  -- ocultando filas 0/0. ──────────────────────────────────────────────────────────────
+  breakdown_rows AS (
+    SELECT category_id, category_name, category_display_order, activity_id, activity_code,
+           activity_description, budget_hours, actual_hours, variance_hours
+    FROM public.vw_budget_vs_actual_hours_by_category_activity
+    WHERE engagement_id = p_engagement_id
+      AND NOT (budget_hours = 0 AND actual_hours = 0)
+  ),
+  breakdown_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'category_id', category_id, 'category_name', category_name,
+      'category_display_order', category_display_order,
+      'activity_id', activity_id, 'activity_code', activity_code,
+      'activity_description', activity_description,
+      'budget_hours', budget_hours, 'actual_hours', actual_hours, 'variance_hours', variance_hours
+    ) ORDER BY category_display_order NULLS LAST, category_name, activity_code, activity_id), '[]'::jsonb) AS items
+    FROM breakdown_rows
+  ),
+
+  -- ── Equipo responsable (§4.4): 6 roles formales, NULL -> "-" en el frontend. ────────
+  team_raw AS (
+    SELECT
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.partner_id) AS partner,
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.manager_id) AS manager,
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.encargado_id) AS encargado,
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.specialist_it_id) AS specialist_it,
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.specialist_tax_id) AS specialist_tax,
+      (SELECT jsonb_build_object('staff_id', s.staff_id, 'display_name', COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))))
+         FROM public.staff s WHERE s.staff_id = eng.sqr_id) AS sqr
+    FROM eng
+  ),
+
+  -- ── Staffing (§4.5/§7.4): universo = FULL JOIN conceptual asignados <-> quienes cargaron
+  -- horas. Una fila por persona. ──────────────────────────────────────────────────────
+  assignments AS (
+    SELECT ea.staff_id, ea.start_date, ea.end_date, ea.hours_per_week, ea.allocation_percent,
+           ea.category_id, ea.updated_at
+    FROM public.engagement_assignments ea
+    WHERE ea.engagement_id = p_engagement_id
+      AND ea.deleted_at IS NULL AND ea.status <> 'CANCELLED'
+  ),
+  staffing_universe AS (
+    SELECT staff_id FROM assignments
+    UNION
+    SELECT te.staff_id
+    FROM public.time_entries te
+    WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+  ),
+  -- D-1: "semanas del rango" = semanas calendario tocadas, lunes a lunes.
+  -- review.md dash_encargo iteración 3, G-01 (2026-09-22): hours_per_week YA es el
+  -- compromiso semanal real de la asignación, no una tasa nominal a prorratear -- confirmado
+  -- por personal_overview() ("hours_per_week completo... sin prorrateo") y por
+  -- computeUtilizationBands() del scheduler (suma hours_per_week directo entre asignaciones
+  -- superpuestas). Multiplicar por allocation_percent/100 aquí contaba la dedicación parcial
+  -- dos veces (una asignación real de 20 h/semana al 50% quedaba en 10 h/semana).
+  assignment_hours AS (
+    SELECT staff_id,
+      SUM(hours_per_week *
+        (((date_trunc('week', end_date)::date - date_trunc('week', start_date)::date) / 7) + 1)
+      ) AS assigned_hours
+    FROM assignments
+    GROUP BY staff_id
+  ),
+  -- Alerta binaria de "semana en cero" (§4.5.a): recorre cada semana calendario tocada por
+  -- CUALQUIERA de las asignaciones de la persona (hasta hoy, sin evaluar semanas futuras) y
+  -- marca si esa semana tuvo cero horas cargadas en este encargo.
+  assignment_weeks AS (
+    SELECT a.staff_id, gw.week_start::date AS week_start
+    FROM assignments a
+    CROSS JOIN LATERAL generate_series(
+      date_trunc('week', a.start_date),
+      LEAST(date_trunc('week', a.end_date), date_trunc('week', v_today)),
+      interval '7 days'
+    ) AS gw(week_start)
+  ),
+  zero_week_flags AS (
+    SELECT aw.staff_id, bool_or(COALESCE(wk.hours, 0) = 0) AS has_zero_week
+    FROM assignment_weeks aw
+    LEFT JOIN LATERAL (
+      SELECT SUM(te.hours_logged) AS hours
+      FROM public.time_entries te
+      WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+        AND te.staff_id = aw.staff_id AND date_trunc('week', te.date_worked) = aw.week_start
+    ) wk ON true
+    GROUP BY aw.staff_id
+  ),
+  -- Categoría: staff.category_id primero (coincide con el desglose de la misma pantalla);
+  -- fallback a la categoría de la asignación no cancelada más reciente (staff.category_id
+  -- es nullable).
+  staff_category AS (
+    SELECT su.staff_id, COALESCE(cat_own.category_name, cat_fallback.category_name) AS category_name
+    FROM staffing_universe su
+    LEFT JOIN public.staff s ON s.staff_id = su.staff_id
+    LEFT JOIN public.categories cat_own ON cat_own.category_id = s.category_id
+    LEFT JOIN LATERAL (
+      SELECT c.category_name
+      FROM public.engagement_assignments ea2
+      JOIN public.categories c ON c.category_id = ea2.category_id
+      WHERE ea2.staff_id = su.staff_id AND ea2.engagement_id = p_engagement_id
+        AND ea2.status <> 'CANCELLED' AND ea2.deleted_at IS NULL
+      ORDER BY ea2.updated_at DESC
+      LIMIT 1
+    ) cat_fallback ON true
+  ),
+  people_rows AS (
+    SELECT
+      su.staff_id,
+      COALESCE(s.short_name, TRIM(BOTH FROM (COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')))) AS display_name,
+      sc.category_name,
+      COALESCE(ah.assigned_hours, 0) AS assigned_hours,
+      COALESCE(zwf.has_zero_week, false) AS zero_week_alert
+    FROM staffing_universe su
+    LEFT JOIN public.staff s ON s.staff_id = su.staff_id
+    LEFT JOIN staff_category sc ON sc.staff_id = su.staff_id
+    LEFT JOIN assignment_hours ah ON ah.staff_id = su.staff_id
+    LEFT JOIN zero_week_flags zwf ON zwf.staff_id = su.staff_id
+  ),
+  people_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'staff_id', staff_id, 'display_name', display_name, 'category_name', category_name,
+      'assigned_hours', assigned_hours, 'zero_week_alert', zero_week_alert
+    ) ORDER BY display_name, staff_id), '[]'::jsonb) AS items
+    FROM people_rows
+  ),
+  -- Las 9 semanas: offset -4..+4 respecto de la semana actual, precargadas en el payload
+  -- (plan_v2.md §3.1/§4.5: cero requests al navegar el modal).
+  staff_earliest AS (
+    SELECT su.staff_id,
+      COALESCE(
+        (SELECT MIN(date_trunc('week', a.start_date))::date FROM assignments a WHERE a.staff_id = su.staff_id),
+        (SELECT MIN(date_trunc('week', te.date_worked))::date FROM public.time_entries te
+           WHERE te.staff_id = su.staff_id AND te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false)
+      ) AS earliest_start
+    FROM staffing_universe su
+  ),
+  weeks_base AS (
+    SELECT gs AS week_offset,
+           (v_week_start + (gs * 7)) AS week_start,
+           (v_week_start + (gs * 7) + 6) AS week_end,
+           EXTRACT(WEEK FROM (v_week_start + (gs * 7)))::int AS week_number
+    FROM generate_series(-4, 4) gs
+  ),
+  week_rows AS (
+    SELECT
+      wb.week_offset, wb.week_start,
+      su.staff_id,
+      COALESCE(lw.hours, 0) AS logged_hours,
+      COALESCE(uw.hours, 0) AS used_hours
+    FROM weeks_base wb
+    CROSS JOIN staffing_universe su
+    LEFT JOIN staff_earliest se ON se.staff_id = su.staff_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(te.hours_logged) AS hours
+      FROM public.time_entries te
+      WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+        AND te.staff_id = su.staff_id AND date_trunc('week', te.date_worked) = wb.week_start
+    ) lw ON true
+    LEFT JOIN LATERAL (
+      SELECT SUM(te.hours_logged) AS hours
+      FROM public.time_entries te
+      WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
+        AND te.staff_id = su.staff_id
+        AND te.date_worked <= wb.week_end
+        AND (se.earliest_start IS NULL OR te.date_worked >= se.earliest_start)
+    ) uw ON true
+  ),
+  weeks_json AS (
+    SELECT COALESCE(jsonb_agg(
+      jsonb_build_object(
+        'offset', wb.week_offset, 'week_start', wb.week_start, 'week_end', wb.week_end,
+        'week_number', wb.week_number,
+        'rows', COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('staff_id', wr.staff_id, 'logged_hours', wr.logged_hours, 'used_hours', wr.used_hours) ORDER BY wr.staff_id)
+          FROM week_rows wr WHERE wr.week_offset = wb.week_offset
+        ), '[]'::jsonb)
+      ) ORDER BY wb.week_offset
+    ), '[]'::jsonb) AS items
+    FROM weeks_base wb
+  ),
+
+  -- ── Gastos (§4.6/§7.5): normalizado a BOB, mismo rate_to_bob que dash_cartera/dash_socio.
+  -- Presupuesto solo de OT Approved (D-3); gastos reales de todas las OT del encargo. ────
+  wo_scope AS (
+    SELECT wo.wo_id, wo.currency, wo.approval_status, p.exchange_rate AS plan_exchange_rate
+    FROM public.work_orders wo
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+    WHERE wo.engagement_id = p_engagement_id
+  ),
+  wo_rate AS (
+    SELECT wo_id, approval_status,
+      CASE WHEN currency = 'BOB' THEN 1
+           WHEN plan_exchange_rate IS NOT NULL THEN plan_exchange_rate
+           WHEN currency = 'USD' THEN public.latest_exchange_rate()
+           ELSE NULL END AS rate_to_bob
+    FROM wo_scope
+  ),
+  expense_budget_bob AS (
+    SELECT COALESCE(SUM(web.budgeted_amount * wr.rate_to_bob), 0) AS budget_bob
+    FROM wo_rate wr
+    JOIN public.wo_expense_budget web ON web.wo_id = wr.wo_id
+    WHERE wr.approval_status = 'Approved'
+  ),
+  expense_amount_bob AS (
+    SELECT fre.fre_id, fre.expense_date, fre.description, fre.amount, fre.currency, fre.status,
+      (fre.amount * CASE fre.currency WHEN 'BOB' THEN 1 ELSE COALESCE(wr.rate_to_bob, public.latest_exchange_rate()) END) AS amount_bob
+    FROM public.fund_request_expenses fre
+    JOIN wo_rate wr ON wr.wo_id = fre.wo_id
+  ),
+  executed_bob_cte AS (
+    SELECT COALESCE(SUM(amount_bob) FILTER (WHERE status = 'revisado_asistente'), 0) AS executed_bob
+    FROM expense_amount_bob
+  ),
+  approved_expenses_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'fre_id', fre_id, 'expense_date', expense_date, 'description', description,
+      'amount', amount, 'currency', currency, 'amount_bob', amount_bob, 'status', status
+    ) ORDER BY expense_date DESC, fre_id DESC), '[]'::jsonb) AS items
+    FROM (SELECT * FROM expense_amount_bob WHERE status = 'revisado_asistente' ORDER BY expense_date DESC, fre_id DESC LIMIT 5) t
+  ),
+  pending_expenses_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'fre_id', fre_id, 'expense_date', expense_date, 'description', description,
+      'amount', amount, 'currency', currency, 'amount_bob', amount_bob, 'status', status
+    ) ORDER BY expense_date DESC, fre_id DESC), '[]'::jsonb) AS items
+    FROM (SELECT * FROM expense_amount_bob WHERE status IN ('pendiente_aprobacion', 'aprobado_gerente') ORDER BY expense_date DESC, fre_id DESC LIMIT 5) t
+  ),
+  -- display_status (§4.6/§5.3): pendiente_gerente / aprobado_pendiente_desembolso /
+  -- desembolsado / observado / rechazado. Excluye solicitudes padre en borrador (D-4:
+  -- approval_status='pendiente' por default ahi, y aparecerian falsamente como pendientes).
+  requests_raw AS (
+    SELECT frwo.fr_wo_id, frwo.fund_request_id, fr.request_number, frwo.allocated_amount,
+      fr.currency,
+      CASE fr.currency WHEN 'BOB' THEN 1 ELSE COALESCE(wr.rate_to_bob, public.latest_exchange_rate()) END AS rate_to_bob,
+      CASE
+        WHEN frwo.approval_status = 'pendiente' THEN 'pendiente_gerente'
+        WHEN frwo.approval_status = 'aprobado' AND fr.status NOT IN ('fondos_entregados', 'en_liquidacion', 'cerrado') THEN 'aprobado_pendiente_desembolso'
+        WHEN frwo.approval_status = 'aprobado' AND fr.status IN ('fondos_entregados', 'en_liquidacion', 'cerrado') THEN 'desembolsado'
+        WHEN frwo.approval_status = 'observado' THEN 'observado'
+        WHEN frwo.approval_status = 'rechazado' THEN 'rechazado'
+      END AS display_status,
+      frwo.manager_decided_at,
+      COALESCE(fr.submitted_at, fr.created_at) AS submitted_at
+    FROM public.fund_request_work_orders frwo
+    JOIN wo_rate wr ON wr.wo_id = frwo.wo_id
+    JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+    WHERE fr.status <> 'borrador'
+  ),
+  requests_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'fr_wo_id', fr_wo_id, 'fund_request_id', fund_request_id, 'request_number', request_number,
+      'allocated_amount', allocated_amount, 'currency', currency,
+      'allocated_amount_bob', allocated_amount * rate_to_bob,
+      'display_status', display_status, 'decided_at', manager_decided_at, 'submitted_at', submitted_at
+    ) ORDER BY submitted_at DESC, fr_wo_id DESC), '[]'::jsonb) AS items
+    FROM (SELECT * FROM requests_raw ORDER BY submitted_at DESC, fr_wo_id DESC LIMIT 5) t
+  )
+
+  -- ── Ensamblado final (plan_v2.md §7.3: forma exacta del payload) ────────────────────
+  SELECT jsonb_build_object(
+    'meta', jsonb_build_object(
+      'engagement_id', eng.engagement_id,
+      'engagement_code', eng.engagement_code,
+      'engagement_name', eng.engagement_name,
+      'client_legal_name', eng.client_legal_name,
+      'role_key', v_role,
+      'today', v_today,
+      'week_start', v_week_start,
+      'prev_week_start', v_prev_week_start,
+      'period_start', p_start,
+      'period_end', p_end,
+      'alert_weeks', v_alert_weeks,
+      'selected_accessible', true
+    ),
+    'detail', jsonb_build_object(
+      'kpis', jsonb_build_object(
+        'staffing', jsonb_build_object(
+          'current', jsonb_build_object('logged', ks.current_logged, 'assigned', ks.current_assigned),
+          'previous', jsonb_build_object('logged', ks.previous_logged, 'assigned', ks.previous_assigned)
+        ),
+        'pending_approval', jsonb_build_object('last_week_hours', kp.last_week_hours, 'aged_hours', kp.aged_hours),
+        'last_time_entry', jsonb_build_object(
+          'date', kle.last_date,
+          'days', CASE WHEN kle.last_date IS NULL THEN NULL ELSE (v_today - kle.last_date) END
+        ),
+        'last_approval', jsonb_build_object(
+          'date', kla.last_at::date,
+          'days', CASE WHEN kla.last_at IS NULL THEN NULL ELSE (v_today - kla.last_at::date) END
+        )
+      ),
+      'budget', jsonb_build_object(
+        'budget_hours', bh.hours, 'actual_hours', ah.hours,
+        'consumed_percent', CASE WHEN bh.hours > 0 THEN (ah.hours / bh.hours) * 100 ELSE 0 END
+      ),
+      'breakdown', bj.items,
+      'team', jsonb_build_object(
+        'partner', tr.partner, 'manager', tr.manager, 'encargado', tr.encargado,
+        'specialist_it', tr.specialist_it, 'specialist_tax', tr.specialist_tax, 'sqr', tr.sqr
+      ),
+      'staffing', jsonb_build_object('people', pj.items, 'weeks', wj.items),
+      'expenses', jsonb_build_object(
+        'budget_bob', ebb.budget_bob, 'executed_bob', ebc.executed_bob,
+        'executed_percent', CASE WHEN ebb.budget_bob > 0 THEN (ebc.executed_bob / ebb.budget_bob) * 100 ELSE 0 END,
+        'approved', aej.items, 'pending', pej.items, 'requests', rj.items
+      ),
+      'approval_queue', jsonb_build_object(
+        'total_hours', aqj.total_hours, 'distinct_people', aqj.distinct_people, 'items', aqj.items
+      )
+    )
+  )
+  FROM eng
+  CROSS JOIN kpi_staffing ks
+  CROSS JOIN kpi_pending kp
+  CROSS JOIN kpi_last_entry kle
+  CROSS JOIN kpi_last_approval kla
+  CROSS JOIN budget_hours_cte bh
+  CROSS JOIN actual_hours_cte ah
+  CROSS JOIN breakdown_json bj
+  CROSS JOIN team_raw tr
+  CROSS JOIN people_json pj
+  CROSS JOIN weeks_json wj
+  CROSS JOIN expense_budget_bob ebb
+  CROSS JOIN executed_bob_cte ebc
+  CROSS JOIN approved_expenses_json aej
+  CROSS JOIN pending_expenses_json pej
+  CROSS JOIN requests_json rj
+  CROSS JOIN approval_queue_json aqj
+  );
+
+  RETURN COALESCE(v_result, '{}'::jsonb);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION engagement_overview(p_engagement_id uuid, p_start date, p_end date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.engagement_overview(p_engagement_id uuid, p_start date, p_end date) IS 'dash_encargo (decisiones.md §4, plan_v2.md §7.3-§7.5; corrección post-ejecución #2): payload completo de la pestaña Encargo (4 KPI sin montos, consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9 semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona) en un único round-trip/instantánea MVCC. Un encargo fuera de alcance o inexistente devuelve selected_accessible=false + detail=null, SIN excepción (no distingue "no existe" de "no es tuyo"). R-1: las vistas vw_* que usa son security_invoker=on pero corren sin RLS dentro de este SECURITY DEFINER -- por eso can_read_engagement_dashboard() corre antes de cualquier CTE y cada CTE que toca una vista filtra por engagement_id. R-3 (heredado, sin cambios): vw_wo_budget_hours_by_category no filtra por version/status de la worksheet, puede doble-contar si un WO tiene mas de una hoja -- mismo comportamiento que la pestaña actual. R-4 (deliberado, decisiones.md §4.1): horas cargadas sin fila en timesheet_line_approvals NUNCA cuentan como "pendientes", pero sí como Cargado/consumo -- también aplica a approval_queue, que se alimenta de la misma pending_lines. D-1: "semanas del rango" para Asignado = semanas calendario tocadas (lunes a lunes), no fracciones. Gastos: "ejecutado" = SOLO revisado_asistente (decisiones.md §4.6, corrige la inconsistencia de portfolio_overview() que sí cuenta aprobado_gerente -- ese bug de Cartera queda fuera de alcance de esta migración). Solicitudes excluyen fund_requests.status=borrador. approval_queue: consolida pending_lines POR PERSONA (staff_id) -- hours es la SUMA de todas sus líneas pendientes en este encargo (no solo la más vieja, a diferencia de portfolio_overview() en dash_cartera), weeks_old es el de su línea más antigua, alert reutiliza el mismo v_alert_weeks que aged_hours (ninguna fuente de verdad nueva); "crítico" en el frontend (review.md iteración 1, MF-05) es exactamente este alert, sin un segundo escalón más severo -- encargoOverviewAggregation.ts no calcula ningún umbral adicional.';
 
 
 --
@@ -4939,6 +5546,28 @@ $$;
 
 
 --
+-- Name: latest_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.latest_exchange_rate() RETURNS numeric
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(
+    (SELECT compra FROM public.exchange_rate_history ORDER BY fecha_vigencia DESC LIMIT 1),
+    (SELECT setting_value::numeric FROM public.global_settings WHERE setting_key = 'default_exchange_rate')
+  );
+$$;
+
+
+--
+-- Name: FUNCTION latest_exchange_rate(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.latest_exchange_rate() IS 'dash_socio (decisiones.md §4.1): TC de respaldo para wo_payment_plan.exchange_rate DEFAULT y para convertir honorarios/cuotas a Bs. Mismo orden que el navbar (useExchangeRate.ts:28): compra mas reciente de exchange_rate_history, si no hay historial cae a global_settings.default_exchange_rate. Devuelve NULL si ninguna fuente existe -- el INSERT que dependa del DEFAULT falla entonces con NOT NULL, nunca guarda basura.';
+
+
+--
 -- Name: link_auth_user_to_staff(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4998,6 +5627,75 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: list_dashboard_engagements(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_dashboard_engagements() RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role   text;
+  v_staff  uuid;
+  v_result jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: no session';
+  END IF;
+  IF NOT public.has_permission('dashboard.engagement.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.engagement.read';
+  END IF;
+
+  v_role := public.current_role_key();
+  v_staff := public.get_my_staff_id();
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+    'engagement_id', e.engagement_id,
+    'engagement_code', e.engagement_code,
+    'engagement_name', e.engagement_name,
+    'client_legal_name', cl.client_legal_name,
+    'end_date', e.end_date
+  ) ORDER BY e.engagement_code NULLS LAST, e.engagement_id), '[]'::jsonb)
+  INTO v_result
+  FROM public.engagements e
+  JOIN public.clients cl ON cl.client_id = e.client_id
+  WHERE e.status = 'active'
+    AND COALESCE(e.engagement_state_override, 0) NOT IN (6, 7)
+    AND e.funcion = 1
+    AND (
+      v_role IN ('admin', 'senior_partner')
+      OR (
+        v_staff IS NOT NULL
+        AND CASE v_role
+              WHEN 'partner'      THEN e.partner_id = v_staff
+              WHEN 'director'     THEN e.partner_id = v_staff
+              WHEN 'risk_partner' THEN e.partner_id = v_staff
+              WHEN 'sqr'          THEN e.partner_id = v_staff
+              WHEN 'manager'      THEN e.manager_id = v_staff
+              WHEN 'ita_manager'  THEN e.manager_id = v_staff
+              WHEN 'tax_manager'  THEN e.manager_id = v_staff
+              WHEN 'senior'       THEN e.encargado_id = v_staff
+              WHEN 'semisenior'   THEN e.encargado_id = v_staff
+              WHEN 'ita_senior'   THEN e.specialist_it_id = v_staff
+              WHEN 'tax_senior'   THEN e.specialist_tax_id = v_staff
+              ELSE false
+            END
+      )
+    );
+
+  RETURN v_result;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION list_dashboard_engagements(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_dashboard_engagements() IS 'dash_encargo (plan_v2.md §7.2; corrección post-ejecución): alimenta EngagementSelector con el alcance completo de decisiones.md §2 (encargado_id/specialist_it_id/specialist_tax_id incluidos, no solo partner_id/manager_id como el filtro legacy de EngagementSelector.tsx). Mismo mapeo rol->campo que can_read_engagement_dashboard(), inline por rendimiento. Filtro de "activo" idéntico al legacy: status=active y engagement_state_override NOT IN (6,7). Agrega funcion=1 (Cliente, no en can_read_engagement_dashboard() a propósito -- ver comentario en el CREATE) para no listar encargos administrativos, y devuelve end_date (nullable) para que el frontend autoseleccione el encargo con fecha de fin más próxima.';
 
 
 --
@@ -5185,6 +5883,35 @@ $$;
 --
 
 COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos) y own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) -- ver plan_v2 bugs/0828-185. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+
+
+--
+-- Name: log_engagement_assignment_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.log_engagement_assignment_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.partner_id IS DISTINCT FROM OLD.partner_id THEN
+    INSERT INTO public.portfolio_events (engagement_id, event_type, subject_staff_id, previous_staff_id, actor_user_id)
+    VALUES (NEW.engagement_id, 'partner_assigned', NEW.partner_id, OLD.partner_id, auth.uid());
+  END IF;
+  IF NEW.manager_id IS DISTINCT FROM OLD.manager_id THEN
+    INSERT INTO public.portfolio_events (engagement_id, event_type, subject_staff_id, previous_staff_id, actor_user_id)
+    VALUES (NEW.engagement_id, 'manager_assigned', NEW.manager_id, OLD.manager_id, auth.uid());
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION log_engagement_assignment_change(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.log_engagement_assignment_change() IS 'dash_cartera (decisiones.md §7.2, plan_v2.md §6.2): inserta en portfolio_events cuando partner_id/manager_id cambian de valor (IS DISTINCT FROM, cubre NULL). AFTER UPDATE OF esas 2 columnas -> un UPDATE de engagements que no las toque nunca dispara este trigger. RETURN NULL (AFTER trigger, el valor de retorno se ignora). SECURITY DEFINER porque portfolio_events no tiene ninguna policy de INSERT para authenticated.';
 
 
 --
@@ -8333,6 +9060,1058 @@ COMMENT ON FUNCTION public.notify_worksheet_events() IS 'FASE 3.g: hoja de traba
 
 
 --
+-- Name: partner_overview(date, date, integer, uuid, uuid, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.partner_overview(p_start date, p_end date, p_fiscal_year integer DEFAULT NULL::integer, p_client_id uuid DEFAULT NULL::uuid, p_manager_id uuid DEFAULT NULL::uuid, p_industry_id uuid DEFAULT NULL::uuid, p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF NOT public.has_permission('dashboard.partner.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.partner.read';
+  END IF;
+
+  v_result := (
+  WITH
+  -- ── 1. Llamante ──────────────────────────────────────────────────────────────────────
+  caller AS (
+    SELECT public.get_my_staff_id() AS staff_id,
+           public.current_role_key() AS role_key
+  ),
+  caller_staff AS (
+    SELECT s.staff_id AS resolved_staff_id, s.society_id, soc.name AS society_name
+    FROM caller c
+    LEFT JOIN public.staff s ON s.staff_id = c.staff_id
+    LEFT JOIN public.society soc ON soc.society_id = s.society_id
+  ),
+  now_ctx AS (
+    SELECT ((now() AT TIME ZONE 'America/La_Paz')::date) AS today
+  ),
+  default_rate AS (
+    SELECT public.latest_exchange_rate() AS rate
+  ),
+
+  -- ── 2. Estado efectivo por encargo ───────────────────────────────────────────────────
+  eng_state AS (
+    SELECT
+      e.engagement_id, e.client_id, e.engagement_name, e.partner_id, e.manager_id, e.sqr_id,
+      e.society_id, e.start_date, e.end_date, e.anio_fiscal, e.fecha_cierre, e.funcion,
+      e.work_order_required, e.engagement_state_override,
+      cl.industry_id,
+      wo.wo_id, wo.currency, wo.season_mode, wo.tax_rate, wo.adjustment_amount,
+      wo.approval_status, wo.risk_status, wo.approved_at,
+      public.effective_engagement_state(
+        e.engagement_state_override, e.work_order_required, wo.wo_id,
+        wo.approval_status, wo.risk_status, wo.approved_at
+      ) AS state
+    FROM public.engagements e
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+  ),
+
+  -- ── 3. Alcance por rol (decisiones.md §2), SIN filtrar por estado todavia ───────────
+  -- Correccion del operador (2026-09-16): director/sqr/risk_partner solo entran a la
+  -- cartera principal (este CTE, y todo lo que se arma sobre scope_all/scope: KPI1, Bloques
+  -- A-H, KPI5) por ser SOCIO del encargo (partner_id = yo). Ser SQR de un encargo (sqr_id =
+  -- yo) YA NO alcanza aqui -- ese encargo no cuenta como "de tu cartera", sos parte del
+  -- equipo. Las horas de SQR siguen visibles, pero SOLO via kpis.my_sqr_hours (CTEs
+  -- my_sqr_engagements/my_sqr_budget/my_sqr_hours mas abajo, seccion 12), que ya eran
+  -- siempre personales y NUNCA dependieron de este CTE -- no requieren cambio.
+  role_scope AS (
+    SELECT es.*
+    FROM eng_state es
+    CROSS JOIN caller c
+    LEFT JOIN caller_staff cs ON true
+    WHERE
+      c.role_key IN ('senior_partner', 'admin')
+      OR (c.role_key = 'partner' AND es.society_id IS NOT NULL AND cs.society_id IS NOT NULL
+          AND es.society_id = cs.society_id)
+      OR (c.role_key IN ('director', 'sqr', 'risk_partner') AND c.staff_id IS NOT NULL
+          AND es.partner_id = c.staff_id)
+  ),
+
+  -- ── 4. scope_all: + estado 4/5 + funcion Cliente + filtro de periodo ────────────────
+  -- 2026-09-17: revertido el intento de usar fecha_cierre para el filtro de periodo --
+  -- vuelve al solapamiento start_date/end_date original (con anio_fiscal cuando el
+  -- selector es FY completo). Motivo: start_date/end_date son la vida real del encargo
+  -- (overlap con el rango elegido, no exige que empiece o termine adentro); fecha_cierre
+  -- sola excluiria encargos activos cuyo cierre cae fuera del rango aunque hayan tenido
+  -- horas/facturacion durante el periodo. fecha_cierre sigue usandose para KPI 1
+  -- "finalizados en el periodo" y para el pp de cumplimiento del Bloque F (client-side).
+  -- 2026-09-17: se agrega `funcion = 1` (Cliente) a la regla base de cartera -- los
+  -- encargos con funcion Administrativo(0)/Capacitacion(2)/Calidad(3) NO entran a NINGUN
+  -- bloque de este tablero (decision del operador: "toda esta grafica de Practica" es
+  -- solo cartera de clientes). `funcion = 1` ya excluye NULL (dato legacy sin clasificar)
+  -- sin necesidad de una clausula aparte -- la columna no es NOT NULL hoy (queda para
+  -- otro issue), asi que un encargo sin clasificar queda afuera, igual que decidio el
+  -- operador para las otras funciones.
+  scope_all AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state IN (4, 5)
+      AND rs.funcion = 1
+      AND (
+        CASE WHEN p_fiscal_year IS NOT NULL THEN rs.anio_fiscal = p_fiscal_year
+             ELSE COALESCE(rs.start_date, p_start) <= p_end AND COALESCE(rs.end_date, p_end) >= p_start
+        END
+      )
+  ),
+
+  -- ── 5. Opciones de filtro (desde scope_all, antes de aplicar Cliente/Gerente/Sector) ─
+  filters_clients AS (
+    SELECT DISTINCT cl.client_id, cl.client_legal_name
+    FROM scope_all sa JOIN public.clients cl ON cl.client_id = sa.client_id
+  ),
+  filters_managers AS (
+    SELECT DISTINCT s.staff_id, s.short_name
+    FROM scope_all sa JOIN public.staff s ON s.staff_id = sa.manager_id
+    WHERE sa.manager_id IS NOT NULL
+  ),
+  filters_industries AS (
+    SELECT DISTINCT i.industry_id, i.industry_name
+    FROM scope_all sa JOIN public.industries i ON i.industry_id = sa.industry_id
+    WHERE sa.industry_id IS NOT NULL
+  ),
+  -- 2026-09-17: opciones del filtro de Sociedad. Solo lo consume la UI para
+  -- admin/senior_partner, pero se arma igual para cualquier rol (barato: 2 filas fijas).
+  -- FIX 2026-09-17 (consolidado en review.md iteracion 2, MF-02): filters_societies NO se
+  -- deriva de scope_all. Es un selector cerrado de las sociedades reales de la firma
+  -- (decisiones.md §2) -- debe listar siempre las mismas opciones, tenga o no encargos
+  -- calificados en el periodo/alcance actual (antes: `SELECT DISTINCT ... FROM scope_all sa
+  -- JOIN public.society soc ...` -- una sociedad sin encargos en cartera desaparecia del
+  -- selector, hallazgo real de revision visual del operador). Este fix vivia en una
+  -- migracion incremental separada (20260917150000) que quedo retirada: como ninguna
+  -- migracion de este feature esta aplicada a un ambiente real todavia (confirmado por el
+  -- operador, review.md iteracion 2, MF-01), se consolido de vuelta aca en vez de mantener
+  -- dos copias completas de partner_overview() (memoria del proyecto: minimizar archivos de
+  -- migracion).
+  filters_societies AS (
+    SELECT soc.society_id, soc.name
+    FROM public.society soc
+    WHERE soc.is_active
+  ),
+  filters_agg AS (
+    SELECT
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('client_id', client_id, 'client_legal_name', client_legal_name)
+                                 ORDER BY client_legal_name) FROM filters_clients), '[]'::jsonb) AS clients,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('staff_id', staff_id, 'short_name', short_name)
+                                 ORDER BY short_name) FROM filters_managers), '[]'::jsonb) AS managers,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('industry_id', industry_id, 'industry_name', industry_name)
+                                 ORDER BY industry_name) FROM filters_industries), '[]'::jsonb) AS industries,
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('society_id', society_id, 'name', name)
+                                 ORDER BY name) FROM filters_societies), '[]'::jsonb) AS societies
+  ),
+
+  -- ── 6. scope: + filtros Cliente/Gerente/Sector/Sociedad del encabezado ──────────────
+  scope AS (
+    SELECT sa.*
+    FROM scope_all sa
+    WHERE (p_client_id IS NULL OR sa.client_id = p_client_id)
+      AND (p_manager_id IS NULL OR sa.manager_id = p_manager_id)
+      AND (p_industry_id IS NULL OR sa.industry_id = p_industry_id)
+      AND (p_society_id IS NULL OR sa.society_id = p_society_id)
+  ),
+
+  -- ── 6b. scope_previous_year: MISMO alcance/filtros que `scope`, pero para el periodo
+  -- desplazado un anio (review.md iteracion 1, MF-02). Antes, `previous_total_bob` sumaba
+  -- sobre el `scope` ACTUAL filtrando approved_at al anio pasado -- un encargo que solo
+  -- estuvo en cartera el anio pasado (y ya no esta en `scope` hoy) quedaba afuera de la
+  -- comparacion. Mismo criterio de "periodo anterior" que ya usa hours_totals.prior_period_*
+  -- mas abajo: siempre por solapamiento de fechas desplazado, sin distinguir FY completo
+  -- (ninguna otra comparacion "vs anterior" del tablero lo distingue tampoco).
+  scope_previous_year AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state IN (4, 5)
+      AND rs.funcion = 1
+      -- mismo default "sin fechas = siempre activo" que scope_all, pero contra la
+      -- ventana desplazada (NO contra p_start/p_end actuales -- ese era el bug: con
+      -- COALESCE(..., p_end) cualquier encargo con start_date/end_date NULL quedaba
+      -- excluido siempre, porque p_end > p_end-1y nunca es <= p_end-1y).
+      AND COALESCE(rs.start_date, (p_start - interval '1 year')::date) <= (p_end - interval '1 year')::date
+      AND COALESCE(rs.end_date, (p_end - interval '1 year')::date) >= (p_start - interval '1 year')::date
+      AND (p_client_id IS NULL OR rs.client_id = p_client_id)
+      AND (p_manager_id IS NULL OR rs.manager_id = p_manager_id)
+      AND (p_industry_id IS NULL OR rs.industry_id = p_industry_id)
+      AND (p_society_id IS NULL OR rs.society_id = p_society_id)
+  ),
+
+  -- ── 7. wo: OT aprobada por encargo -- honorario, gastos, TC, bases neta/con IVA ─────
+  -- Condicion 4.1/4.2: solo cuenta el fee/gastos/horas presupuestadas de una OT con
+  -- approval_status = 'Approved' (un override manual puede forzar estado 4/5 aunque la
+  -- OT real siga en Draft/Pending_Approval; esa OT no debe aportar dinero al tablero).
+  wo_raw AS (
+    SELECT
+      s.engagement_id, s.wo_id, s.currency, s.season_mode,
+      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
+      s.approval_status, s.approved_at,
+      COALESCE(bl.fee, 0) AS total_standard_fee,
+      COALESCE(eb.amt, 0) AS expense_budget,
+      p.plan_id, p.exchange_rate AS plan_exchange_rate, p.exchange_rate_mode AS plan_exchange_rate_mode
+    FROM scope s
+    LEFT JOIN LATERAL (
+      SELECT SUM(bl.budgeted_hours * bl.standard_rate) AS fee
+      FROM public.wo_budget_lines bl
+      WHERE bl.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    ) bl ON true
+    LEFT JOIN LATERAL (
+      SELECT SUM(eb.budgeted_amount) AS amt
+      FROM public.wo_expense_budget eb
+      WHERE eb.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    ) eb ON true
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = s.wo_id
+  ),
+  wo_rate AS (
+    SELECT
+      w.*,
+      (w.total_standard_fee + w.adjustment_amount) AS fee_net,
+      CASE
+        WHEN w.currency = 'BOB' THEN 1
+        WHEN w.plan_exchange_rate IS NOT NULL THEN w.plan_exchange_rate
+        WHEN w.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM wo_raw w
+  ),
+  wo AS (
+    SELECT
+      w.*,
+      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+    FROM wo_rate w
+  ),
+
+  -- ── 8. budget_hours: horas presupuestadas por encargo y por categoria (4.2, KPI 3/4) ─
+  budget_hours AS (
+    SELECT s.engagement_id, cat.category_name, SUM(bl.budgeted_hours) AS hours
+    FROM scope s
+    JOIN public.wo_budget_lines bl ON bl.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    JOIN public.categories cat ON cat.category_id = bl.category_id
+    GROUP BY s.engagement_id, cat.category_name
+  ),
+  budget_hours_total AS (
+    SELECT engagement_id, SUM(hours) AS total_budget_hours
+    FROM budget_hours GROUP BY engagement_id
+  ),
+
+  -- ── 9. hours: UN solo scan de time_entries (obs.9), 3 FILTER (periodo/anterior/vida) ─
+  hours AS (
+    SELECT
+      s.engagement_id,
+      CASE WHEN tla.status = 'approved' THEN 'approved'
+           WHEN tla.status = 'rejected' THEN 'rejected'
+           ELSE 'pending' END AS bucket,
+      te.hours_logged,
+      te.date_worked,
+      CASE WHEN s.wo_id IS NULL THEN 0
+        ELSE COALESCE(bl.standard_rate,
+          CASE WHEN s.currency = 'BOB' THEN
+                 CASE s.season_mode WHEN 'High' THEN cat.rate_high_bob ELSE cat.rate_low_bob END
+               ELSE
+                 CASE s.season_mode WHEN 'High' THEN cat.rate_high_usd ELSE cat.rate_low_usd END
+          END, 0)
+      END AS rate
+    FROM scope s
+    JOIN public.time_entries te ON te.engagement_id = s.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+    LEFT JOIN public.staff st ON st.staff_id = te.staff_id
+    LEFT JOIN public.wo_budget_lines bl
+      ON bl.wo_id = s.wo_id AND bl.category_id = st.category_id AND s.approval_status = 'Approved'
+    LEFT JOIN public.categories cat ON cat.category_id = st.category_id
+  ),
+  hours_totals AS (
+    SELECT
+      engagement_id,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end) AS period_total,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'approved') AS period_approved,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'pending') AS period_pending,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'rejected') AS period_rejected,
+      SUM(hours_logged) FILTER (
+        WHERE date_worked BETWEEN (p_start - interval '1 year')::date AND (p_end - interval '1 year')::date
+      ) AS prior_period_total,
+      -- review.md iteracion 1, MF-03: excluye 'rejected' del total de vida usado para
+      -- sobregiro (decisiones.md §4.3: rechazadas solo van al tooltip, nunca cuentan como
+      -- "cargado"). Antes este total sumaba TODOS los buckets.
+      SUM(hours_logged) FILTER (WHERE bucket IN ('approved', 'pending')) AS lifetime_consumed,
+      SUM(hours_logged * rate) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'approved') AS period_value_approved,
+      SUM(hours_logged * rate) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'pending') AS period_value_pending,
+      SUM(hours_logged * rate) FILTER (
+        WHERE date_worked BETWEEN (p_start - interval '1 year')::date AND (p_end - interval '1 year')::date
+      ) AS prior_period_value
+    FROM hours
+    GROUP BY engagement_id
+  ),
+
+  -- ── 10. expenses: 4.6, revisado_asistente (gastado) + aprobado_gerente (tooltip) ────
+  expenses_by_engagement AS (
+    SELECT
+      w.engagement_id,
+      COALESCE(SUM(fre.amount * CASE fre.currency WHEN 'BOB' THEN 1 ELSE COALESCE(w.rate_to_bob, (SELECT rate FROM default_rate)) END)
+        FILTER (WHERE fre.status = 'revisado_asistente' AND fre.expense_date BETWEEN p_start AND p_end), 0) AS reviewed_bob,
+      COALESCE(SUM(fre.amount * CASE fre.currency WHEN 'BOB' THEN 1 ELSE COALESCE(w.rate_to_bob, (SELECT rate FROM default_rate)) END)
+        FILTER (WHERE fre.status = 'aprobado_gerente' AND fre.expense_date BETWEEN p_start AND p_end), 0) AS manager_approved_bob
+    FROM wo w
+    LEFT JOIN public.fund_request_expenses fre ON fre.wo_id = w.wo_id
+    GROUP BY w.engagement_id
+  ),
+
+  -- ── 11. installments: Bloque B (fechas reales) + Bloque C (fechas pactadas) ─────────
+  installments_full AS (
+    SELECT
+      i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
+      i.status, i.agreed_invoice_date, i.agreed_payment_date,
+      i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
+      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
+      w.rate_to_bob,
+      COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
+      COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) AS payment_rate
+    FROM wo w
+    JOIN public.wo_payment_installments i ON i.wo_id = w.wo_id
+  ),
+  economic_cycle AS (
+    SELECT
+      COALESCE(SUM(inst.amount_native * inst.rate_to_bob), 0) AS to_invoice_bob,
+      COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (
+        WHERE inst.status IN ('Invoiced', 'Completed', 'Overdue')
+          AND inst.collection_invoice_date BETWEEN p_start AND p_end
+      ), 0) AS invoiced_bob,
+      COALESCE(SUM(inst.amount_native * inst.payment_rate) FILTER (
+        WHERE inst.status = 'Completed'
+          AND COALESCE(inst.payment_date_actual, inst.collection_payment_date) BETWEEN p_start AND p_end
+      ), 0) AS collected_bob,
+      COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (
+        WHERE inst.status IN ('Invoiced', 'Overdue')
+          AND inst.collection_invoice_date < (SELECT today FROM now_ctx) - 90
+      ), 0) AS overdue_90_bob,
+      COUNT(*) FILTER (
+        WHERE inst.status IN ('Invoiced', 'Overdue')
+          AND inst.collection_invoice_date < (SELECT today FROM now_ctx) - 90
+      ) AS overdue_90_count,
+      AVG(COALESCE(inst.payment_date_actual, inst.collection_payment_date) - inst.collection_invoice_date) FILTER (
+        WHERE inst.status = 'Completed'
+          AND COALESCE(inst.payment_date_actual, inst.collection_payment_date) BETWEEN p_start AND p_end
+      ) AS avg_collection_days
+    FROM installments_full inst
+  ),
+  collections_by_status AS (
+    SELECT jsonb_build_object(
+      'collected', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Completed'),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.payment_rate) FILTER (WHERE inst.status = 'Completed'), 0)),
+      'invoiced', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')), 0)),
+      'in_arrears', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)), 0)),
+      'upcoming', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)), 0))
+    ) AS by_status
+    FROM installments_full inst
+  ),
+  next7 AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
+        'client_legal_name', cl.client_legal_name,
+        'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        -- review.md dash_socio iteración 9, G-01 (2026-09-22): una cuota ya facturada
+        -- (Invoiced/Overdue) se valora al TC congelado de su factura (invoice_rate), NO al
+        -- TC del plan (rate_to_bob) -- consistente con collections_by_status.invoiced, unas
+        -- lineas mas arriba. Solo las Pending (aun sin facturar, kind='invoice') usan
+        -- rate_to_bob, porque todavia no hay TC congelado.
+        'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
+                        THEN inst.amount_native * inst.invoice_rate
+                        ELSE inst.amount_native * inst.rate_to_bob END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+    ), '[]'::jsonb) AS items
+    FROM installments_full inst
+    JOIN public.engagements e ON e.engagement_id = inst.engagement_id
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    WHERE
+      (inst.status IN ('Invoiced', 'Overdue')
+        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+      OR
+      (inst.status = 'Pending'
+        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+  ),
+  overdue_list AS (
+    SELECT
+      COUNT(*) AS cnt,
+      COALESCE(SUM(inst.amount_native * inst.rate_to_bob), 0) AS amt,
+      COALESCE(jsonb_agg(jsonb_build_object(
+        'installment_id', inst.installment_id, 'wo_id', inst.wo_id,
+        'client_legal_name', cl.client_legal_name,
+        'agreed_payment_date', inst.agreed_payment_date,
+        'amount_bob', inst.amount_native * inst.rate_to_bob
+      ) ORDER BY inst.agreed_payment_date), '[]'::jsonb) AS items
+    FROM installments_full inst
+    JOIN public.engagements e ON e.engagement_id = inst.engagement_id
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_payment_date < (SELECT today FROM now_ctx)
+  ),
+
+  -- ── 12. my_engagements/my_budget/my_hours: KPI 3/4, SIEMPRE personales ──────────────
+  -- 2026-09-17: KPI 3/4 son personales y no pasan por scope_all, pero tambien se
+  -- acotan a funcion=1 (Cliente) -- decision del operador ("si a las horas tambien,
+  -- solo si es para cliente").
+  my_partner_engagements AS (
+    SELECT es.* FROM eng_state es CROSS JOIN caller c
+    WHERE es.state IN (4, 5) AND es.funcion = 1 AND c.staff_id IS NOT NULL AND es.partner_id = c.staff_id
+  ),
+  my_sqr_engagements AS (
+    SELECT es.* FROM eng_state es CROSS JOIN caller c
+    WHERE es.state IN (4, 5) AND es.funcion = 1 AND c.staff_id IS NOT NULL AND es.sqr_id = c.staff_id
+  ),
+  my_partner_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS hours
+    FROM my_partner_engagements mpe
+    JOIN public.wo_budget_lines bl ON bl.wo_id = mpe.wo_id AND mpe.approval_status = 'Approved'
+    JOIN public.categories cat ON cat.category_id = bl.category_id AND cat.category_name = 'Socio'
+  ),
+  my_sqr_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS hours
+    FROM my_sqr_engagements mse
+    JOIN public.wo_budget_lines bl ON bl.wo_id = mse.wo_id AND mse.approval_status = 'Approved'
+    JOIN public.categories cat ON cat.category_id = bl.category_id AND cat.category_name = 'SQR'
+  ),
+  my_partner_hours AS (
+    SELECT
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'approved'), 0) AS approved,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND (tla.status IS NULL OR tla.status = 'pending')), 0) AS pending,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'rejected'), 0) AS rejected
+    FROM my_partner_engagements mpe
+    CROSS JOIN caller c
+    JOIN public.time_entries te
+      ON te.engagement_id = mpe.engagement_id AND te.staff_id = c.staff_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+  ),
+  my_sqr_hours AS (
+    SELECT
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'approved'), 0) AS approved,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND (tla.status IS NULL OR tla.status = 'pending')), 0) AS pending,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'rejected'), 0) AS rejected
+    FROM my_sqr_engagements mse
+    CROSS JOIN caller c
+    JOIN public.time_entries te
+      ON te.engagement_id = mse.engagement_id AND te.staff_id = c.staff_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+  ),
+  my_sqr_engagement_list AS (
+    SELECT
+      COUNT(*) AS cnt,
+      COALESCE(jsonb_agg(jsonb_build_object('engagement_id', engagement_id, 'engagement_name', engagement_name)), '[]'::jsonb) AS items
+    FROM my_sqr_engagements
+  ),
+
+  -- ── 13. wo_pending: OT pendientes/riesgo pendiente, TODOS los estados (KPI 5) ───────
+  wo_pending_scope AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.funcion = 1  -- 2026-09-17: solo cartera de clientes, igual que scope_all
+      AND (p_client_id IS NULL OR rs.client_id = p_client_id)
+      AND (p_manager_id IS NULL OR rs.manager_id = p_manager_id)
+      AND (p_industry_id IS NULL OR rs.industry_id = p_industry_id)
+      AND (p_society_id IS NULL OR rs.society_id = p_society_id)
+  ),
+  wo_pending AS (
+    SELECT
+      COUNT(*) FILTER (WHERE approval_status = 'Pending_Approval') AS pending_wo_count,
+      COUNT(*) FILTER (WHERE risk_status = 'Pending' AND approval_status = 'Approved') AS pending_risk_count
+    FROM wo_pending_scope
+  ),
+
+  -- ── 14. finalizados en el periodo (KPI 1, obs.8: end_date como proxy) ───────────────
+  finalized_scope AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state = 7
+      AND rs.funcion = 1  -- 2026-09-17: solo cartera de clientes, igual que scope_all
+      AND rs.end_date BETWEEN p_start AND p_end
+      AND (p_client_id IS NULL OR rs.client_id = p_client_id)
+      AND (p_manager_id IS NULL OR rs.manager_id = p_manager_id)
+      AND (p_industry_id IS NULL OR rs.industry_id = p_industry_id)
+      AND (p_society_id IS NULL OR rs.society_id = p_society_id)
+  ),
+
+  -- ── 15. alertas adicionales (Bloque H) ──────────────────────────────────────────────
+  alerts_extra AS (
+    SELECT
+      COUNT(*) FILTER (WHERE s.fecha_cierre BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 30) AS closing_soon,
+      COUNT(*) FILTER (WHERE s.risk_status = 'Pending' AND s.approval_status = 'Approved') AS risk_pending
+    FROM scope s
+  ),
+  draft_worksheets_agg AS (
+    SELECT COUNT(*) AS cnt
+    FROM public.activity_worksheets aw
+    JOIN scope s ON s.engagement_id = aw.engagement_id
+    WHERE aw.status = 'draft' AND aw.wo_id IS NULL
+  ),
+
+  -- ── 16. filas por encargo (Bloque F, sobregiro de KPI 5, Bloque E) ──────────────────
+  engagement_rows AS (
+    SELECT
+      s.engagement_id, s.engagement_name, s.client_id, s.manager_id, s.industry_id,
+      s.approval_status, s.risk_status, s.state,
+      cl.client_legal_name,
+      mgr.short_name AS manager_short_name,
+      COALESCE(bt.total_budget_hours, 0) AS budget_hours,
+      COALESCE(ht.period_approved, 0) AS approved_hours,
+      COALESCE(ht.period_pending, 0) AS pending_hours,
+      COALESCE(ht.period_rejected, 0) AS rejected_hours,
+      COALESCE(ht.lifetime_consumed, 0) AS lifetime_hours,
+      (COALESCE(ht.lifetime_consumed, 0) > COALESCE(bt.total_budget_hours, 0)) AS over_budget,
+      CASE WHEN COALESCE(bt.total_budget_hours, 0) > 0
+           THEN COALESCE(ht.lifetime_consumed, 0) / bt.total_budget_hours
+           ELSE 0 END AS consumption_ratio
+    FROM scope s
+    JOIN public.clients cl ON cl.client_id = s.client_id
+    LEFT JOIN public.staff mgr ON mgr.staff_id = s.manager_id
+    LEFT JOIN budget_hours_total bt ON bt.engagement_id = s.engagement_id
+    LEFT JOIN hours_totals ht ON ht.engagement_id = s.engagement_id
+  ),
+  -- 2026-09-17: se retira engagement_hours_agg (preview fijo de 20, ordenado siempre
+  -- igual). El Bloque F ya no lee un preview de este payload -- consulta siempre
+  -- partner_overview_engagements() (mismos filtros + p_sort_key + p_over_budget_only),
+  -- que ahora también sirve la vista "top 10" además de "Ver todos". engagement_rows se
+  -- mantiene solo para over_budget_agg (KPI 5 / Bloque H).
+  over_budget_agg AS (
+    SELECT COUNT(*) FILTER (WHERE over_budget) AS cnt FROM engagement_rows
+  ),
+
+  -- ── 17. sectores, gerentes, top clientes ────────────────────────────────────────────
+  sectors AS (
+    SELECT s.industry_id, ind.industry_name,
+      COUNT(*) AS engagement_count,
+      COALESCE(SUM(w.fee_net * w.rate_to_bob), 0) AS fee_bob
+    FROM scope s
+    LEFT JOIN public.industries ind ON ind.industry_id = s.industry_id
+    LEFT JOIN wo w ON w.engagement_id = s.engagement_id
+    GROUP BY s.industry_id, ind.industry_name
+  ),
+  sectors_agg AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'industry_id', industry_id, 'industry_name', industry_name,
+        'engagement_count', engagement_count, 'fee_bob', fee_bob
+      ) ORDER BY fee_bob DESC), '[]'::jsonb) AS items
+    FROM sectors
+  ),
+  managers AS (
+    SELECT s.manager_id AS staff_id, st.short_name,
+      COUNT(*) AS engagement_count,
+      COALESCE(SUM(bt.total_budget_hours), 0) AS budget_hours,
+      COALESCE(SUM(ht.period_approved), 0) AS approved_hours,
+      COALESCE(SUM(ht.period_pending), 0) AS pending_hours,
+      COUNT(*) FILTER (WHERE s.approval_status = 'Pending_Approval') AS pending_wo_count,
+      -- 2026-09-17 (Bloque E rediseñado a tabla): fecha de inicio más próxima y fecha fin
+      -- más lejana entre los encargos 4/5 del gerente (mismo alcance de siempre).
+      MIN(s.start_date) AS start_date,
+      MAX(s.end_date) AS end_date
+    FROM scope s
+    LEFT JOIN public.staff st ON st.staff_id = s.manager_id
+    LEFT JOIN budget_hours_total bt ON bt.engagement_id = s.engagement_id
+    LEFT JOIN hours_totals ht ON ht.engagement_id = s.engagement_id
+    WHERE s.manager_id IS NOT NULL
+    GROUP BY s.manager_id, st.short_name
+  ),
+  managers_agg AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'staff_id', staff_id, 'short_name', short_name, 'engagement_count', engagement_count,
+        'budget_hours', budget_hours, 'approved_hours', approved_hours, 'pending_hours', pending_hours,
+        'pending_wo_count', pending_wo_count, 'start_date', start_date, 'end_date', end_date
+      ) ORDER BY (CASE WHEN budget_hours > 0 THEN (approved_hours + pending_hours) / budget_hours ELSE 0 END) DESC),
+      '[]'::jsonb) AS items
+    FROM managers
+  ),
+  top_clients_base AS (
+    SELECT
+      s.client_id, cl.client_legal_name,
+      COUNT(*) AS engagement_count,
+      COALESCE(SUM(w.fee_net * w.rate_to_bob), 0) AS fee_bob,
+      COALESCE(SUM(w.fee_net * w.rate_to_bob), 0)
+        - (COALESCE(SUM(ht.period_value_approved), 0) + COALESCE(SUM(ht.period_value_pending), 0) + COALESCE(SUM(eb.reviewed_bob), 0)) AS margin_abs,
+      COALESCE(SUM(ifull.to_invoice_bob), 0) AS to_invoice_bob,
+      COALESCE(SUM(ifull.collected_bob), 0) AS collected_bob
+    FROM scope s
+    JOIN public.clients cl ON cl.client_id = s.client_id
+    LEFT JOIN wo w ON w.engagement_id = s.engagement_id
+    LEFT JOIN hours_totals ht ON ht.engagement_id = s.engagement_id
+    LEFT JOIN expenses_by_engagement eb ON eb.engagement_id = s.engagement_id
+    LEFT JOIN (
+      SELECT engagement_id,
+        SUM(amount_native * rate_to_bob) AS to_invoice_bob,
+        SUM(amount_native * payment_rate) FILTER (WHERE status = 'Completed') AS collected_bob
+      FROM installments_full GROUP BY engagement_id
+    ) ifull ON ifull.engagement_id = s.engagement_id
+    GROUP BY s.client_id, cl.client_legal_name
+  ),
+  top_clients_agg AS (
+    SELECT COALESCE(
+      (SELECT jsonb_agg(jsonb_build_object(
+          'client_id', client_id, 'client_legal_name', client_legal_name, 'fee_bob', fee_bob,
+          'engagement_count', engagement_count,
+          'margin_pct', CASE WHEN fee_bob > 0 THEN round((margin_abs / fee_bob) * 100, 2) ELSE NULL END,
+          'collected_pct', CASE WHEN to_invoice_bob > 0 THEN round((collected_bob / to_invoice_bob) * 100, 2) ELSE NULL END
+        ) ORDER BY fee_bob DESC)
+       FROM (SELECT * FROM top_clients_base ORDER BY fee_bob DESC LIMIT 5) t5),  -- 2026-09-17: 3 -> 5
+      '[]'::jsonb
+    ) AS items
+  ),
+
+  -- ── 18. rentabilidad (Bloque A) + honorarios/sparkline (KPI 2) ──────────────────────
+  profitability_agg AS (
+    SELECT
+      COALESCE(SUM(bt.total_budget_hours), 0) AS hours_budget,
+      COALESCE(SUM(ht.period_approved), 0) AS hours_approved,
+      COALESCE(SUM(ht.period_pending), 0) AS hours_pending,
+      COALESCE(SUM(ht.period_rejected), 0) AS hours_rejected,
+      COALESCE(SUM(ht.prior_period_total), 0) AS hours_previous_logged,
+      COALESCE(SUM(w.fee_net * w.rate_to_bob), 0) AS money_fee_net,
+      COALESCE(SUM(w.expense_budget * w.rate_to_bob), 0) AS money_expense_budget,
+      COALESCE(SUM(ht.period_value_approved), 0) AS money_hours_valued_approved,
+      COALESCE(SUM(ht.period_value_pending), 0) AS money_hours_valued_pending,
+      COALESCE(SUM(eb.reviewed_bob), 0) AS money_expenses_reviewed,
+      COALESCE(SUM(eb.manager_approved_bob), 0) AS money_expenses_manager_approved,
+      COALESCE(SUM(ht.prior_period_value), 0) AS money_previous_executed,
+      COUNT(*) FILTER (WHERE w.wo_id IS NOT NULL AND w.plan_exchange_rate_mode = 'variable') AS variable_rate_count,
+      COUNT(*) FILTER (WHERE w.wo_id IS NOT NULL AND w.rate_to_bob IS NULL) AS nonconvertible_count
+    FROM scope s
+    LEFT JOIN budget_hours_total bt ON bt.engagement_id = s.engagement_id
+    LEFT JOIN hours_totals ht ON ht.engagement_id = s.engagement_id
+    LEFT JOIN wo w ON w.engagement_id = s.engagement_id
+    LEFT JOIN expenses_by_engagement eb ON eb.engagement_id = s.engagement_id
+  ),
+  nonconvertible_agg AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'engagement_id', w.engagement_id, 'currency', w.currency, 'fee_native', w.fee_net
+      )), '[]'::jsonb) AS items
+    FROM wo w
+    WHERE w.wo_id IS NOT NULL AND w.rate_to_bob IS NULL
+  ),
+  -- prev_wo_fee (MF-02): honorario neto en Bs de los encargos que estaban en cartera
+  -- HACE UN ANIO (scope_previous_year), no de los de hoy. Reimplementa solo lo que
+  -- fees_agg necesita de wo_raw/wo_rate (fee_net + TC) porque `wo` esta atado a `scope`.
+  prev_wo_fee AS (
+    SELECT
+      spy.engagement_id,
+      (COALESCE(bl.fee, 0) + COALESCE(spy.adjustment_amount, 0)) AS fee_net,
+      CASE
+        WHEN spy.currency = 'BOB' THEN 1
+        WHEN p.exchange_rate IS NOT NULL THEN p.exchange_rate
+        WHEN spy.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM scope_previous_year spy
+    LEFT JOIN LATERAL (
+      SELECT SUM(bl.budgeted_hours * bl.standard_rate) AS fee
+      FROM public.wo_budget_lines bl
+      WHERE bl.wo_id = spy.wo_id AND spy.approval_status = 'Approved'
+    ) bl ON true
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = spy.wo_id
+  ),
+  fees_agg AS (
+    SELECT
+      COALESCE(SUM(w.fee_net * w.rate_to_bob), 0) AS total_bob,
+      (SELECT COALESCE(SUM(pf.fee_net * pf.rate_to_bob), 0) FROM prev_wo_fee pf) AS previous_total_bob
+    FROM scope s
+    LEFT JOIN wo w ON w.engagement_id = s.engagement_id
+  ),
+  fees_monthly AS (
+    SELECT date_trunc('month', w.approved_at)::date AS month, SUM(w.fee_net * w.rate_to_bob) AS value_bob
+    FROM scope s
+    LEFT JOIN wo w ON w.engagement_id = s.engagement_id
+    WHERE w.approved_at BETWEEN p_start AND p_end
+    GROUP BY date_trunc('month', w.approved_at)
+  ),
+  fees_monthly_agg AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('month', to_char(month, 'YYYY-MM'), 'value_bob', value_bob)
+      ORDER BY month), '[]'::jsonb) AS items
+    FROM fees_monthly
+  ),
+
+  -- ── 19. conteos de alcance (meta) ────────────────────────────────────────────────────
+  scope_counts AS (
+    SELECT
+      (SELECT COUNT(*) FROM scope_all) AS unfiltered_scope_count,
+      (SELECT COUNT(*) FROM scope) AS scope_count,
+      (SELECT COUNT(*) FILTER (WHERE state = 4) FROM scope) AS approved_count,
+      (SELECT COUNT(*) FILTER (WHERE state = 5) FROM scope) AS emergency_count
+  ),
+  finalized_count AS (
+    SELECT COUNT(*) AS cnt FROM finalized_scope
+  ),
+
+  -- ── 19b. Fila resumen "Encargos finalizados" (pedido del operador 2026-09-19): extiende
+  -- finalized_scope/finalized_count (arriba, ya usado por kpis.engagements.finalized_in_period)
+  -- con presupuesto/ejecutado/honorarios pagados. budget_hours/executed_hours son de VIDA
+  -- COMPLETA del encargo (desempeño final, no solo lo cargado durante la ventana de
+  -- cierre); collected_bob usa el mismo criterio "Completed" que collections_by_status.
+  finalized_wo_raw AS (
+    SELECT
+      fs.engagement_id, wo.wo_id, wo.currency, wo.season_mode,
+      COALESCE(wo.tax_rate, 0.13) AS tax_rate,
+      COALESCE(wo.adjustment_amount, 0) AS adjustment_amount,
+      COALESCE(bl.fee, 0) AS total_standard_fee,
+      COALESCE(eb.amt, 0) AS expense_budget,
+      p.exchange_rate AS plan_exchange_rate
+    FROM finalized_scope fs
+    JOIN public.work_orders wo ON wo.engagement_id = fs.engagement_id AND wo.approval_status = 'Approved'
+    LEFT JOIN LATERAL (
+      SELECT SUM(bl.budgeted_hours * bl.standard_rate) AS fee
+      FROM public.wo_budget_lines bl WHERE bl.wo_id = wo.wo_id
+    ) bl ON true
+    LEFT JOIN LATERAL (
+      SELECT SUM(eb.budgeted_amount) AS amt
+      FROM public.wo_expense_budget eb WHERE eb.wo_id = wo.wo_id
+    ) eb ON true
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+  ),
+  finalized_wo AS (
+    SELECT
+      fwr.*,
+      (fwr.total_standard_fee + fwr.adjustment_amount) AS fee_net,
+      CASE
+        WHEN fwr.currency = 'BOB' THEN 1
+        WHEN fwr.plan_exchange_rate IS NOT NULL THEN fwr.plan_exchange_rate
+        WHEN fwr.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM finalized_wo_raw fwr
+  ),
+  finalized_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS budget_hours
+    FROM finalized_wo fw
+    JOIN public.wo_budget_lines bl ON bl.wo_id = fw.wo_id
+  ),
+  finalized_hours AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS executed_hours
+    FROM finalized_scope fs
+    JOIN public.time_entries te ON te.engagement_id = fs.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+    WHERE tla.status IS DISTINCT FROM 'rejected'
+  ),
+  finalized_collected AS (
+    SELECT COALESCE(SUM(
+      COALESCE(i.amount, i.percentage * ((fw.fee_net + fw.expense_budget) / NULLIF(1 - fw.tax_rate, 0)) / 100)
+      * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
+    ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
+    FROM finalized_wo fw
+    JOIN public.wo_payment_installments i ON i.wo_id = fw.wo_id
+  )
+
+  -- ── 20. Ensamblado final ─────────────────────────────────────────────────────────────
+  SELECT jsonb_build_object(
+    'meta', jsonb_build_object(
+      'role_key', c.role_key,
+      'scope_kind', CASE c.role_key
+                      WHEN 'senior_partner' THEN 'firm'
+                      WHEN 'admin' THEN 'firm'
+                      WHEN 'partner' THEN 'society'
+                      WHEN 'director' THEN 'own'
+                      WHEN 'sqr' THEN 'own'
+                      WHEN 'risk_partner' THEN 'own'
+                      ELSE 'none' END,
+      'society_name', cs.society_name,
+      'scope_count', sc.scope_count,
+      'unfiltered_scope_count', sc.unfiltered_scope_count,
+      'variable_rate_count', pa.variable_rate_count,
+      'nonconvertible_count', pa.nonconvertible_count,
+      'today', nc.today
+    ),
+    'filters', jsonb_build_object(
+      'clients', fa.clients, 'managers', fa.managers, 'industries', fa.industries, 'societies', fa.societies
+    ),
+    'kpis', jsonb_build_object(
+      'engagements', jsonb_build_object(
+        'total', sc.scope_count, 'approved', sc.approved_count, 'emergency', sc.emergency_count,
+        'finalized_in_period', fc.cnt
+      ),
+      'fees', jsonb_build_object(
+        'total_bob', fe.total_bob, 'previous_total_bob', fe.previous_total_bob, 'sparkline', fma.items
+      ),
+      'my_partner_hours', jsonb_build_object(
+        'budget', mpb.hours, 'approved', mph.approved, 'pending', mph.pending, 'rejected', mph.rejected
+      ),
+      'my_sqr_hours', jsonb_build_object(
+        'budget', msb.hours, 'approved', msh.approved, 'pending', msh.pending, 'rejected', msh.rejected,
+        'engagement_count', msel.cnt, 'engagements', msel.items
+      ),
+      'alerts', jsonb_build_object(
+        'over_budget_count', oba.cnt, 'portfolio_count', sc.scope_count,
+        'pending_wo_count', wp.pending_wo_count, 'pending_risk_count', wp.pending_risk_count
+      )
+    ),
+    'profitability', jsonb_build_object(
+      'hours', jsonb_build_object(
+        'budget', pa.hours_budget, 'approved', pa.hours_approved, 'pending', pa.hours_pending,
+        'rejected', pa.hours_rejected, 'previous_logged', pa.hours_previous_logged
+      ),
+      'money_bob', jsonb_build_object(
+        'fee_net', pa.money_fee_net, 'expense_budget', pa.money_expense_budget,
+        'hours_valued_approved', pa.money_hours_valued_approved, 'hours_valued_pending', pa.money_hours_valued_pending,
+        'expenses_reviewed', pa.money_expenses_reviewed, 'expenses_manager_approved', pa.money_expenses_manager_approved,
+        'previous_executed', pa.money_previous_executed
+      ),
+      'nonconvertible', nca.items
+    ),
+    'economic_cycle', jsonb_build_object(
+      'to_invoice_bob', ec.to_invoice_bob, 'invoiced_bob', ec.invoiced_bob, 'collected_bob', ec.collected_bob,
+      'overdue_90_bob', ec.overdue_90_bob, 'avg_collection_days', ec.avg_collection_days
+    ),
+    'collections', jsonb_build_object(
+      'by_status', cbs.by_status,
+      'next_7_days', n7.items,
+      'overdue', jsonb_build_object('count', ol.cnt, 'amount_bob', ol.amt, 'items', ol.items)
+    ),
+    'sectors', sa.items,
+    'managers', ma.items,
+    'top_clients', tca.items,
+    'alerts', jsonb_build_object(
+      'pending_wo', wp.pending_wo_count, 'over_budget', oba.cnt, 'in_arrears', (cbs.by_status->'in_arrears'->>'count')::int,
+      'overdue_90', ec.overdue_90_count, 'closing_soon', ae.closing_soon, 'risk_pending', ae.risk_pending,
+      'draft_worksheets', dwa.cnt
+    ),
+    'finalized_summary', jsonb_build_object(
+      'count', fc.cnt, 'budget_hours', fzb.budget_hours,
+      'executed_hours', fzh.executed_hours, 'collected_bob', fzcol.collected_bob
+    )
+  )
+  FROM caller c
+  CROSS JOIN caller_staff cs
+  CROSS JOIN now_ctx nc
+  CROSS JOIN scope_counts sc
+  CROSS JOIN finalized_count fc
+  CROSS JOIN filters_agg fa
+  CROSS JOIN fees_agg fe
+  CROSS JOIN fees_monthly_agg fma
+  CROSS JOIN my_partner_budget mpb
+  CROSS JOIN my_partner_hours mph
+  CROSS JOIN my_sqr_budget msb
+  CROSS JOIN my_sqr_hours msh
+  CROSS JOIN my_sqr_engagement_list msel
+  CROSS JOIN wo_pending wp
+  CROSS JOIN over_budget_agg oba
+  CROSS JOIN profitability_agg pa
+  CROSS JOIN nonconvertible_agg nca
+  CROSS JOIN economic_cycle ec
+  CROSS JOIN collections_by_status cbs
+  CROSS JOIN next7 n7
+  CROSS JOIN overdue_list ol
+  CROSS JOIN sectors_agg sa
+  CROSS JOIN managers_agg ma
+  CROSS JOIN top_clients_agg tca
+  CROSS JOIN alerts_extra ae
+  CROSS JOIN draft_worksheets_agg dwa
+  CROSS JOIN finalized_budget fzb
+  CROSS JOIN finalized_hours fzh
+  CROSS JOIN finalized_collected fzcol
+  );
+
+  RETURN COALESCE(v_result, '{}'::jsonb);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION partner_overview(p_start date, p_end date, p_fiscal_year integer, p_client_id uuid, p_manager_id uuid, p_industry_id uuid, p_society_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.partner_overview(p_start date, p_end date, p_fiscal_year integer, p_client_id uuid, p_manager_id uuid, p_industry_id uuid, p_society_id uuid) IS 'dash_socio (decisiones.md, plan_v2.md §7.1): payload unico del tablero "Practica" (re-etiquetado 2026-09-16, reemplaza visualmente al viejo tab practica/dashboard.practice_financials.read -- ver Index.tsx) con 5 KPI + bloques A-H en un round-trip. Gateado por dashboard.partner.read; alcance por role_key (senior_partner/admin=firma, partner=sociedad, director/sqr/risk_partner=SOLO partner_id = yo -- ser sqr_id ya no basta, ver comentario en role_scope), conjunto base = estado efectivo 4/5 + funcion=1/Cliente (2026-09-17: excluye Administrativo/Capacitacion/Calidad de TODO el tablero, incl. KPI 3/4), filtrado por periodo via solapamiento start_date/end_date u anio_fiscal si el selector es FY completo (revertido 2026-09-17, ver comentario en scope_all). p_society_id (2026-09-17) angosta por sociedad, solo lo setea la UI para admin/senior_partner. El Bloque F ya no viaja en este payload -- ver partner_overview_engagements(). Ver bugs/dashboard/socio/plan_v2.md §7.3 para el contrato exacto del payload.';
+
+
+--
+-- Name: partner_overview_engagements(date, date, integer, uuid, uuid, uuid, uuid, text, boolean, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.partner_overview_engagements(p_start date, p_end date, p_fiscal_year integer DEFAULT NULL::integer, p_client_id uuid DEFAULT NULL::uuid, p_manager_id uuid DEFAULT NULL::uuid, p_industry_id uuid DEFAULT NULL::uuid, p_society_id uuid DEFAULT NULL::uuid, p_sort_key text DEFAULT 'end_date'::text, p_over_budget_only boolean DEFAULT false, p_limit integer DEFAULT 50, p_offset integer DEFAULT 0) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_result jsonb;
+  v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 0), 200);
+  v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
+  v_sort_key text := CASE WHEN p_sort_key IN ('start_date', 'end_date', 'progress', 'pending_pct')
+                          THEN p_sort_key ELSE 'end_date' END;
+BEGIN
+  IF NOT public.has_permission('dashboard.partner.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.partner.read';
+  END IF;
+
+  v_result := (
+  WITH
+  caller AS (
+    SELECT public.get_my_staff_id() AS staff_id,
+           public.current_role_key() AS role_key
+  ),
+  caller_staff AS (
+    SELECT s.staff_id AS resolved_staff_id, s.society_id
+    FROM caller c
+    LEFT JOIN public.staff s ON s.staff_id = c.staff_id
+  ),
+  eng_state AS (
+    SELECT
+      e.engagement_id, e.client_id, e.engagement_name, e.partner_id, e.manager_id, e.sqr_id,
+      e.society_id, e.start_date, e.end_date, e.anio_fiscal, e.fecha_cierre, e.funcion,
+      e.work_order_required, e.engagement_state_override,
+      cl.industry_id,
+      wo.wo_id, wo.currency, wo.season_mode, wo.approval_status, wo.risk_status, wo.approved_at,
+      public.effective_engagement_state(
+        e.engagement_state_override, e.work_order_required, wo.wo_id,
+        wo.approval_status, wo.risk_status, wo.approved_at
+      ) AS state
+    FROM public.engagements e
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+  ),
+  role_scope AS (
+    SELECT es.*
+    FROM eng_state es
+    CROSS JOIN caller c
+    LEFT JOIN caller_staff cs ON true
+    WHERE
+      c.role_key IN ('senior_partner', 'admin')
+      OR (c.role_key = 'partner' AND es.society_id IS NOT NULL AND cs.society_id IS NOT NULL
+          AND es.society_id = cs.society_id)
+      OR (c.role_key IN ('director', 'sqr', 'risk_partner') AND c.staff_id IS NOT NULL
+          AND es.partner_id = c.staff_id)
+  ),
+  -- 2026-09-17: revertido el intento de usar fecha_cierre (mismo motivo que
+  -- partner_overview() -- ver comentario ahi). Vuelve al solapamiento start_date/end_date
+  -- original, con anio_fiscal si el selector es FY completo. Se agrega funcion=1
+  -- (Cliente): decision del operador, excluye Administrativo/Capacitacion/Calidad de
+  -- TODO el tablero, tambien de este bloque.
+  scope_all AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state IN (4, 5)
+      AND rs.funcion = 1
+      AND (
+        CASE WHEN p_fiscal_year IS NOT NULL THEN rs.anio_fiscal = p_fiscal_year
+             ELSE COALESCE(rs.start_date, p_start) <= p_end AND COALESCE(rs.end_date, p_end) >= p_start
+        END
+      )
+  ),
+  scope AS (
+    SELECT sa.*
+    FROM scope_all sa
+    WHERE (p_client_id IS NULL OR sa.client_id = p_client_id)
+      AND (p_manager_id IS NULL OR sa.manager_id = p_manager_id)
+      AND (p_industry_id IS NULL OR sa.industry_id = p_industry_id)
+      AND (p_society_id IS NULL OR sa.society_id = p_society_id)
+  ),
+  budget_hours AS (
+    SELECT s.engagement_id, SUM(bl.budgeted_hours) AS hours
+    FROM scope s
+    JOIN public.wo_budget_lines bl ON bl.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    GROUP BY s.engagement_id
+  ),
+  hours AS (
+    SELECT
+      s.engagement_id,
+      CASE WHEN tla.status = 'approved' THEN 'approved'
+           WHEN tla.status = 'rejected' THEN 'rejected'
+           ELSE 'pending' END AS bucket,
+      te.hours_logged,
+      te.date_worked
+    FROM scope s
+    JOIN public.time_entries te ON te.engagement_id = s.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+  ),
+  hours_totals AS (
+    SELECT
+      engagement_id,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'approved') AS period_approved,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'pending') AS period_pending,
+      SUM(hours_logged) FILTER (WHERE date_worked BETWEEN p_start AND p_end AND bucket = 'rejected') AS period_rejected,
+      -- review.md iteracion 1, MF-03: excluye 'rejected' -- decisiones.md §4.3 dice que las
+      -- rechazadas solo van al tooltip, nunca cuentan como "cargado" (ni para sobregiro ni
+      -- para el % de avance que se muestra en la tabla).
+      SUM(hours_logged) FILTER (WHERE bucket IN ('approved', 'pending')) AS lifetime_consumed
+    FROM hours
+    GROUP BY engagement_id
+  ),
+  engagement_rows AS (
+    SELECT
+      s.engagement_id, s.engagement_name, s.state, s.start_date, s.end_date,
+      cl.client_legal_name,
+      mgr.short_name AS manager_short_name,
+      COALESCE(bh.hours, 0) AS budget_hours,
+      COALESCE(ht.period_approved, 0) AS approved_hours,
+      COALESCE(ht.period_pending, 0) AS pending_hours,
+      COALESCE(ht.period_rejected, 0) AS rejected_hours,
+      (COALESCE(ht.lifetime_consumed, 0) > COALESCE(bh.hours, 0)) AS over_budget,
+      CASE WHEN COALESCE(bh.hours, 0) > 0
+           THEN COALESCE(ht.lifetime_consumed, 0) / bh.hours
+           ELSE 0 END AS consumption_ratio,
+      CASE WHEN COALESCE(bh.hours, 0) > 0
+           THEN COALESCE(ht.period_pending, 0) / bh.hours
+           ELSE 0 END AS pending_ratio
+    FROM scope s
+    JOIN public.clients cl ON cl.client_id = s.client_id
+    LEFT JOIN public.staff mgr ON mgr.staff_id = s.manager_id
+    LEFT JOIN budget_hours bh ON bh.engagement_id = s.engagement_id
+    LEFT JOIN hours_totals ht ON ht.engagement_id = s.engagement_id
+  ),
+  -- p_over_budget_only filtra ANTES de contar/paginar, para que 'total' refleje el filtro
+  -- activo (el botón "Ver todos" decide si mostrarse comparando total vs. items.length).
+  filtered_rows AS (
+    SELECT * FROM engagement_rows
+    WHERE (NOT p_over_budget_only OR over_budget)
+  )
+  SELECT jsonb_build_object(
+    'total', (SELECT COUNT(*) FROM filtered_rows),
+    'items', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'engagement_id', engagement_id, 'engagement_name', engagement_name,
+        'client_legal_name', client_legal_name, 'manager_short_name', manager_short_name,
+        'state', state, 'budget_hours', budget_hours, 'approved_hours', approved_hours,
+        'pending_hours', pending_hours, 'rejected_hours', rejected_hours, 'over_budget', over_budget,
+        'start_date', start_date, 'end_date', end_date
+      ) ORDER BY
+          CASE WHEN v_sort_key = 'start_date' THEN start_date END ASC,
+          CASE WHEN v_sort_key = 'end_date' THEN end_date END ASC,
+          CASE WHEN v_sort_key = 'progress' THEN consumption_ratio END DESC,
+          CASE WHEN v_sort_key = 'pending_pct' THEN pending_ratio END DESC,
+          engagement_id)
+      FROM (
+        SELECT * FROM filtered_rows
+        ORDER BY
+          CASE WHEN v_sort_key = 'start_date' THEN start_date END ASC,
+          CASE WHEN v_sort_key = 'end_date' THEN end_date END ASC,
+          CASE WHEN v_sort_key = 'progress' THEN consumption_ratio END DESC,
+          CASE WHEN v_sort_key = 'pending_pct' THEN pending_ratio END DESC,
+          engagement_id
+        LIMIT v_limit OFFSET v_offset
+      ) paged
+    ), '[]'::jsonb)
+  )
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION partner_overview_engagements(p_start date, p_end date, p_fiscal_year integer, p_client_id uuid, p_manager_id uuid, p_industry_id uuid, p_society_id uuid, p_sort_key text, p_over_budget_only boolean, p_limit integer, p_offset integer); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.partner_overview_engagements(p_start date, p_end date, p_fiscal_year integer, p_client_id uuid, p_manager_id uuid, p_industry_id uuid, p_society_id uuid, p_sort_key text, p_over_budget_only boolean, p_limit integer, p_offset integer) IS 'dash_socio (plan_v2.md §7.2, reescrito 2026-09-17): fuente única del Bloque F -- misma llamada sirve la vista compacta (p_limit=10) y "Ver todos" (p_limit mayor); p_sort_key (start_date|end_date|progress|pending_pct) y p_over_budget_only controlan orden/filtro del lado del servidor para que el top-N sea real sobre toda la cartera, no solo sobre un preview recortado. Mismo alcance que partner_overview(): estado 4/5 + funcion=1/Cliente, periodo por solapamiento start_date/end_date o anio_fiscal.';
+
+
+--
 -- Name: permission_scope(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8347,6 +10126,1419 @@ CREATE FUNCTION public.permission_scope(p_permission_key text) RETURNS text
     and rp.permission_key = p_permission_key
   limit 1;
 $$;
+
+
+--
+-- Name: personal_overview(date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.personal_overview(p_history_start date, p_history_end date) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff_id        uuid;
+  v_today           date;
+  v_week_start      date;
+  v_operational_end date;
+  v_result          jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: no session';
+  END IF;
+  IF NOT public.has_permission('dashboard.personal.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.personal.read';
+  END IF;
+  IF p_history_start IS NULL OR p_history_end IS NULL OR p_history_start > p_history_end THEN
+    RAISE EXCEPTION 'INVALID_RANGE';
+  END IF;
+
+  v_today           := ((now() AT TIME ZONE 'America/La_Paz')::date);
+  v_week_start      := date_trunc('week', v_today)::date;
+  v_operational_end := v_week_start + 27; -- semana actual + 3 siguientes (lunes-domingo, decisiones.md)
+  v_staff_id        := public.get_my_staff_id();
+
+  -- Sesión autenticada sin ficha de personal asociada: estado vacío explícito
+  -- (has_staff_record=false), sin excepción -- plan_v2.md §6.1. El factory TypeScript
+  -- (emptyPersonalOverviewPayload / toPersonalViewModel) completa el resto de forma segura.
+  IF v_staff_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'meta', jsonb_build_object(
+        'has_staff_record', false,
+        'today', v_today,
+        'current_week_start', v_week_start,
+        'operational_end', v_operational_end,
+        'history_start', p_history_start,
+        'history_end', p_history_end,
+        'generated_at', now()
+      ),
+      'current_week', '{}'::jsonb,
+      'workload_weeks', '[]'::jsonb,
+      'assignments', '[]'::jsonb,
+      'current_week_engagements', '[]'::jsonb,
+      'compliance_weeks', '[]'::jsonb,
+      'fund_requests', '[]'::jsonb,
+      'historical', '{}'::jsonb
+    );
+  END IF;
+
+  v_result := (
+  WITH
+  -- review.md dash_personal iteración 3, G-01 (2026-09-22): timesheet_periods.deadline
+  -- nunca se puebla (el INSERT de useTimesheetWeek.ts la omite) -- el vencimiento real de
+  -- envío se deriva del mismo ajuste que ya usa portfolio_overview() para su Cola de
+  -- aprobación (TS_EMPLOYEE_RETRO_DAYS, 20260917160000:196-200), NO de esa columna.
+  retro_days_ctx AS (
+    SELECT COALESCE(
+      (SELECT setting_value::int FROM public.global_settings WHERE setting_key = 'TS_EMPLOYEE_RETRO_DAYS'),
+      30
+    ) AS retro_days
+  ),
+  -- ── Asignaciones propias que solapan la ventana operativa (semana actual + 3 siguientes,
+  -- inclusive) -- decisiones.md §14: hours_per_week completo por cada fila que solape,
+  -- ningún prorrateo. Filtra deleted_at/CANCELLED, igual que dash_encargo. ──────────────────
+  assignments_window AS (
+    SELECT ea.assignment_id, ea.engagement_id, ea.start_date, ea.end_date,
+           ea.hours_per_week, ea.status,
+           e.engagement_code, e.engagement_name, e.funcion AS function_code
+    FROM public.engagement_assignments ea
+    JOIN public.engagements e ON e.engagement_id = ea.engagement_id
+    WHERE ea.staff_id = v_staff_id
+      AND ea.deleted_at IS NULL
+      AND ea.status <> 'CANCELLED'
+      AND ea.start_date <= v_operational_end
+      AND ea.end_date >= v_week_start
+  ),
+  assignments_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'assignment_id', assignment_id, 'engagement_id', engagement_id,
+      'engagement_code', engagement_code, 'engagement_name', engagement_name,
+      'function_code', function_code, 'start_date', start_date, 'end_date', end_date,
+      'hours_per_week', hours_per_week, 'status', status
+    ) ORDER BY start_date, engagement_code NULLS LAST, assignment_id), '[]'::jsonb) AS items
+    FROM assignments_window
+  ),
+
+  -- ── Horas planificadas vs. guardadas -- 4 semanas lunes-domingo (offset 0..3) ───────────
+  workload_weeks_base AS (
+    SELECT gs AS week_offset,
+           (v_week_start + (gs * 7)) AS week_start,
+           (v_week_start + (gs * 7) + 6) AS week_end
+    FROM generate_series(0, 3) gs
+  ),
+  workload_planned AS (
+    SELECT wb.week_offset, COALESCE(SUM(aw.hours_per_week), 0) AS planned_hours
+    FROM workload_weeks_base wb
+    LEFT JOIN assignments_window aw
+      ON aw.start_date <= wb.week_end AND aw.end_date >= wb.week_start
+    GROUP BY wb.week_offset
+  ),
+  workload_saved AS (
+    SELECT wb.week_offset, COALESCE(SUM(te.hours_logged), 0) AS saved_hours
+    FROM workload_weeks_base wb
+    LEFT JOIN public.time_entries te
+      ON te.staff_id = v_staff_id AND te.is_forecast = false
+     AND te.date_worked BETWEEN wb.week_start AND wb.week_end
+    GROUP BY wb.week_offset
+  ),
+  workload_weeks_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'week_start', wb.week_start, 'week_end', wb.week_end,
+      'planned_hours', wp.planned_hours, 'saved_hours', ws.saved_hours
+    ) ORDER BY wb.week_offset), '[]'::jsonb) AS items
+    FROM workload_weeks_base wb
+    JOIN workload_planned wp ON wp.week_offset = wb.week_offset
+    JOIN workload_saved ws ON ws.week_offset = wb.week_offset
+  ),
+
+  -- ── Semana actual: pronóstico (is_forecast=true, SOLO semana actual -- decisiones.md §18)
+  -- y horas aprobadas (claves period_id+engagement_id+activity_id con una aprobación
+  -- 'approved'). planned_hours/saved_hours reutilizan workload_planned/workload_saved
+  -- offset=0 -- misma fuente, sin recalcular. ─────────────────────────────────────────────
+  current_week_forecast AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS forecast_hours
+    FROM public.time_entries te
+    WHERE te.staff_id = v_staff_id AND te.is_forecast = true
+      AND te.date_worked BETWEEN v_week_start AND (v_week_start + 6)
+  ),
+  current_week_approved AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS approved_hours
+    FROM public.timesheet_periods tp
+    JOIN public.time_entries te ON te.period_id = tp.period_id AND te.is_forecast = false
+    WHERE tp.staff_id = v_staff_id AND tp.week_start_date = v_week_start
+      AND EXISTS (
+        SELECT 1 FROM public.timesheet_line_approvals tla
+        WHERE tla.period_id = te.period_id AND tla.engagement_id = te.engagement_id
+          AND tla.activity_id = te.activity_id AND tla.status = 'approved'
+      )
+  ),
+  current_week_summary AS (
+    SELECT
+      (SELECT planned_hours FROM workload_planned WHERE week_offset = 0) AS planned_hours,
+      (SELECT saved_hours FROM workload_saved WHERE week_offset = 0) AS saved_hours,
+      (SELECT forecast_hours FROM current_week_forecast) AS forecast_hours,
+      (SELECT approved_hours FROM current_week_approved) AS approved_hours
+  ),
+
+  -- ── Carga por encargo (semana actual): unión de asignadas y guardadas, decisiones.md §15 --
+  -- un encargo con carga pero sin asignación no desaparece, uno solo asignado muestra
+  -- saved_hours=0. ─────────────────────────────────────────────────────────────────────────
+  current_week_assigned_by_eng AS (
+    SELECT aw.engagement_id, aw.engagement_code, aw.engagement_name, aw.function_code,
+      SUM(aw.hours_per_week) AS assigned_hours
+    FROM assignments_window aw
+    WHERE aw.start_date <= (v_week_start + 6) AND aw.end_date >= v_week_start
+    GROUP BY aw.engagement_id, aw.engagement_code, aw.engagement_name, aw.function_code
+  ),
+  current_week_saved_by_eng AS (
+    SELECT te.engagement_id, e.engagement_code, e.engagement_name, e.funcion AS function_code,
+      SUM(te.hours_logged) AS saved_hours
+    FROM public.time_entries te
+    JOIN public.engagements e ON e.engagement_id = te.engagement_id
+    WHERE te.staff_id = v_staff_id AND te.is_forecast = false
+      AND te.date_worked BETWEEN v_week_start AND (v_week_start + 6)
+    GROUP BY te.engagement_id, e.engagement_code, e.engagement_name, e.funcion
+  ),
+  current_week_engagements_union AS (
+    SELECT
+      COALESCE(a.engagement_id, s.engagement_id) AS engagement_id,
+      COALESCE(a.engagement_code, s.engagement_code) AS engagement_code,
+      COALESCE(a.engagement_name, s.engagement_name) AS engagement_name,
+      COALESCE(a.function_code, s.function_code) AS function_code,
+      COALESCE(a.assigned_hours, 0) AS assigned_hours,
+      COALESCE(s.saved_hours, 0) AS saved_hours
+    FROM current_week_assigned_by_eng a
+    FULL OUTER JOIN current_week_saved_by_eng s ON s.engagement_id = a.engagement_id
+  ),
+  current_week_engagements_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'engagement_id', engagement_id, 'engagement_code', engagement_code,
+      'engagement_name', engagement_name, 'function_code', function_code,
+      'assigned_hours', assigned_hours, 'saved_hours', saved_hours
+    ) ORDER BY engagement_code NULLS LAST, engagement_id), '[]'::jsonb) AS items
+    FROM current_week_engagements_union
+  ),
+
+  -- ── Cumplimiento de timesheets: 12 semanas totales, 9 anteriores + actual + 2 futuras
+  -- (decisiones.md §13, offset -9..2). Máquina de estados exacta de plan_v2.md §4.2. ───────
+  compliance_base AS (
+    SELECT gs AS week_offset,
+           (v_week_start + (gs * 7)) AS week_start,
+           (v_week_start + (gs * 7) + 6) AS week_end
+    FROM generate_series(-9, 2) gs
+  ),
+  compliance_period AS (
+    -- review.md iteración 3, G-01: deadline derivado (week_end + retro_days), no
+    -- tp.deadline (columna real pero nunca poblada por el flujo de carga de horas).
+    SELECT cb.week_offset, tp.period_id, tp.submitted_at,
+           cb.week_end + (SELECT retro_days FROM retro_days_ctx) AS deadline
+    FROM compliance_base cb
+    LEFT JOIN public.timesheet_periods tp
+      ON tp.staff_id = v_staff_id AND tp.week_start_date = cb.week_start
+  ),
+  compliance_saved AS (
+    SELECT cb.week_offset, COALESCE(SUM(te.hours_logged), 0) AS saved_hours
+    FROM compliance_base cb
+    LEFT JOIN public.time_entries te
+      ON te.staff_id = v_staff_id AND te.is_forecast = false
+     AND te.date_worked BETWEEN cb.week_start AND cb.week_end
+    GROUP BY cb.week_offset
+  ),
+  compliance_approved AS (
+    SELECT cp.week_offset, COALESCE(SUM(te.hours_logged), 0) AS approved_hours
+    FROM compliance_period cp
+    LEFT JOIN public.time_entries te
+      ON te.period_id = cp.period_id AND te.is_forecast = false
+     AND EXISTS (
+        SELECT 1 FROM public.timesheet_line_approvals tla
+        WHERE tla.period_id = te.period_id AND tla.engagement_id = te.engagement_id
+          AND tla.activity_id = te.activity_id AND tla.status = 'approved'
+      )
+    WHERE cp.period_id IS NOT NULL
+    GROUP BY cp.week_offset
+  ),
+  compliance_approval_flags AS (
+    SELECT cp.week_offset,
+      bool_or(tla.status = 'rejected') AS has_rejected,
+      COUNT(tla.approval_id) AS approval_count,
+      bool_and(tla.status = 'approved') AS all_approved
+    FROM compliance_period cp
+    LEFT JOIN public.timesheet_line_approvals tla ON tla.period_id = cp.period_id
+    WHERE cp.period_id IS NOT NULL
+    GROUP BY cp.week_offset
+  ),
+  -- Toda review_notes no vacía viaja con su estado real, incluida una línea que volvió a
+  -- 'pending' por useRequestRevision -- decisiones.md §4/plan_v2.md §4.2 R-4: nunca se
+  -- etiqueta "Observado", la etiqueta sigue siendo la del estado real de la línea.
+  compliance_review_notes AS (
+    SELECT cp.week_offset,
+      COALESCE(jsonb_agg(jsonb_build_object(
+        'approval_id', tla.approval_id,
+        'approval_status', tla.status,
+        'engagement_id', tla.engagement_id,
+        'engagement_code', e.engagement_code,
+        'engagement_name', e.engagement_name,
+        'activity_id', tla.activity_id,
+        'activity_code', ac.activity_code,
+        'notes', tla.review_notes
+      ) ORDER BY tla.updated_at DESC NULLS LAST, tla.approval_id)
+        FILTER (WHERE tla.review_notes IS NOT NULL AND tla.review_notes <> ''), '[]'::jsonb) AS items
+    FROM compliance_period cp
+    LEFT JOIN public.timesheet_line_approvals tla ON tla.period_id = cp.period_id
+    LEFT JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+    LEFT JOIN public.activity_codes ac ON ac.activity_id = tla.activity_id
+    WHERE cp.period_id IS NOT NULL
+    GROUP BY cp.week_offset
+  ),
+  compliance_rows AS (
+    SELECT
+      cb.week_offset, cb.week_start, cb.week_end,
+      cp.period_id, cp.deadline, cp.submitted_at,
+      COALESCE(cs.saved_hours, 0) AS saved_hours,
+      COALESCE(ca.approved_hours, 0) AS approved_hours,
+      COALESCE(crn.items, '[]'::jsonb) AS review_notes,
+      CASE
+        WHEN cb.week_start > v_week_start THEN 'FUTURE'
+        WHEN cp.period_id IS NULL AND COALESCE(cs.saved_hours, 0) = 0 THEN 'NOT_LOGGED'
+        WHEN cp.period_id IS NULL AND COALESCE(cs.saved_hours, 0) > 0 THEN 'NOT_SUBMITTED'
+        WHEN cp.period_id IS NOT NULL AND cp.submitted_at IS NULL THEN 'DRAFT'
+        WHEN cp.period_id IS NOT NULL AND cp.submitted_at IS NOT NULL
+             AND COALESCE(caf.has_rejected, false) THEN 'REJECTED'
+        WHEN cp.period_id IS NOT NULL AND cp.submitted_at IS NOT NULL
+             AND COALESCE(caf.approval_count, 0) > 0 AND COALESCE(caf.all_approved, false) THEN 'APPROVED'
+        ELSE 'PENDING'
+      END AS status
+    FROM compliance_base cb
+    LEFT JOIN compliance_period cp ON cp.week_offset = cb.week_offset
+    LEFT JOIN compliance_saved cs ON cs.week_offset = cb.week_offset
+    LEFT JOIN compliance_approved ca ON ca.week_offset = cb.week_offset
+    LEFT JOIN compliance_approval_flags caf ON caf.week_offset = cb.week_offset
+    LEFT JOIN compliance_review_notes crn ON crn.week_offset = cb.week_offset
+  ),
+  compliance_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'week_start', week_start, 'week_end', week_end, 'status', status,
+      'saved_hours', saved_hours, 'approved_hours', approved_hours,
+      'period_id', period_id, 'deadline', deadline, 'submitted_at', submitted_at,
+      'review_notes', review_notes
+    ) ORDER BY week_offset), '[]'::jsonb) AS items
+    FROM compliance_rows
+  ),
+
+  -- ── Fondos y gastos: solicitudes propias, excluidas 'cerrado'/'cancelado' (decisiones.md
+  -- §3.3). Cada importe se agrupa por SU PROPIA moneda de fuente -- solicitud/desembolso por
+  -- fund_requests.currency, gastos por fund_request_expenses.currency -- nunca se suman BOB
+  -- y USD (decisiones.md §4/plan_v2.md §4.3). No se toca ningún trigger de moneda. ─────────
+  fund_requests_scope AS (
+    SELECT fr.*
+    FROM public.fund_requests fr
+    WHERE fr.requester_staff_id = v_staff_id
+      AND fr.status NOT IN ('cerrado', 'cancelado')
+  ),
+  fr_currencies AS (
+    SELECT frs.fund_request_id, frs.currency AS c FROM fund_requests_scope frs
+    UNION
+    SELECT fre.fund_request_id, fre.currency
+    FROM public.fund_request_expenses fre
+    JOIN fund_requests_scope frs2 ON frs2.fund_request_id = fre.fund_request_id
+  ),
+  fr_amounts AS (
+    SELECT
+      fc.fund_request_id, fc.c AS currency,
+      CASE WHEN frs.currency = fc.c THEN frs.total_requested_amount ELSE 0 END AS requested_amount,
+      CASE WHEN frs.currency = fc.c THEN frs.total_disbursed_amount ELSE 0 END AS disbursed_amount,
+      COALESCE((SELECT SUM(fre.amount) FROM public.fund_request_expenses fre
+         WHERE fre.fund_request_id = fc.fund_request_id AND fre.currency = fc.c), 0) AS expenses_loaded_amount,
+      COALESCE((SELECT SUM(fre.amount) FROM public.fund_request_expenses fre
+         WHERE fre.fund_request_id = fc.fund_request_id AND fre.currency = fc.c
+           AND fre.status IN ('aprobado_gerente', 'revisado_asistente')), 0) AS manager_approved_amount,
+      COALESCE((SELECT SUM(fre.amount) FROM public.fund_request_expenses fre
+         WHERE fre.fund_request_id = fc.fund_request_id AND fre.currency = fc.c
+           AND fre.status = 'revisado_asistente'), 0) AS accounting_reviewed_amount
+    FROM fr_currencies fc
+    JOIN fund_requests_scope frs ON frs.fund_request_id = fc.fund_request_id
+  ),
+  fr_amounts_json AS (
+    SELECT fund_request_id,
+      jsonb_agg(jsonb_build_object(
+        'currency', currency, 'requested_amount', requested_amount, 'disbursed_amount', disbursed_amount,
+        'expenses_loaded_amount', expenses_loaded_amount, 'manager_approved_amount', manager_approved_amount,
+        'accounting_reviewed_amount', accounting_reviewed_amount
+      ) ORDER BY currency) AS items
+    FROM fr_amounts
+    GROUP BY fund_request_id
+  ),
+  fr_expenses_json AS (
+    SELECT fund_request_id,
+      COALESCE(jsonb_agg(jsonb_build_object(
+        'expense_id', fre_id, 'expense_date', expense_date, 'description', description,
+        'status', status, 'currency', currency, 'amount', amount,
+        -- review.md Iteración 2, MUST FIX R2.1: attachment_url no tiene CHECK contra
+        -- cadena vacía; checklist_verificacion.md PT-36 define "sin respaldo" como
+        -- attachment_url vacío, no solo NULL.
+        'has_attachment', (NULLIF(btrim(attachment_url), '') IS NOT NULL),
+        'has_invoice_observation', has_invoice_observation,
+        'invoice_observation_notes', invoice_observation_notes,
+        'returned_by_assistant', returned_by_assistant,
+        'manager_notes', manager_notes,
+        'rejection_reason', rejection_reason
+      ) ORDER BY expense_date DESC, fre_id), '[]'::jsonb) AS items
+    FROM public.fund_request_expenses
+    WHERE fund_request_id IN (SELECT fund_request_id FROM fund_requests_scope)
+    GROUP BY fund_request_id
+  ),
+  fund_requests_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'fund_request_id', frs.fund_request_id,
+      'request_number', frs.request_number,
+      'purpose', frs.purpose,
+      'status', frs.status,
+      'request_currency', frs.currency,
+      'due_back_date', frs.due_back_date,
+      'amounts_by_currency', COALESCE(faj.items, '[]'::jsonb),
+      'expenses', COALESCE(fej.items, '[]'::jsonb)
+    ) ORDER BY COALESCE(frs.submitted_at, frs.created_at) DESC, frs.fund_request_id), '[]'::jsonb) AS items
+    FROM fund_requests_scope frs
+    LEFT JOIN fr_amounts_json faj ON faj.fund_request_id = frs.fund_request_id
+    LEFT JOIN fr_expenses_json fej ON fej.fund_request_id = frs.fund_request_id
+  ),
+
+  -- ── Histórico: SOLO horas guardadas por los parámetros del selector global -- no
+  -- reconstruye asignaciones históricas (decisiones.md §16/plan_v2.md §3.3). ──────────────
+  historical_saved AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS saved_hours
+    FROM public.time_entries te
+    WHERE te.staff_id = v_staff_id AND te.is_forecast = false
+      AND te.date_worked BETWEEN p_history_start AND p_history_end
+  ),
+  historical_by_engagement AS (
+    SELECT te.engagement_id, e.engagement_code, e.engagement_name, e.funcion AS function_code,
+      SUM(te.hours_logged) AS saved_hours
+    FROM public.time_entries te
+    JOIN public.engagements e ON e.engagement_id = te.engagement_id
+    WHERE te.staff_id = v_staff_id AND te.is_forecast = false
+      AND te.date_worked BETWEEN p_history_start AND p_history_end
+    GROUP BY te.engagement_id, e.engagement_code, e.engagement_name, e.funcion
+  ),
+  historical_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'engagement_id', engagement_id, 'engagement_code', engagement_code,
+      'engagement_name', engagement_name, 'function_code', function_code,
+      'saved_hours', saved_hours
+    ) ORDER BY saved_hours DESC, engagement_code NULLS LAST), '[]'::jsonb) AS items
+    FROM historical_by_engagement
+  )
+
+  -- ── Ensamblado final (plan_v2.md §3.2: forma exacta del payload) ────────────────────────
+  SELECT jsonb_build_object(
+    'meta', jsonb_build_object(
+      'has_staff_record', true,
+      'today', v_today,
+      'current_week_start', v_week_start,
+      'operational_end', v_operational_end,
+      'history_start', p_history_start,
+      'history_end', p_history_end,
+      'generated_at', now()
+    ),
+    'current_week', jsonb_build_object(
+      'planned_hours', cws.planned_hours,
+      'saved_hours', cws.saved_hours,
+      'forecast_hours', cws.forecast_hours,
+      'approved_hours', cws.approved_hours
+    ),
+    'workload_weeks', wwj.items,
+    'assignments', aj.items,
+    'current_week_engagements', cwej.items,
+    'compliance_weeks', cj.items,
+    'fund_requests', frj.items,
+    'historical', jsonb_build_object(
+      'saved_hours', hs.saved_hours,
+      'by_engagement', hbe.items
+    )
+  )
+  FROM current_week_summary cws
+  CROSS JOIN workload_weeks_json wwj
+  CROSS JOIN assignments_json aj
+  CROSS JOIN current_week_engagements_json cwej
+  CROSS JOIN compliance_json cj
+  CROSS JOIN fund_requests_json frj
+  CROSS JOIN historical_saved hs
+  CROSS JOIN historical_json hbe
+  );
+
+  RETURN COALESCE(v_result, '{}'::jsonb);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION personal_overview(p_history_start date, p_history_end date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.personal_overview(p_history_start date, p_history_end date) IS 'dash_personal (decisiones.md, plan_v2.md §3/§6): vista propia operativa e histórica de la pestaña Personal en un único payload/round-trip. staff_id SIEMPRE derivado de get_my_staff_id() -- la función no acepta un identificador de empleado y no crea ni depende de ninguna policy nueva de autovisualización sobre engagement_assignments. Sin ficha de personal -> has_staff_record=false, sin excepción. Horas planificadas = hours_per_week completo por cada asignación propia (no eliminada, no CANCELLED) que solape inclusivamente la ventana operativa (semana actual + 3 siguientes) -- sin prorrateo. Horas guardadas = time_entries.is_forecast=false, independientes del estado de envío/aprobación. Pronóstico (is_forecast=true) se devuelve SOLO en current_week.forecast_hours, exclusivamente semana actual -- nunca cuenta como guardada, aprobada, de cumplimiento ni histórica. compliance_weeks: 12 semanas exactas (9 anteriores + actual + 2 futuras), máquina de estados de plan_v2.md §4.2 (REJECTED prevalece sobre APPROVED/PENDING; una semana enviada sin aprobaciones nunca es APPROVED); toda review_notes no vacía viaja con su estado real, incluida una línea vuelta a pending por revisión solicitada -- nunca se inventa un estado Observado. Fondos: aprobado_gerente se deja tal cual (el frontend lo presenta como Pendiente de contabilidad); cada importe se agrupa por su propia moneda de fuente (solicitud/desembolso por fund_requests.currency, gastos por fund_request_expenses.currency) -- nunca se suman BOB y USD, y no se toca fre_validate_wo_in_request()/fund_requests_enforce_bob(). Excluye solicitudes cerrado/cancelado. historical solo trae horas guardadas para los parámetros p_history_start/p_history_end -- no reconstruye asignaciones históricas.';
+
+
+--
+-- Name: portfolio_events_append_only(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.portfolio_events_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'portfolio_events es append-only';
+END;
+$$;
+
+
+--
+-- Name: portfolio_overview(date, date, integer, date, date, uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.portfolio_overview(p_start date, p_end date, p_fiscal_year integer, p_fy_start date, p_fy_end date, p_client_id uuid DEFAULT NULL::uuid, p_practica_id uuid DEFAULT NULL::uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: no session';
+  END IF;
+  IF NOT public.has_permission('dashboard.portfolio.read') THEN
+    RAISE EXCEPTION 'FORBIDDEN: dashboard.portfolio.read';
+  END IF;
+  IF p_start IS NULL OR p_end IS NULL OR p_start > p_end THEN
+    RAISE EXCEPTION 'INVALID_RANGE';
+  END IF;
+  IF p_fy_start IS NULL OR p_fy_end IS NULL OR p_fy_start > p_fy_end THEN
+    RAISE EXCEPTION 'INVALID_FISCAL_RANGE';
+  END IF;
+  IF p_fiscal_year IS NULL OR p_fiscal_year < 2000 OR p_fiscal_year > 2100 THEN
+    RAISE EXCEPTION 'INVALID_FISCAL_YEAR';
+  END IF;
+
+  v_result := (
+  WITH
+  -- ── 1. Llamante ──────────────────────────────────────────────────────────────────────
+  caller AS (
+    SELECT public.get_my_staff_id() AS staff_id,
+           public.current_role_key() AS role_key
+  ),
+  -- ── 1b. Práctica del llamante (subtítulo de la Cascada, §5.4 de decisiones) ─────────
+  caller_staff AS (
+    SELECT s.staff_id AS resolved_staff_id, s.practica_id, pr.name AS practica_name
+    FROM caller c
+    LEFT JOIN public.staff s ON s.staff_id = c.staff_id
+    LEFT JOIN public.practicas pr ON pr.practica_id = s.practica_id
+  ),
+  -- ── 1c. Categoría del llamante -- KPI 3 (decisión del operador 2026-09-20) ──────────
+  -- Antes el KPI 3 era "Horas como Gerente" fijo: presupuesto de las categorías con
+  -- default_role_key='manager' sobre los encargos donde el llamante es manager_id. Para un
+  -- socio daba 0/0 SIEMPRE, por construcción (nunca es manager_id) -- reportado en vivo por
+  -- el operador. Ahora el KPI se adapta a la categoría de la ficha de quien mira: el título
+  -- lo pone role_label y el cálculo lo dirige role_key.
+  -- LEFT JOIN en toda la cadena: este CTE DEBE devolver exactamente 1 fila (va en un CROSS
+  -- JOIN del ensamblado final; 0 filas anularían el payload entero).
+  caller_category AS (
+    SELECT cat.category_name AS role_label, cat.default_role_key AS role_key
+    FROM caller c
+    LEFT JOIN public.staff s ON s.staff_id = c.staff_id
+    LEFT JOIN public.categories cat ON cat.category_id = s.category_id
+  ),
+  now_ctx AS (
+    SELECT ((now() AT TIME ZONE 'America/La_Paz')::date) AS today
+  ),
+  retro_days_ctx AS (
+    SELECT COALESCE(
+      (SELECT setting_value::int FROM public.global_settings WHERE setting_key = 'TS_EMPLOYEE_RETRO_DAYS'),
+      30
+    ) AS retro_days
+  ),
+  default_rate AS (
+    SELECT public.latest_exchange_rate() AS rate
+  ),
+  milestone_window AS (
+    SELECT
+      (date_trunc('month', (SELECT today FROM now_ctx)) - interval '1 month')::date AS win_start,
+      (date_trunc('month', (SELECT today FROM now_ctx)) + interval '2 months' - interval '1 day')::date AS win_end
+  ),
+
+  -- ── 2. Estado efectivo por encargo (★ dash_socio :199-214, + columnas de Cartera) ──────
+  eng_state AS (
+    SELECT
+      e.engagement_id, e.client_id, e.engagement_name, e.engagement_code::text AS engagement_code,
+      e.partner_id, e.manager_id, e.sqr_id, e.society_id, e.start_date, e.end_date, e.anio_fiscal,
+      e.fecha_cierre, e.funcion, e.taxonomy_id, e.created_at, e.work_order_required,
+      e.engagement_state_override, e.practica,
+      cl.client_legal_name,
+      wo.wo_id, wo.currency, wo.season_mode, wo.tax_rate, wo.adjustment_amount,
+      wo.approval_status, wo.risk_status, wo.approved_at, wo.risk_approved_at,
+      public.effective_engagement_state(
+        e.engagement_state_override, e.work_order_required, wo.wo_id,
+        wo.approval_status, wo.risk_status, wo.approved_at
+      ) AS state
+    FROM public.engagements e
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+  ),
+
+  -- ── 3. Alcance por rol (decisiones.md §2): admin/senior_partner=firma; el resto SOLO
+  -- donde es partner_id o manager_id del encargo -- sin excepción por rol (a diferencia de
+  -- dash_socio, acá los 8 role_key comparten el mismo predicado). El scope_key
+  -- ('department' de risk_partner) NUNCA se lee -- decisiones.md §2 nota + §3.
+  role_scope AS (
+    SELECT es.*
+    FROM eng_state es
+    CROSS JOIN caller c
+    WHERE
+      c.role_key IN ('admin', 'senior_partner')
+      OR (c.staff_id IS NOT NULL AND (es.partner_id = c.staff_id OR es.manager_id = c.staff_id))
+  ),
+
+  -- ── 4. scope_all: + estado 4/5 + funcion=1 (Cliente). SIN filtro de fecha a nivel
+  -- encargo (plan_v2.md §3.2): los bloques por periodo filtran horas/cuotas/gastos, no
+  -- encargos.
+  scope_all AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state IN (4, 5)
+      AND rs.funcion = 1
+  ),
+
+  -- ── 5. Opciones del filtro de Cliente (desde scope_all, antes de aplicar p_client_id) ──
+  filters_clients AS (
+    SELECT DISTINCT sa.client_id, sa.client_legal_name FROM scope_all sa
+  ),
+  -- Selector de Práctica (solo tiene sentido visualmente para admin/senior_partner, cuyo
+  -- alcance abarca varias prácticas a la vez -- decisiones.md §5.2 -- pero se arma para
+  -- cualquier rol, es barato: catálogo fijo). Lista TODAS las prácticas activas de la
+  -- firma, no derivada de scope_all -- mismo criterio "selector cerrado" que
+  -- filters_societies en partner_overview() (una práctica sin encargos en cartera hoy no
+  -- debe desaparecer del selector).
+  filters_practicas AS (
+    SELECT pr.practica_id, pr.name
+    FROM public.practicas pr
+    WHERE pr.is_active
+  ),
+  filters_agg AS (
+    SELECT
+      COALESCE(
+        (SELECT jsonb_agg(jsonb_build_object('client_id', client_id, 'client_legal_name', client_legal_name)
+                           ORDER BY client_legal_name) FROM filters_clients),
+        '[]'::jsonb
+      ) AS clients,
+      COALESCE(
+        (SELECT jsonb_agg(jsonb_build_object('practica_id', practica_id, 'name', name)
+                           ORDER BY name) FROM filters_practicas),
+        '[]'::jsonb
+      ) AS practicas
+  ),
+
+  -- ── 6. scope: + filtro de Cliente y Práctica del encabezado (aplicados DESPUÉS del
+  -- alcance -- p_practica_id traduce el uuid del selector al code smallint que guarda
+  -- engagements.practica; un encargo sin práctica asignada (NULL) queda afuera de
+  -- cualquier filtro específico, nunca de "Todas") ────────────────────────────────────
+  scope AS (
+    SELECT sa.*
+    FROM scope_all sa
+    WHERE (p_client_id IS NULL OR sa.client_id = p_client_id)
+      AND (p_practica_id IS NULL OR sa.practica = (SELECT code FROM public.practicas WHERE practica_id = p_practica_id))
+  ),
+
+  -- ── 7. scope_fy / scope_fy_prev / manager_scope_fy ──────────────────────────────────
+  scope_fy AS (
+    SELECT s.* FROM scope s WHERE s.anio_fiscal = p_fiscal_year
+  ),
+  scope_fy_prev AS (
+    SELECT s.* FROM scope s WHERE s.anio_fiscal = p_fiscal_year - 1
+  ),
+  -- Solo KPI 3 (personal, "como <mi categoría>"). KPI 4 usa scope_fy completo (D-2).
+  -- 2026-09-20: el conjunto ya no es fijo "donde soy manager_id" -- depende del rol que mi
+  -- categoría implica. engagements solo tiene columna estructural para partner/manager/sqr;
+  -- cualquier otra categoría (Director, Senior, Asistente, especialistas...) o una sin
+  -- default_role_key poblado cae al ELSE: los encargos donde ocupo CUALQUIER rol estructural.
+  -- No se cae a "toda la cartera" a propósito -- para un admin firm-wide eso compararía sus
+  -- horas personales contra el presupuesto de toda la firma.
+  my_role_scope_fy AS (
+    SELECT sf.*
+    FROM scope_fy sf
+    CROSS JOIN caller c
+    CROSS JOIN caller_category cc
+    WHERE c.staff_id IS NOT NULL
+      AND CASE cc.role_key
+            WHEN 'partner' THEN sf.partner_id = c.staff_id
+            WHEN 'manager' THEN sf.manager_id = c.staff_id
+            WHEN 'sqr'     THEN sf.sqr_id = c.staff_id
+            ELSE (sf.partner_id = c.staff_id OR sf.manager_id = c.staff_id OR sf.sqr_id = c.staff_id)
+          END
+  ),
+
+  -- ── 7b. pending_wo_scope: KPI 5 -- TODOS los estados (una OT pendiente no puede estar
+  -- en cartera 4/5), pero SÍ funcion=1 y filtro de Cliente.
+  pending_wo_scope AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.funcion = 1
+      AND (p_client_id IS NULL OR rs.client_id = p_client_id)
+      AND (p_practica_id IS NULL OR rs.practica = (SELECT code FROM public.practicas WHERE practica_id = p_practica_id))
+  ),
+
+  -- ── 8. wo: OT Approved por encargo de scope -- honorario, gastos, TC, base con IVA ────
+  wo_raw AS (
+    SELECT
+      s.engagement_id, s.wo_id, s.currency, s.season_mode,
+      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
+      s.approval_status,
+      COALESCE(bl.fee, 0) AS total_standard_fee,
+      COALESCE(eb.amt, 0) AS expense_budget,
+      p.plan_id, p.exchange_rate AS plan_exchange_rate
+    FROM scope s
+    LEFT JOIN LATERAL (
+      SELECT SUM(bl.budgeted_hours * bl.standard_rate) AS fee
+      FROM public.wo_budget_lines bl
+      WHERE bl.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    ) bl ON true
+    LEFT JOIN LATERAL (
+      SELECT SUM(eb.budgeted_amount) AS amt
+      FROM public.wo_expense_budget eb
+      WHERE eb.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    ) eb ON true
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = s.wo_id
+  ),
+  wo_rate AS (
+    SELECT
+      w.*,
+      (w.total_standard_fee + w.adjustment_amount) AS fee_net,
+      CASE
+        WHEN w.currency = 'BOB' THEN 1
+        WHEN w.plan_exchange_rate IS NOT NULL THEN w.plan_exchange_rate
+        WHEN w.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM wo_raw w
+  ),
+  wo AS (
+    SELECT
+      w.*,
+      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+    FROM wo_rate w
+  ),
+
+  -- ── 9. budget_lines: horas presupuestadas por encargo y categoría (OT Approved) ───────
+  budget_lines AS (
+    SELECT
+      s.engagement_id, cat.category_id, cat.category_name, cat.default_role_key, cat.display_order,
+      SUM(bl.budgeted_hours) AS hours
+    FROM scope s
+    JOIN public.wo_budget_lines bl ON bl.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    JOIN public.categories cat ON cat.category_id = bl.category_id
+    GROUP BY s.engagement_id, cat.category_id, cat.category_name, cat.default_role_key, cat.display_order
+  ),
+
+  -- ── 10. hours: UN solo scan de time_entries para scope (obs. de rendimiento) ─────────
+  -- Conserva activity_id en el join con timesheet_line_approvals -- no repite horas de un
+  -- mismo (period_id, engagement_id) en varias actividades (plan_v2.md §3.3).
+  --
+  -- BUG 2026-09-20 (categorías duplicadas -- confirmado con datos reales del operador):
+  -- `staff.category_id` está atado por FK compuesto a la práctica DE LA PERSONA
+  -- (staff_practica_category_fk, cero_04:841), mientras que `wo_budget_lines.category_id`
+  -- trae la categoría de la práctica DEL ENCARGO. Cada práctica siembra su propia fila
+  -- 'Socio'/'Gerente'/... (cero_11: 7 'Socio' distintos; UNIQUE (practica_id, category_name)
+  -- garantiza que no haya dos dentro de una misma práctica), así que un socio de Compliance
+  -- que carga horas en un encargo de Auditoría producía DOS barras 'Socio': una
+  -- solo-presupuesto (la de AUD) y otra solo-ejecutado (la de COM). Medido en Test: 40h de
+  -- un socio COM sobre encargos AUD y 40h de un socio AUD sobre un encargo COM -- trabajo
+  -- cruzado entre prácticas, normal en la firma, no un dato mal cargado (las líneas de
+  -- presupuesto sí respetan la práctica del encargo en los 2 casos reales).
+  --
+  -- exec_category_id re-mapea la hora a la categoría homónima de la práctica DEL ENCARGO,
+  -- que es contra cuyo presupuesto se la está comparando. Si esa práctica no tiene homónima
+  -- (o el encargo no tiene práctica, o la persona no tiene categoría) cae a la categoría
+  -- propia y la fila aparece igual: NUNCA se descarta una hora. La comparación de nombres
+  -- ignora mayúsculas y separadores ('Semi-Senior' de AUD == 'Semi Senior' del resto del
+  -- catálogo, cero_11), con el match exacto primero para que sea determinista.
+  hours AS (
+    SELECT
+      s.engagement_id, te.activity_id, te.staff_id,
+      COALESCE(engcat.category_id, st.category_id) AS exec_category_id,
+      CASE WHEN tla.status = 'approved' THEN 'approved'
+           WHEN tla.status = 'rejected' THEN 'rejected'
+           ELSE 'pending' END AS bucket,
+      te.hours_logged, te.date_worked, te.period_id
+    FROM scope s
+    JOIN public.time_entries te ON te.engagement_id = s.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+    LEFT JOIN public.staff st ON st.staff_id = te.staff_id
+    LEFT JOIN public.categories stcat ON stcat.category_id = st.category_id
+    LEFT JOIN public.practicas engpr ON engpr.code = s.practica
+    LEFT JOIN LATERAL (
+      SELECT ec.category_id
+      FROM public.categories ec
+      WHERE ec.practica_id = engpr.practica_id
+        AND regexp_replace(lower(ec.category_name), '[^a-z0-9]', '', 'g')
+          = regexp_replace(lower(stcat.category_name), '[^a-z0-9]', '', 'g')
+      ORDER BY (ec.category_name = stcat.category_name) DESC, ec.display_order
+      LIMIT 1
+    ) engcat ON true
+  ),
+  engagement_budget_total AS (
+    SELECT engagement_id, SUM(hours) AS budget_hours FROM budget_lines GROUP BY engagement_id
+  ),
+  engagement_lifetime_hours AS (
+    SELECT engagement_id, SUM(hours_logged) FILTER (WHERE bucket IN ('approved', 'pending')) AS lifetime_hours
+    FROM hours GROUP BY engagement_id
+  ),
+  engagement_period_hours AS (
+    SELECT
+      engagement_id,
+      SUM(hours_logged) FILTER (WHERE bucket = 'approved' AND date_worked BETWEEN p_start AND p_end) AS approved_hours,
+      SUM(hours_logged) FILTER (WHERE bucket = 'pending' AND date_worked BETWEEN p_start AND p_end) AS pending_hours
+    FROM hours GROUP BY engagement_id
+  ),
+
+  -- ── 11. KPI 1: Encargos (scope_fy) ───────────────────────────────────────────────────
+  kpi_engagements AS (
+    SELECT
+      COUNT(*) AS total,
+      COUNT(*) FILTER (WHERE state = 4) AS approved,
+      COUNT(*) FILTER (WHERE state = 5) AS emergency
+    FROM scope_fy
+  ),
+
+  -- ── 12. KPI 2: Clientes/Servicios (scope_fy vs scope_fy_prev) ────────────────────────
+  kpi_clients_services AS (
+    SELECT
+      (SELECT COUNT(DISTINCT sf.client_id) FROM scope_fy sf) AS clients,
+      (SELECT COUNT(DISTINCT sf.taxonomy_id) FROM scope_fy sf
+         JOIN public.servicios sv ON sv.taxonomy_id = sf.taxonomy_id) AS services,
+      (SELECT COUNT(DISTINCT sfp.client_id) FROM scope_fy_prev sfp) AS previous_clients,
+      (SELECT COUNT(DISTINCT sfp.taxonomy_id) FROM scope_fy_prev sfp
+         JOIN public.servicios sv ON sv.taxonomy_id = sfp.taxonomy_id) AS previous_services
+  ),
+
+  -- ── 13. KPI 3: Horas como <mi categoría> (solo mis horas, FY completo, sin scheduler) ─
+  -- D-1 se conserva como mecanismo, pero generalizado: el presupuesto son las líneas cuya
+  -- categoría comparte MI default_role_key -- para un gerente eso sigue cubriendo 'Gerente'
+  -- y 'Gerente/Asociado Senior' (LEG) y excluyendo los especialistas, exactamente como
+  -- antes; para un socio son todas las variantes 'Socio' del catálogo. El match por role_key
+  -- también cruza prácticas gratis (el 'Socio' de cada práctica comparte role_key).
+  -- Respaldo por NOMBRE cuando mi categoría no tiene default_role_key: el backfill de
+  -- 20260825000100 deja la columna NULL si el default_app_role mapea a más de un role_key,
+  -- y sin este respaldo el KPI volvería a 0/0 justo para las categorías no mapeadas.
+  kpi_role_budget AS (
+    SELECT COALESCE(SUM(bl.hours), 0) AS budget
+    FROM my_role_scope_fy msf
+    JOIN budget_lines bl ON bl.engagement_id = msf.engagement_id
+    CROSS JOIN caller_category cc
+    WHERE CASE
+            WHEN cc.role_key IS NOT NULL THEN bl.default_role_key = cc.role_key
+            ELSE regexp_replace(lower(bl.category_name), '[^a-z0-9]', '', 'g')
+               = regexp_replace(lower(cc.role_label), '[^a-z0-9]', '', 'g')
+          END
+  ),
+  kpi_role_exec AS (
+    SELECT
+      COALESCE(SUM(h.hours_logged) FILTER (WHERE h.bucket = 'approved'), 0) AS approved,
+      COALESCE(SUM(h.hours_logged) FILTER (WHERE h.bucket = 'pending'), 0) AS pending
+    FROM hours h
+    CROSS JOIN caller c
+    WHERE h.staff_id = c.staff_id
+      AND h.date_worked BETWEEN p_fy_start AND p_fy_end
+      AND h.engagement_id IN (SELECT engagement_id FROM my_role_scope_fy)
+  ),
+
+  -- ── 14. KPI 4: Avance de cartera (D-2: scope_fy completo -- socio O gerente; todo el
+  -- equipo, FY completo). Coincide con activities.total_budget_hours cuando el periodo
+  -- visible cubre el FY completo (§5.3 de decisiones).
+  kpi_portfolio_budget AS (
+    SELECT COALESCE(SUM(bl.hours), 0) AS budget
+    FROM scope_fy sf
+    JOIN budget_lines bl ON bl.engagement_id = sf.engagement_id
+  ),
+  kpi_portfolio_exec AS (
+    SELECT
+      COALESCE(SUM(h.hours_logged) FILTER (WHERE h.bucket = 'approved'), 0) AS approved,
+      COALESCE(SUM(h.hours_logged) FILTER (WHERE h.bucket = 'pending'), 0) AS pending
+    FROM hours h
+    WHERE h.date_worked BETWEEN p_fy_start AND p_fy_end
+      AND h.engagement_id IN (SELECT engagement_id FROM scope_fy)
+  ),
+
+  -- ── 15. KPI 5: Revisión -- sobregirados (vida completa) · OT por aprobar · Riesgo
+  -- pendiente (risk_status='Pending' AND approval_status='Pending_Approval', decisiones.md
+  -- §4.2 -- un borrador Draft+Pending NO cuenta) ──────────────────────────────────────
+  kpi_review AS (
+    SELECT
+      (SELECT COUNT(*) FROM scope s
+         WHERE COALESCE((SELECT lifetime_hours FROM engagement_lifetime_hours elh WHERE elh.engagement_id = s.engagement_id), 0)
+             > COALESCE((SELECT budget_hours FROM engagement_budget_total ebt WHERE ebt.engagement_id = s.engagement_id), 0)
+      ) AS over_budget_count,
+      (SELECT COUNT(*) FROM pending_wo_scope WHERE approval_status = 'Pending_Approval') AS pending_wo_count,
+      (SELECT COUNT(*) FROM pending_wo_scope
+         WHERE risk_status = 'Pending' AND approval_status = 'Pending_Approval') AS pending_risk_count
+  ),
+
+  -- ── 16. Cascada de Actividades: última worksheet approved por encargo (sin doble
+  -- conteo, R2) ─────────────────────────────────────────────────────────────────────────
+  worksheet_latest AS (
+    SELECT DISTINCT ON (aw.engagement_id) aw.id AS worksheet_id, aw.engagement_id
+    FROM public.activity_worksheets aw
+    WHERE aw.engagement_id IN (SELECT engagement_id FROM scope) AND aw.status = 'approved'
+    ORDER BY aw.engagement_id, aw.version DESC, aw.updated_at DESC, aw.id DESC
+  ),
+  activity_budget AS (
+    SELECT c.activity_id, SUM(c.budget_hours) AS budget_hours
+    FROM worksheet_latest wl
+    JOIN public.activity_worksheet_cells c ON c.worksheet_id = wl.worksheet_id
+    GROUP BY c.activity_id
+  ),
+  activity_exec AS (
+    SELECT
+      h.activity_id,
+      SUM(h.hours_logged) FILTER (WHERE h.bucket = 'approved') AS approved_hours,
+      SUM(h.hours_logged) FILTER (WHERE h.bucket = 'pending') AS pending_hours
+    FROM hours h
+    WHERE h.activity_id IS NOT NULL AND h.date_worked BETWEEN p_start AND p_end
+    GROUP BY h.activity_id
+  ),
+  activities_joined AS (
+    SELECT
+      COALESCE(ab.activity_id, ae.activity_id) AS activity_id,
+      COALESCE(ab.budget_hours, 0) AS budget_hours,
+      COALESCE(ae.approved_hours, 0) AS approved_hours,
+      COALESCE(ae.pending_hours, 0) AS pending_hours
+    FROM activity_budget ab
+    FULL OUTER JOIN activity_exec ae ON ae.activity_id = ab.activity_id
+  ),
+  activities_rows AS (
+    SELECT aj.activity_id, ac.activity_code, ac.description, aj.budget_hours, aj.approved_hours, aj.pending_hours
+    FROM activities_joined aj
+    JOIN public.activity_codes ac ON ac.activity_id = aj.activity_id
+  ),
+  activities_total AS (
+    SELECT COALESCE(SUM(budget_hours), 0) AS total_budget_hours FROM activities_rows
+  ),
+  activities_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'activity_id', activity_id, 'activity_code', activity_code, 'description', description,
+      'budget_hours', budget_hours, 'approved_hours', approved_hours, 'pending_hours', pending_hours
+    ) ORDER BY budget_hours DESC, description), '[]'::jsonb) AS items
+    FROM activities_rows
+  ),
+
+  -- ── 17-18. Horas por categoría (sin acumulado, sin matriz -- directo de wo_budget_lines) ──
+  category_budget AS (
+    SELECT category_id, category_name, display_order, SUM(hours) AS budget_hours
+    FROM budget_lines
+    GROUP BY category_id, category_name, display_order
+  ),
+  -- Agrupa por hours.exec_category_id (categoría de la práctica DEL ENCARGO, ver el
+  -- comentario largo del CTE `hours`), NO por staff.category_id -- si no, una misma
+  -- categoría aparece dos veces cuando alguien de otra práctica trabaja el encargo.
+  -- Tampoco se filtra por p_practica_id acá: ese filtro descartaba las horas cruzadas en
+  -- silencio (el total ejecutado dejaba de cuadrar con Horas por encargo).
+  category_exec AS (
+    SELECT
+      h.exec_category_id AS category_id,
+      SUM(h.hours_logged) FILTER (WHERE h.bucket = 'approved' AND h.date_worked BETWEEN p_start AND p_end) AS approved_hours,
+      SUM(h.hours_logged) FILTER (WHERE h.bucket = 'pending' AND h.date_worked BETWEEN p_start AND p_end) AS pending_hours
+    FROM hours h
+    GROUP BY h.exec_category_id
+  ),
+  categories_joined AS (
+    SELECT
+      COALESCE(cb.category_id, ce.category_id) AS category_id,
+      cb.category_name AS cb_category_name,
+      cb.display_order AS cb_display_order,
+      COALESCE(cb.budget_hours, 0) AS budget_hours,
+      COALESCE(ce.approved_hours, 0) AS approved_hours,
+      COALESCE(ce.pending_hours, 0) AS pending_hours
+    FROM category_budget cb
+    FULL OUTER JOIN category_exec ce ON ce.category_id = cb.category_id
+  ),
+  -- practica_abbr (2026-09-20): con el re-mapeo de arriba ya no hay filas repetidas dentro
+  -- de una práctica, pero en la vista "Todas" siguen conviviendo legítimamente el 'Socio' de
+  -- cada práctica. La UI usa esta abreviatura para desambiguar SOLO cuando un mismo nombre
+  -- aparece más de una vez -- con una práctica elegida, la etiqueta queda limpia.
+  categories_rows AS (
+    SELECT
+      cj.category_id,
+      COALESCE(cj.cb_category_name, cat.category_name) AS category_name,
+      COALESCE(cj.cb_display_order, cat.display_order) AS display_order,
+      pr.abbreviation AS practica_abbr,
+      cj.budget_hours, cj.approved_hours, cj.pending_hours
+    FROM categories_joined cj
+    LEFT JOIN public.categories cat ON cat.category_id = cj.category_id
+    LEFT JOIN public.practicas pr ON pr.practica_id = cat.practica_id
+  ),
+  categories_total AS (
+    SELECT COALESCE(SUM(budget_hours), 0) AS total_budget_hours FROM categories_rows
+  ),
+  categories_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'category_id', category_id, 'category_name', category_name, 'display_order', display_order,
+      'practica_abbr', practica_abbr,
+      'budget_hours', budget_hours, 'approved_hours', approved_hours, 'pending_hours', pending_hours
+    ) ORDER BY budget_hours DESC NULLS LAST), '[]'::jsonb) AS items
+    FROM categories_rows
+  ),
+
+  -- ── 19. Presupuesto de personal: wo_staffing_requirements vs distintos que cargaron
+  -- horas, sin filtrar por aprobación (§6.3 de decisiones) ────────────────────────────
+  staffing_budget AS (
+    SELECT wsr.category_id, SUM(wsr.staff_count) AS staff_count
+    FROM scope s
+    JOIN public.wo_staffing_requirements wsr ON wsr.wo_id = s.wo_id AND s.approval_status = 'Approved'
+    GROUP BY wsr.category_id
+  ),
+  -- Mismo re-mapeo que category_exec (ver el comentario del CTE `hours`): la persona cuenta
+  -- en la categoría homónima de la práctica del encargo que trabajó, no en la de su ficha.
+  staffing_exec AS (
+    SELECT h.exec_category_id AS category_id, COUNT(DISTINCT h.staff_id) AS executed
+    FROM hours h
+    WHERE h.date_worked BETWEEN p_start AND p_end
+    GROUP BY h.exec_category_id
+  ),
+  staffing_joined AS (
+    SELECT
+      COALESCE(sb.category_id, se.category_id) AS category_id,
+      sb.staff_count AS budgeted,
+      COALESCE(se.executed, 0) AS executed
+    FROM staffing_budget sb
+    FULL OUTER JOIN staffing_exec se ON se.category_id = sb.category_id
+  ),
+  staffing_rows AS (
+    SELECT sj.category_id, cat.category_name, pr.abbreviation AS practica_abbr, sj.budgeted, sj.executed
+    FROM staffing_joined sj
+    LEFT JOIN public.categories cat ON cat.category_id = sj.category_id
+    LEFT JOIN public.practicas pr ON pr.practica_id = cat.practica_id
+  ),
+  staffing_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'category_id', category_id, 'category_name', category_name, 'practica_abbr', practica_abbr,
+      'budgeted', budgeted, 'executed', executed
+    ) ORDER BY budgeted DESC NULLS LAST), '[]'::jsonb) AS items
+    FROM staffing_rows
+  ),
+
+  -- ── 20. Facturación: installments_full (★ dash_socio), by_status acotado al periodo
+  -- por agreed_invoice_date (a diferencia de dash_socio, que no lo acota) ────────────────
+  installments_full AS (
+    SELECT
+      i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
+      i.status, i.agreed_invoice_date, i.agreed_payment_date,
+      i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
+      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
+      w.rate_to_bob,
+      COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
+      COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) AS payment_rate
+    FROM wo w
+    JOIN public.wo_payment_installments i ON i.wo_id = w.wo_id
+  ),
+  collections_by_status AS (
+    SELECT jsonb_build_object(
+      'collected', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Completed' AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.payment_rate) FILTER (
+          WHERE inst.status = 'Completed' AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
+      'invoiced', jsonb_build_object(
+        'count', COUNT(*) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (
+          WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
+      'in_arrears', jsonb_build_object(
+        'count', COUNT(*) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+            AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+            AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
+      'upcoming', jsonb_build_object(
+        'count', COUNT(*) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+            AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
+        'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
+          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+            AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0))
+    ) AS by_status
+    FROM installments_full inst
+  ),
+  collections_next7 AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+        'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
+        'client_legal_name', cl.client_legal_name,
+        'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        -- review.md dash_cartera iteración 4, G-01 (2026-09-22): igual que dash_socio --
+        -- una cuota ya facturada (Invoiced/Overdue) se valora al TC congelado de su factura
+        -- (invoice_rate), NO al TC del plan (rate_to_bob).
+        'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
+                        THEN inst.amount_native * inst.invoice_rate
+                        ELSE inst.amount_native * inst.rate_to_bob END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+    ), '[]'::jsonb) AS items
+    FROM installments_full inst
+    JOIN public.engagements e ON e.engagement_id = inst.engagement_id
+    JOIN public.clients cl ON cl.client_id = e.client_id
+    WHERE
+      (inst.status IN ('Invoiced', 'Overdue')
+        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+      OR
+      (inst.status = 'Pending'
+        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+  ),
+  avg_collection_days_agg AS (
+    SELECT AVG(COALESCE(inst.payment_date_actual, inst.collection_payment_date) - inst.collection_invoice_date)
+             FILTER (WHERE inst.status = 'Completed'
+                       AND COALESCE(inst.payment_date_actual, inst.collection_payment_date) BETWEEN p_start AND p_end
+             ) AS avg_days
+    FROM installments_full inst
+  ),
+
+  -- ── 21. Gastos de la cartera: solo revisado_asistente = ejecutado -- decisión del
+  -- operador 2026-09-18, corrige inconsistencia con partner_overview() (★ dash_socio
+  -- :450-461, donde ya distinguía reviewed_bob=revisado_asistente de
+  -- manager_approved_bob=aprobado_gerente "solo tooltip"): un gasto se considera "ejecutado"
+  -- únicamente cuando concluye el flujo completo (Contabilidad revisa, revisado_asistente),
+  -- NO cuando el gerente lo aprueba (aprobado_gerente es un paso intermedio, todavía puede
+  -- ser observado/rechazado por Contabilidad). pending_count ahora incluye aprobado_gerente
+  -- (sigue "pendiente" desde la óptica de Contabilidad, aunque el gerente ya lo aprobó) para
+  -- que ningún gasto no rechazado/no observado desaparezca del resumen. top3 por encargo,
+  -- sobregirados primero (decisiones.md §7) ──────────────────────────────────
+  expenses_by_engagement AS (
+    SELECT
+      w.engagement_id,
+      COALESCE(w.expense_budget * w.rate_to_bob, 0) AS budget_bob,
+      COALESCE(SUM(fre.amount * CASE fre.currency WHEN 'BOB' THEN 1 ELSE COALESCE(w.rate_to_bob, (SELECT rate FROM default_rate)) END)
+        FILTER (WHERE fre.status = 'revisado_asistente' AND fre.expense_date BETWEEN p_start AND p_end), 0) AS executed_bob,
+      COUNT(*) FILTER (WHERE fre.status IN ('pendiente_aprobacion', 'aprobado_gerente')) AS pending_count,
+      COUNT(*) FILTER (WHERE fre.status = 'revisado_asistente' AND fre.expense_date BETWEEN p_start AND p_end) AS approved_count
+    FROM wo w
+    LEFT JOIN public.fund_request_expenses fre ON fre.wo_id = w.wo_id
+    GROUP BY w.engagement_id, w.expense_budget, w.rate_to_bob
+  ),
+  expenses_totals AS (
+    SELECT
+      COALESCE(SUM(budget_bob), 0) AS budget_bob,
+      COALESCE(SUM(executed_bob), 0) AS executed_bob,
+      COALESCE(SUM(pending_count), 0) AS pending_count,
+      COALESCE(SUM(approved_count), 0) AS approved_count
+    FROM expenses_by_engagement
+  ),
+  expenses_top3_base AS (
+    SELECT
+      ebe.engagement_id, s.engagement_code, s.client_legal_name,
+      ebe.budget_bob, ebe.executed_bob,
+      (ebe.executed_bob / NULLIF(ebe.budget_bob, 0)) * 100 AS pct
+    FROM expenses_by_engagement ebe
+    JOIN scope s ON s.engagement_id = ebe.engagement_id
+    WHERE ebe.budget_bob > 0
+  ),
+  expenses_top3 AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'engagement_id', engagement_id, 'engagement_code', engagement_code, 'client_legal_name', client_legal_name,
+      'budget_bob', budget_bob, 'executed_bob', executed_bob, 'pct', pct
+    ) ORDER BY (pct > 100) DESC, pct DESC, executed_bob DESC), '[]'::jsonb) AS items
+    FROM (
+      SELECT * FROM expenses_top3_base
+      ORDER BY (pct > 100) DESC, pct DESC, executed_bob DESC
+      LIMIT 3
+    ) t3
+  ),
+
+  -- ── 22. Cola de aprobación (enriquecida, §7.1 de decisiones): horas totales, personas
+  -- distintas, antigüedad en semanas, alerta a partir de retro_days ────────────────────
+  approval_queue_rows AS (
+    SELECT
+      tla.approval_id, tla.engagement_id, s.engagement_code, tp.week_start_date, tp.staff_id,
+      COALESCE(st.short_name, TRIM(BOTH FROM (COALESCE(st.first_name, '') || ' ' || COALESCE(st.last_name, '')))) AS staff_name,
+      COALESCE(h.hours, 0) AS hours,
+      ((SELECT today FROM now_ctx) - tp.week_start_date) AS days_old
+    FROM public.timesheet_line_approvals tla
+    JOIN scope s ON s.engagement_id = tla.engagement_id
+    JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+    LEFT JOIN public.staff st ON st.staff_id = tp.staff_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(te.hours_logged) AS hours FROM public.time_entries te
+      WHERE te.period_id = tla.period_id AND te.engagement_id = tla.engagement_id AND te.activity_id = tla.activity_id
+    ) h ON true
+    WHERE tla.status = 'pending'
+  ),
+  approval_queue_derived AS (
+    SELECT aqr.*,
+      FLOOR(aqr.days_old / 7.0)::int AS weeks_old,
+      (aqr.days_old >= (SELECT retro_days FROM retro_days_ctx)) AS alert
+    FROM approval_queue_rows aqr
+  ),
+  approval_queue_agg AS (
+    SELECT
+      COALESCE(SUM(hours), 0) AS total_hours,
+      COUNT(DISTINCT staff_id) AS distinct_people,
+      COUNT(*) AS total_count
+    FROM approval_queue_derived
+  ),
+  -- MF-03 (review.md iteración 1): la consolidación por persona va ANTES del LIMIT. Cuando
+  -- el recorte se hacía sobre líneas crudas, una sola persona con 20 líneas pendientes
+  -- agotaba el cupo y TODAS las demás desaparecían del payload -- el frontend, que agrupa
+  -- después, no tenía forma de saberlo y el "+N más" tampoco las contaba. Se conserva la
+  -- línea MÁS ANTIGUA de cada persona (mayor days_old), que es la que decide la alerta.
+  approval_queue_per_person AS (
+    SELECT DISTINCT ON (aqd.staff_id) aqd.*
+    FROM approval_queue_derived aqd
+    ORDER BY aqd.staff_id, aqd.days_old DESC, aqd.week_start_date ASC, aqd.approval_id
+  ),
+  approval_queue_items AS (
+    -- staff_id viaja para que el cliente deduplique por identidad y no por nombre visible.
+    -- No es PII: la aserción #22 de la suite prohíbe email / id_number / auth_user_id.
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'approval_id', approval_id, 'staff_id', staff_id, 'staff_name', staff_name,
+      'engagement_id', engagement_id,
+      'engagement_code', engagement_code, 'week_start_date', week_start_date, 'hours', hours,
+      'weeks_old', weeks_old, 'alert', alert
+    ) ORDER BY week_start_date ASC), '[]'::jsonb) AS items
+    FROM (SELECT * FROM approval_queue_per_person ORDER BY week_start_date ASC LIMIT 20) t
+  ),
+
+  -- ── 23. Hitos: ventana fija ±1 mes (decisiones.md §7.2); ignoran Periodo, respetan
+  -- Cliente ───────────────────────────────────────────────────────────────────────────
+  milestones_closing AS (
+    SELECT 'closing'::text AS kind, s.fecha_cierre AS date, s.engagement_id,
+           s.engagement_code, s.engagement_name, NULL::int AS weeks
+    FROM scope s CROSS JOIN milestone_window mw
+    WHERE s.fecha_cierre BETWEEN mw.win_start AND mw.win_end
+  ),
+  milestones_new_engagement AS (
+    SELECT 'new_engagement'::text, s.created_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    FROM scope s CROSS JOIN now_ctx nc
+    WHERE s.created_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+  ),
+  milestones_wo_approved AS (
+    SELECT 'wo_approved'::text, s.approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    FROM scope s CROSS JOIN now_ctx nc
+    WHERE s.approved_at IS NOT NULL AND s.approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+  ),
+  milestones_risk_approved AS (
+    SELECT 'risk_approved'::text, s.risk_approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    FROM scope s CROSS JOIN now_ctx nc
+    WHERE s.risk_approved_at IS NOT NULL AND s.risk_approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+  ),
+  milestones_assignment AS (
+    SELECT 'assignment'::text, pe.occurred_at::date, pe.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    FROM public.portfolio_events pe
+    JOIN scope s ON s.engagement_id = pe.engagement_id
+    CROSS JOIN caller c
+    CROSS JOIN now_ctx nc
+    WHERE pe.subject_staff_id = c.staff_id
+      AND pe.occurred_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+  ),
+  milestones_lock_deadline AS (
+    SELECT 'lock_deadline'::text,
+           (aqd.week_start_date + 6 + (SELECT retro_days FROM retro_days_ctx)),
+           NULL::uuid, NULL::text, NULL::text, aqd.weeks_old
+    FROM approval_queue_derived aqd
+    CROSS JOIN milestone_window mw
+    CROSS JOIN now_ctx nc
+    WHERE (aqd.week_start_date + 6 + (SELECT retro_days FROM retro_days_ctx)) BETWEEN nc.today AND mw.win_end
+  ),
+  milestones_all AS (
+    SELECT * FROM milestones_closing
+    UNION ALL SELECT * FROM milestones_new_engagement
+    UNION ALL SELECT * FROM milestones_wo_approved
+    UNION ALL SELECT * FROM milestones_risk_approved
+    UNION ALL SELECT * FROM milestones_assignment
+    UNION ALL SELECT * FROM milestones_lock_deadline
+  ),
+  milestones_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'kind', kind, 'date', date, 'engagement_id', engagement_id, 'engagement_code', engagement_code,
+      'engagement_name', engagement_name, 'weeks', weeks
+    ) ORDER BY date), '[]'::jsonb) AS items
+    FROM (SELECT * FROM milestones_all ORDER BY date LIMIT 40) m
+  ),
+
+  -- ── 24. Horas por encargo: tabla simple, reacciona a Cliente y Periodo ───────────────
+  engagement_rows_agg AS (
+    SELECT
+      s.engagement_id, s.engagement_code, s.engagement_name, s.client_legal_name,
+      COALESCE(ebt.budget_hours, 0) AS budget_hours,
+      COALESCE(eph.approved_hours, 0) AS approved_hours,
+      COALESCE(eph.pending_hours, 0) AS pending_hours,
+      (COALESCE(elh.lifetime_hours, 0) > COALESCE(ebt.budget_hours, 0)) AS over_budget,
+      CASE WHEN COALESCE(ebt.budget_hours, 0) > 0
+           THEN (COALESCE(eph.approved_hours, 0) + COALESCE(eph.pending_hours, 0)) / ebt.budget_hours
+           ELSE 0 END AS consumption_ratio
+    FROM scope s
+    LEFT JOIN engagement_budget_total ebt ON ebt.engagement_id = s.engagement_id
+    LEFT JOIN engagement_period_hours eph ON eph.engagement_id = s.engagement_id
+    LEFT JOIN engagement_lifetime_hours elh ON elh.engagement_id = s.engagement_id
+  ),
+  engagement_rows_json AS (
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+      'engagement_id', engagement_id, 'engagement_code', engagement_code, 'engagement_name', engagement_name,
+      'client_legal_name', client_legal_name, 'budget_hours', budget_hours, 'approved_hours', approved_hours,
+      'pending_hours', pending_hours, 'over_budget', over_budget
+    ) ORDER BY consumption_ratio DESC), '[]'::jsonb) AS items
+    FROM (SELECT * FROM engagement_rows_agg ORDER BY consumption_ratio DESC LIMIT 200) t
+  ),
+
+  -- ── 25. Conteos de alcance (meta) ────────────────────────────────────────────────────
+  scope_counts AS (
+    SELECT
+      (SELECT COUNT(*) FROM scope_all) AS unfiltered_scope_count,
+      (SELECT COUNT(*) FROM scope) AS scope_count
+  ),
+
+  -- ── 26. Fila resumen "Encargos finalizados" (pedido del operador 2026-09-19): encargos
+  -- que cerraron (estado efectivo 7) DENTRO del periodo visible ([p_start, p_end], por
+  -- end_date -- mismo criterio que ya usa finalized_scope en partner_overview() para
+  -- "finalizados en el periodo"), acotados a role_scope + funcion=1 + filtro de Cliente
+  -- (NO por año fiscal: un encargo se cierra en una fecha real, no en un ejercicio
+  -- seleccionable). budget_hours/executed_hours son de VIDA COMPLETA del encargo (para
+  -- reflejar el desempeño final, no solo lo cargado durante la ventana de cierre);
+  -- executed_expenses_bob usa la misma regla recién corregida en el bloque de Gastos
+  -- (solo revisado_asistente = ejecutado, aprobado_gerente no cuenta).
+  finalized_scope AS (
+    SELECT rs.*
+    FROM role_scope rs
+    WHERE rs.state = 7
+      AND rs.funcion = 1
+      AND rs.end_date BETWEEN p_start AND p_end
+      AND (p_client_id IS NULL OR rs.client_id = p_client_id)
+      AND (p_practica_id IS NULL OR rs.practica = (SELECT code FROM public.practicas WHERE practica_id = p_practica_id))
+  ),
+  finalized_wo AS (
+    SELECT
+      fs.engagement_id, wo.wo_id, wo.currency,
+      CASE
+        WHEN wo.currency = 'BOB' THEN 1
+        WHEN p.exchange_rate IS NOT NULL THEN p.exchange_rate
+        WHEN wo.currency = 'USD' THEN (SELECT rate FROM default_rate)
+        ELSE NULL
+      END AS rate_to_bob
+    FROM finalized_scope fs
+    JOIN public.work_orders wo ON wo.engagement_id = fs.engagement_id AND wo.approval_status = 'Approved'
+    LEFT JOIN public.wo_payment_plan p ON p.wo_id = wo.wo_id
+  ),
+  finalized_count AS (
+    SELECT COUNT(*) AS cnt FROM finalized_scope
+  ),
+  finalized_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS budget_hours
+    FROM finalized_wo fw
+    JOIN public.wo_budget_lines bl ON bl.wo_id = fw.wo_id
+  ),
+  finalized_hours AS (
+    SELECT COALESCE(SUM(te.hours_logged), 0) AS executed_hours
+    FROM finalized_scope fs
+    JOIN public.time_entries te ON te.engagement_id = fs.engagement_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+    WHERE tla.status IS DISTINCT FROM 'rejected'
+  ),
+  finalized_expenses AS (
+    SELECT COALESCE(SUM(
+      fre.amount * CASE fre.currency WHEN 'BOB' THEN 1 ELSE COALESCE(fw.rate_to_bob, (SELECT rate FROM default_rate)) END
+    ) FILTER (WHERE fre.status = 'revisado_asistente'), 0) AS executed_bob
+    FROM finalized_wo fw
+    JOIN public.fund_request_expenses fre ON fre.wo_id = fw.wo_id
+  )
+
+  -- ── 27. Ensamblado final (§7.3 del plan: forma exacta del payload) ───────────────────
+  SELECT jsonb_build_object(
+    'meta', jsonb_build_object(
+      'role_key', c.role_key,
+      'scope_kind', CASE WHEN c.role_key IN ('admin', 'senior_partner') THEN 'firm' ELSE 'own' END,
+      'practica_name', cs.practica_name,
+      'scope_count', sc.scope_count,
+      'unfiltered_scope_count', sc.unfiltered_scope_count,
+      'fiscal_year', p_fiscal_year,
+      'retro_days', rd.retro_days,
+      'today', nc.today
+    ),
+    'filters', jsonb_build_object('clients', fa.clients, 'practicas', fa.practicas),
+    'kpis', jsonb_build_object(
+      'engagements', jsonb_build_object('total', ke.total, 'approved', ke.approved, 'emergency', ke.emergency),
+      'clients_services', jsonb_build_object(
+        'clients', kcs.clients, 'services', kcs.services,
+        'previous_clients', kcs.previous_clients, 'previous_services', kcs.previous_services
+      ),
+      'my_role_hours', jsonb_build_object(
+        'role_key', cc.role_key, 'role_label', cc.role_label,
+        'budget', krb.budget, 'approved', kre.approved, 'pending', kre.pending
+      ),
+      'portfolio_progress', jsonb_build_object('budget', kpb.budget, 'approved', kpe.approved, 'pending', kpe.pending),
+      'review', jsonb_build_object(
+        'over_budget_count', kr.over_budget_count, 'pending_wo_count', kr.pending_wo_count,
+        'pending_risk_count', kr.pending_risk_count
+      )
+    ),
+    'activities', jsonb_build_object('total_budget_hours', atot.total_budget_hours, 'items', aj.items),
+    'categories', jsonb_build_object('total_budget_hours', ctot.total_budget_hours, 'items', cj.items),
+    'staffing', stf.items,
+    'collections', jsonb_build_object(
+      'by_status', cbs.by_status, 'next_7_days', n7.items, 'avg_collection_days', acd.avg_days
+    ),
+    'expenses', jsonb_build_object(
+      'budget_bob', et.budget_bob, 'executed_bob', et.executed_bob,
+      'pending_count', et.pending_count, 'approved_count', et.approved_count, 'top3', et3.items
+    ),
+    'approval_queue', jsonb_build_object(
+      'total_hours', aqa.total_hours, 'distinct_people', aqa.distinct_people,
+      'total_count', aqa.total_count, 'items', aqi.items
+    ),
+    'milestones', mj.items,
+    'engagement_rows', erj.items,
+    'finalized_summary', jsonb_build_object(
+      'count', fzc.cnt, 'budget_hours', fzb.budget_hours,
+      'executed_hours', fzh.executed_hours, 'executed_expenses_bob', fze.executed_bob
+    )
+  )
+  FROM caller c
+  CROSS JOIN caller_staff cs
+  CROSS JOIN caller_category cc
+  CROSS JOIN now_ctx nc
+  CROSS JOIN retro_days_ctx rd
+  CROSS JOIN scope_counts sc
+  CROSS JOIN filters_agg fa
+  CROSS JOIN kpi_engagements ke
+  CROSS JOIN kpi_clients_services kcs
+  CROSS JOIN kpi_role_budget krb
+  CROSS JOIN kpi_role_exec kre
+  CROSS JOIN kpi_portfolio_budget kpb
+  CROSS JOIN kpi_portfolio_exec kpe
+  CROSS JOIN kpi_review kr
+  CROSS JOIN activities_total atot
+  CROSS JOIN activities_json aj
+  CROSS JOIN categories_total ctot
+  CROSS JOIN categories_json cj
+  CROSS JOIN staffing_json stf
+  CROSS JOIN collections_by_status cbs
+  CROSS JOIN collections_next7 n7
+  CROSS JOIN avg_collection_days_agg acd
+  CROSS JOIN expenses_totals et
+  CROSS JOIN expenses_top3 et3
+  CROSS JOIN approval_queue_agg aqa
+  CROSS JOIN approval_queue_items aqi
+  CROSS JOIN milestones_json mj
+  CROSS JOIN engagement_rows_json erj
+  CROSS JOIN finalized_count fzc
+  CROSS JOIN finalized_budget fzb
+  CROSS JOIN finalized_hours fzh
+  CROSS JOIN finalized_expenses fze
+  );
+
+  RETURN COALESCE(v_result, '{}'::jsonb);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION portfolio_overview(p_start date, p_end date, p_fiscal_year integer, p_fy_start date, p_fy_end date, p_client_id uuid, p_practica_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.portfolio_overview(p_start date, p_end date, p_fiscal_year integer, p_fy_start date, p_fy_end date, p_client_id uuid, p_practica_id uuid) IS 'dash_cartera (decisiones.md §4-§8, plan_v2.md §7.1-§7.3): payload único de la pestaña Cartera (5 KPI + 5 filas de bloques) en un round-trip. Gateado por dashboard.portfolio.read (ya concedido a admin/senior_partner/partner/director/manager/ita_manager/tax_manager/risk_partner, cero_13:323-330 -- esta migración no toca esa tabla). Alcance: admin/senior_partner ven toda la firma; el resto SOLO donde es partner_id o manager_id del encargo (role_scope), sin distinción de rol y SIN leer authorization_role_permissions.scope_key -- risk_partner nunca recibe alcance departamental. Base = estado efectivo 4/5 + funcion=1 (Cliente), SIN filtro de fecha a nivel encargo -- los bloques por periodo filtran horas/cuotas/gastos, no encargos. KPI 3 (2026-09-20, decisión del operador) dejó de ser "Horas como Gerente" fijo -- que para un socio daba 0/0 por construcción -- y se adapta a la categoría de la ficha del llamante: my_role_hours.role_label da el título y role_key dirige el cálculo (encargos donde ocupo ese rol estructural + líneas de presupuesto que comparten mi default_role_key, con respaldo por nombre si la categoría no lo tiene poblado). D-1 sobrevive como mecanismo: un gerente sigue sumando ''Gerente'' + ''Gerente/Asociado Senior'' y excluyendo los especialistas. KPI 4 (Avance de cartera) opera sobre scope_fy completo, contando el encargo si el llamante es su socio O su gerente (D-2). p_practica_id (2026-09-19): filtro de Práctica post-alcance, pedido del operador para admin/senior_partner -- NO es un cambio de autorización, role_scope no lo usa. "Horas por categoría"/"Presupuesto de personal" atribuyen cada hora a la categoría homónima de la práctica DEL ENCARGO (hours.exec_category_id), no a la de la ficha de quien la cargó: sin eso, alguien de otra práctica trabajando el encargo abría una segunda fila con el mismo nombre (BUG 2026-09-20, ver el comentario del CTE `hours`). Cada fila viaja con practica_abbr para que la UI desambigüe los homónimos legítimos de la vista "Todas". La Cola de aprobación se consolida por persona (una fila por staff_id, la línea más antigua) ANTES de su LIMIT 20 y emite staff_id: cortando líneas crudas, una sola persona con 20 pendientes escondía a todas las demás del payload (review.md iteración 1, MF-03). Depende de public.effective_engagement_state() y public.latest_exchange_rate(), creadas por 20260915130000_dash_socio_partner_overview.sql -- debe aplicarse después de esa migración. Ver bugs/dashboard/cartera/plan_v2.md §7.3 para el contrato exacto del payload.';
 
 
 --
@@ -14462,6 +17654,30 @@ CREATE TABLE public.parametro (
 
 
 --
+-- Name: portfolio_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.portfolio_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    engagement_id uuid NOT NULL,
+    event_type text NOT NULL,
+    subject_staff_id uuid,
+    previous_staff_id uuid,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_user_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT portfolio_events_type_check CHECK ((event_type = ANY (ARRAY['partner_assigned'::text, 'manager_assigned'::text])))
+);
+
+
+--
+-- Name: TABLE portfolio_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.portfolio_events IS 'dash_cartera (decisiones.md §7.2, plan_v2.md §6.2): bitácora append-only de cambios de partner_id/manager_id en engagements -- únicos 2 eventos de Hitos que no se pueden derivar de una columna real ya existente. RLS activo SIN policies (nadie la lee/escribe directo) + trigger anti-UPDATE/DELETE. Arranca vacía -- SIN backfill retroactivo (decisiones.md §7.2 lo prohíbe explícitamente); hasta que acumule datos, el hito "assignment" no tiene qué mostrar.';
+
+
+--
 -- Name: practicas; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -14965,12 +18181,13 @@ CREATE TABLE public.wo_expense_budget (
 CREATE TABLE public.wo_payment_plan (
     plan_id uuid DEFAULT gen_random_uuid() NOT NULL,
     wo_id uuid NOT NULL,
-    exchange_rate numeric,
+    exchange_rate numeric DEFAULT public.latest_exchange_rate() NOT NULL,
     payment_days integer DEFAULT 30 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     exchange_rate_mode text DEFAULT 'fijo'::text NOT NULL,
-    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text])))
+    CONSTRAINT wo_payment_plan_exchange_rate_mode_check CHECK ((exchange_rate_mode = ANY (ARRAY['fijo'::text, 'variable'::text]))),
+    CONSTRAINT wo_payment_plan_exchange_rate_positive CHECK ((exchange_rate > (0)::numeric))
 );
 
 
@@ -15044,10 +18261,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_16; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_16 (
+CREATE TABLE realtime.messages_2026_09_22 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15060,10 +18277,10 @@ CREATE TABLE realtime.messages_2026_09_16 (
 
 
 --
--- Name: messages_2026_09_17; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_17 (
+CREATE TABLE realtime.messages_2026_09_23 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15076,10 +18293,10 @@ CREATE TABLE realtime.messages_2026_09_17 (
 
 
 --
--- Name: messages_2026_09_18; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_18 (
+CREATE TABLE realtime.messages_2026_09_24 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15092,10 +18309,10 @@ CREATE TABLE realtime.messages_2026_09_18 (
 
 
 --
--- Name: messages_2026_09_19; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_25; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_19 (
+CREATE TABLE realtime.messages_2026_09_25 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15108,10 +18325,10 @@ CREATE TABLE realtime.messages_2026_09_19 (
 
 
 --
--- Name: messages_2026_09_20; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_09_26; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_09_20 (
+CREATE TABLE realtime.messages_2026_09_26 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -15404,38 +18621,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_16 FOR VALUES FROM ('2026-09-16 00:00:00') TO ('2026-09-17 00:00:00');
-
-
---
--- Name: messages_2026_09_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_17 FOR VALUES FROM ('2026-09-17 00:00:00') TO ('2026-09-18 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_22 FOR VALUES FROM ('2026-09-22 00:00:00') TO ('2026-09-23 00:00:00');
 
 
 --
--- Name: messages_2026_09_18; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_18 FOR VALUES FROM ('2026-09-18 00:00:00') TO ('2026-09-19 00:00:00');
-
-
---
--- Name: messages_2026_09_19; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_19 FOR VALUES FROM ('2026-09-19 00:00:00') TO ('2026-09-20 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_23 FOR VALUES FROM ('2026-09-23 00:00:00') TO ('2026-09-24 00:00:00');
 
 
 --
--- Name: messages_2026_09_20; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_20 FOR VALUES FROM ('2026-09-20 00:00:00') TO ('2026-09-21 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_24 FOR VALUES FROM ('2026-09-24 00:00:00') TO ('2026-09-25 00:00:00');
+
+
+--
+-- Name: messages_2026_09_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_25 FOR VALUES FROM ('2026-09-25 00:00:00') TO ('2026-09-26 00:00:00');
+
+
+--
+-- Name: messages_2026_09_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_26 FOR VALUES FROM ('2026-09-26 00:00:00') TO ('2026-09-27 00:00:00');
 
 
 --
@@ -16077,6 +19294,14 @@ ALTER TABLE ONLY public.parametro
 
 
 --
+-- Name: portfolio_events portfolio_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.portfolio_events
+    ADD CONSTRAINT portfolio_events_pkey PRIMARY KEY (event_id);
+
+
+--
 -- Name: practicas practicas_code_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -16341,43 +19566,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_16 messages_2026_09_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22 messages_2026_09_22_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_16
-    ADD CONSTRAINT messages_2026_09_16_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_17 messages_2026_09_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_17
-    ADD CONSTRAINT messages_2026_09_17_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_22
+    ADD CONSTRAINT messages_2026_09_22_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_18 messages_2026_09_18_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23 messages_2026_09_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_18
-    ADD CONSTRAINT messages_2026_09_18_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_19 messages_2026_09_19_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_19
-    ADD CONSTRAINT messages_2026_09_19_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_23
+    ADD CONSTRAINT messages_2026_09_23_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_09_20 messages_2026_09_20_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24 messages_2026_09_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_09_20
-    ADD CONSTRAINT messages_2026_09_20_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_09_24
+    ADD CONSTRAINT messages_2026_09_24_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_25 messages_2026_09_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_25
+    ADD CONSTRAINT messages_2026_09_25_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_26 messages_2026_09_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_26
+    ADD CONSTRAINT messages_2026_09_26_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -17153,6 +20378,13 @@ CREATE UNIQUE INDEX idx_one_running_timer_per_staff ON public.timer_entries USIN
 
 
 --
+-- Name: idx_portfolio_events_engagement_occurred; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_portfolio_events_engagement_occurred ON public.portfolio_events USING btree (engagement_id, occurred_at DESC);
+
+
+--
 -- Name: idx_servicios_code_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -17300,6 +20532,20 @@ CREATE INDEX idx_user_roles_role_key ON public.user_roles USING btree (role_key)
 
 
 --
+-- Name: idx_wo_budget_lines_wo_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_budget_lines_wo_id ON public.wo_budget_lines USING btree (wo_id);
+
+
+--
+-- Name: idx_wo_expense_budget_wo_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_expense_budget_wo_id ON public.wo_expense_budget USING btree (wo_id);
+
+
+--
 -- Name: idx_wo_payment_installments_wo_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -17356,38 +20602,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_16_inserted_at_topic_idx ON realtime.messages_2026_09_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_17_inserted_at_topic_idx ON realtime.messages_2026_09_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_22_inserted_at_topic_idx ON realtime.messages_2026_09_22 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_18_inserted_at_topic_idx ON realtime.messages_2026_09_18 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_19_inserted_at_topic_idx ON realtime.messages_2026_09_19 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_23_inserted_at_topic_idx ON realtime.messages_2026_09_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_09_20_inserted_at_topic_idx ON realtime.messages_2026_09_20 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_09_24_inserted_at_topic_idx ON realtime.messages_2026_09_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_25_inserted_at_topic_idx ON realtime.messages_2026_09_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_26_inserted_at_topic_idx ON realtime.messages_2026_09_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -17489,73 +20735,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_16_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_16_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_22_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_22_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_17_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_17_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_22_pkey;
 
 
 --
--- Name: messages_2026_09_18_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_18_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_18_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_18_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_23_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_19_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_19_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_19_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_19_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_23_pkey;
 
 
 --
--- Name: messages_2026_09_20_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_20_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_24_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_09_20_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_09_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_20_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_24_pkey;
+
+
+--
+-- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_25_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_25_pkey;
+
+
+--
+-- Name: messages_2026_09_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_26_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_26_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_26_pkey;
 
 
 --
@@ -17909,6 +21155,13 @@ CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements 
 
 
 --
+-- Name: engagements trg_engagements_log_assignment; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_log_assignment AFTER UPDATE OF partner_id, manager_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.log_engagement_assignment_change();
+
+
+--
 -- Name: engagements trg_engagements_profile_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -17927,6 +21180,13 @@ CREATE TRIGGER trg_guard_auth_lockout_settings BEFORE INSERT OR UPDATE ON public
 --
 
 CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE OF email ON public.staff FOR EACH ROW EXECUTE FUNCTION public.link_staff_to_auth_user();
+
+
+--
+-- Name: portfolio_events trg_portfolio_events_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_portfolio_events_append_only BEFORE DELETE OR UPDATE ON public.portfolio_events FOR EACH ROW EXECUTE FUNCTION public.portfolio_events_append_only();
 
 
 --
@@ -20408,6 +23668,12 @@ CREATE POLICY "payment_plan firm read" ON public.wo_payment_plan FOR SELECT TO a
 
 
 --
+-- Name: portfolio_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.portfolio_events ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: practicas; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -20942,5 +24208,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict pmDdaGZfpVpHPXINkJcpWKa5nUqzPinUyxGBPKbGiQf9vF1CLzPPQffVBJkUoKX
+\unrestrict Cov2V2gkwdrkcIBZ6OyHJDaxWX55xXagJDzblmxlha19siHdHtX0df2I0EEDb7e
 

@@ -70,6 +70,10 @@ const WorkOrderNew = () => {
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlanInput | null>(null);
   const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentInput[]>([]);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  // dash_socio: WorkOrderNew no tenía este signal (WorkOrderEdit.tsx sí, línea 196);
+  // se agrega con el mismo patrón para poder auto-cambiar a la pestaña de Pagos
+  // cuando falla la validación del TC inicial obligatorio.
+  const [paymentFocusSignal, setPaymentFocusSignal] = useState(0);
 
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
@@ -172,6 +176,14 @@ const WorkOrderNew = () => {
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        return;
+      }
+      // dash_socio (decisiones.md §4.1): el TC inicial del plan pasa a ser
+      // obligatorio en la UI en cuanto la OT en moneda extranjera tiene al menos
+      // una cuota -- espejo del CHECK/NOT NULL de wo_payment_plan.exchange_rate.
+      if (currency !== "BOB" && !(paymentPlan?.exchange_rate > 0)) {
+        toast.error(t("workOrders.paymentPlan.validationExchangeRateRequired"));
+        setPaymentFocusSignal((s) => s + 1);
         return;
       }
     }
@@ -396,6 +408,7 @@ const WorkOrderNew = () => {
             canEditPaymentPlan={canEditPaymentPlan}
             onPaymentPlanChange={setPaymentPlan}
             onPaymentInstallmentsChange={setPaymentInstallments}
+            paymentFocusSignal={paymentFocusSignal}
           />
         )}
       </div>

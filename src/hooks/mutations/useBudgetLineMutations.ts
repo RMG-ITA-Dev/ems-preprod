@@ -22,6 +22,9 @@ export function useCreateBudgetLine() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen presupuestos de OT -- invalidación
+      // aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("creating budget line"),
   });
@@ -53,6 +56,9 @@ export function useUpdateBudgetLine() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen presupuestos de OT -- invalidación
+      // aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("updating budget line"),
   });
@@ -68,6 +74,9 @@ export function useDeleteBudgetLine() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen presupuestos de OT -- invalidación
+      // aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("deleting budget line"),
   });

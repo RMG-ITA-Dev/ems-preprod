@@ -1,10 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { useDashboard } from "@/contexts/DashboardContext";
-import { useDashboardAccess } from "@/hooks/useDashboardAccess";
-import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
 import {
   Select,
   SelectContent,
@@ -13,110 +7,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FolderKanban } from "lucide-react";
+import type { DashboardEngagementItem } from "@/components/dashboard/tabs/encargoOverviewTypes";
 
-interface EngagementWithClient {
-  engagement_id: string;
-  engagement_code: string | null;
-  engagement_name: string;
-  client?: {
-    client_legal_name: string;
-  } | null;
+// dash_encargo (bugs/dashboard/encargo/plan_v2.md §5.4): componente presentacional -- ya no
+// consulta Supabase ni decide el alcance por rol (eso ahora lo resuelve el RPC
+// list_dashboard_engagements(), vía useDashboardEngagements()). El único dueño de datos de
+// la pestaña Encargo es EncargoTab.tsx, que le pasa options/value/onChange/isLoading.
+
+interface EngagementSelectorProps {
+  options: DashboardEngagementItem[];
+  value: string | null;
+  onChange: (id: string | null) => void;
+  isLoading: boolean;
 }
 
-export function EngagementSelector() {
+export function EngagementSelector({ options, value, onChange, isLoading }: EngagementSelectorProps) {
   const { t } = useTranslation();
-  const { staffRecord } = useCurrentStaff();
-  const { selectedEngagementId, setSelectedEngagementId, startDateStr, endDateStr } = useDashboard();
-  const { isPartner, isManager } = useDashboardAccess();
-
-  // Fetch accessible engagements based on role
-  const { data: engagements, isLoading } = useQuery({
-    queryKey: ['encargo-engagements', staffRecord?.staff_id, isPartner, isManager, startDateStr, endDateStr],
-    queryFn: async ({ signal }) => {
-      if (!staffRecord?.staff_id) return [];
-
-      // Partners see all engagements
-      if (isPartner) {
-        const { data, error } = await supabase
-          .from('engagements')
-          .select(`
-            engagement_id,
-            engagement_code,
-            engagement_name,
-            status,
-            engagement_state_override,
-            client:clients(client_legal_name)
-          `)
-          .eq('status', 'active')
-          .order('engagement_code')
-          .abortSignal(signal);
-
-        if (error) throw error;
-        // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9) aunque status='active'.
-        return (data || []).filter(
-          (e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
-        ) as EngagementWithClient[];
-      }
-
-      // Managers see engagements where they are partner or manager
-      if (isManager) {
-        const { data, error } = await supabase
-          .from('engagements')
-          .select(`
-            engagement_id,
-            engagement_code,
-            engagement_name,
-            status,
-            engagement_state_override,
-            client:clients(client_legal_name)
-          `)
-          .eq('status', 'active')
-          .or(`partner_id.eq.${staffRecord.staff_id},manager_id.eq.${staffRecord.staff_id}`)
-          .order('engagement_code')
-          .abortSignal(signal);
-
-        if (error) throw error;
-        return (data || []).filter(
-          (e) => !isHiddenFromActivePickers((e as { engagement_state_override?: number | null }).engagement_state_override)
-        ) as EngagementWithClient[];
-      }
-
-      // Staff see engagements where they've logged time in the period
-      const { data: timeData, error: timeError } = await supabase
-        .from('time_entries')
-        .select(`
-          engagement_id,
-          engagement:engagements(
-            engagement_id,
-            engagement_code,
-            engagement_name,
-            status,
-            engagement_state_override,
-            client:clients(client_legal_name)
-          )
-        `)
-        .eq('staff_id', staffRecord.staff_id)
-        .gte('date_worked', startDateStr)
-        .lte('date_worked', endDateStr)
-        .abortSignal(signal);
-
-      if (timeError) throw timeError;
-
-      // Deduplicate engagements
-      const uniqueEngagements = new Map<string, EngagementWithClient>();
-      timeData?.forEach((entry) => {
-        const eng = entry.engagement as (EngagementWithClient & { engagement_state_override?: number | null }) | null;
-        // FEAT 0602-135: excluir estados terminales/pausados (override 6/7/9).
-        if (eng && !uniqueEngagements.has(eng.engagement_id) && !isHiddenFromActivePickers(eng.engagement_state_override)) {
-          uniqueEngagements.set(eng.engagement_id, eng);
-        }
-      });
-
-      return Array.from(uniqueEngagements.values())
-        .sort((a, b) => (a.engagement_code || '').localeCompare(b.engagement_code || ''));
-    },
-    enabled: !!staffRecord?.staff_id,
-  });
 
   if (isLoading) {
     return (
@@ -128,21 +34,21 @@ export function EngagementSelector() {
     <div className="flex items-center gap-3">
       <FolderKanban className="h-5 w-5 text-primary" />
       <Select
-        value={selectedEngagementId || ''}
-        onValueChange={(value) => setSelectedEngagementId(value || null)}
+        value={value || ''}
+        onValueChange={(v) => onChange(v || null)}
       >
         <SelectTrigger className="w-full max-w-md bg-card/80 backdrop-blur-sm border-border">
           <SelectValue placeholder={t('dashboard.encargo.selectEngagement')} />
         </SelectTrigger>
         <SelectContent>
-          {engagements && engagements.length > 0 ? (
-            engagements.map((eng) => (
+          {options.length > 0 ? (
+            options.map((eng) => (
               <SelectItem key={eng.engagement_id} value={eng.engagement_id}>
-                <span className="font-medium text-primary">{eng.engagement_code || 'â€”'}</span>
+                <span className="font-medium text-primary">{eng.engagement_code || '—'}</span>
                 <span className="mx-2">·</span>
                 <span>{eng.engagement_name}</span>
                 <span className="text-muted-foreground ml-2">
-                  ({eng.client?.client_legal_name || 'â€”'})
+                  ({eng.client_legal_name || '—'})
                 </span>
               </SelectItem>
             ))

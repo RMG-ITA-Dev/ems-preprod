@@ -25,6 +25,9 @@ export function useCreateWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success(i18n.t("messages.createSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("creating work order"),
@@ -57,6 +60,9 @@ export function useUpdateWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
@@ -130,6 +136,9 @@ export function useSubmitWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.submittedForApproval"));
     },
@@ -172,6 +181,9 @@ export function useApproveWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.approved"));
     },
@@ -214,6 +226,9 @@ export function useApproveRisk() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.approved"));
     },
@@ -248,6 +263,9 @@ export function useApproveEmergencyReview() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.riskReviewApproved"));
     },
@@ -302,6 +320,9 @@ export function useApproveEmergencyPartner() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.approved"));
     },
@@ -345,6 +366,9 @@ export function useRejectRisk() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.rejected"));
     },
@@ -376,6 +400,9 @@ export function useRevertSocioApproval() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
@@ -415,6 +442,9 @@ export function useRevertRiskApproval() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
@@ -487,6 +517,9 @@ export function useCompleteRiskAssessment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
@@ -510,6 +543,9 @@ export function useRejectWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       toast.success(i18n.t("workOrders.rejected"));
     },
@@ -550,6 +586,9 @@ export function useUnsubmitWorkOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
+      // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
       toast.success(i18n.t("workOrders.unsubmitted"));

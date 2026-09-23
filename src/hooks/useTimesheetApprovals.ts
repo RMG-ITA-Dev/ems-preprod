@@ -526,6 +526,11 @@ export function useApproveTimesheetLine() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva para que se refresque sola tras
+      // aprobar/rechazar/enviar a revisión (plan_v2.md §5.4, R6; ampliada a las 4 pestañas
+      // por prefijo en review.md dash_cartera iteración 3, G-02, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
@@ -559,6 +564,11 @@ export function useBulkApproveTimesheetLines() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva para que se refresque sola tras
+      // aprobar/rechazar/enviar a revisión (plan_v2.md §5.4, R6; ampliada a las 4 pestañas
+      // por prefijo en review.md dash_cartera iteración 3, G-02, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
@@ -600,6 +610,11 @@ export function useRejectTimesheetLine() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva para que se refresque sola tras
+      // aprobar/rechazar/enviar a revisión (plan_v2.md §5.4, R6; ampliada a las 4 pestañas
+      // por prefijo en review.md dash_cartera iteración 3, G-02, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
@@ -640,6 +655,11 @@ export function useBulkRejectTimesheetLines() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva para que se refresque sola tras
+      // aprobar/rechazar/enviar a revisión (plan_v2.md §5.4, R6; ampliada a las 4 pestañas
+      // por prefijo en review.md dash_cartera iteración 3, G-02, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });
@@ -681,6 +701,11 @@ export function useRequestRevision() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-approvals"] });
+      // dash_cartera: la Cola de aprobación del tablero Cartera lee portfolio_overview(),
+      // no ["pending-approvals"] -- invalidación aditiva para que se refresque sola tras
+      // aprobar/rechazar/enviar a revisión (plan_v2.md §5.4, R6; ampliada a las 4 pestañas
+      // por prefijo en review.md dash_cartera iteración 3, G-02, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["pending-approval-summaries"] });
       queryClient.invalidateQueries({ queryKey: ["period-line-approvals"] });
       queryClient.invalidateQueries({ queryKey: ["staff-timesheet-for-approval"] });

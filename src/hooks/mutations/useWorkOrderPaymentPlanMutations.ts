@@ -44,6 +44,17 @@ function isExchangeRateForbiddenError(error: unknown): boolean {
   return errorMessageOf(error).includes(EXCHANGE_RATE_FORBIDDEN_TOKEN);
 }
 
+// dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
+// latest_exchange_rate(); si latest_exchange_rate() devuelve NULL (historial BCB
+// vacío y sin default_exchange_rate configurado) y el caller manda un `null`
+// explícito (o el DEFAULT resuelve a NULL), Postgres rechaza el INSERT/UPDATE con
+// 23502 (NOT NULL violation). Se distingue por código, no por token de mensaje,
+// porque este es un error nativo de Postgres, no un RAISE EXCEPTION propio.
+function isExchangeRateUnavailableError(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === "23502" && errorMessageOf(error).includes("exchange_rate");
+}
+
 function handlePaymentPlanError(error: unknown, operation: string): void {
   if (isExchangeRateLockedError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateLocked"));
@@ -55,6 +66,10 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isExchangeRateForbiddenError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateForbidden"));
+    return;
+  }
+  if (isExchangeRateUnavailableError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateUnavailable"));
     return;
   }
   handleError(error, {
@@ -74,7 +89,10 @@ export function useUpsertPaymentPlan() {
           {
             ...(plan.plan_id ? { plan_id: plan.plan_id } : {}),
             wo_id: plan.wo_id,
-            exchange_rate: plan.exchange_rate,
+            // dash_socio: la columna es NOT NULL DEFAULT latest_exchange_rate();
+            // supabase-js omite claves undefined y PostgREST aplica el DEFAULT
+            // (payload de un solo objeto).
+            exchange_rate: plan.exchange_rate ?? undefined,
             payment_days: plan.payment_days,
             exchange_rate_mode: plan.exchange_rate_mode,
           },
@@ -93,6 +111,9 @@ export function useUpsertPaymentPlan() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.wo_id] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "upserting payment plan"),
   });
@@ -149,6 +170,9 @@ export function useBatchUpsertInstallments() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "saving payment installments"),
   });
@@ -218,6 +242,9 @@ export function useUpdateInstallmentStatus() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "updating installment status"),
   });
@@ -236,6 +263,9 @@ export function useDeletePaymentPlan() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("deleting payment plan"),
   });
@@ -266,6 +296,9 @@ export function useUpdateCollectionDate() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("updating collection date"),
   });
@@ -299,6 +332,9 @@ export function useUpdateInstallmentExchangeRate() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     // review iteración 16 #3: onChange ya actualizó paymentInstallments de forma
     // optimista antes de que este onBlur dispare la mutación -- si falla (red,
@@ -308,6 +344,9 @@ export function useUpdateInstallmentExchangeRate() {
     // de corregirse hasta recargar. Invalidar fuerza un refetch que trae el valor real.
     onError: (error: unknown, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       handlePaymentPlanError(error, "updating installment exchange rate");
     },
   });
@@ -326,6 +365,9 @@ export function useDeleteInstallment() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "deleting installment"),
   });
