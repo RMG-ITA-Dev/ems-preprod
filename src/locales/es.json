@@ -1549,6 +1549,11 @@
             "end": "Fin",
             "compliance": "pp",
             "complianceTooltip": "Puntos porcentuales de cumplimiento: % de horas consumidas (aprobadas + pendientes) menos % de tiempo transcurrido del encargo. En rojo si el desvío supera 10 pp, adelantado o atrasado."
+          },
+          "pagination": {
+            "range": "{{from}}–{{to}} de {{total}}",
+            "previous": "Anterior",
+            "next": "Siguiente"
           }
         },
         "topClients": {

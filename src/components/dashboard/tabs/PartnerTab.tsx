@@ -503,6 +503,10 @@ export function PartnerTab() {
   const ENGAGEMENTS_TOP_N = 10;
   const ENGAGEMENTS_ALL_LIMIT = 200;
   const [showAllEngagements, setShowAllEngagements] = useState(false);
+  // review.md iteración 10, G-03 (2026-09-23): una cartera real puede superar los 200
+  // encargos que "Ver todos" pide de una sola vez (mismo tope que el RPC ya impone,
+  // LEAST(p_limit,200)) -- paginado real con p_offset, no solo un límite más alto.
+  const [engagementsPage, setEngagementsPage] = useState(0);
   const engagementsQuery = usePartnerOverviewEngagements({
     startDateStr,
     endDateStr,
@@ -514,6 +518,7 @@ export function PartnerTab() {
     sortKey: engagementSort,
     overBudgetOnly: showOverBudgetOnly,
     limit: showAllEngagements ? ENGAGEMENTS_ALL_LIMIT : ENGAGEMENTS_TOP_N,
+    offset: showAllEngagements ? engagementsPage * ENGAGEMENTS_ALL_LIMIT : 0,
   });
 
   if (isLoading) {
@@ -537,6 +542,11 @@ export function PartnerTab() {
         : t("dashboard.socio.scope.own");
 
   const kpi5Tone = alertCardTone(vm.kpis.alerts.over_budget_count, vm.kpis.alerts.pending_wo_count);
+  // review.md iteracion 10, G-02: el clic de un segmento del KPI 1 navega a Encargos --
+  // preserva el filtro de Sociedad activo (único de los 3 filtros de Socio que Encargos ya
+  // soporta; Cliente/Sector no tienen columna filtrable ahí hoy).
+  const engagementsDrillDownUrl = (state: number) =>
+    selectedSocietyId ? `/engagements?state=${state}&society=${selectedSocietyId}` : `/engagements?state=${state}`;
   // review.md iteracion 4, MF-01: el denominador es la suma de los 3 segmentos, no
   // kpis.engagements.total (que solo cuenta estado 4/5 y no incluye a "finalizados").
   const engagementsSegmentPct = engagementSegmentPct(
@@ -608,23 +618,24 @@ export function PartnerTab() {
                 <div className="h-2 w-full rounded-full bg-muted overflow-hidden flex">
                   {/* review.md iteracion 1, MF-04: anchos reales por segmento (antes fijos
                       70/15/15) y un destino de clic por segmento (antes todo el contenedor
-                      navegaba a state=4). */}
+                      navegaba a state=4). review.md iteracion 10, G-02: preserva el filtro
+                      de Sociedad activo (Cliente/Sector no son filtrables hoy en Encargos). */}
                   <div
                     className="h-full bg-primary cursor-pointer"
                     style={{ width: `${engagementsSegmentPct.approved}%` }}
-                    onClick={() => navigate("/engagements?state=4")}
+                    onClick={() => navigate(engagementsDrillDownUrl(4))}
                     title={t("dashboard.socio.kpi.engagements.segmentApproved", { count: vm.kpis.engagements.approved })}
                   />
                   <div
                     className="h-full bg-info cursor-pointer"
                     style={{ width: `${engagementsSegmentPct.emergency}%` }}
-                    onClick={() => navigate("/engagements?state=5")}
+                    onClick={() => navigate(engagementsDrillDownUrl(5))}
                     title={t("dashboard.socio.kpi.engagements.segmentEmergency", { count: vm.kpis.engagements.emergency })}
                   />
                   <div
                     className="h-full bg-muted-foreground cursor-pointer"
                     style={{ width: `${engagementsSegmentPct.finalized}%` }}
-                    onClick={() => navigate("/engagements?state=7")}
+                    onClick={() => navigate(engagementsDrillDownUrl(7))}
                     title={t("dashboard.socio.kpi.engagements.segmentFinalized", { count: vm.kpis.engagements.finalized_in_period })}
                   />
                 </div>
@@ -1201,7 +1212,14 @@ export function PartnerTab() {
                     {t("dashboard.socio.blocks.engagementHours.overBudgetOnly")}
                   </Button>
                   {!showAllEngagements && engagementRowsTotal > engagementRows.length && (
-                    <Button size="sm" variant="ghost" onClick={() => setShowAllEngagements(true)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEngagementsPage(0);
+                        setShowAllEngagements(true);
+                      }}
+                    >
                       {t("dashboard.socio.blocks.engagementHours.viewAll")}
                     </Button>
                   )}
@@ -1292,6 +1310,38 @@ export function PartnerTab() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">—</p>
+                )}
+                {/* review.md iteración 10, G-03: "Ver todos" pedía 200 filas fijas sin avisar
+                    si la cartera real tenía más -- paginado real, visible solo cuando hace
+                    falta (más de una página). */}
+                {showAllEngagements && engagementRowsTotal > ENGAGEMENTS_ALL_LIMIT && (
+                  <div className="flex items-center justify-between gap-2 pt-2 text-xs text-muted-foreground">
+                    <span>
+                      {t("dashboard.socio.blocks.engagementHours.pagination.range", {
+                        from: engagementsPage * ENGAGEMENTS_ALL_LIMIT + 1,
+                        to: Math.min((engagementsPage + 1) * ENGAGEMENTS_ALL_LIMIT, engagementRowsTotal),
+                        total: engagementRowsTotal,
+                      })}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={engagementsPage === 0}
+                        onClick={() => setEngagementsPage((p) => Math.max(0, p - 1))}
+                      >
+                        {t("dashboard.socio.blocks.engagementHours.pagination.previous")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={(engagementsPage + 1) * ENGAGEMENTS_ALL_LIMIT >= engagementRowsTotal}
+                        onClick={() => setEngagementsPage((p) => p + 1)}
+                      >
+                        {t("dashboard.socio.blocks.engagementHours.pagination.next")}
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>

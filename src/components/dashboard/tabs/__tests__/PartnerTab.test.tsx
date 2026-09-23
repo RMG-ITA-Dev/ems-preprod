@@ -204,6 +204,24 @@ describe("PartnerTab", () => {
     expect(mockNavigate).toHaveBeenCalledWith("/engagements?state=7");
   });
 
+  it("PT10: con filtro de Sociedad activo, el clic de un segmento del KPI 1 lo preserva en la URL (review.md iteración 10, G-02)", () => {
+    dashboardState = baseDashboardState({ selectedSocietyId: "soc-42" });
+    mockUsePartnerOverview.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: payloadWith({
+        kpis: {
+          ...emptyPartnerOverviewPayload().kpis,
+          engagements: { total: 10, approved: 6, emergency: 2, finalized_in_period: 2 },
+        },
+      }),
+    });
+    render(<PartnerTab />, { wrapper: createWrapper() });
+
+    fireEvent.click(screen.getByTitle("dashboard.socio.kpi.engagements.segmentApproved(count=6)"));
+    expect(mockNavigate).toHaveBeenCalledWith("/engagements?state=4&society=soc-42");
+  });
+
   it("PT9: error de partner_overview_engagements muestra estado de error con reintentar, no una tabla vacía (MF-06)", () => {
     const mockRefetch = vi.fn();
     mockUsePartnerOverview.mockReturnValue({ isLoading: false, isError: false, data: payloadWith() });

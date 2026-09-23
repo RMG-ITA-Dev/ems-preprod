@@ -204,6 +204,9 @@ const Engagements = () => {
         initialFilters={{
           effective_state: searchParams.get("state") ?? "",
           manager_id: searchParams.get("manager") ?? "",
+          // review.md dash_socio iteración 10, G-02: preserva el filtro de Sociedad activo
+          // en el tablero Socio al hacer clic en un segmento del KPI 1.
+          society_id: searchParams.get("society") ?? "",
         }}
       />
     </AppLayout>

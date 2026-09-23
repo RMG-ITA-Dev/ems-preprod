@@ -1549,6 +1549,11 @@
             "end": "End",
             "compliance": "pp",
             "complianceTooltip": "Compliance percentage points: % of hours consumed (approved + pending) minus % of the engagement's elapsed time. Shown in red if the deviation exceeds 10 pp, either ahead or behind."
+          },
+          "pagination": {
+            "range": "{{from}}–{{to}} of {{total}}",
+            "previous": "Previous",
+            "next": "Next"
           }
         },
         "topClients": {
