@@ -111,6 +111,9 @@ export function useUpsertPaymentPlan() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.wo_id] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "upserting payment plan"),
   });
@@ -167,6 +170,9 @@ export function useBatchUpsertInstallments() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "saving payment installments"),
   });
@@ -236,6 +242,9 @@ export function useUpdateInstallmentStatus() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "updating installment status"),
   });
@@ -254,6 +263,9 @@ export function useDeletePaymentPlan() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("deleting payment plan"),
   });
@@ -284,6 +296,9 @@ export function useUpdateCollectionDate() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("updating collection date"),
   });
@@ -317,6 +332,9 @@ export function useUpdateInstallmentExchangeRate() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     // review iteración 16 #3: onChange ya actualizó paymentInstallments de forma
     // optimista antes de que este onBlur dispare la mutación -- si falla (red,
@@ -326,6 +344,9 @@ export function useUpdateInstallmentExchangeRate() {
     // de corregirse hasta recargar. Invalidar fuerza un refetch que trae el valor real.
     onError: (error: unknown, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       handlePaymentPlanError(error, "updating installment exchange rate");
     },
   });
@@ -344,6 +365,9 @@ export function useDeleteInstallment() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "deleting installment"),
   });

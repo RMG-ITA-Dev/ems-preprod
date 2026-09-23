@@ -71,6 +71,16 @@ BEGIN
 
   v_result := (
   WITH
+  -- review.md dash_personal iteración 3, G-01 (2026-09-22): timesheet_periods.deadline
+  -- nunca se puebla (el INSERT de useTimesheetWeek.ts la omite) -- el vencimiento real de
+  -- envío se deriva del mismo ajuste que ya usa portfolio_overview() para su Cola de
+  -- aprobación (TS_EMPLOYEE_RETRO_DAYS, 20260917160000:196-200), NO de esa columna.
+  retro_days_ctx AS (
+    SELECT COALESCE(
+      (SELECT setting_value::int FROM public.global_settings WHERE setting_key = 'TS_EMPLOYEE_RETRO_DAYS'),
+      30
+    ) AS retro_days
+  ),
   -- ── Asignaciones propias que solapan la ventana operativa (semana actual + 3 siguientes,
   -- inclusive) -- decisiones.md §14: hours_per_week completo por cada fila que solape,
   -- ningún prorrateo. Filtra deleted_at/CANCELLED, igual que dash_encargo. ──────────────────
@@ -205,7 +215,10 @@ BEGIN
     FROM generate_series(-9, 2) gs
   ),
   compliance_period AS (
-    SELECT cb.week_offset, tp.period_id, tp.deadline, tp.submitted_at
+    -- review.md iteración 3, G-01: deadline derivado (week_end + retro_days), no
+    -- tp.deadline (columna real pero nunca poblada por el flujo de carga de horas).
+    SELECT cb.week_offset, tp.period_id, tp.submitted_at,
+           cb.week_end + (SELECT retro_days FROM retro_days_ctx) AS deadline
     FROM compliance_base cb
     LEFT JOIN public.timesheet_periods tp
       ON tp.staff_id = v_staff_id AND tp.week_start_date = cb.week_start
@@ -446,5 +459,9 @@ $$;
 
 COMMENT ON FUNCTION public.personal_overview(date, date) IS 'dash_personal (decisiones.md, plan_v2.md §3/§6): vista propia operativa e histórica de la pestaña Personal en un único payload/round-trip. staff_id SIEMPRE derivado de get_my_staff_id() -- la función no acepta un identificador de empleado y no crea ni depende de ninguna policy nueva de autovisualización sobre engagement_assignments. Sin ficha de personal -> has_staff_record=false, sin excepción. Horas planificadas = hours_per_week completo por cada asignación propia (no eliminada, no CANCELLED) que solape inclusivamente la ventana operativa (semana actual + 3 siguientes) -- sin prorrateo. Horas guardadas = time_entries.is_forecast=false, independientes del estado de envío/aprobación. Pronóstico (is_forecast=true) se devuelve SOLO en current_week.forecast_hours, exclusivamente semana actual -- nunca cuenta como guardada, aprobada, de cumplimiento ni histórica. compliance_weeks: 12 semanas exactas (9 anteriores + actual + 2 futuras), máquina de estados de plan_v2.md §4.2 (REJECTED prevalece sobre APPROVED/PENDING; una semana enviada sin aprobaciones nunca es APPROVED); toda review_notes no vacía viaja con su estado real, incluida una línea vuelta a pending por revisión solicitada -- nunca se inventa un estado Observado. Fondos: aprobado_gerente se deja tal cual (el frontend lo presenta como Pendiente de contabilidad); cada importe se agrupa por su propia moneda de fuente (solicitud/desembolso por fund_requests.currency, gastos por fund_request_expenses.currency) -- nunca se suman BOB y USD, y no se toca fre_validate_wo_in_request()/fund_requests_enforce_bob(). Excluye solicitudes cerrado/cancelado. historical solo trae horas guardadas para los parámetros p_history_start/p_history_end -- no reconstruye asignaciones históricas.';
 
-REVOKE ALL ON FUNCTION public.personal_overview(date, date) FROM PUBLIC;
+-- REVOKE ... FROM PUBLIC a secas no alcanza: Supabase le da a anon/authenticated un grant
+-- DIRECTO sobre funciones nuevas (default privileges), que revocar PUBLIC no toca -- ya
+-- causó un endpoint abierto real una vez (ver comentario de 00-shim-auth.sql). REVOKE
+-- explícito de anon también, antes de conceder solo a authenticated/service_role.
+REVOKE ALL ON FUNCTION public.personal_overview(date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.personal_overview(date, date) TO authenticated, service_role;

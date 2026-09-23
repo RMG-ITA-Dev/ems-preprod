@@ -210,8 +210,11 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax
                                 adjustment_amount, approval_status, approved_at, risk_status) VALUES
   ('d0da5c10-0000-4000-8000-000000000001', '70da5c10-0000-4000-8000-000000000001',
    'USD', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+  -- review.md iteración 9, G-01: moneda USD (no BOB) a propósito -- para que rate_to_bob
+  -- venga del TC del plan y así poder probar que next_7_days usa invoice_rate (congelado),
+  -- no rate_to_bob, en una cuota ya facturada.
   ('d0da5c10-0000-4000-8000-000000000002', '70da5c10-0000-4000-8000-000000000002',
-   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'USD', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000003', '70da5c10-0000-4000-8000-000000000003',
    'BOB', 'High', 0.13, 0, 'Pending_Approval', NULL, 'Pending'),
   ('d0da5c10-0000-4000-8000-000000000006', '70da5c10-0000-4000-8000-000000000006',
@@ -250,7 +253,10 @@ ALTER TABLE public.wo_payment_installments DISABLE TRIGGER trg_wo_payment_instal
 
 INSERT INTO public.wo_payment_plan (plan_id, wo_id, exchange_rate, exchange_rate_mode, payment_days) VALUES
   ('e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 6.96, 'fijo', 30),
-  ('e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 6.96, 'fijo', 30)
+  -- review.md iteración 9, G-01: modo 'variable' a proposito -- el TC del plan (6.96,
+  -- rate_to_bob) queda distinto del TC congelado de la cuota (invoice_exchange_rate, ver
+  -- abajo), que es exactamente el escenario donde el bug de next_7_days se manifestaba.
+  ('e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 6.96, 'variable', 30)
 ON CONFLICT (plan_id) DO NOTHING;
 
 -- E1 (base con IVA = (1250 + 200) / 0.87 = 1666.666...): 3 cuotas 40/30/30.
@@ -286,15 +292,19 @@ INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, inst
 ON CONFLICT (installment_id) DO NOTHING;
 
 -- E2: 1 cuota Invoiced con agreed_payment_date = hoy+3 (linea de 7 dias estricta, "cobrar").
+-- review.md iteración 9, G-01: amount=1000 (literal, no por porcentaje/base -- el WO no
+-- tiene wo_budget_lines, así que installment_base sería 0 y el monto no serviría para
+-- probar el TC) y invoice_exchange_rate=7.50, DISTINTO del TC del plan (6.96, 'variable'
+-- arriba) -- next_7_days debe usar 7.50 (invoice_rate), no 6.96 (rate_to_bob).
 INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, installment_number,
     percentage, amount, status,
     agreed_invoice_date, agreed_payment_date, collection_invoice_date, collection_payment_date, payment_date_actual,
     invoice_exchange_rate, payment_exchange_rate) VALUES
   ('f0da5c10-0000-4000-8000-000000000004', 'e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 1,
-   100, NULL, 'Invoiced',
+   100, 1000, 'Invoiced',
    ((now() AT TIME ZONE 'America/La_Paz')::date) - 10, ((now() AT TIME ZONE 'America/La_Paz')::date) + 3,
    ((now() AT TIME ZONE 'America/La_Paz')::date) - 5, NULL, NULL,
-   6.96, NULL)
+   7.50, NULL)
 ON CONFLICT (installment_id) DO NOTHING;
 
 -- E12 (SF-02): plan BOB + 2 cuotas. La Completed (500 Bs) es la unica que debe entrar a
@@ -980,6 +990,19 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'FAIL: next_7_days debia incluir la cuota de E2 con agreed_payment_date=hoy+3';
   END IF;
+  -- review.md iteración 9, G-01: la cuota de E2 ya está Invoiced (kind='collect') con TC de
+  -- plan 6.96 pero TC congelado a la factura 7.50 -- next_7_days debe valorarla a 1000*7.50
+  -- = 7500 (invoice_rate), NUNCA a 1000*6.96 = 6960 (rate_to_bob, el bug que esto corrige).
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v->'collections'->'next_7_days') it
+     WHERE (it->>'installment_id')::uuid = 'f0da5c10-0000-4000-8000-000000000004'::uuid
+       AND (it->>'kind') = 'collect'
+       AND abs((it->>'amount_bob')::numeric - 7500) < 0.01
+  ) THEN
+    RAISE EXCEPTION 'FAIL: next_7_days de la cuota facturada de E2 debia valorarse a invoice_rate (1000*7.50=7500), obtuvo %',
+      (SELECT it->>'amount_bob' FROM jsonb_array_elements(v->'collections'->'next_7_days') it
+        WHERE (it->>'installment_id')::uuid = 'f0da5c10-0000-4000-8000-000000000004'::uuid);
+  END IF;
   IF EXISTS (
     SELECT 1 FROM jsonb_array_elements(v->'collections'->'next_7_days') it
      WHERE (it->>'installment_id')::uuid = 'f0da5c10-0000-4000-8000-000000000002'::uuid
@@ -995,7 +1018,7 @@ BEGIN
   IF (v->'collections'->'by_status'->'in_arrears'->>'count')::int < 1 THEN
     RAISE EXCEPTION 'FAIL: collections.by_status.in_arrears debia contar la cuota Pending con agreed_invoice_date=hoy-1';
   END IF;
-  RAISE NOTICE 'OK 16: next_7_days estricto (7 dias), chip de vencidas separado, in_arrears cuenta la Pending vencida';
+  RAISE NOTICE 'OK 16: next_7_days estricto (7 dias), chip de vencidas separado, in_arrears cuenta la Pending vencida, cuota facturada valorada a invoice_rate (TC congelado) no a rate_to_bob';
 END $$;
 
 -- ── 17. over_budget_count cuenta E1 por vida completa aunque el periodo no se exceda ────────

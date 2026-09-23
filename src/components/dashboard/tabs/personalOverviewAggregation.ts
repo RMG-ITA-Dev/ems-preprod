@@ -321,7 +321,8 @@ export interface DeadlineItem {
 }
 
 /** Próximos vencimientos (plan_v2.md §5/§4.4): timesheet (deadline de una semana aún no
- * enviada), fondos (due_back_date, incluye vencidos), inicio/fin de asignaciones y gastos
+ * enviada -- derivado en el RPC como week_end + TS_EMPLOYEE_RETRO_DAYS, review.md iteración
+ * 3 G-01), fondos (due_back_date, incluye vencidos), inicio/fin de asignaciones y gastos
  * observados que requieren corrección -- todo dentro de "hoy..operational_end", salvo lo ya
  * vencido (fondos vencidos y correcciones de gastos, que se muestran igual porque siguen
  * pendientes de resolver "ahora"). Orden ascendente por fecha. */

@@ -80,6 +80,9 @@ export interface PersonalComplianceWeek {
   saved_hours: number;
   approved_hours: number;
   period_id: string | null;
+  // review.md iteración 3, G-01 (2026-09-22): derivado en el RPC como week_end +
+  // TS_EMPLOYEE_RETRO_DAYS -- siempre viene poblado, no depende de timesheet_periods.deadline
+  // (columna real pero nunca escrita por el flujo de carga de horas).
   deadline: string | null;
   submitted_at: string | null;
   review_notes: PersonalReviewNote[];

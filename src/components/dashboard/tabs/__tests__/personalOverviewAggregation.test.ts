@@ -321,6 +321,25 @@ describe("buildUpcomingDeadlines", () => {
     expect(buildUpcomingDeadlines(payload)).toEqual([]);
   });
 
+  it("incluye timesheetDue para una semana DRAFT con deadline dentro de la ventana (review.md iteración 3, G-01)", () => {
+    const payload = basePayload({
+      compliance_weeks: [
+        { week_start: "2026-09-14", week_end: "2026-09-20", status: "DRAFT", saved_hours: 16, approved_hours: 0, period_id: "p1", deadline: "2026-10-15", submitted_at: null, review_notes: [] },
+      ],
+    });
+    const items = buildUpcomingDeadlines(payload);
+    expect(items).toContainEqual({ kind: "timesheetDue", date: "2026-10-15", code: null });
+  });
+
+  it("NO incluye timesheetDue para una semana ya APPROVED, aunque tenga deadline en la ventana", () => {
+    const payload = basePayload({
+      compliance_weeks: [
+        { week_start: "2026-09-14", week_end: "2026-09-20", status: "APPROVED", saved_hours: 16, approved_hours: 16, period_id: "p1", deadline: "2026-10-15", submitted_at: "2026-09-20T00:00:00Z", review_notes: [] },
+      ],
+    });
+    expect(buildUpcomingDeadlines(payload).map((i) => i.kind)).not.toContain("timesheetDue");
+  });
+
   it("incluye inicio/fin de asignaciones dentro de la ventana", () => {
     const payload = basePayload({
       assignments: [

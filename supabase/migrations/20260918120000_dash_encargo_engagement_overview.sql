@@ -420,9 +420,15 @@ BEGIN
     WHERE te.engagement_id = p_engagement_id AND COALESCE(te.is_forecast, false) = false
   ),
   -- D-1: "semanas del rango" = semanas calendario tocadas, lunes a lunes.
+  -- review.md dash_encargo iteración 3, G-01 (2026-09-22): hours_per_week YA es el
+  -- compromiso semanal real de la asignación, no una tasa nominal a prorratear -- confirmado
+  -- por personal_overview() ("hours_per_week completo... sin prorrateo") y por
+  -- computeUtilizationBands() del scheduler (suma hours_per_week directo entre asignaciones
+  -- superpuestas). Multiplicar por allocation_percent/100 aquí contaba la dedicación parcial
+  -- dos veces (una asignación real de 20 h/semana al 50% quedaba en 10 h/semana).
   assignment_hours AS (
     SELECT staff_id,
-      SUM(hours_per_week * allocation_percent / 100.0 *
+      SUM(hours_per_week *
         (((date_trunc('week', end_date)::date - date_trunc('week', start_date)::date) / 7) + 1)
       ) AS assigned_hours
     FROM assignments

@@ -593,7 +593,20 @@ BEGIN
     RAISE EXCEPTION 'FAIL: nota de revisión solicitada (-7, pending) debía estar visible (chequeo 24): %', v_notes_m7;
   END IF;
 
-  RAISE NOTICE 'OK 10: 12 semanas exactas; estados FUTURE/NOT_LOGGED/NOT_SUBMITTED/DRAFT/PENDING/REJECTED/APPROVED; rechazo prevalece; approved_hours exacto; notas de rechazo y de revisión visibles';
+  -- review.md iteración 3, G-01 (2026-09-22): deadline ya no es tp.deadline (nunca se
+  -- puebla) -- se deriva como week_end + TS_EMPLOYEE_RETRO_DAYS (default 30, sin seed en
+  -- este harness). Semana -2 (DRAFT): week_end = pg_temp.week(-2)+6, deadline debe ser
+  -- exactamente ese + 30.
+  DECLARE
+    v_deadline_m2 date;
+  BEGIN
+    SELECT (e->>'deadline')::date INTO v_deadline_m2 FROM jsonb_array_elements(v_weeks) e WHERE (e->>'week_start')::date = pg_temp.week(-2);
+    IF v_deadline_m2 <> (pg_temp.week(-2) + 6 + 30) THEN
+      RAISE EXCEPTION 'FAIL: deadline de la semana -2 debía ser week_end+30 (%), obtuvo %', (pg_temp.week(-2) + 6 + 30), v_deadline_m2;
+    END IF;
+  END;
+
+  RAISE NOTICE 'OK 10: 12 semanas exactas; estados FUTURE/NOT_LOGGED/NOT_SUBMITTED/DRAFT/PENDING/REJECTED/APPROVED; rechazo prevalece; approved_hours exacto; notas de rechazo y de revisión visibles; deadline derivado de TS_EMPLOYEE_RETRO_DAYS (no de tp.deadline)';
 END $$;
 
 -- ── 11. Fondos: aprobado_gerente en pendiente de contabilidad, revisado en ambos, gastos

@@ -715,7 +715,12 @@ BEGIN
         'client_legal_name', cl.client_legal_name,
         'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
         'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
-        'amount_bob', inst.amount_native * inst.rate_to_bob
+        -- review.md dash_cartera iteración 4, G-01 (2026-09-22): igual que dash_socio --
+        -- una cuota ya facturada (Invoiced/Overdue) se valora al TC congelado de su factura
+        -- (invoice_rate), NO al TC del plan (rate_to_bob).
+        'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
+                        THEN inst.amount_native * inst.invoice_rate
+                        ELSE inst.amount_native * inst.rate_to_bob END
       ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
     ), '[]'::jsonb) AS items
     FROM installments_full inst

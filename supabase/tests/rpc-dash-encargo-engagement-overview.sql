@@ -317,12 +317,17 @@ ON CONFLICT (fre_id) DO NOTHING;
 -- executed_bob = 300 (BOB, factor 1); budget_bob = 1000 * 6.96 = 6960 -> executed_percent ~4.3%.
 
 -- ── Asignaciones de Staffing (D-1/D-2/§4.5) ──────────────────────────────────────────────
+-- review.md iteración 3, G-01 (2026-09-22): assigned_hours = SUM(hours_per_week * semanas),
+-- SIN multiplicar por allocation_percent -- hours_per_week ya es el compromiso semanal real
+-- (ver comentario cruzado en la migración). allocation_percent viaja en la fila pero no
+-- participa del cálculo de horas.
 -- workerA: cubre semanas -3..0 (4 semanas tocadas), carga horas TODAS esas semanas ->
--- zero_week_alert=false. hours_per_week=40, allocation=100 -> assigned_hours=160.
+-- zero_week_alert=false. hours_per_week=40 -> assigned_hours=160.
 -- workerB: cubre semanas -2..-1 (2 semanas), SOLO carga en -2 -> zero_week_alert=true.
--- hours_per_week=40, allocation=100 -> assigned_hours=80.
+-- hours_per_week=40 -> assigned_hours=80.
 -- workerD: asignación PARCIAL martes->jueves dentro de la semana -2 (D-1: cuenta como 1
--- semana completa, no una fracción). hours_per_week=20, allocation=50 -> assigned_hours=10.
+-- semana completa, no una fracción). hours_per_week=20, allocation=50 (dedicación parcial,
+-- no afecta el cálculo) -> assigned_hours=20.
 -- Sin category_id propio -> ejercita el fallback a la categoría de la asignación (CategoriaB).
 INSERT INTO public.engagement_assignments (assignment_id, engagement_id, staff_id, start_date,
                                            end_date, hours_per_week, allocation_percent, status, category_id) VALUES
@@ -789,7 +794,7 @@ BEGIN
   END IF;
 
   -- ── 20. Staffing.people: assigned_hours/zero_week_alert -- workerA 160/false, workerB
-  -- 80/true, workerC (sin asignación) 0/false, workerD (D-1, parcial) 10/? ───────────────
+  -- 80/true, workerC (sin asignación) 0/false, workerD (D-1, parcial) 20/? ───────────────
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v->'detail'->'staffing'->'people') p
                  WHERE (p->>'staff_id')::uuid = '50e07a60-0000-4000-8000-000000000016'::uuid
                    AND (p->>'assigned_hours')::numeric = 160 AND (p->>'zero_week_alert')::boolean = false) THEN
@@ -806,12 +811,13 @@ BEGIN
     RAISE EXCEPTION 'FAIL: workerC (cargó sin estar asignado) esperada assigned_hours=0/zero_week_alert=false, obtuvo %', v->'detail'->'staffing'->'people';
   END IF;
   -- D-1: asignación parcial martes->jueves dentro de UNA semana calendario cuenta como 1
-  -- semana completa: 20h/semana * 50% * 1 semana = 10h. Además la CANCELLED de workerC
-  -- (asignación 4) no debía sumar nada (ya cubierto arriba: workerC da 0).
+  -- semana completa: 20h/semana * 1 semana = 20h -- allocation_percent (50) no prorratea
+  -- (iteración 3, G-01). Además la CANCELLED de workerC (asignación 4) no debía sumar nada
+  -- (ya cubierto arriba: workerC da 0).
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v->'detail'->'staffing'->'people') p
                  WHERE (p->>'staff_id')::uuid = '50e07a60-0000-4000-8000-000000000019'::uuid
-                   AND (p->>'assigned_hours')::numeric = 10) THEN
-    RAISE EXCEPTION 'FAIL: workerD (D-1, asignación parcial) esperada assigned_hours=10 (1 semana completa), obtuvo %', v->'detail'->'staffing'->'people';
+                   AND (p->>'assigned_hours')::numeric = 20) THEN
+    RAISE EXCEPTION 'FAIL: workerD (D-1, asignación parcial) esperada assigned_hours=20 (1 semana completa, sin prorratear por allocation_percent), obtuvo %', v->'detail'->'staffing'->'people';
   END IF;
   -- SF-02 (review.md iteración 1): el fallback de categoría de workerD debe seguir
   -- resolviendo CategoriaB (asignación válida), NO CategoriaA (asignación ...0005, más
