@@ -17,6 +17,17 @@
 -- el mismo valor. Si faltara una práctica/categoría esperada, aborta en vez de
 -- actualizar un subconjunto silenciosamente.
 --
+-- Las 3 categorías de Auditoría / Especialista IT usan acá "ITA" (no "IT" como
+-- en cero_11): Dev 2.0 ya tenía esas 3 filas con "ITA" de prototipado manual
+-- previo al seed, y el resto de la app usa "ITA" de forma consistente
+-- (role_key ita_manager/ita_senior/ita_assistant, src/locales/es.json,
+-- plantillas de correo) — "IT" en cero_11 es el nombre desactualizado. No se
+-- corrige cero_11 mismo motivo que fecha_local_current_date.sql no toca
+-- cero_02: hay ambientes que lo corrieron con ledger (supabase db push), así
+-- que un push posterior lo saltea y nunca recogería el cambio, y el archivo
+-- queda como registro histórico de lo que realmente se aplicó. Esta migración
+-- pasa a ser la fuente vigente para esas 3 categorías.
+--
 -- Despliegue: supabase db push --project-ref <ref>
 -- =====================================================================
 
@@ -41,9 +52,9 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Auditoría', 'Semi-Senior', 'semisenior'),
   ('Auditoría', 'Asistente', 'staff'),
   ('Auditoría', 'Pasante', 'staff'),
-  ('Auditoría', 'Gerente - Especialista IT', 'specialist_it'),
-  ('Auditoría', 'Senior - Especialista IT', 'senior'),
-  ('Auditoría', 'Asistente - Especialista IT', 'staff'),
+  ('Auditoría', 'Gerente - Especialista ITA', 'specialist_it'),
+  ('Auditoría', 'Senior - Especialista ITA', 'senior'),
+  ('Auditoría', 'Asistente - Especialista ITA', 'staff'),
   ('Auditoría', 'Gerente - Especialista Tax', 'specialist_tax'),
   ('Auditoría', 'Senior - Especialista Tax', 'senior'),
   ('Auditoría', 'Asistente - Especialista Tax', 'staff'),
@@ -174,9 +185,9 @@ BEGIN
   UPDATE public.categories c
      SET default_app_role = d.default_app_role,
          default_role_key = COALESCE(c.default_role_key, CASE
-           WHEN d.category_name = 'Gerente - Especialista IT' THEN 'ita_manager'
-           WHEN d.category_name = 'Senior - Especialista IT' THEN 'ita_senior'
-           WHEN d.category_name = 'Asistente - Especialista IT' THEN 'ita_assistant'
+           WHEN d.category_name = 'Gerente - Especialista ITA' THEN 'ita_manager'
+           WHEN d.category_name = 'Senior - Especialista ITA' THEN 'ita_senior'
+           WHEN d.category_name = 'Asistente - Especialista ITA' THEN 'ita_assistant'
            WHEN d.category_name = 'Gerente - Especialista Tax' THEN 'tax_manager'
            WHEN d.category_name = 'Senior - Especialista Tax' THEN 'tax_senior'
            WHEN d.category_name = 'Asistente - Especialista Tax' THEN 'tax_assistant'
