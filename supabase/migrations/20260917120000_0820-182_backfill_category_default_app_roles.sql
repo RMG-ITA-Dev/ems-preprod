@@ -134,6 +134,36 @@ ALTER TABLE _0820_182_category_role_defaults
 -- porque cero_11 nunca se edita (ver comentario de arriba). Es un no-op donde
 -- ya se llaman "ITA" (Dev 2.0, prototipado manual previo al seed), así que el
 -- join de más abajo matchea sin importar de qué estado parte el ambiente.
+--
+-- Guardia previa: si por drift manual un ambiente llegara a tener AMBAS
+-- variantes (IT e ITA) para la misma categoría, el UPDATE de abajo chocaría
+-- con la unique constraint (practica_id, category_name) y abortaría con un
+-- error crudo de Postgres. Se detecta antes y se aborta con un mensaje
+-- diagnosticable, mismo criterio que el resto del archivo (nunca fallar en
+-- silencio ni con un error críptico).
+DO $$
+DECLARE
+  v_conflicts text;
+BEGIN
+  SELECT string_agg(c.category_name, ', ')
+    INTO v_conflicts
+    FROM public.categories c
+    JOIN public.practicas p ON p.practica_id = c.practica_id AND p.code = 1
+   WHERE c.category_name IN (
+     'Gerente - Especialista IT', 'Senior - Especialista IT', 'Asistente - Especialista IT'
+   )
+     AND EXISTS (
+       SELECT 1 FROM public.categories c2
+        WHERE c2.practica_id = c.practica_id
+          AND c2.category_name = replace(c.category_name, 'Especialista IT', 'Especialista ITA')
+     );
+
+  IF v_conflicts IS NOT NULL THEN
+    RAISE EXCEPTION '0820-182: existen ambas variantes IT/ITA para %, revisar manualmente antes de continuar', v_conflicts;
+  END IF;
+END;
+$$;
+
 UPDATE public.categories c
    SET category_name = replace(c.category_name, 'Especialista IT', 'Especialista ITA')
   FROM public.practicas p
