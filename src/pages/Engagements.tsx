@@ -9,7 +9,7 @@ import { useSocieties, Engagement } from "@/hooks/useEmsData";
 import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import {
   effectiveEngagementState,
@@ -29,6 +29,9 @@ interface EngagementRow extends Engagement {
 const Engagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // dash_socio: deep-links desde el tablero de Socio (KPI 1 por segmento, Bloque E
+  // por gerente) -- /engagements?state=4 y /engagements?manager=<uuid>.
+  const [searchParams] = useSearchParams();
   const { data: engagements, isLoading } = usePortfolioEngagements();
   const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
@@ -202,6 +205,13 @@ const Engagements = () => {
             value: String(s),
             label: t(engagementStateI18nKey(s)),
           })),
+        }}
+        initialFilters={{
+          effective_state: searchParams.get("state") ?? "",
+          manager_id: searchParams.get("manager") ?? "",
+          // review.md dash_socio iteración 10, G-02: preserva el filtro de Sociedad activo
+          // en el tablero Socio al hacer clic en un segmento del KPI 1.
+          society_id: searchParams.get("society") ?? "",
         }}
       />
     </AppLayout>

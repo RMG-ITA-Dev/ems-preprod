@@ -15,17 +15,22 @@ interface StatCardProps {
   sparklineData?: SparklineDataPoint[];
   sparklineColor?: 'primary' | 'success' | 'warning' | 'destructive' | 'muted';
   className?: string;
+  // dash_socio: bloque libre renderizado después del sparkline (barra segmentada,
+  // barra bicolor aprobadas/pendientes, puntos de alerta, etc.). Aditivo y
+  // opcional -- las 4 pestañas existentes no lo pasan, así que su render no cambia.
+  footer?: ReactNode;
 }
 
-export function StatCard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon, 
-  trend, 
+export function StatCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  trend,
   sparklineData,
   sparklineColor = 'primary',
-  className 
+  className,
+  footer,
 }: StatCardProps) {
   const { t } = useTranslation();
 
@@ -59,6 +64,7 @@ export function StatCard({
               className="mt-2"
             />
           )}
+          {footer && <div className="mt-2">{footer}</div>}
         </div>
         {icon && (
           <div className="h-12 w-12 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0 ml-3">

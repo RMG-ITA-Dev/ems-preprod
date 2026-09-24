@@ -6,6 +6,8 @@
 -- 1. Sociedad (public.society) — ya documentado como seedeado en el historial original
 -- (20260812140000_0810-173_staff_society_and_service.sql); acá se siembra de cero porque esa
 -- migración no pasa al set consolidado (plan §2.1: cero datos fuera de Fase 4).
+-- 2026-09-17: corrige el nombre de la segunda sociedad -- "Juaregui" (u antes de la
+-- a) era un typo de transposición; el nombre correcto es "Jauregui", sin tilde.
 INSERT INTO public.society (name, is_active) VALUES
   ('Ruizmier Pelaez S.R.L.',   true),
   ('Ruizmier Jauregui S.R.L.', true)

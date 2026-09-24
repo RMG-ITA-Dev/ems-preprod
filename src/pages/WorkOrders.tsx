@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -72,13 +72,15 @@ type SortColumn = "code" | "name" | "client" | "partner" | "manager" | "hours" |
 const WorkOrders = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // dash_socio: deep-link desde KPI 5 del tablero de Socio -- /work-orders?status=Pending_Approval.
+  const [searchParams] = useSearchParams();
   const { data: workOrders, isLoading } = useWorkOrders();
   const { partnerOptions, managerOptions } = useCategoryStaff();
   const { can } = useAuthorization();
   const canCreate = can("work_order.create");
-  
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get("status") ?? "all");
   const [partnerFilter, setPartnerFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD" | "USDT">("BOB");

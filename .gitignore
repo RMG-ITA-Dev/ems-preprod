@@ -25,6 +25,7 @@ dist-ssr
 *.sln
 *.sw?
 bugs/*
+work/*
 
 # Claude Code session artifacts
 .claude/scheduled_tasks.lock

@@ -1028,7 +1028,8 @@
       "practica": "Práctica",
       "cartera": "Cartera",
       "encargo": "Encargo",
-      "personal": "Personal"
+      "personal": "Personal",
+      "socio": "Socio"
     },
     "tabError": {
       "title": "Error en pestaña {{tab}}",
@@ -1036,94 +1037,378 @@
       "retry": "Intentar de nuevo"
     },
     "personal": {
-      "thisWeek": "Esta Semana",
-      "thisMonth": "Este Mes",
-      "weeklyHours": "Horas Semanales",
-      "hoursRemaining": "{{hours}}h restantes",
-      "capacityReached": "Capacidad alcanzada",
-      "utilization": "Utilización",
-      "onTrack": "En buen ritmo",
-      "progressing": "Progresando",
-      "needsAttention": "Necesita atención",
-      "deadline": "Fecha Límite",
-      "days": "días",
-      "today": "Hoy",
-      "overdue": "Vencida",
-      "pendingApprovals": "Aprobaciones Pendientes",
-      "awaitingReview": "Esperando revisión",
-      "timesheetStatus": "Estado de Hoja",
-      "submitted": "Enviada",
-      "draft": "Borrador",
-      "weekOf": "Semana del {{date}}",
-      "myEngagements": "Mis Encargos",
-      "hoursByEngagement": "Horas por Encargo",
-      "noEngagements": "Sin encargos en este período",
-      "recentEntries": "Entradas Recientes",
-      "noRecentEntries": "Sin entradas recientes",
-      "pendingHours": {
-        "title": "Reporte de Estado Semanal",
-        "summary": "{{weeks}} semana(s) con {{hours}} horas sin registrar",
-        "summaryNotLogged": "{{count}} sin registrar ({{hours}}h faltantes)",
-        "summaryPending": "{{count}} pendiente(s) de aprobación",
-        "summaryRejected": "{{count}} rechazada(s)",
-        "summaryApproved": "{{count}} aprobada(s)",
-        "weekOf": "Semana del {{date}}",
-        "expected": "Esperadas",
-        "logged": "Registradas",
-        "missing": "Faltantes",
-        "status": "Estado",
-        "statusApproved": "Aprobado",
-        "statusPending": "Pendiente",
-        "statusNotLogged": "Sin Registrar",
-        "statusNotSubmitted": "No Enviado",
-        "statusDraft": "Borrador",
-        "statusRejected": "Rechazado",
-        "statusCurrent": "Semana Actual",
-        "goToTimesheet": "Ir a Hoja de Tiempo",
-        "andMore": "...y {{count}} semana(s) más"
+      "empty": {
+        "noStaffRecord": "Tu usuario no tiene una ficha de personal asociada",
+        "noAttention": "No hay acciones pendientes",
+        "noAssignments": "No hay asignaciones para esta semana",
+        "noFunds": "No hay fondos o rendiciones activas",
+        "noDeadlines": "No hay vencimientos en la ventana operativa",
+        "noHistorical": "No hay horas guardadas en el período"
+      },
+      "header": {
+        "operationalWindow": "Esta semana y las 3 siguientes",
+        "historicalPeriod": "Período histórico: {{start}}–{{end}}"
+      },
+      "units": {
+        "hours": "{{hours}} h"
+      },
+      "attention": {
+        "title": "Acciones requieren atención",
+        "viewAll": "Ver todo",
+        "showLess": "Ver menos",
+        "resolve": "Resolver",
+        "timesheetNotSubmitted": "Timesheet {{week}}: {{hours}} h guardadas, falta enviar",
+        "timesheetRejected": "Timesheet {{week}} rechazado",
+        "expenseObserved": "{{code}}: gastos observados ({{count}})",
+        "expenseRejected": "{{code}}: gastos rechazados ({{count}})",
+        "missingReceipt": "{{code}}: gastos sin respaldo ({{count}})",
+        "fundDueToday": "{{code}}: rendición vence hoy",
+        "fundOverdue": "{{code}}: rendición vencida",
+        "fundDueSoon": "{{code}}: rendición vence el {{date}}"
+      },
+      "kpi": {
+        "thisWeek": "Esta semana",
+        "savedOfPlanned": "{{saved}} h de {{planned}} h",
+        "forecastHours": "Pronosticadas: {{hours}} h",
+        "remaining": "{{hours}} h por registrar",
+        "weeklyStatus": "Semana: {{status}}",
+        "approvedHours": "Aprobadas: {{hours}} h",
+        "nextAssignment": "Próxima asignación",
+        "startsOn": "Inicia {{date}}",
+        "hoursPerWeek": "{{hours}} h por semana",
+        "noUpcomingAssignment": "Sin asignaciones próximas",
+        "funds": "Fondos y rendiciones",
+        "noFundActions": "Sin acciones pendientes",
+        "expenseIssues": "Gastos por resolver: {{count}}"
+      },
+      "load": {
+        "title": "Horas planificadas vs. guardadas",
+        "planned": "Planificadas",
+        "saved": "Guardadas",
+        "thisWeek": "Esta semana",
+        "weekPlus": "+{{count}} semana"
+      },
+      "assignments": {
+        "title": "Carga por encargo y función",
+        "engagement": "Encargo",
+        "function": "Función",
+        "assigned": "Asignadas",
+        "saved": "Guardadas",
+        "total": "Total",
+        "clientTotal": "Cliente",
+        "nonClientTotal": "No cliente"
+      },
+      "function": {
+        "administrative": "Administrativa",
+        "client": "Cliente",
+        "training": "Capacitación",
+        "quality": "Calidad",
+        "unclassified": "Sin clasificar"
+      },
+      "compliance": {
+        "title": "Cumplimiento de timesheets",
+        "savedHours": "Horas guardadas",
+        "approvedHours": "Horas aprobadas",
+        "deadline": "Vencimiento",
+        "reviewNotes": "Observaciones de revisión",
+        "openTimesheet": "Abrir timesheet",
+        "status": {
+          "approved": "Aprobado",
+          "pending": "Enviado · pendiente de aprobación",
+          "rejected": "Rechazado",
+          "draft": "Borrador",
+          "notSubmitted": "Sin enviar",
+          "notLogged": "Sin registrar",
+          "future": "Futuro"
+        }
+      },
+      "funds": {
+        "title": "Fondos y rendiciones",
+        "currency": {
+          "bob": "Bolivianos (BOB)",
+          "usd": "Dólares estadounidenses (USD)"
+        },
+        "disbursed": "Desembolsado",
+        "loaded": "Gastos cargados",
+        "pendingAccounting": "Pendiente de contabilidad",
+        "reviewedAccounting": "Revisado por contabilidad",
+        "withoutReceipt": "Sin respaldo",
+        "resolve": "Resolver",
+        "status": {
+          "draft": "Borrador",
+          "pendingApproval": "Pendiente de aprobación",
+          "pendingAccounting": "Pendiente de contabilidad",
+          "observed": "Observado",
+          "rejected": "Rechazado",
+          "delivered": "Fondos entregados",
+          "inSettlement": "En liquidación",
+          "reviewed": "Revisado por contabilidad"
+        }
+      },
+      "deadlines": {
+        "title": "Próximos vencimientos",
+        "timesheetDue": "Enviar timesheet antes del {{date}}",
+        "fundDueToday": "Rendición vence hoy",
+        "fundDueSoon": "Rendición vence el {{date}}",
+        "fundOverdue": "Rendición vencida",
+        "assignmentStarts": "{{code}} inicia el {{date}}",
+        "assignmentEnds": "{{code}} finaliza el {{date}}",
+        "expenseCorrection": "{{code}} requiere corregir gastos"
+      },
+      "management": {
+        "title": "Acciones de gestión",
+        "approvals": "Ir a aprobaciones"
+      },
+      "historical": {
+        "title": "Análisis histórico",
+        "savedHours": "Horas guardadas",
+        "byEngagement": "Horas por encargo"
       }
     },
     "cartera": {
-      "activeEngagements": "Encargos Activos",
       "totalFees": "Honorarios Totales",
-      "totalHours": "Horas Totales",
-      "portfolioUtilization": "Utilización de Cartera",
-      "profitabilityTable": "Tabla de Rentabilidad",
       "engagement": "Encargo",
       "client": "Cliente",
       "consumption": "Consumo",
-      "topRisks": "Principales Riesgos",
-      "noRisks": "Sin encargos en riesgo",
       "approvalQueue": "Cola de Aprobaciones",
       "noApprovals": "Sin aprobaciones pendientes",
-      "noEngagements": "No hay encargos en tu cartera"
+      "noEngagements": "No hay encargos en tu cartera",
+      "scope": {
+        "firm": "Toda la firma",
+        "own": "Mis encargos (como socio o gerente)"
+      },
+      "filters": {
+        "client": "Cliente",
+        "clientGlobal": "Global",
+        "practica": "Práctica",
+        "practicaGlobal": "Todas"
+      },
+      "updating": "Actualizando datos…",
+      "empty": {
+        "scope": "No hay encargos en el alcance de tu cartera.",
+        "filters": "Ningún encargo coincide con los filtros seleccionados."
+      },
+      "fullFiscalYear": "año fiscal completo",
+      "kpi": {
+        "engagements": {
+          "title": "Encargos",
+          "breakdown": "{{approved}} aprobados · {{emergency}} emergencia"
+        },
+        "clientsServices": {
+          "title": "Clientes / Servicios",
+          "value": "{{clients}} · {{services}}",
+          "vsPriorYear": "{{pct}}% vs año anterior",
+          "noPriorYear": "sin datos del año anterior"
+        },
+        "roleHours": {
+          "title": "Horas como {{role}}",
+          "titleGeneric": "Mis horas en la cartera"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "progress": {
+          "title": "Avance de cartera",
+          "subtitle": "{{logged}} / {{budget}} h · toda mi cartera · año fiscal completo"
+        },
+        "review": {
+          "title": "Revisión",
+          "subtitle": "Sobregirados · Por aprobar Socio · Por aprobar Riesgos"
+        }
+      },
+      "blocks": {
+        "activities": {
+          "title": "Cartera de actividades · avance acumulado",
+          "subtitle": "Cada bloque comienza donde terminó la actividad anterior dentro de su propia serie",
+          "practice": "práctica: {{name}}",
+          "total": "TOTAL",
+          "empty": "Sin matriz de trabajo aprobada en la cartera",
+          "footer": "Total: 100% presup. · {{execPct}}% ejec. ({{approvedPct}}% aprob. · {{pendingPct}}% pend.)",
+          "overrun": "{{name}} pasa su presupuesto ({{execPct}}% ejecutado vs {{budgetPct}}% presupuestado)",
+          "tableCaption": "Detalle de horas por actividad"
+        },
+        "categories": {
+          "title": "Horas por categoría",
+          "subtitle": "Comparación desde cero por categoría · % de la cartera presupuestada",
+          "scale": "Escala: {{pct}}% ({{name}}, la categoría mayor) = ancho completo",
+          "total": "TOTAL CARTERA · 100% presupuestado · {{execPct}}% ejecutado",
+          "approvedPct": "{{pct}}% aprobado",
+          "pendingPct": "{{pct}}% pendiente",
+          "uncategorized": "Sin categoría",
+          "empty": "Sin horas presupuestadas ni ejecutadas en el periodo"
+        },
+        "staffing": {
+          "title": "Presupuesto de personal",
+          "subtitle": "Requisitos de Staffing de la OT vs personas distintas que cargaron horas",
+          "columns": {
+            "category": "Categoría",
+            "budgeted": "Presup.",
+            "executed": "Ejec."
+          },
+          "noBudgetNote": "Fila sin presupuesto: categoría con ejecución pero sin requisito de staffing en la OT."
+        },
+        "collections": {
+          "title": "Facturación y cobranza",
+          "baseNote": "base: cuotas (con IVA y gastos)",
+          "avgDays": "{{days}} días promedio de cobro",
+          "collected": "cobradas",
+          "invoiced": "facturadas",
+          "inArrears": "en mora",
+          "upcoming": "por facturar",
+          "next7Days": "Próximos 7 días",
+          "toInvoice": "facturar"
+        },
+        "expenses": {
+          "title": "Gastos de la cartera",
+          "summary": "{{executed}} ejecutado / {{budget}} presupuestado · {{pct}}%",
+          "requests": "{{pending}} solicitudes por aprobar · {{approved}} aprobadas",
+          "top3": "Top 3 · % gastos ejecutados",
+          "noBudgetNote": "Se excluyen los encargos sin presupuesto de gastos."
+        },
+        "approvalQueue": {
+          "summary": "{{hours}} h pendientes · {{people}} personas distintas",
+          "weeks": "{{count}} sem",
+          "week": "Sem {{date}}",
+          "more": "+{{count}} más"
+        },
+        "engagementHours": {
+          "title": "Horas por encargo",
+          "subtitle": "Reacciona al filtro de Cliente · clic para abrir el encargo",
+          "open": "Abrir encargo {{name}}",
+          "columns": {
+            "code": "Código",
+            "hours": "Horas (act. / presup.)",
+            "consumption": "% consumo"
+          },
+          "status": {
+            "onTrack": "En curso",
+            "atRisk": "En riesgo",
+            "overBudget": "Sobregirado"
+          }
+        },
+        "milestones": {
+          "title": "Hitos",
+          "subtitle": "Ventana fija: mes anterior / mes siguiente",
+          "past": "Mes pasado",
+          "upcoming": "Mes que viene",
+          "kind": {
+            "closing": "Cierre: {{code}}",
+            "newEngagement": "Nuevo: {{code}}",
+            "woApproved": "OT aprobada: {{code}}",
+            "riskApproved": "Riesgos aprobado: {{code}}",
+            "assignment": "Ingreso a cartera: {{code}}",
+            "lockDeadline": "Plazo de carga"
+          },
+          "empty": "Sin hitos en la ventana"
+        },
+        "finalizedSummary": {
+          "title": "Encargos finalizados",
+          "count": "{{count}} finalizados",
+          "compliance": "{{pct}}% de cumplimiento",
+          "noBudget": "sin presupuesto",
+          "expenses": "{{amount}} en gastos ejecutados",
+          "empty": "Sin encargos finalizados en el periodo"
+        }
+      },
+      "legend": {
+        "approved": "Ejecutado aprobado",
+        "pending": "Ejecutado pendiente",
+        "budget": "Presupuestado"
+      },
+      "tooltip": {
+        "executed": "Ejecutado",
+        "approved": "Aprobadas",
+        "pending": "Pendientes",
+        "budget": "Presupuesto",
+        "ofPortfolio": "{{pct}}% de la cartera",
+        "cumulative": "Acumulado: {{cum}} h / {{total}} h"
+      }
     },
     "encargo": {
       "selectEngagement": "Seleccionar Encargo",
       "noSelection": "Seleccione un encargo para ver los detalles",
       "noEngagements": "Sin encargos disponibles",
-      "budgetHours": "Horas Presupuestadas",
       "actualHours": "Horas Reales",
-      "variance": "variación",
-      "realization": "Realización",
-      "agreedFee": "Honorario Acordado",
-      "standardFee": "Honorario Estándar",
-      "status": "Estado",
-      "atRisk": "En Riesgo",
-      "onTrack": "En Buen Ritmo",
-      "overBudget": "Excedido",
+      "accessChanged": "El encargo seleccionado ya no está disponible",
       "consumed": "consumido",
       "budgetConsumption": "Consumo de Presupuesto",
       "used": "usadas",
       "budgeted": "presupuestadas",
-      "categoryBreakdown": "Desglose por Categoría",
-      "activityBreakdown": "Desglose por Actividad",
       "budget": "Presup.",
       "actual": "Real",
+      "variance": "variación",
       "noData": "Sin datos disponibles",
-      "approved": "aprobadas",
-      "pending": "pendientes",
       "viewHoursDetail": "Ver detalle de horas",
+      "kpis": {
+        "staffing": "Staffing",
+        "thisWeek": "Esta semana",
+        "lastWeek": "Semana pasada",
+        "noAssignments": "Sin asignaciones",
+        "pendingApproval": "Horas pendientes de aprobación",
+        "pendingLastWeek": "semana pasada",
+        "agedPending": "{{hours}}h con {{weeks}}+ semanas",
+        "lastTimeEntry": "Última carga de horas",
+        "lastApproval": "Última aprobación de horas",
+        "daysAgo_one": "Hace {{count}} día",
+        "daysAgo_other": "Hace {{count}} días",
+        "today": "Hoy",
+        "never": "Sin registros"
+      },
+      "categoryActivity": {
+        "title": "Desglose por Categoría y Actividad"
+      },
+      "team": {
+        "title": "Equipo responsable",
+        "partner": "Socio",
+        "manager": "Gerente",
+        "encargado": "Encargado",
+        "specialistIt": "Esp. IT",
+        "specialistTax": "Esp. Tax",
+        "sqr": "SQR"
+      },
+      "staffing": {
+        "title": "Staffing — semana actual",
+        "otherWeeks": "Ver otras semanas",
+        "dialogTitle": "Staffing por semana",
+        "dialogDescription": "Horas cargadas, utilizadas y asignadas por persona en la semana seleccionada",
+        "weekLabel": "Semana {{week}} · {{range}}",
+        "previousWeek": "Semana anterior",
+        "nextWeek": "Semana siguiente",
+        "loaded": "Cargado",
+        "utilized": "Utilizado",
+        "assigned": "Asignado",
+        "zeroWeekAlert": "Al menos una semana sin horas cargadas",
+        "unassignedHours": "Asignado = 0h → cargó sin estar asignado",
+        "noRows": "Sin movimientos en esta semana"
+      },
+      "expenses": {
+        "title": "Gastos",
+        "budgeted": "Presupuestado",
+        "executed": "Ejecutado",
+        "amountsInBob": "Montos en BOB",
+        "originalAmount": "Importe original",
+        "approvedRecent": "Últimos 5 aprobados",
+        "requests": "Solicitudes",
+        "pendingExpenses": "Gastos pendientes",
+        "empty": "Sin registros de gastos",
+        "status": {
+          "pendingManager": "Pendiente gerente",
+          "pendingAccounting": "Pendiente contabilidad",
+          "pendingDisbursement": "Aprobado — pendiente desembolso",
+          "disbursed": "Desembolsado",
+          "observed": "Observado",
+          "rejected": "Rechazado"
+        }
+      },
+      "approvalQueue": {
+        "title": "Cola de Aprobación",
+        "summary": "{{hours}} h pendientes · {{people}} personas distintas",
+        "weeks": "{{count}} sem",
+        "more": "+{{count}} más",
+        "critical": "Crítico",
+        "empty": "Sin horas pendientes de aprobación"
+      },
+      "units": {
+        "hours": "h"
+      },
       "hoursDetail": {
         "title": "Detalle de Horas por Personal",
         "description": "Desglose detallado de horas por personal para este encargo",
@@ -1158,6 +1443,159 @@
       "partnerLeaderboard": "Tabla de Socios",
       "engagements": "Encargos",
       "risks": "Riesgos"
+    },
+    "socio": {
+      "scope": {
+        "firm": "Toda la firma",
+        "society": "Sociedad: {{name}}",
+        "own": "Mis encargos (como socio)"
+      },
+      "filters": {
+        "client": "Cliente",
+        "clientGlobal": "Global",
+        "society": "Sociedad",
+        "societyBoth": "Ambas sociedades",
+        "sectorChip": "Sector: {{name}}",
+        "clearSector": "Quitar filtro de sector"
+      },
+      "empty": {
+        "scope": "No hay encargos en el alcance de tu cartera.",
+        "filters": "Ningún encargo coincide con los filtros seleccionados."
+      },
+      "kpi": {
+        "engagements": {
+          "title": "Encargos en cartera",
+          "breakdown": "{{approved}} aprobados · {{emergency}} emergencia · {{finalized}} finalizados",
+          "segmentApproved": "{{count}} aprobados",
+          "segmentEmergency": "{{count}} en emergencia",
+          "segmentFinalized": "{{count}} finalizados en el periodo"
+        },
+        "fees": {
+          "title": "Honorarios contratados",
+          "netNote": "Honorarios netos",
+          "variableRateNote": "{{count}} encargos con TC variable: los importes en Bs pueden cambiar hasta que concluya el plan de pagos.",
+          "nonconvertibleNote": "{{count}} encargos en USDT sin tipo de cambio (se muestran en su moneda).",
+          "vsPriorYear": "vs. mismo periodo del FY anterior"
+        },
+        "partnerHours": {
+          "title": "Mis horas como socio"
+        },
+        "sqrHours": {
+          "title": "Mis horas como SQR",
+          "inEngagements": "en {{count}} encargos"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "alerts": {
+          "title": "Revisión",
+          "target": "objetivo: 0 · 0",
+          "riskPending": "{{count}} pendientes de riesgo "
+        }
+      },
+      "blocks": {
+        "profitability": {
+          "title": "Rentabilidad de la cartera",
+          "feeAdjusted": "Honorario ajustado",
+          "hoursBudgeted": "Horas presupuestadas",
+          "hoursExecuted": "Horas ejecutadas",
+          "expensesExecuted": "Gastos ejecutados",
+          "expensesBudgeted": "Gastos presupuestados",
+          "expensesOverBudget": "Excede presupuesto ({{pct}}%)"
+        },
+        "installmentBaseNote": "base: cuotas (con IVA y gastos)",
+        "economicCycle": {
+          "overdue90": "Vencido > 90 d",
+          "avgDays": "{{days}} días promedio de cobro"
+        },
+        "collections": {
+          "title": "Ciclo económico y cobranza",
+          "collected": "cobradas",
+          "invoiced": "facturadas sin pagar",
+          "inArrears": "en mora (no facturadas)",
+          "upcoming": "pendientes",
+          "next7Days": "Próximos 7 días",
+          "toCollect": "cobrar",
+          "toInvoice": "facturar",
+          "overdueChip": "{{count}} vencidas · {{amount}}"
+        },
+        "sectors": {
+          "title": "Cartera por sector",
+          "byFee": "Honorarios ajustados",
+          "byCount": "Cantidad de encargos",
+          "others": "Otros"
+        },
+        "topN": "top {{count}}",
+        "managers": {
+          "title": "Gerentes en mi cartera",
+          "engagements": "{{count}} enc.",
+          "pendingWo": "{{count}} OT pendiente",
+          "columns": {
+            "name": "Nombre",
+            "engagements": "# Enc",
+            "progress": "Avance %",
+            "start": "Inicio",
+            "end": "Fin"
+          }
+        },
+        "engagementHours": {
+          "title": "Horas por encargo",
+          "viewAll": "Ver todos",
+          "overBudgetOnly": "Solo sobregirados",
+          "error": "No se pudo cargar la lista de encargos.",
+          "sort": {
+            "startDate": "Fecha inicio",
+            "endDate": "Fecha fin",
+            "progress": "% avance",
+            "pendingPct": "% pendientes"
+          },
+          "columns": {
+            "engagement": "Encargo · Cliente",
+            "hours": "Horas",
+            "executedPct": "% Ejec",
+            "pendingPct": "% Pend",
+            "start": "Inicio",
+            "end": "Fin",
+            "compliance": "pp",
+            "complianceTooltip": "Puntos porcentuales de cumplimiento: % de horas consumidas (aprobadas + pendientes) menos % de tiempo transcurrido del encargo. En rojo si el desvío supera 10 pp, adelantado o atrasado."
+          },
+          "pagination": {
+            "range": "{{from}}–{{to}} de {{total}}",
+            "previous": "Anterior",
+            "next": "Siguiente"
+          }
+        },
+        "topClients": {
+          "title": "Top clientes",
+          "ofTotal": "{{amount}} / {{total}}"
+        },
+        "alerts": {
+          "title": "Alertas",
+          "pendingWo": "{{count}} OT por aprobar",
+          "overBudget": "{{count}} sobregirados",
+          "inArrears": "{{count}} cuotas en mora",
+          "overdue90": "{{count}} cartera > 90 d",
+          "closingSoon": "{{count}} cierres en 30 d",
+          "riskPending": "{{count}} riesgos pendientes",
+          "draftWorksheets": "{{count}} matrices en borrador sin OT"
+        },
+        "finalizedSummary": {
+          "title": "Encargos finalizados",
+          "count": "{{count}} finalizados",
+          "compliance": "{{pct}}% de cumplimiento",
+          "noBudget": "sin presupuesto",
+          "collected": "{{amount}} en honorarios pagados",
+          "empty": "Sin encargos finalizados en el periodo"
+        }
+      },
+      "tooltip": {
+        "total": "Total",
+        "approved": "Aprobadas",
+        "pending": "Pendientes de aprobación",
+        "rejected": "Rechazadas",
+        "budget": "Presupuesto",
+        "consumed": "{{pct}}% consumido",
+        "original": "Original: {{amount}} {{currency}}",
+        "managerApprovedExpenses": "Aprobados por el gerente, sin revisión contable: {{amount}}"
+      }
     }
   },
   "timesheet": {
@@ -1434,6 +1872,9 @@
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
+      "errorExchangeRateUnavailable": "No hay tipo de cambio disponible (historial BCB vacío y sin valor por defecto configurado).",
+      "validationExchangeRateRequired": "El TC inicial es obligatorio cuando existen cuotas.",
+      "exchangeRateRequiredHint": "Obligatorio",
       "validationCannotRemoveInvoiced": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "paymentDays": "Días Hábiles de Pago",
       "numInstallments": "Número de Cuotas",

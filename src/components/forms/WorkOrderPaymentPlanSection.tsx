@@ -635,7 +635,15 @@ export function WorkOrderPaymentPlanSection({
           {/* Tipo de Cambio (creacion) — only for non-BOB currencies */}
           {currency !== "BOB" && (
             <div className="flex flex-col gap-1 min-w-[150px]">
-              <Label>{t("workOrders.paymentPlan.exchangeRate")}</Label>
+              <Label>
+                {t("workOrders.paymentPlan.exchangeRate")}
+                {/* dash_socio (decisiones.md §4.1): campo requerido en cuanto existe
+                    al menos una cuota -- espejo visual del NOT NULL/CHECK de
+                    wo_payment_plan.exchange_rate. */}
+                {installments.length > 0 && (
+                  <span className="text-destructive ml-1" aria-hidden>*</span>
+                )}
+              </Label>
               <NumericInput
                 decimals={6}
                 locale={numericLocale}
@@ -650,6 +658,11 @@ export function WorkOrderPaymentPlanSection({
               {latestBuyRate != null && (
                 <p className="text-xs text-muted-foreground">
                   {t("workOrders.paymentPlan.currentBuyRateReference", { value: formatRate(latestBuyRate) })}
+                </p>
+              )}
+              {currentPlan.exchange_rate == null && installments.length > 0 && (
+                <p className="text-xs text-destructive">
+                  {t("workOrders.paymentPlan.exchangeRateRequiredHint")}
                 </p>
               )}
             </div>

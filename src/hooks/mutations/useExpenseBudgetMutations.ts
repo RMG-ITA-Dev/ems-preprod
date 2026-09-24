@@ -21,6 +21,9 @@ export function useCreateExpenseBudget() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen gastos presupuestados de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("creating expense budget"),
   });
@@ -51,6 +54,9 @@ export function useUpdateExpenseBudget() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen gastos presupuestados de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("updating expense budget"),
   });
@@ -66,6 +72,9 @@ export function useDeleteExpenseBudget() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // dashboard: cartera/encargo/personal/socio leen gastos presupuestados de OT --
+      // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: createMutationErrorHandler("deleting expense budget"),
   });

@@ -11,6 +11,13 @@
 # separation, never interpolated SQL. `--self-test` exercises the validator against
 # hostile names without touching any database.
 #
+# Safety (review.md dash_encargo iteración 1, SF-04): the db-name check alone does not stop
+# a misconfigured PGHOST from pointing this script's dropdb/createdb at a real server — this
+# repo's own rule is that no migration/suite from here ever touches a real Supabase project
+# (Lovable/Dev 2.0/Test; those live in ../EMS_Dev_Supabase/). PGHOST is validated to be a
+# loopback address (or unset, i.e. the local Unix socket) BEFORE anything destructive runs.
+# This is defense in depth on top of the db-name check, not a replacement for it.
+#
 # Migración cero (bugs/migracion_cero/plan_v2.md §2.5.b): reescrito para aplicar el set
 # consolidado UNA VEZ sobre la base scratch (00-shim-auth.sql + cero_01..cero_06 — cero_07
 # no aplica aquí, agrega triggers/policies sobre auth.users/storage.objects que este
@@ -39,8 +46,35 @@ validate_db_name() {
   fi
 }
 
+# review.md dash_encargo iteración 1, SF-04: rejects any PGHOST that is not a loopback
+# address. Unset (the default local Unix socket) and the standard loopback spellings pass;
+# anything else — a hostname, a remote IP, a real Supabase pooler — is refused before dropdb/
+# createdb ever run.
+validate_server() {
+  local host="${PGHOST:-}"
+  case "$host" in
+    "" | "localhost" | "127.0.0.1" | "::1") ;;
+    *)
+      echo "FATAL: PGHOST ('${host}') is not a loopback address — refusing to run dropdb/createdb against it. This harness must only ever touch a disposable local Postgres; point PGHOST at localhost/127.0.0.1 (or unset it) — never at Lovable/Dev 2.0/Test." >&2
+      return 1
+      ;;
+  esac
+}
+
 if [[ "${1:-}" == "--self-test" ]]; then
   fail=0
+  for bad_host in 'db.supabase.co' 'aws-0-us-east-1.pooler.supabase.com' '10.0.0.5' 'production-db'; do
+    if PGHOST="$bad_host" validate_server 2>/dev/null; then
+      echo "SELF-TEST FAIL: unsafe PGHOST accepted: '${bad_host}'" >&2
+      fail=1
+    fi
+  done
+  for good_host in '' 'localhost' '127.0.0.1' '::1'; do
+    if ! PGHOST="$good_host" validate_server 2>/dev/null; then
+      echo "SELF-TEST FAIL: safe PGHOST rejected: '${good_host}'" >&2
+      fail=1
+    fi
+  done
   # First group: rejected by the case-glob arm (no valid prefix).
   # Second group (ems_rls_test_<metachar>): PASSES the glob and is
   # rejectable ONLY by the regex — this exercises the regex rejection
@@ -63,11 +97,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
     fi
   done
   [[ "$fail" -eq 0 ]] || exit 1
-  echo "OK: db-name validator self-test passed (18 hostile names rejected — incl. 6 glob-passing regex-only cases, 3 safe names accepted)"
+  echo "OK: db-name + server validators self-test passed (18 hostile names + 4 hostile hosts rejected, 3 safe names + 4 safe hosts accepted)"
   exit 0
 fi
 
 validate_db_name "$DB"
+validate_server
 
 OUT=""
 cleanup() {
@@ -238,6 +273,41 @@ run supabase/migrations/20260911100600_fecha_local_current_date.sql
 # publico de "olvide mi contrasena".
 run supabase/migrations/20260911110000_0601-130_throttle_correo_auth.sql
 
+# dash_socio: prerrequisito de TC (wo_payment_plan.exchange_rate NOT NULL DEFAULT
+# latest_exchange_rate(), con backfill y CHECK > 0), permiso dashboard.partner.read (6
+# concesiones: senior_partner/admin/partner/director/sqr/risk_partner -- comentario
+# corregido en review.md iteracion 2/SF-03, admin y risk_partner ya estaban incluidos en
+# el SQL desde las correcciones del operador del 2026-09-16, este comentario habia quedado
+# desactualizado), effective_engagement_state() (espejo SQL de src/lib/engagementStatus.ts)
+# y los RPC partner_overview()/partner_overview_engagements() del tablero Socio. Ejercitado
+# por rpc-dash-socio-partner-overview.sql.
+run supabase/migrations/20260915130000_dash_socio_partner_overview.sql
+
+# dash_cartera: rediseño de la pestaña Cartera -- tabla portfolio_events (bitácora
+# append-only de partner_id/manager_id, sin backfill), trigger log_engagement_assignment_
+# change() y el RPC portfolio_overview() (5 KPI + 5 filas de bloques, un round-trip).
+# Dependencia dura: usa effective_engagement_state()/latest_exchange_rate() de la migración
+# dash_socio de arriba -- por eso corre inmediatamente después. Ejercitado por
+# rpc-dash-cartera-portfolio-overview.sql.
+run supabase/migrations/20260917160000_dash_cartera_portfolio_overview.sql
+
+# dash_encargo: rediseño de la pestaña Encargo -- can_read_engagement_dashboard() (única
+# materialización del alcance por rol de decisiones.md §2), list_dashboard_engagements()
+# (selector, filtrado a funcion=1/Cliente) y engagement_overview() (payload completo: 4 KPI,
+# consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9
+# semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona).
+# Dependencia dura: usa latest_exchange_rate() de la migración dash_socio de arriba.
+# Ejercitado por rpc-dash-encargo-engagement-overview.sql.
+run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
+
+# dash_personal: rediseño de la pestaña Personal -- un único RPC personal_overview() (payload
+# operativo e histórico: semana actual + 3 siguientes, carga por encargo/función, 12 semanas
+# de cumplimiento de timesheets, fondos/gastos separados por moneda de fuente, próximos
+# vencimientos). No agrega ningún permiso nuevo (dashboard.personal.read ya está concedido a
+# los 22 role_key reales desde cero_13) ni ninguna policy de RLS -- filtra explícitamente por
+# staff_id = get_my_staff_id() en cada CTE. Ejercitado por rpc-dash-personal-overview.sql.
+run supabase/migrations/20260921140000_dash_personal_overview.sql
+
 # 0722-160: las dos sociedades reales deben existir antes de aplicar la migración,
 # pues sus clientes internos se siembran y validan contra este catálogo.
 #
@@ -301,6 +371,10 @@ assert_suite supabase/tests/rpc-notificaciones-fase1.sql 'NOTIFICACIONES FASE 1:
 assert_suite supabase/tests/rpc-notificaciones-correos.sql 'NOTIFICACIONES CORREOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-throttle-correo-auth.sql 'THROTTLE CORREO AUTH: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fecha-local.sql 'FECHA LOCAL: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"

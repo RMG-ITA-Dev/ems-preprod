@@ -11,9 +11,14 @@
 -- bloque para el detalle):
 --   - CHECK constraints: exchange_rate_mode IN ('fijo','variable'); invoice/payment_
 --     exchange_rate NULL or > 0.
---   - Backfill statement (re-run verbatim here against fixtures inserted to look like
---     pre-migration rows, since a fresh scratch DB has nothing to backfill at apply time):
---     copies plan.exchange_rate into both installment columns, preserving NULL.
+--   - Backfill statement (re-run verbatim here against a fixture inserted to look like a
+--     pre-migration row, since a fresh scratch DB has nothing to backfill at apply time):
+--     copies plan.exchange_rate into both installment columns. (Historical note, dash_socio
+--     2026-09-17: this used to also assert the backfill preserved NULL for a plan with no
+--     exchange_rate at all -- that scenario is unreachable now that dash_socio's migration
+--     adds wo_payment_plan.exchange_rate NOT NULL DEFAULT latest_exchange_rate(), which runs
+--     after this one in the harness's apply order. The fixture below now asserts the NOT
+--     NULL rejection instead.)
 --   - wo_payment_installments freeze (Amendment 2026-09-07, refinada en review
 --     iteracion 1): invoice_exchange_rate editable only while status = 'Pending';
 --     payment_exchange_rate editable only while status IN ('Invoiced','Overdue') in
@@ -283,12 +288,15 @@ BEGIN
   VALUES (v_plan_approved, '40000000-0000-4000-8000-0000000000c2', 1, 100, 'Pending')
   RETURNING installment_id INTO v_inst_pending;
 
-  -- A plan with NO exchange_rate at all (its own OT, c4 -- wo_id es UNIQUE, no puede
-  -- compartir c2), to assert NULL is preserved, not invented.
+  -- c4 (su propia OT, wo_id es UNIQUE, no puede compartir c2) se usaba para un plan SIN
+  -- exchange_rate en absoluto. Desde dash_socio (2026-09-17, migracion posterior en el
+  -- orden del harness) wo_payment_plan.exchange_rate es NOT NULL DEFAULT
+  -- latest_exchange_rate() -- ese plan ya no puede existir, asi que el fixture ahora
+  -- confirma el rechazo en vez de la preservacion de NULL (encontrado corriendo test:rls
+  -- de verdad por primera vez).
   DECLARE
     v_inst_backfill uuid;
-    v_plan_null_rate uuid;
-    v_inst_null_rate uuid;
+    v_plan_null_rejected boolean := false;
   BEGIN
     -- MUST FIX (fixture, detectado corriendo test:rls tras la Iteracion 14): esta fila
     -- debe simular una cuota PRE-EXISTENTE al backfill (TC en NULL pese a que
@@ -304,22 +312,13 @@ BEGIN
     RETURNING installment_id INTO v_inst_backfill;
     ALTER TABLE public.wo_payment_installments ENABLE TRIGGER trg_wo_payment_installments_guard_exchange_rate;
 
-    INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
-    VALUES ('40000000-0000-4000-8000-0000000000c4', NULL, 30)
-    RETURNING plan_id INTO v_plan_null_rate;
-
-    INSERT INTO public.wo_payment_installments
-      (plan_id, wo_id, installment_number, percentage, status)
-    VALUES (v_plan_null_rate, '40000000-0000-4000-8000-0000000000c4', 1, 100, 'Pending')
-    RETURNING installment_id INTO v_inst_null_rate;
-
-    -- The migration's backfill statement, re-run verbatim against this transaction's own fixtures.
+    -- The migration's backfill statement, re-run verbatim against this transaction's own fixture.
     UPDATE public.wo_payment_installments i
     SET invoice_exchange_rate = p.exchange_rate,
         payment_exchange_rate = p.exchange_rate
     FROM public.wo_payment_plan p
     WHERE i.plan_id = p.plan_id
-      AND i.installment_id IN (v_inst_backfill, v_inst_null_rate);
+      AND i.installment_id = v_inst_backfill;
 
     IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_backfill) IS DISTINCT FROM 6.96
        OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_backfill) IS DISTINCT FROM 6.96 THEN
@@ -327,11 +326,16 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS — backfill copia el TC del plan a invoice/payment_exchange_rate de la cuota existente';
 
-    IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_null_rate) IS NOT NULL
-       OR (SELECT payment_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_inst_null_rate) IS NOT NULL THEN
-      RAISE EXCEPTION 'PER FAIL — backfill inteo un TC para un plan sin exchange_rate (debia preservar NULL)';
+    BEGIN
+      INSERT INTO public.wo_payment_plan (wo_id, exchange_rate, payment_days)
+      VALUES ('40000000-0000-4000-8000-0000000000c4', NULL, 30);
+    EXCEPTION WHEN not_null_violation THEN
+      v_plan_null_rejected := true;
+    END;
+    IF NOT v_plan_null_rejected THEN
+      RAISE EXCEPTION 'PER FAIL — dash_socio: un plan con exchange_rate NULL explicito no fue rechazado (se esperaba NOT NULL)';
     END IF;
-    RAISE NOTICE 'PASS — backfill preserva NULL cuando el plan no tenia TC (nunca inventa un valor)';
+    RAISE NOTICE 'PASS — dash_socio: un plan con exchange_rate NULL explicito se rechaza (NOT NULL); ya no se preserva NULL';
   END;
 
   -- ══════════════════════════════════════════════════════════════════
@@ -596,8 +600,8 @@ BEGIN
   -- desde Iteracion 12/14 exige en modo Fijo que el TC de una cuota nueva coincida con
   -- el del plan. v_plan_draft SI tiene un TC real (6.96), asi que NULL ya no coincide
   -- y debe RECHAZARSE -- NULL nunca significo "coincide con cualquier cosa" en un plan
-  -- con TC ya definido; el caso de NULL genuinamente preservado (plan SIN TC) ya se
-  -- prueba mas arriba con v_plan_null_rate.
+  -- con TC ya definido; el caso de un plan SIN TC en absoluto ya no es alcanzable desde
+  -- dash_socio (NOT NULL) -- se prueba mas arriba que ese INSERT de plan se rechaza.
   denied := false;
   BEGIN
     INSERT INTO public.wo_payment_installments

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -87,6 +87,7 @@ const WorkOrderEdit = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const { data: workOrder, isLoading } = useWorkOrderById(id || "");
   const {
@@ -193,7 +194,13 @@ const WorkOrderEdit = () => {
   // Idem para la pestaña de Pagos cuando falla la validación de porcentajes en
   // persistNonRiskChanges (Decisión del operador #4: auto-switch ante cualquier
   // fallo de validación al guardar/enviar, no solo staffing/riesgo).
-  const [paymentFocusSignal, setPaymentFocusSignal] = useState(0);
+  // dash_socio: reutiliza este mismo signal como deep-link `?tab=payment` (Bloque C
+  // del tablero de Socio navega aquí desde una cuota) -- el valor solo importa como
+  // "> 0", no como contador, así que arrancar en 1 en vez de 0 alcanza para activar
+  // el mismo efecto de WorkOrderForm que ya abre la pestaña de Pagos.
+  const [paymentFocusSignal, setPaymentFocusSignal] = useState(() =>
+    searchParams.get("tab") === "payment" ? 1 : 0
+  );
 
   // Track original values for dirty check
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
@@ -515,6 +522,14 @@ const WorkOrderEdit = () => {
       const pctSum = paymentInstallments.reduce((s, i) => s + i.percentage, 0);
       if (Math.abs(pctSum - 100) > 0.01) {
         toast.error(t("workOrders.paymentPlan.validationPercentageSum"));
+        setPaymentFocusSignal((n) => n + 1);
+        return false;
+      }
+      // dash_socio (decisiones.md §4.1): el TC inicial del plan pasa a ser
+      // obligatorio en la UI en cuanto la OT en moneda extranjera tiene al menos
+      // una cuota -- espejo del CHECK/NOT NULL de wo_payment_plan.exchange_rate.
+      if (currency !== "BOB" && !(paymentPlan?.exchange_rate > 0)) {
+        toast.error(t("workOrders.paymentPlan.validationExchangeRateRequired"));
         setPaymentFocusSignal((n) => n + 1);
         return false;
       }

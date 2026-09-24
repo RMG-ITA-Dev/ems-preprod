@@ -1028,7 +1028,8 @@
       "practica": "Practice",
       "cartera": "Portfolio",
       "encargo": "Engagement",
-      "personal": "Personal"
+      "personal": "Personal",
+      "socio": "Partner"
     },
     "tabError": {
       "title": "Error in {{tab}} tab",
@@ -1036,94 +1037,378 @@
       "retry": "Try again"
     },
     "personal": {
-      "thisWeek": "This Week",
-      "thisMonth": "This Month",
-      "weeklyHours": "Weekly Hours",
-      "hoursRemaining": "{{hours}}h remaining",
-      "capacityReached": "Capacity reached",
-      "utilization": "Utilization",
-      "onTrack": "On track",
-      "progressing": "Progressing",
-      "needsAttention": "Needs attention",
-      "deadline": "Deadline",
-      "days": "days",
-      "today": "Today",
-      "overdue": "Overdue",
-      "pendingApprovals": "Pending Approvals",
-      "awaitingReview": "Awaiting review",
-      "timesheetStatus": "Timesheet Status",
-      "submitted": "Submitted",
-      "draft": "Draft",
-      "weekOf": "Week of {{date}}",
-      "myEngagements": "My Engagements",
-      "hoursByEngagement": "Hours by Engagement",
-      "noEngagements": "No engagements in this period",
-      "recentEntries": "Recent Entries",
-      "noRecentEntries": "No recent entries",
-      "pendingHours": {
-        "title": "Week Status Report",
-        "summary": "{{weeks}} week(s) with {{hours}} unreported hours",
-        "summaryNotLogged": "{{count}} not reported ({{hours}}h missing)",
-        "summaryPending": "{{count}} pending approval",
-        "summaryRejected": "{{count}} rejected",
-        "summaryApproved": "{{count}} approved",
-        "weekOf": "Week of {{date}}",
-        "expected": "Expected",
-        "logged": "Logged",
-        "missing": "Missing",
-        "status": "Status",
-        "statusApproved": "Approved",
-        "statusPending": "Pending",
-        "statusNotLogged": "Not Logged",
-        "statusNotSubmitted": "Not Submitted",
-        "statusDraft": "Draft",
-        "statusRejected": "Rejected",
-        "statusCurrent": "Current Week",
-        "goToTimesheet": "Go to Timesheet",
-        "andMore": "...and {{count}} more week(s)"
+      "empty": {
+        "noStaffRecord": "Your user has no associated staff record",
+        "noAttention": "There are no pending actions",
+        "noAssignments": "There are no assignments for this week",
+        "noFunds": "There are no active funds or expense reports",
+        "noDeadlines": "There are no deadlines in the operational window",
+        "noHistorical": "There are no saved hours in the period"
+      },
+      "header": {
+        "operationalWindow": "This week and the next 3",
+        "historicalPeriod": "Historical period: {{start}}–{{end}}"
+      },
+      "units": {
+        "hours": "{{hours}} h"
+      },
+      "attention": {
+        "title": "Actions require attention",
+        "viewAll": "View all",
+        "showLess": "Show less",
+        "resolve": "Resolve",
+        "timesheetNotSubmitted": "Timesheet {{week}}: {{hours}} h saved, submission pending",
+        "timesheetRejected": "Timesheet {{week}} rejected",
+        "expenseObserved": "{{code}}: observed expenses ({{count}})",
+        "expenseRejected": "{{code}}: rejected expenses ({{count}})",
+        "missingReceipt": "{{code}}: expenses missing receipts ({{count}})",
+        "fundDueToday": "{{code}}: expense report due today",
+        "fundOverdue": "{{code}}: expense report overdue",
+        "fundDueSoon": "{{code}}: expense report due on {{date}}"
+      },
+      "kpi": {
+        "thisWeek": "This week",
+        "savedOfPlanned": "{{saved}} h of {{planned}} h",
+        "forecastHours": "Forecast: {{hours}} h",
+        "remaining": "{{hours}} h remaining",
+        "weeklyStatus": "Week: {{status}}",
+        "approvedHours": "Approved: {{hours}} h",
+        "nextAssignment": "Next assignment",
+        "startsOn": "Starts {{date}}",
+        "hoursPerWeek": "{{hours}} h per week",
+        "noUpcomingAssignment": "No upcoming assignments",
+        "funds": "Funds and expense reports",
+        "noFundActions": "No pending actions",
+        "expenseIssues": "Expenses to resolve: {{count}}"
+      },
+      "load": {
+        "title": "Planned vs. saved hours",
+        "planned": "Planned",
+        "saved": "Saved",
+        "thisWeek": "This week",
+        "weekPlus": "+{{count}} week"
+      },
+      "assignments": {
+        "title": "Workload by engagement and function",
+        "engagement": "Engagement",
+        "function": "Function",
+        "assigned": "Assigned",
+        "saved": "Saved",
+        "total": "Total",
+        "clientTotal": "Client",
+        "nonClientTotal": "Non-client"
+      },
+      "function": {
+        "administrative": "Administrative",
+        "client": "Client",
+        "training": "Training",
+        "quality": "Quality",
+        "unclassified": "Unclassified"
+      },
+      "compliance": {
+        "title": "Timesheet compliance",
+        "savedHours": "Saved hours",
+        "approvedHours": "Approved hours",
+        "deadline": "Deadline",
+        "reviewNotes": "Review notes",
+        "openTimesheet": "Open timesheet",
+        "status": {
+          "approved": "Approved",
+          "pending": "Submitted · pending approval",
+          "rejected": "Rejected",
+          "draft": "Draft",
+          "notSubmitted": "Not submitted",
+          "notLogged": "Not logged",
+          "future": "Future"
+        }
+      },
+      "funds": {
+        "title": "Funds and expense reports",
+        "currency": {
+          "bob": "Bolivianos (BOB)",
+          "usd": "US dollars (USD)"
+        },
+        "disbursed": "Disbursed",
+        "loaded": "Expenses loaded",
+        "pendingAccounting": "Pending accounting",
+        "reviewedAccounting": "Reviewed by accounting",
+        "withoutReceipt": "Missing receipt",
+        "resolve": "Resolve",
+        "status": {
+          "draft": "Draft",
+          "pendingApproval": "Pending approval",
+          "pendingAccounting": "Pending accounting",
+          "observed": "Observed",
+          "rejected": "Rejected",
+          "delivered": "Funds delivered",
+          "inSettlement": "In settlement",
+          "reviewed": "Reviewed by accounting"
+        }
+      },
+      "deadlines": {
+        "title": "Upcoming deadlines",
+        "timesheetDue": "Submit timesheet by {{date}}",
+        "fundDueToday": "Expense report due today",
+        "fundDueSoon": "Expense report due on {{date}}",
+        "fundOverdue": "Expense report overdue",
+        "assignmentStarts": "{{code}} starts on {{date}}",
+        "assignmentEnds": "{{code}} ends on {{date}}",
+        "expenseCorrection": "{{code}} requires expense corrections"
+      },
+      "management": {
+        "title": "Management actions",
+        "approvals": "Go to approvals"
+      },
+      "historical": {
+        "title": "Historical analysis",
+        "savedHours": "Saved hours",
+        "byEngagement": "Hours by engagement"
       }
     },
     "cartera": {
-      "activeEngagements": "Active Engagements",
       "totalFees": "Total Fees",
-      "totalHours": "Total Hours",
-      "portfolioUtilization": "Portfolio Utilization",
-      "profitabilityTable": "Profitability Table",
       "engagement": "Engagement",
       "client": "Client",
       "consumption": "Consumption",
-      "topRisks": "Top Risks",
-      "noRisks": "No engagements at risk",
       "approvalQueue": "Approval Queue",
       "noApprovals": "No pending approvals",
-      "noEngagements": "No engagements in your portfolio"
+      "noEngagements": "No engagements in your portfolio",
+      "scope": {
+        "firm": "Whole firm",
+        "own": "My engagements (as partner or manager)"
+      },
+      "filters": {
+        "client": "Client",
+        "clientGlobal": "Global",
+        "practica": "Practice",
+        "practicaGlobal": "All"
+      },
+      "updating": "Updating data…",
+      "empty": {
+        "scope": "No engagements in your portfolio scope.",
+        "filters": "No engagement matches the selected filters."
+      },
+      "fullFiscalYear": "full fiscal year",
+      "kpi": {
+        "engagements": {
+          "title": "Engagements",
+          "breakdown": "{{approved}} approved · {{emergency}} emergency"
+        },
+        "clientsServices": {
+          "title": "Clients / Services",
+          "value": "{{clients}} · {{services}}",
+          "vsPriorYear": "{{pct}}% vs prior year",
+          "noPriorYear": "no prior-year data"
+        },
+        "roleHours": {
+          "title": "Hours as {{role}}",
+          "titleGeneric": "My hours in the portfolio"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "progress": {
+          "title": "Portfolio progress",
+          "subtitle": "{{logged}} / {{budget}} h · my whole portfolio · full fiscal year"
+        },
+        "review": {
+          "title": "Review",
+          "subtitle": "Over budget · Pending partner approval · Pending risk approval"
+        }
+      },
+      "blocks": {
+        "activities": {
+          "title": "Activity portfolio · cumulative progress",
+          "subtitle": "Each block starts where the previous activity ended within its own series",
+          "practice": "practice: {{name}}",
+          "total": "TOTAL",
+          "empty": "No approved work matrix in the portfolio",
+          "footer": "Total: 100% budget · {{execPct}}% executed ({{approvedPct}}% approved · {{pendingPct}}% pending)",
+          "overrun": "{{name}} exceeds its budget ({{execPct}}% executed vs {{budgetPct}}% budgeted)",
+          "tableCaption": "Hours detail by activity"
+        },
+        "categories": {
+          "title": "Hours by category",
+          "subtitle": "From-zero comparison by category · % of budgeted portfolio",
+          "scale": "Scale: {{pct}}% ({{name}}, largest category) = full width",
+          "total": "PORTFOLIO TOTAL · 100% budgeted · {{execPct}}% executed",
+          "approvedPct": "{{pct}}% approved",
+          "pendingPct": "{{pct}}% pending",
+          "uncategorized": "Uncategorized",
+          "empty": "No budgeted or executed hours in the period"
+        },
+        "staffing": {
+          "title": "Staffing budget",
+          "subtitle": "WO staffing requirements vs distinct people who logged hours",
+          "columns": {
+            "category": "Category",
+            "budgeted": "Budget",
+            "executed": "Actual"
+          },
+          "noBudgetNote": "Row without budget: category with execution but no staffing requirement in the WO."
+        },
+        "collections": {
+          "title": "Invoicing and collections",
+          "baseNote": "base: installments (incl. VAT and expenses)",
+          "avgDays": "{{days}} days average collection",
+          "collected": "collected",
+          "invoiced": "invoiced",
+          "inArrears": "in arrears",
+          "upcoming": "upcoming",
+          "next7Days": "Next 7 days",
+          "toInvoice": "invoice"
+        },
+        "expenses": {
+          "title": "Portfolio expenses",
+          "summary": "{{executed}} executed / {{budget}} budgeted · {{pct}}%",
+          "requests": "{{pending}} requests pending approval · {{approved}} approved",
+          "top3": "Top 3 · % expenses executed",
+          "noBudgetNote": "Engagements without an expense budget are excluded."
+        },
+        "approvalQueue": {
+          "summary": "{{hours}} h pending · {{people}} distinct people",
+          "weeks": "{{count}} wk",
+          "week": "Wk {{date}}",
+          "more": "+{{count}} more"
+        },
+        "engagementHours": {
+          "title": "Hours by engagement",
+          "subtitle": "Reacts to the Client filter · click to open the engagement",
+          "open": "Open engagement {{name}}",
+          "columns": {
+            "code": "Code",
+            "hours": "Hours (actual / budget)",
+            "consumption": "% consumption"
+          },
+          "status": {
+            "onTrack": "On track",
+            "atRisk": "At risk",
+            "overBudget": "Over budget"
+          }
+        },
+        "milestones": {
+          "title": "Milestones",
+          "subtitle": "Fixed window: previous / next month",
+          "past": "Last month",
+          "upcoming": "Next month",
+          "kind": {
+            "closing": "Closing: {{code}}",
+            "newEngagement": "New: {{code}}",
+            "woApproved": "WO approved: {{code}}",
+            "riskApproved": "Risk approved: {{code}}",
+            "assignment": "Added to portfolio: {{code}}",
+            "lockDeadline": "Logging deadline"
+          },
+          "empty": "No milestones in the window"
+        },
+        "finalizedSummary": {
+          "title": "Finalized engagements",
+          "count": "{{count}} finalized",
+          "compliance": "{{pct}}% compliance",
+          "noBudget": "no budget",
+          "expenses": "{{amount}} in executed expenses",
+          "empty": "No finalized engagements in the period"
+        }
+      },
+      "legend": {
+        "approved": "Executed approved",
+        "pending": "Executed pending",
+        "budget": "Budgeted"
+      },
+      "tooltip": {
+        "executed": "Executed",
+        "approved": "Approved",
+        "pending": "Pending",
+        "budget": "Budget",
+        "ofPortfolio": "{{pct}}% of portfolio",
+        "cumulative": "Cumulative: {{cum}} h / {{total}} h"
+      }
     },
     "encargo": {
       "selectEngagement": "Select Engagement",
       "noSelection": "Select an engagement to view details",
       "noEngagements": "No engagements available",
-      "budgetHours": "Budget Hours",
       "actualHours": "Actual Hours",
-      "variance": "variance",
-      "realization": "Realization",
-      "agreedFee": "Agreed Fee",
-      "standardFee": "Standard Fee",
-      "status": "Status",
-      "atRisk": "At Risk",
-      "onTrack": "On Track",
-      "overBudget": "Over Budget",
+      "accessChanged": "Selected engagement is no longer available",
       "consumed": "consumed",
       "budgetConsumption": "Budget Consumption",
       "used": "used",
       "budgeted": "budgeted",
-      "categoryBreakdown": "Breakdown by Category",
-      "activityBreakdown": "Breakdown by Activity",
       "budget": "Budget",
       "actual": "Actual",
+      "variance": "variance",
       "noData": "No data available",
-      "approved": "approved",
-      "pending": "pending",
       "viewHoursDetail": "View Hours Detail",
+      "kpis": {
+        "staffing": "Staffing",
+        "thisWeek": "This week",
+        "lastWeek": "Last week",
+        "noAssignments": "No assignments",
+        "pendingApproval": "Hours pending approval",
+        "pendingLastWeek": "last week",
+        "agedPending": "{{hours}}h aged {{weeks}}+ weeks",
+        "lastTimeEntry": "Last time entry",
+        "lastApproval": "Last hours approval",
+        "daysAgo_one": "{{count}} day ago",
+        "daysAgo_other": "{{count}} days ago",
+        "today": "Today",
+        "never": "No records"
+      },
+      "categoryActivity": {
+        "title": "Breakdown by Category and Activity"
+      },
+      "team": {
+        "title": "Responsible team",
+        "partner": "Partner",
+        "manager": "Manager",
+        "encargado": "Lead senior",
+        "specialistIt": "IT Specialist",
+        "specialistTax": "Tax Specialist",
+        "sqr": "SQR"
+      },
+      "staffing": {
+        "title": "Staffing — current week",
+        "otherWeeks": "View other weeks",
+        "dialogTitle": "Staffing by week",
+        "dialogDescription": "Logged, utilized and assigned hours per person for the selected week",
+        "weekLabel": "Week {{week}} · {{range}}",
+        "previousWeek": "Previous week",
+        "nextWeek": "Next week",
+        "loaded": "Loaded",
+        "utilized": "Utilized",
+        "assigned": "Assigned",
+        "zeroWeekAlert": "At least one week has no hours logged",
+        "unassignedHours": "Assigned = 0h → logged without an assignment",
+        "noRows": "No activity this week"
+      },
+      "expenses": {
+        "title": "Expenses",
+        "budgeted": "Budgeted",
+        "executed": "Executed",
+        "amountsInBob": "Amounts in BOB",
+        "originalAmount": "Original amount",
+        "approvedRecent": "Latest 5 approved",
+        "requests": "Fund requests",
+        "pendingExpenses": "Pending expenses",
+        "empty": "No expense records",
+        "status": {
+          "pendingManager": "Pending manager",
+          "pendingAccounting": "Pending accounting",
+          "pendingDisbursement": "Approved — pending disbursement",
+          "disbursed": "Disbursed",
+          "observed": "Observed",
+          "rejected": "Rejected"
+        }
+      },
+      "approvalQueue": {
+        "title": "Approval Queue",
+        "summary": "{{hours}} h pending · {{people}} distinct people",
+        "weeks": "{{count}} wk",
+        "more": "+{{count}} more",
+        "critical": "Critical",
+        "empty": "No hours pending approval"
+      },
+      "units": {
+        "hours": "h"
+      },
       "hoursDetail": {
         "title": "Staff Hours Detail",
         "description": "Detailed staff hours breakdown for this engagement",
@@ -1158,6 +1443,159 @@
       "partnerLeaderboard": "Partner Leaderboard",
       "engagements": "Engagements",
       "risks": "Risks"
+    },
+    "socio": {
+      "scope": {
+        "firm": "Whole firm",
+        "society": "Society: {{name}}",
+        "own": "My engagements (as partner)"
+      },
+      "filters": {
+        "client": "Client",
+        "clientGlobal": "Global",
+        "society": "Society",
+        "societyBoth": "Both societies",
+        "sectorChip": "Sector: {{name}}",
+        "clearSector": "Clear sector filter"
+      },
+      "empty": {
+        "scope": "There are no engagements in your portfolio scope.",
+        "filters": "No engagements match the selected filters."
+      },
+      "kpi": {
+        "engagements": {
+          "title": "Engagements in portfolio",
+          "breakdown": "{{approved}} approved · {{emergency}} emergency · {{finalized}} finalized",
+          "segmentApproved": "{{count}} approved",
+          "segmentEmergency": "{{count}} emergency-approved",
+          "segmentFinalized": "{{count}} finalized in period"
+        },
+        "fees": {
+          "title": "Contracted fees",
+          "netNote": "Net fees",
+          "variableRateNote": "{{count}} engagements with a variable exchange rate: Bs amounts may change until the payment plan is complete.",
+          "nonconvertibleNote": "{{count}} engagements in USDT without an exchange rate (shown in their currency).",
+          "vsPriorYear": "vs. same period, prior FY"
+        },
+        "partnerHours": {
+          "title": "My hours as partner"
+        },
+        "sqrHours": {
+          "title": "My hours as SQR",
+          "inEngagements": "in {{count}} engagements"
+        },
+        "hoursOfBudget": "{{logged}} / {{budget}} h",
+        "alerts": {
+          "title": "Review",
+          "target": "target: 0 · 0",
+          "riskPending": "{{count}} risk reviews pending"
+        }
+      },
+      "blocks": {
+        "profitability": {
+          "title": "Portfolio profitability",
+          "feeAdjusted": "Adjusted fee",
+          "hoursBudgeted": "Budgeted hours",
+          "hoursExecuted": "Executed hours",
+          "expensesExecuted": "Executed expenses",
+          "expensesBudgeted": "Budgeted expenses",
+          "expensesOverBudget": "Over budget ({{pct}}%)"
+        },
+        "installmentBaseNote": "base: installments (VAT and expenses included)",
+        "economicCycle": {
+          "overdue90": "Overdue > 90 d",
+          "avgDays": "{{days}} days average collection"
+        },
+        "collections": {
+          "title": "Economic cycle & collections",
+          "collected": "collected",
+          "invoiced": "invoiced, unpaid",
+          "inArrears": "in arrears (not invoiced)",
+          "upcoming": "upcoming",
+          "next7Days": "Next 7 days",
+          "toCollect": "collect",
+          "toInvoice": "invoice",
+          "overdueChip": "{{count}} overdue · {{amount}}"
+        },
+        "sectors": {
+          "title": "Portfolio by sector",
+          "byFee": "Adjusted fees",
+          "byCount": "Number of engagements",
+          "others": "Others"
+        },
+        "topN": "top {{count}}",
+        "managers": {
+          "title": "Managers in my portfolio",
+          "engagements": "{{count}} eng.",
+          "pendingWo": "{{count}} WO pending",
+          "columns": {
+            "name": "Name",
+            "engagements": "# Eng",
+            "progress": "Progress %",
+            "start": "Start",
+            "end": "End"
+          }
+        },
+        "engagementHours": {
+          "title": "Hours by engagement",
+          "viewAll": "View all",
+          "overBudgetOnly": "Over budget only",
+          "error": "Couldn't load the engagement list.",
+          "sort": {
+            "startDate": "Start date",
+            "endDate": "End date",
+            "progress": "% progress",
+            "pendingPct": "% pending"
+          },
+          "columns": {
+            "engagement": "Engagement · Client",
+            "hours": "Hours",
+            "executedPct": "% Exec",
+            "pendingPct": "% Pend",
+            "start": "Start",
+            "end": "End",
+            "compliance": "pp",
+            "complianceTooltip": "Compliance percentage points: % of hours consumed (approved + pending) minus % of the engagement's elapsed time. Shown in red if the deviation exceeds 10 pp, either ahead or behind."
+          },
+          "pagination": {
+            "range": "{{from}}–{{to}} of {{total}}",
+            "previous": "Previous",
+            "next": "Next"
+          }
+        },
+        "topClients": {
+          "title": "Top clients",
+          "ofTotal": "{{amount}} / {{total}}"
+        },
+        "alerts": {
+          "title": "Alerts",
+          "pendingWo": "{{count}} WO pending approval",
+          "overBudget": "{{count}} over budget",
+          "inArrears": "{{count}} installments in arrears",
+          "overdue90": "{{count}} receivables > 90 d",
+          "closingSoon": "{{count}} closing within 30 d",
+          "riskPending": "{{count}} risk reviews pending",
+          "draftWorksheets": "{{count}} draft worksheets without WO"
+        },
+        "finalizedSummary": {
+          "title": "Finalized engagements",
+          "count": "{{count}} finalized",
+          "compliance": "{{pct}}% compliance",
+          "noBudget": "no budget",
+          "collected": "{{amount}} in fees collected",
+          "empty": "No finalized engagements in the period"
+        }
+      },
+      "tooltip": {
+        "total": "Total",
+        "approved": "Approved",
+        "pending": "Pending approval",
+        "rejected": "Rejected",
+        "budget": "Budget",
+        "consumed": "{{pct}}% consumed",
+        "original": "Original: {{amount}} {{currency}}",
+        "managerApprovedExpenses": "Manager-approved, pending accounting review: {{amount}}"
+      }
     }
   },
   "timesheet": {
@@ -1434,6 +1872,9 @@
       "errorExchangeRateLocked": "This exchange rate is already locked and can no longer be changed.",
       "errorInstallmentLocked": "This installment has already been invoiced and can no longer be changed or removed.",
       "errorExchangeRateForbidden": "You don't have permission to change this exchange rate.",
+      "errorExchangeRateUnavailable": "No exchange rate is available (BCB history is empty and no default is configured).",
+      "validationExchangeRateRequired": "The initial exchange rate is required when installments exist.",
+      "exchangeRateRequiredHint": "Required",
       "validationCannotRemoveInvoiced": "This installment has already been invoiced and can no longer be changed or removed.",
       "paymentDays": "Business Days to Pay",
       "numInstallments": "Number of Installments",

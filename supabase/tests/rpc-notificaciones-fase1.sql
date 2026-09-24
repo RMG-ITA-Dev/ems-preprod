@@ -1566,8 +1566,15 @@ BEGIN
   -- get_my_staff_id() son falsos los dos y el INSERT se rechaza.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR, gerente de E_FIVE
 
-  INSERT INTO public.wo_payment_plan (wo_id, payment_days)
-  VALUES (v_wo, 30) RETURNING plan_id INTO v_plan;
+  -- exchange_rate explicito (no confiar en el DEFAULT latest_exchange_rate() de dash_socio,
+  -- que depende de exchange_rate_history/default_exchange_rate del ambiente): este grupo
+  -- prueba contadores de notificaciones, no tipo de cambio, y exchange_rate_mode sigue en su
+  -- DEFAULT 'fijo' -- con un TC real y determinista acá, las 2 cuotas de abajo deben
+  -- declarar el mismo valor o el guard EXCHANGE_RATE_LOCKED las rechaza (encontrado corriendo
+  -- test:rls de verdad tras dash_socio: antes exchange_rate era NULL por default y NULL
+  -- "coincidia" gratis con el NULL de una cuota nueva).
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate)
+  VALUES (v_wo, 30, 6.96) RETURNING plan_id INTO v_plan;
 
   -- De vuelta sin sesion: las cuotas y el resto del grupo se cargan como el resto de los
   -- fixtures, y el contador de mora se mide sin que auth.uid() lo filtre.
@@ -1586,10 +1593,11 @@ BEGIN
   -- fecha de pago ya pasada el contador la cuenta igual, sin necesidad del estado 'Overdue'.
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
   VALUES (v_plan, v_wo, 1, 60, 600, 'Pending',
           (now() AT TIME ZONE 'America/La_Paz')::date - 14,
-          (now() AT TIME ZONE 'America/La_Paz')::date - 7)
+          (now() AT TIME ZONE 'America/La_Paz')::date - 7, 6.96, 6.96)
   RETURNING installment_id INTO v_inst;
 
   -- Cuota 2: se queda en 'Pending' toda la prueba, con la fecha de facturación de ESTA
@@ -1598,10 +1606,11 @@ BEGIN
   -- no puede reusarse para eso.
   INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage,
                                               amount, status, agreed_invoice_date,
-                                              agreed_payment_date)
+                                              agreed_payment_date, invoice_exchange_rate,
+                                              payment_exchange_rate)
   VALUES (v_plan, v_wo, 2, 40, 400, 'Pending',
           date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 2,
-          (now() AT TIME ZONE 'America/La_Paz')::date + 30)
+          (now() AT TIME ZONE 'America/La_Paz')::date + 30, 6.96, 6.96)
   RETURNING installment_id INTO v_inst2;
 
   -- 9.a Ahora SI hay cuotas: el envio anuncia el plan de pagos al Socio.

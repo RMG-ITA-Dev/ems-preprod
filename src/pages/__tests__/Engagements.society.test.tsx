@@ -167,4 +167,18 @@ describe("Engagements — Sociedad column and filter (FEAT 0714-155)", () => {
     // Still exactly 3: the 2 active + the 1 distinct inactive one — not duplicated.
     expect(filter.options).toHaveLength(3);
   });
+
+  // review.md dash_socio iteración 10, G-02: el clic de un segmento del KPI 1 del tablero
+  // Socio llega acá con ?society=<id> cuando el filtro de Sociedad estaba activo.
+  it("preserva ?society= de la URL como initialFilters.society_id (review.md iteración 10, G-02)", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={["/engagements?society=soc-1"]}>
+          <Engagements />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    expect(capturedProps.initialFilters.society_id).toBe("soc-1");
+  });
 });
