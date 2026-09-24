@@ -322,7 +322,7 @@ INSERT INTO public.society (society_id, name) VALUES
   ('50c00000-0000-4000-8000-000000000161', 'Ruizmier Jauregui S.R.L.')
 ON CONFLICT DO NOTHING;
 "
-run supabase/migrations/20260918120000_0722_160_administrative_engagements.sql
+run supabase/migrations/20260922120000_0722_160_administrative_engagements.sql
 
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
