@@ -9781,6 +9781,13 @@ CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO auth
 
 
 --
+-- Name: engagement_assignments ea_select_own; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY ea_select_own ON public.engagement_assignments FOR SELECT TO authenticated USING ((staff_id = public.get_my_staff_id()));
+
+
+--
 -- Name: engagement_assignments ea_select_responsible; Type: POLICY; Schema: public; Owner: -
 --
 

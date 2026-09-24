@@ -88,6 +88,7 @@
     "workMatrix": "Work Matrix",
     "workOrders": "Work Orders",
     "timeSheet": "Time Sheet",
+    "myAssignments": "My Assignments",
     "timesheetApprovals": "Approvals",
     "tracker": "Time Records",
     "fundRequests": "Fund Requests",
@@ -2807,6 +2808,44 @@
       "description": "Create, edit, or delete a single staff assignment segment for this engagement.",
       "save": "Save",
       "delete": "Delete assignment"
+    }
+  },
+  "myAssignments": {
+    "title": "My Assignments",
+    "empty": "You have no assignments yet.",
+    "loadError": "Could not load your assignments.",
+    "retry": "Retry",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "allocation": "{{percent}}% allocation",
+    "filters": {
+      "engagement": "Engagement",
+      "allEngagements": "All engagements",
+      "category": "Role",
+      "allCategories": "All roles",
+      "dateRange": "Date range",
+      "toggle": {
+        "current": "Current",
+        "historical": "Historical",
+        "all": "All"
+      }
+    },
+    "table": {
+      "engagement": "Engagement",
+      "client": "Client",
+      "role": "Role",
+      "period": "Period",
+      "status": "Status",
+      "progress": "Progress"
+    },
+    "notesModal": {
+      "title": "Assignment notes"
+    },
+    "status": {
+      "PROPOSED": "Proposed",
+      "PROVISIONAL": "Provisional",
+      "CONFIRMED": "Confirmed",
+      "COMPLETED": "Completed",
+      "CANCELLED": "Cancelled"
     }
   }
 }

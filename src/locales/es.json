@@ -88,6 +88,7 @@
     "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "timeSheet": "Hoja de Tiempo",
+    "myAssignments": "Mis Asignaciones",
     "timesheetApprovals": "Aprobaciones",
     "tracker": "Registros de Tiempo",
     "fundRequests": "Solicitudes de Fondos",
@@ -2807,6 +2808,44 @@
       "description": "Crear, editar o eliminar un segmento de asignación de personal para este encargo.",
       "save": "Guardar",
       "delete": "Eliminar asignación"
+    }
+  },
+  "myAssignments": {
+    "title": "Mis Asignaciones",
+    "empty": "Todavía no tenés asignaciones.",
+    "loadError": "No se pudieron cargar tus asignaciones.",
+    "retry": "Reintentar",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "allocation": "{{percent}}% de dedicación",
+    "filters": {
+      "engagement": "Encargo",
+      "allEngagements": "Todos los encargos",
+      "category": "Rol",
+      "allCategories": "Todos los roles",
+      "dateRange": "Rango de fechas",
+      "toggle": {
+        "current": "Vigentes",
+        "historical": "Históricas",
+        "all": "Todas"
+      }
+    },
+    "table": {
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "role": "Rol",
+      "period": "Período",
+      "status": "Estado",
+      "progress": "Progreso"
+    },
+    "notesModal": {
+      "title": "Notas de la asignación"
+    },
+    "status": {
+      "PROPOSED": "Propuesta",
+      "PROVISIONAL": "Provisional",
+      "CONFIRMED": "Confirmada",
+      "COMPLETED": "Completada",
+      "CANCELLED": "Cancelada"
     }
   }
 }

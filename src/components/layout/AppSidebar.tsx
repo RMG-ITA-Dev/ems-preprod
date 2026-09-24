@@ -9,6 +9,7 @@ import {
   CheckSquare,
   Timer,
   Grid3X3,
+  ListChecks,
   TableProperties,
   Wallet,
   Banknote,
@@ -77,6 +78,8 @@ export function AppSidebar() {
   const operationsItems: NavItem[] = [
     { title: t("nav.tracker"), url: "/tracker", icon: Timer, show: can("time_entry.read") },
     { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3, show: can("timesheet.read") },
+    // 0922-190: sin permiso — accesible a los 23 roles, la RLS acota los datos.
+    { title: t("nav.myAssignments"), url: "/timesheet/assignments", icon: ListChecks, show: true },
     { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare, show: can("timesheet_approval.read") },
     { title: t("nav.fundRequests"), url: "/fund-requests", icon: Wallet, show: can("fund_request.read") },
     { title: t("nav.fundRequestApprovals"), url: "/fund-requests/approvals", icon: CheckSquare, show: can("fund_approval.read") || !!managesAnyOt },

@@ -802,7 +802,13 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
     expect(row).toHaveAttribute("href", "/work-orders/wo-7");
   });
 
-  it("un evento de Encargo lleva al encargo (FASE 3.c)", async () => {
+  it("0922-190: el aviso de staffing PROPIO (assigned) lleva a Mis Asignaciones, sin permiso", async () => {
+    // Antes de 0922-190 este evento (context=assigned) llevaba a /engagements/:id, que exige
+    // engagement.read -- permiso que NO tienen senior/semisenior/assistant, justo los roles
+    // que mas reciben este aviso (ver el test siguiente, que reproducia ese "Sin acceso").
+    // Ahora rutea a la pantalla propia, sin gate de permiso: la RLS ea_select_own ya acota
+    // los datos a la fila propia, no la pantalla.
+    mockCan.mockImplementation(() => false);
     setup({
       events: [
         fundEvent({
@@ -819,12 +825,34 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
     const row = screen
       .getByText(/notifications\.types\.engagement\.staffing\.changed/)
       .closest("a");
+    expect(row).toHaveAttribute("href", "/timesheet/assignments?engagementId=eng-3");
+  });
+
+  it("0922-190: el aviso de EQUIPO (team_assigned) sigue yendo al encargo (FASE 3.c)", async () => {
+    setup({
+      events: [
+        fundEvent({
+          type_key: "engagement.staffing.changed",
+          module_key: "engagement" as const,
+          label_key: "notifications.types.engagement.staffing.changed",
+          entity_id: "eng-3",
+          payload: { context: "team_assigned", engagement_code: "9F01" },
+        }),
+      ],
+    });
+    await openPanel();
+
+    const row = screen
+      .getByText(/notifications\.types\.engagement\.staffing\.changed/)
+      .closest("a");
     expect(row).toHaveAttribute("href", "/engagements/eng-3");
   });
 
-  it("sin engagement.read la fila NO navega: iria a un 'Sin acceso'", async () => {
-    // Es el caso real de un Asistente al que asignaron a un encargo: recibe el aviso pero
-    // no tiene permiso sobre la pantalla de encargos.
+  it("sin engagement.read, la version de EQUIPO NO navega: iria a un 'Sin acceso'", async () => {
+    // A diferencia de la version PROPIA (test de arriba), esta si sigue gateada: el
+    // destinatario es la conduccion del encargo, que SI necesita engagement.read para abrir
+    // esa pantalla -- es el caso real de un Gerente al que le avisan que asignaron a alguien
+    // de su equipo, pero sin el permiso todavia.
     mockCan.mockImplementation((p: string) => p !== "engagement.read");
     setup({
       events: [
@@ -833,7 +861,7 @@ describe("NotificationsPanel - estado como badge y navegacion del evento", () =>
           module_key: "engagement" as const,
           label_key: "notifications.types.engagement.staffing.changed",
           entity_id: "eng-3",
-          payload: { context: "assigned" },
+          payload: { context: "team_assigned" },
         }),
       ],
     });

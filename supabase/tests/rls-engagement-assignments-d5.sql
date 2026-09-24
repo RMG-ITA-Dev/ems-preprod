@@ -170,24 +170,49 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — manager cross-engagement leakage: % foreign rows visible', n; END IF;
   RAISE NOTICE 'PASS — manager (lead of E1) sees E1 only, E2/E3 hidden';
 
-  -- Manager staffed-but-not-lead: nothing
+  -- Manager staffed-but-not-lead: sees only his OWN row (aa...002, E1), nothing beyond it.
+  --
+  -- UPDATED (0922-190): this used to assert 0 rows. `ea_select_own` (staff_id =
+  -- get_my_staff_id()), added by 20260924120000_0922-190_ea_select_own_policy.sql for the
+  -- "Mis asignaciones" screen, is additive self-visibility — and Max IS the staff_id on his
+  -- own E1 row. That's the intended effect of the new policy (anyone can see their own
+  -- assignment row now), not a leak: the assertion below still proves he gets nothing beyond
+  -- that one row (no E2/E3 visibility, no cross-staff visibility).
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000d');
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — staffed-but-not-lead manager: expected 0 rows, got %', n; END IF;
-  RAISE NOTICE 'PASS — manager staffed-but-not-lead sees nothing';
+  IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — staffed-but-not-lead manager: expected 1 row (own E1 assignment via ea_select_own), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.engagement_assignments
+   WHERE assignment_id <> 'aa000000-0000-4000-8000-000000000002'
+     AND engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — staffed-but-not-lead manager sees % row(s) beyond his own (ea_select_own leaking beyond self)', n; END IF;
+  RAISE NOTICE 'PASS — manager staffed-but-not-lead sees only his own row (ea_select_own), nothing beyond it';
 
-  -- Senior: assigned-only; own soft-deleted E2 row grants nothing.
+  -- Senior: assigned via ea_select_assigned (has_assignment_on_engagement, which filters
+  -- deleted_at IS NULL internally) grants E1 only, nothing on E2 — her OWN E2 row is
+  -- soft-deleted, and that structural path still grants it nothing, exactly as before.
   -- Explicit senior recursion check from #219: the policy subqueries
   -- engagement_assignments via the SECURITY DEFINER helper.
+  --
+  -- UPDATED (0922-190): the E2 count below used to assert 0 — under D5 alone a deleted own
+  -- row granted nothing via ANY path. ea_select_own (staff_id = get_my_staff_id(), added by
+  -- 20260924120000_0922-190_ea_select_own_policy.sql) deliberately does NOT filter
+  -- deleted_at — "Mis asignaciones" shows vigente + histórico on purpose (plan_v2.md), so her
+  -- own soft-deleted E2 row (aa...005) is now visible via THAT policy specifically. The
+  -- checks below still prove the structural path (ea_select_assigned) grants nothing on E2,
+  -- and that the one E2 row she now sees is exactly her own — no leak beyond self.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000e');
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 3 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior: expected 3 rows (E1), got %', n; END IF;
+  IF n <> 4 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior: expected 4 rows (3 on E1 via ea_select_assigned + her own soft-deleted E2 row via ea_select_own), got %', n; END IF;
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id = 'e0000000-0000-4000-8000-000000000002';
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior cross-engagement leakage: % E2 rows visible (deleted assignment must grant nothing)', n; END IF;
-  RAISE NOTICE 'PASS — senior sees assigned engagement (E1) only, deleted E2 assignment grants nothing';
+  IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior E2 visibility: expected exactly 1 row (her own, via ea_select_own), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.engagement_assignments
+   WHERE engagement_id = 'e0000000-0000-4000-8000-000000000002'
+     AND assignment_id <> 'aa000000-0000-4000-8000-000000000005';
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — senior cross-engagement leakage: % E2 row(s) beyond her own soft-deleted assignment visible', n; END IF;
+  RAISE NOTICE 'PASS — senior sees E1 (structural, 3 rows) + her own soft-deleted E2 row (self-visibility, 1 row), nothing beyond either';
 
   -- Non-manager structural lead (originally PR #222 finding 2): Sofia has role
   -- senior, holds NO assignment, but is E3's manager_id. Under D5 (this
@@ -217,12 +242,20 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — responsible-personnel structural lead: leaked % row(s) outside E3 (must stay scoped to engagements where she is actually responsible)', n; END IF;
   RAISE NOTICE 'PASS — senior-role structural lead of E3 sees exactly E3 (is_engagement_responsible), nothing beyond it';
 
-  -- Roles outside the D5 matrix
+  -- Roles outside the D5 matrix: ea_select_assigned/lead/firmwide/responsible all deny
+  -- Ximena. But she DOES have her own row on E1 (aa...003) — and since 0922-190
+  -- (ea_select_own, staff_id = get_my_staff_id()), that makes her own row visible to her.
+  -- That's the intended self-visibility grant, not a leak: the second assertion below
+  -- proves she gets nothing beyond that one row.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000f');
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — semisenior: expected 0 rows, got %', n; END IF;
-  RAISE NOTICE 'PASS — semisenior (assigned to E1) denied';
+  IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — semisenior: expected 1 row (own E1 assignment via ea_select_own), got %', n; END IF;
+  SELECT count(*) INTO n FROM public.engagement_assignments
+   WHERE assignment_id <> 'aa000000-0000-4000-8000-000000000003'
+     AND engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
+  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — semisenior sees % row(s) beyond her own (ea_select_own leaking beyond self)', n; END IF;
+  RAISE NOTICE 'PASS — semisenior sees only her own row (ea_select_own), nothing beyond it';
 
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-0000000000ff');
   SELECT count(*) INTO n FROM public.engagement_assignments
@@ -252,16 +285,18 @@ BEGIN
   -- estructural SIN ningún control legítimo) sigue vigente y sigue necesitando probarse
   -- — Ximena (semisenior, asignada a E1, sin ningún vínculo con E3: no es team member,
   -- no es responsable por ninguna de las 6 columnas) es la persona correcta hoy para
-  -- ejercitarlo. Reported exploit shape (sin cambios): (1) SELECT denied → (2)
-  -- structural INSERT of an assignment for HERSELF → (3) has_assignment_on_engagement
+  -- ejercitarlo. Reported exploit shape: (1) SELECT limited to her own row (E1, via
+  -- ea_select_own desde 0922-190 — ya NO es "denied" a secas, ver más abajo) → (2)
+  -- structural INSERT of an assignment for HERSELF on E3 → (3) has_assignment_on_engagement
   -- flips true → (4) full engagement visibility + row-referencing writes. The write
   -- policies conjoin can_read_engagement_assignments() (OR is_engagement_responsible(),
   -- que en este caso también da false), so step (2) must fail and every later step must
-  -- stay denied.
+  -- stay denied — ea_select_own es de SOLO LECTURA, no abre ningún camino de escritura.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-00000000000f');
 
-  -- (1) SELECT denied — already asserted above ("semisenior ... denied"); re-checked
-  --     after the attempts below.
+  -- (1) SELECT limited to her own E1 row — already asserted above ("semisenior sees only
+  --     her own row"); re-checked after the attempts below (must not CHANGE, not that it's
+  --     zero).
 
   -- (2) Self-assignment INSERT must be rejected by RLS WITH CHECK.
   denied := false;
@@ -312,13 +347,13 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — outsider cannot INSERT at all';
 
-  -- (5) Post-attempt state: SELECT, UPDATE, DELETE all still denied. Ximena has zero
-  -- SELECT visibility even over her own E1 assignment row (semisenior is outside the
-  -- D5 matrix for ea_select_assigned, which requires role 'senior') — already
-  -- established above ("semisenior ... denied"); re-asserted here unchanged.
+  -- (5) Post-attempt state: SELECT unchanged (still exactly her own E1 row, via
+  -- ea_select_own — semisenior is outside the D5 matrix for ea_select_assigned, which
+  -- requires role 'senior'), UPDATE/DELETE still denied. The escalation attempts above
+  -- must not have moved her SELECT count at all — that's the invariant, not that it's zero.
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE engagement_id IN ('e0000000-0000-4000-8000-000000000001','e0000000-0000-4000-8000-000000000002','e0000000-0000-4000-8000-000000000003');
-  IF n <> 0 THEN RAISE EXCEPTION 'D5 RLS FAIL — escalation attempts changed SELECT visibility (% unexpected rows)', n; END IF;
+  IF n <> 1 THEN RAISE EXCEPTION 'D5 RLS FAIL — escalation attempts changed SELECT visibility (expected 1 unchanged row, got %)', n; END IF;
   UPDATE public.engagement_assignments SET notes = 'd5-probe'
    WHERE assignment_id = 'aa000000-0000-4000-8000-000000000006';
   GET DIAGNOSTICS n = ROW_COUNT;

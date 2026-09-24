@@ -308,6 +308,12 @@ run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
 # staff_id = get_my_staff_id() en cada CTE. Ejercitado por rpc-dash-personal-overview.sql.
 run supabase/migrations/20260921140000_dash_personal_overview.sql
 
+# 0922-190: policy aditiva ea_select_own sobre engagement_assignments (staff_id =
+# get_my_staff_id()) -- autovisibilidad para la pantalla "Mis asignaciones". No reemplaza
+# ninguna de las 4 policies SELECT existentes. Ejercitada por
+# rls-0922-190-my-assignments-visibility.sql.
+run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -359,5 +365,6 @@ assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIE
 assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, notificaciones/correos, dash_socio, dash_cartera, dash_encargo y dash_personal aplicadas sobre base scratch; las 24 suites de RLS/RPC/schema-convergence/trigger pasaron"

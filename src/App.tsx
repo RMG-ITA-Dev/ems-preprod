@@ -32,6 +32,7 @@ const WorkOrders = lazy(() => import("./pages/WorkOrders"));
 const WorkOrderNew = lazy(() => import("./pages/WorkOrderNew"));
 const WorkOrderEdit = lazy(() => import("./pages/WorkOrderEdit"));
 const TimeSheet = lazy(() => import("./pages/TimeSheet"));
+const MyAssignments = lazy(() => import("./pages/MyAssignments"));
 const FundRequests = lazy(() => import("./pages/FundRequests"));
 const FundRequestNew = lazy(() => import("./pages/FundRequestNew"));
 const FundRequestEdit = lazy(() => import("./pages/FundRequestEdit"));
@@ -128,6 +129,9 @@ const router = createBrowserRouter([
       { path: "/tracker/new", element: <ProtectedRoute><PermissionRoute permission="time_entry.create"><TrackerRecord /></PermissionRoute></ProtectedRoute> },
       { path: "/tracker/:id", element: <ProtectedRoute><PermissionRoute permission="time_entry.read"><TrackerEdit /></PermissionRoute></ProtectedRoute> },
       { path: "/timesheet", element: <ProtectedRoute><PermissionRoute permission="timesheet.read"><TimeSheet /></PermissionRoute></ProtectedRoute> },
+      // 0922-190: sin PermissionRoute — accesible a los 23 roles, la RLS ea_select_own
+      // acota los datos a la propia fila, no la pantalla a un permiso.
+      { path: "/timesheet/assignments", element: <ProtectedRoute><MyAssignments /></ProtectedRoute> },
       { path: "/timesheet/approvals", element: <ProtectedRoute><PermissionRoute permission="timesheet_approval.read"><TimesheetApprovals /></PermissionRoute></ProtectedRoute> },
       { path: "/timesheet/approvals/:periodId", element: <ProtectedRoute><PermissionRoute permission="timesheet_approval.read"><TimesheetApprovalDetail /></PermissionRoute></ProtectedRoute> },
       { path: "/fund-requests", element: <ProtectedRoute><PermissionRoute permission="fund_request.read"><FundRequests /></PermissionRoute></ProtectedRoute> },
