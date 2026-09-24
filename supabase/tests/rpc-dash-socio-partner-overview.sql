@@ -132,6 +132,13 @@ ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 -- funcion=1 (Cliente) explicito -- antes de esta columna quedaban en NULL (excluido tambien
 -- por el nuevo chequeo `funcion = 1`), asi que hay que marcarlos para no romper el resto del
 -- fixture.
+-- 0722-160 (merge de development): trg_enforce_administrative_engagement_rules exige que un
+-- encargo con funcion <> 1 use el cliente interno de la sociedad del encargo. Este fixture es
+-- sintetico y lo que prueba es la EXCLUSION por funcion del tablero, no el mapeo de cliente
+-- interno -- ese mapeo tiene su propio test en rpc-0722-160-administrative-engagements.sql.
+-- Se apaga el trigger solo para sembrar la fila; is_internal/activity_required quedan en su
+-- default porque ninguna de las RPC del tablero los lee.
+ALTER TABLE public.engagements DISABLE TRIGGER trg_enforce_administrative_engagement_rules;
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, status, fecha_cierre,
                                 society_id, partner_id, manager_id, sqr_id,
                                 work_order_required, anio_fiscal, end_date, engagement_state_override,
@@ -169,6 +176,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
    '5ada5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000002',
    NULL, NULL, false, NULL, NULL, NULL, 0)
 ON CONFLICT (engagement_id) DO NOTHING;
+ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
 
 -- E10 Sur (review.md iteracion 1, MF-03): OT Approved BOB, sin partner_id/manager_id/sqr_id
 -- (Sur, invisible para partner Norte y para director/sqr/risk_partner de este fixture) --
