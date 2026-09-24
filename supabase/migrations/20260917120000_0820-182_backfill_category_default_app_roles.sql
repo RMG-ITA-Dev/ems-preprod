@@ -128,6 +128,21 @@ UPDATE _0820_182_category_role_defaults
 ALTER TABLE _0820_182_category_role_defaults
   ALTER COLUMN practice_code SET NOT NULL;
 
+-- Renombra las 3 categorías de Auditoría / Especialista IT a "ITA" si todavía
+-- existen con el nombre viejo de cero_11 -- un reset limpio (CI consolidated-
+-- replay, o cualquier ambiente sembrado solo por migraciones) las siembra así,
+-- porque cero_11 nunca se edita (ver comentario de arriba). Es un no-op donde
+-- ya se llaman "ITA" (Dev 2.0, prototipado manual previo al seed), así que el
+-- join de más abajo matchea sin importar de qué estado parte el ambiente.
+UPDATE public.categories c
+   SET category_name = replace(c.category_name, 'Especialista IT', 'Especialista ITA')
+  FROM public.practicas p
+ WHERE c.practica_id = p.practica_id
+   AND p.code = 1
+   AND c.category_name IN (
+     'Gerente - Especialista IT', 'Senior - Especialista IT', 'Asistente - Especialista IT'
+   );
+
 DO $$
 DECLARE
   v_expected_count integer;
