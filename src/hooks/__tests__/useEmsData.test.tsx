@@ -177,7 +177,7 @@ describe("useEmsData hooks", () => {
   describe("useSocieties (FEAT 0810-173)", () => {
     it("fetches active societies ordered by name", async () => {
       const mockSocieties = [
-        { society_id: "soc-1", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "2026-01-01" },
+        { society_id: "soc-1", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "2026-01-01" },
         { society_id: "soc-2", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "2026-01-01" },
       ];
 

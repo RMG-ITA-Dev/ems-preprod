@@ -161,7 +161,12 @@ LANGUAGE sql AS $$
     p_status               := 'active',
     p_oficina              := 1::smallint,
     p_practica             := 1::smallint,
-    p_funcion              := 0::smallint,
+    -- 0722-160: funcion 1 (Cliente). Esta suite solo verifica la canonizacion de
+    -- created_by_staff_id/manager_id/partner_id, pero el 0 que traia antes ahora activa
+    -- enforce_administrative_engagement_rules(), que exige el cliente interno de la
+    -- sociedad y rechazaba TODA creacion de este fixture con
+    -- '0722-160: el cliente interno debe corresponder a la sociedad del encargo'.
+    p_funcion              := 1::smallint,
     p_anio_fiscal          := 2026,
     p_work_order_required  := true,
     p_activity_required    := true,

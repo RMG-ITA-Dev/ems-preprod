@@ -185,6 +185,15 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
+  it("T2a: administrative work orders use only Budget and Staffing tabs, including on create", () => {
+    renderForm({ isNew: true, isAdministrative: true });
+    expect(getTabTrigger("budget")).toHaveAttribute("data-state", "active");
+    expect(getTabTrigger("staffing")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.risk")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+
   it("T3: Risk tab content is always present, even with no data and no risk-approver role", () => {
     renderForm({ approvalStatus: "Approved", canApproveRisk: false });
     expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();

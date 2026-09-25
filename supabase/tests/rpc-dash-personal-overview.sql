@@ -134,6 +134,13 @@ ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 -- fixture no necesita ejercitar ese gate, solo horas guardadas/asignadas. E_FR lleva
 -- manager_id: fr_wo_set_manager() (trigger en fund_request_work_orders) exige que la OT
 -- tenga un gerente asignado en su engagement.
+-- 0722-160 (merge de development): E2 se sembro con funcion = 0 (Administrativo) y
+-- trg_enforce_administrative_engagement_rules exige que un encargo con funcion <> 1 use el
+-- cliente interno de la sociedad del encargo. Este fixture es sintetico y ninguna asercion de
+-- personal_overview() mira function_code, asi que se apaga el trigger solo para sembrar la
+-- fila en vez de mover E2 a otra funcion (el mapeo de cliente interno tiene su propio test en
+-- rpc-0722-160-administrative-engagements.sql).
+ALTER TABLE public.engagements DISABLE TRIGGER trg_enforce_administrative_engagement_rules;
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                 status, fecha_cierre, society_id, funcion, practica,
                                 work_order_required, manager_id) VALUES
@@ -154,6 +161,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'), 1, 1, false,
    '50902150-0000-4000-8000-000000000002')
 ON CONFLICT (engagement_id) DO NOTHING;
+ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
 
 -- ── Asignaciones (decisiones.md §14: hours_per_week completo por fila solapada) ──────────
 -- E1: a1 (20h) + a2 (5h) vigentes, se SUMAN (chequeo 14) -- semanas -1..+2 (v_operational_end

@@ -26,6 +26,7 @@ const Clients = lazy(() => import("./pages/Clients"));
 const ClientNew = lazy(() => import("./pages/ClientNew"));
 const ClientEdit = lazy(() => import("./pages/ClientEdit"));
 const Engagements = lazy(() => import("./pages/Engagements"));
+const AdministrativeEngagements = lazy(() => import("./pages/AdministrativeEngagements"));
 const EngagementNew = lazy(() => import("./pages/EngagementNew"));
 const EngagementEdit = lazy(() => import("./pages/EngagementEdit"));
 const WorkOrders = lazy(() => import("./pages/WorkOrders"));
@@ -116,6 +117,7 @@ const router = createBrowserRouter([
       { path: "/clients/new", element: <ProtectedRoute><PermissionRoute permission="client.create"><ClientNew /></PermissionRoute></ProtectedRoute> },
       { path: "/clients/:id", element: <ProtectedRoute><PermissionRoute permission="client.read"><ClientEdit /></PermissionRoute></ProtectedRoute> },
       { path: "/engagements", element: <ProtectedRoute><PermissionRoute permission="engagement.read"><Engagements /></PermissionRoute></ProtectedRoute> },
+      { path: "/administrative-engagements", element: <ProtectedRoute><AdministrativeEngagements /></ProtectedRoute> },
       { path: "/engagements/new", element: <ProtectedRoute><PermissionRoute permission="engagement.create"><EngagementNew /></PermissionRoute></ProtectedRoute> },
       { path: "/engagements/:id", element: <ProtectedRoute><PermissionRoute permission="engagement.read"><EngagementEdit /></PermissionRoute></ProtectedRoute> },
       { path: "/worksheets", element: <ProtectedRoute><PermissionRoute permission="worksheet.read"><WorksheetList /></PermissionRoute></ProtectedRoute> },

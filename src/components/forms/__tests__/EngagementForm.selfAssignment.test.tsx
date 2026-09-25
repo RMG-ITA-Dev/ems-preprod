@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@/test/utils";
+import { render, screen, waitFor, within, fireEvent } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -105,7 +105,11 @@ vi.mock("@/hooks/useAuthorization", () => ({
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    storage: { from: vi.fn(() => ({ upload: vi.fn() })) },
+    storage: {
+      from: vi.fn(() => ({
+        upload: vi.fn().mockResolvedValue({ data: { path: "contracts/test.pdf" }, error: null }),
+      })),
+    },
     from: vi.fn(),
     rpc: vi.fn(),
   },
@@ -404,16 +408,41 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
     render(<EngagementForm />);
     await waitFor(() => expect(getTriggerByText(GERENTE.label)).toBeInTheDocument());
 
-    // Submit con el formulario vacío: Zod corre antes que cualquier guard de onSubmit.
+    // El guard de partner_id/manager_id vive DESPUÉS de los checks de Zod y de los campos de
+    // código (!isEdit) en onSubmit; hay que satisfacerlos todos para que el guard se alcance.
+    await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Alpha");
+
+    await user.click(getTriggerByText("engagement.selectClient"));
+    const clientListbox = await screen.findByRole("listbox");
+    await user.click(within(clientListbox).getByText("Acme Corp"));
+
+    await user.click(screen.getByText("common.pickDate"));
+    const calendarMock = await screen.findByTestId("calendar-mock");
+    fireEvent.change(calendarMock, { target: { value: "2026-09-30" } });
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeInTheDocument()
+    );
+    await user.click(screen.getByRole("combobox", { name: "engagement.closingDate *" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    // Función Cliente exige contrato escaneado (!isInternal); se simula la subida completa.
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    const contractFile = new File(["%PDF-1.4"], "contrato.pdf", { type: "application/pdf" });
+    await user.upload(contractInput, contractFile);
+    await waitFor(() => expect(screen.getByText("contrato.pdf")).toBeInTheDocument());
+
+    // Submit: todo lo demás está completo, solo falta partner_id.
     await user.click(screen.getByText("engagement.createEngagement"));
 
     await waitFor(() => {
       // partner_id sigue vacío ⇒ su error aparece.
-      expect(screen.getByText("Partner/Director is required")).toBeInTheDocument();
+      expect(screen.getByText("engagement.requiredPartner")).toBeInTheDocument();
     });
     // manager_id lo llenó el sistema ⇒ su error NO aparece. Es la prueba de que el valor sembrado
     // está realmente en React Hook Form y llega al payload por el camino normal.
-    expect(screen.queryByText("Manager is required")).toBeNull();
+    expect(screen.queryByText("engagement.requiredManager")).toBeNull();
   }, 20000);
 
   // ── #11: no ensucia el formulario ─────────────────────────────────────────────────────────
