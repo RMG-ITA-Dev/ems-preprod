@@ -797,7 +797,7 @@
     "startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo",
     "workOrderRequired": "Requiere Orden de Trabajo",
     "workOrderRequiredHelp": "Cuando esta desactivado, aparece en planillas sin Orden de Trabajo",
-    "workOrderRequiredAdministrativeHelp": "Manténgalo activado si el encargo necesita una OT para presupuestar gastos; desactívelo cuando no la necesite.",
+    "workOrderRequiredAdministrativeHelp": "Actívelo solo si el encargo necesita una OT para presupuestar gastos; desactivado, las horas se cargan sin aprobación de OT.",
     "activityRequired": "Requiere Actividad",
     "activityRequiredHelp": "Cuando esta desactivado, se asigna el código ADM automáticamente",
     "isInternal": "Interno (Todo el Personal)",

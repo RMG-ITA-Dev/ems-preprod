@@ -797,7 +797,7 @@
     "startDateBeforeCreation": "Start date cannot be before the engagement creation date",
     "workOrderRequired": "Work Order Required",
     "workOrderRequiredHelp": "When off, appears in timesheets without a Work Order",
-    "workOrderRequiredAdministrativeHelp": "Keep this on when the engagement needs a Work Order for budgeting expenses; turn it off when it does not.",
+    "workOrderRequiredAdministrativeHelp": "Turn this on only when the engagement needs a Work Order for budgeting expenses; when off, hours can be logged without Work Order approval.",
     "activityRequired": "Activity Required",
     "activityRequiredHelp": "When off, the ADM activity code is auto-assigned",
     "isInternal": "Internal (All Staff)",

@@ -272,6 +272,28 @@ export function shouldSeedAdministrativePolicyDefaults(
   return isAdministrativeFunction && !isEdit;
 }
 
+/**
+ * Valores por defecto del alta administrativa (plan_v2 §3 de 0722-160). `activity_required` no
+ * entra acá: se deriva de `funcion` en el payload de guardado.
+ *
+ * `workOrderRequired: false` es el punto fino. Con `true` el encargo administrativo nace en
+ * estado 1 Pendiente (deriveEngagementState en `src/lib/engagementStatus.ts`) y
+ * `list_loggable_engagements()` lo deja fuera hasta que exista una OT con
+ * approval_status='Approved' — o sea, NADIE puede cargarle horas, que es justamente para lo que
+ * existe el encargo administrativo. Peor todavía: el switch está deshabilitado para no-admin
+ * (`disabled={!isAdmin}`), y `hr_analyst` —uno de los tres roles que pueden elegir función
+ * libremente— no tiene `work_order.create`, así que ni él ni el Gerente asignado pueden destrabar
+ * el encargo (WorkOrderNew.tsx filtra por `created_by_staff_id`). Quedaba esperando a un Admin.
+ *
+ * `false` significa "la OT no es obligatoria", NO "no puede haber OT": el Admin puede prender el
+ * switch cuando el encargo necesita presupuestar gastos, y la OT solo-gastos se sigue pudiendo
+ * crear después (plan_v2 §3).
+ */
+export const ADMINISTRATIVE_POLICY_DEFAULTS = {
+  workOrderRequired: false,
+  approvalRequired: true,
+} as const;
+
 export function EngagementForm({ engagement, administrativeMode = false, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -690,8 +712,8 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
 
   useEffect(() => {
     if (shouldSeedAdministrativePolicyDefaults(isAdministrativeFunction, isEdit)) {
-      setWorkOrderRequired(true);
-      setApprovalRequired(true);
+      setWorkOrderRequired(ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired);
+      setApprovalRequired(ADMINISTRATIVE_POLICY_DEFAULTS.approvalRequired);
     }
   }, [isAdministrativeFunction, isEdit]);
 

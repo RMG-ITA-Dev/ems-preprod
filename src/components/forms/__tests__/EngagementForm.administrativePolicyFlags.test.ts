@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { shouldSeedAdministrativePolicyDefaults } from "../EngagementForm";
+import { EngagementState, canLogHours, deriveEngagementState } from "@/lib/engagementStatus";
+import { ADMINISTRATIVE_POLICY_DEFAULTS, shouldSeedAdministrativePolicyDefaults } from "../EngagementForm";
 
 /**
  * FEAT 0722-160 — review fix (Codex): en un encargo administrativo, work_order_required y
@@ -24,5 +25,34 @@ describe("shouldSeedAdministrativePolicyDefaults (FEAT 0722-160)", () => {
   it("no toca nada en un encargo de Cliente", () => {
     expect(shouldSeedAdministrativePolicyDefaults(false, false)).toBe(false);
     expect(shouldSeedAdministrativePolicyDefaults(false, true)).toBe(false);
+  });
+});
+
+/**
+ * Review fix (Codex, P1): el alta administrativa sembraba work_order_required=true. Eso deja el
+ * encargo en estado 1 Pendiente (deriveEngagementState) y fuera de list_loggable_engagements()
+ * hasta que exista una OT con approval_status='Approved'. El switch está deshabilitado para
+ * no-admin y hr_analyst no tiene work_order.create, así que el encargo quedaba sin horas
+ * cargables esperando a un Admin. plan_v2 §3 ya fijaba `false`.
+ */
+describe("ADMINISTRATIVE_POLICY_DEFAULTS (FEAT 0722-160)", () => {
+  it("no exige OT: el encargo administrativo nace con horas cargables", () => {
+    expect(ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired).toBe(false);
+  });
+
+  it("mantiene la aprobación activada", () => {
+    expect(ADMINISTRATIVE_POLICY_DEFAULTS.approvalRequired).toBe(true);
+  });
+
+  it("deja el encargo administrativo en estado Aprobado sin OT", () => {
+    expect(
+      deriveEngagementState({ work_order_required: ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired }),
+    ).toBe(EngagementState.Aprobado);
+  });
+
+  it("con OT obligatoria el mismo encargo quedaria Pendiente y sin horas", () => {
+    const state = deriveEngagementState({ work_order_required: true });
+    expect(state).toBe(EngagementState.Pendiente);
+    expect(canLogHours(state)).toBe(false);
   });
 });
