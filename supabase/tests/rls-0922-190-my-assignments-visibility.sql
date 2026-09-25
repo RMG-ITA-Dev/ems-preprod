@@ -21,6 +21,15 @@
 --   Ninguno de los dos puede escribir (UPDATE) ninguna fila — ni propia ni ajena: la
 --   policy nueva es FOR SELECT, no toca las policies de escritura existentes.
 --   anon sigue hard-denegado (grant de tabla no tocado por esta migración).
+--
+-- También cubre list_my_assignments() (review 2026-09-25, MUST FIX): el rol 'assistant' de
+-- este fixture no tiene engagement.read/client.read, así que si la pantalla siguiera usando
+-- el embed anidado de PostgREST (engagement:engagements(...), client:clients(...)) las
+-- columnas de etiqueta llegarían NULL para Ana/Beto -- exactamente el bug que esta función
+-- corrige haciendo su propio gate (staff_id = get_my_staff_id(), SECURITY DEFINER) en vez de
+-- depender de esas policies. Se prueba que cada uno ve encargo/cliente/categoría de sus
+-- propias filas (nunca en null) y nunca las de la otra persona, más el fail-closed de un
+-- p_toggle inválido.
 
 BEGIN;
 
@@ -130,6 +139,54 @@ BEGIN
   GET DIAGNOSTICS n = ROW_COUNT;
   IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — Ana pudo escribir su propia fila: ea_select_own abrió escritura además de lectura'; END IF;
   RAISE NOTICE 'PASS — ea_select_own es solo-lectura: Ana no puede escribir ni su propia fila';
+
+  -- list_my_assignments (review 2026-09-25, MUST FIX): resuelve encargo/cliente/categoría
+  -- con su propio gate (staff_id = get_my_staff_id()), sin depender de engagement.read/
+  -- client.read -- el rol 'assistant' de este fixture no tiene ninguno de los dos.
+  PERFORM pg_temp.impersonate('a0920000-0000-4000-8000-000000000001'); -- Ana
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01');
+  IF n <> 2 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Ana esperaba 2 filas propias, obtuvo %', n; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01')
+   WHERE engagement_name IS NULL OR client_legal_name IS NULL OR category_name IS NULL;
+  IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Ana tiene % fila(s) con encargo/cliente/categoría en null (el bug que esta RPC corrige)', n; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01')
+   WHERE assignment_id = 'aa920000-0000-4000-8000-000000000003'; -- fila de Beto
+  IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Ana ve la fila de Beto (fuga)'; END IF;
+  RAISE NOTICE 'PASS — list_my_assignments: Ana ve encargo/cliente/categoría de sus 2 filas propias (nunca null), nunca la de Beto';
+
+  PERFORM pg_temp.impersonate('a0920000-0000-4000-8000-000000000002'); -- Beto
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01');
+  IF n <> 1 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Beto esperaba 1 fila propia, obtuvo %', n; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01')
+   WHERE engagement_name IS NULL OR client_legal_name IS NULL OR category_name IS NULL;
+  IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Beto tiene fila(s) con encargo/cliente/categoría en null'; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01')
+   WHERE assignment_id IN ('aa920000-0000-4000-8000-000000000001', 'aa920000-0000-4000-8000-000000000002'); -- filas de Ana
+  IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Beto ve % fila(s) de Ana (fuga)', n; END IF;
+  RAISE NOTICE 'PASS — list_my_assignments: Beto ve encargo/cliente/categoría de su fila propia (nunca null), nunca las de Ana';
+
+  -- Toggle inválido: fail-closed con una excepción explícita, nunca un resultado vacío
+  -- silencioso (mismo principio que EA_SEGMENTS_DENIED en get_staff_assignment_segments).
+  DECLARE
+    v_rejected boolean := false;
+  BEGIN
+    BEGIN
+      PERFORM 1 FROM public.list_my_assignments('bogus', '2000-01-01', '2100-01-01');
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM <> 'MY_ASSIGNMENTS_INVALID_TOGGLE' THEN
+        RAISE EXCEPTION '0922-190 RLS FAIL — p_toggle inválido dio un error distinto al esperado: %', SQLERRM;
+      END IF;
+      v_rejected := true;
+    END;
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments aceptó un p_toggle inválido sin error';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — list_my_assignments rechaza p_toggle inválido (fail-closed)';
 
   -- Anon: sigue hard-denegado (el grant de tabla no lo toca esta migración).
   IF to_regrole('anon') IS NULL THEN

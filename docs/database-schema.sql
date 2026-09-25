@@ -3569,6 +3569,45 @@ $$;
 
 
 --
+-- Name: list_my_assignments(text, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, p_date_to date) RETURNS TABLE(assignment_id uuid, engagement_id uuid, category_id uuid, start_date date, end_date date, hours_per_week numeric, allocation_percent numeric, notes text, status text, deleted_at timestamp with time zone, engagement_code text, engagement_name text, client_id uuid, client_legal_name text, category_name text)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF p_toggle NOT IN ('current', 'historical', 'all') THEN
+    RAISE EXCEPTION 'MY_ASSIGNMENTS_INVALID_TOGGLE';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    ea.assignment_id, ea.engagement_id, ea.category_id, ea.start_date, ea.end_date,
+    ea.hours_per_week, ea.allocation_percent, ea.notes, ea.status, ea.deleted_at,
+    e.engagement_code, e.engagement_name,
+    e.client_id, cl.client_legal_name,
+    cat.category_name
+  FROM public.engagement_assignments ea
+  LEFT JOIN public.engagements e ON e.engagement_id = ea.engagement_id
+  LEFT JOIN public.clients cl ON cl.client_id = e.client_id
+  LEFT JOIN public.categories cat ON cat.category_id = ea.category_id
+  WHERE ea.staff_id = public.get_my_staff_id()
+    AND (
+      (p_toggle = 'current' AND ea.deleted_at IS NULL AND ea.status <> 'CANCELLED')
+      OR (p_toggle = 'historical' AND (ea.deleted_at IS NOT NULL OR ea.status = 'CANCELLED')
+          AND ea.end_date >= p_date_from AND ea.start_date <= p_date_to)
+      OR (p_toggle = 'all' AND ea.end_date >= p_date_from AND ea.start_date <= p_date_to)
+    )
+  ORDER BY ea.start_date DESC;
+END;
+$$;
+
+
+COMMENT ON FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, p_date_to date) IS '0922-190 "Mis asignaciones": único gate de autorización es staff_id = get_my_staff_id() (SECURITY DEFINER bypassa RLS, así que este WHERE reemplaza a ea_select_own dentro de la función). Devuelve solo columnas de etiqueta (engagement_code/name, client_legal_name, category_name) para la fila propia -- nunca las tablas engagements/clients completas, que exigen engagement.read/client.read que la población objetivo de este ticket no siempre tiene. p_toggle: "current" no acota fecha (deleted_at IS NULL AND status <> CANCELLED); "historical" exige histórico Y solapa [p_date_from, p_date_to]; "all" solo exige solape de fecha, sin filtrar por histórico/vigente -- mismo criterio que el filtro cliente de MyAssignments.tsx.';
+
+
+--
 -- Name: move_category(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 

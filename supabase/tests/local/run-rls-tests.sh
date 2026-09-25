@@ -310,7 +310,9 @@ run supabase/migrations/20260921140000_dash_personal_overview.sql
 
 # 0922-190: policy aditiva ea_select_own sobre engagement_assignments (staff_id =
 # get_my_staff_id()) -- autovisibilidad para la pantalla "Mis asignaciones". No reemplaza
-# ninguna de las 4 policies SELECT existentes. Ejercitada por
+# ninguna de las 4 policies SELECT existentes. También agrega list_my_assignments() (review
+# 2026-09-25, MUST FIX): RPC SECURITY DEFINER que resuelve encargo/cliente/categoría con su
+# propio gate, sin depender de engagement.read/client.read. Ambas ejercitadas por
 # rls-0922-190-my-assignments-visibility.sql.
 run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
 

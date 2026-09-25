@@ -36,6 +36,29 @@ interface TimeEntryHoursRow {
   hours_logged: number;
 }
 
+// Forma plana que devuelve la RPC `list_my_assignments` (ver migración 20260924120000)
+// — sin objetos anidados, porque el embed de PostgREST a engagements/clients depende de
+// policies (engagement.read/client.read) que la población de este ticket no siempre tiene
+// (review 2026-09-25, MUST FIX). La RPC es SECURITY DEFINER y hace su propio chequeo
+// staff_id = get_my_staff_id(), así que estas etiquetas son seguras de traer siempre.
+interface RpcAssignmentRow {
+  assignment_id: string;
+  engagement_id: string;
+  category_id: string;
+  start_date: string;
+  end_date: string;
+  hours_per_week: number;
+  allocation_percent: number;
+  notes: string | null;
+  status: string;
+  deleted_at: string | null;
+  engagement_code: string | null;
+  engagement_name: string | null;
+  client_id: string | null;
+  client_legal_name: string | null;
+  category_name: string | null;
+}
+
 export type MyAssignmentsToggle = "current" | "historical" | "all";
 
 export interface MyAssignmentsFilter {
@@ -122,6 +145,13 @@ export function loadedHoursForRow(
  * reduzca de verdad lo que viaja de la base — antes solo se filtraba en el cliente después
  * de traer todo el historial. La condición de solape replica exactamente la que ya usaba
  * `filteredRows` en MyAssignments.tsx: incluir si `end_date >= dateFrom && start_date <= dateTo`.
+ *
+ * Etiquetas de encargo/cliente vía RPC, no embed (review 2026-09-25, MUST FIX): un embed
+ * anidado de PostgREST a engagements/clients exige engagement.read/client.read de esas
+ * tablas — permiso que los roles destinatarios del aviso de staffing no siempre tienen —
+ * así que la fila se veía pero encargo/cliente llegaban null ("-"). `list_my_assignments`
+ * es SECURITY DEFINER, hace su propio chequeo `staff_id = get_my_staff_id()` y devuelve
+ * solo las columnas de etiqueta, nunca las tablas completas.
  */
 export function useMyAssignments(filter: MyAssignmentsFilter) {
   const { user } = useAuth();
@@ -135,30 +165,37 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
     enabled: Boolean(viewerId && staffId),
     queryFn: async (): Promise<MyAssignmentRow[]> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let assignmentsQuery = (supabase as any)
-        .from("engagement_assignments")
-        .select(
-          "assignment_id, engagement_id, category_id, start_date, end_date, hours_per_week, allocation_percent, notes, status, deleted_at, " +
-            "engagement:engagements(engagement_id, engagement_code, engagement_name, client:clients(client_id, client_legal_name)), " +
-            "category:categories(category_id, category_name)"
-        )
-        .eq("staff_id", staffId);
-
-      if (toggle === "current") {
-        assignmentsQuery = assignmentsQuery.is("deleted_at", null).neq("status", "CANCELLED");
-      } else {
-        assignmentsQuery = assignmentsQuery.gte("end_date", dateFrom).lte("start_date", dateTo);
-        if (toggle === "historical") {
-          assignmentsQuery = assignmentsQuery.or("deleted_at.not.is.null,status.eq.CANCELLED");
-        }
-      }
-
-      const { data: assignmentsData, error: assignmentsError } = await assignmentsQuery.order(
-        "start_date",
-        { ascending: false },
-      );
-      if (assignmentsError) throw assignmentsError;
-      const rows = (assignmentsData ?? []) as Array<Omit<MyAssignmentRow, "assigned_hours" | "loaded_hours">>;
+      const { data: rpcData, error: rpcError } = await (supabase as any).rpc("list_my_assignments", {
+        p_toggle: toggle,
+        p_date_from: dateFrom,
+        p_date_to: dateTo,
+      });
+      if (rpcError) throw rpcError;
+      const rpcRows = (rpcData ?? []) as RpcAssignmentRow[];
+      const rows: Array<Omit<MyAssignmentRow, "assigned_hours" | "loaded_hours">> = rpcRows.map((r) => ({
+        assignment_id: r.assignment_id,
+        engagement_id: r.engagement_id,
+        category_id: r.category_id,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        hours_per_week: r.hours_per_week,
+        allocation_percent: r.allocation_percent,
+        notes: r.notes,
+        status: r.status,
+        deleted_at: r.deleted_at,
+        engagement: r.engagement_name
+          ? {
+              engagement_id: r.engagement_id,
+              engagement_code: r.engagement_code,
+              engagement_name: r.engagement_name,
+              client:
+                r.client_id && r.client_legal_name
+                  ? { client_id: r.client_id, client_legal_name: r.client_legal_name }
+                  : null,
+            }
+          : null,
+        category: r.category_name ? { category_id: r.category_id, category_name: r.category_name } : null,
+      }));
 
       const engagementIds = [...new Set(rows.map((r) => r.engagement_id))];
       let entries: TimeEntryHoursRow[] = [];
