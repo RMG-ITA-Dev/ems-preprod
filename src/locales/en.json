@@ -2815,11 +2815,9 @@
     "empty": "You have no assignments yet.",
     "loadError": "Could not load your assignments.",
     "retry": "Retry",
-    "progressText": "{{approved}} appr. + {{pending}} pend. / {{assigned}} h · {{pct}}%",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
     "allocation": "{{percent}}% allocation",
     "progress": {
-      "approved": "Approved hours",
-      "pending": "Hours pending approval",
       "over": "Logged hours exceed the assigned total"
     },
     "filters": {
@@ -2827,7 +2825,8 @@
       "allEngagements": "All engagements",
       "category": "Role",
       "allCategories": "All roles",
-      "dateRange": "Date range",
+      "dateRangeFrom": "From",
+      "dateRangeTo": "To",
       "toggle": {
         "current": "Current",
         "historical": "Historical",

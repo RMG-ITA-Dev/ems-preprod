@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Progress } from "@/components/ui/progress";
 import { AlertCircle, StickyNote } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -19,6 +21,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,9 +38,10 @@ import {
   clampProgressForBar,
   progressPercent,
   type MyAssignmentRow,
+  type MyAssignmentsToggle,
 } from "@/hooks/useMyAssignments";
 
-type ToggleValue = "current" | "historical" | "all";
+type ToggleValue = MyAssignmentsToggle;
 
 function isHistorical(row: MyAssignmentRow): boolean {
   return row.deleted_at !== null || row.status === "CANCELLED";
@@ -56,8 +60,6 @@ const MyAssignments = () => {
   const [searchParams] = useSearchParams();
   const engagementIdParam = searchParams.get("engagementId");
 
-  const { data: rows, isLoading, isError, refetch } = useMyAssignments();
-
   // Deep-link de notificación (engagement.staffing.changed, context assigned/unassigned):
   // la fila puede haber quedado histórica (baja) si el hecho fue una baja, así que el toggle
   // arranca en "all" cuando llega con engagementId — plan_v2.md §"Notificaciones".
@@ -70,6 +72,8 @@ const MyAssignments = () => {
   const [dateTo, setDateTo] = useState(`${currentYear}-12-31`);
 
   const [notesRow, setNotesRow] = useState<MyAssignmentRow | null>(null);
+
+  const { data: rows, isLoading, isError, refetch } = useMyAssignments({ toggle, dateFrom, dateTo });
 
   const engagementOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -107,41 +111,17 @@ const MyAssignments = () => {
 
   const renderProgress = (row: MyAssignmentRow) => {
     const pct = progressPercent(row.loaded_hours, row.assigned_hours);
-    const approvedPct = row.assigned_hours > 0 ? (row.approved_hours / row.assigned_hours) * 100 : 0;
-    const pendingPct = row.assigned_hours > 0 ? (row.pending_hours / row.assigned_hours) * 100 : 0;
     const isOver = pct > 100;
-    const approvedWidth = Math.min(approvedPct, 100);
-    const pendingWidth = Math.min(pendingPct, 100 - approvedWidth);
     return (
       <div className="flex items-center gap-2">
-        <div
-          className="h-2 w-24 rounded-full bg-muted overflow-hidden flex shrink-0"
-          role="progressbar"
-          aria-valuenow={clampProgressForBar(pct)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          {isOver ? (
-            <div className="h-full w-full bg-destructive" title={t("myAssignments.progress.over")} />
-          ) : (
-            <>
-              <div
-                className="h-full bg-primary"
-                style={{ width: `${approvedWidth}%` }}
-                title={t("myAssignments.progress.approved")}
-              />
-              <div
-                className="h-full bg-primary/40"
-                style={{ width: `${pendingWidth}%` }}
-                title={t("myAssignments.progress.pending")}
-              />
-            </>
-          )}
-        </div>
+        <Progress
+          value={clampProgressForBar(pct)}
+          title={isOver ? t("myAssignments.progress.over") : undefined}
+          className={cn("h-2 w-24 shrink-0", isOver ? "[&>div]:bg-destructive" : undefined)}
+        />
         <span className="text-xs font-mono whitespace-nowrap">
           {t("myAssignments.progressText", {
-            approved: Math.round(row.approved_hours),
-            pending: Math.round(row.pending_hours),
+            loaded: Math.round(row.loaded_hours),
             assigned: Math.round(row.assigned_hours),
             pct,
           })}
@@ -150,6 +130,12 @@ const MyAssignments = () => {
     );
   };
 
+  const renderAllocation = (row: MyAssignmentRow) => (
+    <div className="text-xs text-muted-foreground">
+      {t("myAssignments.allocation", { percent: Math.round(row.allocation_percent) })}
+    </div>
+  );
+
   const renderNotesButton = (row: MyAssignmentRow) => {
     if (!row.notes || !row.notes.trim()) return null;
     return (
@@ -157,7 +143,7 @@ const MyAssignments = () => {
         type="button"
         variant="ghost"
         size="icon"
-        className="h-7 w-7"
+        className="h-11 w-11 sm:h-7 sm:w-7"
         aria-label={t("myAssignments.notesModal.title")}
         data-testid={`notes-button-${row.assignment_id}`}
         onClick={() => setNotesRow(row)}
@@ -224,7 +210,7 @@ const MyAssignments = () => {
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
                 className="w-40"
-                aria-label={t("myAssignments.filters.dateRange")}
+                aria-label={t("myAssignments.filters.dateRangeFrom")}
               />
               <span className="text-muted-foreground text-sm">–</span>
               <Input
@@ -232,6 +218,7 @@ const MyAssignments = () => {
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
                 className="w-40"
+                aria-label={t("myAssignments.filters.dateRangeTo")}
               />
             </div>
           )}
@@ -281,7 +268,10 @@ const MyAssignments = () => {
                         <div className="text-xs text-muted-foreground">{row.engagement?.engagement_name}</div>
                       </TableCell>
                       <TableCell>{row.engagement?.client?.client_legal_name ?? "-"}</TableCell>
-                      <TableCell>{row.category?.category_name ?? "-"}</TableCell>
+                      <TableCell>
+                        <div>{row.category?.category_name ?? "-"}</div>
+                        {renderAllocation(row)}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {formatDate(row.start_date)} – {formatDate(row.end_date)}
                       </TableCell>
@@ -309,6 +299,7 @@ const MyAssignments = () => {
                     <span>{row.category?.category_name ?? "-"}</span>
                     <span>{t(`myAssignments.status.${row.status}`)}</span>
                   </div>
+                  {renderAllocation(row)}
                   <div className="text-xs text-muted-foreground">
                     {formatDate(row.start_date)} – {formatDate(row.end_date)}
                   </div>
@@ -324,13 +315,9 @@ const MyAssignments = () => {
         <DialogContent data-testid="my-assignments-notes-modal">
           <DialogHeader>
             <DialogTitle>{t("myAssignments.notesModal.title")}</DialogTitle>
+            <DialogDescription className="sr-only">{t("myAssignments.notesModal.title")}</DialogDescription>
           </DialogHeader>
           <p className="text-sm whitespace-pre-wrap">{notesRow?.notes}</p>
-          {notesRow && (
-            <p className="text-xs text-muted-foreground">
-              {t("myAssignments.allocation", { percent: Math.round(notesRow.allocation_percent) })}
-            </p>
-          )}
         </DialogContent>
       </Dialog>
     </AppLayout>

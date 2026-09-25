@@ -2815,11 +2815,9 @@
     "empty": "Todavía no tenés asignaciones.",
     "loadError": "No se pudieron cargar tus asignaciones.",
     "retry": "Reintentar",
-    "progressText": "{{approved}} aprob. + {{pending}} pend. / {{assigned}} h · {{pct}}%",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
     "allocation": "{{percent}}% de dedicación",
     "progress": {
-      "approved": "Horas aprobadas",
-      "pending": "Horas pendientes de aprobación",
       "over": "Las horas cargadas superan el total asignado"
     },
     "filters": {
@@ -2827,7 +2825,8 @@
       "allEngagements": "Todos los encargos",
       "category": "Rol",
       "allCategories": "Todos los roles",
-      "dateRange": "Rango de fechas",
+      "dateRangeFrom": "Desde",
+      "dateRangeTo": "Hasta",
       "toggle": {
         "current": "Vigentes",
         "historical": "Históricas",

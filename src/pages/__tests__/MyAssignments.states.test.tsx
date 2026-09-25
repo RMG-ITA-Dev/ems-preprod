@@ -12,7 +12,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       if (key === "myAssignments.progressText" && opts) {
-        return `${opts.approved} aprob. + ${opts.pending} pend. / ${opts.assigned} h · ${opts.pct}%`;
+        return `${opts.loaded} / ${opts.assigned} h · ${opts.pct}%`;
       }
       if (key === "myAssignments.allocation" && opts) {
         return `${opts.percent}% allocation`;
@@ -76,8 +76,6 @@ const rowCurrent: MyAssignmentRow = {
   category: { category_id: "c1", category_name: "Senior" },
   assigned_hours: 200,
   loaded_hours: 52,
-  approved_hours: 32,
-  pending_hours: 20,
 };
 
 // Histórica (CANCELLED), sin notas.
@@ -101,8 +99,6 @@ const rowHistorical: MyAssignmentRow = {
   category: { category_id: "c2", category_name: "Semi Senior" },
   assigned_hours: 100,
   loaded_hours: 0,
-  approved_hours: 0,
-  pending_hours: 0,
 };
 
 beforeEach(() => {
@@ -179,10 +175,23 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(within(table).getByText("01/09/2026 – 30/09/2026")).toBeInTheDocument();
   });
 
-  it("muestra el progreso desglosado en aprobadas + por aprobar / asignadas · pct", () => {
+  it("muestra el progreso como cargadas / asignadas · pct", () => {
     renderPage();
-    // (32+20)/200 = 26%
-    expect(screen.getAllByText("32 aprob. + 20 pend. / 200 h · 26%").length).toBeGreaterThan(0);
+    // 52/200 = 26%
+    expect(screen.getAllByText("52 / 200 h · 26%").length).toBeGreaterThan(0);
+  });
+
+  it("muestra el % de dedicación en cada fila, tenga o no notas (tabla y tarjetas)", () => {
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+    const table = screen.getByTestId("my-assignments-table");
+    const cards = screen.getByTestId("my-assignments-cards");
+    // rowCurrent tiene notas (100%), rowHistorical NO tiene notas (50%) — el dato debe
+    // verse en ambas de todos modos, no solo dentro del modal de notas.
+    expect(within(table).getByText("100% allocation")).toBeInTheDocument();
+    expect(within(table).getByText("50% allocation")).toBeInTheDocument();
+    expect(within(cards).getByText("100% allocation")).toBeInTheDocument();
+    expect(within(cards).getByText("50% allocation")).toBeInTheDocument();
   });
 
   it("toggle Históricas oculta la vigente y muestra la CANCELLED", () => {
@@ -201,12 +210,24 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(within(table).getByText("0918")).toBeInTheDocument();
   });
 
-  it("el deep-link ?engagementId= arranca en Todas y filtra a ese encargo (notificación de staffing)", () => {
+  it("el deep-link ?engagementId= arranca en Todas y filtra a ese encargo, sin match (notificación de staffing)", () => {
     queryState.data = [rowCurrent, { ...rowHistorical, engagement_id: "e1" }];
     renderPage("/timesheet/assignments?engagementId=e2");
     // Ninguna fila del fixture pertenece a e2: la tabla queda vacía por el filtro de encargo,
     // aunque el toggle "Todas" ya esté activo (no cae en "Vigentes" por defecto).
     expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("common.noResults");
+  });
+
+  it("el deep-link ?engagementId= muestra la fila histórica (baja) que sí matchea", () => {
+    // Caso real: la notificación fue por una baja (unassigned) de una fila que ya quedó
+    // histórica/CANCELLED — el toggle debe arrancar en "Todas" (no "Vigentes") para que la
+    // fila no quede oculta por el toggle, y el filtro de encargo debe dejarla pasar.
+    queryState.data = [rowCurrent, rowHistorical]; // rowHistorical.engagement_id === "e2"
+    renderPage("/timesheet/assignments?engagementId=e2");
+    const table = screen.getByTestId("my-assignments-table");
+    expect(within(table).getByText("0918")).toBeInTheDocument();
+    expect(within(table).queryByText("1042")).not.toBeInTheDocument();
+    expect(screen.getByText("myAssignments.filters.toggle.all")).toHaveAttribute("data-state", "on");
   });
 });
 
@@ -222,11 +243,10 @@ describe("modal de notas", () => {
     expect(screen.queryByTestId(`notes-button-${rowHistorical.assignment_id}`)).not.toBeInTheDocument();
   });
 
-  it("abre el modal con el texto de la nota y el % de dedicación", () => {
+  it("abre el modal con el texto de la nota (el % de dedicación se ve en la fila, no acá)", () => {
     renderPage();
     fireEvent.click(screen.getAllByTestId(`notes-button-${rowCurrent.assignment_id}`)[0]);
     const modal = screen.getByTestId("my-assignments-notes-modal");
     expect(within(modal).getByText(rowCurrent.notes as string)).toBeInTheDocument();
-    expect(within(modal).getByText("100% allocation")).toBeInTheDocument();
   });
 });
