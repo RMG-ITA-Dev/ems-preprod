@@ -3585,9 +3585,9 @@ BEGIN
   SELECT
     ea.assignment_id, ea.engagement_id, ea.category_id, ea.start_date, ea.end_date,
     ea.hours_per_week, ea.allocation_percent, ea.notes, ea.status, ea.deleted_at,
-    e.engagement_code, e.engagement_name,
-    e.client_id, cl.client_legal_name,
-    cat.category_name
+    e.engagement_code::text, e.engagement_name::text,
+    e.client_id, cl.client_legal_name::text,
+    cat.category_name::text
   FROM public.engagement_assignments ea
   LEFT JOIN public.engagements e ON e.engagement_id = ea.engagement_id
   LEFT JOIN public.clients cl ON cl.client_id = e.client_id
