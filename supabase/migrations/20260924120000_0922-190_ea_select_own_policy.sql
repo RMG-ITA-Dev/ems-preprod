@@ -15,6 +15,10 @@
 -- de un RPC SECURITY DEFINER, porque el próximo feature previsto (repartir horas por
 -- semana) reutiliza la misma visibilidad de filas propias.
 
+-- Idempotente: permite re-ejecutar este archivo a mano (SQL editor / debug local) sin el
+-- error 42710 "policy already exists" contra una base que ya lo tiene de una corrida previa.
+DROP POLICY IF EXISTS ea_select_own ON public.engagement_assignments;
+
 CREATE POLICY ea_select_own
   ON public.engagement_assignments
   FOR SELECT
@@ -36,6 +40,11 @@ CREATE POLICY ea_select_own
 -- un SECURITY DEFINER de mínimo privilegio hace su propio chequeo de autorización
 -- (staff_id = get_my_staff_id(), igual que ea_select_own) y devuelve SOLO las columnas
 -- de etiqueta que la pantalla necesita — nunca las filas completas de esas tablas.
+
+-- Idempotente: mismo motivo que list_loggable_engagements()/list_own_timer_engagement_labels()
+-- -- permite re-ejecutar este archivo a mano sin el error 42723 "function already exists".
+DROP FUNCTION IF EXISTS public.list_my_assignments(text, date, date);
+
 CREATE FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, p_date_to date)
 RETURNS TABLE (
   assignment_id uuid,
