@@ -4,6 +4,7 @@ import {
   totalAssignedHours,
   progressPercent,
   clampProgressForBar,
+  splitHoursForRow,
 } from "../useMyAssignments";
 
 describe("weeksTouched", () => {
@@ -70,5 +71,49 @@ describe("clampProgressForBar", () => {
 
   it("topea en 100 para que la barra nunca desborde, aunque el pct real sea mayor", () => {
     expect(clampProgressForBar(113)).toBe(100);
+  });
+});
+
+describe("splitHoursForRow", () => {
+  const row = { engagement_id: "e1", start_date: "2026-09-01", end_date: "2026-09-30" };
+
+  it("una entrada con línea aprobada suma a aprobadas", () => {
+    const entries = [
+      { engagement_id: "e1", date_worked: "2026-09-10", hours_logged: 8, period_id: "p1", activity_id: "act1" },
+    ];
+    const approvedKeys = new Set(["p1|e1|act1"]);
+    expect(splitHoursForRow(row, entries, approvedKeys)).toEqual({ approved: 8, pending: 0 });
+  });
+
+  it("una entrada sin línea aprobada (enviada o en borrador) suma a por-aprobar", () => {
+    const entries = [
+      { engagement_id: "e1", date_worked: "2026-09-10", hours_logged: 8, period_id: "p1", activity_id: "act1" },
+    ];
+    expect(splitHoursForRow(row, entries, new Set())).toEqual({ approved: 0, pending: 8 });
+  });
+
+  it("mezcla aprobadas y por-aprobar entre distintas actividades del mismo período", () => {
+    const entries = [
+      { engagement_id: "e1", date_worked: "2026-09-05", hours_logged: 5, period_id: "p1", activity_id: "act1" },
+      { engagement_id: "e1", date_worked: "2026-09-06", hours_logged: 3, period_id: "p1", activity_id: "act2" },
+    ];
+    const approvedKeys = new Set(["p1|e1|act1"]); // solo act1 está aprobada
+    expect(splitHoursForRow(row, entries, approvedKeys)).toEqual({ approved: 5, pending: 3 });
+  });
+
+  it("ignora entradas de otro engagement_id o fuera del rango de la fila", () => {
+    const entries = [
+      { engagement_id: "e2", date_worked: "2026-09-10", hours_logged: 8, period_id: "p1", activity_id: "act1" },
+      { engagement_id: "e1", date_worked: "2026-08-31", hours_logged: 4, period_id: "p0", activity_id: "act1" },
+      { engagement_id: "e1", date_worked: "2026-10-01", hours_logged: 4, period_id: "p2", activity_id: "act1" },
+    ];
+    expect(splitHoursForRow(row, entries, new Set(["p1|e1|act1", "p0|e1|act1", "p2|e1|act1"]))).toEqual({
+      approved: 0,
+      pending: 0,
+    });
+  });
+
+  it("sin entradas, ambos baldes quedan en 0", () => {
+    expect(splitHoursForRow(row, [], new Set())).toEqual({ approved: 0, pending: 0 });
   });
 });

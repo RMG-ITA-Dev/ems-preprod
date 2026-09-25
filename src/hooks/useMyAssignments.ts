@@ -26,13 +26,30 @@ export interface MyAssignmentRow {
   } | null;
   category: { category_id: string; category_name: string } | null;
   assigned_hours: number;
+  /** Total cargado (aprobado + por aprobar) — se mantiene por compatibilidad con el texto de progreso. */
   loaded_hours: number;
+  /** Subconjunto de `loaded_hours` con una línea aprobada (`timesheet_line_approvals.status = 'approved'`). */
+  approved_hours: number;
+  /** `loaded_hours - approved_hours` — enviado o todavía en borrador, no necesariamente "enviado" en sentido estricto. */
+  pending_hours: number;
 }
 
 interface TimeEntryHoursRow {
   engagement_id: string;
   date_worked: string;
   hours_logged: number;
+  period_id: string;
+  activity_id: string;
+}
+
+interface ApprovalKeyRow {
+  period_id: string;
+  engagement_id: string;
+  activity_id: string;
+}
+
+function approvalKey(k: ApprovalKeyRow): string {
+  return `${k.period_id}|${k.engagement_id}|${k.activity_id}`;
 }
 
 // Lunes (UTC) de la semana ISO que contiene `d` — en UTC para no depender de la zona
@@ -72,7 +89,7 @@ export function totalAssignedHours(
   return Number(row.hours_per_week) * weeksTouched(row.start_date, row.end_date);
 }
 
-/** Porcentaje de avance para el texto ("{{cargadas}} / {{asignadas}} h · {{pct}}%"). Sin clamp. */
+/** Porcentaje de avance total (aprobado + por aprobar) sobre lo asignado. Sin clamp. */
 export function progressPercent(loadedHours: number, assignedHours: number): number {
   if (!assignedHours || assignedHours <= 0) return 0;
   return Math.round((loadedHours / assignedHours) * 100);
@@ -83,18 +100,33 @@ export function clampProgressForBar(pct: number): number {
   return Math.min(pct, 100);
 }
 
-function loadedHoursForRow(
+/**
+ * Divide las horas cargadas de una fila entre aprobadas y por aprobar. "Aprobada" exige una
+ * línea `timesheet_line_approvals` con `status = 'approved'` para la misma
+ * (period_id, engagement_id, activity_id) — mismo criterio que
+ * `personal_overview()`/`current_week_approved` (20260921140000_dash_personal_overview.sql).
+ * Todo lo demás (enviado pendiente de decisión, o todavía en borrador sin enviar) cae en
+ * "por aprobar": es la misma simplificación de dos baldes que ya usa ese RPC, no hay un
+ * tercer estado "borrador" separado en esta pantalla.
+ */
+export function splitHoursForRow(
   row: Pick<MyAssignmentRow, "engagement_id" | "start_date" | "end_date">,
   entries: TimeEntryHoursRow[],
-): number {
-  return entries
-    .filter(
-      (e) =>
-        e.engagement_id === row.engagement_id &&
-        e.date_worked >= row.start_date &&
-        e.date_worked <= row.end_date,
-    )
-    .reduce((sum, e) => sum + Number(e.hours_logged), 0);
+  approvedKeys: ReadonlySet<string>,
+): { approved: number; pending: number } {
+  let approved = 0;
+  let pending = 0;
+  for (const e of entries) {
+    if (e.engagement_id !== row.engagement_id) continue;
+    if (e.date_worked < row.start_date || e.date_worked > row.end_date) continue;
+    const hours = Number(e.hours_logged);
+    if (approvedKeys.has(approvalKey(e))) {
+      approved += hours;
+    } else {
+      pending += hours;
+    }
+  }
+  return { approved, pending };
 }
 
 /**
@@ -126,7 +158,7 @@ export function useMyAssignments() {
         .order("start_date", { ascending: false });
       if (assignmentsError) throw assignmentsError;
       const rows = (assignmentsData ?? []) as Array<
-        Omit<MyAssignmentRow, "assigned_hours" | "loaded_hours">
+        Omit<MyAssignmentRow, "assigned_hours" | "loaded_hours" | "approved_hours" | "pending_hours">
       >;
 
       const engagementIds = [...new Set(rows.map((r) => r.engagement_id))];
@@ -135,7 +167,7 @@ export function useMyAssignments() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: entriesData, error: entriesError } = await (supabase as any)
           .from("time_entries")
-          .select("engagement_id, date_worked, hours_logged")
+          .select("engagement_id, date_worked, hours_logged, period_id, activity_id")
           .eq("staff_id", staffId)
           .eq("is_forecast", false)
           .in("engagement_id", engagementIds);
@@ -143,11 +175,32 @@ export function useMyAssignments() {
         entries = (entriesData ?? []) as TimeEntryHoursRow[];
       }
 
-      return rows.map((row) => ({
-        ...row,
-        assigned_hours: totalAssignedHours(row),
-        loaded_hours: loadedHoursForRow(row, entries),
-      }));
+      // "Staff can view own line approvals" (RLS) ya acota esto a las propias, sin exigir
+      // ningún permiso extra — a diferencia de time_entries, que sí exige time_entry.read.
+      const periodIds = [...new Set(entries.map((e) => e.period_id))];
+      let approvedRows: ApprovalKeyRow[] = [];
+      if (periodIds.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: approvalsData, error: approvalsError } = await (supabase as any)
+          .from("timesheet_line_approvals")
+          .select("period_id, engagement_id, activity_id")
+          .in("period_id", periodIds)
+          .eq("status", "approved");
+        if (approvalsError) throw approvalsError;
+        approvedRows = (approvalsData ?? []) as ApprovalKeyRow[];
+      }
+      const approvedKeys = new Set(approvedRows.map(approvalKey));
+
+      return rows.map((row) => {
+        const { approved, pending } = splitHoursForRow(row, entries, approvedKeys);
+        return {
+          ...row,
+          assigned_hours: totalAssignedHours(row),
+          loaded_hours: approved + pending,
+          approved_hours: approved,
+          pending_hours: pending,
+        };
+      });
     },
   });
 }

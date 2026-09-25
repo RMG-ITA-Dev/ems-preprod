@@ -12,7 +12,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       if (key === "myAssignments.progressText" && opts) {
-        return `${opts.loaded} / ${opts.assigned} h · ${opts.pct}%`;
+        return `${opts.approved} aprob. + ${opts.pending} pend. / ${opts.assigned} h · ${opts.pct}%`;
       }
       if (key === "myAssignments.allocation" && opts) {
         return `${opts.percent}% allocation`;
@@ -76,6 +76,8 @@ const rowCurrent: MyAssignmentRow = {
   category: { category_id: "c1", category_name: "Senior" },
   assigned_hours: 200,
   loaded_hours: 52,
+  approved_hours: 32,
+  pending_hours: 20,
 };
 
 // Histórica (CANCELLED), sin notas.
@@ -99,6 +101,8 @@ const rowHistorical: MyAssignmentRow = {
   category: { category_id: "c2", category_name: "Semi Senior" },
   assigned_hours: 100,
   loaded_hours: 0,
+  approved_hours: 0,
+  pending_hours: 0,
 };
 
 beforeEach(() => {
@@ -175,10 +179,10 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(within(table).getByText("01/09/2026 – 30/09/2026")).toBeInTheDocument();
   });
 
-  it("muestra el progreso como {{cargadas}} / {{asignadas}} h · {{pct}}%", () => {
+  it("muestra el progreso desglosado en aprobadas + por aprobar / asignadas · pct", () => {
     renderPage();
-    // 52/200 = 26%
-    expect(screen.getAllByText("52 / 200 h · 26%").length).toBeGreaterThan(0);
+    // (32+20)/200 = 26%
+    expect(screen.getAllByText("32 aprob. + 20 pend. / 200 h · 26%").length).toBeGreaterThan(0);
   });
 
   it("toggle Históricas oculta la vigente y muestra la CANCELLED", () => {

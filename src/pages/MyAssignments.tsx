@@ -5,7 +5,6 @@ import { format } from "date-fns";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, StickyNote } from "lucide-react";
@@ -31,7 +30,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import {
   useMyAssignments,
   clampProgressForBar,
@@ -109,15 +107,41 @@ const MyAssignments = () => {
 
   const renderProgress = (row: MyAssignmentRow) => {
     const pct = progressPercent(row.loaded_hours, row.assigned_hours);
+    const approvedPct = row.assigned_hours > 0 ? (row.approved_hours / row.assigned_hours) * 100 : 0;
+    const pendingPct = row.assigned_hours > 0 ? (row.pending_hours / row.assigned_hours) * 100 : 0;
+    const isOver = pct > 100;
+    const approvedWidth = Math.min(approvedPct, 100);
+    const pendingWidth = Math.min(pendingPct, 100 - approvedWidth);
     return (
       <div className="flex items-center gap-2">
-        <Progress
-          value={clampProgressForBar(pct)}
-          className={cn("h-2 w-24", pct > 100 ? "[&>div]:bg-destructive" : undefined)}
-        />
+        <div
+          className="h-2 w-24 rounded-full bg-muted overflow-hidden flex shrink-0"
+          role="progressbar"
+          aria-valuenow={clampProgressForBar(pct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          {isOver ? (
+            <div className="h-full w-full bg-destructive" title={t("myAssignments.progress.over")} />
+          ) : (
+            <>
+              <div
+                className="h-full bg-primary"
+                style={{ width: `${approvedWidth}%` }}
+                title={t("myAssignments.progress.approved")}
+              />
+              <div
+                className="h-full bg-primary/40"
+                style={{ width: `${pendingWidth}%` }}
+                title={t("myAssignments.progress.pending")}
+              />
+            </>
+          )}
+        </div>
         <span className="text-xs font-mono whitespace-nowrap">
           {t("myAssignments.progressText", {
-            loaded: Math.round(row.loaded_hours),
+            approved: Math.round(row.approved_hours),
+            pending: Math.round(row.pending_hours),
             assigned: Math.round(row.assigned_hours),
             pct,
           })}

@@ -2815,8 +2815,13 @@
     "empty": "Todavía no tenés asignaciones.",
     "loadError": "No se pudieron cargar tus asignaciones.",
     "retry": "Reintentar",
-    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "progressText": "{{approved}} aprob. + {{pending}} pend. / {{assigned}} h · {{pct}}%",
     "allocation": "{{percent}}% de dedicación",
+    "progress": {
+      "approved": "Horas aprobadas",
+      "pending": "Horas pendientes de aprobación",
+      "over": "Las horas cargadas superan el total asignado"
+    },
     "filters": {
       "engagement": "Encargo",
       "allEngagements": "Todos los encargos",

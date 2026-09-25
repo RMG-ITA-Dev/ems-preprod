@@ -2815,8 +2815,13 @@
     "empty": "You have no assignments yet.",
     "loadError": "Could not load your assignments.",
     "retry": "Retry",
-    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "progressText": "{{approved}} appr. + {{pending}} pend. / {{assigned}} h · {{pct}}%",
     "allocation": "{{percent}}% allocation",
+    "progress": {
+      "approved": "Approved hours",
+      "pending": "Hours pending approval",
+      "over": "Logged hours exceed the assigned total"
+    },
     "filters": {
       "engagement": "Engagement",
       "allEngagements": "All engagements",
