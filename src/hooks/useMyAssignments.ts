@@ -162,11 +162,17 @@ export function loadedHoursForRow(
 export function useMyAssignments(filter: MyAssignmentsFilter) {
   const { user } = useAuth();
   const viewerId = user?.id;
-  const { data: staffRecord } = useCurrentStaff();
+  const {
+    data: staffRecord,
+    isLoading: staffIsLoading,
+    isError: staffIsError,
+    error: staffError,
+    refetch: refetchStaff,
+  } = useCurrentStaff();
   const staffId = staffRecord?.staff_id;
   const { toggle, dateFrom, dateTo, engagementId } = filter;
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ["myAssignments", viewerId, staffId, toggle, dateFrom, dateTo, engagementId],
     enabled: Boolean(viewerId && staffId),
     queryFn: async (): Promise<MyAssignmentRow[]> => {
@@ -262,4 +268,19 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
       }));
     },
   });
+
+  // Review 2026-09-28 (P2): si useCurrentStaff() falla (red/autorización), `staffId` nunca se
+  // resuelve y la query de arriba queda deshabilitada para siempre — sin propagar su
+  // isLoading/isError, MyAssignments.tsx no podía distinguir "sin asignaciones" de "no pudimos
+  // resolver tu legajo", y mostraba el estado vacío en vez del de error con reintentar.
+  return {
+    ...query,
+    isLoading: query.isLoading || staffIsLoading,
+    isError: query.isError || staffIsError,
+    error: query.error ?? staffError,
+    refetch: async () => {
+      if (staffIsError) await refetchStaff();
+      return query.refetch();
+    },
+  };
 }

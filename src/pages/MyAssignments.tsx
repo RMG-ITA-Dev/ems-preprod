@@ -88,11 +88,15 @@ const MyAssignments = () => {
   const [engagementFilter, setEngagementFilter] = useState<string>(engagementIdParam ?? "all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  const currentYear = new Date().getFullYear();
+  // Review 2026-09-28 (P2): año en America/La_Paz (via todayInLaPaz()), no el del navegador —
+  // mismo criterio que el resto del archivo. Se usa solo como valor inicial del useState; el
+  // reset de más abajo vuelve a calcularlo en el momento, sin depender de esta variable.
   const [dateFrom, setDateFrom] = useState(
-    engagementIdParam ? DEEP_LINK_DATE_FROM : `${currentYear}-01-01`,
+    engagementIdParam ? DEEP_LINK_DATE_FROM : `${todayInLaPaz().slice(0, 4)}-01-01`,
   );
-  const [dateTo, setDateTo] = useState(engagementIdParam ? DEEP_LINK_DATE_TO : `${currentYear}-12-31`);
+  const [dateTo, setDateTo] = useState(
+    engagementIdParam ? DEEP_LINK_DATE_TO : `${todayInLaPaz().slice(0, 4)}-12-31`,
+  );
 
   const [notesRow, setNotesRow] = useState<MyAssignmentRow | null>(null);
 
@@ -116,6 +120,15 @@ const MyAssignments = () => {
   // nada — quedaban el toggle "Todas", el encargo/categoría y el rango 2000-2100 del deep-link
   // anterior pisando la vista por defecto. Ahora el `else` vuelve explícitamente a Vigentes/año
   // calendario actual.
+  //
+  // Review 2026-09-28 (P2): el año de reset se calcula ACÁ ADENTRO (no via una variable de
+  // nivel de componente en las dependencias) — con la pestaña abierta, cualquier re-render
+  // después de medianoche del 31/12 recalculaba esa variable y, al estar en el array de
+  // dependencias, disparaba este efecto solo por el cambio de año, descartando en silencio los
+  // filtros que el usuario ya había elegido (Vigentes/Históricas/Todas no debe resetearse por
+  // eso — solo debe reaccionar a un cambio real de `engagementIdParam`). De paso, usa
+  // `todayInLaPaz()` (America/La_Paz) en vez de la hora del navegador, mismo criterio que
+  // `isHistorical()`.
   useEffect(() => {
     if (engagementIdParam) {
       setToggle("all");
@@ -124,14 +137,15 @@ const MyAssignments = () => {
       setDateFrom(DEEP_LINK_DATE_FROM);
       setDateTo(DEEP_LINK_DATE_TO);
     } else {
+      const resetYear = todayInLaPaz().slice(0, 4);
       setToggle("current");
       setEngagementFilter("all");
       setCategoryFilter("all");
-      setDateFrom(`${currentYear}-01-01`);
-      setDateTo(`${currentYear}-12-31`);
+      setDateFrom(`${resetYear}-01-01`);
+      setDateTo(`${resetYear}-12-31`);
     }
     setFiltersTouchedByUser(false);
-  }, [engagementIdParam, currentYear]);
+  }, [engagementIdParam]);
 
   const { data: rows, isLoading, isError, refetch } = useMyAssignments({
     toggle,

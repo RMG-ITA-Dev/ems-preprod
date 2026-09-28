@@ -387,6 +387,50 @@ describe("filtros de fecha: ignora el input vaciado (review 2026-09-28)", () => 
   });
 });
 
+describe("año calendario por defecto: America/La_Paz, no el reloj del navegador (review 2026-09-28, iteración 8)", () => {
+  it("el rango por defecto (Históricas/Todas) usa el año de La Paz, no el de UTC", () => {
+    // 2026-01-01 02:00 UTC = 2025-12-31 22:00 en America/La_Paz (UTC-4) — todavía es el año
+    // anterior en La Paz aunque el reloj del navegador (UTC en este entorno de test) ya haya
+    // cruzado a enero.
+    vi.setSystemTime(new Date("2026-01-01T02:00:00Z"));
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+    expect(dateFromInput.value).toBe("2025-01-01");
+    expect(dateToInput.value).toBe("2025-12-31");
+  });
+
+  it("un re-render tras cruzar la medianoche del 31/12 no descarta los filtros ya elegidos por el usuario", () => {
+    // El bug: `currentYear` (calculado con la hora del navegador) vivía en el array de
+    // dependencias del useEffect de reset. Como su valor cambia una vez al año, un re-render
+    // disparado por CUALQUIER interacción después de medianoche del 31/12 volvía a ejecutar el
+    // efecto completo (aunque engagementIdParam no hubiera cambiado), pisando el toggle y los
+    // filtros que el usuario ya había elegido.
+    vi.setSystemTime(new Date("2025-12-31T10:00:00Z"));
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.historical"));
+    expect(screen.getByText("myAssignments.filters.toggle.historical")).toHaveAttribute("data-state", "on");
+
+    // Cruza al año siguiente sin desmontar la página (misma pestaña abierta toda la noche).
+    vi.setSystemTime(new Date("2026-01-01T10:00:00Z"));
+
+    // Cualquier re-render (acá, cambiar el rango de fecha a mano) es la oportunidad en la que
+    // el bug se manifestaba.
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    fireEvent.change(dateFromInput, { target: { value: "2020-01-01" } });
+
+    // El toggle "Históricas" (elegido por el usuario) debe seguir activo — no debió resetearse
+    // a "Vigentes" solo porque cambió el año calendario.
+    expect(screen.getByText("myAssignments.filters.toggle.historical")).toHaveAttribute("data-state", "on");
+    expect(dateFromInput.value).toBe("2020-01-01");
+  });
+});
+
 describe("deep-link: resincroniza al navegar a otro engagementId sin desmontar (review 2026-09-28)", () => {
   it("un segundo aviso de staffing (otro engagementId) actualiza el filtro, no se queda con el primero", () => {
     const rowX: MyAssignmentRow = {

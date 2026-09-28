@@ -32,8 +32,25 @@ vi.mock("../useAuth", () => ({
   useAuth: () => ({ user: { id: "user-1" } }),
 }));
 
+// Objeto mutable (en vez de un valor fijo) para poder simular, en la iteración 8, que
+// useCurrentStaff() falla (isError) sin resolver staffId — ver el describe de más abajo.
+const staffQueryState = {
+  data: { staff_id: "staff-1" } as { staff_id: string } | null,
+  isLoading: false,
+  isError: false,
+  error: null as unknown,
+  refetch: vi.fn(),
+};
+
 vi.mock("../useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ data: { staff_id: "staff-1" }, staffRecord: { staff_id: "staff-1" } }),
+  useCurrentStaff: () => ({
+    data: staffQueryState.data,
+    staffRecord: staffQueryState.data,
+    isLoading: staffQueryState.isLoading,
+    isError: staffQueryState.isError,
+    error: staffQueryState.error,
+    refetch: staffQueryState.refetch,
+  }),
 }));
 
 function makeQueryBuilder(result: { data: unknown; error: unknown }) {
@@ -124,6 +141,14 @@ function setupPaginationMocks(pages: ReturnType<typeof makeEntryRow>[][]) {
   });
   return { callsPerPage };
 }
+
+beforeEach(() => {
+  staffQueryState.data = { staff_id: "staff-1" };
+  staffQueryState.isLoading = false;
+  staffQueryState.isError = false;
+  staffQueryState.error = null;
+  staffQueryState.refetch = vi.fn();
+});
 
 describe("useMyAssignments — parámetros de la RPC list_my_assignments por toggle", () => {
   beforeEach(() => {
@@ -342,5 +367,58 @@ describe("useMyAssignments — acota time_entries al encargo seleccionado (deep-
 
     const inArgs = entriesCalls.find((c) => c.method === "in")?.args;
     expect(inArgs).toEqual(["engagement_id", ["e1", "e2"]]);
+  });
+});
+
+describe("useMyAssignments — propaga el fallo de useCurrentStaff() (review 2026-09-28, iteración 8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("si useCurrentStaff() falla, isError es true en vez de quedar deshabilitada en silencio", async () => {
+    // staffId nunca se resuelve (data: null) — antes, esto dejaba la query de asignaciones
+    // deshabilitada para siempre, con isLoading/isError en false, indistinguible de "sin
+    // asignaciones" para MyAssignments.tsx.
+    staffQueryState.data = null;
+    staffQueryState.isError = true;
+    staffQueryState.error = new Error("no se pudo resolver el legajo");
+    setupMocks();
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("mientras useCurrentStaff() está cargando, isLoading es true (no isError ni datos vacíos)", () => {
+    staffQueryState.data = null;
+    staffQueryState.isLoading = true;
+    setupMocks();
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.isError).toBe(false);
+  });
+
+  it("refetch() reintenta primero useCurrentStaff() cuando fue esa la que falló", async () => {
+    staffQueryState.data = null;
+    staffQueryState.isError = true;
+    setupMocks();
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    await result.current.refetch();
+    expect(staffQueryState.refetch).toHaveBeenCalledTimes(1);
   });
 });
