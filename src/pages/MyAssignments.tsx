@@ -96,6 +96,12 @@ const MyAssignments = () => {
 
   const [notesRow, setNotesRow] = useState<MyAssignmentRow | null>(null);
 
+  // Review 2026-09-28 (P2): distingue "el deep-link no encontró nada" de "el usuario cambió un
+  // filtro y por eso no ve la fila" — sin esto, tocar cualquier filtro después de abrir una
+  // notificación seguía mostrando "ya no es visible / te reasignaron" aunque la fila siguiera
+  // siendo del usuario, solo oculta por su propio filtro.
+  const [filtersTouchedByUser, setFiltersTouchedByUser] = useState(false);
+
   // Review 2026-09-28 (MUST FIX): los useState de arriba solo leen engagementId una vez, en el
   // primer render. La ruta no cambia entre dos avisos de staffing distintos (misma
   // /timesheet/assignments), así que sin este efecto un segundo click en otra notificación
@@ -106,6 +112,7 @@ const MyAssignments = () => {
     setEngagementFilter(engagementIdParam);
     setDateFrom(DEEP_LINK_DATE_FROM);
     setDateTo(DEEP_LINK_DATE_TO);
+    setFiltersTouchedByUser(false);
   }, [engagementIdParam]);
 
   const { data: rows, isLoading, isError, refetch } = useMyAssignments({
@@ -154,7 +161,7 @@ const MyAssignments = () => {
     const pct = progressPercent(row.loaded_hours, row.assigned_hours);
     const isOver = pct > 100;
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-end gap-2">
         <Progress
           value={clampProgressForBar(pct)}
           title={isOver ? t("myAssignments.progress.over") : undefined}
@@ -199,7 +206,13 @@ const MyAssignments = () => {
       <div className="space-y-4">
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-3">
-          <Select value={engagementFilter} onValueChange={setEngagementFilter}>
+          <Select
+            value={engagementFilter}
+            onValueChange={(v) => {
+              setFiltersTouchedByUser(true);
+              setEngagementFilter(v);
+            }}
+          >
             <SelectTrigger className="w-full sm:w-56">
               <SelectValue placeholder={t("myAssignments.filters.engagement")} />
             </SelectTrigger>
@@ -213,7 +226,13 @@ const MyAssignments = () => {
             </SelectContent>
           </Select>
 
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => {
+              setFiltersTouchedByUser(true);
+              setCategoryFilter(v);
+            }}
+          >
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder={t("myAssignments.filters.category")} />
             </SelectTrigger>
@@ -230,7 +249,11 @@ const MyAssignments = () => {
           <ToggleGroup
             type="single"
             value={toggle}
-            onValueChange={(v) => v && setToggle(v as ToggleValue)}
+            onValueChange={(v) => {
+              if (!v) return;
+              setFiltersTouchedByUser(true);
+              setToggle(v as ToggleValue);
+            }}
             className="justify-start"
           >
             <ToggleGroupItem value="current" aria-label={t("myAssignments.filters.toggle.current")}>
@@ -254,7 +277,9 @@ const MyAssignments = () => {
                   // el botón del navegador — "" no es una fecha válida para la RPC (p_date_from
                   // exige `date`) y rompía toda la pantalla al estado de error. Se ignora el
                   // cambio en vez de propagar un valor vacío.
-                  if (e.target.value) setDateFrom(e.target.value);
+                  if (!e.target.value) return;
+                  setFiltersTouchedByUser(true);
+                  setDateFrom(e.target.value);
                 }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeFrom")}
@@ -264,7 +289,9 @@ const MyAssignments = () => {
                 type="date"
                 value={dateTo}
                 onChange={(e) => {
-                  if (e.target.value) setDateTo(e.target.value);
+                  if (!e.target.value) return;
+                  setFiltersTouchedByUser(true);
+                  setDateTo(e.target.value);
                 }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeTo")}
@@ -294,8 +321,11 @@ const MyAssignments = () => {
             {/* Review 2026-09-28 (P2): el deep-link de un aviso de staffing puede apuntar a una
                 fila que ya no es del usuario (reemplazo de staffing) — sin este mensaje, esa
                 lista vacía se veía igual que "no tenés asignaciones", sin ninguna pista de por
-                qué el enlace no trajo nada. */}
-            {engagementIdParam
+                qué el enlace no trajo nada. Solo se muestra mientras el usuario no haya tocado
+                ningún filtro (review 2026-09-28, P2): si después de abrir la notificación el
+                usuario cambia categoría/toggle/fecha/encargo y eso oculta una fila que sigue
+                siendo suya, no corresponde decirle "te reasignaron" por un resultado de filtro. */}
+            {engagementIdParam && !filtersTouchedByUser
               ? t("myAssignments.deepLinkNotFound")
               : rows?.length === 0
                 ? t("myAssignments.empty")
@@ -313,7 +343,9 @@ const MyAssignments = () => {
                     <TableHead>{t("myAssignments.table.role")}</TableHead>
                     <TableHead>{t("myAssignments.table.period")}</TableHead>
                     <TableHead>{t("myAssignments.table.status")}</TableHead>
-                    <TableHead>{t("myAssignments.table.progress")}</TableHead>
+                    {/* Review 2026-09-28 (P2): convención de celdas numéricas del repo (AGENTS.md
+                        regla 4 / docs/skills/design-system.md) — alineadas a la derecha. */}
+                    <TableHead className="text-right">{t("myAssignments.table.progress")}</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
@@ -333,7 +365,7 @@ const MyAssignments = () => {
                         {formatDate(row.start_date)} – {formatDate(row.end_date)}
                       </TableCell>
                       <TableCell>{t(`myAssignments.status.${row.status}`)}</TableCell>
-                      <TableCell>{renderProgress(row)}</TableCell>
+                      <TableCell className="text-right">{renderProgress(row)}</TableCell>
                       <TableCell>{renderNotesButton(row)}</TableCell>
                     </TableRow>
                   ))}

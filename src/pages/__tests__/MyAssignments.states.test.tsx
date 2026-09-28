@@ -239,6 +239,15 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(screen.getAllByText("52 / 200 h · 26%").length).toBeGreaterThan(0);
   });
 
+  it("la columna Progreso (encabezado y celda) está alineada a la derecha, como toda celda numérica (review 2026-09-28)", () => {
+    renderPage();
+    const table = screen.getByTestId("my-assignments-table");
+    const header = within(table).getByText("myAssignments.table.progress");
+    expect(header).toHaveClass("text-right");
+    const progressCell = screen.getAllByText("52 / 200 h · 26%")[0].closest("td");
+    expect(progressCell).toHaveClass("text-right");
+  });
+
   it("muestra el % de dedicación en cada fila, tenga o no notas (tabla y tarjetas)", () => {
     renderPage();
     fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
@@ -281,6 +290,19 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
   it("sin engagementId, cero filas siguen mostrando el mensaje genérico de sin resultados", () => {
     queryState.data = [{ ...rowHistorical, assignment_id: "a3" }];
     renderPage();
+    expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("common.noResults");
+  });
+
+  it("si el usuario toca un filtro después del deep-link sin match, el mensaje pasa a ser el genérico (review 2026-09-28)", () => {
+    // La fila SÍ es del usuario (engagement_id e1), pero el deep-link apunta a e2 — antes de
+    // tocar nada, corresponde el mensaje específico.
+    queryState.data = [rowCurrent];
+    renderPage("/timesheet/assignments?engagementId=e2");
+    expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("myAssignments.deepLinkNotFound");
+
+    // El usuario cambia el toggle por su cuenta: ya no es "el deep-link no encontró nada", es
+    // un resultado de filtro común — no corresponde sugerir una reasignación.
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.current"));
     expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("common.noResults");
   });
 
