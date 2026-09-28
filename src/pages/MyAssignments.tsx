@@ -108,7 +108,12 @@ const MyAssignments = () => {
     setDateTo(DEEP_LINK_DATE_TO);
   }, [engagementIdParam]);
 
-  const { data: rows, isLoading, isError, refetch } = useMyAssignments({ toggle, dateFrom, dateTo });
+  const { data: rows, isLoading, isError, refetch } = useMyAssignments({
+    toggle,
+    dateFrom,
+    dateTo,
+    engagementId: engagementFilter,
+  });
 
   const engagementOptions = useMemo(() => {
     const map = new Map<string, string>();

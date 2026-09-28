@@ -69,6 +69,8 @@ export interface MyAssignmentsFilter {
   toggle: MyAssignmentsToggle;
   dateFrom: string;
   dateTo: string;
+  /** Cuando viene, acota la ventana de `time_entries` a este encargo (review 2026-09-28, P2). */
+  engagementId?: string;
 }
 
 // Lunes (UTC) de la semana ISO que contiene `d` — en UTC para no depender de la zona
@@ -162,10 +164,10 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
   const viewerId = user?.id;
   const { data: staffRecord } = useCurrentStaff();
   const staffId = staffRecord?.staff_id;
-  const { toggle, dateFrom, dateTo } = filter;
+  const { toggle, dateFrom, dateTo, engagementId } = filter;
 
   return useQuery({
-    queryKey: ["myAssignments", viewerId, staffId, toggle, dateFrom, dateTo],
+    queryKey: ["myAssignments", viewerId, staffId, toggle, dateFrom, dateTo, engagementId],
     enabled: Boolean(viewerId && staffId),
     queryFn: async (): Promise<MyAssignmentRow[]> => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -201,17 +203,36 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
         category: r.category_name ? { category_id: r.category_id, category_name: r.category_name } : null,
       }));
 
-      const engagementIds = [...new Set(rows.map((r) => r.engagement_id))];
+      // Acota a la fila(s) del encargo seleccionado cuando el filtro de encargo ya redujo lo
+      // que se va a mostrar (deep-link de notificación o selección manual en el Select) — sin
+      // esto, el deep-link (dateFrom/dateTo = 2000-01-01..2100-01-01) traía time_entries de
+      // TODO el historial del staff aunque solo una fila fuera a mostrarse (review 2026-09-28,
+      // P2). `rows` completo se sigue devolviendo sin filtrar (lo usan engagementOptions/
+      // categoryOptions y el resto de filtros en MyAssignments.tsx), esto solo acota qué
+      // time_entries se consultan.
+      const rowsForEntries =
+        engagementId && engagementId !== "all" ? rows.filter((r) => r.engagement_id === engagementId) : rows;
+
+      const engagementIds = [...new Set(rowsForEntries.map((r) => r.engagement_id))];
       let entries: TimeEntryHoursRow[] = [];
       if (engagementIds.length > 0) {
         // Acota time_entries a la ventana real cubierta por las filas ya filtradas arriba,
         // en vez de traer todo el historial del encargo — mismo objetivo de rendimiento.
-        const minStart = rows.reduce((min, r) => (r.start_date < min ? r.start_date : min), rows[0].start_date);
-        const maxEnd = rows.reduce((max, r) => (r.end_date > max ? r.end_date : max), rows[0].end_date);
+        const minStart = rowsForEntries.reduce(
+          (min, r) => (r.start_date < min ? r.start_date : min),
+          rowsForEntries[0].start_date,
+        );
+        const maxEnd = rowsForEntries.reduce(
+          (max, r) => (r.end_date > max ? r.end_date : max),
+          rowsForEntries[0].end_date,
+        );
         // Pagina explícitamente (review 2026-09-28, SHOULD FIX): PostgREST trunca en silencio
         // a su límite de filas por página (sin error) — para un staff con mucho volumen
         // histórico, una sola página podía subestimar loaded_hours sin ningún aviso. Se sigue
         // pidiendo página tras página hasta que una devuelva menos de TIME_ENTRIES_PAGE_SIZE.
+        // Desempate por `time_id` (review 2026-09-28, P1): ordenar solo por `date_worked` no es
+        // un orden estable entre llamadas cuando hay filas con la misma fecha en el borde de una
+        // página — podían quedar salteadas o contadas dos veces entre una página y la siguiente.
         let offset = 0;
         while (true) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -224,6 +245,7 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
             .gte("date_worked", minStart)
             .lte("date_worked", maxEnd)
             .order("date_worked", { ascending: true })
+            .order("time_id", { ascending: true })
             .range(offset, offset + TIME_ENTRIES_PAGE_SIZE - 1);
           if (entriesError) throw entriesError;
           const page = (entriesData ?? []) as TimeEntryHoursRow[];

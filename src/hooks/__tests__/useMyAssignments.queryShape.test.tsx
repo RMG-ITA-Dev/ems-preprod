@@ -263,4 +263,84 @@ describe("useMyAssignments — paginación de time_entries", () => {
     expect(callsPerPage.length).toBe(1);
     expect(result.current.data![0].loaded_hours).toBe(8);
   });
+
+  // Review 2026-09-28 (P1): ordenar solo por date_worked no es un orden estable entre llamadas
+  // cuando hay filas empatadas en esa fecha justo en el borde de una página — podían quedar
+  // salteadas o contadas dos veces entre una página y la siguiente.
+  it("ordena por date_worked y por time_id (desempate) antes de paginar", async () => {
+    const shortPage = [makeEntryRow({ hours_logged: 8 })];
+    const { callsPerPage } = setupPaginationMocks([shortPage]);
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const orderCalls = callsPerPage[0].filter((c) => c.method === "order").map((c) => c.args[0]);
+    expect(orderCalls).toEqual(["date_worked", "time_id"]);
+  });
+});
+
+describe("useMyAssignments — acota time_entries al encargo seleccionado (deep-link/filtro manual)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("con engagementId acota engagementIds/minStart/maxEnd a las filas de ese encargo, no a todo el historial", async () => {
+    const rowOther = makeAssignmentRow({
+      assignment_id: "a-other",
+      engagement_id: "e-other",
+      start_date: "2010-01-01",
+      end_date: "2010-01-31",
+    });
+    const rowTarget = makeAssignmentRow({
+      assignment_id: "a-target",
+      engagement_id: "e-target",
+      start_date: "2026-09-01",
+      end_date: "2026-09-30",
+    });
+    const { entriesCalls } = setupMocks([rowOther, rowTarget]);
+
+    const { result } = renderHook(
+      () =>
+        useMyAssignments({
+          toggle: "all",
+          dateFrom: "2000-01-01",
+          dateTo: "2100-01-01",
+          engagementId: "e-target",
+        }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // Ambas filas siguen presentes en el resultado (dropdowns/filtros del cliente las siguen
+    // necesitando), pero time_entries solo se consulta para el encargo seleccionado.
+    expect(result.current.data).toHaveLength(2);
+    const inArgs = entriesCalls.find((c) => c.method === "in")?.args;
+    expect(inArgs).toEqual(["engagement_id", ["e-target"]]);
+    const gteArgs = entriesCalls.find((c) => c.method === "gte")?.args;
+    expect(gteArgs).toEqual(["date_worked", "2026-09-01"]);
+  });
+
+  it("sin engagementId (o 'all') sigue acotando a todos los encargos devueltos", async () => {
+    const rowA = makeAssignmentRow({ assignment_id: "a1", engagement_id: "e1" });
+    const rowB = makeAssignmentRow({ assignment_id: "a2", engagement_id: "e2" });
+    const { entriesCalls } = setupMocks([rowA, rowB]);
+
+    const { result } = renderHook(
+      () =>
+        useMyAssignments({
+          toggle: "all",
+          dateFrom: "2000-01-01",
+          dateTo: "2100-01-01",
+          engagementId: "all",
+        }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const inArgs = entriesCalls.find((c) => c.method === "in")?.args;
+    expect(inArgs).toEqual(["engagement_id", ["e1", "e2"]]);
+  });
 });
