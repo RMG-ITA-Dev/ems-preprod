@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -8,18 +8,21 @@ import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 const EngagementNew = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { t } = useTranslation();
+  const administrativeMode = searchParams.get("mode") === "administrative";
+  const returnPath = administrativeMode ? "/administrative-engagements" : "/engagements";
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
   // Guard de creación por permiso vía <PermissionRoute permission="engagement.create"> en App.tsx.
   const handleCancel = () => {
     allowNextNavigation();
-    navigate("/engagements");
+    navigate(returnPath);
   };
 
   const handleSaveSuccess = () => {
     allowNextNavigation();
-    navigate("/engagements");
+    navigate(returnPath);
   };
 
   const handleGoToWorkMatrix = (engagementId?: string) => {
@@ -28,8 +31,9 @@ const EngagementNew = () => {
   };
 
   return (
-    <AppLayout title={t("nav.engagements")} focusMode>
+    <AppLayout title={t(administrativeMode ? "nav.administrativeEngagements" : "nav.engagements")} focusMode>
       <EngagementForm
+        administrativeMode={administrativeMode}
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}
         onSaveSuccess={handleSaveSuccess}

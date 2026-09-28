@@ -60,7 +60,7 @@ export interface Staff {
 }
 
 // FEAT 0810-173: catálogo interno de sociedades (Ruizmier Pelaez / Ruizmier
-// Juaregui), sin ABM — solo lectura.
+// Jauregui), sin ABM — solo lectura.
 export interface Society {
   society_id: string;
   name: string;

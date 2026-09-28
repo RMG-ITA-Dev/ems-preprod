@@ -622,11 +622,7 @@ END $$;
 
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
 DO $$
-DECLARE
-  v_agg jsonb; v_before int; v_after int; v_dia int;
-  -- Ancla dinamica para las aserciones de ISODOW mas abajo (antes un DATE '2026-09-14' fijo):
-  -- ver la nota extensa junto al loop de ISODOW.
-  v_monday date := date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 7;
+DECLARE v_agg jsonb; v_before int; v_after int; v_dia int; v_lunes date;
 BEGIN
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000001');  -- assistant
 
@@ -728,41 +724,44 @@ BEGIN
   -- semana y despues solo clampea contra hire/termination, asi que una fecha de mitad de semana
   -- deja entrar la semana ENTERA — y la alarma reclama horas de los dias anteriores a que la
   -- firma cargara en EMS, que es justo lo que este ajuste existe para evitar.
-  --
-  -- v_monday NO puede ser un DATE literal fijo (encontrado corriendo la suite real dias despues de
-  -- escribirla): notif_timesheet_window_start() solo "acorta, nunca alarga" la ventana de
-  -- TS_ALERT_WINDOW_WEEKS (aca en '1', ver arriba) contra HOY -- v_start solo gana si
-  -- v_start > hoy - 7. Con una fecha fija, en cuanto el calendario real avanza lo suficiente
-  -- (aca, mas de una semana), la comparacion cae del otro lado, la funcion ignora el fixture y
-  -- devuelve `hoy - 7` en su lugar -- que tiene el ISODOW de HOY, no necesariamente lunes. v_monday
-  -- se recalcula en cada corrida a partir de `now()`, asi que siempre cae varios dias en el futuro
-  -- respecto de hoy y la asercion no vence.
+  -- La semana ancla se DERIVA de hoy; hardcodearla caduca. notif_timesheet_window_start()
+  -- devuelve GREATEST(lunes(arranque), hoy - ventana*7), y arriba quedo TS_ALERT_WINDOW_WEEKS
+  -- en 1: con la semana fija del 2026-09-14, el 2026-09-22 la ventana (2026-09-15, martes) le
+  -- gano al arranque y la funcion devolvia un martes -- 'TEST FAIL - con arranque 2026-09-14 la
+  -- ventana empieza en ISODOW 2, y no en lunes'. No era un bug de la funcion: la pata del lunes
+  -- es la del ARRANQUE, y para aislarla el arranque tiene que ser el que recorta. Se ancla en el
+  -- lunes de la semana QUE VIENE, siempre futuro, asi que siempre gana. Mismo criterio (y misma
+  -- zona horaria) que usa la funcion.
+  v_lunes := (now() AT TIME ZONE 'America/La_Paz')::date
+             + (8 - EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/La_Paz')::date)::int);
+
   FOR v_dia IN 0..6 LOOP
-    -- Un dia de cada ISODOW, sobre una semana relativa a hoy para que la prueba no venza.
+    -- Un dia de cada ISODOW, sobre esa semana ancla.
     UPDATE public.global_settings
-       SET setting_value = to_char(v_monday + v_dia, 'YYYY-MM-DD')
+       SET setting_value = to_char(v_lunes + v_dia, 'YYYY-MM-DD')
      WHERE setting_key = 'TS_TRACKING_START_DATE';
 
     IF EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int <> 1 THEN
       RAISE EXCEPTION 'TEST FAIL - con arranque % la ventana empieza en ISODOW %, y no en lunes',
-        v_monday + v_dia,
+        v_lunes + v_dia,
         EXTRACT(ISODOW FROM public.notif_timesheet_window_start())::int;
     END IF;
   END LOOP;
 
   -- Un lunes se respeta tal cual: adelantarlo se comeria una semana entera de alarmas.
-  UPDATE public.global_settings SET setting_value = to_char(v_monday, 'YYYY-MM-DD')   -- lunes
+  UPDATE public.global_settings SET setting_value = to_char(v_lunes, 'YYYY-MM-DD')
    WHERE setting_key = 'TS_TRACKING_START_DATE';
-  IF public.notif_timesheet_window_start() <> v_monday THEN
-    RAISE EXCEPTION 'TEST FAIL - un lunes se movio a %', public.notif_timesheet_window_start();
+  IF public.notif_timesheet_window_start() <> v_lunes THEN
+    RAISE EXCEPTION 'TEST FAIL - el lunes % se movio a %',
+      v_lunes, public.notif_timesheet_window_start();
   END IF;
 
   -- Y el martes siguiente cae en el lunes de la semana QUE VIENE, no en el de la suya.
-  UPDATE public.global_settings SET setting_value = to_char(v_monday + 1, 'YYYY-MM-DD')   -- martes
+  UPDATE public.global_settings SET setting_value = to_char(v_lunes + 1, 'YYYY-MM-DD')
    WHERE setting_key = 'TS_TRACKING_START_DATE';
-  IF public.notif_timesheet_window_start() <> v_monday + 7 THEN
-    RAISE EXCEPTION 'TEST FAIL - el martes siguiente se resolvio a % y no al lunes %',
-      public.notif_timesheet_window_start(), v_monday + 7;
+  IF public.notif_timesheet_window_start() <> v_lunes + 7 THEN
+    RAISE EXCEPTION 'TEST FAIL - el martes % se resolvio a % y no al lunes %',
+      v_lunes + 1, public.notif_timesheet_window_start(), v_lunes + 7;
   END IF;
   RAISE NOTICE 'PASS - una fecha de arranque a mitad de semana se adelanta al lunes siguiente';
 
@@ -2487,9 +2486,17 @@ BEGIN
   INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                   manager_id, created_by_staff_id, fecha_cierre, society_id,
                                   funcion, work_order_required)
-  VALUES (v_eng, 'c9f00000-0000-4000-8000-000000000001', 'NOTIF Capacitacion', '9F07',
+  -- 0722-160: cliente y sociedad ya no son libres para funcion <> 1. El trigger
+  -- enforce_administrative_engagement_rules() exige el cliente interno de esa sociedad, asi que
+  -- el cliente generico del fixture y la primera sociedad por nombre chocaban con
+  -- '0722-160: el cliente interno debe corresponder a la sociedad del encargo'. Se usa el par
+  -- controlado que siembra esa misma migracion. El contador solo filtra por e.funcion = 2, asi
+  -- que el cambio de cliente/sociedad no toca lo que esta asercion mide.
+  VALUES (v_eng,
+          (SELECT client_id FROM public.clients WHERE unique_tax_id = '1006979026'),
+          'NOTIF Capacitacion', '9F07',
           c_mgr, c_mgr, '2026-12-31',
-          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 2, false);
+          (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'), 2, false);
 
   INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number,
                                         year, total_hours, submitted_at)

@@ -65,7 +65,7 @@ const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
 const mockSocieties = [
   { society_id: "soc-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-2", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "" },
 ];
 // 0722-157: "Ir a Matriz de Trabajo forwards..." exercises funcion=Cliente, which requires a
 // real taxonomy pick (0602-136) — "No aplica" is hidden for Cliente.
@@ -106,6 +106,22 @@ vi.mock("@/integrations/supabase/client", () => ({
     from: vi.fn(),
     rpc: vi.fn(),
   },
+}));
+
+// 0722-160: los dos clientes internos controlados que devuelve
+// list_administrative_internal_clients(). Sin este mock el hook resuelve undefined (el vi.mock
+// de Storage de mas abajo pisa al del cliente de Supabase y deja `rpc` sin definir), y el
+// formulario no tiene ningun cliente valido que ofrecer en una funcion administrativa.
+// `vi.hoisted` porque vi.mock se iza por encima de los const del modulo.
+const { mockInternalClients } = vi.hoisted(() => ({
+  mockInternalClients: [
+    { client_id: "int-pelaez", client_legal_name: "Ruizmier Pelaez S.R.L.", unique_tax_id: "1006979026", is_active: true },
+    { client_id: "int-jauregui", client_legal_name: "Ruizmier Jauregui S.R.L.", unique_tax_id: "184046021", is_active: true },
+  ],
+}));
+vi.mock("@/hooks/useAdministrativeEngagements", () => ({
+  useAdministrativeEngagements: () => ({ data: [], isLoading: false }),
+  useAdministrativeInternalClients: () => ({ data: mockInternalClients, isLoading: false }),
 }));
 
 vi.mock("@/hooks/useCategoryStaff", () => ({
@@ -198,9 +214,12 @@ vi.mock("@/components/ui/popover", () => ({
 // 0722-157: honors showGoToWorkMatrix so tests can verify the real hide/show wiring, not just
 // that the callback works once clicked.
 vi.mock("@/components/forms/EngagementCreatedDialog", () => ({
-  EngagementCreatedDialog: ({ open, showGoToWorkMatrix, onCreateAnother, onGoToWorkMatrix }: any) =>
+  EngagementCreatedDialog: ({ open, clientName, showGoToWorkMatrix, onCreateAnother, onGoToWorkMatrix }: any) =>
     open ? (
       <>
+        {/* 0722-160 (review fix, Codex): el nombre del cliente se expone para poder afirmar que
+            un encargo administrativo no abre el modal con el cliente en blanco. */}
+        <span data-testid="created-client-name">{clientName}</span>
         <button type="button" onClick={onCreateAnother}>
           engagement.createAnother
         </button>
@@ -247,6 +266,33 @@ const mockEngagementInactiveService: Engagement = {
   anio_fiscal:         2026,
   taxonomy_id:         null,
   society_id:          null,
+};
+
+// 0722-160 (review fix, Codex): encargo ADMINISTRATIVO en edicion, de la sociedad soc-2
+// (Jauregui). `completeStaffRecord` pone al editor en soc-1 (Pelaez) a proposito: la sociedad de
+// referencia para filtrar los clientes internos es la del ENCARGO, no la de la ficha de quien
+// edita, porque en edicion `society_id` no viaja en el payload salvo para Admin (0722-157).
+const mockEngagementAdministrative: Engagement = {
+  engagement_id:       "eng-adm-1",
+  client_id:           "int-jauregui",
+  engagement_name:     "Administrativa Jauregui",
+  engagement_code:     "2026.010.003",
+  partner_id:          null,
+  manager_id:          null,
+  status:              "active",
+  start_date:          "2025-10-01",
+  end_date:            "2026-09-30",
+  created_at:          "2025-10-01T00:00:00Z",
+  work_order_required: true,
+  activity_required:   false,
+  is_internal:         true,
+  approval_required:   true,
+  oficina:             1,
+  practica:            1,
+  funcion:             0,
+  anio_fiscal:         2026,
+  taxonomy_id:         null,
+  society_id:          "soc-2",
 };
 
 describe("EngagementForm — catalog-driven practica (0625-149)", () => {
@@ -589,6 +635,13 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
     await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
 
+    // 0722-160: al cruzar a una función administrativa, un cliente externo deja de ser elegible
+    // y el formulario lo limpia — hay que elegir uno de los dos clientes internos controlados.
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
+    await user.click(screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
+
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
@@ -604,5 +657,139 @@ describe("0625-148 — role-based service restriction", () => {
       expect(screen.getByText("engagement.createAnother")).toBeInTheDocument();
     });
     expect(screen.queryByText("engagement.goToWorkMatrix")).not.toBeInTheDocument();
+
+    // 0722-160 (review fix, Codex): el resumen resolvia el cliente contra clientOptions, que
+    // nunca contiene a los clientes internos — vienen del RPC list_administrative_internal_clients.
+    // Para hr_manager/hr_analyst (engagement.create sin client.read) clientOptions ademas viene
+    // vacio, asi que el modal mostraba el cliente en blanco pese a haberse guardado bien.
+    expect(screen.getByTestId("created-client-name")).toHaveTextContent("Ruizmier Pelaez S.R.L.");
   }, 15000);
+
+  // 0722-160 (review fix, Codex): elegir una función administrativa y volver a Cliente dejaba
+  // `is_internal` encendido para siempre — el efecto lo escribía al entrar y nadie lo apagaba al
+  // salir. Consecuencia: un encargo de Cliente se creaba como interno y, de paso, se salteaba el
+  // contrato obligatorio (que sólo se exige para Cliente NO interno). Hoy el valor se DERIVA de
+  // la función, así que no queda estado viejo que limpiar.
+  it("no deja is_internal encendido al volver de una función administrativa a Cliente", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    const user = userEvent.setup();
+    mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.003", engagement_id: "eng-ghi" });
+
+    render(<EngagementForm />);
+
+    await user.type(screen.getByLabelText(/engagement\.name/), "Vuelta a Cliente");
+
+    const clientSelect = screen.getByLabelText(/engagement\.client/);
+    await user.click(clientSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    const partnerSelect = screen.getByLabelText(/engagement\.partner/);
+    await user.click(partnerSelect);
+    await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
+    await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
+
+    const managerSelect = screen.getByLabelText(/engagement\.manager/);
+    await user.click(managerSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
+    const calendars = screen.getAllByTestId("calendar-mock");
+    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
+    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+
+    const oficina = screen.getByLabelText(/engagement\.oficina/);
+    await user.click(oficina);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+    await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
+
+    // La sociedad se elige ANTES de pasar por Administrativa: en función administrativa el
+    // selector queda bloqueado porque lo deriva el cliente interno (review fix, Codex).
+    const society = screen.getByLabelText(/engagement\.society/);
+    await user.click(society);
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
+
+    const practica = screen.getByLabelText(/engagement\.practica/);
+    await user.click(practica);
+    await waitFor(() => screen.getByRole("option", { name: "Auditoría" }));
+    await user.click(screen.getByRole("option", { name: "Auditoría" }));
+
+    // Ida: función administrativa -> el encargo pasa a interno.
+    const funcion = screen.getByLabelText(/engagement\.funcion/);
+    await user.click(funcion);
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled());
+
+    // El cruce limpia el cliente externo: ya no es elegible en una función administrativa.
+    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
+
+    // Vuelta: Cliente otra vez.
+    await user.click(screen.getByLabelText(/engagement\.funcion/));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
+    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+
+    await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
+    await waitFor(() => screen.getByText("Test Taxonomy"));
+    await user.click(screen.getByText("Test Taxonomy"));
+
+    const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
+    await user.click(closingDate);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    await user.click(screen.getAllByRole("option")[0]);
+
+    const contractInput = document.getElementById("engagement-contract-upload") as HTMLInputElement;
+    fireEvent.change(contractInput, { target: { files: [makePdfFile()] } });
+    await waitFor(() => expect(mockContractUpload).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByText("engagement.createEngagement"));
+
+    await waitFor(() => expect(mockCreateMutateAsync).toHaveBeenCalled());
+    expect(mockCreateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ funcion: 1, is_internal: false, client_id: "c1" }),
+    );
+  }, 20000);
+});
+
+
+// 0722-160 (review fix, Codex): el filtro de clientes internos por sociedad corria solo en el
+// ALTA. En EDICION el selector de cliente sigue habilitado (solo lo apaga `readOnly`), pero el de
+// sociedad esta deshabilitado para un no-admin y `society_id` no viaja en el payload (0722-157),
+// y el efecto que deriva la sociedad del cliente no corre en edicion. Ofrecer el cliente interno
+// de la otra sociedad era ofrecer una opcion que enforce_administrative_engagement_rules()
+// rechaza siempre.
+describe("0722-160 — clientes internos filtrados por sociedad en EDICION", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
+    vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
+  });
+
+  it("no-admin: solo ofrece el cliente interno de la sociedad DEL ENCARGO, no el de su propia ficha", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={mockEngagementAdministrative} />);
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+    // El encargo es de soc-2 (Jauregui) y la ficha del editor es soc-1 (Pelaez): gana el encargo.
+    expect(screen.getByRole("option", { name: /Ruizmier Jauregui S\.R\.L\./ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ })).not.toBeInTheDocument();
+  });
+
+  it("admin: sigue viendo los dos, porque es quien repara un par cliente/sociedad historico", async () => {
+    vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={mockEngagementAdministrative} />);
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+
+    await waitFor(() => screen.getByRole("option", { name: /Ruizmier Jauregui S\.R\.L\./ }));
+    expect(screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ })).toBeInTheDocument();
+  });
 });

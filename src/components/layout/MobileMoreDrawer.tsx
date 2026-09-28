@@ -87,6 +87,7 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const mainItems: DrawerNavItem[] = [
     { path: "/clients", icon: Users, labelKey: "nav.clients", show: can("client.read") },
     { path: "/engagements", icon: Briefcase, labelKey: "nav.engagements", show: can("engagement.read") },
+    { path: "/administrative-engagements", icon: Briefcase, labelKey: "nav.administrativeEngagements", show: true },
     { path: "/worksheets", icon: FileSpreadsheet, labelKey: "nav.worksheets", show: can("worksheet.read") },
     { path: "/work-orders", icon: ClipboardList, labelKey: "nav.workOrders", show: can("work_order.read") },
   ].filter((i) => i.show);

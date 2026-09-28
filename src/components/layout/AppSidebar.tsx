@@ -71,6 +71,7 @@ export function AppSidebar() {
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard, show: true },
     { title: t("nav.clients"), url: "/clients", icon: Briefcase, show: can("client.read") },
     { title: t("nav.engagements"), url: "/engagements", icon: FolderKanban, show: can("engagement.read") },
+    { title: t("nav.administrativeEngagements"), url: "/administrative-engagements", icon: FolderKanban, show: true },
     { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties, show: can("worksheet.read") },
     { title: t("nav.workOrders"), url: "/work-orders", icon: FileText, show: can("work_order.read") },
   ].filter((i) => i.show);

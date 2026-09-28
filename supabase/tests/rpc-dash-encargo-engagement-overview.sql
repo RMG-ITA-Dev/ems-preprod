@@ -140,6 +140,13 @@ ON CONFLICT (staff_id) DO NOTHING;
 -- E1: equipo completo salvo specialist_tax_id (NULL a propósito, decisiones.md §9.1
 -- fixture). Los demás encargos son de un solo campo, dedicados a probar que CADA rol
 -- accede SOLO por el campo que le corresponde (decisiones.md §2/§3.3).
+-- 0722-160 (merge de development): trg_enforce_administrative_engagement_rules exige que un
+-- encargo con funcion <> 1 use el cliente interno de la sociedad del encargo. Este fixture es
+-- sintetico y lo que prueba es la EXCLUSION por funcion del tablero, no el mapeo de cliente
+-- interno -- ese mapeo tiene su propio test en rpc-0722-160-administrative-engagements.sql.
+-- Se apaga el trigger solo para sembrar la fila; is_internal/activity_required quedan en su
+-- default porque ninguna de las RPC del tablero los lee.
+ALTER TABLE public.engagements DISABLE TRIGGER trg_enforce_administrative_engagement_rules;
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
                                 status, fecha_cierre, society_id, partner_id, manager_id,
                                 sqr_id, encargado_id, specialist_it_id, specialist_tax_id,
@@ -222,6 +229,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    '50e07a60-0000-4000-8000-000000000003', NULL, NULL, NULL, NULL, NULL,
    false, 2026, NULL, 0, NULL)
 ON CONFLICT (engagement_id) DO NOTHING;
+ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
 
 -- end_date (corrección post-ejecución): E1 con fecha de fin próxima, para la aserción del
 -- campo en el payload de list_dashboard_engagements(); E_ADMIN también, para confirmar que

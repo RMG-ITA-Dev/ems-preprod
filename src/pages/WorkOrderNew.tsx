@@ -120,6 +120,7 @@ const WorkOrderNew = () => {
   }, [selectedEngagementId, availableEngagements]);
 
   const selectedEngagement = availableEngagements?.find((e) => e.engagement_id === selectedEngagementId);
+  const isAdministrativeEngagement = selectedEngagement?.funcion != null && selectedEngagement.funcion !== 1;
 
   // Decision del operador 2026-09-10: el TC inicial del plan de pagos y el toggle
   // Fijo/Variable quedan reservados solo al gerente DEL encargo (o admin) -- mismo
@@ -168,7 +169,7 @@ const WorkOrderNew = () => {
     setShowConfirmDialog(false);
 
     // Validate before any mutations to avoid partial saves
-    if (paymentInstallments.length > 0) {
+    if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
         return;
@@ -226,7 +227,7 @@ const WorkOrderNew = () => {
       // guards against a non-manager somehow reaching this with installments != 0 (the
       // section's own auto-init effect already requires it) -- defense in depth, same
       // criterion as the DB trigger/RLS that would reject this write anyway.
-      if (paymentInstallments.length > 0 && canEditPaymentPlan) {
+      if (!isAdministrativeEngagement && paymentInstallments.length > 0 && canEditPaymentPlan) {
         // MUST FIX review iteracion 23 #1 (codex): si se selecciono USD/USDT
         // el tiempo suficiente para que el TC se autocompletara y despues se
         // volvio a BOB antes de guardar, el TC quedaba en memoria -- la
@@ -385,6 +386,7 @@ const WorkOrderNew = () => {
             budgetLines={budgetLines}
             expenseBudget={expenseBudget}
             isNew={true}
+            isAdministrative={isAdministrativeEngagement}
             isDirty={false}
             onCurrencyChange={setCurrency}
             onSeasonChange={setSeasonMode}
@@ -397,8 +399,8 @@ const WorkOrderNew = () => {
             canApprove={false}
             isSubmitting={createWorkOrder.isPending}
             woId=""
-            paymentPlan={paymentPlan}
-            paymentInstallments={paymentInstallments}
+            paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
+            paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
             isAdminDateEditable={false}
             // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
             // lo que efectivamente pasa post-aprobacion -- una OT recien creada siempre esta
@@ -406,8 +408,8 @@ const WorkOrderNew = () => {
             // "Guardar" que WorkOrderForm no ofrece fuera de Draft/socioCorrecting).
             isStatusEditable={false}
             canEditPaymentPlan={canEditPaymentPlan}
-            onPaymentPlanChange={setPaymentPlan}
-            onPaymentInstallmentsChange={setPaymentInstallments}
+            onPaymentPlanChange={isAdministrativeEngagement ? undefined : setPaymentPlan}
+            onPaymentInstallmentsChange={isAdministrativeEngagement ? undefined : setPaymentInstallments}
             paymentFocusSignal={paymentFocusSignal}
           />
         )}
