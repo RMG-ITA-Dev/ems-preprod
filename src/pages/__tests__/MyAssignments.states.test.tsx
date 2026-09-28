@@ -387,6 +387,61 @@ describe("filtros de fecha: ignora el input vaciado (review 2026-09-28)", () => 
   });
 });
 
+describe("filtros de fecha: ignora un rango invertido (review 2026-09-28, iteración 10)", () => {
+  it("elegir 'Desde' posterior a 'Hasta' se ignora — el rango no se invierte", () => {
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+    const previousFrom = dateFromInput.value;
+
+    // "Hasta" en su valor por defecto (31/12 del año calendario) — intenta poner "Desde" un día
+    // después, lo que invertiría el rango.
+    const invalidFrom = `${Number(dateToInput.value.slice(0, 4)) + 1}-01-01`;
+    fireEvent.change(dateFromInput, { target: { value: invalidFrom } });
+
+    expect(dateFromInput.value).toBe(previousFrom);
+    expect(dateFromInput).toHaveAttribute("max", dateToInput.value);
+  });
+
+  it("elegir 'Hasta' anterior a 'Desde' se ignora — el rango no se invierte", () => {
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+    const previousTo = dateToInput.value;
+
+    // "Desde" en su valor por defecto (01/01 del año calendario) — intenta poner "Hasta" un día
+    // antes, lo que invertiría el rango.
+    const invalidTo = `${Number(dateFromInput.value.slice(0, 4)) - 1}-12-31`;
+    fireEvent.change(dateToInput, { target: { value: invalidTo } });
+
+    expect(dateToInput.value).toBe(previousTo);
+    expect(dateToInput).toHaveAttribute("min", dateFromInput.value);
+  });
+
+  it("un rango válido (Desde <= Hasta) sigue aceptándose con normalidad", () => {
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+
+    const validFrom = `${dateFromInput.value.slice(0, 4)}-06-01`;
+    fireEvent.change(dateFromInput, { target: { value: validFrom } });
+    expect(dateFromInput.value).toBe(validFrom);
+
+    const validTo = `${dateToInput.value.slice(0, 4)}-11-30`;
+    fireEvent.change(dateToInput, { target: { value: validTo } });
+    expect(dateToInput.value).toBe(validTo);
+  });
+});
+
 describe("año calendario por defecto: America/La_Paz, no el reloj del navegador (review 2026-09-28, iteración 8)", () => {
   it("el rango por defecto (Históricas/Todas) usa el año de La Paz, no el de UTC", () => {
     // 2026-01-01 02:00 UTC = 2025-12-31 22:00 en America/La_Paz (UTC-4) — todavía es el año
