@@ -203,6 +203,48 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     expect(screen.getByText("workOrders.unsubmit")).toBeInTheDocument();
   });
 
+  // 0923-196 (review iteración 3, R1-b): staffingRequirements arranca en [] mientras la
+  // query de Staffing todavía carga (o se queda en [] para siempre si falla) — sin este
+  // guard, "Retirar" aparecería como falso positivo aunque la OT sí tenga Staffing.
+  it("DT3c: Socio rechazado + Staffing aún cargando (o en error) → sin 'Retirar' por ese motivo", () => {
+    const { rerender } = render(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...baseProps}
+          approvalStatus="Rejected"
+          approvedAt={null}
+          riskStatus="Approved"
+          onRiskAssessmentChange={vi.fn()}
+          onSubmitForApproval={vi.fn()}
+          onUnsubmit={vi.fn()}
+          staffingRequirements={[]}
+          staffingLoading={true}
+          {...fullRisk}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...baseProps}
+          approvalStatus="Rejected"
+          approvedAt={null}
+          riskStatus="Approved"
+          onRiskAssessmentChange={vi.fn()}
+          onSubmitForApproval={vi.fn()}
+          onUnsubmit={vi.fn()}
+          staffingRequirements={[]}
+          staffingLoading={false}
+          staffingError={true}
+          {...fullRisk}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+  });
+
   it("DT4: OT cerrada (Socio aprobado + Riesgos aprobado) → todo bloqueado y sin 'Retirar'", () => {
     const container = renderForm({
       approvalStatus: "Approved",

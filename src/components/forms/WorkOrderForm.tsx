@@ -677,7 +677,8 @@ export function WorkOrderForm({
   // Staffing. Si además el nuevo gate de envío exige >=1 requisito, la OT queda sin
   // ninguna salida. Se habilita "Retirar" en ese caso puntual para devolverla a Draft.
   const staffingBlockedInRejected =
-    isRejected && isSchedulerEnabled() && staffingRequirements.length === 0;
+    isRejected && isSchedulerEnabled() && !staffingLoading && !staffingError &&
+    staffingRequirements.length === 0;
   const showWithdraw = !!onUnsubmit && (socioPending || riskPending || staffingBlockedInRejected);
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────

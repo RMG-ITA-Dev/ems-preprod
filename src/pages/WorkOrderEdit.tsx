@@ -849,6 +849,21 @@ const WorkOrderEdit = () => {
 
   const handleUnsubmit = async () => {
     if (!workOrder) return;
+    // 0923-196 (review iteración 3, R1-a): "Retirar" ahora puede dispararse en
+    // corrección "en sitio" (Rejected, gastos/ajuste/plan de pagos editables). Sin
+    // esto, el refetch que sigue a unsubmitWorkOrder re-hidrata esos campos desde la
+    // BD (sin guard, a diferencia de riesgo/staffing) y descarta en silencio
+    // cualquier edición local no guardada. Se persiste primero, mismo patrón que
+    // handleSubmitForApproval.
+    if (hasNonRiskDirty) {
+      try {
+        const persisted = await persistNonRiskChanges();
+        if (!persisted) return;
+      } catch (error) {
+        // Error already toasted by the failing mutation's own onError; abort the withdrawal.
+        return;
+      }
+    }
     await unsubmitWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       currentRiskStatus: workOrder.risk_status,
