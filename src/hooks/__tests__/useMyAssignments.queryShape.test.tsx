@@ -421,4 +421,26 @@ describe("useMyAssignments — propaga el fallo de useCurrentStaff() (review 202
     await result.current.refetch();
     expect(staffQueryState.refetch).toHaveBeenCalledTimes(1);
   });
+
+  // Review 2026-09-28 (P1): TanStack Query no borra `data` cuando un refetch posterior a un
+  // éxito falla — `staffIsError` puede ser true mientras `staffId` sigue siendo el valor
+  // cacheado (válido). En ese caso NO debe reportarse isError, porque la identidad del usuario
+  // sigue resuelta y la query de asignaciones puede seguir trayendo datos con éxito.
+  it("si useCurrentStaff() falla en un refetch de fondo pero staffId sigue resuelto en caché, isError es false", async () => {
+    staffQueryState.data = { staff_id: "staff-1" };
+    staffQueryState.isError = true;
+    staffQueryState.error = new Error("fallo pasajero de un refetch de fondo");
+    setupMocks([makeAssignmentRow()]);
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.isError).toBe(false);
+    expect(result.current.error).toBeNull();
+    // La query de asignaciones sí se habilitó y corrió, porque staffId estaba resuelto.
+    expect(mockRpc).toHaveBeenCalled();
+  });
 });

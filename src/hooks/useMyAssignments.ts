@@ -273,11 +273,17 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
   // resuelve y la query de arriba queda deshabilitada para siempre — sin propagar su
   // isLoading/isError, MyAssignments.tsx no podía distinguir "sin asignaciones" de "no pudimos
   // resolver tu legajo", y mostraba el estado vacío en vez del de error con reintentar.
+  //
+  // Review 2026-09-28 (P1): el fallo de useCurrentStaff() solo debe reportarse cuando IMPIDE
+  // resolver staffId — un refetch de fondo que falla mientras `staffId` sigue resuelto en caché
+  // (TanStack Query no borra `data` al fallar un refetch posterior a un éxito) no debe tapar una
+  // lista de asignaciones ya cargada con éxito detrás de la pantalla de error.
+  const staffBlocksIdentity = staffIsError && !staffId;
   return {
     ...query,
     isLoading: query.isLoading || staffIsLoading,
-    isError: query.isError || staffIsError,
-    error: query.error ?? staffError,
+    isError: query.isError || staffBlocksIdentity,
+    error: query.error ?? (staffBlocksIdentity ? staffError : null),
     refetch: async () => {
       if (staffIsError) await refetchStaff();
       return query.refetch();
