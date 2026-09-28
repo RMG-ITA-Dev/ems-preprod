@@ -106,14 +106,32 @@ const MyAssignments = () => {
   // primer render. La ruta no cambia entre dos avisos de staffing distintos (misma
   // /timesheet/assignments), así que sin este efecto un segundo click en otra notificación
   // deja el filtro/rango pisados por el primero. Reacciona a cada cambio real del search param.
+  //
+  // Review 2026-09-28 (P2): un `categoryFilter` viejo (puesto antes de abrir la notificación)
+  // podía tapar la fila enlazada igual que ya se corrigió para `engagementFilter` — se resetea
+  // acá con el mismo criterio.
+  //
+  // Review 2026-09-28 (P2): la transición INVERSA (de un engagementId puntual a ningún
+  // parámetro, ej. clic en el ítem normal del sidebar sin desmontar la página) no reseteaba
+  // nada — quedaban el toggle "Todas", el encargo/categoría y el rango 2000-2100 del deep-link
+  // anterior pisando la vista por defecto. Ahora el `else` vuelve explícitamente a Vigentes/año
+  // calendario actual.
   useEffect(() => {
-    if (!engagementIdParam) return;
-    setToggle("all");
-    setEngagementFilter(engagementIdParam);
-    setDateFrom(DEEP_LINK_DATE_FROM);
-    setDateTo(DEEP_LINK_DATE_TO);
+    if (engagementIdParam) {
+      setToggle("all");
+      setEngagementFilter(engagementIdParam);
+      setCategoryFilter("all");
+      setDateFrom(DEEP_LINK_DATE_FROM);
+      setDateTo(DEEP_LINK_DATE_TO);
+    } else {
+      setToggle("current");
+      setEngagementFilter("all");
+      setCategoryFilter("all");
+      setDateFrom(`${currentYear}-01-01`);
+      setDateTo(`${currentYear}-12-31`);
+    }
     setFiltersTouchedByUser(false);
-  }, [engagementIdParam]);
+  }, [engagementIdParam, currentYear]);
 
   const { data: rows, isLoading, isError, refetch } = useMyAssignments({
     toggle,
