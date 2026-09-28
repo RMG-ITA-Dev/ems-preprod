@@ -304,21 +304,27 @@ const MyAssignments = () => {
               <Input
                 type="date"
                 value={dateFrom}
-                max={dateTo}
                 onChange={(e) => {
                   // Review 2026-09-28 (P2): un input type="date" nativo se puede limpiar a "" con
                   // el botón del navegador — "" no es una fecha válida para la RPC (p_date_from
                   // exige `date`) y rompía toda la pantalla al estado de error. Se ignora el
                   // cambio en vez de propagar un valor vacío.
                   if (!e.target.value) return;
-                  // Review 2026-09-28 (P2): un rango invertido (Desde > Hasta) no lo valida
+                  // Review 2026-09-28 (P2): un rango invertido (Desde > Hasta) no lo validaba
                   // ningún lado — el predicado de solape de list_my_assignments deja de
-                  // representar lo que el usuario quiso filtrar y la pantalla muestra resultados
-                  // vacíos/engañosos sin avisar. `max` ya restringe el picker nativo; este guard
-                  // cubre también la entrada manual por teclado.
-                  if (e.target.value > dateTo) return;
+                  // representar lo que el usuario quiso filtrar y la pantalla mostraba resultados
+                  // vacíos/engañosos sin avisar.
+                  //
+                  // Review 2026-09-28 (P2, iteración 11): la primera versión de este guard
+                  // RECHAZABA en silencio el cambio si invertía el rango — pero mover TODA la
+                  // ventana de fechas a otro año (una acción normal) exige que "Desde" cruce
+                  // momentáneamente la "Hasta" actual si se edita primero. En vez de rechazar,
+                  // se ESTIRA el otro extremo junto con este, así ninguna edición se ignora sin
+                  // aviso y el rango nunca queda invertido, sin importar el orden en que se
+                  // toquen los dos campos.
                   setFiltersTouchedByUser(true);
                   setDateFrom(e.target.value);
+                  if (e.target.value > dateTo) setDateTo(e.target.value);
                 }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeFrom")}
@@ -327,12 +333,11 @@ const MyAssignments = () => {
               <Input
                 type="date"
                 value={dateTo}
-                min={dateFrom}
                 onChange={(e) => {
                   if (!e.target.value) return;
-                  if (e.target.value < dateFrom) return;
                   setFiltersTouchedByUser(true);
                   setDateTo(e.target.value);
+                  if (e.target.value < dateFrom) setDateFrom(e.target.value);
                 }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeTo")}

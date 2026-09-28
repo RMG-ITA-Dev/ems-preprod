@@ -387,58 +387,61 @@ describe("filtros de fecha: ignora el input vaciado (review 2026-09-28)", () => 
   });
 });
 
-describe("filtros de fecha: ignora un rango invertido (review 2026-09-28, iteración 10)", () => {
-  it("elegir 'Desde' posterior a 'Hasta' se ignora — el rango no se invierte", () => {
+describe("filtros de fecha: nunca queda invertido, sin rechazar ediciones en silencio (review 2026-09-28, iteración 10 y 11)", () => {
+  it("elegir 'Desde' posterior a 'Hasta' estira 'Hasta' junto con él, en vez de ignorar el cambio", () => {
+    // Iteración 11: la versión anterior (Iteración 10) RECHAZABA este cambio en silencio —
+    // rompía el caso normal de mover toda la ventana de fechas a otro año empezando por "Desde".
     queryState.data = [rowCurrent, rowHistorical];
     renderPage();
     fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
 
     const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
     const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
-    const previousFrom = dateFromInput.value;
 
-    // "Hasta" en su valor por defecto (31/12 del año calendario) — intenta poner "Desde" un día
-    // después, lo que invertiría el rango.
-    const invalidFrom = `${Number(dateToInput.value.slice(0, 4)) + 1}-01-01`;
-    fireEvent.change(dateFromInput, { target: { value: invalidFrom } });
+    // "Hasta" en su valor por defecto (31/12 del año calendario) — mueve "Desde" al 01/01 del
+    // año siguiente, lo que invertiría el rango si "Hasta" no se ajustara también.
+    const nextYearFrom = `${Number(dateToInput.value.slice(0, 4)) + 1}-01-01`;
+    fireEvent.change(dateFromInput, { target: { value: nextYearFrom } });
 
-    expect(dateFromInput.value).toBe(previousFrom);
-    expect(dateFromInput).toHaveAttribute("max", dateToInput.value);
+    expect(dateFromInput.value).toBe(nextYearFrom);
+    expect(dateToInput.value).toBe(nextYearFrom);
   });
 
-  it("elegir 'Hasta' anterior a 'Desde' se ignora — el rango no se invierte", () => {
+  it("elegir 'Hasta' anterior a 'Desde' estira 'Desde' junto con él, en vez de ignorar el cambio", () => {
     queryState.data = [rowCurrent, rowHistorical];
     renderPage();
     fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
 
     const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
     const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
-    const previousTo = dateToInput.value;
 
-    // "Desde" en su valor por defecto (01/01 del año calendario) — intenta poner "Hasta" un día
-    // antes, lo que invertiría el rango.
-    const invalidTo = `${Number(dateFromInput.value.slice(0, 4)) - 1}-12-31`;
-    fireEvent.change(dateToInput, { target: { value: invalidTo } });
+    // "Desde" en su valor por defecto (01/01 del año calendario) — mueve "Hasta" al 31/12 del
+    // año anterior, lo que invertiría el rango si "Desde" no se ajustara también.
+    const prevYearTo = `${Number(dateFromInput.value.slice(0, 4)) - 1}-12-31`;
+    fireEvent.change(dateToInput, { target: { value: prevYearTo } });
 
-    expect(dateToInput.value).toBe(previousTo);
-    expect(dateToInput).toHaveAttribute("min", dateFromInput.value);
+    expect(dateToInput.value).toBe(prevYearTo);
+    expect(dateFromInput.value).toBe(prevYearTo);
   });
 
-  it("un rango válido (Desde <= Hasta) sigue aceptándose con normalidad", () => {
+  it("un rango válido (Desde <= Hasta) sigue aceptándose con normalidad, sin tocar el otro extremo", () => {
     queryState.data = [rowCurrent, rowHistorical];
     renderPage();
     fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
 
     const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
     const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+    const originalTo = dateToInput.value;
 
     const validFrom = `${dateFromInput.value.slice(0, 4)}-06-01`;
     fireEvent.change(dateFromInput, { target: { value: validFrom } });
     expect(dateFromInput.value).toBe(validFrom);
+    expect(dateToInput.value).toBe(originalTo);
 
     const validTo = `${dateToInput.value.slice(0, 4)}-11-30`;
     fireEvent.change(dateToInput, { target: { value: validTo } });
     expect(dateToInput.value).toBe(validTo);
+    expect(dateFromInput.value).toBe(validFrom);
   });
 });
 
