@@ -672,7 +672,13 @@ export function WorkOrderForm({
   // un "Retirar" + reenvío posterior dejaría la OT varada en Pending_Approval sin forma de volver
   // a Approved.
   const riskPending = !isAdministrative && !isDraft && (riskStatus === "Pending" || !riskStatus);
-  const showWithdraw = !!onUnsubmit && (socioPending || riskPending);
+  // 0923-196: save_wo_staffing exige approval_status='Draft' a nivel de base de datos
+  // (WOS_WO_LOCKED) — la corrección "en sitio" de una OT Rechazada no puede cargar
+  // Staffing. Si además el nuevo gate de envío exige >=1 requisito, la OT queda sin
+  // ninguna salida. Se habilita "Retirar" en ese caso puntual para devolverla a Draft.
+  const staffingBlockedInRejected =
+    isRejected && isSchedulerEnabled() && staffingRequirements.length === 0;
+  const showWithdraw = !!onUnsubmit && (socioPending || riskPending || staffingBlockedInRejected);
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────
   // Todo derivado de flags/props ya existentes; sin datos ni reglas de negocio nuevas.
@@ -2311,19 +2317,21 @@ export function WorkOrderForm({
                   }}
                   className={cn(
                     "btn-action",
-                    // Gris (no deshabilitado): el clic sigue disponible para disparar el
-                    // toast + salto a la pestaña faltante en vez de quedar inerte.
+                    // Celeste apagado (no deshabilitado): el clic sigue disponible para
+                    // disparar el toast + salto a la pestaña faltante en vez de quedar
+                    // inerte; se evita el gris (reservado para "pending, inactive" en el
+                    // sistema de diseño) para no sugerir que el botón está inactivo.
                     missingRequiredTab
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                      ? "bg-info/60 text-info-foreground hover:bg-info/80"
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}
                   disabled={!canSubmitForApproval}
                   title={
-                    missingRequiredTab
-                      ? t("workOrders.tabsNotVisited")
-                      : !canSubmitForApproval
-                        ? t("workOrders.riskAssessmentRequired")
+                    !canSubmitForApproval
+                      ? t("workOrders.riskAssessmentRequired")
+                      : missingRequiredTab
+                        ? t("workOrders.tabsNotVisited")
                         : undefined
                   }
                 >
@@ -2353,7 +2361,7 @@ export function WorkOrderForm({
                   className={cn(
                     "btn-action",
                     missingRequiredTab
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                      ? "bg-info/60 text-info-foreground hover:bg-info/80"
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}

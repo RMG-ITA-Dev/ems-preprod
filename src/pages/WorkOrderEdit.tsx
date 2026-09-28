@@ -667,6 +667,23 @@ const WorkOrderEdit = () => {
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
 
+    // Staffing must have at least one requirement to submit — checked BEFORE
+    // persistNonRiskChanges() (todo-o-nada, like the payment-plan validation above it)
+    // so a blocked submission never persists a Staffing deletion that led to the empty
+    // state. Checked here (not earlier) so the same gate also covers the Rejected/resend
+    // branch below, and applies to administrative OT the same as normal ones.
+    if (isSchedulerEnabled()) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return;
+      }
+      if (staffing.length === 0) {
+        toast.error(t("workOrders.staffingRequirements.errors.requirementsEmpty"));
+        setStaffingFocusSignal((n) => n + 1);
+        return;
+      }
+    }
+
     // Enviar para Aprobación now saves any pending non-risk edits (ajuste/gastos/plan
     // de pagos/staffing) first, in the same click — no separate "Guardar" required.
     // A validation failure or a mutation failure here must cancel the submission
@@ -677,21 +694,6 @@ const WorkOrderEdit = () => {
         if (!persisted) return;
       } catch (error) {
         // Error already toasted by the failing mutation's own onError; abort the submit.
-        return;
-      }
-    }
-
-    // Staffing must have at least one requirement to submit — checked here (not
-    // earlier) so the same gate also covers the Rejected/resend branch below, and
-    // applies to administrative OT the same as normal ones.
-    if (isSchedulerEnabled()) {
-      if (staffingLoading || staffingIsError) {
-        toast.error(t("workOrders.staffingRequirements.errorLoading"));
-        return;
-      }
-      if (staffing.length === 0) {
-        toast.error(t("workOrders.staffingRequirements.errors.requirementsEmpty"));
-        setStaffingFocusSignal((n) => n + 1);
         return;
       }
     }

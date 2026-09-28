@@ -438,7 +438,7 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
   });
 
-  it("T23: the submit button is grey (not disabled) while tabs are pending, and turns blue once all are visited", async () => {
+  it("T23: the submit button is a dulled blue (not disabled) while tabs are pending, and turns full blue once all are visited", async () => {
     const user = userEvent.setup();
     renderForm({
       approvalStatus: "Draft",
@@ -448,7 +448,8 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       ...fullRisk,
     });
     const submitBtn = screen.getByText("workOrders.submitForApproval").closest("button")!;
-    expect(submitBtn.className).toContain("bg-muted");
+    expect(submitBtn.classList.contains("bg-info/60")).toBe(true);
+    expect(submitBtn.classList.contains("bg-info")).toBe(false);
     expect(submitBtn).not.toBeDisabled();
 
     await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.payment/ }));
@@ -456,8 +457,8 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
     await user.click(getTabTrigger("budget"));
 
-    expect(submitBtn.className).toContain("bg-info");
-    expect(submitBtn.className).not.toContain("bg-muted");
+    expect(submitBtn.classList.contains("bg-info")).toBe(true);
+    expect(submitBtn.classList.contains("bg-info/60")).toBe(false);
   });
 
   it("T13: OT totalmente aprobada con toda la cobranza al 100% muestra ✓ en pest.4 y ✓ (check) en pest.2", () => {
