@@ -513,6 +513,15 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
   });
 
   it("WES13: a risk-only approval submission skips non-risk persistence", async () => {
+    // 0923-196: Staffing must be non-empty to reach this far now — a valid row is
+    // added (not dirty, so persistNonRiskChanges is still skipped) so the assertion
+    // below keeps proving "risk-only skips non-risk persistence" instead of being
+    // blocked earlier by the new Staffing gate for the wrong reason.
+    mockUseWorkOrderStaffingRequirements.mockReturnValue({
+      data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+      isLoading: false,
+      isError: false,
+    });
     renderPage();
     act(() => {
       capturedFormProps.onRiskAssessmentChange("riskLevel", "Bajo");
@@ -523,5 +532,68 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     });
 
     expect(mockUpdateAsync).not.toHaveBeenCalled();
+  });
+
+  // ── 0923-196: Staffing obligatorio al enviar a aprobación ───────────────────
+
+  it("WES14: onSubmitForApproval() with Staffing empty blocks the submit and shows the translated error", async () => {
+    renderPage();
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+    expect(mockSubmitAsync).not.toHaveBeenCalled();
+  });
+
+  it("WES15: Staffing with at least one requirement lets the submission proceed", async () => {
+    mockUseWorkOrderStaffingRequirements.mockReturnValue({
+      data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+    expect(mockSubmitAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("WES16: an empty Staffing also blocks the Rejected/resend branch", async () => {
+    const originalApprovalStatus = mockWorkOrder.approval_status;
+    mockWorkOrder.approval_status = "Rejected";
+    try {
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmitForApproval();
+      });
+
+      expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+      expect(mockUpdateAsync).not.toHaveBeenCalled();
+    } finally {
+      mockWorkOrder.approval_status = originalApprovalStatus;
+    }
+  });
+
+  it("WES17: an administrative engagement (funcion: 0) with empty Staffing blocks the same as a normal one", async () => {
+    const originalFuncion = (mockWorkOrder.engagement as { funcion?: number }).funcion;
+    (mockWorkOrder.engagement as { funcion?: number }).funcion = 0;
+    try {
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmitForApproval();
+      });
+
+      expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+      expect(mockSubmitAsync).not.toHaveBeenCalled();
+    } finally {
+      (mockWorkOrder.engagement as { funcion?: number }).funcion = originalFuncion;
+    }
   });
 });

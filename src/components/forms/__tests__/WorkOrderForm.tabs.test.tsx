@@ -327,18 +327,137 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(hasIndicator(getTabTrigger("budget"), "notReviewed")).toBe(false);
   });
 
-  it("T12: 'aún no revisada' en pest.1/4 se limpia al pulsar Enviar para Aprobación", async () => {
+  it("T12: 'aún no revisada' en pest.1/4 se limpia al pulsar Enviar para Aprobación, una vez visitadas las 4 pestañas", async () => {
+    const user = userEvent.setup();
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval,
+      onRiskAssessmentChange: vi.fn(),
+      onStaffingRequirementsChange: vi.fn(),
+      ...fullRisk, // evita el diálogo de emergencia
+    });
+    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(true);
+    // 0923-196: el envío ahora exige haber visitado las 4 pestañas, no solo pulsar Enviar.
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(getTabTrigger("budget"));
+    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(false);
+    expect(onSubmitForApproval).toHaveBeenCalledTimes(1);
+  });
+
+  // ── 0923-196: bloqueo de envío por pestañas no visitadas / Staffing obligatorio ──
+
+  it("T18: blocks the submit when Payment was never visited, switches to it, and does not call onSubmitForApproval", async () => {
+    const user = userEvent.setup();
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval,
+      onRiskAssessmentChange: vi.fn(),
+      onStaffingRequirementsChange: vi.fn(),
+      ...fullRisk, // evita el diálogo de emergencia
+    });
+    // Solo Budget fue visitada (activa por default) — Payment/Risk/Staffing no.
+    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+
+    expect(onSubmitForApproval).not.toHaveBeenCalled();
+    expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
+  });
+
+  it("T19: with the Scheduler flag off, only 3 tabs are required (no Staffing)", async () => {
+    vi.stubEnv("VITE_SCHEDULER_ENABLED", "false");
+    try {
+      const user = userEvent.setup();
+      const onSubmitForApproval = vi.fn();
+      renderForm({
+        approvalStatus: "Draft",
+        onSubmitForApproval,
+        onRiskAssessmentChange: vi.fn(),
+        ...fullRisk,
+      });
+      await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+      await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+      await user.click(getTabTrigger("budget"));
+      await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+
+      expect(onSubmitForApproval).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubEnv("VITE_SCHEDULER_ENABLED", "true");
+    }
+  });
+
+  it("T20: an administrative OT only requires visiting Budget and Staffing (Payment/Risk don't exist for it)", async () => {
+    const user = userEvent.setup();
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      isAdministrative: true,
+      onSubmitForApproval,
+      onStaffingRequirementsChange: vi.fn(),
+    });
+    // Budget (activa por default) + Staffing: solo esas 2 pestañas existen para administrativas.
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(getTabTrigger("budget"));
+    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+
+    expect(onSubmitForApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it("T21: an administrative OT is blocked if Staffing (its only other tab) was never visited", async () => {
+    const user = userEvent.setup();
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      isAdministrative: true,
+      onSubmitForApproval,
+      onStaffingRequirementsChange: vi.fn(),
+    });
+    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+
+    expect(onSubmitForApproval).not.toHaveBeenCalled();
+    expect(getTabTrigger("staffing")).toHaveAttribute("data-state", "active");
+  });
+
+  it("T22: with empty risk data and unvisited tabs, the click blocks before offering the emergency-submit dialog", async () => {
+    const user = userEvent.setup();
+    const onSubmitForApproval = vi.fn();
+    renderForm({
+      approvalStatus: "Draft",
+      onSubmitForApproval,
+      onRiskAssessmentChange: vi.fn(),
+      onStaffingRequirementsChange: vi.fn(),
+      // sin datos de riesgo => normalmente dispararía el diálogo de emergencia
+    });
+    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onSubmitForApproval).not.toHaveBeenCalled();
+    expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
+  });
+
+  it("T23: the submit button is grey (not disabled) while tabs are pending, and turns blue once all are visited", async () => {
     const user = userEvent.setup();
     renderForm({
       approvalStatus: "Draft",
       onSubmitForApproval: vi.fn(),
       onRiskAssessmentChange: vi.fn(),
       onStaffingRequirementsChange: vi.fn(),
-      ...fullRisk, // evita el diálogo de emergencia
+      ...fullRisk,
     });
-    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(true);
-    await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
-    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(false);
+    const submitBtn = screen.getByText("workOrders.submitForApproval").closest("button")!;
+    expect(submitBtn.className).toContain("bg-muted");
+    expect(submitBtn).not.toBeDisabled();
+
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+    await user.click(await screen.findByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(getTabTrigger("budget"));
+
+    expect(submitBtn.className).toContain("bg-info");
+    expect(submitBtn.className).not.toContain("bg-muted");
   });
 
   it("T13: OT totalmente aprobada con toda la cobranza al 100% muestra ✓ en pest.4 y ✓ (check) en pest.2", () => {

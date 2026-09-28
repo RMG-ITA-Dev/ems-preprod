@@ -681,6 +681,21 @@ const WorkOrderEdit = () => {
       }
     }
 
+    // Staffing must have at least one requirement to submit — checked here (not
+    // earlier) so the same gate also covers the Rejected/resend branch below, and
+    // applies to administrative OT the same as normal ones.
+    if (isSchedulerEnabled()) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return;
+      }
+      if (staffing.length === 0) {
+        toast.error(t("workOrders.staffingRequirements.errors.requirementsEmpty"));
+        setStaffingFocusSignal((n) => n + 1);
+        return;
+      }
+    }
+
     // Reenvío de la pista Socio en corrección (estado Rejected): no se re-evalúa ni se
     // reescribe Riesgos; solo se reabre la pista Socio a Pending_Approval. La pista de
     // Riesgos conserva su estado (aprobada, o rechazada y corregida por separado).

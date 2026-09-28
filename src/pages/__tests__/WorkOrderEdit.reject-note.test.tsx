@@ -64,7 +64,9 @@ vi.mock("@/hooks/useEmsData", () => {
   // Stable (not a fresh [] per call) so the WorkOrderEdit staffing-hydration
   // useEffect (dep: staffingRows) doesn't see a new reference on every render
   // and loop forever re-hydrating an "empty" array.
-  const emptyStaffingRows: unknown[] = [];
+  // 0923-196: non-empty — Staffing is now required to submit for approval, and
+  // this suite's focus (reject note) is orthogonal to Staffing state.
+  const staffingRows = [{ id: "req-1", category_id: "cat-1", staff_count: 1, requirement_skills: [] }];
   return {
     useWorkOrderById: () => ({ data: mockWorkOrderData, isLoading: false }),
     useSetting: () => "0.13",
@@ -72,7 +74,7 @@ vi.mock("@/hooks/useEmsData", () => {
     useExpenseTypes: () => ({ data: [] }),
     useServices: () => ({ data: [] }),
     useActiveSkills: () => ({ data: [] }),
-    useWorkOrderStaffingRequirements: () => ({ data: emptyStaffingRows, isLoading: false, isError: false }),
+    useWorkOrderStaffingRequirements: () => ({ data: staffingRows, isLoading: false, isError: false }),
   };
 });
 

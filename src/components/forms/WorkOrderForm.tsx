@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -781,16 +782,33 @@ export function WorkOrderForm({
     }
   };
 
-  // Marca las pestañas 1 y 4 como "revisadas" al pulsar Enviar para Aprobación
-  // (además de limpiarse al simplemente visitarlas vía onValueChange).
-  const markTabsSubmitted = () => {
-    setVisitedTabs((prev) => {
-      if (prev.has("budget") && prev.has("staffing")) return prev;
-      const next = new Set(prev);
-      next.add("budget");
-      next.add("staffing");
-      return next;
-    });
+  // Pestaña requerida más próxima que aún no fue visitada (0923-196). Administrativa
+  // no tiene pestañas payment/risk (no se renderizan, ver TabsTrigger condicionales
+  // abajo), así que se excluyen de lo exigido — de lo contrario el envío quedaría
+  // bloqueado para siempre en esas OT. Determina tanto el color "gris" del botón
+  // "Enviar para Aprobación" como el bloqueo al hacer clic.
+  const requiredTabsForSubmit: WorkOrderFormTabId[] = [
+    "budget",
+    ...(!isAdministrative ? (["payment", "risk"] as WorkOrderFormTabId[]) : []),
+    ...(isSchedulerEnabled() ? (["staffing"] as WorkOrderFormTabId[]) : []),
+  ];
+  const missingRequiredTab = requiredTabsForSubmit.find((tab) => !visitedTabs.has(tab)) ?? null;
+
+  // Si falta visitar una pestaña: toast + salto a esa pestaña, sin ejecutar la acción
+  // de envío. Se llama ANTES de decidir si corresponde el diálogo de emergencia (los 3
+  // call-sites de abajo), para no ofrecer ese diálogo sobre una OT que igual va a
+  // bloquearse por pestañas.
+  const blockIfTabsMissing = (): boolean => {
+    if (!missingRequiredTab) return false;
+    toast.error(t("workOrders.tabsNotVisited"));
+    setActiveTab(missingRequiredTab);
+    setVisitedTabs((prev) => (prev.has(missingRequiredTab) ? prev : new Set(prev).add(missingRequiredTab)));
+    return true;
+  };
+
+  const attemptSubmitForApproval = (justification?: string) => {
+    if (blockIfTabsMissing()) return;
+    onSubmitForApproval?.(justification);
   };
   const handleTabChange = (value: string) => {
     const tab = value as WorkOrderFormTabId;
@@ -2276,6 +2294,10 @@ export function WorkOrderForm({
               {onSubmitForApproval && (
                 <LoadingButton
                   onClick={() => {
+                    // 0923-196: si falta visitar una pestaña, bloquea acá — antes de
+                    // ofrecer el diálogo de emergencia — para no pedirle un motivo al
+                    // usuario y bloquearlo recién después de escribirlo.
+                    if (blockIfTabsMissing()) return;
                     // Empty risk data + risk NOT yet approved => new emergency: capture motive.
                     // If risk is already Emergency_Approved (re-submitting Socio track only),
                     // skip the modal — no new justification needed.
@@ -2284,14 +2306,26 @@ export function WorkOrderForm({
                       setEmergencyDialogMode("submit");
                       setSubmitEmergencyDialogOpen(true);
                     } else {
-                      markTabsSubmitted();
-                      onSubmitForApproval();
+                      attemptSubmitForApproval();
                     }
                   }}
-                  className="bg-info hover:bg-info/90 btn-action"
+                  className={cn(
+                    "btn-action",
+                    // Gris (no deshabilitado): el clic sigue disponible para disparar el
+                    // toast + salto a la pestaña faltante en vez de quedar inerte.
+                    missingRequiredTab
+                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                      : "bg-info hover:bg-info/90",
+                  )}
                   loading={isSubmitting}
                   disabled={!canSubmitForApproval}
-                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
+                  title={
+                    missingRequiredTab
+                      ? t("workOrders.tabsNotVisited")
+                      : !canSubmitForApproval
+                        ? t("workOrders.riskAssessmentRequired")
+                        : undefined
+                  }
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.submitForApproval")}
@@ -2315,12 +2349,15 @@ export function WorkOrderForm({
               </LoadingButton>
               {onSubmitForApproval && (
                 <LoadingButton
-                  onClick={() => {
-                    markTabsSubmitted();
-                    onSubmitForApproval();
-                  }}
-                  className="bg-info hover:bg-info/90 btn-action"
+                  onClick={() => attemptSubmitForApproval()}
+                  className={cn(
+                    "btn-action",
+                    missingRequiredTab
+                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                      : "bg-info hover:bg-info/90",
+                  )}
                   loading={isSubmitting}
+                  title={missingRequiredTab ? t("workOrders.tabsNotVisited") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.sendForPartnerApproval")}
@@ -2382,8 +2419,7 @@ export function WorkOrderForm({
                 if (emergencyDialogMode === "resend") {
                   onCompleteRisk?.(justif);
                 } else {
-                  markTabsSubmitted();
-                  onSubmitForApproval?.(justif);
+                  attemptSubmitForApproval(justif);
                 }
                 setSubmitEmergencyDialogOpen(false);
               }}
