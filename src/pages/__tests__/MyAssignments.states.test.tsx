@@ -3,9 +3,9 @@
 // de notas (incluida la regla: el botón no aparece si `notes` está vacío).
 
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import type { MyAssignmentRow } from "@/hooks/useMyAssignments";
 
 vi.mock("react-i18next", () => ({
@@ -48,6 +48,29 @@ import MyAssignments from "../MyAssignments";
 function renderPage(url = "/timesheet/assignments") {
   return render(
     <MemoryRouter initialEntries={[url]}>
+      <Routes>
+        <Route path="/timesheet/assignments" element={<MyAssignments />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+// Botón invisible que navega DENTRO del mismo MemoryRouter (misma ruta, otro search param) sin
+// desmontar MyAssignments — simula un segundo click en otra notificación de staffing mientras
+// la pantalla ya está montada (review 2026-09-28).
+function NavigateTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      navigate-test-helper
+    </button>
+  );
+}
+
+function renderPageWithNavHelper(initialUrl: string, nextUrl: string) {
+  return render(
+    <MemoryRouter initialEntries={[initialUrl]}>
+      <NavigateTo to={nextUrl} />
       <Routes>
         <Route path="/timesheet/assignments" element={<MyAssignments />} />
       </Routes>
@@ -101,12 +124,47 @@ const rowHistorical: MyAssignmentRow = {
   loaded_hours: 0,
 };
 
+// Vigente por status (CONFIRMED, sin deleted_at) pero con end_date ya vencido respecto al
+// "hoy" fijado abajo (2026-09-15) — nadie la movió a COMPLETED a mano (review 2026-09-28,
+// MUST FIX: "Vigentes" no consideraba end_date vencido).
+const rowExpiredConfirmed: MyAssignmentRow = {
+  assignment_id: "a4",
+  engagement_id: "e4",
+  category_id: "c1",
+  start_date: "2026-01-01",
+  end_date: "2026-06-30",
+  hours_per_week: 40,
+  allocation_percent: 100,
+  notes: null,
+  status: "CONFIRMED",
+  deleted_at: null,
+  engagement: {
+    engagement_id: "e4",
+    engagement_code: "0500",
+    engagement_name: "Encargo Vencido",
+    client: { client_id: "cl4", client_legal_name: "Cliente Vencido SA" },
+  },
+  category: { category_id: "c1", category_name: "Senior" },
+  assigned_hours: 100,
+  loaded_hours: 100,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   queryState.data = undefined;
   queryState.isLoading = false;
   queryState.isError = false;
   queryState.refetch = vi.fn();
+  // "Hoy" fijo (2026-09-15, en UTC pero al mediodía para caer del lado correcto en
+  // cualquier huso horario razonable) — necesario porque isHistorical() ahora depende de la
+  // fecha real (review 2026-09-28); sin esto, rowCurrent (termina 2026-09-30) se volvería
+  // histórica sola cuando el calendario real pase esa fecha.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-09-15T12:00:00Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("estado 1 — carga", () => {
@@ -228,6 +286,77 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(within(table).getByText("0918")).toBeInTheDocument();
     expect(within(table).queryByText("1042")).not.toBeInTheDocument();
     expect(screen.getByText("myAssignments.filters.toggle.all")).toHaveAttribute("data-state", "on");
+  });
+
+  it("una fila CONFIRMED con end_date vencido se trata como histórica, no vigente (review 2026-09-28)", () => {
+    queryState.data = [rowCurrent, rowExpiredConfirmed];
+    renderPage();
+    // Toggle por defecto (Vigentes): rowCurrent sí, rowExpiredConfirmed no, aunque su status
+    // también sea CONFIRMED — nadie la movió a COMPLETED cuando terminó en junio.
+    const table = screen.getByTestId("my-assignments-table");
+    expect(within(table).getByText("1042")).toBeInTheDocument();
+    expect(within(table).queryByText("0500")).not.toBeInTheDocument();
+  });
+
+  it("toggle Históricas SÍ muestra la CONFIRMED vencida (es el complemento exacto de Vigentes)", () => {
+    queryState.data = [rowCurrent, rowExpiredConfirmed];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.historical"));
+    const table = screen.getByTestId("my-assignments-table");
+    expect(within(table).getByText("0500")).toBeInTheDocument();
+    expect(within(table).queryByText("1042")).not.toBeInTheDocument();
+  });
+
+  it("el deep-link ?engagementId= encuentra una asignación de OTRO año calendario (review 2026-09-28)", () => {
+    // Antes, dateFrom/dateTo arrancaban en el año calendario actual aunque el toggle ya
+    // estuviera en "Todas" — una asignación enteramente en 2024 quedaba afuera del rango pese
+    // a que el filtro de encargo la habría dejado pasar.
+    const rowOtroAño: MyAssignmentRow = {
+      ...rowCurrent,
+      assignment_id: "a5",
+      engagement_id: "e5",
+      start_date: "2024-03-01",
+      end_date: "2024-03-31",
+      engagement: { ...rowCurrent.engagement!, engagement_id: "e5", engagement_code: "0300" },
+    };
+    queryState.data = [rowOtroAño];
+    renderPage("/timesheet/assignments?engagementId=e5");
+    const table = screen.getByTestId("my-assignments-table");
+    expect(within(table).getByText("0300")).toBeInTheDocument();
+  });
+});
+
+describe("deep-link: resincroniza al navegar a otro engagementId sin desmontar (review 2026-09-28)", () => {
+  it("un segundo aviso de staffing (otro engagementId) actualiza el filtro, no se queda con el primero", () => {
+    const rowX: MyAssignmentRow = {
+      ...rowCurrent,
+      assignment_id: "aX",
+      engagement_id: "eX",
+      engagement: { ...rowCurrent.engagement!, engagement_id: "eX", engagement_code: "EX01" },
+    };
+    const rowY: MyAssignmentRow = {
+      ...rowCurrent,
+      assignment_id: "aY",
+      engagement_id: "eY",
+      engagement: { ...rowCurrent.engagement!, engagement_id: "eY", engagement_code: "EY01" },
+    };
+    queryState.data = [rowX, rowY];
+
+    renderPageWithNavHelper(
+      "/timesheet/assignments?engagementId=eX",
+      "/timesheet/assignments?engagementId=eY",
+    );
+
+    const firstTable = screen.getByTestId("my-assignments-table");
+    expect(within(firstTable).getByText("EX01")).toBeInTheDocument();
+    expect(within(firstTable).queryByText("EY01")).not.toBeInTheDocument();
+
+    // Misma ruta, distinto engagementId — react-router no desmonta MyAssignments.
+    fireEvent.click(screen.getByText("navigate-test-helper"));
+
+    const secondTable = screen.getByTestId("my-assignments-table");
+    expect(within(secondTable).getByText("EY01")).toBeInTheDocument();
+    expect(within(secondTable).queryByText("EX01")).not.toBeInTheDocument();
   });
 });
 

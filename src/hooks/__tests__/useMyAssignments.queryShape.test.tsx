@@ -20,6 +20,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  * planas; los tests de "mapeo de fila" prueban que esas columnas planas se reconstruyen en el
  * objeto anidado `engagement`/`category` que consume MyAssignments.tsx, sin depender de ningún
  * embed ni de ningún permiso adicional.
+ *
+ * SHOULD FIX (iteración 3): la query de `time_entries` no paginaba — si el número de filas del
+ * staff alcanzaba el límite por página de PostgREST, el resto se truncaba en silencio y
+ * `loaded_hours` quedaba subestimado sin ningún error. Los tests de "paginación" prueban que,
+ * cuando una página vuelve completa (== TIME_ENTRIES_PAGE_SIZE filas), se pide la página
+ * siguiente con el offset correcto, y que el total sumado incluye ambas páginas.
  */
 
 vi.mock("../useAuth", () => ({
@@ -33,7 +39,7 @@ vi.mock("../useCurrentStaff", () => ({
 function makeQueryBuilder(result: { data: unknown; error: unknown }) {
   const calls: { method: string; args: unknown[] }[] = [];
   const builder: any = {};
-  for (const method of ["select", "eq", "neq", "is", "gte", "lte", "or", "in", "order"]) {
+  for (const method of ["select", "eq", "neq", "is", "gte", "lte", "or", "in", "order", "range"]) {
     builder[method] = (...args: unknown[]) => {
       calls.push({ method, args });
       return builder;
@@ -41,6 +47,15 @@ function makeQueryBuilder(result: { data: unknown; error: unknown }) {
   }
   builder.then = (resolve: (value: unknown) => void) => resolve(result);
   return { builder, calls };
+}
+
+function makeEntryRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    engagement_id: "e1",
+    date_worked: "2026-09-10",
+    hours_logged: 1,
+    ...overrides,
+  };
 }
 
 function makeAssignmentRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -91,6 +106,23 @@ function setupMocks(rows: ReturnType<typeof makeAssignmentRow>[] = []) {
     throw new Error(`tabla inesperada en el mock: ${table}`);
   });
   return { entriesCalls: entries.calls };
+}
+
+// Cada iteración del loop de paginación llama a supabase.from("time_entries") de nuevo, así
+// que el mock sirve una página distinta por invocación (en vez de un único builder fijo).
+function setupPaginationMocks(pages: ReturnType<typeof makeEntryRow>[][]) {
+  mockRpc.mockResolvedValue({ data: [makeAssignmentRow()], error: null });
+  let pageIndex = 0;
+  const callsPerPage: { method: string; args: unknown[] }[][] = [];
+  mockFrom.mockImplementation((table: string) => {
+    if (table !== "time_entries") throw new Error(`tabla inesperada en el mock: ${table}`);
+    const pageData = pages[pageIndex] ?? [];
+    pageIndex += 1;
+    const { builder, calls } = makeQueryBuilder({ data: pageData, error: null });
+    callsPerPage.push(calls);
+    return builder;
+  });
+  return { callsPerPage };
 }
 
 describe("useMyAssignments — parámetros de la RPC list_my_assignments por toggle", () => {
@@ -188,5 +220,47 @@ describe("useMyAssignments — mapeo de columnas planas de la RPC a engagement/c
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data![0].engagement).toBeNull();
+  });
+});
+
+describe("useMyAssignments — paginación de time_entries", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("pide una segunda página cuando la primera vuelve completa (== TIME_ENTRIES_PAGE_SIZE), y suma ambas", async () => {
+    const PAGE_SIZE = 1000;
+    const fullPage = Array.from({ length: PAGE_SIZE }, () => makeEntryRow({ hours_logged: 1 }));
+    const lastPage = [makeEntryRow({ date_worked: "2026-09-11", hours_logged: 5 })];
+    const { callsPerPage } = setupPaginationMocks([fullPage, lastPage]);
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(callsPerPage.length).toBe(2);
+    const rangeArgs = (calls: { method: string; args: unknown[] }[]) =>
+      calls.find((c) => c.method === "range")?.args;
+    expect(rangeArgs(callsPerPage[0])).toEqual([0, PAGE_SIZE - 1]);
+    expect(rangeArgs(callsPerPage[1])).toEqual([PAGE_SIZE, 2 * PAGE_SIZE - 1]);
+
+    // 1000 horas de la primera página + 5 de la segunda = 1005.
+    expect(result.current.data![0].loaded_hours).toBe(1005);
+  });
+
+  it("no pide una segunda página si la primera vuelve incompleta (< TIME_ENTRIES_PAGE_SIZE)", async () => {
+    const shortPage = [makeEntryRow({ hours_logged: 8 })];
+    const { callsPerPage } = setupPaginationMocks([shortPage]);
+
+    const { result } = renderHook(
+      () => useMyAssignments({ toggle: "current", dateFrom: "2026-01-01", dateTo: "2026-12-31" }),
+      { wrapper: createWrapper() },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(callsPerPage.length).toBe(1);
+    expect(result.current.data![0].loaded_hours).toBe(8);
   });
 });

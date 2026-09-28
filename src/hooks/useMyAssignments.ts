@@ -36,6 +36,10 @@ interface TimeEntryHoursRow {
   hours_logged: number;
 }
 
+// Tamaño de página para paginar time_entries (review 2026-09-28, SHOULD FIX) — ver el loop en
+// useMyAssignments() más abajo.
+const TIME_ENTRIES_PAGE_SIZE = 1000;
+
 // Forma plana que devuelve la RPC `list_my_assignments` (ver migración 20260924120000)
 // — sin objetos anidados, porque el embed de PostgREST a engagements/clients depende de
 // policies (engagement.read/client.read) que la población de este ticket no siempre tiene
@@ -204,17 +208,29 @@ export function useMyAssignments(filter: MyAssignmentsFilter) {
         // en vez de traer todo el historial del encargo — mismo objetivo de rendimiento.
         const minStart = rows.reduce((min, r) => (r.start_date < min ? r.start_date : min), rows[0].start_date);
         const maxEnd = rows.reduce((max, r) => (r.end_date > max ? r.end_date : max), rows[0].end_date);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: entriesData, error: entriesError } = await (supabase as any)
-          .from("time_entries")
-          .select("engagement_id, date_worked, hours_logged")
-          .eq("staff_id", staffId)
-          .eq("is_forecast", false)
-          .in("engagement_id", engagementIds)
-          .gte("date_worked", minStart)
-          .lte("date_worked", maxEnd);
-        if (entriesError) throw entriesError;
-        entries = (entriesData ?? []) as TimeEntryHoursRow[];
+        // Pagina explícitamente (review 2026-09-28, SHOULD FIX): PostgREST trunca en silencio
+        // a su límite de filas por página (sin error) — para un staff con mucho volumen
+        // histórico, una sola página podía subestimar loaded_hours sin ningún aviso. Se sigue
+        // pidiendo página tras página hasta que una devuelva menos de TIME_ENTRIES_PAGE_SIZE.
+        let offset = 0;
+        while (true) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { data: entriesData, error: entriesError } = await (supabase as any)
+            .from("time_entries")
+            .select("engagement_id, date_worked, hours_logged")
+            .eq("staff_id", staffId)
+            .eq("is_forecast", false)
+            .in("engagement_id", engagementIds)
+            .gte("date_worked", minStart)
+            .lte("date_worked", maxEnd)
+            .order("date_worked", { ascending: true })
+            .range(offset, offset + TIME_ENTRIES_PAGE_SIZE - 1);
+          if (entriesError) throw entriesError;
+          const page = (entriesData ?? []) as TimeEntryHoursRow[];
+          entries = entries.concat(page);
+          if (page.length < TIME_ENTRIES_PAGE_SIZE) break;
+          offset += TIME_ENTRIES_PAGE_SIZE;
+        }
       }
 
       return rows.map((row) => ({

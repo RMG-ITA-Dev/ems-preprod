@@ -30,6 +30,11 @@
 -- depender de esas policies. Se prueba que cada uno ve encargo/cliente/categoría de sus
 -- propias filas (nunca en null) y nunca las de la otra persona, más el fail-closed de un
 -- p_toggle inválido.
+--
+-- Y (review 2026-09-28, MUST FIX): Carla tiene una fila CONFIRMED, sin deleted_at, pero con
+-- end_date vencido hace años -- nadie la movió a COMPLETED a mano. p_toggle='current' debe
+-- excluirla (no es "vigente" solo porque nadie la cerró) y p_toggle='historical' debe
+-- incluirla (es el complemento exacto de "current").
 
 BEGIN;
 
@@ -44,7 +49,8 @@ VALUES ('50c90000-0000-4000-8000-000000000001', '0922-190 Test Society');
 INSERT INTO auth.users (id) VALUES
   ('a0920000-0000-4000-8000-000000000001'), -- Ana
   ('a0920000-0000-4000-8000-000000000002'), -- Beto
-  ('a0920000-0000-4000-8000-000000000003'); -- Lead (solo relleno de manager_id, irrelevante al test)
+  ('a0920000-0000-4000-8000-000000000003'), -- Lead (solo relleno de manager_id, irrelevante al test)
+  ('a0920000-0000-4000-8000-000000000004'); -- Carla (CONFIRMED vencida, review 2026-09-28)
 
 INSERT INTO public.categories (category_id, category_name, practica_id)
 VALUES ('c0920000-0000-4000-8000-000000000001', '0922-190 Test Category', '5e900000-0000-4000-8000-000000000001');
@@ -53,9 +59,10 @@ INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c1920000-0000-4000-8000-000000000001', '0922-190 Test Client', '0922190-TAX-001');
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
-  ('50920000-0000-4000-8000-000000000001', 'a0920000-0000-4000-8000-000000000001', 'Ana',  'Own',   'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001'),
-  ('50920000-0000-4000-8000-000000000002', 'a0920000-0000-4000-8000-000000000002', 'Beto', 'Own',   'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001'),
-  ('50920000-0000-4000-8000-000000000003', 'a0920000-0000-4000-8000-000000000003', 'Lead', 'Filler','c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001');
+  ('50920000-0000-4000-8000-000000000001', 'a0920000-0000-4000-8000-000000000001', 'Ana',   'Own',    'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001'),
+  ('50920000-0000-4000-8000-000000000002', 'a0920000-0000-4000-8000-000000000002', 'Beto',  'Own',    'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001'),
+  ('50920000-0000-4000-8000-000000000003', 'a0920000-0000-4000-8000-000000000003', 'Lead',  'Filler', 'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001'),
+  ('50920000-0000-4000-8000-000000000004', 'a0920000-0000-4000-8000-000000000004', 'Carla', 'Own',    'c0920000-0000-4000-8000-000000000001', '5e900000-0000-4000-8000-000000000001', '50c90000-0000-4000-8000-000000000001');
 
 -- 'assistant' está fuera de las 4 policies SELECT existentes: ninguna de ellas exige o
 -- reconoce ese role_key, así que aísla ea_select_own como única vía de visibilidad posible.
@@ -68,7 +75,8 @@ ON CONFLICT (role_key) DO NOTHING;
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0920000-0000-4000-8000-000000000001', 'staff', 'assistant'),
   ('a0920000-0000-4000-8000-000000000002', 'staff', 'assistant'),
-  ('a0920000-0000-4000-8000-000000000003', 'manager', 'manager');
+  ('a0920000-0000-4000-8000-000000000003', 'manager', 'manager'),
+  ('a0920000-0000-4000-8000-000000000004', 'staff', 'assistant');
 
 -- Un solo encargo, liderado por Lead (ni Ana ni Beto figuran en ninguna de las 6 columnas
 -- de responsables): si alguna de las 4 policies existentes les diera acceso, el test de
@@ -86,7 +94,10 @@ INSERT INTO public.engagement_assignments
   -- Ana: histórica (soft-deleted) — debe seguir siendo visible para ELLA (vigente + histórico).
   ('aa920000-0000-4000-8000-000000000002', 'e0920000-0000-4000-8000-000000000001', '50920000-0000-4000-8000-000000000001', 'c0920000-0000-4000-8000-000000000001', '2025-01-01', '2025-06-30', 'CONFIRMED', now()),
   -- Beto: vigente
-  ('aa920000-0000-4000-8000-000000000003', 'e0920000-0000-4000-8000-000000000001', '50920000-0000-4000-8000-000000000002', 'c0920000-0000-4000-8000-000000000001', '2026-01-01', '2026-12-31', 'CONFIRMED', NULL);
+  ('aa920000-0000-4000-8000-000000000003', 'e0920000-0000-4000-8000-000000000001', '50920000-0000-4000-8000-000000000002', 'c0920000-0000-4000-8000-000000000001', '2026-01-01', '2026-12-31', 'CONFIRMED', NULL),
+  -- Carla: CONFIRMED, sin deleted_at, pero end_date vencido hace años (review 2026-09-28) --
+  -- nadie la movió a COMPLETED a mano; no debe contar como "vigente" solo por su status.
+  ('aa920000-0000-4000-8000-000000000004', 'e0920000-0000-4000-8000-000000000001', '50920000-0000-4000-8000-000000000004', 'c0920000-0000-4000-8000-000000000001', '2020-01-01', '2020-06-30', 'CONFIRMED', NULL);
 
 -- ── Impersonation helper (temp; vanishes with the session) ────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -168,6 +179,19 @@ BEGIN
    WHERE assignment_id IN ('aa920000-0000-4000-8000-000000000001', 'aa920000-0000-4000-8000-000000000002'); -- filas de Ana
   IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Beto ve % fila(s) de Ana (fuga)', n; END IF;
   RAISE NOTICE 'PASS — list_my_assignments: Beto ve encargo/cliente/categoría de su fila propia (nunca null), nunca las de Ana';
+
+  -- Carla (review 2026-09-28, MUST FIX): CONFIRMED + sin deleted_at, pero end_date vencido
+  -- hace años -- "current" debe excluirla y "historical" debe incluirla (complemento exacto).
+  PERFORM pg_temp.impersonate('a0920000-0000-4000-8000-000000000004');
+  SELECT count(*) INTO n FROM public.list_my_assignments('current', '2000-01-01', '2100-01-01');
+  IF n <> 0 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Carla (CONFIRMED vencida) aparece en "current", esperaba 0 filas'; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('historical', '2000-01-01', '2100-01-01');
+  IF n <> 1 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Carla (CONFIRMED vencida) no aparece en "historical", esperaba 1 fila, obtuvo %', n; END IF;
+
+  SELECT count(*) INTO n FROM public.list_my_assignments('all', '2000-01-01', '2100-01-01');
+  IF n <> 1 THEN RAISE EXCEPTION '0922-190 RLS FAIL — list_my_assignments: Carla esperaba 1 fila en "all", obtuvo %', n; END IF;
+  RAISE NOTICE 'PASS — list_my_assignments: CONFIRMED con end_date vencido queda fuera de "current" y dentro de "historical"/"all"';
 
   -- Toggle inválido: fail-closed con una excepción explícita, nunca un resultado vacío
   -- silencioso (mismo principio que EA_SEGMENTS_DENIED en get_staff_assignment_segments).

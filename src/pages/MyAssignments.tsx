@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
@@ -43,9 +43,27 @@ import {
 
 type ToggleValue = MyAssignmentsToggle;
 
-function isHistorical(row: MyAssignmentRow): boolean {
-  return row.deleted_at !== null || row.status === "CANCELLED";
+// Review 2026-09-28 (MUST FIX): además de baja explícita (deleted_at) o CANCELLED, una fila
+// cuyo end_date ya pasó es histórica aunque nadie la haya movido a COMPLETED a mano — no hay
+// ningún trigger que haga esa transición automáticamente. "Histórica" queda definida como el
+// complemento exacto de "vigente": nada queda fuera de ambos toggles.
+function isHistorical(row: MyAssignmentRow, todayISO: string): boolean {
+  return row.deleted_at !== null || row.status === "CANCELLED" || row.end_date < todayISO;
 }
+
+// Fecha de hoy en America/La_Paz (no UTC) — mismo criterio que get_week_statuses/
+// get_my_pending_hours (supabase/migrations/20260911100600_fecha_local_current_date.sql),
+// para no adelantar el día a partir de las 20:00 hora local.
+function todayInLaPaz(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
+}
+
+// Deep-link de notificación (review 2026-09-28, MUST FIX): rango sin límite práctico para que
+// una asignación de CUALQUIER año sea encontrada — engagementFilter ya acota el resultado a
+// una fila puntual, así que ensanchar la fecha acá no reintroduce el problema de rendimiento
+// que el acotador de año calendario buscaba evitar (plan_v2.md §"Filtro de fecha por defecto").
+const DEEP_LINK_DATE_FROM = "2000-01-01";
+const DEEP_LINK_DATE_TO = "2100-01-01";
 
 function formatDate(dateString: string): string {
   try {
@@ -62,16 +80,33 @@ const MyAssignments = () => {
 
   // Deep-link de notificación (engagement.staffing.changed, context assigned/unassigned):
   // la fila puede haber quedado histórica (baja) si el hecho fue una baja, así que el toggle
-  // arranca en "all" cuando llega con engagementId — plan_v2.md §"Notificaciones".
+  // arranca en "all" cuando llega con engagementId — plan_v2.md §"Notificaciones". El rango de
+  // fecha también arranca sin límite práctico en vez del año calendario (review 2026-09-28,
+  // MUST FIX): si la asignación notificada es de otro año, el año calendario por defecto la
+  // dejaba afuera pese a que el toggle ya estaba en "Todas".
   const [toggle, setToggle] = useState<ToggleValue>(engagementIdParam ? "all" : "current");
   const [engagementFilter, setEngagementFilter] = useState<string>(engagementIdParam ?? "all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const currentYear = new Date().getFullYear();
-  const [dateFrom, setDateFrom] = useState(`${currentYear}-01-01`);
-  const [dateTo, setDateTo] = useState(`${currentYear}-12-31`);
+  const [dateFrom, setDateFrom] = useState(
+    engagementIdParam ? DEEP_LINK_DATE_FROM : `${currentYear}-01-01`,
+  );
+  const [dateTo, setDateTo] = useState(engagementIdParam ? DEEP_LINK_DATE_TO : `${currentYear}-12-31`);
 
   const [notesRow, setNotesRow] = useState<MyAssignmentRow | null>(null);
+
+  // Review 2026-09-28 (MUST FIX): los useState de arriba solo leen engagementId una vez, en el
+  // primer render. La ruta no cambia entre dos avisos de staffing distintos (misma
+  // /timesheet/assignments), así que sin este efecto un segundo click en otra notificación
+  // deja el filtro/rango pisados por el primero. Reacciona a cada cambio real del search param.
+  useEffect(() => {
+    if (!engagementIdParam) return;
+    setToggle("all");
+    setEngagementFilter(engagementIdParam);
+    setDateFrom(DEEP_LINK_DATE_FROM);
+    setDateTo(DEEP_LINK_DATE_TO);
+  }, [engagementIdParam]);
 
   const { data: rows, isLoading, isError, refetch } = useMyAssignments({ toggle, dateFrom, dateTo });
 
@@ -94,8 +129,9 @@ const MyAssignments = () => {
   }, [rows]);
 
   const filteredRows = useMemo(() => {
+    const todayISO = todayInLaPaz();
     return (rows ?? []).filter((row) => {
-      const historical = isHistorical(row);
+      const historical = isHistorical(row, todayISO);
       if (toggle === "current" && historical) return false;
       if (toggle === "historical" && !historical) return false;
       // Acotador de año calendario: solo narrow en Históricas/Todas (rendimiento), nunca en
