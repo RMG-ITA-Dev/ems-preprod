@@ -2820,6 +2820,7 @@
   "myAssignments": {
     "title": "Mis Asignaciones",
     "empty": "Todavía no tenés asignaciones.",
+    "deepLinkNotFound": "Esta asignación ya no es visible para vos — es posible que te hayan reasignado fuera de este encargo.",
     "loadError": "No se pudieron cargar tus asignaciones.",
     "retry": "Reintentar",
     "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",

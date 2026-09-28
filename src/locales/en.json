@@ -2820,6 +2820,7 @@
   "myAssignments": {
     "title": "My Assignments",
     "empty": "You have no assignments yet.",
+    "deepLinkNotFound": "This assignment is no longer visible to you — you may have been reassigned off this engagement.",
     "loadError": "Could not load your assignments.",
     "retry": "Retry",
     "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",

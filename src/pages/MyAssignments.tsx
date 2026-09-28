@@ -249,7 +249,13 @@ const MyAssignments = () => {
               <Input
                 type="date"
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                onChange={(e) => {
+                  // Review 2026-09-28 (P2): un input type="date" nativo se puede limpiar a "" con
+                  // el botón del navegador — "" no es una fecha válida para la RPC (p_date_from
+                  // exige `date`) y rompía toda la pantalla al estado de error. Se ignora el
+                  // cambio en vez de propagar un valor vacío.
+                  if (e.target.value) setDateFrom(e.target.value);
+                }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeFrom")}
               />
@@ -257,7 +263,9 @@ const MyAssignments = () => {
               <Input
                 type="date"
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                onChange={(e) => {
+                  if (e.target.value) setDateTo(e.target.value);
+                }}
                 className="w-40"
                 aria-label={t("myAssignments.filters.dateRangeTo")}
               />
@@ -283,7 +291,15 @@ const MyAssignments = () => {
           </Alert>
         ) : filteredRows.length === 0 ? (
           <p className="text-center text-muted-foreground py-8 text-sm" data-testid="my-assignments-empty">
-            {rows?.length === 0 ? t("myAssignments.empty") : t("common.noResults")}
+            {/* Review 2026-09-28 (P2): el deep-link de un aviso de staffing puede apuntar a una
+                fila que ya no es del usuario (reemplazo de staffing) — sin este mensaje, esa
+                lista vacía se veía igual que "no tenés asignaciones", sin ninguna pista de por
+                qué el enlace no trajo nada. */}
+            {engagementIdParam
+              ? t("myAssignments.deepLinkNotFound")
+              : rows?.length === 0
+                ? t("myAssignments.empty")
+                : t("common.noResults")}
           </p>
         ) : (
           <>

@@ -268,11 +268,19 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     expect(within(table).getByText("0918")).toBeInTheDocument();
   });
 
-  it("el deep-link ?engagementId= arranca en Todas y filtra a ese encargo, sin match (notificación de staffing)", () => {
+  it("el deep-link ?engagementId= sin match (p.ej. reemplazo de staffing) muestra el mensaje específico, no el genérico (review 2026-09-28)", () => {
     queryState.data = [rowCurrent, { ...rowHistorical, engagement_id: "e1" }];
     renderPage("/timesheet/assignments?engagementId=e2");
     // Ninguna fila del fixture pertenece a e2: la tabla queda vacía por el filtro de encargo,
-    // aunque el toggle "Todas" ya esté activo (no cae en "Vigentes" por defecto).
+    // aunque el toggle "Todas" ya esté activo (no cae en "Vigentes" por defecto). En vez del
+    // "sin resultados" genérico, se avisa que la asignación referida ya no es visible (caso
+    // real: reemplazo de staffing, la fila cambió de dueño y ya no es de este usuario).
+    expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("myAssignments.deepLinkNotFound");
+  });
+
+  it("sin engagementId, cero filas siguen mostrando el mensaje genérico de sin resultados", () => {
+    queryState.data = [{ ...rowHistorical, assignment_id: "a3" }];
+    renderPage();
     expect(screen.getByTestId("my-assignments-empty")).toHaveTextContent("common.noResults");
   });
 
@@ -323,6 +331,37 @@ describe("estado 4 — datos: tabla y tarjetas, formato de fecha, filtro por def
     renderPage("/timesheet/assignments?engagementId=e5");
     const table = screen.getByTestId("my-assignments-table");
     expect(within(table).getByText("0300")).toBeInTheDocument();
+  });
+});
+
+describe("filtros de fecha: ignora el input vaciado (review 2026-09-28)", () => {
+  it("limpiar el input 'Desde' no rompe la pantalla ni cambia el valor (el input type=date nativo permite value='')", () => {
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateFromInput = screen.getByLabelText("myAssignments.filters.dateRangeFrom") as HTMLInputElement;
+    const previousValue = dateFromInput.value;
+    fireEvent.change(dateFromInput, { target: { value: "" } });
+
+    // El valor controlado se mantiene (el cambio a "" se ignora) y la tabla sigue en pantalla,
+    // en vez de caer al estado de error por mandar una fecha inválida a la RPC.
+    expect(dateFromInput.value).toBe(previousValue);
+    expect(screen.getByTestId("my-assignments-table")).toBeInTheDocument();
+    expect(screen.queryByTestId("my-assignments-error")).not.toBeInTheDocument();
+  });
+
+  it("limpiar el input 'Hasta' tampoco propaga el valor vacío", () => {
+    queryState.data = [rowCurrent, rowHistorical];
+    renderPage();
+    fireEvent.click(screen.getByText("myAssignments.filters.toggle.all"));
+
+    const dateToInput = screen.getByLabelText("myAssignments.filters.dateRangeTo") as HTMLInputElement;
+    const previousValue = dateToInput.value;
+    fireEvent.change(dateToInput, { target: { value: "" } });
+
+    expect(dateToInput.value).toBe(previousValue);
+    expect(screen.getByTestId("my-assignments-table")).toBeInTheDocument();
   });
 });
 
