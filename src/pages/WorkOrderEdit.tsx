@@ -667,6 +667,23 @@ const WorkOrderEdit = () => {
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
 
+    // Staffing must have at least one requirement to submit — checked BEFORE
+    // persistNonRiskChanges() (todo-o-nada, like the payment-plan validation above it)
+    // so a blocked submission never persists a Staffing deletion that led to the empty
+    // state. Checked here (not earlier) so the same gate also covers the Rejected/resend
+    // branch below, and applies to administrative OT the same as normal ones.
+    if (isSchedulerEnabled()) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return;
+      }
+      if (staffing.length === 0) {
+        toast.error(t("workOrders.staffingRequirements.errors.requirementsEmpty"));
+        setStaffingFocusSignal((n) => n + 1);
+        return;
+      }
+    }
+
     // Enviar para Aprobación now saves any pending non-risk edits (ajuste/gastos/plan
     // de pagos/staffing) first, in the same click — no separate "Guardar" required.
     // A validation failure or a mutation failure here must cancel the submission
@@ -832,6 +849,21 @@ const WorkOrderEdit = () => {
 
   const handleUnsubmit = async () => {
     if (!workOrder) return;
+    // 0923-196 (review iteración 3, R1-a): "Retirar" ahora puede dispararse en
+    // corrección "en sitio" (Rejected, gastos/ajuste/plan de pagos editables). Sin
+    // esto, el refetch que sigue a unsubmitWorkOrder re-hidrata esos campos desde la
+    // BD (sin guard, a diferencia de riesgo/staffing) y descarta en silencio
+    // cualquier edición local no guardada. Se persiste primero, mismo patrón que
+    // handleSubmitForApproval.
+    if (hasNonRiskDirty) {
+      try {
+        const persisted = await persistNonRiskChanges();
+        if (!persisted) return;
+      } catch (error) {
+        // Error already toasted by the failing mutation's own onError; abort the withdrawal.
+        return;
+      }
+    }
     await unsubmitWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       currentRiskStatus: workOrder.risk_status,

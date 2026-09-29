@@ -1780,6 +1780,7 @@
     "sanNotes": "SAN Notes",
     "riskApprovalPending": "Risk Approval Pending",
     "riskAssessmentRequired": "Complete all 5 risk assessment fields (CEAC date, CEAC number, SAN date, SAN approval ID, risk level)",
+    "tabsNotVisited": "You must review all tabs of the form before submitting the Work Order for approval.",
     "ceacNumber": "CEAC Number",
     "sanApprovalId": "SAN Approval ID",
     "ceacNumberPlaceholder": "0000000000",
@@ -1933,6 +1934,7 @@
       "saveSuccess": "Staffing requirements saved successfully.",
       "errors": {
         "categoryMissing": "Select a category for every staffing requirement.",
+        "requirementsEmpty": "Add at least one Staffing requirement before submitting the Work Order for approval.",
         "categoryDuplicate": "A category cannot be used more than once.",
         "skillDuplicate": "A skill cannot be used more than once within the same requirement.",
         "categoryForeignService": "This category does not belong to the engagement's service.",

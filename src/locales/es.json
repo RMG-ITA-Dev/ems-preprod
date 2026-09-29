@@ -1780,6 +1780,7 @@
     "sanNotes": "Notas SAN",
     "riskApprovalPending": "Aprobación de Riesgos Pendiente",
     "riskAssessmentRequired": "Complete los 5 campos de evaluación de riesgos (fecha CEAC, Nro CEAC, fecha SAN, ID aprobación SAN, nivel de riesgo)",
+    "tabsNotVisited": "Debe revisar todas las pestañas del formulario antes de enviar la OT a aprobación.",
     "ceacNumber": "Nro CEAC",
     "sanApprovalId": "ID Aprobación SAN",
     "ceacNumberPlaceholder": "0000000000",
@@ -1933,6 +1934,7 @@
       "saveSuccess": "Requisitos de staffing guardados correctamente.",
       "errors": {
         "categoryMissing": "Selecciona una categoría para cada requisito de staffing.",
+        "requirementsEmpty": "Agrega al menos un requisito de Staffing antes de enviar la OT a aprobación.",
         "categoryDuplicate": "Una categoría no puede utilizarse más de una vez.",
         "skillDuplicate": "Una skill no puede utilizarse más de una vez dentro del mismo requisito.",
         "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",

@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockUpdateAsync = vi.hoisted(() => vi.fn());
 const mockSaveStaffingAsync = vi.hoisted(() => vi.fn());
 const mockSubmitAsync = vi.hoisted(() => vi.fn());
+const mockUnsubmitAsync = vi.hoisted(() => vi.fn());
 const mockUseWorkOrderStaffingRequirements = vi.hoisted(() => vi.fn());
 const mockUseCategories = vi.hoisted(() => vi.fn());
 const mockUseServices = vi.hoisted(() => vi.fn());
@@ -127,7 +128,7 @@ vi.mock("@/hooks/mutations", () => ({
   useRevertRiskApproval: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useCompleteRiskAssessment: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useRejectWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUnsubmitWorkOrder: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUnsubmitWorkOrder: () => ({ mutateAsync: mockUnsubmitAsync, isPending: false }),
   useUpsertPaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useBatchUpsertInstallments: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeletePaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -180,6 +181,7 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     mockUpdateAsync.mockResolvedValue({});
     mockSaveStaffingAsync.mockResolvedValue([]);
     mockSubmitAsync.mockResolvedValue({});
+    mockUnsubmitAsync.mockResolvedValue({});
     mockUseCategories.mockReturnValue({ data: [CAT_AUDIT, CAT_TAX], isLoading: false, isError: false });
     mockUseServices.mockReturnValue({ data: [SERVICE_AUDIT], isLoading: false, isError: false });
     mockUseActiveSkills.mockReturnValue({ data: [SKILL_IFRS], isLoading: false, isError: false });
@@ -513,6 +515,15 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
   });
 
   it("WES13: a risk-only approval submission skips non-risk persistence", async () => {
+    // 0923-196: Staffing must be non-empty to reach this far now — a valid row is
+    // added (not dirty, so persistNonRiskChanges is still skipped) so the assertion
+    // below keeps proving "risk-only skips non-risk persistence" instead of being
+    // blocked earlier by the new Staffing gate for the wrong reason.
+    mockUseWorkOrderStaffingRequirements.mockReturnValue({
+      data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+      isLoading: false,
+      isError: false,
+    });
     renderPage();
     act(() => {
       capturedFormProps.onRiskAssessmentChange("riskLevel", "Bajo");
@@ -523,5 +534,119 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     });
 
     expect(mockUpdateAsync).not.toHaveBeenCalled();
+  });
+
+  // ── 0923-196: Staffing obligatorio al enviar a aprobación ───────────────────
+
+  it("WES14: onSubmitForApproval() with Staffing empty blocks the submit and shows the translated error", async () => {
+    renderPage();
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+    expect(mockSubmitAsync).not.toHaveBeenCalled();
+  });
+
+  it("WES15: Staffing with at least one requirement lets the submission proceed", async () => {
+    mockUseWorkOrderStaffingRequirements.mockReturnValue({
+      data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    await act(async () => {
+      await capturedFormProps.onSubmitForApproval();
+    });
+
+    expect(toast.error).not.toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+    expect(mockSubmitAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("WES16: an empty Staffing also blocks the Rejected/resend branch", async () => {
+    const originalApprovalStatus = mockWorkOrder.approval_status;
+    mockWorkOrder.approval_status = "Rejected";
+    try {
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmitForApproval();
+      });
+
+      expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+      expect(mockUpdateAsync).not.toHaveBeenCalled();
+    } finally {
+      mockWorkOrder.approval_status = originalApprovalStatus;
+    }
+  });
+
+  it("WES17: an administrative engagement (funcion: 0) with empty Staffing blocks the same as a normal one", async () => {
+    const originalFuncion = (mockWorkOrder.engagement as { funcion?: number }).funcion;
+    (mockWorkOrder.engagement as { funcion?: number }).funcion = 0;
+    try {
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmitForApproval();
+      });
+
+      expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+      expect(mockSubmitAsync).not.toHaveBeenCalled();
+    } finally {
+      (mockWorkOrder.engagement as { funcion?: number }).funcion = originalFuncion;
+    }
+  });
+
+  // ── 0923-196 (review iteración 3, R1-a): "Retirar" ya no descarta correcciones ──
+
+  it("WES18: onUnsubmit() persists pending non-risk edits (adjustment/expenses/payment plan) before unsubmitting", async () => {
+    const callOrder: string[] = [];
+    mockUpdateAsync.mockImplementation(async () => {
+      callOrder.push("update");
+      return {};
+    });
+    mockUnsubmitAsync.mockImplementation(async () => {
+      callOrder.push("unsubmit");
+      return {};
+    });
+    renderPage();
+    act(() => {
+      capturedFormProps.onAdjustmentChange(500);
+    });
+    expect(capturedFormProps.hasNonRiskDirty).toBe(true);
+
+    await act(async () => {
+      await capturedFormProps.onUnsubmit();
+    });
+
+    expect(callOrder).toEqual(["update", "unsubmit"]);
+    expect(mockUnsubmitAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("WES19: onUnsubmit() skips persistence and calls unsubmit directly when nothing is dirty", async () => {
+    renderPage();
+
+    await act(async () => {
+      await capturedFormProps.onUnsubmit();
+    });
+
+    expect(mockUpdateAsync).not.toHaveBeenCalled();
+    expect(mockUnsubmitAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("WES20: onUnsubmit() aborts (never unsubmits) if persisting the pending edits fails", async () => {
+    mockUpdateAsync.mockRejectedValueOnce(new Error("network error"));
+    renderPage();
+    act(() => {
+      capturedFormProps.onAdjustmentChange(500);
+    });
+
+    await act(async () => {
+      await capturedFormProps.onUnsubmit();
+    });
+
+    expect(mockUnsubmitAsync).not.toHaveBeenCalled();
   });
 });

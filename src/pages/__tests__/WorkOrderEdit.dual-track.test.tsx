@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ── Stable spies ────────────────────────────────────────────────────────────────
@@ -66,7 +67,9 @@ vi.mock("@/hooks/useEmsData", () => {
   // Stable (not a fresh [] per call) so the WorkOrderEdit staffing-hydration
   // useEffect (dep: staffingRows) doesn't see a new reference on every render
   // and loop forever re-hydrating an "empty" array.
-  const emptyStaffingRows: unknown[] = [];
+  // 0923-196: non-empty — Staffing is now required to submit for approval, and
+  // this suite's focus (dual-track risk) is orthogonal to Staffing state.
+  const staffingRows = [{ id: "req-1", category_id: "cat-1", staff_count: 1, requirement_skills: [] }];
   return {
     useWorkOrderById: () => ({ data: mockWorkOrderData, isLoading: false }),
     useSetting: () => "0.13",
@@ -74,7 +77,7 @@ vi.mock("@/hooks/useEmsData", () => {
     useExpenseTypes: () => ({ data: [] }),
     useServices: () => ({ data: [] }),
     useActiveSkills: () => ({ data: [] }),
-    useWorkOrderStaffingRequirements: () => ({ data: emptyStaffingRows, isLoading: false, isError: false }),
+    useWorkOrderStaffingRequirements: () => ({ data: staffingRows, isLoading: false, isError: false }),
   };
 });
 
@@ -171,7 +174,16 @@ describe("WorkOrderEdit — reenvío por pista (bug 0306-78)", () => {
   });
 
   it("WE-DT1: en Rejected con Riesgos aprobado, 'Enviar para Aprobación' hace update ligero (Pending_Approval) y NO reescribe Riesgos", async () => {
+    const user = userEvent.setup();
     renderPage();
+
+    // 0923-196: el envío ahora exige haber visitado todas las pestañas que aplican,
+    // incluso en el flujo de reenvío tras rechazo (socioCorrecting), confirmado con
+    // el operador.
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.budget/ }));
 
     await act(async () => {
       fireEvent.click(screen.getByText("workOrders.sendForPartnerApproval"));
