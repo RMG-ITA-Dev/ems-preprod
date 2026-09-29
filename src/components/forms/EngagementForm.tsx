@@ -245,6 +245,10 @@ type FormData = z.infer<typeof formSchema>;
 interface EngagementFormProps {
   engagement?: Engagement | null;
   administrativeMode?: boolean;
+  // BUG 0922-195 (Defecto 2): cliente preseleccionado vía deep-link
+  // (ClientEngagementsTable.tsx -> /engagements/new?client_id=...), hidratado una sola vez
+  // en creación cuando el catálogo de clientes lo incluya — ver el efecto más abajo.
+  initialClientId?: string;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
   onSaveSuccess?: () => void;
@@ -294,7 +298,7 @@ export const ADMINISTRATIVE_POLICY_DEFAULTS = {
   approvalRequired: true,
 } as const;
 
-export function EngagementForm({ engagement, administrativeMode = false, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
+export function EngagementForm({ engagement, administrativeMode = false, initialClientId, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // `isAdmin` ya NO sale del enum legacy: se deriva de `role_key`, que es la
@@ -355,14 +359,14 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     (savedEffectiveState === EngagementState.Cancelado ||
       savedEffectiveState === EngagementState.Finalizado);
 
-  const { data: clients } = useClients();
+  const { data: clients, isError: clientsError } = useClients();
   // Review fix (Codex): hr_manager/hr_analyst have engagement.create but not client.read, so
   // useClients() above returns nothing for them. This narrow RPC exposes only the two controlled
   // internal clients regardless of client.read — see administrativeClientOptions below.
   const { data: administrativeInternalClients } = useAdministrativeInternalClients();
   const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
-  const { data: societies } = useSocieties();
+  const { data: societies, isLoading: societiesLoading, isFetching: societiesFetching, isError: societiesError } = useSocieties();
   // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
   // categoría del personal. `useCategoryStaff` ya no se usa acá (sus otros cuatro consumidores
   // —Engagements, SchedulerL1, WorkOrders, ClientEngagementsTable— quedan intactos).
@@ -407,18 +411,60 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   // `current_staff`), así que la tríada se sembraría con la ficha VIEJA y el trigger de BD
   // rechazaría el submit. Se suma `isFetching` de los tres hooks, mismo criterio ya aplicado en
   // `useEngagementTeamCandidates` para el bloque Equipo (0722-162).
+  // BUG 0922-195 (Defecto 1): se suma la carga de useSocieties() — antes su ausencia acá dejaba
+  // que el efecto de siembra de más abajo escribiera society_id en el formulario antes de que el
+  // catálogo tuviera el <SelectItem> correspondiente, y Radix lo silenciaba a vacío (mismo gotcha
+  // ya documentado en EngagementForm.society.test.tsx / EngagementForm.code-generation.test.tsx).
   const profileLoading =
     !isEdit &&
     !canChooseProfileScopeFreely &&
-    (roleLoading || currentStaffLoading || servicesLoading ||
-      roleFetching || currentStaffFetching || servicesFetching);
+    (roleLoading || currentStaffLoading || servicesLoading || societiesLoading ||
+      roleFetching || currentStaffFetching || servicesFetching || societiesFetching);
   // Review de Codex (0817-180, 2026-08-28): un error de red/servidor en cualquiera de las tres
   // queries (agotado el `retry: 1` global, sin refetch automático — `App.tsx`) deja los derivados
   // en `undefined`, indistinguible de una ficha real incompleta. Se separa para no decirle al
   // usuario "te falta un dato en tu ficha" cuando en realidad fue un fallo de carga — mismo
   // criterio que `teamCandidatesError` para el bloque Equipo.
+  // BUG 0922-195 (review H3, chatgpt-codex-connector): faltaba `societiesError` acá — `profileLoading`
+  // ya sumaba societiesLoading/societiesFetching, pero un fallo real de useSocieties() (no "sigue
+  // cargando") dejaba profileError en false, y como derivedSocietyId sale de staffRecord (no del
+  // catálogo), missingProfileFields tampoco lo detectaba: profileBlocksCreation quedaba en false y
+  // Guardar se habilitaba con Sociedad vacía/deshabilitada y sin ningún aviso.
+  // BUG 0922-195 (review H8, greptile): `isError` de TanStack Query no implica "sin catálogo
+  // utilizable" — el reducer del caso 'error' (query-core/src/query.ts) deja `status: 'error'` SIN
+  // tocar `data`, así que un refresco en segundo plano fallido deja `societiesError: true` con
+  // `societies` todavía poblado de la carga anterior. Por eso, a diferencia de
+  // roleError/currentStaffError/servicesError (preexistentes de BUG 0817-180, fuera de alcance acá
+  // — mismo criterio que H6), `societiesError` solo bloquea si además no hay catálogo utilizable.
   const profileError =
-    !isEdit && !canChooseProfileScopeFreely && (roleError || currentStaffError || servicesError);
+    !isEdit &&
+    !canChooseProfileScopeFreely &&
+    (roleError || currentStaffError || servicesError || (societiesError && societies === undefined));
+  // BUG 0922-195 (review H2, chatgpt-codex-connector): en edición, el gate del populate effect de
+  // más abajo espera a `clients`/`allServices`/`societies` (evita el mismo race del catálogo que
+  // Defecto 1), pero un fallo real de red (agotado el `retry: 1` global, sin refetch automático —
+  // App.tsx) deja cualquiera de los tres en `undefined` para siempre, indistinguible de "sigue
+  // cargando": el effect nunca corre, `engagementLoaded` nunca pasa a true, y Guardar queda
+  // deshabilitado sin ninguna explicación. Sin el guard `!isEdit` a propósito — mismo criterio que
+  // `teamCandidatesError` (arriba): un fallo de catálogo importa igual o más en edición, donde el
+  // formulario entero queda sin poblar.
+  // BUG 0922-195 (review H4): se suma `clientsError` — H2 solo cubría services/societies y dejaba
+  // el mismo síntoma (formulario congelado sin aviso) si la que fallaba era useClients(), otro
+  // prerequisito del mismo populate effect y del mismo guard de Guardar.
+  // BUG 0922-195 (review H10, chatgpt-codex-connector): mismo criterio que H8 (profileError) —
+  // `isError` no implica "sin catálogo utilizable" (TanStack Query conserva `data` de la última
+  // carga exitosa aunque un refresco en segundo plano falle, ver query-core/src/query.ts). El gate
+  // del populate effect de abajo no revisa estos flags de error, así que si el catálogo sigue en
+  // caché la hidratación funciona igual y Guardar se habilita — pero este Alert se mostraba de
+  // todas formas, por revisar solo el error sin considerar si el dato está disponible.
+  // BUG 0922-195 (review H11, greptile): `=== undefined` no cubre un catálogo cacheado como array
+  // vacío (`[]`) — un refresco fallido con `[]` en caché ocultaba el aviso pese a que el campo
+  // dependiente no tiene ninguna opción seleccionable. `!x?.length` cubre ambos casos.
+  const engagementCatalogError =
+    isEdit &&
+    ((clientsError && !clients?.length) ||
+      (servicesError && !allServices?.length) ||
+      (societiesError && !societies?.length));
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {
@@ -503,9 +549,17 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   const [contractError, setContractError] = useState<string | null>(null);
   const [downloadingContract, setDownloadingContract] = useState(false);
 
+  // BUG 0922-195 (review H1, greptile): un cliente INACTIVO sigue siendo alcanzable por el
+  // deep-link "Nuevo Encargo" (ClientEngagementsTable.tsx solo lo gatea por engagement.create,
+  // no por is_active), y el efecto de hidratación de más abajo busca en `clients` sin filtrar —
+  // si ese cliente no aparece aquí, Radix no tiene <SelectItem> que empareje el value sembrado y
+  // lo silencia a vacío (operador: debe autocompletarse igual, editable a mano).
   const clientOptions = useMemo(
-    () => clients?.filter(c => c.is_active || c.client_id === engagement?.client_id) ?? [],
-    [clients, engagement?.client_id]
+    () =>
+      clients?.filter(
+        c => c.is_active || c.client_id === engagement?.client_id || c.client_id === initialClientId
+      ) ?? [],
+    [clients, engagement?.client_id, initialClientId]
   );
 
   // FEAT 0714-155 (review fix): unlike clients/taxonomies (fetched in full, filtered
@@ -523,6 +577,9 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
   }, [societies, engagement?.society]);
 
   const initializedEngagementIdRef = useRef<string | null>(null);
+  // BUG 0922-195 (Defecto 2): siembra el `client_id` del deep-link una sola vez por montaje —
+  // igual criterio de "ref de inicialización" que `initializedEngagementIdRef`, no `isDirty`.
+  const initialClientHydratedRef = useRef(false);
 
   // NOTA (BUG 0722-162, actualizado 0817-180): el aviso de personal faltante del bloque Equipo se
   // calcula MÁS ABAJO, después de los memos de opciones de cada campo — ya no hay filtro por
@@ -753,10 +810,49 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
     }
   }, [isEdit, isAdministrativeFunction, selectedClientId, internalClientIds, administrativeSocietyIdByClientId, form]);
 
+  // BUG 0922-195 (Defecto 2): ClientEngagementsTable.tsx navega a "Nuevo Encargo" con
+  // ?client_id=... en la URL, pero EngagementNew.tsx lo descartaba — Cliente quedaba vacío pese
+  // a venir de un deep-link. Se hidrata UNA sola vez (ref, no `isDirty`), solo en creación, solo
+  // cuando `clients` ya incluye ese id (mismo gotcha de Radix que el resto del formulario: sembrar
+  // un value sin su <SelectItem> lo deja vacío), y solo si el campo sigue sin una elección manual
+  // del usuario — `!administrativeMode` porque esa función deriva Cliente de
+  // `administrativeClientOptions` (la RPC de clientes internos controlados), una fuente distinta
+  // de `clients`, donde este `initialClientId` externo no tiene sentido.
+  // BUG 0922-195 (review H6, investigado pero NO resuelto acá — ver nota en review.md): el bot
+  // señaló que `setValue(..., { shouldDirty: false })` no actualiza la baseline de RHF, así que
+  // una recomputación posterior de isDirty (mismo mecanismo de #0819-181) podría encontrar
+  // client_id distinto de su default. Comprobado con un diagnóstico dirigido: el mismo síntoma ya
+  // existe HOY, sin ningún cambio de esta rama, para la siembra de sociedad/práctica/oficina de un
+  // creador restringido (líneas ~725-731, mismo patrón `shouldDirty: false`) — es una limitación
+  // preexistente y transversal a TODO el formulario, no algo introducido ni corregible acá sin
+  // rediseñar el tracking de dirty de todos los campos sembrados por el sistema. Se mantiene
+  // `setValue` (mismo patrón que el resto del archivo) en vez de `resetField`/`reset`, que se
+  // probaron y no lo resuelven tampoco (confirmado empíricamente) y solo agregan riesgo.
   useEffect(() => {
+    if (isEdit || administrativeMode || !initialClientId || initialClientHydratedRef.current) return;
+    if (!clients?.some((c) => c.client_id === initialClientId)) return;
+    if (form.getValues("client_id")) return;
+    form.setValue("client_id", initialClientId, { shouldDirty: false, shouldValidate: false });
+    initialClientHydratedRef.current = true;
+  }, [isEdit, administrativeMode, initialClientId, clients, form]);
+
+  useEffect(() => {
+    // BUG 0922-195 (Defecto 1): además de `clients`, esperar a `allServices` y `societies` — el
+    // reset de abajo siembra practica/society_id directo del encargo (sin pasar por su derivado),
+    // y si el catálogo respectivo no tiene todavía el <SelectItem> correspondiente Radix lo
+    // silencia a un valor vacío/0 no reeditable (serviceSelectDisabled bloquea Práctica para
+    // TODOS los roles en edición, incluido admin — ver Root Cause del plan).
+    // BUG 0922-195 (review H5): los campos mutables (Nombre, fechas, Equipo) solo se deshabilitan
+    // por `readOnly` (permisos), no por esta ventana de carga — si el usuario edita algo antes de
+    // que el catálogo resuelva, ese cambio quedaría dirty. `keepDirtyValues` en el reset de abajo
+    // preserva esos campos tocados en vez de pisarlos en silencio cuando el efecto finalmente
+    // corre (no depende de `isDirty` para decidir SI corre — eso ya lo resolvió #0819-181 — solo
+    // cambia QUÉ valores aplica).
     if (
       engagement &&
       clients &&
+      allServices &&
+      societies &&
       initializedEngagementIdRef.current !== engagement.engagement_id
     ) {
       initializedEngagementIdRef.current = engagement.engagement_id;
@@ -788,13 +884,13 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
         specialist_tax_id: engagement.specialist_tax_id ?? null,
         closing_date_option: closingDateOption,
         closing_date_custom: closingDateOption === "Otro" && storedClosing ? parseDateLocal(storedClosing) : undefined,
-      });
+      }, { keepDirtyValues: true });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
       setApprovalRequired(engagement.approval_required ?? true);
       setOverrideOn(engagement.anio_fiscal_override ?? false);
     }
-  }, [engagement, clients, form, closingDateOptions]);
+  }, [engagement, clients, allServices, societies, form, closingDateOptions]);
 
   // Fase 5 (bugs/scheduler/fase_5/plan_v2.md §6): StaffAssignmentsCard tiene su propio ciclo de
   // guardado (RPC directa) — el submit principal NUNCA lo ejecuta. Su dirty state SÍ participa
@@ -992,7 +1088,9 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
       if (data.oficina    === undefined) { form.setError("oficina",     { message: t("engagement.requiredOficina")    }); missingCodeField = true; }
       if (data.practica   === undefined) { form.setError("practica",    { message: t("engagement.requiredPractica")   }); missingCodeField = true; }
       if (data.funcion    === undefined) { form.setError("funcion",     { message: t("engagement.requiredFuncion")    }); missingCodeField = true; }
-      if (data.society_id === undefined) { form.setError("society_id", { message: t("engagement.requiredSociety")    }); missingCodeField = true; }
+      // BUG 0922-195: endurecido de `=== undefined` a falsy — el `""` espurio que deja Radix
+      // cuando el catálogo de sociedades resuelve tarde (ver Root Cause) esquivaba este guard.
+      if (!data.society_id) { form.setError("society_id", { message: t("engagement.requiredSociety")    }); missingCodeField = true; }
       if (data.closing_date_option === undefined) { form.setError("closing_date_option", { message: t("engagement.requiredClosingDate") }); missingCodeField = true; }
       if (missingCodeField) { focusFirstInvalidField(); return; }
     }
@@ -1471,6 +1569,16 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
         </Alert>
       )}
 
+      {/* BUG 0922-195 (review H2): fallo de allServices/societies en edición — mismo patrón que
+          teamCandidatesError arriba (sin guard !isEdit), para no dejar Guardar deshabilitado sin
+          ninguna explicación mientras el catálogo falló en vez de seguir cargando. */}
+      {engagementCatalogError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("messages.engagementCatalogLoadError")}</AlertDescription>
+        </Alert>
+      )}
+
       {/* BUG 0817-180: perfil incompleto para el creador restringido — fail-closed, con el
           detalle de qué falta en su ficha de personal. */}
       {missingProfileFields.length > 0 && (
@@ -1598,7 +1706,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                         // La sociedad la deriva el efecto de arriba, no este handler: derivar acá
                         // era de un solo disparo y no reintentaba si el catálogo de sociedades
                         // llegaba después (review fix, Greptile).
-                        onValueChange={field.onChange}
+                        // BUG 0922-195 (review H1): mismo blindaje que Sociedad/Práctica/Función
+                        // contra el "" espurio de Radix — sin esto, el `initialClientId` de un
+                        // cliente inactivo (visible ahora en clientOptions) se perdía apenas el
+                        // Select montaba, porque Radix dispara onValueChange("") cuando cree que
+                        // no hay ningún <SelectItem> que empareje el value todavía.
+                        onValueChange={(v) => { if (v !== "") field.onChange(v); }}
                         value={field.value}
                       >
                         <FormControl>
@@ -1640,7 +1753,10 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                       disabled={isEdit
                         ? (!isAdmin || readOnly)
                         : (isAdministrativeFunction || !canChooseProfileScopeFreely)}
-                      onValueChange={field.onChange}
+                      // BUG 0922-195: Radix puede disparar onValueChange("") cuando el <Select>
+                      // pierde momentáneamente su SelectItem seleccionado (catálogo resolviendo);
+                      // propagar ese "" borraría un valor válido ya sembrado por el efecto de arriba.
+                      onValueChange={(v) => { if (v !== "") field.onChange(v); }}
                       value={field.value ?? ""}
                     >
                       <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectSociety")} /></SelectTrigger></FormControl>
@@ -1963,7 +2079,14 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                     )}
                     {isAdmin && !isAdministrativeFunction && (
                       <div className="flex items-center gap-2 pt-1">
-                        <Switch checked={overrideOn} onCheckedChange={handleOverrideToggle} />
+                        {/* BUG 0922-195 (review H7): deshabilitado mientras isEdit && !engagementLoaded
+                            — keepDirtyValues (H5) protege los campos de RHF, pero este switch vive en
+                            useState y lo pisa el mismo populate effect en cuanto el catálogo resuelve. */}
+                        <Switch
+                          checked={overrideOn}
+                          onCheckedChange={handleOverrideToggle}
+                          disabled={isEdit && !engagementLoaded}
+                        />
                         <span className="text-xs text-muted-foreground">{t("engagement.fiscalYearOverride")}</span>
                       </div>
                     )}
@@ -1999,7 +2122,9 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                     <FormLabel>{t("engagement.practica")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={serviceSelectDisabled}
-                      onValueChange={(v) => field.onChange(Number(v))}
+                      // BUG 0922-195: mismo blindaje que Sociedad — un "" espurio de Radix aquí
+                      // se convertía en `Number("") = 0`, un código de práctica potencialmente real.
+                      onValueChange={(v) => { if (v !== "") field.onChange(Number(v)); }}
                       value={field.value != null ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectPractica")} /></SelectTrigger></FormControl>
@@ -2023,7 +2148,8 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                     <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
                       disabled={isEdit || !(canChooseFuncionFreely || administrativeMode)}
-                      onValueChange={(v) => field.onChange(Number(v))}
+                      // BUG 0922-195: mismo blindaje que Sociedad/Práctica contra el "" espurio de Radix.
+                      onValueChange={(v) => { if (v !== "") field.onChange(Number(v)); }}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
@@ -2210,7 +2336,14 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                       {t(isAdministrativeFunction ? "engagement.workOrderRequiredAdministrativeHelp" : "engagement.workOrderRequiredHelp")}
                     </p>
                   </div>
-                  <Switch checked={workOrderRequired} onCheckedChange={setWorkOrderRequired} disabled={!isAdmin} />
+                  {/* BUG 0922-195 (review H7): deshabilitado mientras isEdit && !engagementLoaded —
+                      este switch vive en useState (fuera de RHF), así que keepDirtyValues (H5) no
+                      lo protege del populate effect que lo pisa apenas el catálogo resuelve. */}
+                  <Switch
+                    checked={workOrderRequired}
+                    onCheckedChange={setWorkOrderRequired}
+                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -2224,7 +2357,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                     <p className="text-sm font-medium">{t("engagement.isInternal")}</p>
                     <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
                   </div>
-                  <Switch checked={effectiveIsInternal} onCheckedChange={setIsInternal} disabled={!isAdmin || isAdministrativeFunction} />
+                  {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
+                  <Switch
+                    checked={effectiveIsInternal}
+                    onCheckedChange={setIsInternal}
+                    disabled={!isAdmin || isAdministrativeFunction || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -2233,7 +2371,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                       {t(isAdministrativeFunction ? "engagement.approvalRequiredAdministrativeHelp" : "engagement.approvalRequiredHelp")}
                     </p>
                   </div>
-                  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} disabled={!isAdmin} />
+                  {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
+                  <Switch
+                    checked={approvalRequired}
+                    onCheckedChange={setApprovalRequired}
+                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 </div>
                 </div>
@@ -2256,7 +2399,12 @@ export function EngagementForm({ engagement, administrativeMode = false, onDirty
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={(teamBlocksCreation && !isEdit) || profileBlocksCreation}
+                  // BUG 0922-195: en edición, bloquear Guardar mientras el reset de hidratación
+                  // (más arriba) no haya corrido todavía para este encargo — evita guardar en la
+                  // ventana donde practica/society_id pueden estar en su placeholder en blanco
+                  // porque allServices/societies aún no resolvieron. Reusa `engagementLoaded`
+                  // (el mismo ref de inicialización de BUG #0819-181), no `isDirty`.
+                  disabled={(teamBlocksCreation && !isEdit) || profileBlocksCreation || (isEdit && !engagementLoaded)}
                 >
                   {isEdit ? t("common.saveChanges") : t("engagement.createEngagement")}
                 </LoadingButton>

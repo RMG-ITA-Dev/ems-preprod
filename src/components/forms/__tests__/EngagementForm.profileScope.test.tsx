@@ -71,7 +71,16 @@ const SOCIETY_A = { society_id: "soc-a", name: "Sociedad A", is_active: true, cr
 const SOCIETY_B = { society_id: "soc-b", name: "Sociedad B", is_active: true, created_at: "" };
 const mockSocieties = [SOCIETY_A, SOCIETY_B];
 
-const stableClients = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
+const stableClients = [
+  { client_id: "client-1", client_legal_name: "Test Client", is_active: true },
+  // BUG 0922-195: segundo cliente, usado por la suite de initialClientId más abajo para
+  // ejercitar "la hidratación tardía no pisa una selección manual" contra un valor distinto.
+  { client_id: "client-2", client_legal_name: "Other Client", is_active: true },
+  // BUG 0922-195 (review H1): cliente INACTIVO — el botón "Nuevo Encargo" de
+  // ClientEngagementsTable.tsx solo se gatea por engagement.create, no por is_active, así que
+  // este cliente igual llega por deep-link con initialClientId.
+  { client_id: "client-3", client_legal_name: "Inactive Client", is_active: false },
+];
 // Función queda fija en Cliente para un creador restringido (cambio suelto, 2026-08-26) —
 // Cliente exige una taxonomía real (0602-136, "No aplica" queda oculto), así que el fixture
 // de submit completo la necesita.
@@ -80,11 +89,28 @@ const stableAssignments: never[] = [];
 const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
+// BUG 0922-195: mutable on purpose — the initialClientId suite below drives useClients() from
+// undefined (pending) to resolved on the same mounted instance, same convention as `clientsData`
+// in EngagementForm.hydration-race.test.tsx. Reset to `stableClients` in every beforeEach so the
+// pre-existing tests in this file (synchronous by assumption) are unaffected.
+let clientsData: typeof stableClients | undefined = stableClients;
+// BUG 0922-195 (review H3): mutable on purpose — lets one test simulate useSocieties() failing
+// (exhausted retries), distinct from "still loading".
+let societiesIsError = false;
+// BUG 0922-195 (review H8): decoupled from societiesIsError on purpose — TanStack Query keeps
+// `data` from the last successful fetch even when a later background refetch fails (verified in
+// query-core/src/query.ts: the 'error' reducer case never touches `data`), so a test needs to be
+// able to set isError:true WITH data still populated (stale-but-valid cache survives a failed
+// background refresh). Defaults to mockSocieties so existing tests are unaffected.
+let societiesDataForMock: typeof mockSocieties | undefined = mockSocieties;
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: stableClients }),
+  useClients: () => ({ data: clientsData }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({
+    data: societiesDataForMock,
+    isError: societiesIsError,
+  }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -178,6 +204,9 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     mockRoleLoading = false;
     mockStaffRecord = restrictedStaff;
     mockStaffLoading = false;
+    clientsData = stableClients;
+    societiesIsError = false;
+    societiesDataForMock = mockSocieties;
   });
 
   it("creador restringido: sociedad/práctica/oficina se derivan de la ficha (Sociedad A / Tax code 3 / oficina 2)", async () => {
@@ -197,6 +226,37 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled();
     expect(screen.getByLabelText(/engagement\.practica/)).toBeDisabled();
     expect(screen.getByLabelText(/engagement\.oficina/)).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H3, chatgpt-codex-connector): profileError no incluía societiesError —
+  // un fallo real de useSocieties() (no "sigue cargando") dejaba Sociedad vacía/deshabilitada
+  // pero profileBlocksCreation en false, así que Crear Encargo quedaba habilitado sin ningún
+  // aviso del error de catálogo.
+  it("fallo de useSocieties() sin catálogo utilizable muestra el aviso de error y bloquea Crear Encargo (BUG 0922-195)", async () => {
+    societiesIsError = true;
+    societiesDataForMock = undefined;
+    render(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.profileLoadError")).toBeInTheDocument();
+    });
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H8, greptile): un refresco en segundo plano fallido de useSocieties() deja
+  // isError:true SIN borrar el catálogo ya cargado (TanStack Query conserva `data` de la última
+  // carga exitosa — verificado en query-core/src/query.ts, el reducer del caso 'error' nunca toca
+  // `data`). Antes del fix, esto bloqueaba igual la creación aunque Sociedad A siguiera disponible.
+  it("fallo de useSocieties() con catálogo aún en caché NO bloquea Crear Encargo (BUG 0922-195)", async () => {
+    societiesIsError = true;
+    societiesDataForMock = mockSocieties;
+    render(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Sociedad A");
+    });
+    expect(screen.queryByText("messages.profileLoadError")).not.toBeInTheDocument();
+    expect(screen.getByText("engagement.createEngagement").closest("button")).not.toBeDisabled();
   });
 
   it("la siembra no marca el formulario como sucio", async () => {
@@ -341,4 +401,101 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Tax");
     expect(screen.getByLabelText(/engagement\.oficina/)).toHaveTextContent("engagement.oficina_santaCruz");
   }, 15000);
+});
+
+/**
+ * BUG 0922-195 (Defecto 2) — hidratación de `initialClientId` (deep-link cliente -> "Nuevo
+ * Encargo", ClientEngagementsTable.tsx:245 -> EngagementNew.tsx). Se agrega a este archivo por
+ * plan_v2 (§e): comparte el mismo patrón de "efecto que espera a un catálogo tardío" que el resto
+ * de esta suite, y reutiliza `stableClients`/`client-2` de arriba.
+ */
+describe("EngagementForm — initialClientId deep-link hydration (BUG 0922-195, Defecto 2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRoleKey = "manager";
+    mockRoleLoading = false;
+    mockStaffRecord = restrictedStaff;
+    mockStaffLoading = false;
+    clientsData = stableClients;
+  });
+
+  it("Cliente queda preseleccionado una vez que useClients() resuelve ese client_id, si resuelve tarde", async () => {
+    clientsData = undefined;
+    const { rerender } = render(<EngagementForm initialClientId="client-1" />);
+
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient");
+
+    clientsData = stableClients;
+    rerender(<EngagementForm initialClientId="client-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
+    });
+  });
+
+  it("una selección manual de Cliente no es sobrescrita por la hidratación tardía de initialClientId", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<EngagementForm initialClientId="client-1" />);
+
+    // La hidratación corre apenas `clients` está disponible (ya resuelto desde el montaje en
+    // este caso) y siembra "client-1" primero.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
+    });
+
+    // El usuario cambia manualmente a otro cliente.
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Other Client" }));
+    await user.click(screen.getByRole("option", { name: "Other Client" }));
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Other Client");
+
+    // Un refetch en segundo plano de `clients` (nueva referencia, mismos datos) no debe
+    // reintentar la hidratación y revertir la elección manual del usuario — el ref de
+    // inicialización ya quedó marcado la primera vez.
+    clientsData = [...stableClients];
+    rerender(<EngagementForm initialClientId="client-1" />);
+
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Other Client");
+  });
+
+  it("sin initialClientId, Cliente permanece vacío y libremente seleccionable", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm />);
+
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient");
+
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Test Client" }));
+    await user.click(screen.getByRole("option", { name: "Test Client" }));
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
+  });
+
+  it("onDirtyChange no reporta true por la hidratación del sistema", async () => {
+    const onDirtyChange = vi.fn();
+    render(<EngagementForm initialClientId="client-1" onDirtyChange={onDirtyChange} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
+    });
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+  });
+
+  // BUG 0922-195 (review H1, greptile): un cliente inactivo deep-linkeado se preseleccionaba en
+  // RHF pero el <Select> no tenía su <SelectItem> (clientOptions solo incluía activos), así que
+  // Radix disparaba onValueChange("") y lo perdía en silencio. Confirmado con el operador: debe
+  // autocompletarse igual (editable a mano), no bloquearse ni perderse.
+  it("un cliente inactivo deep-linkeado se preselecciona igual, y sigue siendo editable a mano (BUG 0922-195)", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm initialClientId="client-3" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Inactive Client");
+    });
+
+    // Sigue siendo editable: el usuario puede cambiarlo a otro cliente sin que nada lo bloquee.
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Test Client" }));
+    await user.click(screen.getByRole("option", { name: "Test Client" }));
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
+  });
 });

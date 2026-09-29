@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
@@ -101,12 +101,26 @@ const stableCategories: never[] = [];
 // flips it to the resolved list mid-test, mimicking React Query resolving the query
 // and re-rendering the SAME mounted instance.
 let clientsData: typeof stableClients | undefined = undefined;
+// BUG 0922-195: same mutability, now for allServices/societies — Test 4 below drives these from
+// undefined to resolved on the same instance, reproducing the edit-mode catalog race (Defecto 1)
+// on top of this file's existing clients race (BUG #0819-181). Default to already-resolved so
+// Tests 1-3 (unaware of this bug) keep seeing the pre-existing synchronous behavior.
+let servicesData: typeof mockServices | undefined = mockServices;
+let societiesData: typeof mockSocieties | undefined = mockSocieties;
+// BUG 0922-195 (review H2): a genuine fetch failure (not "still loading") also leaves
+// allServices/societies undefined forever — Test 5 below drives these independently of the
+// undefined-then-resolved pattern above, so default to false for Tests 1-4.
+let servicesIsError = false;
+let societiesIsError = false;
+// BUG 0922-195 (review H4): same idea, now for clients — Test 6 below drives this independently
+// of the undefined-then-resolved pattern of Tests 1/3, so default to false for Tests 1-5.
+let clientsIsError = false;
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: clientsData }),
-  useServices: () => ({ data: mockServices }),
+  useClients: () => ({ data: clientsData, isError: clientsIsError }),
+  useServices: () => ({ data: servicesData, isLoading: servicesData === undefined && !servicesIsError, isFetching: false, isError: servicesIsError }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined && !societiesIsError, isFetching: false, isError: societiesIsError }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -131,8 +145,13 @@ vi.mock("@/hooks/mutations", () => ({
   useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
+// BUG 0922-195 (review H7): roleKey mutable on purpose — Test 8 below needs "admin" (EngagementForm's
+// `isAdmin` derives from `roleKey === "admin"`, not from a separate isAdmin hook) to exercise the
+// policy switches (only rendered/interactive for admin). Default "manager" so Tests 1-7 (unaware of
+// this bug) keep seeing the pre-existing behavior.
+let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
+  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
@@ -182,6 +201,15 @@ const mockEngagement: Engagement = {
 };
 
 describe("EngagementForm — hydration race (BUG #0819-181)", () => {
+  beforeEach(() => {
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    servicesIsError = false;
+    societiesIsError = false;
+    clientsIsError = false;
+    mockRoleKey = "manager";
+  });
+
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {
     clientsData = undefined;
     const user = userEvent.setup();
@@ -264,6 +292,178 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     // report stayed true, and the page-leave lock armed itself on a pristine form.
     await waitFor(() => {
       expect(onDirtyChange.mock.calls.at(-1)).toEqual([false]);
+    });
+  });
+
+  // BUG 0922-195 (Defecto 1): the populate effect seeded practica/society_id straight from the
+  // engagement (not through their derived helpers) as soon as `clients` resolved — if
+  // allServices/societies were still pending at that moment, Radix's <Select> had no matching
+  // <SelectItem> yet and silently cleared the value (practica -> `Number("") = 0`, society_id ->
+  // `""`). In edit mode Práctica is hard-locked for every role (`serviceSelectDisabled = isEdit ||
+  // !canChooseProfileScopeFreely`), so nobody — not even admin — could fix it from the UI; only a
+  // reload, which re-ran the very same race. The fix gates the populate effect on allServices AND
+  // societies too, not just clients.
+  it("Test 4 (BUG #0922-195): practica/sociedad don't collapse to 0/empty when services/societies resolve after clients", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    const user = userEvent.setup();
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} />);
+
+    // Same neutral trigger as Tests 1/3 (see file header) — forces RHF's isDirty recompute
+    // during the pending window without leaving any real value behind.
+    const nameInput = screen.getByLabelText(/engagement\.name/);
+    await user.type(nameInput, "x");
+    await user.type(nameInput, "{backspace}");
+
+    // Against the pre-fix code, the populate effect had already run once `clients` resolved
+    // (ignoring allServices/societies), leaving practica=0/society_id="" locked in. Confirm the
+    // pending window here does NOT leave the fields to a corrupted state.
+    expect(screen.getByLabelText(/engagement\.practica/)).not.toHaveTextContent("0");
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+  });
+
+  // BUG 0922-195 (review H2, chatgpt-codex-connector): a genuine fetch failure on
+  // allServices/societies (not "still loading") left `undefined` forever after Test 4's fix —
+  // the populate effect never runs, engagementLoaded never flips, and Guardar stayed disabled
+  // with no explanation. Verifies the explicit error alert now surfaces instead.
+  it("Test 5 (BUG #0922-195): a services/societies load failure in edit mode shows an explicit error, not a silent freeze", async () => {
+    clientsData = stableClients;
+    societiesIsError = true;
+    societiesData = undefined;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
+    });
+    // Since the populate effect never ran for this engagement, Guardar stays disabled — same
+    // outcome as before, but now with a visible explanation instead of a silent freeze.
+    expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H4, chatgpt-codex-connector): Test 5's fix only covered
+  // services/societies — useClients() is the same kind of populate-effect prerequisite, and a
+  // genuine failure there left the exact same silent freeze uncovered.
+  it("Test 6 (BUG #0922-195): a clients load failure in edit mode also shows an explicit error", async () => {
+    clientsData = undefined;
+    clientsIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
+    });
+    expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H5, chatgpt-codex-connector): mutable fields (Nombre, fechas, Equipo)
+  // are only disabled by `readOnly` (permissions), never by this pending-catalog window — Tests
+  // 4/5/6 widened that window (allServices/societies as extra gates), so a user who starts
+  // editing before the catalog resolves risked having form.reset() silently discard it. Unlike
+  // Tests 1/3's neutral trigger (typed then reverted to the default), this edit is genuine and
+  // NOT reverted, so it must survive the reset via `keepDirtyValues`.
+  it("Test 7 (BUG #0922-195): editing a field during the pending catalog window survives the late form.reset() instead of being silently discarded", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} onDirtyChange={onDirtyChange} />);
+
+    // The populate effect hasn't run yet (still waiting on allServices/societies), so Nombre is
+    // still on its blank creation default here — matching Test 1's pending-window assertion.
+    const nameInput = screen.getByLabelText(/engagement\.name/);
+    expect(nameInput).toHaveValue("");
+    await user.type(nameInput, "Encargo en revision");
+    expect(nameInput).toHaveValue("Encargo en revision");
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} onDirtyChange={onDirtyChange} />);
+
+    // Against the pre-fix code, form.reset() (without keepDirtyValues) would silently overwrite
+    // Nombre back to the engagement's stored value ("Hydration Race Engagement") once the
+    // catalogs resolved. The rest of the form must still populate correctly from them.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(nameInput).toHaveValue("Encargo en revision");
+    await waitFor(() => {
+      expect(onDirtyChange.mock.calls.at(-1)).toEqual([true]);
+    });
+  });
+
+  // BUG 0922-195 (review H7, chatgpt-codex-connector): the four policy switches (OT Requerida,
+  // Interno, Aprobación Requerida, override de Año Fiscal) live in useState, not react-hook-form
+  // — Test 7's keepDirtyValues fix (H5) doesn't reach them, so the same populate effect still
+  // overwrote them in silence if an admin toggled one while services/societies were pending.
+  // Verifies they're disabled during that window instead (same gate as the Guardar button).
+  it("Test 8 (BUG #0922-195): the policy switches (useState, not RHF) are disabled during the pending catalog window in edit mode", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    mockRoleKey = "admin";
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} />);
+
+    // DOM order (see EngagementForm.tsx): the fiscal-year override switch only renders when
+    // `!isAdministrativeFunction`, and mockEngagement.funcion (0) !== FUNCION_CLIENTE (1), so this
+    // fixture IS an administrative-function engagement — that switch is absent here, making
+    // [0] OT Requerida, [1] Actividad Requerida (always disabled, unrelated), [2] Interno (always
+    // disabled too, forced by isAdministrativeFunction), [3] Aprobación Requerida.
+    const workOrderSwitch = screen.getAllByRole("switch")[0];
+    expect(workOrderSwitch).toBeDisabled();
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("switch")[0]).not.toBeDisabled();
+    });
+  });
+
+  // BUG 0922-195 (review H10, chatgpt-codex-connector): `engagementCatalogError` (H2/H4) only
+  // checked the error flags, not whether the corresponding data was actually unavailable — a
+  // background refetch failure with a still-valid cached catalog (TanStack Query keeps `data`
+  // from the last successful fetch, see query.ts) showed the destructive "could not load" alert
+  // even though hydration succeeded and Guardar was enabled.
+  it("Test 9 (BUG #0922-195): a background refetch failure with a still-cached catalog does not show the load-error alert", async () => {
+    clientsData = stableClients;
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    societiesIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(screen.queryByText("messages.engagementCatalogLoadError")).not.toBeInTheDocument();
+    expect(screen.getByText("common.saveChanges").closest("button")).not.toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H11, greptile): Test 9's fix used `=== undefined`, which doesn't cover a
+  // catalog cached as an empty array — a background refetch failure with `[]` in cache silently
+  // hid the alert even though the dependent field has zero selectable options.
+  it("Test 10 (BUG #0922-195): a background refetch failure with an EMPTY cached catalog still shows the load-error alert", async () => {
+    clientsData = stableClients;
+    servicesData = mockServices;
+    societiesData = [];
+    societiesIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
     });
   });
 });

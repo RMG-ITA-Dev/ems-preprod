@@ -82,6 +82,11 @@ const mockSocieties = [
 
 const inactiveSociety = { society_id: "soc-inactive", name: "Old Society S.R.L.", is_active: false, created_at: "" };
 
+// BUG 0922-195: mutable on purpose — reset to `mockSocieties` in each describe's beforeEach.
+// Lets one test drive useSocieties() from undefined (catalog still pending) to resolved on the
+// SAME mounted instance, same convention as `clientsData` in EngagementForm.hydration-race.test.tsx.
+let societiesData: typeof mockSocieties | undefined = mockSocieties;
+
 // Includes the client referenced by the edit-mode fixtures below so the client Select can
 // resolve a matching SelectItem — Radix Select can't retain a `value` that has no
 // corresponding item, which otherwise silently clears the field and fails zod validation
@@ -96,7 +101,11 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({
+    data: societiesData,
+    isLoading: societiesData === undefined,
+    isFetching: false,
+  }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -219,6 +228,7 @@ const mockEngagementNullSociety: Engagement = {
 describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
   beforeEach(() => {
     mockUpdateMutateAsync.mockClear();
+    societiesData = mockSocieties;
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
     vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
@@ -250,6 +260,27 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
     const societySelect = screen.getByLabelText(/engagement\.society/);
     expect(societySelect).toBeDisabled();
     expect(societySelect).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+  });
+
+  // BUG 0922-195 (Defecto 1, Root Cause): la ficha del staff (derivedSocietyId) no depende del
+  // catálogo de sociedades, así que el efecto de siembra podía escribir society_id ANTES de que
+  // useSocieties() resolviera — Radix silenciaba ese value a vacío por no tener su <SelectItem>
+  // todavía, y el campo quedaba bloqueado y vacío (no editable a mano). El fix suma la carga de
+  // useSocieties() a `profileLoading`, así que el efecto de siembra espera al catálogo.
+  it("create mode (non-privileged): Sociedad no se resetea a vacío si useSocieties() resuelve después que la ficha del staff (BUG 0922-195)", async () => {
+    societiesData = undefined;
+    const { rerender } = render(<EngagementForm />);
+
+    // Mientras el catálogo de sociedades no resuelve, el campo se queda en el placeholder sin
+    // valor — nunca en un estado bloqueado-y-vacío indistinguible de un fallo.
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
+
+    societiesData = mockSocieties;
+    rerender(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+    });
   });
 
   it("edit mode: the select is disabled (immutable after create, like oficina/practica/funcion)", () => {
@@ -310,6 +341,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 describe("EngagementForm — Sociedad required in creation (real submit, FEAT 0714-155)", () => {
   beforeEach(() => {
     mockCreateMutateAsync.mockClear();
+    societiesData = mockSocieties;
     // BUG 0817-180: solo admin/senior_partner eligen sociedad/practica/oficina libres en
     // creación — un manager ya no puede "dejar Sociedad sin seleccionar" (viene de su ficha).
     // Este mock de useAuthorization solo modela admin/manager, así que se ejercita con admin.

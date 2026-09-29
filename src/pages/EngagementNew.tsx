@@ -11,6 +11,10 @@ const EngagementNew = () => {
   const [searchParams] = useSearchParams();
   const { t } = useTranslation();
   const administrativeMode = searchParams.get("mode") === "administrative";
+  // BUG 0922-195: ClientEngagementsTable.tsx navega acá con ?client_id=... (deep-link
+  // "Nuevo Encargo" desde el detalle de un cliente); se reenvía a EngagementForm, que lo
+  // hidrata una sola vez cuando su catálogo de clientes lo incluya.
+  const initialClientId = searchParams.get("client_id") ?? undefined;
   const returnPath = administrativeMode ? "/administrative-engagements" : "/engagements";
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
@@ -34,6 +38,7 @@ const EngagementNew = () => {
     <AppLayout title={t(administrativeMode ? "nav.administrativeEngagements" : "nav.engagements")} focusMode>
       <EngagementForm
         administrativeMode={administrativeMode}
+        initialClientId={initialClientId}
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}
         onSaveSuccess={handleSaveSuccess}
