@@ -940,6 +940,7 @@
     "teamCandidatesLoadError": "Could not load the staff available for the Team section. Please retry; if the problem persists, contact your administrator.",
     "profileIncompleteForEngagement": "Your staff profile is missing required data to create this engagement: {{fields}}. Contact your administrator to complete it.",
     "profileLoadError": "Could not load your staff profile or the practices catalog. Please retry; if the problem persists, contact your administrator.",
+    "engagementCatalogLoadError": "Could not load the practices or societies catalog for this engagement. Please retry or reload the page; if the problem persists, contact your administrator.",
     "staffDeactivated": "Staff member deactivated (has related records)",
     "accountInactive": "Your account is inactive. Please contact an administrator.",
     "holidayCreated": "Holiday created",

@@ -107,12 +107,17 @@ let clientsData: typeof stableClients | undefined = undefined;
 // Tests 1-3 (unaware of this bug) keep seeing the pre-existing synchronous behavior.
 let servicesData: typeof mockServices | undefined = mockServices;
 let societiesData: typeof mockSocieties | undefined = mockSocieties;
+// BUG 0922-195 (review H2): a genuine fetch failure (not "still loading") also leaves
+// allServices/societies undefined forever — Test 5 below drives these independently of the
+// undefined-then-resolved pattern above, so default to false for Tests 1-4.
+let servicesIsError = false;
+let societiesIsError = false;
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: clientsData }),
-  useServices: () => ({ data: servicesData, isLoading: servicesData === undefined, isFetching: false }),
+  useServices: () => ({ data: servicesData, isLoading: servicesData === undefined && !servicesIsError, isFetching: false, isError: servicesIsError }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined, isFetching: false }),
+  useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined && !societiesIsError, isFetching: false, isError: societiesIsError }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -191,6 +196,8 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
   beforeEach(() => {
     servicesData = mockServices;
     societiesData = mockSocieties;
+    servicesIsError = false;
+    societiesIsError = false;
   });
 
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {
@@ -312,5 +319,24 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
       expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
     });
     expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+  });
+
+  // BUG 0922-195 (review H2, chatgpt-codex-connector): a genuine fetch failure on
+  // allServices/societies (not "still loading") left `undefined` forever after Test 4's fix —
+  // the populate effect never runs, engagementLoaded never flips, and Guardar stayed disabled
+  // with no explanation. Verifies the explicit error alert now surfaces instead.
+  it("Test 5 (BUG #0922-195): a services/societies load failure in edit mode shows an explicit error, not a silent freeze", async () => {
+    clientsData = stableClients;
+    societiesIsError = true;
+    societiesData = undefined;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
+    });
+    // Since the populate effect never ran for this engagement, Guardar stays disabled — same
+    // outcome as before, but now with a visible explanation instead of a silent freeze.
+    expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
   });
 });

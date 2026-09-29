@@ -76,6 +76,10 @@ const stableClients = [
   // BUG 0922-195: segundo cliente, usado por la suite de initialClientId más abajo para
   // ejercitar "la hidratación tardía no pisa una selección manual" contra un valor distinto.
   { client_id: "client-2", client_legal_name: "Other Client", is_active: true },
+  // BUG 0922-195 (review H1): cliente INACTIVO — el botón "Nuevo Encargo" de
+  // ClientEngagementsTable.tsx solo se gatea por engagement.create, no por is_active, así que
+  // este cliente igual llega por deep-link con initialClientId.
+  { client_id: "client-3", client_legal_name: "Inactive Client", is_active: false },
 ];
 // Función queda fija en Cliente para un creador restringido (cambio suelto, 2026-08-26) —
 // Cliente exige una taxonomía real (0602-136, "No aplica" queda oculto), así que el fixture
@@ -429,5 +433,24 @@ describe("EngagementForm — initialClientId deep-link hydration (BUG 0922-195, 
       expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
     });
     expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+  });
+
+  // BUG 0922-195 (review H1, greptile): un cliente inactivo deep-linkeado se preseleccionaba en
+  // RHF pero el <Select> no tenía su <SelectItem> (clientOptions solo incluía activos), así que
+  // Radix disparaba onValueChange("") y lo perdía en silencio. Confirmado con el operador: debe
+  // autocompletarse igual (editable a mano), no bloquearse ni perderse.
+  it("un cliente inactivo deep-linkeado se preselecciona igual, y sigue siendo editable a mano (BUG 0922-195)", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm initialClientId="client-3" />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Inactive Client");
+    });
+
+    // Sigue siendo editable: el usuario puede cambiarlo a otro cliente sin que nada lo bloquee.
+    await user.click(screen.getByLabelText(/engagement\.client/));
+    await waitFor(() => screen.getByRole("option", { name: "Test Client" }));
+    await user.click(screen.getByRole("option", { name: "Test Client" }));
+    expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("Test Client");
   });
 });

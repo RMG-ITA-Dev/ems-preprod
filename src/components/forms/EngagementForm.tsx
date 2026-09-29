@@ -366,7 +366,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const { data: administrativeInternalClients } = useAdministrativeInternalClients();
   const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
   const { data: allTaxonomies } = useTaxonomies();
-  const { data: societies, isLoading: societiesLoading, isFetching: societiesFetching } = useSocieties();
+  const { data: societies, isLoading: societiesLoading, isFetching: societiesFetching, isError: societiesError } = useSocieties();
   // BUG 0722-162: los seis selectores del bloque Equipo se alimentan de `role_key`, no de la
   // categoría del personal. `useCategoryStaff` ya no se usa acá (sus otros cuatro consumidores
   // —Engagements, SchedulerL1, WorkOrders, ClientEngagementsTable— quedan intactos).
@@ -427,6 +427,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // criterio que `teamCandidatesError` para el bloque Equipo.
   const profileError =
     !isEdit && !canChooseProfileScopeFreely && (roleError || currentStaffError || servicesError);
+  // BUG 0922-195 (review H2, chatgpt-codex-connector): en edición, el gate del populate effect de
+  // más abajo espera a `allServices`/`societies` (evita el mismo race del catálogo que Defecto 1),
+  // pero un fallo real de red (agotado el `retry: 1` global, sin refetch automático — App.tsx) deja
+  // ambos en `undefined` para siempre, indistinguible de "sigue cargando": el effect nunca corre,
+  // `engagementLoaded` nunca pasa a true, y Guardar queda deshabilitado sin ninguna explicación. Sin
+  // el guard `!isEdit` a propósito — mismo criterio que `teamCandidatesError` (arriba): un fallo de
+  // catálogo importa igual o más en edición, donde el formulario entero queda sin poblar.
+  const engagementCatalogError = isEdit && (servicesError || societiesError);
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {
@@ -511,9 +519,17 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const [contractError, setContractError] = useState<string | null>(null);
   const [downloadingContract, setDownloadingContract] = useState(false);
 
+  // BUG 0922-195 (review H1, greptile): un cliente INACTIVO sigue siendo alcanzable por el
+  // deep-link "Nuevo Encargo" (ClientEngagementsTable.tsx solo lo gatea por engagement.create,
+  // no por is_active), y el efecto de hidratación de más abajo busca en `clients` sin filtrar —
+  // si ese cliente no aparece aquí, Radix no tiene <SelectItem> que empareje el value sembrado y
+  // lo silencia a vacío (operador: debe autocompletarse igual, editable a mano).
   const clientOptions = useMemo(
-    () => clients?.filter(c => c.is_active || c.client_id === engagement?.client_id) ?? [],
-    [clients, engagement?.client_id]
+    () =>
+      clients?.filter(
+        c => c.is_active || c.client_id === engagement?.client_id || c.client_id === initialClientId
+      ) ?? [],
+    [clients, engagement?.client_id, initialClientId]
   );
 
   // FEAT 0714-155 (review fix): unlike clients/taxonomies (fetched in full, filtered
@@ -1507,6 +1523,16 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         </Alert>
       )}
 
+      {/* BUG 0922-195 (review H2): fallo de allServices/societies en edición — mismo patrón que
+          teamCandidatesError arriba (sin guard !isEdit), para no dejar Guardar deshabilitado sin
+          ninguna explicación mientras el catálogo falló en vez de seguir cargando. */}
+      {engagementCatalogError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("messages.engagementCatalogLoadError")}</AlertDescription>
+        </Alert>
+      )}
+
       {/* BUG 0817-180: perfil incompleto para el creador restringido — fail-closed, con el
           detalle de qué falta en su ficha de personal. */}
       {missingProfileFields.length > 0 && (
@@ -1634,7 +1660,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                         // La sociedad la deriva el efecto de arriba, no este handler: derivar acá
                         // era de un solo disparo y no reintentaba si el catálogo de sociedades
                         // llegaba después (review fix, Greptile).
-                        onValueChange={field.onChange}
+                        // BUG 0922-195 (review H1): mismo blindaje que Sociedad/Práctica/Función
+                        // contra el "" espurio de Radix — sin esto, el `initialClientId` de un
+                        // cliente inactivo (visible ahora en clientOptions) se perdía apenas el
+                        // Select montaba, porque Radix dispara onValueChange("") cuando cree que
+                        // no hay ningún <SelectItem> que empareje el value todavía.
+                        onValueChange={(v) => { if (v !== "") field.onChange(v); }}
                         value={field.value}
                       >
                         <FormControl>
