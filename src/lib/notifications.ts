@@ -510,6 +510,12 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
 const TYPE_ROUTE_PERMISSION: Record<string, string> = {
   "timesheet.weekly_submitted": "timesheet_approval.read",
   "timesheet.team_submitted_for_approval": "timesheet_approval.read",
+  // 0923-209: los dos avisos sobre una solicitud/ejecución AJENA van a la cola de
+  // reversiones de /timesheet/approvals -- igual que los dos de envío de arriba.
+  // approval.reversal_rejected NO entra acá: su destino es la boleta PROPIA del
+  // solicitante, que cae al default del módulo (timesheet.read).
+  "approval.reversal_requested": "timesheet_approval.read",
+  "approval.reversal_executed": "timesheet_approval.read",
 };
 
 /**
@@ -627,6 +633,13 @@ export function notificationRoute(
         : null;
     }
     case "timesheet_approval": {
+      // 0923-209: los dos avisos AJENOS (alguien solicitó / el admin ejecutó una reversión)
+      // van a la cola de reversiones -- entity_id es el request_id (reversal_requested) o el
+      // period_id (reversal_executed), ninguno parametro de ruta, así que el destino es fijo.
+      if (event.type_key === "approval.reversal_requested"
+          || event.type_key === "approval.reversal_executed") {
+        return "/timesheet/approvals?tab=reversals";
+      }
       // El veredicto es sobre una linea MIA: el destino es mi hoja de tiempo, no la bandeja
       // de aprobaciones. `entity_id` es el approval_id, que no es parametro de ninguna ruta.
       return "/timesheet";

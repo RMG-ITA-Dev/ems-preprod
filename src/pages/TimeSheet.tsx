@@ -18,6 +18,8 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
+import { useRequestTimesheetReversal } from "@/hooks/useTimesheetReversals";
+import { TimesheetReversalDialog } from "@/components/timesheet/TimesheetReversalDialog";
 import { isTimesheetError } from "@/lib/timesheetErrors";
 import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
 import { countUnauthorizedEntries } from "@/lib/timesheetAssignmentAdvisory";
@@ -143,6 +145,7 @@ const TimeSheet = () => {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [showCopyBlockedDialog, setShowCopyBlockedDialog] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [showReversalDialog, setShowReversalDialog] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   
@@ -280,6 +283,7 @@ const TimeSheet = () => {
   // Mutations
   const submitTimesheet = useSubmitTimesheet();
   const unsubmitTimesheet = useUnsubmitTimesheet();
+  const requestReversal = useRequestTimesheetReversal();
   const copyPreviousWeek = useCopyPreviousWeek();
   const copyToCurrentWeek = useCopyToCurrentWeek();
   const queryClient = useQueryClient();
@@ -415,6 +419,14 @@ const TimeSheet = () => {
       || (!isFullyApproved && ((isCurrentWeek && isWithinEditableWindow) || hasRejectedLines))
     );
 
+  // 0923-209: exclusión mutua con "Retirar Envío" (decisión convivencia_con_retirar_envio).
+  // `!canUnsubmit` es lo que garantiza que nunca se vean los dos botones a la vez;
+  // `isFullyApproved` es lo que el paquete llama "boleta aprobada".
+  const canRequestReversal = isSubmitted
+    && !period?.is_period_locked
+    && isFullyApproved
+    && !canUnsubmit;
+
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
     && isWithinEditableWindow
@@ -492,6 +504,16 @@ const TimeSheet = () => {
   const handleUnsubmit = () => {
     if (!canUnsubmit || !period?.period_id) return;
     unsubmitTimesheet.mutate({ periodId: period.period_id });
+  };
+
+  // 0923-209: el colaborador siempre solicita alcance SEMANA sobre su propia boleta --
+  // esta pantalla no ofrece selector de alcance (decisión del operador, §i.1).
+  const handleRequestReversal = (reason: string) => {
+    if (!canRequestReversal || !period?.period_id) return;
+    requestReversal.mutate(
+      { periodId: period.period_id, scope: "week", engagementId: null, reason },
+      { onSuccess: () => setShowReversalDialog(false) }
+    );
   };
 
   // BUG #12: Handle copy previous week (guard BUG #0206-3)
@@ -899,6 +921,21 @@ const TimeSheet = () => {
               </Button>
             )}
 
+            {/* Request Reversal Button (0923-209) -- exclusión mutua con Unsubmit de arriba */}
+            {canRequestReversal && (
+              <Button
+                variant="outline"
+                onClick={() => setShowReversalDialog(true)}
+                disabled={requestReversal.isPending}
+              >
+                {requestReversal.isPending && (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                )}
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {t("timesheet.requestReversal")}
+              </Button>
+            )}
+
             {/* Save Draft Button (BUG #29 / BUG #0206-3) */}
             {canSaveDraft && (
               <Button
@@ -959,6 +996,13 @@ const TimeSheet = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <TimesheetReversalDialog
+        open={showReversalDialog}
+        onOpenChange={setShowReversalDialog}
+        onConfirm={handleRequestReversal}
+        isPending={requestReversal.isPending}
+      />
     </AppLayout>
   );
 };

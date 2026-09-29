@@ -332,6 +332,12 @@ run supabase/migrations/20260922120000_0722_160_administrative_engagements.sql
 # rls-0922-190-my-assignments-visibility.sql.
 run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
 
+# 0923-209: solicitar la reversión de boletas de horas aprobadas -- tabla
+# timesheet_reversal_requests + 3 RPC (request/execute/reject_timesheet_reversal) + 3 tipos
+# de notificación nuevos (approval.reversal_*). Ejercitado por
+# rpc-0923-209-timesheet-reversal.sql.
+run supabase/migrations/20260929160000_0923-209_timesheet_reversal_requests.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -385,5 +391,6 @@ assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT
 assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0923-209-timesheet-reversal.sql '0923-209 REVERSAL: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"

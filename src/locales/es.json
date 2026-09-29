@@ -1698,6 +1698,11 @@
     "deleteRowError": "Error al eliminar la fila. Se ha restaurado.",
     "activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
     "submitPairMismatch": "Error al enviar: las listas de encargos y actividades no coinciden. Por favor recargue e intente nuevamente.",
+    "requestReversal": "Solicitar reversión",
+    "reversalRequested": "Reversión solicitada",
+    "reversalReasonRequired": "Se requiere una razón",
+    "reversalDialogTitle": "Solicitar reversión",
+    "reversalDialogDescription": "Indique una razón. Un administrador revisará su solicitud.",
     "assignmentAdvisory": {
       "banner_one": "1 registro tiene horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
       "banner_other": "{{count}} registros tienen horas registradas fuera del período de asignación. Es solo informativo y no impide guardar ni enviar.",
@@ -2008,7 +2013,41 @@
     "budgetLabel": "Presupuesto",
     "remainingLabel": "rest",
     "budgetNA": "N/D",
-    "rejectionNote": "Nota de rechazo:"
+    "rejectionNote": "Nota de rechazo:",
+    "tabs": {
+      "pending": "Pendientes de aprobación",
+      "approved": "Aprobadas",
+      "myRequests": "Mis solicitudes",
+      "reversalQueue": "Solicitudes de reversión"
+    },
+    "revert": "Revertir",
+    "requestReversal": "Solicitar reversión",
+    "rejectRequest": "Rechazar",
+    "executeRequest": "Ejecutar",
+    "reversalExecuted": "Reversión ejecutada",
+    "reversalRejected": "Solicitud rechazada",
+    "reversalScope": {
+      "engagement": "Encargo",
+      "week": "Semana completa"
+    },
+    "reversalStatus": {
+      "pending": "Pendiente",
+      "executed": "Ejecutada",
+      "rejected": "Rechazada"
+    },
+    "reversalErrors": {
+      "notFullyApproved": "Esta semana no está completamente aprobada.",
+      "nothingApproved": "No hay líneas aprobadas para este encargo.",
+      "badScope": "Alcance de reversión inválido.",
+      "reasonRequired": "Se requiere una razón.",
+      "notSubmitted": "Esta semana no fue enviada.",
+      "periodLocked": "Esta semana está bloqueada y no puede revertirse.",
+      "notAuthorized": "No está autorizado para solicitar esta reversión.",
+      "alreadyRequested": "Ya existe una solicitud abierta para este destino.",
+      "notAdmin": "Solo un administrador puede ejecutar una reversión.",
+      "notPending": "Esta solicitud ya no está pendiente.",
+      "rejectNotesRequired": "Se requiere una razón para rechazar la solicitud."
+    }
   },
   "auth": {
     "signIn": "Iniciar Sesión",
@@ -2282,7 +2321,10 @@
         "line_approved": "{{reviewer}} aprobó tu línea de tiempo",
         "line_rejected": "{{reviewer}} rechazó tu línea de tiempo",
         "revision_requested": "Te pidieron revisar tu línea de tiempo",
-        "training_pending": "Capacitaciones por aprobar"
+        "training_pending": "Capacitaciones por aprobar",
+        "reversal_requested": "Se solicitó la reversión de una boleta",
+        "reversal_executed": "Se ejecutó la reversión de una boleta",
+        "reversal_rejected": "Tu solicitud de reversión fue rechazada"
       },
       "auth": {
         "user": {

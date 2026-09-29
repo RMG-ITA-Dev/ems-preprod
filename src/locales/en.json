@@ -1698,6 +1698,11 @@
     "deleteRowError": "Failed to delete row. It has been restored.",
     "activityChangeError": "Failed to update activity. Change has been reverted.",
     "submitPairMismatch": "Submit failed: engagement and activity lists do not match. Please reload and try again.",
+    "requestReversal": "Request Reversal",
+    "reversalRequested": "Reversal requested",
+    "reversalReasonRequired": "A reason is required",
+    "reversalDialogTitle": "Request Reversal",
+    "reversalDialogDescription": "Provide a reason. An administrator will review your request.",
     "assignmentAdvisory": {
       "banner_one": "1 entry has hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
       "banner_other": "{{count}} entries have hours logged outside the assignment period. This is informational only and does not block saving or submitting.",
@@ -2008,7 +2013,41 @@
     "budgetLabel": "Budget",
     "remainingLabel": "rem",
     "budgetNA": "N/A",
-    "rejectionNote": "Rejection note:"
+    "rejectionNote": "Rejection note:",
+    "tabs": {
+      "pending": "Pending Approval",
+      "approved": "Approved",
+      "myRequests": "My Requests",
+      "reversalQueue": "Reversal Requests"
+    },
+    "revert": "Revert",
+    "requestReversal": "Request Reversal",
+    "rejectRequest": "Reject",
+    "executeRequest": "Execute",
+    "reversalExecuted": "Reversal executed",
+    "reversalRejected": "Request rejected",
+    "reversalScope": {
+      "engagement": "Engagement",
+      "week": "Full week"
+    },
+    "reversalStatus": {
+      "pending": "Pending",
+      "executed": "Executed",
+      "rejected": "Rejected"
+    },
+    "reversalErrors": {
+      "notFullyApproved": "This week is not fully approved.",
+      "nothingApproved": "There are no approved lines for this engagement.",
+      "badScope": "Invalid reversal scope.",
+      "reasonRequired": "A reason is required.",
+      "notSubmitted": "This week was not submitted.",
+      "periodLocked": "This week is locked and cannot be reverted.",
+      "notAuthorized": "You are not authorized to request this reversal.",
+      "alreadyRequested": "There is already an open request for this destination.",
+      "notAdmin": "Only administrators can execute a reversal.",
+      "notPending": "This request is no longer pending.",
+      "rejectNotesRequired": "A reason is required to reject the request."
+    }
   },
   "auth": {
     "signIn": "Sign In",
@@ -2282,7 +2321,10 @@
         "line_approved": "{{reviewer}} approved your time line",
         "line_rejected": "{{reviewer}} rejected your time line",
         "revision_requested": "A revision was requested on your time line",
-        "training_pending": "Training approvals pending"
+        "training_pending": "Training approvals pending",
+        "reversal_requested": "A timesheet reversal was requested",
+        "reversal_executed": "A timesheet reversal was executed",
+        "reversal_rejected": "Your reversal request was rejected"
       },
       "auth": {
         "user": {

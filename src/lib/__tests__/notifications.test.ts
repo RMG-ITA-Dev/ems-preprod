@@ -628,6 +628,25 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e, () => false)).toBeNull();
   });
 
+  it("0923-209: solicitar/ejecutar una reversion va a la cola de reversiones, exigiendo timesheet_approval.read", () => {
+    const requested = { ...event("n1", "timesheet_approval"),
+                         type_key: "approval.reversal_requested", entity_id: "req-1" };
+    const executed = { ...event("n2", "timesheet_approval"),
+                        type_key: "approval.reversal_executed", entity_id: "per-1" };
+    expect(notificationRoute(requested, (p) => p === "timesheet.read")).toBeNull();
+    expect(notificationRoute(requested, (p) => p === "timesheet_approval.read"))
+      .toBe("/timesheet/approvals?tab=reversals");
+    expect(notificationRoute(executed, (p) => p === "timesheet_approval.read"))
+      .toBe("/timesheet/approvals?tab=reversals");
+  });
+
+  it("0923-209: el rechazo de MI solicitud cae al default del modulo (timesheet.read), no timesheet_approval.read", () => {
+    const e = { ...event("n1", "timesheet_approval"), type_key: "approval.reversal_rejected",
+                entity_id: "req-2" };
+    expect(notificationRoute(e, (p) => p === "timesheet.read")).toBe("/timesheet");
+    expect(notificationRoute(e, (p) => p === "timesheet_approval.read")).toBeNull();
+  });
+
   it("el timer cerrado solo lleva a ESE registro del tracker (FASE 3.d)", () => {
     const e = { ...event("n1", "tracker"), type_key: "tracker.timer.auto_stopped",
                 entity_id: "timer-4" };
