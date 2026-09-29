@@ -112,9 +112,12 @@ let societiesData: typeof mockSocieties | undefined = mockSocieties;
 // undefined-then-resolved pattern above, so default to false for Tests 1-4.
 let servicesIsError = false;
 let societiesIsError = false;
+// BUG 0922-195 (review H4): same idea, now for clients — Test 6 below drives this independently
+// of the undefined-then-resolved pattern of Tests 1/3, so default to false for Tests 1-5.
+let clientsIsError = false;
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: clientsData }),
+  useClients: () => ({ data: clientsData, isError: clientsIsError }),
   useServices: () => ({ data: servicesData, isLoading: servicesData === undefined && !servicesIsError, isFetching: false, isError: servicesIsError }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
   useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined && !societiesIsError, isFetching: false, isError: societiesIsError }),
@@ -198,6 +201,7 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     societiesData = mockSocieties;
     servicesIsError = false;
     societiesIsError = false;
+    clientsIsError = false;
   });
 
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {
@@ -337,6 +341,21 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     });
     // Since the populate effect never ran for this engagement, Guardar stays disabled — same
     // outcome as before, but now with a visible explanation instead of a silent freeze.
+    expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H4, chatgpt-codex-connector): Test 5's fix only covered
+  // services/societies — useClients() is the same kind of populate-effect prerequisite, and a
+  // genuine failure there left the exact same silent freeze uncovered.
+  it("Test 6 (BUG #0922-195): a clients load failure in edit mode also shows an explicit error", async () => {
+    clientsData = undefined;
+    clientsIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
+    });
     expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
   });
 });

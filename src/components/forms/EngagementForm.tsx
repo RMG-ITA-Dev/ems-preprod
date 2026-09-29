@@ -359,7 +359,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     (savedEffectiveState === EngagementState.Cancelado ||
       savedEffectiveState === EngagementState.Finalizado);
 
-  const { data: clients } = useClients();
+  const { data: clients, isError: clientsError } = useClients();
   // Review fix (Codex): hr_manager/hr_analyst have engagement.create but not client.read, so
   // useClients() above returns nothing for them. This narrow RPC exposes only the two controlled
   // internal clients regardless of client.read — see administrativeClientOptions below.
@@ -425,16 +425,27 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // en `undefined`, indistinguible de una ficha real incompleta. Se separa para no decirle al
   // usuario "te falta un dato en tu ficha" cuando en realidad fue un fallo de carga — mismo
   // criterio que `teamCandidatesError` para el bloque Equipo.
+  // BUG 0922-195 (review H3, chatgpt-codex-connector): faltaba `societiesError` acá — `profileLoading`
+  // ya sumaba societiesLoading/societiesFetching, pero un fallo real de useSocieties() (no "sigue
+  // cargando") dejaba profileError en false, y como derivedSocietyId sale de staffRecord (no del
+  // catálogo), missingProfileFields tampoco lo detectaba: profileBlocksCreation quedaba en false y
+  // Guardar se habilitaba con Sociedad vacía/deshabilitada y sin ningún aviso.
   const profileError =
-    !isEdit && !canChooseProfileScopeFreely && (roleError || currentStaffError || servicesError);
+    !isEdit &&
+    !canChooseProfileScopeFreely &&
+    (roleError || currentStaffError || servicesError || societiesError);
   // BUG 0922-195 (review H2, chatgpt-codex-connector): en edición, el gate del populate effect de
-  // más abajo espera a `allServices`/`societies` (evita el mismo race del catálogo que Defecto 1),
-  // pero un fallo real de red (agotado el `retry: 1` global, sin refetch automático — App.tsx) deja
-  // ambos en `undefined` para siempre, indistinguible de "sigue cargando": el effect nunca corre,
-  // `engagementLoaded` nunca pasa a true, y Guardar queda deshabilitado sin ninguna explicación. Sin
-  // el guard `!isEdit` a propósito — mismo criterio que `teamCandidatesError` (arriba): un fallo de
-  // catálogo importa igual o más en edición, donde el formulario entero queda sin poblar.
-  const engagementCatalogError = isEdit && (servicesError || societiesError);
+  // más abajo espera a `clients`/`allServices`/`societies` (evita el mismo race del catálogo que
+  // Defecto 1), pero un fallo real de red (agotado el `retry: 1` global, sin refetch automático —
+  // App.tsx) deja cualquiera de los tres en `undefined` para siempre, indistinguible de "sigue
+  // cargando": el effect nunca corre, `engagementLoaded` nunca pasa a true, y Guardar queda
+  // deshabilitado sin ninguna explicación. Sin el guard `!isEdit` a propósito — mismo criterio que
+  // `teamCandidatesError` (arriba): un fallo de catálogo importa igual o más en edición, donde el
+  // formulario entero queda sin poblar.
+  // BUG 0922-195 (review H4): se suma `clientsError` — H2 solo cubría services/societies y dejaba
+  // el mismo síntoma (formulario congelado sin aviso) si la que fallaba era useClients(), otro
+  // prerequisito del mismo populate effect y del mismo guard de Guardar.
+  const engagementCatalogError = isEdit && (clientsError || servicesError || societiesError);
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {

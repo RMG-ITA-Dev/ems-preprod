@@ -94,11 +94,17 @@ const stableCategories: never[] = [];
 // in EngagementForm.hydration-race.test.tsx. Reset to `stableClients` in every beforeEach so the
 // pre-existing tests in this file (synchronous by assumption) are unaffected.
 let clientsData: typeof stableClients | undefined = stableClients;
+// BUG 0922-195 (review H3): mutable on purpose — lets one test simulate useSocieties() failing
+// (exhausted retries), distinct from "still loading".
+let societiesIsError = false;
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: clientsData }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({
+    data: societiesIsError ? undefined : mockSocieties,
+    isError: societiesIsError,
+  }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -193,6 +199,7 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     mockStaffRecord = restrictedStaff;
     mockStaffLoading = false;
     clientsData = stableClients;
+    societiesIsError = false;
   });
 
   it("creador restringido: sociedad/práctica/oficina se derivan de la ficha (Sociedad A / Tax code 3 / oficina 2)", async () => {
@@ -212,6 +219,20 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled();
     expect(screen.getByLabelText(/engagement\.practica/)).toBeDisabled();
     expect(screen.getByLabelText(/engagement\.oficina/)).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H3, chatgpt-codex-connector): profileError no incluía societiesError —
+  // un fallo real de useSocieties() (no "sigue cargando") dejaba Sociedad vacía/deshabilitada
+  // pero profileBlocksCreation en false, así que Crear Encargo quedaba habilitado sin ningún
+  // aviso del error de catálogo.
+  it("fallo de useSocieties() muestra el aviso de error y bloquea Crear Encargo (BUG 0922-195)", async () => {
+    societiesIsError = true;
+    render(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.profileLoadError")).toBeInTheDocument();
+    });
+    expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
   });
 
   it("la siembra no marca el formulario como sucio", async () => {
