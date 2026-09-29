@@ -450,4 +450,20 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     expect(screen.queryByText("messages.engagementCatalogLoadError")).not.toBeInTheDocument();
     expect(screen.getByText("common.saveChanges").closest("button")).not.toBeDisabled();
   });
+
+  // BUG 0922-195 (review H11, greptile): Test 9's fix used `=== undefined`, which doesn't cover a
+  // catalog cached as an empty array — a background refetch failure with `[]` in cache silently
+  // hid the alert even though the dependent field has zero selectable options.
+  it("Test 10 (BUG #0922-195): a background refetch failure with an EMPTY cached catalog still shows the load-error alert", async () => {
+    clientsData = stableClients;
+    servicesData = mockServices;
+    societiesData = [];
+    societiesIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("messages.engagementCatalogLoadError")).toBeInTheDocument();
+    });
+  });
 });

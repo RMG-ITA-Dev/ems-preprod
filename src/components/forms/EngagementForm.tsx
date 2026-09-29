@@ -457,11 +457,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // del populate effect de abajo no revisa estos flags de error, así que si el catálogo sigue en
   // caché la hidratación funciona igual y Guardar se habilita — pero este Alert se mostraba de
   // todas formas, por revisar solo el error sin considerar si el dato está disponible.
+  // BUG 0922-195 (review H11, greptile): `=== undefined` no cubre un catálogo cacheado como array
+  // vacío (`[]`) — un refresco fallido con `[]` en caché ocultaba el aviso pese a que el campo
+  // dependiente no tiene ninguna opción seleccionable. `!x?.length` cubre ambos casos.
   const engagementCatalogError =
     isEdit &&
-    ((clientsError && clients === undefined) ||
-      (servicesError && allServices === undefined) ||
-      (societiesError && societies === undefined));
+    ((clientsError && !clients?.length) ||
+      (servicesError && !allServices?.length) ||
+      (societiesError && !societies?.length));
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {
