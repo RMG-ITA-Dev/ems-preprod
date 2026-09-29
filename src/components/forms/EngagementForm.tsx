@@ -799,6 +799,16 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // del usuario — `!administrativeMode` porque esa función deriva Cliente de
   // `administrativeClientOptions` (la RPC de clientes internos controlados), una fuente distinta
   // de `clients`, donde este `initialClientId` externo no tiene sentido.
+  // BUG 0922-195 (review H6, investigado pero NO resuelto acá — ver nota en review.md): el bot
+  // señaló que `setValue(..., { shouldDirty: false })` no actualiza la baseline de RHF, así que
+  // una recomputación posterior de isDirty (mismo mecanismo de #0819-181) podría encontrar
+  // client_id distinto de su default. Comprobado con un diagnóstico dirigido: el mismo síntoma ya
+  // existe HOY, sin ningún cambio de esta rama, para la siembra de sociedad/práctica/oficina de un
+  // creador restringido (líneas ~725-731, mismo patrón `shouldDirty: false`) — es una limitación
+  // preexistente y transversal a TODO el formulario, no algo introducido ni corregible acá sin
+  // rediseñar el tracking de dirty de todos los campos sembrados por el sistema. Se mantiene
+  // `setValue` (mismo patrón que el resto del archivo) en vez de `resetField`/`reset`, que se
+  // probaron y no lo resuelven tampoco (confirmado empíricamente) y solo agregan riesgo.
   useEffect(() => {
     if (isEdit || administrativeMode || !initialClientId || initialClientHydratedRef.current) return;
     if (!clients?.some((c) => c.client_id === initialClientId)) return;
@@ -2050,7 +2060,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     )}
                     {isAdmin && !isAdministrativeFunction && (
                       <div className="flex items-center gap-2 pt-1">
-                        <Switch checked={overrideOn} onCheckedChange={handleOverrideToggle} />
+                        {/* BUG 0922-195 (review H7): deshabilitado mientras isEdit && !engagementLoaded
+                            — keepDirtyValues (H5) protege los campos de RHF, pero este switch vive en
+                            useState y lo pisa el mismo populate effect en cuanto el catálogo resuelve. */}
+                        <Switch
+                          checked={overrideOn}
+                          onCheckedChange={handleOverrideToggle}
+                          disabled={isEdit && !engagementLoaded}
+                        />
                         <span className="text-xs text-muted-foreground">{t("engagement.fiscalYearOverride")}</span>
                       </div>
                     )}
@@ -2300,7 +2317,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                       {t(isAdministrativeFunction ? "engagement.workOrderRequiredAdministrativeHelp" : "engagement.workOrderRequiredHelp")}
                     </p>
                   </div>
-                  <Switch checked={workOrderRequired} onCheckedChange={setWorkOrderRequired} disabled={!isAdmin} />
+                  {/* BUG 0922-195 (review H7): deshabilitado mientras isEdit && !engagementLoaded —
+                      este switch vive en useState (fuera de RHF), así que keepDirtyValues (H5) no
+                      lo protege del populate effect que lo pisa apenas el catálogo resuelve. */}
+                  <Switch
+                    checked={workOrderRequired}
+                    onCheckedChange={setWorkOrderRequired}
+                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -2314,7 +2338,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     <p className="text-sm font-medium">{t("engagement.isInternal")}</p>
                     <p className="text-xs text-muted-foreground">{t("engagement.isInternalHelp")}</p>
                   </div>
-                  <Switch checked={effectiveIsInternal} onCheckedChange={setIsInternal} disabled={!isAdmin || isAdministrativeFunction} />
+                  {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
+                  <Switch
+                    checked={effectiveIsInternal}
+                    onCheckedChange={setIsInternal}
+                    disabled={!isAdmin || isAdministrativeFunction || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -2323,7 +2352,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                       {t(isAdministrativeFunction ? "engagement.approvalRequiredAdministrativeHelp" : "engagement.approvalRequiredHelp")}
                     </p>
                   </div>
-                  <Switch checked={approvalRequired} onCheckedChange={setApprovalRequired} disabled={!isAdmin} />
+                  {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
+                  <Switch
+                    checked={approvalRequired}
+                    onCheckedChange={setApprovalRequired}
+                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                  />
                 </div>
                 </div>
                 </div>

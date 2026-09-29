@@ -145,8 +145,13 @@ vi.mock("@/hooks/mutations", () => ({
   useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
 
+// BUG 0922-195 (review H7): roleKey mutable on purpose — Test 8 below needs "admin" (EngagementForm's
+// `isAdmin` derives from `roleKey === "admin"`, not from a separate isAdmin hook) to exercise the
+// policy switches (only rendered/interactive for admin). Default "manager" so Tests 1-7 (unaware of
+// this bug) keep seeing the pre-existing behavior.
+let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "manager" }),
+  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
@@ -202,6 +207,7 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     servicesIsError = false;
     societiesIsError = false;
     clientsIsError = false;
+    mockRoleKey = "manager";
   });
 
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {
@@ -393,6 +399,35 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     expect(nameInput).toHaveValue("Encargo en revision");
     await waitFor(() => {
       expect(onDirtyChange.mock.calls.at(-1)).toEqual([true]);
+    });
+  });
+
+  // BUG 0922-195 (review H7, chatgpt-codex-connector): the four policy switches (OT Requerida,
+  // Interno, Aprobación Requerida, override de Año Fiscal) live in useState, not react-hook-form
+  // — Test 7's keepDirtyValues fix (H5) doesn't reach them, so the same populate effect still
+  // overwrote them in silence if an admin toggled one while services/societies were pending.
+  // Verifies they're disabled during that window instead (same gate as the Guardar button).
+  it("Test 8 (BUG #0922-195): the policy switches (useState, not RHF) are disabled during the pending catalog window in edit mode", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    mockRoleKey = "admin";
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} />);
+
+    // DOM order (see EngagementForm.tsx): the fiscal-year override switch only renders when
+    // `!isAdministrativeFunction`, and mockEngagement.funcion (0) !== FUNCION_CLIENTE (1), so this
+    // fixture IS an administrative-function engagement — that switch is absent here, making
+    // [0] OT Requerida, [1] Actividad Requerida (always disabled, unrelated), [2] Interno (always
+    // disabled too, forced by isAdministrativeFunction), [3] Aprobación Requerida.
+    const workOrderSwitch = screen.getAllByRole("switch")[0];
+    expect(workOrderSwitch).toBeDisabled();
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("switch")[0]).not.toBeDisabled();
     });
   });
 });
