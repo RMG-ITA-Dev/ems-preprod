@@ -430,4 +430,24 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
       expect(screen.getAllByRole("switch")[0]).not.toBeDisabled();
     });
   });
+
+  // BUG 0922-195 (review H10, chatgpt-codex-connector): `engagementCatalogError` (H2/H4) only
+  // checked the error flags, not whether the corresponding data was actually unavailable — a
+  // background refetch failure with a still-valid cached catalog (TanStack Query keeps `data`
+  // from the last successful fetch, see query.ts) showed the destructive "could not load" alert
+  // even though hydration succeeded and Guardar was enabled.
+  it("Test 9 (BUG #0922-195): a background refetch failure with a still-cached catalog does not show the load-error alert", async () => {
+    clientsData = stableClients;
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    societiesIsError = true;
+
+    render(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(screen.queryByText("messages.engagementCatalogLoadError")).not.toBeInTheDocument();
+    expect(screen.getByText("common.saveChanges").closest("button")).not.toBeDisabled();
+  });
 });

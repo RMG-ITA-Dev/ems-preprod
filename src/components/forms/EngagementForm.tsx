@@ -451,7 +451,17 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // BUG 0922-195 (review H4): se suma `clientsError` — H2 solo cubría services/societies y dejaba
   // el mismo síntoma (formulario congelado sin aviso) si la que fallaba era useClients(), otro
   // prerequisito del mismo populate effect y del mismo guard de Guardar.
-  const engagementCatalogError = isEdit && (clientsError || servicesError || societiesError);
+  // BUG 0922-195 (review H10, chatgpt-codex-connector): mismo criterio que H8 (profileError) —
+  // `isError` no implica "sin catálogo utilizable" (TanStack Query conserva `data` de la última
+  // carga exitosa aunque un refresco en segundo plano falle, ver query-core/src/query.ts). El gate
+  // del populate effect de abajo no revisa estos flags de error, así que si el catálogo sigue en
+  // caché la hidratación funciona igual y Guardar se habilita — pero este Alert se mostraba de
+  // todas formas, por revisar solo el error sin considerar si el dato está disponible.
+  const engagementCatalogError =
+    isEdit &&
+    ((clientsError && clients === undefined) ||
+      (servicesError && allServices === undefined) ||
+      (societiesError && societies === undefined));
   const missingProfileFields: string[] = [];
   if (!isEdit && !canChooseProfileScopeFreely && !profileLoading && !profileError) {
     if (!staffRecord?.staff_id) {
