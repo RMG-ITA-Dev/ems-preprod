@@ -36,6 +36,21 @@ const backfillMappings = (): string[] => {
   ).map((match) => `${match[1]} / ${match[2]} / ${match[3]}`);
 };
 
+// cero_11 nunca se corrige (mismo motivo que fecha_local_current_date.sql no
+// toca cero_02: hay ambientes que ya lo corrieron con ledger, y editarlo no
+// les llega). Estas 3 categorías de Auditoría / Especialista IT quedaron con
+// "IT" en cero_11 pero el nombre vigente en toda la app (role_key ita_*,
+// es.json, plantillas de correo, y los datos reales de Dev 2.0/Test) es
+// "ITA" — 0820-182 es la fuente vigente para esas 3 filas, no cero_11.
+const KNOWN_SEED_DIVERGENCE: Record<string, string> = {
+  "Auditoría / Gerente - Especialista IT / specialist_it":
+    "Auditoría / Gerente - Especialista ITA / specialist_it",
+  "Auditoría / Senior - Especialista IT / senior":
+    "Auditoría / Senior - Especialista ITA / senior",
+  "Auditoría / Asistente - Especialista IT / staff":
+    "Auditoría / Asistente - Especialista ITA / staff",
+};
+
 const seededMappings = (): string[] => {
   const start = practiceSeedSql.indexOf("-- 2. Categories");
   const end = practiceSeedSql.indexOf("-- 3. Activity codes", start);
@@ -48,11 +63,14 @@ const seededMappings = (): string[] => {
       .matchAll(
         /\('([A-Z]{3})',\s*'([^']+)',\s*\d+,\s*(?:true|false),\s*(?:true|false),\s*[\d.]+,\s*[\d.]+,\s*[\d.]+,\s*[\d.]+,\s*'([a-z_]+)'\)/g,
       ),
-  ).map((match) => `${practiceNames[match[1]]} / ${match[2]} / ${match[3]}`);
+  ).map((match) => {
+    const key = `${practiceNames[match[1]]} / ${match[2]} / ${match[3]}`;
+    return KNOWN_SEED_DIVERGENCE[key] ?? key;
+  });
 };
 
 describe("0820-182 — backfill de default_app_role por práctica/categoría", () => {
-  it("cubre exactamente las 61 categorías del catálogo semilla", () => {
+  it("cubre exactamente las 61 categorías del catálogo semilla, salvo el desvío conocido de Especialista ITA", () => {
     expect(backfillMappings()).toHaveLength(61);
     expect([...backfillMappings()].sort()).toEqual([...seededMappings()].sort());
   });
@@ -88,8 +106,8 @@ describe("0820-182 — backfill de default_role_key para la UI", () => {
 
   it("traduce los valores legacy a los role_key del catálogo", () => {
     expect(migrationSql).toContain("WHEN d.default_app_role = 'staff' THEN 'assistant'");
-    expect(migrationSql).toContain("'Senior - Especialista IT' THEN 'ita_senior'");
-    expect(migrationSql).toContain("'Asistente - Especialista IT' THEN 'ita_assistant'");
+    expect(migrationSql).toContain("'Senior - Especialista ITA' THEN 'ita_senior'");
+    expect(migrationSql).toContain("'Asistente - Especialista ITA' THEN 'ita_assistant'");
     expect(migrationSql).toContain("'Senior - Especialista Tax' THEN 'tax_senior'");
     expect(migrationSql).toContain("'Asistente - Especialista Tax' THEN 'tax_assistant'");
   });

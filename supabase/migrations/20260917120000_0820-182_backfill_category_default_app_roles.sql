@@ -17,6 +17,17 @@
 -- el mismo valor. Si faltara una práctica/categoría esperada, aborta en vez de
 -- actualizar un subconjunto silenciosamente.
 --
+-- Las 3 categorías de Auditoría / Especialista IT usan acá "ITA" (no "IT" como
+-- en cero_11): Dev 2.0 ya tenía esas 3 filas con "ITA" de prototipado manual
+-- previo al seed, y el resto de la app usa "ITA" de forma consistente
+-- (role_key ita_manager/ita_senior/ita_assistant, src/locales/es.json,
+-- plantillas de correo) — "IT" en cero_11 es el nombre desactualizado. No se
+-- corrige cero_11 mismo motivo que fecha_local_current_date.sql no toca
+-- cero_02: hay ambientes que lo corrieron con ledger (supabase db push), así
+-- que un push posterior lo saltea y nunca recogería el cambio, y el archivo
+-- queda como registro histórico de lo que realmente se aplicó. Esta migración
+-- pasa a ser la fuente vigente para esas 3 categorías.
+--
 -- Despliegue: supabase db push --project-ref <ref>
 -- =====================================================================
 
@@ -41,9 +52,9 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Auditoría', 'Semi-Senior', 'semisenior'),
   ('Auditoría', 'Asistente', 'staff'),
   ('Auditoría', 'Pasante', 'staff'),
-  ('Auditoría', 'Gerente - Especialista IT', 'specialist_it'),
-  ('Auditoría', 'Senior - Especialista IT', 'senior'),
-  ('Auditoría', 'Asistente - Especialista IT', 'staff'),
+  ('Auditoría', 'Gerente - Especialista ITA', 'specialist_it'),
+  ('Auditoría', 'Senior - Especialista ITA', 'senior'),
+  ('Auditoría', 'Asistente - Especialista ITA', 'staff'),
   ('Auditoría', 'Gerente - Especialista Tax', 'specialist_tax'),
   ('Auditoría', 'Senior - Especialista Tax', 'senior'),
   ('Auditoría', 'Asistente - Especialista Tax', 'staff'),
@@ -117,6 +128,51 @@ UPDATE _0820_182_category_role_defaults
 ALTER TABLE _0820_182_category_role_defaults
   ALTER COLUMN practice_code SET NOT NULL;
 
+-- Renombra las 3 categorías de Auditoría / Especialista IT a "ITA" si todavía
+-- existen con el nombre viejo de cero_11 -- un reset limpio (CI consolidated-
+-- replay, o cualquier ambiente sembrado solo por migraciones) las siembra así,
+-- porque cero_11 nunca se edita (ver comentario de arriba). Es un no-op donde
+-- ya se llaman "ITA" (Dev 2.0, prototipado manual previo al seed), así que el
+-- join de más abajo matchea sin importar de qué estado parte el ambiente.
+--
+-- Guardia previa: si por drift manual un ambiente llegara a tener AMBAS
+-- variantes (IT e ITA) para la misma categoría, el UPDATE de abajo chocaría
+-- con la unique constraint (practica_id, category_name) y abortaría con un
+-- error crudo de Postgres. Se detecta antes y se aborta con un mensaje
+-- diagnosticable, mismo criterio que el resto del archivo (nunca fallar en
+-- silencio ni con un error críptico).
+DO $$
+DECLARE
+  v_conflicts text;
+BEGIN
+  SELECT string_agg(c.category_name, ', ')
+    INTO v_conflicts
+    FROM public.categories c
+    JOIN public.practicas p ON p.practica_id = c.practica_id AND p.code = 1
+   WHERE c.category_name IN (
+     'Gerente - Especialista IT', 'Senior - Especialista IT', 'Asistente - Especialista IT'
+   )
+     AND EXISTS (
+       SELECT 1 FROM public.categories c2
+        WHERE c2.practica_id = c.practica_id
+          AND c2.category_name = replace(c.category_name, 'Especialista IT', 'Especialista ITA')
+     );
+
+  IF v_conflicts IS NOT NULL THEN
+    RAISE EXCEPTION '0820-182: existen ambas variantes IT/ITA para %, revisar manualmente antes de continuar', v_conflicts;
+  END IF;
+END;
+$$;
+
+UPDATE public.categories c
+   SET category_name = replace(c.category_name, 'Especialista IT', 'Especialista ITA')
+  FROM public.practicas p
+ WHERE c.practica_id = p.practica_id
+   AND p.code = 1
+   AND c.category_name IN (
+     'Gerente - Especialista IT', 'Senior - Especialista IT', 'Asistente - Especialista IT'
+   );
+
 DO $$
 DECLARE
   v_expected_count integer;
@@ -174,9 +230,9 @@ BEGIN
   UPDATE public.categories c
      SET default_app_role = d.default_app_role,
          default_role_key = COALESCE(c.default_role_key, CASE
-           WHEN d.category_name = 'Gerente - Especialista IT' THEN 'ita_manager'
-           WHEN d.category_name = 'Senior - Especialista IT' THEN 'ita_senior'
-           WHEN d.category_name = 'Asistente - Especialista IT' THEN 'ita_assistant'
+           WHEN d.category_name = 'Gerente - Especialista ITA' THEN 'ita_manager'
+           WHEN d.category_name = 'Senior - Especialista ITA' THEN 'ita_senior'
+           WHEN d.category_name = 'Asistente - Especialista ITA' THEN 'ita_assistant'
            WHEN d.category_name = 'Gerente - Especialista Tax' THEN 'tax_manager'
            WHEN d.category_name = 'Senior - Especialista Tax' THEN 'tax_senior'
            WHEN d.category_name = 'Asistente - Especialista Tax' THEN 'tax_assistant'
