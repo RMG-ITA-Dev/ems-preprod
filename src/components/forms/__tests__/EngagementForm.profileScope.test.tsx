@@ -97,12 +97,18 @@ let clientsData: typeof stableClients | undefined = stableClients;
 // BUG 0922-195 (review H3): mutable on purpose — lets one test simulate useSocieties() failing
 // (exhausted retries), distinct from "still loading".
 let societiesIsError = false;
+// BUG 0922-195 (review H8): decoupled from societiesIsError on purpose — TanStack Query keeps
+// `data` from the last successful fetch even when a later background refetch fails (verified in
+// query-core/src/query.ts: the 'error' reducer case never touches `data`), so a test needs to be
+// able to set isError:true WITH data still populated (stale-but-valid cache survives a failed
+// background refresh). Defaults to mockSocieties so existing tests are unaffected.
+let societiesDataForMock: typeof mockSocieties | undefined = mockSocieties;
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: clientsData }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
   useSocieties: () => ({
-    data: societiesIsError ? undefined : mockSocieties,
+    data: societiesDataForMock,
     isError: societiesIsError,
   }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
@@ -200,6 +206,7 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     mockStaffLoading = false;
     clientsData = stableClients;
     societiesIsError = false;
+    societiesDataForMock = mockSocieties;
   });
 
   it("creador restringido: sociedad/práctica/oficina se derivan de la ficha (Sociedad A / Tax code 3 / oficina 2)", async () => {
@@ -225,14 +232,31 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
   // un fallo real de useSocieties() (no "sigue cargando") dejaba Sociedad vacía/deshabilitada
   // pero profileBlocksCreation en false, así que Crear Encargo quedaba habilitado sin ningún
   // aviso del error de catálogo.
-  it("fallo de useSocieties() muestra el aviso de error y bloquea Crear Encargo (BUG 0922-195)", async () => {
+  it("fallo de useSocieties() sin catálogo utilizable muestra el aviso de error y bloquea Crear Encargo (BUG 0922-195)", async () => {
     societiesIsError = true;
+    societiesDataForMock = undefined;
     render(<EngagementForm />);
 
     await waitFor(() => {
       expect(screen.getByText("messages.profileLoadError")).toBeInTheDocument();
     });
     expect(screen.getByText("engagement.createEngagement").closest("button")).toBeDisabled();
+  });
+
+  // BUG 0922-195 (review H8, greptile): un refresco en segundo plano fallido de useSocieties() deja
+  // isError:true SIN borrar el catálogo ya cargado (TanStack Query conserva `data` de la última
+  // carga exitosa — verificado en query-core/src/query.ts, el reducer del caso 'error' nunca toca
+  // `data`). Antes del fix, esto bloqueaba igual la creación aunque Sociedad A siguiera disponible.
+  it("fallo de useSocieties() con catálogo aún en caché NO bloquea Crear Encargo (BUG 0922-195)", async () => {
+    societiesIsError = true;
+    societiesDataForMock = mockSocieties;
+    render(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Sociedad A");
+    });
+    expect(screen.queryByText("messages.profileLoadError")).not.toBeInTheDocument();
+    expect(screen.getByText("engagement.createEngagement").closest("button")).not.toBeDisabled();
   });
 
   it("la siembra no marca el formulario como sucio", async () => {

@@ -430,10 +430,16 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // cargando") dejaba profileError en false, y como derivedSocietyId sale de staffRecord (no del
   // catálogo), missingProfileFields tampoco lo detectaba: profileBlocksCreation quedaba en false y
   // Guardar se habilitaba con Sociedad vacía/deshabilitada y sin ningún aviso.
+  // BUG 0922-195 (review H8, greptile): `isError` de TanStack Query no implica "sin catálogo
+  // utilizable" — el reducer del caso 'error' (query-core/src/query.ts) deja `status: 'error'` SIN
+  // tocar `data`, así que un refresco en segundo plano fallido deja `societiesError: true` con
+  // `societies` todavía poblado de la carga anterior. Por eso, a diferencia de
+  // roleError/currentStaffError/servicesError (preexistentes de BUG 0817-180, fuera de alcance acá
+  // — mismo criterio que H6), `societiesError` solo bloquea si además no hay catálogo utilizable.
   const profileError =
     !isEdit &&
     !canChooseProfileScopeFreely &&
-    (roleError || currentStaffError || servicesError || societiesError);
+    (roleError || currentStaffError || servicesError || (societiesError && societies === undefined));
   // BUG 0922-195 (review H2, chatgpt-codex-connector): en edición, el gate del populate effect de
   // más abajo espera a `clients`/`allServices`/`societies` (evita el mismo race del catálogo que
   // Defecto 1), pero un fallo real de red (agotado el `retry: 1` global, sin refetch automático —
