@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
@@ -101,12 +101,18 @@ const stableCategories: never[] = [];
 // flips it to the resolved list mid-test, mimicking React Query resolving the query
 // and re-rendering the SAME mounted instance.
 let clientsData: typeof stableClients | undefined = undefined;
+// BUG 0922-195: same mutability, now for allServices/societies — Test 4 below drives these from
+// undefined to resolved on the same instance, reproducing the edit-mode catalog race (Defecto 1)
+// on top of this file's existing clients race (BUG #0819-181). Default to already-resolved so
+// Tests 1-3 (unaware of this bug) keep seeing the pre-existing synchronous behavior.
+let servicesData: typeof mockServices | undefined = mockServices;
+let societiesData: typeof mockSocieties | undefined = mockSocieties;
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: clientsData }),
-  useServices: () => ({ data: mockServices }),
+  useServices: () => ({ data: servicesData, isLoading: servicesData === undefined, isFetching: false }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined, isFetching: false }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -182,6 +188,11 @@ const mockEngagement: Engagement = {
 };
 
 describe("EngagementForm — hydration race (BUG #0819-181)", () => {
+  beforeEach(() => {
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+  });
+
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {
     clientsData = undefined;
     const user = userEvent.setup();
@@ -265,5 +276,41 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     await waitFor(() => {
       expect(onDirtyChange.mock.calls.at(-1)).toEqual([false]);
     });
+  });
+
+  // BUG 0922-195 (Defecto 1): the populate effect seeded practica/society_id straight from the
+  // engagement (not through their derived helpers) as soon as `clients` resolved — if
+  // allServices/societies were still pending at that moment, Radix's <Select> had no matching
+  // <SelectItem> yet and silently cleared the value (practica -> `Number("") = 0`, society_id ->
+  // `""`). In edit mode Práctica is hard-locked for every role (`serviceSelectDisabled = isEdit ||
+  // !canChooseProfileScopeFreely`), so nobody — not even admin — could fix it from the UI; only a
+  // reload, which re-ran the very same race. The fix gates the populate effect on allServices AND
+  // societies too, not just clients.
+  it("Test 4 (BUG #0922-195): practica/sociedad don't collapse to 0/empty when services/societies resolve after clients", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    const user = userEvent.setup();
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} />);
+
+    // Same neutral trigger as Tests 1/3 (see file header) — forces RHF's isDirty recompute
+    // during the pending window without leaving any real value behind.
+    const nameInput = screen.getByLabelText(/engagement\.name/);
+    await user.type(nameInput, "x");
+    await user.type(nameInput, "{backspace}");
+
+    // Against the pre-fix code, the populate effect had already run once `clients` resolved
+    // (ignoring allServices/societies), leaving practica=0/society_id="" locked in. Confirm the
+    // pending window here does NOT leave the fields to a corrupted state.
+    expect(screen.getByLabelText(/engagement\.practica/)).not.toHaveTextContent("0");
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
   });
 });
