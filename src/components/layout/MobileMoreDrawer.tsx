@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   ClipboardList,
   CheckSquare,
+  ListChecks,
   UserCog,
   Settings,
   LogOut,
@@ -86,11 +87,14 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const mainItems: DrawerNavItem[] = [
     { path: "/clients", icon: Users, labelKey: "nav.clients", show: can("client.read") },
     { path: "/engagements", icon: Briefcase, labelKey: "nav.engagements", show: can("engagement.read") },
+    { path: "/administrative-engagements", icon: Briefcase, labelKey: "nav.administrativeEngagements", show: true },
     { path: "/worksheets", icon: FileSpreadsheet, labelKey: "nav.worksheets", show: can("worksheet.read") },
     { path: "/work-orders", icon: ClipboardList, labelKey: "nav.workOrders", show: can("work_order.read") },
   ].filter((i) => i.show);
 
   const operationsItems: DrawerNavItem[] = [
+    // 0922-190: sin permiso — mismo criterio que AppSidebar.tsx.
+    { path: "/timesheet/assignments", icon: ListChecks, labelKey: "nav.myAssignments", show: true },
     { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals", show: can("timesheet_approval.read") },
     { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests", show: can("fund_request.read") },
     { path: "/fund-requests/approvals", icon: CheckSquare, labelKey: "nav.fundRequestApprovals", show: can("fund_approval.read") || !!managesAnyOt },

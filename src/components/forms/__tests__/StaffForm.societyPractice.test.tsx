@@ -37,7 +37,7 @@ vi.mock("react-i18next", () => ({
 
 const SOCIETIES = [
   { society_id: "soc-pelaez", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "2026-01-01" },
-  { society_id: "soc-juaregui", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "2026-01-01" },
+  { society_id: "soc-juaregui", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "2026-01-01" },
 ];
 
 const SERVICES = [
@@ -317,7 +317,7 @@ describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
       (o) => o.textContent
     );
     expect(optionLabels).toContain("Ruizmier Pelaez S.R.L.");
-    expect(optionLabels).toContain("Ruizmier Juaregui S.R.L.");
+    expect(optionLabels).toContain("Ruizmier Jauregui S.R.L.");
   });
 
   it("3) la práctica excluye Firmwide (allows_rates_activities=false)", async () => {

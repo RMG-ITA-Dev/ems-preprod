@@ -202,7 +202,8 @@ export function useEngagementsWithoutWorksheet() {
             short_name
           )
         `)
-        .eq("status", "active");
+        .eq("status", "active")
+        .eq("funcion", 1);
 
       if (!isAdmin) {
         query = query.eq("created_by_staff_id", staffId);

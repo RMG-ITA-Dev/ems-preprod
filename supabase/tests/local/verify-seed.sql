@@ -137,15 +137,34 @@ BEGIN
   RAISE NOTICE 'PASS — 61/61 categorías con default_app_role asignado, cero NULL';
 
   -- 5. Cero datos demo/operativos (plan §4, prohibición explícita).
+  --
+  -- 0722-160: `clients` dejó de estar vacío. Esa migración siembra los DOS clientes internos de
+  -- sociedad (uno por firma), que son CATÁLOGO y no datos demo: el flujo de encargos
+  -- administrativos los exige y enforce_administrative_engagement_rules() valida contra ellos.
+  -- Se afirma la identidad exacta y no sólo el conteo — así la prohibición de datos demo sigue
+  -- en pie (un cliente de prueba haría fallar el conteo O el emparejamiento) y de paso queda
+  -- fijado que el seed no derive a otro NIT o a otro nombre.
   SELECT count(*) INTO n FROM public.clients;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL — clients: esperado 0, encontrado %', n; END IF;
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL — clients: esperado 2 (los clientes internos de 0722-160), encontrado %', n;
+  END IF;
+
+  SELECT count(*) INTO n
+    FROM public.clients c
+    JOIN public.society s ON lower(btrim(s.name)) = lower(btrim(c.client_legal_name))
+   WHERE (s.name = 'Ruizmier Pelaez S.R.L.'   AND c.unique_tax_id = '1006979026')
+      OR (s.name = 'Ruizmier Jauregui S.R.L.' AND c.unique_tax_id = '184046021');
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL — los 2 clientes internos de 0722-160 no emparejan con su sociedad por nombre/NIT (emparejaron %)', n;
+  END IF;
+
   SELECT count(*) INTO n FROM public.work_orders;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL — work_orders: esperado 0, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.time_entries;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL — time_entries: esperado 0, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.skills;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL — skills: esperado 0, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — clients/work_orders/time_entries/skills: 0 filas';
+  RAISE NOTICE 'PASS — clients: sólo los 2 internos de 0722-160; work_orders/time_entries/skills: 0 filas';
 
   -- 6. Bootstrap del admin (plan §4.2.1/§4.3.3) — guardado con to_regclass porque este
   -- script también podría correr contra un stack sin auth.* real (no es el caso esperado

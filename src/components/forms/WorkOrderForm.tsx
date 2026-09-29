@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { NumericInput } from "@/components/ui/numeric-input";
@@ -113,6 +114,8 @@ interface WorkOrderFormProps {
   emergencyJustification?: string | null;
   // New props for create/edit mode and dirty state
   isNew?: boolean;
+  /** Funciones distintas de Cliente: no facturan ni requieren evaluación de riesgo. */
+  isAdministrative?: boolean;
   isDirty?: boolean;
   hasNonRiskDirty?: boolean;
   rejectionNote?: string | null;
@@ -236,6 +239,7 @@ export interface WorkOrderTrackStatusProps {
   onRevertSocio?: () => void;
   onRevertRisk?: () => void;
   isSubmitting: boolean;
+  isAdministrative?: boolean;
   className?: string;
 }
 
@@ -247,6 +251,7 @@ export function WorkOrderTrackStatus({
   onRevertSocio,
   onRevertRisk,
   isSubmitting,
+  isAdministrative = false,
   className,
 }: WorkOrderTrackStatusProps) {
   const { t } = useTranslation();
@@ -255,7 +260,7 @@ export function WorkOrderTrackStatus({
   const isRejected = approvalStatus === "Rejected";
   const socioApproved = !!approvedAt;
   const socioRejected = isRejected;
-  const riskApproved = riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const riskApproved = !isAdministrative && (riskStatus === "Approved" || riskStatus === "Emergency_Approved");
   const isRiskRejected = riskStatus === "Rejected";
   // Visible mientras cualquiera de las dos pistas tenga un estado decidido — incluido
   // tras retirar (la OT vuelve a Draft pero approved_at/risk_status persisten), de modo
@@ -264,7 +269,7 @@ export function WorkOrderTrackStatus({
     socioApproved ||
     socioRejected ||
     riskApproved ||
-    isRiskRejected ||
+    (!isAdministrative && isRiskRejected) ||
     isPending ||
     isApproved ||
     isRejected;
@@ -302,7 +307,7 @@ export function WorkOrderTrackStatus({
           </button>
         )}
       </span>
-      <span className="flex items-center gap-1.5">
+      {!isAdministrative && <span className="flex items-center gap-1.5">
         <span className="text-muted-foreground">
           {t("workOrders.riskActionsLabel")}:
         </span>
@@ -339,7 +344,7 @@ export function WorkOrderTrackStatus({
               <Undo2 className="h-3.5 w-3.5" />
             </button>
           )}
-      </span>
+      </span>}
     </div>
   );
 }
@@ -366,6 +371,7 @@ export function WorkOrderForm({
   emergencyPartnerAt,
   emergencyJustification,
   isNew = false,
+  isAdministrative = false,
   isDirty = false,
   hasNonRiskDirty = false,
   rejectionNote,
@@ -433,6 +439,7 @@ export function WorkOrderForm({
   // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
   // rechazado -> pest.3; si no, pest.1 por defecto.
   const [activeTab, setActiveTab] = useState<WorkOrderFormTabId>(() => {
+    if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
     return "budget";
@@ -542,8 +549,9 @@ export function WorkOrderForm({
   // global, para que la pista aprobada nunca se edite ni pierda su indicador "Aprobado".
   const socioApproved = !!approvedAt;
   const socioRejected = isRejected;
-  const riskApproved =
-    riskStatus === "Approved" || riskStatus === "Emergency_Approved";
+  const riskApproved = !isAdministrative && (
+    riskStatus === "Approved" || riskStatus === "Emergency_Approved"
+  );
   // Pista Socio en modo corrección tras un rechazo (gastos/ajuste vuelven a editarse).
   const socioCorrecting = socioRejected;
   // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
@@ -582,7 +590,7 @@ export function WorkOrderForm({
     !riskLevel;
   // Submit is all-or-nothing: fully complete (normal) or fully empty (emergency).
   // Partial risk data is blocked.
-  const canSubmitForApproval = riskApprovalReady || riskAllEmpty;
+  const canSubmitForApproval = isAdministrative || riskApprovalReady || riskAllEmpty;
 
   const isEmergencyApproved = riskStatus === "Emergency_Approved";
   // Riesgos rejected its track: the OT stays Pending/Approved (Socio untouched); the
@@ -657,8 +665,21 @@ export function WorkOrderForm({
   // —o una aprobada y la otra rechazada— no hay pendiente => no se muestra (se corrige
   // en sitio). El guard !isDraft evita mostrarlo en una OT nueva en borrador.
   const socioPending = isPending && !socioApproved;
-  const riskPending = !isDraft && (riskStatus === "Pending" || !riskStatus);
-  const showWithdraw = !!onUnsubmit && (socioPending || riskPending);
+  // Administrativa no tiene pista de Riesgos real (risk_status queda fijo en 'Pending' como
+  // sentinela de "no aplica", nunca se aprueba/rechaza) — riskPending debe ser siempre false para
+  // que "Retirar de Aprobación" no reaparezca sobre una OT ya cerrada por la firma del Socio. El
+  // trigger administrativo solo auto-cierra en la transición null→no-null de approved_at, así que
+  // un "Retirar" + reenvío posterior dejaría la OT varada en Pending_Approval sin forma de volver
+  // a Approved.
+  const riskPending = !isAdministrative && !isDraft && (riskStatus === "Pending" || !riskStatus);
+  // 0923-196: save_wo_staffing exige approval_status='Draft' a nivel de base de datos
+  // (WOS_WO_LOCKED) — la corrección "en sitio" de una OT Rechazada no puede cargar
+  // Staffing. Si además el nuevo gate de envío exige >=1 requisito, la OT queda sin
+  // ninguna salida. Se habilita "Retirar" en ese caso puntual para devolverla a Draft.
+  const staffingBlockedInRejected =
+    isRejected && isSchedulerEnabled() && !staffingLoading && !staffingError &&
+    staffingRequirements.length === 0;
+  const showWithdraw = !!onUnsubmit && (socioPending || riskPending || staffingBlockedInRejected);
 
   // ── Indicadores por pestaña (0817-176 §Indicadores) ──────────────────────────
   // Todo derivado de flags/props ya existentes; sin datos ni reglas de negocio nuevas.
@@ -670,7 +691,7 @@ export function WorkOrderForm({
     | "billing-red"
     | "billing-complete"
     | "billing-unconfigured";
-  const otFullyApproved = socioApproved && riskApproved;
+  const otFullyApproved = socioApproved && (isAdministrative || riskApproved);
 
   // Pestaña 1 (Presupuesto, pista Socio): terminal > "!" no revisada > sin indicador.
   const budgetIndicatorKind: TabIndicatorKind | null = socioRejected
@@ -768,16 +789,33 @@ export function WorkOrderForm({
     }
   };
 
-  // Marca las pestañas 1 y 4 como "revisadas" al pulsar Enviar para Aprobación
-  // (además de limpiarse al simplemente visitarlas vía onValueChange).
-  const markTabsSubmitted = () => {
-    setVisitedTabs((prev) => {
-      if (prev.has("budget") && prev.has("staffing")) return prev;
-      const next = new Set(prev);
-      next.add("budget");
-      next.add("staffing");
-      return next;
-    });
+  // Pestaña requerida más próxima que aún no fue visitada (0923-196). Administrativa
+  // no tiene pestañas payment/risk (no se renderizan, ver TabsTrigger condicionales
+  // abajo), así que se excluyen de lo exigido — de lo contrario el envío quedaría
+  // bloqueado para siempre en esas OT. Determina tanto el color "gris" del botón
+  // "Enviar para Aprobación" como el bloqueo al hacer clic.
+  const requiredTabsForSubmit: WorkOrderFormTabId[] = [
+    "budget",
+    ...(!isAdministrative ? (["payment", "risk"] as WorkOrderFormTabId[]) : []),
+    ...(isSchedulerEnabled() ? (["staffing"] as WorkOrderFormTabId[]) : []),
+  ];
+  const missingRequiredTab = requiredTabsForSubmit.find((tab) => !visitedTabs.has(tab)) ?? null;
+
+  // Si falta visitar una pestaña: toast + salto a esa pestaña, sin ejecutar la acción
+  // de envío. Se llama ANTES de decidir si corresponde el diálogo de emergencia (los 3
+  // call-sites de abajo), para no ofrecer ese diálogo sobre una OT que igual va a
+  // bloquearse por pestañas.
+  const blockIfTabsMissing = (): boolean => {
+    if (!missingRequiredTab) return false;
+    toast.error(t("workOrders.tabsNotVisited"));
+    setActiveTab(missingRequiredTab);
+    setVisitedTabs((prev) => (prev.has(missingRequiredTab) ? prev : new Set(prev).add(missingRequiredTab)));
+    return true;
+  };
+
+  const attemptSubmitForApproval = (justification?: string) => {
+    if (blockIfTabsMissing()) return;
+    onSubmitForApproval?.(justification);
   };
   const handleTabChange = (value: string) => {
     const tab = value as WorkOrderFormTabId;
@@ -830,19 +868,23 @@ export function WorkOrderForm({
   // Riesgos: al fallar la validación de riesgo en "Enviar para Aprobación", activar
   // la pestaña 3 (operador §Proposed Fix #5).
   useEffect(() => {
-    if (riskFocusSignal > 0) {
+    if (!isAdministrative && riskFocusSignal > 0) {
       setActiveTab("risk");
     }
-  }, [riskFocusSignal]);
+  }, [isAdministrative, riskFocusSignal]);
 
   // Pagos: al fallar la validación de porcentajes en persistNonRiskChanges, activar
   // la pestaña 2 (Decisión del operador #4: auto-switch ante fallo de validación al
   // guardar/enviar, generalizado igual que staffing/riesgo).
   useEffect(() => {
-    if (paymentFocusSignal > 0) {
+    if (!isAdministrative && paymentFocusSignal > 0) {
       setActiveTab("payment");
     }
-  }, [paymentFocusSignal]);
+  }, [isAdministrative, paymentFocusSignal]);
+
+  useEffect(() => {
+    if (isAdministrative) setActiveTab("budget");
+  }, [isAdministrative]);
 
   // Al montar/actualizar: abrir la pestaña de la pista rechazada (operador #4). Solo
   // reacciona a cambios reales de estado (no en cada render) — el mount ya queda
@@ -2025,6 +2067,7 @@ export function WorkOrderForm({
               approvalStatus={approvalStatus}
               approvedAt={approvedAt}
               riskStatus={riskStatus}
+              isAdministrative={isAdministrative}
               canRevert={canRevert}
               onRevertSocio={onRevertSocio}
               onRevertRisk={onRevertRisk}
@@ -2035,7 +2078,7 @@ export function WorkOrderForm({
         </Card>
       )}
 
-      {isNew ? (
+      {isNew && !isAdministrative ? (
         <>
           {budgetGridCard}
           {expensesSummaryGrid}
@@ -2053,20 +2096,24 @@ export function WorkOrderForm({
                 ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
               )}
             </TabsTrigger>
-            <TabsTrigger value="payment" className="shrink-0">
-              {t("workOrders.tabs.payment")}
-              {renderTabIndicator(
-                paymentIndicatorKind,
-                ariaLabelForIndicator(paymentIndicatorKind, "workOrders.tabs.status.incomplete"),
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="risk" className="shrink-0">
-              {t("workOrders.tabs.risk")}
-              {renderTabIndicator(
-                riskIndicatorKind,
-                ariaLabelForIndicator(riskIndicatorKind, "workOrders.tabs.status.incomplete"),
-              )}
-            </TabsTrigger>
+            {!isAdministrative && (
+              <TabsTrigger value="payment" className="shrink-0">
+                {t("workOrders.tabs.payment")}
+                {renderTabIndicator(
+                  paymentIndicatorKind,
+                  ariaLabelForIndicator(paymentIndicatorKind, "workOrders.tabs.status.incomplete"),
+                )}
+              </TabsTrigger>
+            )}
+            {!isAdministrative && (
+              <TabsTrigger value="risk" className="shrink-0">
+                {t("workOrders.tabs.risk")}
+                {renderTabIndicator(
+                  riskIndicatorKind,
+                  ariaLabelForIndicator(riskIndicatorKind, "workOrders.tabs.status.incomplete"),
+                )}
+              </TabsTrigger>
+            )}
             {isSchedulerEnabled() && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
@@ -2112,12 +2159,15 @@ export function WorkOrderForm({
               </div>
             )}
           </TabsContent>
-          <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
-            {paymentPlanSection}
-          </TabsContent>
-          <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
-            {riskAssessmentCard}
-            {showRiskActions && hasRiskAction && (
+          {!isAdministrative && (
+            <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
+              {paymentPlanSection}
+            </TabsContent>
+          )}
+          {!isAdministrative && (
+            <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
+              {riskAssessmentCard}
+              {showRiskActions && hasRiskAction && (
               <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
@@ -2174,8 +2224,9 @@ export function WorkOrderForm({
             </div>
           </div>
               </div>
-            )}
-          </TabsContent>
+              )}
+            </TabsContent>
+          )}
           {isSchedulerEnabled() && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
@@ -2191,6 +2242,7 @@ export function WorkOrderForm({
         approvalStatus={approvalStatus}
         approvedAt={approvedAt}
         riskStatus={riskStatus}
+        isAdministrative={isAdministrative}
         canRevert={canRevert}
         onRevertSocio={onRevertSocio}
         onRevertRisk={onRevertRisk}
@@ -2249,22 +2301,40 @@ export function WorkOrderForm({
               {onSubmitForApproval && (
                 <LoadingButton
                   onClick={() => {
+                    // 0923-196: si falta visitar una pestaña, bloquea acá — antes de
+                    // ofrecer el diálogo de emergencia — para no pedirle un motivo al
+                    // usuario y bloquearlo recién después de escribirlo.
+                    if (blockIfTabsMissing()) return;
                     // Empty risk data + risk NOT yet approved => new emergency: capture motive.
                     // If risk is already Emergency_Approved (re-submitting Socio track only),
                     // skip the modal — no new justification needed.
-                    if (riskAllEmpty && !riskApproved) {
+                    if (!isAdministrative && riskAllEmpty && !riskApproved) {
                       setSubmitJustification("");
                       setEmergencyDialogMode("submit");
                       setSubmitEmergencyDialogOpen(true);
                     } else {
-                      markTabsSubmitted();
-                      onSubmitForApproval();
+                      attemptSubmitForApproval();
                     }
                   }}
-                  className="bg-info hover:bg-info/90 btn-action"
+                  className={cn(
+                    "btn-action",
+                    // Celeste apagado (no deshabilitado): el clic sigue disponible para
+                    // disparar el toast + salto a la pestaña faltante en vez de quedar
+                    // inerte; se evita el gris (reservado para "pending, inactive" en el
+                    // sistema de diseño) para no sugerir que el botón está inactivo.
+                    missingRequiredTab
+                      ? "bg-info/60 text-info-foreground hover:bg-info/80"
+                      : "bg-info hover:bg-info/90",
+                  )}
                   loading={isSubmitting}
                   disabled={!canSubmitForApproval}
-                  title={!canSubmitForApproval ? t("workOrders.riskAssessmentRequired") : undefined}
+                  title={
+                    !canSubmitForApproval
+                      ? t("workOrders.riskAssessmentRequired")
+                      : missingRequiredTab
+                        ? t("workOrders.tabsNotVisited")
+                        : undefined
+                  }
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.submitForApproval")}
@@ -2288,12 +2358,15 @@ export function WorkOrderForm({
               </LoadingButton>
               {onSubmitForApproval && (
                 <LoadingButton
-                  onClick={() => {
-                    markTabsSubmitted();
-                    onSubmitForApproval();
-                  }}
-                  className="bg-info hover:bg-info/90 btn-action"
+                  onClick={() => attemptSubmitForApproval()}
+                  className={cn(
+                    "btn-action",
+                    missingRequiredTab
+                      ? "bg-info/60 text-info-foreground hover:bg-info/80"
+                      : "bg-info hover:bg-info/90",
+                  )}
                   loading={isSubmitting}
+                  title={missingRequiredTab ? t("workOrders.tabsNotVisited") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
                   {t("workOrders.sendForPartnerApproval")}
@@ -2355,8 +2428,7 @@ export function WorkOrderForm({
                 if (emergencyDialogMode === "resend") {
                   onCompleteRisk?.(justif);
                 } else {
-                  markTabsSubmitted();
-                  onSubmitForApproval?.(justif);
+                  attemptSubmitForApproval(justif);
                 }
                 setSubmitEmergencyDialogOpen(false);
               }}

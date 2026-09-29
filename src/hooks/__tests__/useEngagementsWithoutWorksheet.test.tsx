@@ -111,6 +111,7 @@ describe("useEngagementsWithoutWorksheet", () => {
       (r, i) => mockFrom.mock.calls[i][0] === "engagements"
     )!.value;
     expect(engagementsCall.eq).toHaveBeenCalledWith("created_by_staff_id", "s1");
+    expect(engagementsCall.eq).toHaveBeenCalledWith("funcion", 1);
     expect(result.current.data).toHaveLength(1);
   });
 

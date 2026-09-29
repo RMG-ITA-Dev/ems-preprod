@@ -85,9 +85,11 @@
     "dashboard": "Control Panel",
     "clients": "Clients",
     "engagements": "Engagements",
+    "administrativeEngagements": "Administrative Engagements",
     "workMatrix": "Work Matrix",
     "workOrders": "Work Orders",
     "timeSheet": "Time Sheet",
+    "myAssignments": "My Assignments",
     "timesheetApprovals": "Approvals",
     "tracker": "Time Records",
     "fundRequests": "Fund Requests",
@@ -770,6 +772,7 @@
     "endDate": "End Date",
     "status": "Status",
     "newEngagement": "New Engagement",
+    "newAdministrativeEngagement": "New Administrative Engagement",
     "editEngagement": "Edit Engagement",
     "createEngagement": "Create Engagement",
     "deleteEngagement": "Delete Engagement",
@@ -795,12 +798,14 @@
     "startDateBeforeCreation": "Start date cannot be before the engagement creation date",
     "workOrderRequired": "Work Order Required",
     "workOrderRequiredHelp": "When off, appears in timesheets without a Work Order",
+    "workOrderRequiredAdministrativeHelp": "Turn this on only when the engagement needs a Work Order for budgeting expenses; when off, hours can be logged without Work Order approval.",
     "activityRequired": "Activity Required",
     "activityRequiredHelp": "When off, the ADM activity code is auto-assigned",
     "isInternal": "Internal (All Staff)",
     "isInternalHelp": "All active staff can log time against this engagement",
     "approvalRequired": "Approval Required",
     "approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission",
+    "approvalRequiredAdministrativeHelp": "Keep this on by default; turn it off only for engagements that do not need approval.",
     "internal": "Internal",
     "timesheetPolicy": "Timesheet Policy",
     "oficina": "Office",
@@ -822,10 +827,13 @@
     "requiredOficina": "Office is required",
     "requiredPractica": "Practice is required",
     "requiredFuncion": "Function is required",
+    "requiredPartner": "Partner/Director is required",
+    "requiredManager": "Manager/Supervisor is required",
     "society": "Society",
     "selectSociety": "Select society",
     "requiredSociety": "Society is required",
     "profileScopeHint": "Assigned automatically from your staff profile",
+    "societyFromInternalClientHint": "Set by the internal client you select",
     "profileMissingStaff": "No linked staff profile",
     "closingDate": "Closing Date",
     "selectClosingDate": "Select closing date",
@@ -932,6 +940,7 @@
     "teamCandidatesLoadError": "Could not load the staff available for the Team section. Please retry; if the problem persists, contact your administrator.",
     "profileIncompleteForEngagement": "Your staff profile is missing required data to create this engagement: {{fields}}. Contact your administrator to complete it.",
     "profileLoadError": "Could not load your staff profile or the practices catalog. Please retry; if the problem persists, contact your administrator.",
+    "engagementCatalogLoadError": "Could not load the practices or societies catalog for this engagement. Please retry or reload the page; if the problem persists, contact your administrator.",
     "staffDeactivated": "Staff member deactivated (has related records)",
     "accountInactive": "Your account is inactive. Please contact an administrator.",
     "holidayCreated": "Holiday created",
@@ -1773,6 +1782,7 @@
     "sanNotes": "SAN Notes",
     "riskApprovalPending": "Risk Approval Pending",
     "riskAssessmentRequired": "Complete all 5 risk assessment fields (CEAC date, CEAC number, SAN date, SAN approval ID, risk level)",
+    "tabsNotVisited": "You must review all tabs of the form before submitting the Work Order for approval.",
     "ceacNumber": "CEAC Number",
     "sanApprovalId": "SAN Approval ID",
     "ceacNumberPlaceholder": "0000000000",
@@ -1926,6 +1936,7 @@
       "saveSuccess": "Staffing requirements saved successfully.",
       "errors": {
         "categoryMissing": "Select a category for every staffing requirement.",
+        "requirementsEmpty": "Add at least one Staffing requirement before submitting the Work Order for approval.",
         "categoryDuplicate": "A category cannot be used more than once.",
         "skillDuplicate": "A skill cannot be used more than once within the same requirement.",
         "categoryForeignService": "This category does not belong to the engagement's service.",
@@ -2807,6 +2818,49 @@
       "description": "Create, edit, or delete a single staff assignment segment for this engagement.",
       "save": "Save",
       "delete": "Delete assignment"
+    }
+  },
+  "myAssignments": {
+    "title": "My Assignments",
+    "empty": "You have no assignments yet.",
+    "deepLinkNotFound": "This assignment is no longer visible to you — you may have been reassigned off this engagement.",
+    "loadError": "Could not load your assignments.",
+    "retry": "Retry",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "allocation": "{{percent}}% allocation",
+    "progress": {
+      "over": "Logged hours exceed the assigned total"
+    },
+    "filters": {
+      "engagement": "Engagement",
+      "allEngagements": "All engagements",
+      "category": "Role",
+      "allCategories": "All roles",
+      "dateRangeFrom": "From",
+      "dateRangeTo": "To",
+      "toggle": {
+        "current": "Current",
+        "historical": "Historical",
+        "all": "All"
+      }
+    },
+    "table": {
+      "engagement": "Engagement",
+      "client": "Client",
+      "role": "Role",
+      "period": "Period",
+      "status": "Status",
+      "progress": "Progress"
+    },
+    "notesModal": {
+      "title": "Assignment notes"
+    },
+    "status": {
+      "PROPOSED": "Proposed",
+      "PROVISIONAL": "Provisional",
+      "CONFIRMED": "Confirmed",
+      "COMPLETED": "Completed",
+      "CANCELLED": "Cancelled"
     }
   }
 }

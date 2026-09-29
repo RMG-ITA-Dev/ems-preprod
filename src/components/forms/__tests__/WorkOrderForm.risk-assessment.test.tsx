@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
@@ -305,7 +306,8 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(screen.queryByText("workOrders.approveRiskAssistant")).not.toBeInTheDocument();
   });
 
-  it("WF11: submit-time emergency dialog requires a justification before onSubmitForApproval fires", () => {
+  it("WF11: submit-time emergency dialog requires a justification before onSubmitForApproval fires", async () => {
+    const user = userEvent.setup();
     const onSubmitForApproval = vi.fn();
     renderForm({
       approvalStatus: "Draft",
@@ -314,6 +316,12 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       hasNonRiskDirty: false,
       // empty risk => emergency submit path
     });
+
+    // 0923-196: el envío ahora exige haber visitado todas las pestañas requeridas.
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.budget/ }));
 
     // Clicking submit with empty risk opens the confirmation dialog (no direct submit).
     fireEvent.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
@@ -333,7 +341,8 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(onSubmitForApproval).toHaveBeenCalledWith("Pedido por correo a Riesgos");
   });
 
-  it("WF11b: submit with complete risk data submits directly (no dialog)", () => {
+  it("WF11b: submit with complete risk data submits directly (no dialog)", async () => {
+    const user = userEvent.setup();
     const onSubmitForApproval = vi.fn();
     renderForm({
       approvalStatus: "Draft",
@@ -342,9 +351,16 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       hasNonRiskDirty: false,
       ...fullRisk,
     });
+    // 0923-196: el envío ahora exige haber visitado todas las pestañas requeridas.
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.payment/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.risk/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.staffing/ }));
+    await user.click(screen.getByRole("tab", { name: /workOrders\.tabs\.budget/ }));
     fireEvent.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-    expect(onSubmitForApproval).toHaveBeenCalledWith();
+    // attemptSubmitForApproval (0923-196) always forwards its optional justification
+    // argument, so a no-justification call arrives as an explicit `undefined`.
+    expect(onSubmitForApproval).toHaveBeenCalledWith(undefined);
   });
 
   it("WF16: emergency-approved completion shows 'Agregar datos' then 'Enviar', never 'Aprobar Riesgo'", () => {

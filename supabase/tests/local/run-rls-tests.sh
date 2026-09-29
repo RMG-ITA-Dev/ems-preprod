@@ -308,6 +308,30 @@ run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
 # staff_id = get_my_staff_id() en cada CTE. Ejercitado por rpc-dash-personal-overview.sql.
 run supabase/migrations/20260921140000_dash_personal_overview.sql
 
+# 0722-160: las dos sociedades reales deben existir antes de aplicar la migración,
+# pues sus clientes internos se siembran y validan contra este catálogo.
+#
+# Los UUID llevan el sufijo 0160 a propósito: ...0001 ya lo ocupa 'D5 Test Society', que
+# rls-engagement-assignments-d5.sql inserta dentro de su propia transacción. Como este seed
+# corre antes y fuera de ella, el UUID compartido reventaba esa suite —y con ella el harness
+# entero— con `duplicate key value violates unique constraint "society_pkey"`. La migración
+# empareja cliente y sociedad por NOMBRE, así que el UUID es libre.
+psql -v ON_ERROR_STOP=1 -d "$DB" -c "
+INSERT INTO public.society (society_id, name) VALUES
+  ('50c00000-0000-4000-8000-000000000160', 'Ruizmier Pelaez S.R.L.'),
+  ('50c00000-0000-4000-8000-000000000161', 'Ruizmier Jauregui S.R.L.')
+ON CONFLICT DO NOTHING;
+"
+run supabase/migrations/20260922120000_0722_160_administrative_engagements.sql
+
+# 0922-190: policy aditiva ea_select_own sobre engagement_assignments (staff_id =
+# get_my_staff_id()) -- autovisibilidad para la pantalla "Mis asignaciones". No reemplaza
+# ninguna de las 4 policies SELECT existentes. También agrega list_my_assignments() (review
+# 2026-09-25, MUST FIX): RPC SECURITY DEFINER que resuelve encargo/cliente/categoría con su
+# propio gate, sin depender de engagement.read/client.read. Ambas ejercitadas por
+# rls-0922-190-my-assignments-visibility.sql.
+run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -359,5 +383,7 @@ assert_suite supabase/tests/rpc-dash-socio-partner-overview.sql 'PARTNER OVERVIE
 assert_suite supabase/tests/rpc-dash-cartera-portfolio-overview.sql 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-encargo-engagement-overview.sql 'ENGAGEMENT OVERVIEW RPC: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RPC: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones 0825-183, 0817-180, 0828-186, 0828-185, 0817-179, 0820-182, 0722-156, 0722-156b, notificaciones/correos, dash_socio, dash_cartera, dash_encargo y dash_personal aplicadas sobre base scratch; las 24 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"

@@ -77,10 +77,15 @@ const mockServices = [
 // is supplied through the engagement's `society` embed instead, same as production.
 const mockSocieties = [
   { society_id: "soc-active-1", name: "Ruizmier Pelaez S.R.L.", is_active: true, created_at: "" },
-  { society_id: "soc-active-2", name: "Ruizmier Juaregui S.R.L.", is_active: true, created_at: "" },
+  { society_id: "soc-active-2", name: "Ruizmier Jauregui S.R.L.", is_active: true, created_at: "" },
 ];
 
 const inactiveSociety = { society_id: "soc-inactive", name: "Old Society S.R.L.", is_active: false, created_at: "" };
+
+// BUG 0922-195: mutable on purpose — reset to `mockSocieties` in each describe's beforeEach.
+// Lets one test drive useSocieties() from undefined (catalog still pending) to resolved on the
+// SAME mounted instance, same convention as `clientsData` in EngagementForm.hydration-race.test.tsx.
+let societiesData: typeof mockSocieties | undefined = mockSocieties;
 
 // Includes the client referenced by the edit-mode fixtures below so the client Select can
 // resolve a matching SelectItem — Radix Select can't retain a `value` that has no
@@ -96,7 +101,11 @@ vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
-  useSocieties: () => ({ data: mockSocieties }),
+  useSocieties: () => ({
+    data: societiesData,
+    isLoading: societiesData === undefined,
+    isFetching: false,
+  }),
   useEngagementAssignments: () => ({ data: stableAssignments, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableAggregatedReqs }),
   useActiveStaffWithSkills: () => ({ data: stableActiveStaff }),
@@ -219,6 +228,7 @@ const mockEngagementNullSociety: Engagement = {
 describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
   beforeEach(() => {
     mockUpdateMutateAsync.mockClear();
+    societiesData = mockSocieties;
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: false, isLoading: false } as any);
     vi.mocked(useCurrentStaff).mockReturnValue({ staffRecord: completeStaffRecord } as any);
   });
@@ -239,7 +249,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." })).toBeInTheDocument();
-      expect(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "Old Society S.R.L." })).not.toBeInTheDocument();
     });
   });
@@ -250,6 +260,27 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
     const societySelect = screen.getByLabelText(/engagement\.society/);
     expect(societySelect).toBeDisabled();
     expect(societySelect).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+  });
+
+  // BUG 0922-195 (Defecto 1, Root Cause): la ficha del staff (derivedSocietyId) no depende del
+  // catálogo de sociedades, así que el efecto de siembra podía escribir society_id ANTES de que
+  // useSocieties() resolviera — Radix silenciaba ese value a vacío por no tener su <SelectItem>
+  // todavía, y el campo quedaba bloqueado y vacío (no editable a mano). El fix suma la carga de
+  // useSocieties() a `profileLoading`, así que el efecto de siembra espera al catálogo.
+  it("create mode (non-privileged): Sociedad no se resetea a vacío si useSocieties() resuelve después que la ficha del staff (BUG 0922-195)", async () => {
+    societiesData = undefined;
+    const { rerender } = render(<EngagementForm />);
+
+    // Mientras el catálogo de sociedades no resuelve, el campo se queda en el placeholder sin
+    // valor — nunca en un estado bloqueado-y-vacío indistinguible de un fallo.
+    expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("engagement.selectSociety");
+
+    societiesData = mockSocieties;
+    rerender(<EngagementForm />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.society/)).toHaveTextContent("Ruizmier Pelaez S.R.L.");
+    });
   });
 
   it("edit mode: the select is disabled (immutable after create, like oficina/practica/funcion)", () => {
@@ -295,8 +326,8 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
       render(<EngagementForm engagement={mockEngagementWithSociety} />);
 
       await user.click(screen.getByLabelText(/engagement\.society/));
-      await waitFor(() => screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
-      await user.click(screen.getByRole("option", { name: "Ruizmier Juaregui S.R.L." }));
+    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
+    await user.click(screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
 
       await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
 
@@ -310,6 +341,7 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
 describe("EngagementForm — Sociedad required in creation (real submit, FEAT 0714-155)", () => {
   beforeEach(() => {
     mockCreateMutateAsync.mockClear();
+    societiesData = mockSocieties;
     // BUG 0817-180: solo admin/senior_partner eligen sociedad/practica/oficina libres en
     // creación — un manager ya no puede "dejar Sociedad sin seleccionar" (viene de su ficha).
     // Este mock de useAuthorization solo modela admin/manager, así que se ejercita con admin.
@@ -356,11 +388,16 @@ describe("EngagementForm — Sociedad required in creation (real submit, FEAT 07
     await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
     await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
 
-    // funcion_adm (0) avoids the Cliente-only taxonomy requirement, same as the sibling fixture.
+    // 0722-160: ya no sirve funcion_adm (0) para esquivar el requisito de taxonomía de Cliente.
+    // En una función administrativa la sociedad la DERIVA el cliente interno elegido, así que
+    // "dejar Sociedad sin seleccionar" dejó de ser un estado alcanzable ahí. Se ejercita con
+    // Cliente (1), que es donde la sociedad sigue siendo una elección libre del admin; el guard
+    // de sociedad corre en el bloque `missingCodeField`, antes que los de contrato y taxonomía,
+    // así que sigue siendo el primer error que aparece.
     const funcion = screen.getByLabelText(/engagement\.funcion/);
     await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
+    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);

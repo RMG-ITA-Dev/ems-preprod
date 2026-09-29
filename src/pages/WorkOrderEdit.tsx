@@ -322,6 +322,7 @@ const WorkOrderEdit = () => {
   // assigned) intentionally leaves staffing unscoped (matches save_wo_staffing,
   // which skips the cross-service check when the engagement has no practica).
   const practica = workOrder?.engagement?.practica ?? null;
+  const isAdministrativeEngagement = workOrder?.engagement?.funcion != null && workOrder.engagement.funcion !== 1;
   const engagementService = useMemo(
     () => (services ?? []).find((s) => s.code === practica),
     [services, practica],
@@ -512,7 +513,7 @@ const WorkOrderEdit = () => {
     if (!workOrder) return false;
 
     // Validate before any mutations to avoid partial saves
-    if (paymentInstallments.length > 0) {
+    if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
       if (paymentInstallments.some((i) => i.percentage < 0 || i.percentage > 100)) {
         toast.error(t("workOrders.paymentPlan.validationPercentageRange"));
         setPaymentFocusSignal((n) => n + 1);
@@ -595,7 +596,7 @@ const WorkOrderEdit = () => {
     }
 
     // Persist payment plan
-    if (paymentInstallments.length > 0) {
+    if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
       const mode = paymentPlan?.exchange_rate_mode ?? "fijo";
       const exchangeRate = paymentPlan?.exchange_rate ?? null;
       const savedPlan = await upsertPaymentPlan.mutateAsync({
@@ -621,7 +622,7 @@ const WorkOrderEdit = () => {
       setPaymentInstallments(syncedInstallments);
       setOriginalPaymentPlan(updatedPlan);
       setOriginalInstallments(JSON.parse(JSON.stringify(syncedInstallments)));
-    } else if (paymentPlan?.plan_id) {
+    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id) {
       // All installments removed → delete the plan (cascades to installments)
       await deletePaymentPlan.mutateAsync({
         planId: paymentPlan.plan_id,
@@ -666,6 +667,23 @@ const WorkOrderEdit = () => {
   const handleSubmitForApproval = async (emergencyJustification?: string) => {
     if (!workOrder) return;
 
+    // Staffing must have at least one requirement to submit — checked BEFORE
+    // persistNonRiskChanges() (todo-o-nada, like the payment-plan validation above it)
+    // so a blocked submission never persists a Staffing deletion that led to the empty
+    // state. Checked here (not earlier) so the same gate also covers the Rejected/resend
+    // branch below, and applies to administrative OT the same as normal ones.
+    if (isSchedulerEnabled()) {
+      if (staffingLoading || staffingIsError) {
+        toast.error(t("workOrders.staffingRequirements.errorLoading"));
+        return;
+      }
+      if (staffing.length === 0) {
+        toast.error(t("workOrders.staffingRequirements.errors.requirementsEmpty"));
+        setStaffingFocusSignal((n) => n + 1);
+        return;
+      }
+    }
+
     // Enviar para Aprobación now saves any pending non-risk edits (ajuste/gastos/plan
     // de pagos/staffing) first, in the same click — no separate "Guardar" required.
     // A validation failure or a mutation failure here must cancel the submission
@@ -687,6 +705,12 @@ const WorkOrderEdit = () => {
       await updateWorkOrder.mutateAsync({
         id: workOrder.wo_id,
         data: { approval_status: "Pending_Approval" },
+      });
+      return;
+    }
+    if (isAdministrativeEngagement) {
+      await submitWorkOrder.mutateAsync({
+        woId: workOrder.wo_id,
       });
       return;
     }
@@ -825,6 +849,21 @@ const WorkOrderEdit = () => {
 
   const handleUnsubmit = async () => {
     if (!workOrder) return;
+    // 0923-196 (review iteración 3, R1-a): "Retirar" ahora puede dispararse en
+    // corrección "en sitio" (Rejected, gastos/ajuste/plan de pagos editables). Sin
+    // esto, el refetch que sigue a unsubmitWorkOrder re-hidrata esos campos desde la
+    // BD (sin guard, a diferencia de riesgo/staffing) y descarta en silencio
+    // cualquier edición local no guardada. Se persiste primero, mismo patrón que
+    // handleSubmitForApproval.
+    if (hasNonRiskDirty) {
+      try {
+        const persisted = await persistNonRiskChanges();
+        if (!persisted) return;
+      } catch (error) {
+        // Error already toasted by the failing mutation's own onError; abort the withdrawal.
+        return;
+      }
+    }
     await unsubmitWorkOrder.mutateAsync({
       woId: workOrder.wo_id,
       currentRiskStatus: workOrder.risk_status,
@@ -934,6 +973,7 @@ const WorkOrderEdit = () => {
                   approvalStatus={approvalStatus}
                   approvedAt={workOrder.approved_at}
                   riskStatus={workOrder.risk_status}
+                  isAdministrative={isAdministrativeEngagement}
                   canRevert={isAdmin}
                   onRevertSocio={handleRevertSocio}
                   onRevertRisk={handleRevertRisk}
@@ -956,6 +996,7 @@ const WorkOrderEdit = () => {
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
           isNew={false}
+          isAdministrative={isAdministrativeEngagement}
           isDirty={isDirty}
           hasNonRiskDirty={hasNonRiskDirty}
           onCurrencyChange={setCurrency}
@@ -995,10 +1036,10 @@ const WorkOrderEdit = () => {
           ceacNumber={ceacNumber}
           sanApprovalId={sanApprovalId}
           riskLevel={riskLevel}
-          onRiskAssessmentChange={handleRiskAssessmentChange}
+          onRiskAssessmentChange={isAdministrativeEngagement ? undefined : handleRiskAssessmentChange}
           woId={workOrder.wo_id}
-          paymentPlan={paymentPlan}
-          paymentInstallments={paymentInstallments}
+          paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
+          paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
@@ -1014,8 +1055,8 @@ const WorkOrderEdit = () => {
           isPaymentPlanDirty={
             isPaymentPlanRestDirty(paymentInstallments, originalInstallments, paymentPlan, originalPaymentPlan)
           }
-          onPaymentPlanChange={setPaymentPlan}
-          onPaymentInstallmentsChange={setPaymentInstallments}
+          onPaymentPlanChange={isAdministrativeEngagement ? undefined : setPaymentPlan}
+          onPaymentInstallmentsChange={isAdministrativeEngagement ? undefined : setPaymentInstallments}
           staffingRequirements={staffing}
           onStaffingRequirementsChange={handleStaffingRequirementsChange}
           staffingCategories={staffingCategories}

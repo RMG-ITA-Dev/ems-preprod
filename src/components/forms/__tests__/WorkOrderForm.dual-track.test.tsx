@@ -50,6 +50,7 @@ beforeAll(() => {
 });
 
 import { WorkOrderForm } from "../WorkOrderForm";
+import { createEmptyRequirement } from "@/lib/workOrderStaffing";
 
 const makeQC = () =>
   new QueryClient({
@@ -142,6 +143,10 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
       onRiskAssessmentChange: vi.fn(),
       onSubmitForApproval: vi.fn(),
       onUnsubmit: vi.fn(),
+      // 0923-196: "Retirar" ahora también aparece en Rejected con Staffing vacío (para
+      // poder corregirlo, Draft-only por contrato de save_wo_staffing) — irrelevante a
+      // lo que DT2 prueba, así que se fija >=1 fila para no disparar ese caso puntual.
+      staffingRequirements: [createEmptyRequirement()],
       ...fullRisk,
     });
     // gastos/ajuste editables (corrección de la pista Socio)
@@ -165,6 +170,8 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
       onSubmitForApproval: vi.fn(),
       onCompleteRisk: vi.fn(),
       onUnsubmit: vi.fn(),
+      // 0923-196: idem DT2 — evita el caso "Retirar por Staffing vacío", ajeno a DT3.
+      staffingRequirements: [createEmptyRequirement()],
       ...fullRisk,
     });
     // Ambas pistas en "Rechazado"; el Socio NO debe caer a "Pendiente".
@@ -175,6 +182,67 @@ describe("WorkOrderForm — dual-track withdraw/edit (bug 0306-78)", () => {
     // dos reenvíos independientes: Socio (abajo) y Riesgos (arriba)
     expect(screen.getByText("workOrders.sendForPartnerApproval")).toBeInTheDocument();
     expect(screen.getByText("workOrders.sendRiskForReapproval")).toBeInTheDocument();
+  });
+
+  // 0923-196 (review iteración 2, #1): save_wo_staffing exige approval_status='Draft' a
+  // nivel de base de datos (WOS_WO_LOCKED) — la corrección "en sitio" de Rejected no
+  // puede cargar Staffing. Si además quedó vacío, el nuevo gate de envío ("Staffing
+  // requerido") bloquearía el reenvío sin ninguna salida. "Retirar" se habilita en ese
+  // caso puntual para devolver la OT a Draft y poder cargar Staffing ahí.
+  it("DT3b: Socio rechazado + Staffing vacío → 'Retirar' visible (aunque no haya pista pendiente)", () => {
+    renderForm({
+      approvalStatus: "Rejected",
+      approvedAt: null,
+      riskStatus: "Approved",
+      onRiskAssessmentChange: vi.fn(),
+      onSubmitForApproval: vi.fn(),
+      onUnsubmit: vi.fn(),
+      staffingRequirements: [],
+      ...fullRisk,
+    });
+    expect(screen.getByText("workOrders.unsubmit")).toBeInTheDocument();
+  });
+
+  // 0923-196 (review iteración 3, R1-b): staffingRequirements arranca en [] mientras la
+  // query de Staffing todavía carga (o se queda en [] para siempre si falla) — sin este
+  // guard, "Retirar" aparecería como falso positivo aunque la OT sí tenga Staffing.
+  it("DT3c: Socio rechazado + Staffing aún cargando (o en error) → sin 'Retirar' por ese motivo", () => {
+    const { rerender } = render(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...baseProps}
+          approvalStatus="Rejected"
+          approvedAt={null}
+          riskStatus="Approved"
+          onRiskAssessmentChange={vi.fn()}
+          onSubmitForApproval={vi.fn()}
+          onUnsubmit={vi.fn()}
+          staffingRequirements={[]}
+          staffingLoading={true}
+          {...fullRisk}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+
+    rerender(
+      <QueryClientProvider client={makeQC()}>
+        <WorkOrderForm
+          {...baseProps}
+          approvalStatus="Rejected"
+          approvedAt={null}
+          riskStatus="Approved"
+          onRiskAssessmentChange={vi.fn()}
+          onSubmitForApproval={vi.fn()}
+          onUnsubmit={vi.fn()}
+          staffingRequirements={[]}
+          staffingLoading={false}
+          staffingError={true}
+          {...fullRisk}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
   });
 
   it("DT4: OT cerrada (Socio aprobado + Riesgos aprobado) → todo bloqueado y sin 'Retirar'", () => {

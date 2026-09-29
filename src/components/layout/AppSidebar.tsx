@@ -9,6 +9,7 @@ import {
   CheckSquare,
   Timer,
   Grid3X3,
+  ListChecks,
   TableProperties,
   Wallet,
   Banknote,
@@ -70,6 +71,7 @@ export function AppSidebar() {
     { title: t("nav.dashboard"), url: "/", icon: LayoutDashboard, show: true },
     { title: t("nav.clients"), url: "/clients", icon: Briefcase, show: can("client.read") },
     { title: t("nav.engagements"), url: "/engagements", icon: FolderKanban, show: can("engagement.read") },
+    { title: t("nav.administrativeEngagements"), url: "/administrative-engagements", icon: FolderKanban, show: true },
     { title: t("nav.workMatrix"), url: "/worksheets", icon: TableProperties, show: can("worksheet.read") },
     { title: t("nav.workOrders"), url: "/work-orders", icon: FileText, show: can("work_order.read") },
   ].filter((i) => i.show);
@@ -77,6 +79,8 @@ export function AppSidebar() {
   const operationsItems: NavItem[] = [
     { title: t("nav.tracker"), url: "/tracker", icon: Timer, show: can("time_entry.read") },
     { title: t("nav.timeSheet"), url: "/timesheet", icon: Grid3X3, show: can("timesheet.read") },
+    // 0922-190: sin permiso — accesible a los 23 roles, la RLS acota los datos.
+    { title: t("nav.myAssignments"), url: "/timesheet/assignments", icon: ListChecks, show: true },
     { title: t("nav.timesheetApprovals"), url: "/timesheet/approvals", icon: CheckSquare, show: can("timesheet_approval.read") },
     { title: t("nav.fundRequests"), url: "/fund-requests", icon: Wallet, show: can("fund_request.read") },
     { title: t("nav.fundRequestApprovals"), url: "/fund-requests/approvals", icon: CheckSquare, show: can("fund_approval.read") || !!managesAnyOt },

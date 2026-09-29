@@ -72,7 +72,9 @@ const refs = vi.hoisted(() => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => {
-  const emptyStaffingRows: unknown[] = [];
+  // 0923-196: non-empty — Staffing is now required to submit for approval, and
+  // this suite's focus (approve-scope authorization) is orthogonal to Staffing state.
+  const staffingRows = [{ id: "req-1", category_id: "cat-1", staff_count: 1, requirement_skills: [] }];
   return {
     useWorkOrderById: () => ({ data: pendingWorkOrder, isLoading: false }),
     useSetting: () => "0.13",
@@ -80,7 +82,7 @@ vi.mock("@/hooks/useEmsData", () => {
     useExpenseTypes: () => ({ data: [] }),
     useServices: () => ({ data: [] }),
     useActiveSkills: () => ({ data: [] }),
-    useWorkOrderStaffingRequirements: () => ({ data: emptyStaffingRows, isLoading: false, isError: false }),
+    useWorkOrderStaffingRequirements: () => ({ data: staffingRows, isLoading: false, isError: false }),
   };
 });
 

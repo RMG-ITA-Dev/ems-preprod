@@ -89,7 +89,16 @@ const EngagementEdit = () => {
 
   return (
     <AppLayout title={t("nav.engagements")} focusMode>
+      {/* BUG 0922-195 (review H13): sin `key`, React Router reutiliza esta misma instancia de
+          EngagementForm cuando solo cambia `:id` (p. ej. desde la campanita de notificaciones, que
+          está siempre montada en AppHeader) — la política es que salir de un formulario sin
+          guardar SIEMPRE pierde el progreso, pero al reutilizar la instancia entre dos encargos
+          distintos, keepDirtyValues (H5) preservaba un campo editado para el encargo anterior. La
+          key fuerza un desmontaje/remontaje completo cuando cambia de encargo, restaurando esa
+          garantía sin tocar el mecanismo de H5 (que sigue protegiendo la carga tardía del MISMO
+          encargo). */}
       <EngagementForm
+        key={engagement.engagement_id}
         engagement={engagement}
         onDirtyChange={setIsDirty}
         onCancel={handleCancel}

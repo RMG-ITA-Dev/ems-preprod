@@ -85,9 +85,11 @@
     "dashboard": "Panel de Control",
     "clients": "Clientes",
     "engagements": "Encargos",
+    "administrativeEngagements": "Encargos Administrativos",
     "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "timeSheet": "Hoja de Tiempo",
+    "myAssignments": "Mis Asignaciones",
     "timesheetApprovals": "Aprobaciones",
     "tracker": "Registros de Tiempo",
     "fundRequests": "Solicitudes de Fondos",
@@ -770,6 +772,7 @@
     "endDate": "Fecha de Fin",
     "status": "Estado",
     "newEngagement": "Nuevo Encargo",
+    "newAdministrativeEngagement": "Nuevo Encargo Administrativo",
     "editEngagement": "Editar Encargo",
     "createEngagement": "Crear Encargo",
     "deleteEngagement": "Eliminar Encargo",
@@ -795,12 +798,14 @@
     "startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo",
     "workOrderRequired": "Requiere Orden de Trabajo",
     "workOrderRequiredHelp": "Cuando esta desactivado, aparece en planillas sin Orden de Trabajo",
+    "workOrderRequiredAdministrativeHelp": "Actívelo solo si el encargo necesita una OT para presupuestar gastos; desactivado, las horas se cargan sin aprobación de OT.",
     "activityRequired": "Requiere Actividad",
     "activityRequiredHelp": "Cuando esta desactivado, se asigna el código ADM automáticamente",
     "isInternal": "Interno (Todo el Personal)",
     "isInternalHelp": "Todo el personal activo puede registrar tiempo en este encargo",
     "approvalRequired": "Requiere Aprobación",
     "approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar",
+    "approvalRequiredAdministrativeHelp": "Manténgalo activado por defecto; desactívelo solo en encargos que no requieran aprobación.",
     "internal": "Interno",
     "timesheetPolicy": "Política de Planilla",
     "oficina": "Oficina",
@@ -822,10 +827,13 @@
     "requiredOficina": "La oficina es requerida",
     "requiredPractica": "La práctica es requerida",
     "requiredFuncion": "La función es requerida",
+    "requiredPartner": "El Socio/Director es requerido",
+    "requiredManager": "El Gerente/Supervisor es requerido",
     "society": "Sociedad",
     "selectSociety": "Seleccionar sociedad",
     "requiredSociety": "La sociedad es requerida",
     "profileScopeHint": "Asignado automáticamente según tu ficha de personal",
+    "societyFromInternalClientHint": "Se asigna según el cliente interno elegido",
     "profileMissingStaff": "Sin ficha de personal vinculada",
     "closingDate": "Fecha de Corte",
     "selectClosingDate": "Seleccionar fecha de corte",
@@ -932,6 +940,7 @@
     "teamCandidatesLoadError": "No se pudo cargar el personal disponible para el Equipo. Reintente; si el problema persiste, avise al administrador.",
     "profileIncompleteForEngagement": "A tu ficha de personal le falta información requerida para crear este encargo: {{fields}}. Contacta a tu administrador para completarla.",
     "profileLoadError": "No se pudo cargar tu ficha de personal o el catálogo de prácticas. Reintenta; si el problema persiste, avisa a tu administrador.",
+    "engagementCatalogLoadError": "No se pudo cargar el catálogo de prácticas o sociedades para este encargo. Reintenta o recarga la página; si el problema persiste, avisa a tu administrador.",
     "staffDeactivated": "Miembro del personal desactivado (tiene registros relacionados)",
     "accountInactive": "Su cuenta está inactiva. Contacte al administrador.",
     "holidayCreated": "Feriado creado",
@@ -1773,6 +1782,7 @@
     "sanNotes": "Notas SAN",
     "riskApprovalPending": "Aprobación de Riesgos Pendiente",
     "riskAssessmentRequired": "Complete los 5 campos de evaluación de riesgos (fecha CEAC, Nro CEAC, fecha SAN, ID aprobación SAN, nivel de riesgo)",
+    "tabsNotVisited": "Debe revisar todas las pestañas del formulario antes de enviar la OT a aprobación.",
     "ceacNumber": "Nro CEAC",
     "sanApprovalId": "ID Aprobación SAN",
     "ceacNumberPlaceholder": "0000000000",
@@ -1926,6 +1936,7 @@
       "saveSuccess": "Requisitos de staffing guardados correctamente.",
       "errors": {
         "categoryMissing": "Selecciona una categoría para cada requisito de staffing.",
+        "requirementsEmpty": "Agrega al menos un requisito de Staffing antes de enviar la OT a aprobación.",
         "categoryDuplicate": "Una categoría no puede utilizarse más de una vez.",
         "skillDuplicate": "Una skill no puede utilizarse más de una vez dentro del mismo requisito.",
         "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
@@ -2807,6 +2818,49 @@
       "description": "Crear, editar o eliminar un segmento de asignación de personal para este encargo.",
       "save": "Guardar",
       "delete": "Eliminar asignación"
+    }
+  },
+  "myAssignments": {
+    "title": "Mis Asignaciones",
+    "empty": "Todavía no tenés asignaciones.",
+    "deepLinkNotFound": "Esta asignación ya no es visible para vos — es posible que te hayan reasignado fuera de este encargo.",
+    "loadError": "No se pudieron cargar tus asignaciones.",
+    "retry": "Reintentar",
+    "progressText": "{{loaded}} / {{assigned}} h · {{pct}}%",
+    "allocation": "{{percent}}% de dedicación",
+    "progress": {
+      "over": "Las horas cargadas superan el total asignado"
+    },
+    "filters": {
+      "engagement": "Encargo",
+      "allEngagements": "Todos los encargos",
+      "category": "Rol",
+      "allCategories": "Todos los roles",
+      "dateRangeFrom": "Desde",
+      "dateRangeTo": "Hasta",
+      "toggle": {
+        "current": "Vigentes",
+        "historical": "Históricas",
+        "all": "Todas"
+      }
+    },
+    "table": {
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "role": "Rol",
+      "period": "Período",
+      "status": "Estado",
+      "progress": "Progreso"
+    },
+    "notesModal": {
+      "title": "Notas de la asignación"
+    },
+    "status": {
+      "PROPOSED": "Propuesta",
+      "PROVISIONAL": "Provisional",
+      "CONFIRMED": "Confirmada",
+      "COMPLETED": "Completada",
+      "CANCELLED": "Cancelada"
     }
   }
 }

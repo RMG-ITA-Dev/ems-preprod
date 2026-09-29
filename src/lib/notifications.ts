@@ -529,6 +529,19 @@ export function notificationRoute(
   event: NotificationEvent,
   can?: (permission: string) => boolean,
 ): string | null {
+  // 0922-190: la version PROPIA de `engagement.staffing.changed` (context assigned/unassigned)
+  // no exige ningun permiso — la RLS `ea_select_own` ya acota "Mis asignaciones" a la fila
+  // propia, no la pantalla. Se resuelve ANTES del gate de permiso general de abajo porque ese
+  // gate usa `engagement.read` (MODULE_ROUTE_PERMISSION), que es precisamente el permiso que
+  // NO tienen senior/semisenior/assistant — los roles que reciben este aviso. La version de
+  // EQUIPO (team_assigned/team_unassigned) sigue exigiendolo, via el case "engagement" de abajo.
+  if (event.type_key === "engagement.staffing.changed") {
+    const context = event.payload?.context;
+    if (context === "assigned" || context === "unassigned") {
+      return event.entity_id ? `/timesheet/assignments?engagementId=${event.entity_id}` : null;
+    }
+  }
+
   const permission =
     TYPE_ROUTE_PERMISSION[event.type_key] ??
     MODULE_ROUTE_PERMISSION[event.module_key];
@@ -587,8 +600,10 @@ export function notificationRoute(
       // con su chip de codigo y su boton de descartar.
       if (event.type_key === "engagement.specialist_assigned") return null;
 
-      // El resto lleva engagement_id en entity_id, incluidos los de staffing: la asignacion no
-      // tiene pantalla propia, se edita en el equipo del encargo.
+      // El resto lleva engagement_id en entity_id, incluidos los team_assigned/team_unassigned
+      // de staffing: la asignacion no tiene pantalla propia, se edita en el equipo del encargo.
+      // (La version PROPIA, context assigned/unassigned, ya se resolvio arriba, antes del gate
+      // de permiso — nunca llega a este punto.)
       return event.entity_id ? `/engagements/${event.entity_id}` : null;
     }
     case "worksheet": {
