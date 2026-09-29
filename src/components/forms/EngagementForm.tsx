@@ -813,6 +813,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     // y si el catálogo respectivo no tiene todavía el <SelectItem> correspondiente Radix lo
     // silencia a un valor vacío/0 no reeditable (serviceSelectDisabled bloquea Práctica para
     // TODOS los roles en edición, incluido admin — ver Root Cause del plan).
+    // BUG 0922-195 (review H5): los campos mutables (Nombre, fechas, Equipo) solo se deshabilitan
+    // por `readOnly` (permisos), no por esta ventana de carga — si el usuario edita algo antes de
+    // que el catálogo resuelva, ese cambio quedaría dirty. `keepDirtyValues` en el reset de abajo
+    // preserva esos campos tocados en vez de pisarlos en silencio cuando el efecto finalmente
+    // corre (no depende de `isDirty` para decidir SI corre — eso ya lo resolvió #0819-181 — solo
+    // cambia QUÉ valores aplica).
     if (
       engagement &&
       clients &&
@@ -849,7 +855,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         specialist_tax_id: engagement.specialist_tax_id ?? null,
         closing_date_option: closingDateOption,
         closing_date_custom: closingDateOption === "Otro" && storedClosing ? parseDateLocal(storedClosing) : undefined,
-      });
+      }, { keepDirtyValues: true });
       setWorkOrderRequired(engagement.work_order_required ?? true);
       setIsInternal(engagement.is_internal ?? false);
       setApprovalRequired(engagement.approval_required ?? true);

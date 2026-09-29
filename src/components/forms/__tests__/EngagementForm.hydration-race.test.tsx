@@ -358,4 +358,41 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     });
     expect(screen.getByText("common.saveChanges").closest("button")).toBeDisabled();
   });
+
+  // BUG 0922-195 (review H5, chatgpt-codex-connector): mutable fields (Nombre, fechas, Equipo)
+  // are only disabled by `readOnly` (permissions), never by this pending-catalog window — Tests
+  // 4/5/6 widened that window (allServices/societies as extra gates), so a user who starts
+  // editing before the catalog resolves risked having form.reset() silently discard it. Unlike
+  // Tests 1/3's neutral trigger (typed then reverted to the default), this edit is genuine and
+  // NOT reverted, so it must survive the reset via `keepDirtyValues`.
+  it("Test 7 (BUG #0922-195): editing a field during the pending catalog window survives the late form.reset() instead of being silently discarded", async () => {
+    clientsData = stableClients;
+    servicesData = undefined;
+    societiesData = undefined;
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    const { rerender } = render(<EngagementForm engagement={mockEngagement} onDirtyChange={onDirtyChange} />);
+
+    // The populate effect hasn't run yet (still waiting on allServices/societies), so Nombre is
+    // still on its blank creation default here — matching Test 1's pending-window assertion.
+    const nameInput = screen.getByLabelText(/engagement\.name/);
+    expect(nameInput).toHaveValue("");
+    await user.type(nameInput, "Encargo en revision");
+    expect(nameInput).toHaveValue("Encargo en revision");
+
+    servicesData = mockServices;
+    societiesData = mockSocieties;
+    rerender(<EngagementForm engagement={mockEngagement} onDirtyChange={onDirtyChange} />);
+
+    // Against the pre-fix code, form.reset() (without keepDirtyValues) would silently overwrite
+    // Nombre back to the engagement's stored value ("Hydration Race Engagement") once the
+    // catalogs resolved. The rest of the form must still populate correctly from them.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/engagement\.practica/)).toHaveTextContent("Auditoría");
+    });
+    expect(nameInput).toHaveValue("Encargo en revision");
+    await waitFor(() => {
+      expect(onDirtyChange.mock.calls.at(-1)).toEqual([true]);
+    });
+  });
 });
