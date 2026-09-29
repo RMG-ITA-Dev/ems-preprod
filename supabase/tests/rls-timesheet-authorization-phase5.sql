@@ -255,17 +255,28 @@ BEGIN
   IF n < 1 THEN RAISE EXCEPTION 'P5 TIMESHEET AUTHZ FAIL — staff-role self-call: expected own E1 segment, got % rows', n; END IF;
   RAISE NOTICE 'PASS — check 2: staff-app_role self-call returns own segments';
 
-  -- 3. Manager-not-lead SELF call: rows via RPC despite 0 direct-SELECT rows.
+  -- 3. Manager-not-lead SELF call.
+  --
+  -- UPDATED (0922-190): the direct-SELECT count below used to assert 0 rows — under D5 a
+  -- manager-not-lead had no policy granting visibility into their OWN assignment row. Since
+  -- ea_select_own (20260924120000_0922-190_ea_select_own_policy.sql, staff_id =
+  -- get_my_staff_id()) that gap is closed for exactly this shape (own staff_id, direct
+  -- SELECT): they now see their own E1 row directly, same as the RPC already gave them. The
+  -- RPC call right after is kept unchanged and still proves its own value: it returns the
+  -- same segment via a path that additionally clamps/windows it — this check no longer
+  -- demonstrates "RPC succeeds where direct SELECT is denied" for the self case, but the RPC
+  -- remains the only path for the APPROVER arm (checks 5+ below, probing another staff's
+  -- segments), which ea_select_own does not touch.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-000000000105');
   SELECT count(*) INTO n FROM public.engagement_assignments
    WHERE staff_id = '50000000-0000-4000-8000-000000000105'
      AND engagement_id = 'e0000000-0000-4000-8000-000000000101';
-  IF n <> 0 THEN RAISE EXCEPTION 'P5 TIMESHEET AUTHZ FAIL — manager-not-lead direct SELECT: expected 0 rows under D5, got %', n; END IF;
+  IF n <> 1 THEN RAISE EXCEPTION 'P5 TIMESHEET AUTHZ FAIL — manager-not-lead direct SELECT: expected 1 row (own E1 assignment via ea_select_own), got %', n; END IF;
   SELECT count(*) INTO n
     FROM public.get_staff_assignment_segments('50000000-0000-4000-8000-000000000105', '2026-07-06', '2026-07-10') s
    WHERE s.engagement_id = 'e0000000-0000-4000-8000-000000000101';
   IF n < 1 THEN RAISE EXCEPTION 'P5 TIMESHEET AUTHZ FAIL — manager-not-lead self-call: expected own E1 segment via RPC, got % rows', n; END IF;
-  RAISE NOTICE 'PASS — check 3: manager-not-lead self-call returns rows via RPC despite 0 direct-SELECT rows';
+  RAISE NOTICE 'PASS — check 3: manager-not-lead sees their own E1 row both directly (ea_select_own) and via the RPC';
 
   -- 4. Firmwide partner probing an arbitrary staff: exact fixture count.
   PERFORM pg_temp.impersonate('a0000000-0000-4000-8000-000000000103');

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict J14ZpxnvcJhxvAGs5DExbL4rQLV44sYtb0C14i5FEEThU0HdbI3c5bs2keaufkf
+\restrict TH9lTA2xArxOEUfBeEObPMOWmsFghMp5ZqpG8XNYtDFM8VECpundLyuQszZY0p8
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6083,6 +6083,60 @@ $$;
 --
 
 COMMENT ON FUNCTION public.list_loggable_engagements() IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue).';
+
+
+--
+-- Name: list_my_assignments(text, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, p_date_to date) RETURNS TABLE(assignment_id uuid, engagement_id uuid, category_id uuid, start_date date, end_date date, hours_per_week numeric, allocation_percent numeric, notes text, status text, deleted_at timestamp with time zone, engagement_code text, engagement_name text, client_id uuid, client_legal_name text, category_name text)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  -- Review 2026-09-28 (MUST FIX): "hoy" en America/La_Paz, no UTC -- mismo criterio que
+  -- get_week_statuses/get_my_pending_hours (20260911100600_fecha_local_current_date.sql),
+  -- para no adelantar el día a partir de las 20:00 hora local.
+  v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
+BEGIN
+  IF p_toggle NOT IN ('current', 'historical', 'all') THEN
+    RAISE EXCEPTION 'MY_ASSIGNMENTS_INVALID_TOGGLE';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    ea.assignment_id, ea.engagement_id, ea.category_id, ea.start_date, ea.end_date,
+    ea.hours_per_week, ea.allocation_percent, ea.notes, ea.status, ea.deleted_at,
+    e.engagement_code::text, e.engagement_name::text,
+    e.client_id, cl.client_legal_name::text,
+    cat.category_name::text
+  FROM public.engagement_assignments ea
+  LEFT JOIN public.engagements e ON e.engagement_id = ea.engagement_id
+  LEFT JOIN public.clients cl ON cl.client_id = e.client_id
+  LEFT JOIN public.categories cat ON cat.category_id = ea.category_id
+  WHERE ea.staff_id = public.get_my_staff_id()  -- único gate de autorización: RLS no aplica dentro de un SECURITY DEFINER
+    AND (
+      -- Review 2026-09-28 (MUST FIX): "vigente" también exige end_date >= hoy -- no hay
+      -- ningún trigger que mueva status a COMPLETED cuando el período termina, así que sin
+      -- este chequeo una fila CONFIRMED vencida hace meses seguía apareciendo como vigente.
+      -- "historical" es el complemento exacto de "current" (mismas 3 condiciones, OR en vez
+      -- de AND) para que ninguna fila quede fuera de los dos toggles.
+      (p_toggle = 'current' AND ea.deleted_at IS NULL AND ea.status <> 'CANCELLED' AND ea.end_date >= v_today)
+      OR (p_toggle = 'historical'
+          AND (ea.deleted_at IS NOT NULL OR ea.status = 'CANCELLED' OR ea.end_date < v_today)
+          AND ea.end_date >= p_date_from AND ea.start_date <= p_date_to)
+      OR (p_toggle = 'all' AND ea.end_date >= p_date_from AND ea.start_date <= p_date_to)
+    )
+  ORDER BY ea.start_date DESC;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION list_my_assignments(p_toggle text, p_date_from date, p_date_to date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, p_date_to date) IS '0922-190 "Mis asignaciones": único gate de autorización es staff_id = get_my_staff_id() (SECURITY DEFINER bypassa RLS, así que este WHERE reemplaza a ea_select_own dentro de la función). Devuelve solo columnas de etiqueta (engagement_code/name, client_legal_name, category_name) para la fila propia -- nunca las tablas engagements/clients completas, que exigen engagement.read/client.read que la población objetivo de este ticket no siempre tiene. p_toggle: "current" exige deleted_at IS NULL AND status <> CANCELLED AND end_date >= hoy (America/La_Paz), sin acotar por [p_date_from, p_date_to]; "historical" es el complemento exacto de current (deleted_at IS NOT NULL OR status = CANCELLED OR end_date < hoy) Y solapa [p_date_from, p_date_to]; "all" solo exige solape de fecha, sin filtrar por histórico/vigente -- mismo criterio que el filtro cliente de MyAssignments.tsx (review 2026-09-28, MUST FIX).';
 
 
 --
@@ -18650,74 +18704,74 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_09_23; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_23 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_09_24; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_24 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_09_25; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_25 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_09_26; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_09_26 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_09_27; Type: TABLE; Schema: realtime; Owner: -
 --
 
 CREATE TABLE realtime.messages_2026_09_27 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_09_28; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_09_28 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_09_29; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_09_29 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_09_30; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_09_30 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_01; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_01 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19010,38 +19064,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_09_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_23 FOR VALUES FROM ('2026-09-23 00:00:00') TO ('2026-09-24 00:00:00');
-
-
---
--- Name: messages_2026_09_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_24 FOR VALUES FROM ('2026-09-24 00:00:00') TO ('2026-09-25 00:00:00');
-
-
---
--- Name: messages_2026_09_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_25 FOR VALUES FROM ('2026-09-25 00:00:00') TO ('2026-09-26 00:00:00');
-
-
---
--- Name: messages_2026_09_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_26 FOR VALUES FROM ('2026-09-26 00:00:00') TO ('2026-09-27 00:00:00');
-
-
---
 -- Name: messages_2026_09_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_27 FOR VALUES FROM ('2026-09-27 00:00:00') TO ('2026-09-28 00:00:00');
+
+
+--
+-- Name: messages_2026_09_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_28 FOR VALUES FROM ('2026-09-28 00:00:00') TO ('2026-09-29 00:00:00');
+
+
+--
+-- Name: messages_2026_09_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_29 FOR VALUES FROM ('2026-09-29 00:00:00') TO ('2026-09-30 00:00:00');
+
+
+--
+-- Name: messages_2026_09_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_09_30 FOR VALUES FROM ('2026-09-30 00:00:00') TO ('2026-10-01 00:00:00');
+
+
+--
+-- Name: messages_2026_10_01; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_01 FOR VALUES FROM ('2026-10-01 00:00:00') TO ('2026-10-02 00:00:00');
 
 
 --
@@ -19955,43 +20009,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_09_23 messages_2026_09_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_23
-    ADD CONSTRAINT messages_2026_09_23_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_24 messages_2026_09_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_24
-    ADD CONSTRAINT messages_2026_09_24_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_25 messages_2026_09_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_25
-    ADD CONSTRAINT messages_2026_09_25_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_09_26 messages_2026_09_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_09_26
-    ADD CONSTRAINT messages_2026_09_26_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_09_27 messages_2026_09_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages_2026_09_27
     ADD CONSTRAINT messages_2026_09_27_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_28 messages_2026_09_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_28
+    ADD CONSTRAINT messages_2026_09_28_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_29 messages_2026_09_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_29
+    ADD CONSTRAINT messages_2026_09_29_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_09_30 messages_2026_09_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_09_30
+    ADD CONSTRAINT messages_2026_09_30_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_01 messages_2026_10_01_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_01
+    ADD CONSTRAINT messages_2026_10_01_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -20991,38 +21045,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_23_inserted_at_topic_idx ON realtime.messages_2026_09_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_24_inserted_at_topic_idx ON realtime.messages_2026_09_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_25_inserted_at_topic_idx ON realtime.messages_2026_09_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_09_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_09_26_inserted_at_topic_idx ON realtime.messages_2026_09_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_09_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
 CREATE INDEX messages_2026_09_27_inserted_at_topic_idx ON realtime.messages_2026_09_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_28_inserted_at_topic_idx ON realtime.messages_2026_09_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_29_inserted_at_topic_idx ON realtime.messages_2026_09_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_09_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_09_30_inserted_at_topic_idx ON realtime.messages_2026_09_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_01_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_01_inserted_at_topic_idx ON realtime.messages_2026_10_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -21124,62 +21178,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_09_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_23_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_23_pkey;
-
-
---
--- Name: messages_2026_09_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_24_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_24_pkey;
-
-
---
--- Name: messages_2026_09_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_25_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_25_pkey;
-
-
---
--- Name: messages_2026_09_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_26_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_09_26_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_26_pkey;
-
-
---
 -- Name: messages_2026_09_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -21191,6 +21189,62 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_27_pkey;
+
+
+--
+-- Name: messages_2026_09_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_28_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_28_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_28_pkey;
+
+
+--
+-- Name: messages_2026_09_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_29_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_29_pkey;
+
+
+--
+-- Name: messages_2026_09_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_09_30_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_09_30_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_09_30_pkey;
+
+
+--
+-- Name: messages_2026_10_01_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_01_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_01_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_01_pkey;
 
 
 --
@@ -23611,6 +23665,13 @@ CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO auth
 
 
 --
+-- Name: engagement_assignments ea_select_own; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY ea_select_own ON public.engagement_assignments FOR SELECT TO authenticated USING ((staff_id = public.get_my_staff_id()));
+
+
+--
 -- Name: engagement_assignments ea_select_responsible; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24632,5 +24693,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict J14ZpxnvcJhxvAGs5DExbL4rQLV44sYtb0C14i5FEEThU0HdbI3c5bs2keaufkf
+\unrestrict TH9lTA2xArxOEUfBeEObPMOWmsFghMp5ZqpG8XNYtDFM8VECpundLyuQszZY0p8
 

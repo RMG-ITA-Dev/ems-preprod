@@ -491,6 +491,37 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e)).toBe("/engagements/eng-1");
   });
 
+  it("0922-190: la version PROPIA de staffing.changed (assigned) lleva a Mis Asignaciones, sin permiso", () => {
+    // senior/semisenior/assistant reciben este aviso y NO tienen engagement.read: el `can`
+    // de abajo devuelve false a propósito para probar que esta rama no pasa por ese gate.
+    const e = { ...event("n1", "engagement"), type_key: "engagement.staffing.changed",
+                entity_id: "eng-9", payload: { context: "assigned" } };
+    expect(notificationRoute(e, () => false)).toBe("/timesheet/assignments?engagementId=eng-9");
+  });
+
+  it("0922-190: la baja PROPIA (unassigned) rutea igual, también sin permiso", () => {
+    const e = { ...event("n1", "engagement"), type_key: "engagement.staffing.changed",
+                entity_id: "eng-9", payload: { context: "unassigned" } };
+    expect(notificationRoute(e, () => false)).toBe("/timesheet/assignments?engagementId=eng-9");
+  });
+
+  it("0922-190: sin entity_id la version propia no rutea", () => {
+    const e = { ...event("n1", "engagement"), type_key: "engagement.staffing.changed",
+                entity_id: null, payload: { context: "assigned" } };
+    expect(notificationRoute(e)).toBeNull();
+  });
+
+  it("0922-190: la version de EQUIPO (team_assigned/team_unassigned) sigue yendo al encargo, y sigue exigiendo engagement.read", () => {
+    const teamAssigned = { ...event("n1", "engagement"), type_key: "engagement.staffing.changed",
+                entity_id: "eng-9", payload: { context: "team_assigned" } };
+    const teamUnassigned = { ...event("n2", "engagement"), type_key: "engagement.staffing.changed",
+                entity_id: "eng-9", payload: { context: "team_unassigned" } };
+    expect(notificationRoute(teamAssigned)).toBe("/engagements/eng-9");
+    expect(notificationRoute(teamUnassigned)).toBe("/engagements/eng-9");
+    expect(notificationRoute(teamAssigned, () => false)).toBeNull();
+    expect(notificationRoute(teamAssigned, (p) => p === "engagement.read")).toBe("/engagements/eng-9");
+  });
+
   it("un evento de gasto lleva a la pantalla de gastos de SU solicitud", () => {
     // entity_id es el fre_id, que no es parametro de ninguna ruta: el destino se arma con
     // el fund_request_id del payload.
