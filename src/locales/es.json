@@ -2325,9 +2325,9 @@
         "line_rejected": "{{reviewer}} rechazó tu línea de tiempo",
         "revision_requested": "Te pidieron revisar tu línea de tiempo",
         "training_pending": "Capacitaciones por aprobar",
-        "reversal_requested": "Se solicitó la reversión de una boleta",
-        "reversal_executed": "Se ejecutó la reversión de una boleta",
-        "reversal_rejected": "Tu solicitud de reversión fue rechazada"
+        "reversal_requested": "Se solicitó la reversión de una boleta: {{reason}}",
+        "reversal_executed": "Se ejecutó la reversión de una boleta: {{reason}}",
+        "reversal_rejected": "Tu solicitud de reversión fue rechazada: {{notes}}"
       },
       "auth": {
         "user": {

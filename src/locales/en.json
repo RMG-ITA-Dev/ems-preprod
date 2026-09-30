@@ -2325,9 +2325,9 @@
         "line_rejected": "{{reviewer}} rejected your time line",
         "revision_requested": "A revision was requested on your time line",
         "training_pending": "Training approvals pending",
-        "reversal_requested": "A timesheet reversal was requested",
-        "reversal_executed": "A timesheet reversal was executed",
-        "reversal_rejected": "Your reversal request was rejected"
+        "reversal_requested": "A timesheet reversal was requested: {{reason}}",
+        "reversal_executed": "A timesheet reversal was executed: {{reason}}",
+        "reversal_rejected": "Your reversal request was rejected: {{notes}}"
       },
       "auth": {
         "user": {

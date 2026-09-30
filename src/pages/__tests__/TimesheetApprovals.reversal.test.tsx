@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter } from "react-router-dom";
 
 function renderWithRouter(ui: React.ReactElement) {
   return render(<MemoryRouter>{ui}</MemoryRouter>);
@@ -51,6 +51,7 @@ const refs = vi.hoisted(() => {
     rejectReversalMutate: vi.fn(),
     onePendingReversal,
     pendingReversals: onePendingReversal as unknown[],
+    myRequests: [] as unknown[],
   };
 });
 
@@ -98,7 +99,7 @@ vi.mock("@/hooks/useTimesheetReversals", () => ({
     isLoading: false,
   }),
   useReversalRequests: () => ({ data: refs.pendingReversals, isLoading: false }),
-  useMyReversalRequests: () => ({ data: [], isLoading: false }),
+  useMyReversalRequests: () => ({ data: refs.myRequests, isLoading: false }),
   useRequestTimesheetReversal: () => ({ mutate: refs.requestReversalMutate, isPending: false }),
   useExecuteTimesheetReversal: () => ({ mutate: refs.executeReversalMutate, isPending: false }),
   useRejectTimesheetReversal: () => ({ mutate: refs.rejectReversalMutate, isPending: false }),
@@ -116,6 +117,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     refs.roleKey = "manager";
     refs.canApprove = true;
     refs.pendingReversals = refs.onePendingReversal;
+    refs.myRequests = [];
   });
 
   // TA1: manager -- "Solicitar reversión" en Aprobadas, sin "Revertir", y ve "Mis solicitudes".
@@ -141,6 +143,41 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     await user.click(screen.getByText("approval.tabs.myRequests"));
 
     expect(screen.getByText("approval.noReversalRequests")).toBeInTheDocument();
+  });
+
+  // TA1c (review iteración 3, hallazgo #6): una solicitud rechazada debe mostrar la nota del
+  // admin (resolution_notes), no repetir el motivo original del solicitante (reason).
+  it("TA1c: a rejected request in myRequests shows the admin's resolution note, not the original reason", async () => {
+    refs.myRequests = [
+      {
+        request_id: "req-9",
+        period_id: "per-9",
+        scope: "week",
+        engagement_id: null,
+        requested_by: "me",
+        requested_at: "2026-05-01T10:00:00Z",
+        reason: "motivo original del solicitante",
+        status: "rejected",
+        is_direct: false,
+        resolved_by: "admin-1",
+        resolved_at: "2026-05-02T10:00:00Z",
+        resolution_notes: "nota real del administrador",
+        period: {
+          period_id: "per-9",
+          week_start_date: "2026-03-02",
+          week_number: 10,
+          year: 2026,
+          staff_id: "me",
+          staff: { staff_id: "me", first_name: "Yo", last_name: "Mismo", short_name: null },
+        },
+      },
+    ];
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.myRequests"));
+
+    expect(screen.getAllByText("nota real del administrador")[0]).toBeInTheDocument();
+    expect(screen.queryByText("motivo original del solicitante")).not.toBeInTheDocument();
   });
 
   // TA2: admin -- "Revertir" directo en Aprobadas y la cola "Solicitudes de reversión".
@@ -226,5 +263,25 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.getByText("staff.name")).toBeInTheDocument();
     expect(screen.getByText("Ana Lopez", { exact: false })).toBeInTheDocument();
     expect(screen.queryByText("Beto", { exact: false })).not.toBeInTheDocument();
+  });
+
+  // TA7 (review iteración 3, hallazgo #7): un Link de React Router (lo que renderiza una
+  // notificación) cambia el `?tab=` sin desmontar la pantalla -- con `defaultValue` (no
+  // controlado), Radix ignoraba el cambio y la tab visible no seguía a la URL.
+  it("TA7: an in-app Link navigation changes the visible tab without remounting the page", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/timesheet/approvals?tab=pending"]}>
+        <Link to="/timesheet/approvals?tab=approved">go-to-approved</Link>
+        <TimesheetApprovals />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("Ana Lopez", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText("Beto", { exact: false })).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("go-to-approved"));
+
+    expect(screen.getAllByText("Beto", { exact: false })[0]).toBeInTheDocument();
   });
 });

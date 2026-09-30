@@ -9,7 +9,31 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
 // PostgREST trunca en silencio a 1000 filas por página (riesgo G4): "Aprobadas" es histórico
 // y puede superarlo dentro del rango de semanas filtrado, así que se pagina hasta agotar.
-const APPROVED_LINES_PAGE_SIZE = 1000;
+// Mismo tope aplica a las listas de solicitudes -- "Mis solicitudes" acumula todo el
+// historial (pending+executed+rejected) de un solicitante activo (review iteración 3,
+// hallazgo #9).
+const REVERSAL_LIST_PAGE_SIZE = 1000;
+
+// Pagina con `.range()` hasta que una página vuelve corta -- `buildPage` reconstruye la
+// consulta completa en cada vuelta (los query builders de supabase-js no son reutilizables)
+// y sólo agrega el `.range()` de esa página.
+async function fetchAllPages<T>(
+  buildPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let page = 0;
+  for (;;) {
+    const from = page * REVERSAL_LIST_PAGE_SIZE;
+    const to = from + REVERSAL_LIST_PAGE_SIZE - 1;
+    const { data, error } = await buildPage(from, to);
+    if (error) throw error;
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < REVERSAL_LIST_PAGE_SIZE) break;
+    page++;
+  }
+  return rows;
+}
 
 export type ReversalScope = "engagement" | "week";
 export type ReversalStatus = "pending" | "executed" | "rejected";
@@ -146,9 +170,7 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
       // Página hasta agotar: una sola llamada sin `.range()` se corta en silencio a 1000
       // filas -- "aprobadas" es histórico y ese tope se puede superar aun dentro de las 8
       // semanas por defecto (riesgo G4).
-      const rows: ApprovedLineRow[] = [];
-      let page = 0;
-      for (;;) {
+      const rows = await fetchAllPages<ApprovedLineRow>((from, to) => {
         let query = supabase
           .from("timesheet_line_approvals")
           .select(`
@@ -181,19 +203,13 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
           // siguiente puede correr una fila de lugar y dejarla fuera de ambas (review
           // iteración 2, hallazgo #2).
           .order("approval_id", { ascending: true })
-          .range(page * APPROVED_LINES_PAGE_SIZE, page * APPROVED_LINES_PAGE_SIZE + APPROVED_LINES_PAGE_SIZE - 1);
+          .range(from, to);
 
         if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
         if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
 
-        const { data, error } = await query;
-        if (error) throw error;
-
-        const batch = (data || []) as unknown as ApprovedLineRow[];
-        rows.push(...batch);
-        if (batch.length < APPROVED_LINES_PAGE_SIZE) break;
-        page++;
-      }
+        return query as unknown as PromiseLike<{ data: ApprovedLineRow[] | null; error: unknown }>;
+      });
 
       const groups = new Map<string, ApprovedApprovalGroup>();
       rows.forEach((row) => {
@@ -232,38 +248,42 @@ export function useReversalRequests(
     queryKey: ["reversal-requests", "queue", filters.staffId, filters.engagementId, filters.status],
     enabled: filters.enabled ?? true,
     queryFn: async (): Promise<ReversalRequest[]> => {
-      let query = supabase
-        .from("timesheet_reversal_requests" as never)
-        .select(`
-          *,
-          period:timesheet_periods!inner(
-            period_id,
-            week_start_date,
-            week_number,
-            year,
-            staff_id,
-            staff:staff!timesheet_periods_staff_id_fkey(
+      // Paginado (review iteración 3, hallazgo #9): sin esto, una cola con más de 1000 filas
+      // se corta en silencio -- el badge "(N)" de la tab quedaría subcontando.
+      return fetchAllPages<ReversalRequest>((from, to) => {
+        let query = supabase
+          .from("timesheet_reversal_requests" as never)
+          .select(`
+            *,
+            period:timesheet_periods!inner(
+              period_id,
+              week_start_date,
+              week_number,
+              year,
               staff_id,
-              first_name,
-              last_name,
-              short_name
+              staff:staff!timesheet_periods_staff_id_fkey(
+                staff_id,
+                first_name,
+                last_name,
+                short_name
+              )
+            ),
+            engagement:engagements(
+              engagement_id,
+              engagement_code,
+              engagement_name
             )
-          ),
-          engagement:engagements(
-            engagement_id,
-            engagement_code,
-            engagement_name
-          )
-        `)
-        .order("requested_at", { ascending: false });
+          `)
+          .order("requested_at", { ascending: false })
+          .order("request_id", { ascending: true })
+          .range(from, to);
 
-      query = query.eq("status", filters.status ?? "pending");
-      if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
-      if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
+        query = query.eq("status", filters.status ?? "pending");
+        if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
+        if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []) as unknown as ReversalRequest[];
+        return query as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>;
+      });
     },
   });
 }
@@ -281,34 +301,39 @@ export function useMyReversalRequests() {
     queryKey: ["reversal-requests", "mine", staffId],
     enabled: !!staffId,
     queryFn: async (): Promise<ReversalRequest[]> => {
-      const { data, error } = await supabase
-        .from("timesheet_reversal_requests" as never)
-        .select(`
-          *,
-          period:timesheet_periods!inner(
-            period_id,
-            week_start_date,
-            week_number,
-            year,
-            staff_id,
-            staff:staff!timesheet_periods_staff_id_fkey(
+      // Paginado (review iteración 3, hallazgo #9): "Mis solicitudes" acumula TODO el
+      // historial (pending+executed+rejected) de un solicitante activo -- sin paginar, un
+      // solicitante frecuente puede perder en silencio sus solicitudes más viejas al superar
+      // las 1000 filas de PostgREST.
+      return fetchAllPages<ReversalRequest>((from, to) =>
+        supabase
+          .from("timesheet_reversal_requests" as never)
+          .select(`
+            *,
+            period:timesheet_periods!inner(
+              period_id,
+              week_start_date,
+              week_number,
+              year,
               staff_id,
-              first_name,
-              last_name,
-              short_name
+              staff:staff!timesheet_periods_staff_id_fkey(
+                staff_id,
+                first_name,
+                last_name,
+                short_name
+              )
+            ),
+            engagement:engagements(
+              engagement_id,
+              engagement_code,
+              engagement_name
             )
-          ),
-          engagement:engagements(
-            engagement_id,
-            engagement_code,
-            engagement_name
-          )
-        `)
-        .eq("requested_by", staffId as string)
-        .order("requested_at", { ascending: false });
-
-      if (error) throw error;
-      return (data || []) as unknown as ReversalRequest[];
+          `)
+          .eq("requested_by", staffId as string)
+          .order("requested_at", { ascending: false })
+          .order("request_id", { ascending: true })
+          .range(from, to) as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>,
+      );
     },
   });
 }

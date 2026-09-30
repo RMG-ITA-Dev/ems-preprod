@@ -61,6 +61,16 @@ function engagementLabel(r: ReversalRequest, weekScopeLabel: string) {
     : weekScopeLabel;
 }
 
+// "Mis solicitudes" (review iteración 3, hallazgo #6): mientras está pending no hay nada
+// resuelto todavía, así que se ve el motivo original; una vez ejecutada o rechazada, lo que
+// importa es la NOTA DEL ADMIN (resolution_notes) -- antes esta columna repetía `r.reason`
+// (el motivo propio) también para las filas resueltas, y el solicitante nunca veía por qué
+// lo rechazaron.
+function myRequestNoteText(r: ReversalRequest) {
+  if (r.status === "pending") return r.reason;
+  return r.resolution_notes ?? r.reason;
+}
+
 function MyRequestsView() {
   const { t } = useTranslation();
   const { data, isLoading, isError, refetch } = useMyReversalRequests();
@@ -115,7 +125,7 @@ function MyRequestsView() {
                     <TableCell className="text-left border-r border-border">
                       {engagementLabel(r, t("approval.reversalScope.week"))}
                     </TableCell>
-                    <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
+                    <TableCell className="text-left border-r border-border">{myRequestNoteText(r)}</TableCell>
                     <TableCell className="text-center">
                       <Badge variant={statusBadgeVariant(r.status)}>
                         {t(`approval.reversalStatus.${r.status}`)}
@@ -144,7 +154,7 @@ function MyRequestsView() {
                     {t(`approval.reversalStatus.${r.status}`)}
                   </Badge>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{r.reason}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{myRequestNoteText(r)}</p>
               </Card>
             ))}
           </div>

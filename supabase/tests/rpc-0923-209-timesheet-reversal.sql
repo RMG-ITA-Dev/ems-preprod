@@ -28,6 +28,11 @@
 --   PD  1 línea aprobada (E1)                   — check 8 (rechazo)
 --   PE  1 línea aprobada (E1), dueño S_PARTNER  — checks 12 (unsubmit_timesheet_safe intacto),
 --                                                  15 (rol partner recibe reversal_rejected)
+--   PF  1 línea aprobada (E1), YA en Draft       — check 16 (encargo rechaza período no enviado)
+--       (submitted_at NULL desde el fixture -- simula un unsubmit parcial que dejó una línea
+--       approved suelta, sin necesidad de reproducir unsubmit_timesheet_safe paso a paso)
+--   PG  2 líneas aprobadas (E1, E2)              — check 17 (cascada: ejecutar encargo cierra
+--                                                  en cascada la solicitud semana pendiente)
 
 BEGIN;
 
@@ -77,7 +82,9 @@ INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week
   ('b0923209-0000-4000-8000-000000000002', '50923209-0000-4000-8000-000000000004', '2020-01-06', 2, 2020, now(), false), -- PB
   ('b0923209-0000-4000-8000-000000000003', '50923209-0000-4000-8000-000000000004', '2020-02-03', 6, 2020, now(), false), -- PC
   ('b0923209-0000-4000-8000-000000000004', '50923209-0000-4000-8000-000000000004', '2020-03-02', 10, 2020, now(), false), -- PD
-  ('b0923209-0000-4000-8000-000000000005', '50923209-0000-4000-8000-000000000005', '2020-04-06', 15, 2020, now(), false); -- PE
+  ('b0923209-0000-4000-8000-000000000005', '50923209-0000-4000-8000-000000000005', '2020-04-06', 15, 2020, now(), false), -- PE
+  ('b0923209-0000-4000-8000-000000000006', '50923209-0000-4000-8000-000000000004', '2020-05-04', 19, 2020, NULL, false), -- PF (ya Draft)
+  ('b0923209-0000-4000-8000-000000000007', '50923209-0000-4000-8000-000000000004', '2020-06-01', 23, 2020, now(), false); -- PG
 
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at) VALUES
   ('1a923209-0000-4000-8000-000000000001', 'b0923209-0000-4000-8000-000000000001', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PA/E1
@@ -85,7 +92,10 @@ INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_
   ('1a923209-0000-4000-8000-000000000003', 'b0923209-0000-4000-8000-000000000002', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PB/E1
   ('1a923209-0000-4000-8000-000000000004', 'b0923209-0000-4000-8000-000000000003', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PC/E1
   ('1a923209-0000-4000-8000-000000000005', 'b0923209-0000-4000-8000-000000000004', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PD/E1
-  ('1a923209-0000-4000-8000-000000000006', 'b0923209-0000-4000-8000-000000000005', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PE/E1
+  ('1a923209-0000-4000-8000-000000000006', 'b0923209-0000-4000-8000-000000000005', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PE/E1
+  ('1a923209-0000-4000-8000-000000000007', 'b0923209-0000-4000-8000-000000000006', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PF/E1
+  ('1a923209-0000-4000-8000-000000000008', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PG/E1
+  ('1a923209-0000-4000-8000-000000000009', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000002', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PG/E2
 
 -- ── Impersonation helper (temp; se va con la sesión) ──────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -105,6 +115,8 @@ DECLARE
   v_r3     uuid; -- request de MGR sobre PC/E1 (check 7, cascada)
   v_r2     uuid; -- request de OWNER sobre PD, semana (check 8)
   v_r4     uuid; -- request de PARTNER sobre PE, semana (check 15)
+  v_r5     uuid; -- request de MGR sobre PG/E1, encargo (check 17, cascada inversa)
+  v_r6     uuid; -- request de OWNER sobre PG, semana (check 17, cascada inversa)
   v_result uuid;
   v_status text;
   v_notes  text;
@@ -408,6 +420,68 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 15: un partner que solicitó y fue rechazado no recibió approval.reversal_rejected (¿falta su role_key en notification_role_types?)';
   END IF;
   RAISE NOTICE 'PASS — check 15: approval.reversal_rejected llega también a roles con sólo timesheet_approval.read (partner) cuando son dueños de su propia boleta';
+
+  -- ── Check 16 (review iteración 3, hallazgo #3): rama ENCARGO rechaza un período que ya no
+  -- está enviado. PF nace en Draft (submitted_at NULL) con una línea E1 todavía approved --
+  -- simula lo que deja un unsubmit PARCIAL (unsubmit_timesheet_safe sólo borra las líneas
+  -- approved cuando la boleta está TOTALMENTE aprobada) ──
+  denied := false;
+  BEGIN
+    PERFORM public.execute_timesheet_reversal(
+      'b0923209-0000-4000-8000-000000000006', 'engagement',
+      'e0923209-0000-4000-8000-000000000001', 'reintento sobre Draft', NULL);
+  EXCEPTION WHEN raise_exception THEN
+    denied := true; errmsg := SQLERRM;
+  END;
+  IF NOT denied OR errmsg <> 'REVERSAL_NOT_SUBMITTED' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 16: revertir un encargo sobre un período ya en Draft no dio REVERSAL_NOT_SUBMITTED (denied=%, err=%)', denied, errmsg;
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_line_approvals
+   WHERE approval_id = '1a923209-0000-4000-8000-000000000007' AND status = 'approved';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 16: el intento rechazado igual tocó la línea de PF/E1';
+  END IF;
+  RAISE NOTICE 'PASS — check 16: la rama ENCARGO rechaza un período que ya no está enviado (REVERSAL_NOT_SUBMITTED), sin tocar sus líneas';
+
+  -- ── Check 17 (review iteración 3, hallazgo #4): ejecutar ENCARGO cierra en cascada
+  -- (rejected, con aviso real) una solicitud SEMANA pending del mismo período que ya nunca
+  -- podrá ejecutarse -- PG queda con una línea pending en cuanto se resuelve el encargo, así
+  -- que deja de estar totalmente aprobado ──
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000002'); -- MGR
+  SELECT public.request_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000007', 'engagement',
+    'e0923209-0000-4000-8000-000000000001', 'solicitud encargo PG') INTO v_r5;
+
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000004'); -- OWNER
+  SELECT public.request_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000007', 'week', NULL, 'solicitud semana PG') INTO v_r6;
+
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000001'); -- ADMIN
+  PERFORM public.execute_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000007', 'engagement',
+    'e0923209-0000-4000-8000-000000000001', 'ejecuta encargo PG', v_r5);
+
+  SELECT status, resolution_notes INTO v_status, v_notes
+    FROM public.timesheet_reversal_requests WHERE request_id = v_r6;
+  IF v_status <> 'rejected' OR v_notes IS NULL OR btrim(v_notes) = '' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 17: la solicitud semana pending de PG no se cerró en cascada como rejected (status=%, notes=%)', v_status, v_notes;
+  END IF;
+
+  PERFORM 1 FROM public.notifications
+   WHERE recipient_staff_id = '50923209-0000-4000-8000-000000000004'
+     AND type_key = 'approval.reversal_rejected'
+     AND entity_id = v_r6::text;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 17: el dueño (solicitante de la semana) no recibió el aviso de rechazo automático';
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_line_approvals
+   WHERE approval_id = '1a923209-0000-4000-8000-000000000008' AND status = 'pending';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 17: la línea de PG/E1 no quedó pending tras ejecutar el encargo';
+  END IF;
+  RAISE NOTICE 'PASS — check 17: ejecutar alcance encargo cierra en cascada (rejected, con aviso real) la solicitud semana pendiente del mismo período';
 END $$;
 
 -- ── Check 10: RLS -- el solicitante ve su fila, el admin ve todas, un tercero ninguna ──

@@ -167,7 +167,11 @@ const TimesheetApprovals = () => {
   return (
     <AppLayout title={t("approval.title")}>
       <Tabs
-        defaultValue={defaultTab}
+        // Controlado, no `defaultValue` (review iteración 3, hallazgo #7): Radix sólo lee
+        // `defaultValue` al montar. Con eso, un click en una notificación (navegación de
+        // React Router, sin desmontar esta pantalla) cambiaba el `?tab=` de la URL pero
+        // dejaba la tab visible sin cambiar. `value` sigue a `defaultTab` en cada render.
+        value={defaultTab}
         onValueChange={(value) => setSearchParams({ tab: value })}
       >
         <TabsList>

@@ -310,8 +310,12 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
   // ENCARGO a cualquier aprobador del mismo encargo, no sólo a quien lo pidió.
   describe("useMyReversalRequests", () => {
     it("filters by the current user's staff_id, not just by whatever RLS allows", async () => {
-      const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockEq = vi.fn().mockReturnValue({ order: mockOrder });
+      // Cadena: select().eq("requested_by").order("requested_at").order("request_id")
+      //         .range() -- paginado (review iteración 3, hallazgo #9).
+      const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockOrder2 = vi.fn().mockReturnValue({ range: mockRange });
+      const mockOrder1 = vi.fn().mockReturnValue({ order: mockOrder2 });
+      const mockEq = vi.fn().mockReturnValue({ order: mockOrder1 });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
@@ -321,6 +325,7 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockEq).toHaveBeenCalledWith("requested_by", "s-1");
+      expect(mockRange).toHaveBeenCalledWith(0, 999);
     });
 
     it("stays disabled without hitting the network when the current staff record isn't loaded yet", () => {
@@ -337,9 +342,13 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
 
   describe("useReversalRequests", () => {
     it("defaults to the pending queue when no status filter is given", async () => {
+      // Cadena: select().order("requested_at").order("request_id").range().eq("status")
+      // -- paginado (review iteración 3, hallazgo #9).
       const mockEq = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockOrder = vi.fn().mockReturnValue({ eq: mockEq });
-      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      const mockRange = vi.fn().mockReturnValue({ eq: mockEq });
+      const mockOrder2 = vi.fn().mockReturnValue({ range: mockRange });
+      const mockOrder1 = vi.fn().mockReturnValue({ order: mockOrder2 });
+      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder1 });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
 
       const { result } = renderHook(() => useReversalRequests(), {
@@ -348,6 +357,7 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockEq).toHaveBeenCalledWith("status", "pending");
+      expect(mockRange).toHaveBeenCalledWith(0, 999);
     });
   });
 });

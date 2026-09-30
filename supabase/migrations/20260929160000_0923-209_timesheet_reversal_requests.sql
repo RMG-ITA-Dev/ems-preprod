@@ -214,18 +214,20 @@ CREATE FUNCTION public.execute_timesheet_reversal(
     SET search_path TO 'public'
     AS $$
 DECLARE
-  v_admin_staff   uuid;
-  v_period        record;
-  v_request       record;
-  v_reason        text;
-  v_scope         text;
-  v_period_id     uuid;
-  v_engagement_id uuid;
-  v_request_id    uuid;
-  v_recipients    uuid[];
-  v_recipient     uuid;
-  v_affected      integer;
-  v_all_approved  boolean;
+  v_admin_staff        uuid;
+  v_period             record;
+  v_request            record;
+  v_stale_week_request record;
+  v_reason             text;
+  v_scope              text;
+  v_period_id          uuid;
+  v_engagement_id      uuid;
+  v_request_id         uuid;
+  v_recipients         uuid[];
+  v_recipient          uuid;
+  v_affected           integer;
+  v_all_approved       boolean;
+  v_cascade_note       text := 'Cerrada automáticamente: se revirtió un encargo de esta semana y la boleta ya no está completamente aprobada.';
 BEGIN
   -- quien_ejecuta: SOLO el admin, sin excepción. El aprobador ya no auto-ejecuta lo que
   -- él mismo aprobó -- sólo solicita.
@@ -241,21 +243,18 @@ BEGIN
   END IF;
 
   IF p_request_id IS NOT NULL THEN
-    -- Resolver una solicitud existente: el destino sale de LA FILA, no de los parámetros
-    -- redundantes que mande el cliente -- evita un desalineamiento entre p_period_id/p_scope
-    -- y la solicitud que en verdad se está resolviendo.
-    SELECT * INTO v_request
+    -- Espiar el destino SIN bloquear todavía la solicitud (review iteración 3, hallazgo #2):
+    -- request_timesheet_reversal bloquea período -> (choca con el índice único al insertar);
+    -- si acá bloqueáramos la solicitud antes que el período, dos transacciones concurrentes
+    -- sobre el mismo destino podrían esperarse en un ciclo (deadlock) en vez de serializar
+    -- limpio. Bloquear el período PRIMERO, en las dos RPC, evita el ciclo.
+    SELECT period_id, scope, engagement_id INTO v_period_id, v_scope, v_engagement_id
       FROM public.timesheet_reversal_requests
-     WHERE request_id = p_request_id
-       FOR UPDATE;
+     WHERE request_id = p_request_id;
 
-    IF NOT FOUND OR v_request.status <> 'pending' THEN
+    IF NOT FOUND THEN
       RAISE EXCEPTION 'REVERSAL_NOT_PENDING';
     END IF;
-
-    v_scope         := v_request.scope;
-    v_period_id     := v_request.period_id;
-    v_engagement_id := v_request.engagement_id;
   ELSE
     -- Reversión directa (botón "Revertir" en "Aprobadas", sin solicitud previa).
     IF p_scope NOT IN ('engagement', 'week') THEN
@@ -286,9 +285,36 @@ BEGIN
     RAISE EXCEPTION 'REVERSAL_PERIOD_LOCKED';
   END IF;
 
+  IF p_request_id IS NOT NULL THEN
+    -- Ahora sí bloquear y revalidar la solicitud, con el período ya bloqueado (mismo orden
+    -- que request_timesheet_reversal). Re-derivar del row bloqueado, no de la espiada arriba:
+    -- es la fuente de verdad una vez que ya no puede cambiar bajo nuestros pies.
+    SELECT * INTO v_request
+      FROM public.timesheet_reversal_requests
+     WHERE request_id = p_request_id
+       FOR UPDATE;
+
+    IF NOT FOUND OR v_request.status <> 'pending' THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_PENDING';
+    END IF;
+
+    v_scope         := v_request.scope;
+    v_period_id     := v_request.period_id;
+    v_engagement_id := v_request.engagement_id;
+  END IF;
+
   IF v_scope = 'engagement' THEN
     -- El período NO se toca: sigue enviado. Sólo las líneas del encargo objetivo vuelven a
     -- pending -- el resto de encargos de esa semana sigue aprobado.
+    --
+    -- Revalidación tras el lock (review iteración 3, hallazgo #3): un unsubmit PARCIAL
+    -- (unsubmit_timesheet_safe sólo borra las líneas approved cuando v_all_approved) puede
+    -- dejar el período en Draft con líneas approved sueltas -- sin este chequeo, esta rama
+    -- las revertiría igual sobre un período que el dueño ya retiró.
+    IF v_period.submitted_at IS NULL THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+    END IF;
+
     UPDATE public.timesheet_line_approvals
        SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = v_reason
      WHERE period_id = v_period_id AND engagement_id = v_engagement_id AND status = 'approved';
@@ -300,6 +326,29 @@ BEGIN
     IF v_affected = 0 THEN
       RAISE EXCEPTION 'REVERSAL_NOTHING_APPROVED';
     END IF;
+
+    -- Cierre en cascada simétrico (review iteración 3, hallazgo #4): en cuanto una línea de
+    -- este período vuelve a pending, el período deja de estar "totalmente aprobado" -- así
+    -- que cualquier solicitud de alcance SEMANA pending sobre el mismo período ya NUNCA podrá
+    -- ejecutarse (la revalidación de la rama SEMANA la bloquearía con
+    -- REVERSAL_NOT_FULLY_APPROVED). A diferencia del cierre en cascada de la rama SEMANA (que
+    -- sí logra lo que la solicitud de encargo pedía, y por eso se marca `executed`), acá el
+    -- pedido de revertir TODA la semana no se cumplió -- sólo se marca `rejected`, con aviso
+    -- real al solicitante, para no hacerle creer que su solicitud se ejecutó.
+    FOR v_stale_week_request IN
+      SELECT request_id, requested_by
+        FROM public.timesheet_reversal_requests
+       WHERE period_id = v_period_id AND scope = 'week' AND status = 'pending'
+         FOR UPDATE
+    LOOP
+      UPDATE public.timesheet_reversal_requests
+         SET status = 'rejected', resolved_by = v_admin_staff, resolved_at = now(),
+             resolution_notes = v_cascade_note
+       WHERE request_id = v_stale_week_request.request_id;
+
+      PERFORM public.notify_staff('approval.reversal_rejected', v_stale_week_request.requested_by,
+        v_stale_week_request.request_id::text, jsonb_build_object('notes', v_cascade_note));
+    END LOOP;
 
     SELECT ARRAY(
       SELECT DISTINCT sid FROM (
