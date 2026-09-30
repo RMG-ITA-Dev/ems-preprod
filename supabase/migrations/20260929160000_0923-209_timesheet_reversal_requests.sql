@@ -97,6 +97,15 @@ CREATE POLICY trr_select_visible ON public.timesheet_reversal_requests
 
 GRANT SELECT ON public.timesheet_reversal_requests TO authenticated;
 
+-- `service_role` es un límite de confianza distinto de `authenticated`/`anon`: ya bypassea RLS
+-- (BYPASSRLS) y en toda otra tabla del esquema tiene GRANT ALL explícito (cero_06_grants.sql,
+-- y el mismo patrón para tablas nuevas en exchange_rate_history.sql). Sin este GRANT, el
+-- service_role key no puede ni siquiera hacer SELECT (BYPASSRLS no reemplaza el GRANT a nivel
+-- de objeto) -- una herramienta de soporte/backend con la service key quedaría bloqueada acá,
+-- a diferencia de cualquier otra tabla del sistema. No relaja la restricción real: el único
+-- escritor pensado para `authenticated` sigue siendo la RPC SECURITY DEFINER.
+GRANT ALL ON TABLE public.timesheet_reversal_requests TO service_role;
+
 -- =====================================================================
 -- C) RPC (SECURITY DEFINER) -- request / execute / reject
 -- =====================================================================

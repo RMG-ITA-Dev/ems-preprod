@@ -44,6 +44,14 @@ describe("0923-209 timesheet_reversal_requests migration", () => {
     expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE) ON public\.timesheet_reversal_requests/);
   });
 
+  // `service_role` ya bypassea RLS y tiene GRANT ALL explícito en toda otra tabla del esquema
+  // (cero_06_grants.sql); sin el mismo grant acá, la service key queda bloqueada en ESTA tabla
+  // a diferencia de cualquier otra -- gap real encontrado al re-aceptar el fixture de
+  // consolidated-replay (catalog_grants/catalog_column_grants divergían).
+  it("grants service_role full access to the table (consistent with every other table in the schema)", () => {
+    expect(sql).toMatch(/GRANT ALL ON TABLE public\.timesheet_reversal_requests TO service_role;/);
+  });
+
   it("execute_timesheet_reversal gates on is_admin() and does not replicate the owner/role/window guards", () => {
     const body = sql.match(
       /CREATE FUNCTION public\.execute_timesheet_reversal\([\s\S]*?\$\$;/,
