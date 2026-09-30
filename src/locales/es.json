@@ -2029,6 +2029,13 @@
     "executeRequest": "Ejecutar",
     "reversalExecuted": "Reversión ejecutada",
     "reversalRejected": "Solicitud rechazada",
+    "revertDialogTitle": "Revertir líneas aprobadas",
+    "revertDialogDescription": "Escribí un motivo. Las líneas aprobadas de este encargo volverán a pendiente de inmediato.",
+    "executeDialogTitle": "Ejecutar solicitud de reversión",
+    "executeDialogDescription": "Escribí un motivo. Esto ejecutará la solicitud de inmediato.",
+    "rejectDialogTitle": "Rechazar solicitud de reversión",
+    "rejectDialogDescription": "Escribí un motivo. Se notificará al solicitante que su solicitud fue rechazada.",
+    "reversalCascadeNote": "Cerrada automáticamente: se revirtió un encargo de esta semana y la boleta ya no está completamente aprobada.",
     "reversalScope": {
       "engagement": "Encargo",
       "week": "Semana completa"

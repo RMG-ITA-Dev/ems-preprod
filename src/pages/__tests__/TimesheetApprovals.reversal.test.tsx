@@ -145,9 +145,12 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.getByText("approval.noReversalRequests")).toBeInTheDocument();
   });
 
-  // TA1c (review iteración 3, hallazgo #6): una solicitud rechazada debe mostrar la nota del
-  // admin (resolution_notes), no repetir el motivo original del solicitante (reason).
-  it("TA1c: a rejected request in myRequests shows the admin's resolution note, not the original reason", async () => {
+  // TA1c: una solicitud rechazada debe mostrar la nota del admin (resolution_notes) ADEMÁS del
+  // motivo original del solicitante (reason), no una en vez de la otra. La corrección de la
+  // iteración 3 (hallazgo #6) hacía que la nota del admin reemplazara al motivo; la de la
+  // iteración 4 (hallazgo #4) corrigió que eso le escondía al solicitante su propio motivo una
+  // vez resuelta la solicitud.
+  it("TA1c: a rejected request in myRequests shows both the original reason and the admin's resolution note", async () => {
     refs.myRequests = [
       {
         request_id: "req-9",
@@ -177,7 +180,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     await user.click(screen.getByText("approval.tabs.myRequests"));
 
     expect(screen.getAllByText("nota real del administrador")[0]).toBeInTheDocument();
-    expect(screen.queryByText("motivo original del solicitante")).not.toBeInTheDocument();
+    expect(screen.getAllByText("motivo original del solicitante")[0]).toBeInTheDocument();
   });
 
   // TA2: admin -- "Revertir" directo en Aprobadas y la cola "Solicitudes de reversión".

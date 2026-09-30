@@ -51,6 +51,7 @@ import {
   notificationState,
   notificationStateTone,
   pendingApprovalCots,
+  REVERSAL_CASCADE_NOTE_TOKEN,
   unreadIds,
   visibleLegacyAlerts,
   type NotificationEvent,
@@ -289,6 +290,16 @@ function EventRow({
   const roleLabel = (key: string) =>
     t(`authz.role.${key}`, { defaultValue: key });
 
+  // 0923-209 (review iteración 4, hallazgo #5): el cierre en cascada de una solicitud de
+  // reversión guarda/envía un TOKEN de sistema en vez de una oración fija en español -- se
+  // traduce acá, recien al renderizar, para que cada destinatario lo vea en su propio idioma
+  // (a diferencia de un motivo/nota real, que sí queda en el idioma en que la persona lo
+  // escribió).
+  const payload =
+    event.payload?.notes === REVERSAL_CASCADE_NOTE_TOKEN
+      ? { ...event.payload, notes: t("approval.reversalCascadeNote") }
+      : event.payload;
+
   // Dos lineas fijas: accion + fecha arriba, identificadores + estado abajo. Antes el texto
   // llevaba el numero de solicitud incrustado, no entraba en el ancho y partia en dos
   // renglones por su cuenta; asi cada fila tiene una altura predecible.
@@ -297,7 +308,7 @@ function EventRow({
       <div className="flex items-baseline justify-between gap-2">
         <p className="min-w-0 flex-1 text-sm leading-snug">
           {t(event.label_key, {
-            ...event.payload,
+            ...payload,
             defaultValue: t("notifications.genericEvent"),
           })}
         </p>

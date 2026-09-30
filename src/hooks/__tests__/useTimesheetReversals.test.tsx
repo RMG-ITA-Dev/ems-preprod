@@ -57,6 +57,33 @@ function createWrapper() {
   return { Wrapper, queryClient };
 }
 
+// Fake de un query builder de supabase-js: cada método de filtro/orden devuelve el MISMO
+// objeto (igual que el cliente real) y `.then()` resuelve con el resultado de esa página --
+// necesario para probar la paginación por keyset (review iteración 4, hallazgo #3), donde
+// `.gt()`/`.or()` se agregan condicionalmente DESPUÉS de `.limit()` sobre el mismo builder.
+function makeQueryBuilder(result: { data: unknown[] | null; error: unknown }) {
+  const builder: Record<string, ReturnType<typeof vi.fn>> = {};
+  for (const method of ["select", "eq", "gte", "gt", "or", "order", "limit"]) {
+    builder[method] = vi.fn(() => builder);
+  }
+  return Object.assign(builder, {
+    then: (resolve: (v: typeof result) => void) => Promise.resolve(result).then(resolve),
+  });
+}
+
+// Encadena una página por llamada a `supabase.from(...)` -- el hook reconstruye la consulta
+// completa en cada vuelta de `fetchAllPages`, así que cada página es un `.from()` nuevo.
+function mockSupabaseFromPages(pages: Array<{ data: unknown[] | null; error: unknown }>) {
+  const builders = pages.map(makeQueryBuilder);
+  let call = 0;
+  vi.mocked(supabase.from).mockImplementation(() => {
+    const builder = builders[Math.min(call, builders.length - 1)];
+    call++;
+    return builder as any;
+  });
+  return builders;
+}
+
 describe("useTimesheetReversals (BUG 0923-209)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -66,6 +93,7 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
     it("groups approved lines by (period, engagement) and counts lines per group", async () => {
       const rows = [
         {
+          approval_id: "appr-1",
           period_id: "p1",
           engagement_id: "eng-1",
           status: "approved",
@@ -81,6 +109,7 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
         },
         {
           // Second line, same (period, engagement) group -> approvedLineCount should be 2.
+          approval_id: "appr-2",
           period_id: "p1",
           engagement_id: "eng-1",
           status: "approved",
@@ -95,12 +124,7 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
           engagement: { engagement_id: "eng-1", engagement_code: "E-1", engagement_name: "Engagement One" },
         },
       ];
-      const mockRange = vi.fn().mockResolvedValue({ data: rows, error: null });
-      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
-      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
-      const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
-      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+      const [builder] = mockSupabaseFromPages([{ data: rows, error: null }]);
 
       const { result } = renderHook(() => useApprovedApprovalGroups(), {
         wrapper: createWrapper().Wrapper,
@@ -110,19 +134,16 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
       expect(result.current.data).toHaveLength(1);
       expect(result.current.data?.[0].approvedLineCount).toBe(2);
       expect(result.current.data?.[0].staff.first_name).toBe("Ana");
-      // Una sola página: sólo 1 llamada a range() (review iteración 1, hallazgo #6).
-      expect(mockRange).toHaveBeenCalledTimes(1);
+      // Una sola página: sólo 1 llamada a from() (review iteración 1, hallazgo #6).
+      expect(supabase.from).toHaveBeenCalledTimes(1);
       // Orden estable por PK antes de paginar (review iteración 2, hallazgo #2).
-      expect(mockOrder).toHaveBeenCalledWith("approval_id", { ascending: true });
+      expect(builder.order).toHaveBeenCalledWith("approval_id", { ascending: true });
+      // Primera página: sin cursor, no hay `.gt()` (review iteración 4, hallazgo #3).
+      expect(builder.gt).not.toHaveBeenCalled();
     });
 
     it("returns an empty array without throwing when there are no approved lines", async () => {
-      const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
-      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
-      const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
-      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+      mockSupabaseFromPages([{ data: [], error: null }]);
 
       const { result } = renderHook(() => useApprovedApprovalGroups(), {
         wrapper: createWrapper().Wrapper,
@@ -135,9 +156,10 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
     // Review iteración 1, hallazgo #6: PostgREST corta en silencio a 1000 filas por página;
     // sin paginar, un grupo con más de 1000 líneas aprobadas (o más de 1000 líneas repartidas
     // en varios grupos) perdía filas en silencio.
-    it("pages through .range() until a page comes back short, merging a group split across pages", async () => {
+    it("pages by keyset until a page comes back short, merging a group split across pages", async () => {
       const PAGE_SIZE = 1000;
-      const makeRow = () => ({
+      const makeRow = (approvalId: string) => ({
+        approval_id: approvalId,
         period_id: "p1",
         engagement_id: "eng-1",
         status: "approved",
@@ -151,27 +173,24 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
         },
         engagement: { engagement_id: "eng-1", engagement_code: "E-1", engagement_name: "Engagement One" },
       });
-      const firstPage = Array.from({ length: PAGE_SIZE }, makeRow);
-      const secondPage = [makeRow()]; // 1 fila más del MISMO grupo, en la 2da página.
+      const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) => makeRow(`appr-${i}`));
+      const secondPage = [makeRow("appr-last")]; // 1 fila más del MISMO grupo, en la 2da página.
 
-      const mockRange = vi
-        .fn()
-        .mockResolvedValueOnce({ data: firstPage, error: null })
-        .mockResolvedValueOnce({ data: secondPage, error: null });
-      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
-      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
-      const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
-      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+      const [firstBuilder, secondBuilder] = mockSupabaseFromPages([
+        { data: firstPage, error: null },
+        { data: secondPage, error: null },
+      ]);
 
       const { result } = renderHook(() => useApprovedApprovalGroups(), {
         wrapper: createWrapper().Wrapper,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockRange).toHaveBeenCalledTimes(2);
-      expect(mockRange).toHaveBeenNthCalledWith(1, 0, PAGE_SIZE - 1);
-      expect(mockRange).toHaveBeenNthCalledWith(2, PAGE_SIZE, PAGE_SIZE * 2 - 1);
+      expect(supabase.from).toHaveBeenCalledTimes(2);
+      // La 1ra página no tiene cursor; la 2da pide "lo que sigue" al `approval_id` de la
+      // última fila de la 1ra -- no un offset (review iteración 4, hallazgo #3).
+      expect(firstBuilder.gt).not.toHaveBeenCalled();
+      expect(secondBuilder.gt).toHaveBeenCalledWith("approval_id", "appr-999");
       expect(result.current.data).toHaveLength(1);
       expect(result.current.data?.[0].approvedLineCount).toBe(PAGE_SIZE + 1);
     });
@@ -311,21 +330,18 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
   describe("useMyReversalRequests", () => {
     it("filters by the current user's staff_id, not just by whatever RLS allows", async () => {
       // Cadena: select().eq("requested_by").order("requested_at").order("request_id")
-      //         .range() -- paginado (review iteración 3, hallazgo #9).
-      const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockOrder2 = vi.fn().mockReturnValue({ range: mockRange });
-      const mockOrder1 = vi.fn().mockReturnValue({ order: mockOrder2 });
-      const mockEq = vi.fn().mockReturnValue({ order: mockOrder1 });
-      const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+      // .limit() -- paginado (review iteración 3, hallazgo #9), keyset (review iteración 4,
+      // hallazgo #3).
+      const [builder] = mockSupabaseFromPages([{ data: [], error: null }]);
 
       const { result } = renderHook(() => useMyReversalRequests(), {
         wrapper: createWrapper().Wrapper,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockEq).toHaveBeenCalledWith("requested_by", "s-1");
-      expect(mockRange).toHaveBeenCalledWith(0, 999);
+      expect(builder.eq).toHaveBeenCalledWith("requested_by", "s-1");
+      expect(builder.limit).toHaveBeenCalledWith(1000);
+      expect(builder.or).not.toHaveBeenCalled();
     });
 
     it("stays disabled without hitting the network when the current staff record isn't loaded yet", () => {
@@ -338,26 +354,54 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
       expect(result.current.fetchStatus).toBe("idle");
       expect(supabase.from).not.toHaveBeenCalled();
     });
+
+    // Review iteración 4, hallazgo #3: `.range()` por offset puede correr una fila de página
+    // si se crea/resuelve una solicitud entre el fetch de una página y la siguiente. El
+    // keyset compuesto (`requested_at desc, request_id asc`) no depende de la posición.
+    it("pages by the composite (requested_at, request_id) keyset, not by offset", async () => {
+      const PAGE_SIZE = 1000;
+      const makeRequest = (requestId: string, requestedAt: string) => ({
+        request_id: requestId,
+        requested_at: requestedAt,
+        status: "pending",
+      });
+      const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) =>
+        makeRequest(`req-${String(i).padStart(4, "0")}`, "2026-09-30T10:00:00.000Z"),
+      );
+      const secondPage = [makeRequest("req-last", "2026-09-30T09:00:00.000Z")];
+      const [, secondBuilder] = mockSupabaseFromPages([
+        { data: firstPage, error: null },
+        { data: secondPage, error: null },
+      ]);
+
+      const { result } = renderHook(() => useMyReversalRequests(), {
+        wrapper: createWrapper().Wrapper,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.from).toHaveBeenCalledTimes(2);
+      const lastOfFirstPage = firstPage[firstPage.length - 1];
+      expect(secondBuilder.or).toHaveBeenCalledWith(
+        `requested_at.lt.${lastOfFirstPage.requested_at},and(requested_at.eq.${lastOfFirstPage.requested_at},request_id.gt.${lastOfFirstPage.request_id})`,
+      );
+      expect(result.current.data).toHaveLength(PAGE_SIZE + 1);
+    });
   });
 
   describe("useReversalRequests", () => {
     it("defaults to the pending queue when no status filter is given", async () => {
-      // Cadena: select().order("requested_at").order("request_id").range().eq("status")
-      // -- paginado (review iteración 3, hallazgo #9).
-      const mockEq = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockRange = vi.fn().mockReturnValue({ eq: mockEq });
-      const mockOrder2 = vi.fn().mockReturnValue({ range: mockRange });
-      const mockOrder1 = vi.fn().mockReturnValue({ order: mockOrder2 });
-      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder1 });
-      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+      // Cadena: select().eq("status").order("requested_at").order("request_id").limit()
+      // -- paginado (review iteración 3, hallazgo #9), keyset (review iteración 4, hallazgo #3).
+      const [builder] = mockSupabaseFromPages([{ data: [], error: null }]);
 
       const { result } = renderHook(() => useReversalRequests(), {
         wrapper: createWrapper().Wrapper,
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockEq).toHaveBeenCalledWith("status", "pending");
-      expect(mockRange).toHaveBeenCalledWith(0, 999);
+      expect(builder.eq).toHaveBeenCalledWith("status", "pending");
+      expect(builder.limit).toHaveBeenCalledWith(1000);
+      expect(builder.or).not.toHaveBeenCalled();
     });
   });
 });

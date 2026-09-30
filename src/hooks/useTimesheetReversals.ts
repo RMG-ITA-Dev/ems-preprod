@@ -14,23 +14,25 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 // hallazgo #9).
 const REVERSAL_LIST_PAGE_SIZE = 1000;
 
-// Pagina con `.range()` hasta que una página vuelve corta -- `buildPage` reconstruye la
-// consulta completa en cada vuelta (los query builders de supabase-js no son reutilizables)
-// y sólo agrega el `.range()` de esa página.
+// Pagina por keyset (cursor = última fila de la página anterior), no por offset (review
+// iteración 4, hallazgo #3): con `.range(from, to)` un INSERT/UPDATE/DELETE concurrente entre
+// el fetch de una página y la siguiente puede correr una fila de lugar y dejarla fuera de
+// ambas páginas. Con keyset cada página pide "lo que sigue después del cursor" según el mismo
+// orden estable de la consulta, así que no depende de la posición y no le afectan los cambios
+// concurrentes. `buildPage` reconstruye la consulta completa en cada vuelta (los query
+// builders de supabase-js no son reutilizables) y aplica el cursor de la fila anterior.
 async function fetchAllPages<T>(
-  buildPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  buildPage: (cursor: T | null) => PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<T[]> {
   const rows: T[] = [];
-  let page = 0;
+  let cursor: T | null = null;
   for (;;) {
-    const from = page * REVERSAL_LIST_PAGE_SIZE;
-    const to = from + REVERSAL_LIST_PAGE_SIZE - 1;
-    const { data, error } = await buildPage(from, to);
+    const { data, error } = await buildPage(cursor);
     if (error) throw error;
     const batch = data ?? [];
     rows.push(...batch);
     if (batch.length < REVERSAL_LIST_PAGE_SIZE) break;
-    page++;
+    cursor = batch[batch.length - 1];
   }
   return rows;
 }
@@ -146,6 +148,7 @@ function handleReversalError(context: string) {
 // el admin ve todo por is_admin()). Filtro de rango de semanas en servidor (default últimas
 // 8): "approved" es histórico y PostgREST trunca en silencio a 1000 filas (riesgo G4).
 type ApprovedLineRow = {
+  approval_id: string;
   period_id: string;
   engagement_id: string;
   period: {
@@ -167,13 +170,15 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
     queryFn: async (): Promise<ApprovedApprovalGroup[]> => {
       const sinceDate = toISODateString(subWeeks(new Date(), weeksBack));
 
-      // Página hasta agotar: una sola llamada sin `.range()` se corta en silencio a 1000
-      // filas -- "aprobadas" es histórico y ese tope se puede superar aun dentro de las 8
-      // semanas por defecto (riesgo G4).
-      const rows = await fetchAllPages<ApprovedLineRow>((from, to) => {
+      // Página hasta agotar: una sola llamada sin paginar se corta en silencio a 1000 filas --
+      // "aprobadas" es histórico y ese tope se puede superar aun dentro de las 8 semanas por
+      // defecto (riesgo G4). Keyset por `approval_id` (orden estable, review iteración 2,
+      // hallazgo #2) en vez de `.range()` (review iteración 4, hallazgo #3).
+      const rows = await fetchAllPages<ApprovedLineRow>((cursor) => {
         let query = supabase
           .from("timesheet_line_approvals")
           .select(`
+            approval_id,
             period_id,
             engagement_id,
             status,
@@ -198,13 +203,10 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
           `)
           .eq("status", "approved")
           .gte("period.week_start_date", sinceDate)
-          // Orden estable por PK: sin esto, `.range()` no garantiza la misma posición de fila
-          // entre páginas -- un INSERT/UPDATE concurrente entre el fetch de una página y la
-          // siguiente puede correr una fila de lugar y dejarla fuera de ambas (review
-          // iteración 2, hallazgo #2).
           .order("approval_id", { ascending: true })
-          .range(from, to);
+          .limit(REVERSAL_LIST_PAGE_SIZE);
 
+        if (cursor) query = query.gt("approval_id", cursor.approval_id);
         if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
         if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
 
@@ -240,6 +242,21 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
   });
 }
 
+// Cursor compuesto para el orden `requested_at desc, request_id asc` que usan las dos listas
+// de solicitudes: la próxima página son las filas con `requested_at` estrictamente menor, MÁS
+// las que empatan en `requested_at` pero con `request_id` mayor (desempate del propio orden).
+// Keyset en vez de `.range()` (review iteración 4, hallazgo #3): un `.range()` por offset
+// puede correr una fila de página si se crea/resuelve una solicitud entre el fetch de una
+// página y la siguiente.
+function applyReversalRequestsCursor<
+  Q extends { or: (filter: string) => Q },
+>(query: Q, cursor: ReversalRequest | null): Q {
+  if (!cursor) return query;
+  return query.or(
+    `requested_at.lt.${cursor.requested_at},and(requested_at.eq.${cursor.requested_at},request_id.gt.${cursor.request_id})`,
+  );
+}
+
 // Cola de solicitudes (admin): todas las pending, o cualquier estado si se filtra distinto.
 export function useReversalRequests(
   filters: ReversalFilters & { status?: ReversalStatus; enabled?: boolean } = {},
@@ -250,7 +267,7 @@ export function useReversalRequests(
     queryFn: async (): Promise<ReversalRequest[]> => {
       // Paginado (review iteración 3, hallazgo #9): sin esto, una cola con más de 1000 filas
       // se corta en silencio -- el badge "(N)" de la tab quedaría subcontando.
-      return fetchAllPages<ReversalRequest>((from, to) => {
+      return fetchAllPages<ReversalRequest>((cursor) => {
         let query = supabase
           .from("timesheet_reversal_requests" as never)
           .select(`
@@ -274,11 +291,12 @@ export function useReversalRequests(
               engagement_name
             )
           `)
+          .eq("status", filters.status ?? "pending")
           .order("requested_at", { ascending: false })
           .order("request_id", { ascending: true })
-          .range(from, to);
+          .limit(REVERSAL_LIST_PAGE_SIZE);
 
-        query = query.eq("status", filters.status ?? "pending");
+        query = applyReversalRequestsCursor(query, cursor);
         if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
         if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
 
@@ -304,9 +322,9 @@ export function useMyReversalRequests() {
       // Paginado (review iteración 3, hallazgo #9): "Mis solicitudes" acumula TODO el
       // historial (pending+executed+rejected) de un solicitante activo -- sin paginar, un
       // solicitante frecuente puede perder en silencio sus solicitudes más viejas al superar
-      // las 1000 filas de PostgREST.
-      return fetchAllPages<ReversalRequest>((from, to) =>
-        supabase
+      // las 1000 filas de PostgREST. Keyset, no `.range()` (review iteración 4, hallazgo #3).
+      return fetchAllPages<ReversalRequest>((cursor) => {
+        let query = supabase
           .from("timesheet_reversal_requests" as never)
           .select(`
             *,
@@ -332,8 +350,12 @@ export function useMyReversalRequests() {
           .eq("requested_by", staffId as string)
           .order("requested_at", { ascending: false })
           .order("request_id", { ascending: true })
-          .range(from, to) as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>,
-      );
+          .limit(REVERSAL_LIST_PAGE_SIZE);
+
+        query = applyReversalRequestsCursor(query, cursor);
+
+        return query as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>;
+      });
     },
   });
 }

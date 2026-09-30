@@ -227,7 +227,13 @@ DECLARE
   v_recipient          uuid;
   v_affected           integer;
   v_all_approved       boolean;
-  v_cascade_note       text := 'Cerrada automáticamente: se revirtió un encargo de esta semana y la boleta ya no está completamente aprobada.';
+  -- Token de sistema, no texto libre (review iteración 4, hallazgo #5): antes era una oración
+  -- fija en español, así que un destinatario en inglés la veía sin traducir tanto en la
+  -- notificación como en "Mis solicitudes". El frontend traduce este token con
+  -- `approval.reversalCascadeNote` en cada lugar donde se muestre (REVERSAL_CASCADE_NOTE_TOKEN
+  -- en src/lib/notifications.ts) -- a diferencia de un motivo/nota real de una persona, que sí
+  -- debe quedar en el idioma en que se escribió.
+  v_cascade_note       text := 'SYSTEM_CASCADE_WEEK_STALE';
 BEGIN
   -- quien_ejecuta: SOLO el admin, sin excepción. El aprobador ya no auto-ejecuta lo que
   -- él mismo aprobó -- sólo solicita.

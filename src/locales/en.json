@@ -2029,6 +2029,13 @@
     "executeRequest": "Execute",
     "reversalExecuted": "Reversal executed",
     "reversalRejected": "Request rejected",
+    "revertDialogTitle": "Revert Approved Lines",
+    "revertDialogDescription": "Provide a reason. The approved lines for this engagement will return to pending immediately.",
+    "executeDialogTitle": "Execute Reversal Request",
+    "executeDialogDescription": "Provide a reason. This will execute the request immediately.",
+    "rejectDialogTitle": "Reject Reversal Request",
+    "rejectDialogDescription": "Provide a reason. The requester will be notified that their request was rejected.",
+    "reversalCascadeNote": "Automatically closed: an engagement reversal for this week means the timesheet is no longer fully approved.",
     "reversalScope": {
       "engagement": "Engagement",
       "week": "Full week"

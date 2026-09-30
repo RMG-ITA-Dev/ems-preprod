@@ -21,6 +21,7 @@ import {
 } from "@/hooks/useTimesheetReversals";
 import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
 import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
+import { REVERSAL_CASCADE_NOTE_TOKEN } from "@/lib/notifications";
 
 interface ReversalRequestsTabProps {
   /** "mine": seguimiento propio (aprobador). "queue": cola del admin (ejecutar/rechazar). */
@@ -61,14 +62,31 @@ function engagementLabel(r: ReversalRequest, weekScopeLabel: string) {
     : weekScopeLabel;
 }
 
-// "Mis solicitudes" (review iteración 3, hallazgo #6): mientras está pending no hay nada
-// resuelto todavía, así que se ve el motivo original; una vez ejecutada o rechazada, lo que
-// importa es la NOTA DEL ADMIN (resolution_notes) -- antes esta columna repetía `r.reason`
-// (el motivo propio) también para las filas resueltas, y el solicitante nunca veía por qué
-// lo rechazaron.
-function myRequestNoteText(r: ReversalRequest) {
-  if (r.status === "pending") return r.reason;
-  return r.resolution_notes ?? r.reason;
+// "Mis solicitudes" (review iteración 3, hallazgo #6 + iteración 4, hallazgo #4): mientras
+// está pending sólo existe el motivo original. Una vez ejecutada o rechazada, se agrega la
+// NOTA DEL ADMIN (resolution_notes) debajo, SIN reemplazar el motivo -- la corrección de la
+// iteración 3 mostraba una u otra cosa y el solicitante perdía su propio motivo apenas se
+// resolvía la solicitud.
+function RequestNote({ request }: { request: ReversalRequest }) {
+  const { t } = useTranslation();
+  const showResolutionNote = request.status !== "pending" && !!request.resolution_notes;
+  // Cierre en cascada (review iteración 4, hallazgo #5): la nota es un TOKEN de sistema, no
+  // texto de una persona -- se traduce acá en vez de mostrarse cruda (antes era una oración
+  // fija en español).
+  const resolutionNoteText =
+    request.resolution_notes === REVERSAL_CASCADE_NOTE_TOKEN
+      ? t("approval.reversalCascadeNote")
+      : request.resolution_notes;
+  return (
+    <>
+      <p>{request.reason}</p>
+      {showResolutionNote && (
+        <p className="mt-1 text-muted-foreground">
+          {t("approval.rejectionNote")} <span>{resolutionNoteText}</span>
+        </p>
+      )}
+    </>
+  );
 }
 
 function MyRequestsView() {
@@ -125,7 +143,9 @@ function MyRequestsView() {
                     <TableCell className="text-left border-r border-border">
                       {engagementLabel(r, t("approval.reversalScope.week"))}
                     </TableCell>
-                    <TableCell className="text-left border-r border-border">{myRequestNoteText(r)}</TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      <RequestNote request={r} />
+                    </TableCell>
                     <TableCell className="text-center">
                       <Badge variant={statusBadgeVariant(r.status)}>
                         {t(`approval.reversalStatus.${r.status}`)}
@@ -154,7 +174,9 @@ function MyRequestsView() {
                     {t(`approval.reversalStatus.${r.status}`)}
                   </Badge>
                 </div>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{myRequestNoteText(r)}</p>
+                <div className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  <RequestNote request={r} />
+                </div>
               </Card>
             ))}
           </div>
@@ -305,7 +327,10 @@ function QueueView() {
                   {" · "}
                   {engagementLabel(r, t("approval.reversalScope.week"))}
                 </p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">{r.reason}</p>
+                {/* Sin truncar (review iteración 4, hallazgo #1): el admin decide ejecutar o
+                    rechazar leyendo este motivo, y en 768px un `truncate` podía esconder la
+                    mayor parte de una justificación obligatoria. */}
+                <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{r.reason}</p>
                 {actions(r, "stack")}
               </Card>
             ))}
@@ -321,6 +346,10 @@ function QueueView() {
         onConfirm={handleConfirm}
         isPending={executeReversal.isPending || rejectReversal.isPending}
         confirmLabel={dialogMode === "reject" ? t("approval.rejectRequest") : t("approval.executeRequest")}
+        title={dialogMode === "reject" ? t("approval.rejectDialogTitle") : t("approval.executeDialogTitle")}
+        description={
+          dialogMode === "reject" ? t("approval.rejectDialogDescription") : t("approval.executeDialogDescription")
+        }
       />
     </div>
   );

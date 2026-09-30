@@ -499,6 +499,17 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
 };
 
 /**
+ * Token de sistema para la nota de cierre en cascada de `execute_timesheet_reversal` (review
+ * iteración 4, hallazgo #5): antes la RPC guardaba/enviaba una oración fija en español
+ * (`v_cascade_note`) como si fuera una nota escrita por una persona, así que un destinatario
+ * en inglés la veía sin traducir en su notificación y en "Mis solicitudes". Ahora la RPC
+ * guarda/envía este token neutro, y el frontend lo traduce con `approval.reversalCascadeNote`
+ * en cada lugar donde se muestre (a diferencia de un motivo/nota real de una persona, que sí
+ * queda en el idioma en que se escribió, por diseño).
+ */
+export const REVERSAL_CASCADE_NOTE_TOKEN = "SYSTEM_CASCADE_WEEK_STALE";
+
+/**
  * Tipos que se apartan del permiso de su modulo, porque su destino es otra pantalla.
  *
  * Los dos eventos de envio AJENO del modulo Timesheets llevan al detalle de aprobacion

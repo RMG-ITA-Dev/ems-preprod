@@ -220,6 +220,8 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
         onConfirm={handleConfirm}
         isPending={requestReversal.isPending || executeReversal.isPending}
         confirmLabel={dialogMode === "revert" ? t("approval.revert") : t("approval.requestReversal")}
+        title={dialogMode === "revert" ? t("approval.revertDialogTitle") : undefined}
+        description={dialogMode === "revert" ? t("approval.revertDialogDescription") : undefined}
       />
     </div>
   );
