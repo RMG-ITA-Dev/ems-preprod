@@ -224,6 +224,8 @@ DECLARE
   v_request_id    uuid;
   v_recipients    uuid[];
   v_recipient     uuid;
+  v_affected      integer;
+  v_all_approved  boolean;
 BEGIN
   -- quien_ejecuta: SOLO el admin, sin excepción. El aprobador ya no auto-ejecuta lo que
   -- él mismo aprobó -- sólo solicita.
@@ -291,6 +293,14 @@ BEGIN
        SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = v_reason
      WHERE period_id = v_period_id AND engagement_id = v_engagement_id AND status = 'approved';
 
+    -- Revalidación tras el lock (review iteración 1, hallazgo #5 / riesgo G7): una solicitud
+    -- desactualizada -- las líneas ya se revirtieron por otra vía entre el pedido y esta
+    -- ejecución -- no puede quedar marcada `executed` sin haber revertido nada.
+    GET DIAGNOSTICS v_affected = ROW_COUNT;
+    IF v_affected = 0 THEN
+      RAISE EXCEPTION 'REVERSAL_NOTHING_APPROVED';
+    END IF;
+
     SELECT ARRAY(
       SELECT DISTINCT sid FROM (
         SELECT manager_id AS sid FROM public.engagements WHERE engagement_id = v_engagement_id
@@ -305,6 +315,24 @@ BEGIN
     -- ventana de la semana en curso (paso 7): eso es justo lo que esta función admin-only
     -- releva (decisión `alcance_de_semanas`).
     --
+    -- Revalidación tras el lock (review iteración 1, hallazgo #5 / riesgo G7): entre el pedido
+    -- y esta ejecución el período pudo volver a Draft por otra vía (p.ej. unsubmit_timesheet_safe
+    -- del propio dueño, o una ejecución concurrente de alcance semana) o una línea pudo
+    -- reabrirse por el bypass de RLS documentado en G6 -- ambos casos dejan de cumplir lo que
+    -- ya se validó en request_timesheet_reversal.
+    IF v_period.submitted_at IS NULL THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+    END IF;
+
+    SELECT COALESCE(bool_and(tla.status = 'approved'), false)
+      INTO v_all_approved
+      FROM public.timesheet_line_approvals tla
+     WHERE tla.period_id = v_period_id;
+
+    IF NOT v_all_approved THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_FULLY_APPROVED';
+    END IF;
+
     -- Los destinatarios se capturan ANTES del DELETE, que es lo que borra las filas que
     -- identifican los encargos afectados.
     SELECT ARRAY(
@@ -453,18 +481,29 @@ INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUE
   ('admin',         'approval.reversal_executed', 'assigned')
 ON CONFLICT (role_key, type_key) DO NOTHING;
 
--- approval.reversal_rejected -> el solicitante: misma lista de roles que
--- approval.revision_requested (los 7 que reportan horas y pueden solicitar), alcance own.
+-- approval.reversal_rejected -> el solicitante, alcance own. Cualquier rol que pueda ser dueño
+-- de un período enviado puede solicitar alcance SEMANA (request_timesheet_reversal no
+-- restringe por rol, sólo por dueño), así que la lista tiene que cubrir a TODOS los que
+-- timesheet.reverted ya notifica cuando el admin revierte su semana -- no sólo a los 7 que
+-- reportan horas de base -- más los 4 gerentes que solicitan alcance ENCARGO (review iteración
+-- 1, hallazgo #3: partner/senior_partner/director/sqr/risk_partner/it_security_manager podían
+-- pedir una reversión y nunca enterarse de un rechazo).
 INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUES
-  ('senior',        'approval.reversal_rejected', 'own'),
-  ('semisenior',     'approval.reversal_rejected', 'own'),
-  ('assistant',      'approval.reversal_rejected', 'own'),
-  ('ita_senior',     'approval.reversal_rejected', 'own'),
-  ('ita_assistant',  'approval.reversal_rejected', 'own'),
-  ('tax_senior',     'approval.reversal_rejected', 'own'),
-  ('tax_assistant',  'approval.reversal_rejected', 'own'),
-  ('manager',        'approval.reversal_rejected', 'own'),
-  ('ita_manager',    'approval.reversal_rejected', 'own'),
-  ('tax_manager',    'approval.reversal_rejected', 'own'),
-  ('hr_manager',     'approval.reversal_rejected', 'own')
+  ('senior',              'approval.reversal_rejected', 'own'),
+  ('semisenior',          'approval.reversal_rejected', 'own'),
+  ('assistant',           'approval.reversal_rejected', 'own'),
+  ('ita_senior',          'approval.reversal_rejected', 'own'),
+  ('ita_assistant',       'approval.reversal_rejected', 'own'),
+  ('tax_senior',          'approval.reversal_rejected', 'own'),
+  ('tax_assistant',       'approval.reversal_rejected', 'own'),
+  ('manager',             'approval.reversal_rejected', 'own'),
+  ('ita_manager',         'approval.reversal_rejected', 'own'),
+  ('tax_manager',         'approval.reversal_rejected', 'own'),
+  ('hr_manager',          'approval.reversal_rejected', 'own'),
+  ('partner',             'approval.reversal_rejected', 'own'),
+  ('senior_partner',      'approval.reversal_rejected', 'own'),
+  ('director',            'approval.reversal_rejected', 'own'),
+  ('sqr',                 'approval.reversal_rejected', 'own'),
+  ('risk_partner',        'approval.reversal_rejected', 'own'),
+  ('it_security_manager', 'approval.reversal_rejected', 'own')
 ON CONFLICT (role_key, type_key) DO NOTHING;

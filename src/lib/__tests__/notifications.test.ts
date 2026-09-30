@@ -628,16 +628,24 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e, () => false)).toBeNull();
   });
 
-  it("0923-209: solicitar/ejecutar una reversion va a la cola de reversiones, exigiendo timesheet_approval.read", () => {
+  it("0923-209: solicitar una reversion va a la cola de reversiones (sólo el admin la recibe), exigiendo timesheet_approval.read", () => {
     const requested = { ...event("n1", "timesheet_approval"),
                          type_key: "approval.reversal_requested", entity_id: "req-1" };
-    const executed = { ...event("n2", "timesheet_approval"),
-                        type_key: "approval.reversal_executed", entity_id: "per-1" };
     expect(notificationRoute(requested, (p) => p === "timesheet.read")).toBeNull();
     expect(notificationRoute(requested, (p) => p === "timesheet_approval.read"))
       .toBe("/timesheet/approvals?tab=reversals");
+  });
+
+  // Review iteración 1, hallazgo #9: approval.reversal_executed lo reciben gerentes/socios,
+  // NO el admin -- la tab "reversals" no existe para ellos. Antes ruteaba ahí también y
+  // Radix se quedaba sin ningún tab activo (pantalla en blanco). "pending" sí existe para
+  // cualquier perfil con timesheet_approval.read.
+  it("0923-209: ejecutar una reversion va a la tab pending, alcanzable por cualquier perfil con timesheet_approval.read", () => {
+    const executed = { ...event("n2", "timesheet_approval"),
+                        type_key: "approval.reversal_executed", entity_id: "per-1" };
+    expect(notificationRoute(executed, (p) => p === "timesheet.read")).toBeNull();
     expect(notificationRoute(executed, (p) => p === "timesheet_approval.read"))
-      .toBe("/timesheet/approvals?tab=reversals");
+      .toBe("/timesheet/approvals?tab=pending");
   });
 
   it("0923-209: el rechazo de MI solicitud cae al default del modulo (timesheet.read), no timesheet_approval.read", () => {

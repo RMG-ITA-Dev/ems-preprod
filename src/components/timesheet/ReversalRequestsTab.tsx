@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -11,9 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Loader2, Search, Check, X } from "lucide-react";
-import { format, addDays } from "date-fns";
-import { parseDateLocal } from "@/lib/timesheetUtils";
+import { Loader2, Check, X } from "lucide-react";
 import {
   useMyReversalRequests,
   useReversalRequests,
@@ -22,6 +20,7 @@ import {
   type ReversalRequest,
 } from "@/hooks/useTimesheetReversals";
 import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
+import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
 
 interface ReversalRequestsTabProps {
   /** "mine": seguimiento propio (aprobador). "queue": cola del admin (ejecutar/rechazar). */
@@ -56,58 +55,15 @@ function useFilteredRequests(requests: ReversalRequest[] | undefined, filters: R
   });
 }
 
-function RequestFiltersBar({
-  staffSearch,
-  setStaffSearch,
-  engagementSearch,
-  setEngagementSearch,
-  weekFilter,
-  setWeekFilter,
-}: {
-  staffSearch: string;
-  setStaffSearch: (v: string) => void;
-  engagementSearch: string;
-  setEngagementSearch: (v: string) => void;
-  weekFilter: string;
-  setWeekFilter: (v: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="flex flex-wrap gap-3">
-      <div className="relative max-w-xs">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder={t("approval.searchPlaceholder")}
-          value={staffSearch}
-          onChange={(e) => setStaffSearch(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-      <Input
-        placeholder={t("timesheet.engagement")}
-        value={engagementSearch}
-        onChange={(e) => setEngagementSearch(e.target.value)}
-        className="max-w-xs"
-      />
-      <Input
-        type="date"
-        value={weekFilter}
-        onChange={(e) => setWeekFilter(e.target.value)}
-        className="max-w-[180px]"
-      />
-    </div>
-  );
-}
-
-function formatWeekRange(weekStartDate: string) {
-  const startDate = parseDateLocal(weekStartDate);
-  const endDate = addDays(startDate, 4);
-  return `${format(startDate, "dd/MM/yyyy")} - ${format(endDate, "dd/MM/yyyy")}`;
+function engagementLabel(r: ReversalRequest, weekScopeLabel: string) {
+  return r.engagement
+    ? `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`
+    : weekScopeLabel;
 }
 
 function MyRequestsView() {
   const { t } = useTranslation();
-  const { data, isLoading } = useMyReversalRequests();
+  const { data, isLoading, isError, refetch } = useMyReversalRequests();
   const [staffSearch, setStaffSearch] = useState("");
   const [engagementSearch, setEngagementSearch] = useState("");
   const [weekFilter, setWeekFilter] = useState("");
@@ -121,9 +77,13 @@ function MyRequestsView() {
     );
   }
 
+  if (isError) {
+    return <ReversalErrorState onRetry={() => refetch()} />;
+  }
+
   return (
     <div className="space-y-4">
-      <RequestFiltersBar
+      <ReversalFiltersBar
         staffSearch={staffSearch}
         setStaffSearch={setStaffSearch}
         engagementSearch={engagementSearch}
@@ -134,38 +94,61 @@ function MyRequestsView() {
       {filtered.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">{t("approval.noPending")}</div>
       ) : (
-        <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
-                <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
-                <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
-                <TableHead className="font-semibold text-center">{t("approval.decision.title")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((r) => (
-                <TableRow key={r.request_id}>
-                  <TableCell className="text-left border-r border-border">
-                    {r.period ? formatWeekRange(r.period.week_start_date) : "—"}
-                  </TableCell>
-                  <TableCell className="text-left border-r border-border">
-                    {r.engagement
-                      ? `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`
-                      : t("approval.reversalScope.week")}
-                  </TableCell>
-                  <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant={statusBadgeVariant(r.status)}>
-                      {t(`approval.reversalStatus.${r.status}`)}
-                    </Badge>
-                  </TableCell>
+        <>
+          {/* Desktop: tabla (>= md) */}
+          <div className="hidden md:block bg-card rounded-xl border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
+                  <TableHead className="font-semibold text-center">{t("approval.decision.title")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.request_id}>
+                    <TableCell className="text-left border-r border-border">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant={statusBadgeVariant(r.status)}>
+                        {t(`approval.reversalStatus.${r.status}`)}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: tarjetas (< md) */}
+          <div className="space-y-2 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.request_id} className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </p>
+                  </div>
+                  <Badge variant={statusBadgeVariant(r.status)} className="shrink-0">
+                    {t(`approval.reversalStatus.${r.status}`)}
+                  </Badge>
+                </div>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{r.reason}</p>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
@@ -173,7 +156,7 @@ function MyRequestsView() {
 
 function QueueView() {
   const { t } = useTranslation();
-  const { data, isLoading } = useReversalRequests({ status: "pending" });
+  const { data, isLoading, isError, refetch } = useReversalRequests({ status: "pending" });
   const [staffSearch, setStaffSearch] = useState("");
   const [engagementSearch, setEngagementSearch] = useState("");
   const [weekFilter, setWeekFilter] = useState("");
@@ -187,6 +170,11 @@ function QueueView() {
   const closeDialog = () => {
     setActiveRequest(null);
     setDialogMode(null);
+  };
+
+  const openDialog = (request: ReversalRequest, mode: "execute" | "reject") => {
+    setActiveRequest(request);
+    setDialogMode(mode);
   };
 
   const handleConfirm = (reason: string) => {
@@ -218,9 +206,36 @@ function QueueView() {
     );
   }
 
+  if (isError) {
+    return <ReversalErrorState onRetry={() => refetch()} />;
+  }
+
+  const actions = (r: ReversalRequest, layout: "row" | "stack") => (
+    <div className={layout === "row" ? "space-x-2" : "flex gap-2 mt-2"}>
+      <Button
+        size="sm"
+        variant="outline"
+        className={layout === "stack" ? "flex-1" : undefined}
+        onClick={() => openDialog(r, "execute")}
+      >
+        <Check className="h-4 w-4 mr-1" />
+        {t("approval.executeRequest")}
+      </Button>
+      <Button
+        size="sm"
+        variant="destructive"
+        className={layout === "stack" ? "flex-1" : undefined}
+        onClick={() => openDialog(r, "reject")}
+      >
+        <X className="h-4 w-4 mr-1" />
+        {t("approval.rejectRequest")}
+      </Button>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      <RequestFiltersBar
+      <ReversalFiltersBar
         staffSearch={staffSearch}
         setStaffSearch={setStaffSearch}
         engagementSearch={engagementSearch}
@@ -231,63 +246,61 @@ function QueueView() {
       {filtered.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">{t("approval.noPending")}</div>
       ) : (
-        <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
-                <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
-                <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
-                <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
-                <TableHead className="w-10 text-center">{t("approval.actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((r) => (
-                <TableRow key={r.request_id}>
-                  <TableCell className="font-medium text-left border-r border-border">
-                    {r.period?.staff
-                      ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-left border-r border-border">
-                    {r.period ? formatWeekRange(r.period.week_start_date) : "—"}
-                  </TableCell>
-                  <TableCell className="text-left border-r border-border">
-                    {r.engagement
-                      ? `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`
-                      : t("approval.reversalScope.week")}
-                  </TableCell>
-                  <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
-                  <TableCell className="text-center space-x-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setActiveRequest(r);
-                        setDialogMode("execute");
-                      }}
-                    >
-                      <Check className="h-4 w-4 mr-1" />
-                      {t("approval.executeRequest")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => {
-                        setActiveRequest(r);
-                        setDialogMode("reject");
-                      }}
-                    >
-                      <X className="h-4 w-4 mr-1" />
-                      {t("approval.rejectRequest")}
-                    </Button>
-                  </TableCell>
+        <>
+          {/* Desktop: tabla (>= md) */}
+          <div className="hidden md:block bg-card rounded-xl border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
+                  <TableHead className="w-10 text-center">{t("approval.actions")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.request_id}>
+                    <TableCell className="font-medium text-left border-r border-border">
+                      {r.period?.staff
+                        ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
+                    <TableCell className="text-center">{actions(r, "row")}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: tarjetas (< md) */}
+          <div className="space-y-2 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.request_id} className="p-3">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {r.period?.staff
+                    ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
+                    : "—"}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                  {" · "}
+                  {engagementLabel(r, t("approval.reversalScope.week"))}
+                </p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{r.reason}</p>
+                {actions(r, "stack")}
+              </Card>
+            ))}
+          </div>
+        </>
       )}
 
       <TimesheetReversalDialog

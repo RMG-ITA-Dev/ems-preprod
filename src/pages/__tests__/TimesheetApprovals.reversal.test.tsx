@@ -124,7 +124,10 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     renderWithRouter(<TimesheetApprovals />);
     await goToApprovedTab(user);
 
-    expect(screen.getByText("approval.requestReversal")).toBeInTheDocument();
+    // getAllByText: la fila se renderiza dos veces (tabla >= md y tarjeta < md); jsdom no
+    // aplica el CSS que las oculta según el viewport, así que ambas quedan en el DOM (mismo
+    // patrón que BenchTable.tsx / gapsComponents.test.tsx).
+    expect(screen.getAllByText("approval.requestReversal")[0]).toBeInTheDocument();
     expect(screen.queryByText("approval.revert")).not.toBeInTheDocument();
     expect(screen.getByText("approval.tabs.myRequests")).toBeInTheDocument();
     expect(screen.queryByText("approval.tabs.reversalQueue")).not.toBeInTheDocument();
@@ -137,7 +140,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     renderWithRouter(<TimesheetApprovals />);
     await goToApprovedTab(user);
 
-    expect(screen.getByText("approval.revert")).toBeInTheDocument();
+    expect(screen.getAllByText("approval.revert")[0]).toBeInTheDocument();
     expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
     // (1): la fixture de useReversalRequests trae una solicitud pending -- el badge "(N)"
     // sólo se agrega cuando N > 0.
@@ -169,7 +172,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.queryByText("approval.tabs.myRequests")).not.toBeInTheDocument();
     expect(screen.queryByText("approval.tabs.reversalQueue")).not.toBeInTheDocument();
     // La fila sigue siendo visible -- sólo falta la acción, no el dato.
-    expect(screen.getByText("Eng Two", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
   });
 
   // TA4: los filtros acotan las filas, también para el perfil de sólo lectura.
@@ -180,7 +183,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     renderWithRouter(<TimesheetApprovals />);
     await goToApprovedTab(user);
 
-    expect(screen.getByText("Beto", { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByText("Beto", { exact: false })[0]).toBeInTheDocument();
 
     const searchInput = screen.getByPlaceholderText("approval.searchPlaceholder");
     await user.type(searchInput, "Nobody Matches This Name");
@@ -196,7 +199,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     renderWithRouter(<TimesheetApprovals />);
     await user.click(screen.getByText("approval.tabs.reversalQueue (1)"));
 
-    await user.click(screen.getByText("approval.rejectRequest"));
+    await user.click(screen.getAllByText("approval.rejectRequest")[0]);
 
     const dialog = screen.getByRole("dialog");
     const confirmButton = within(dialog).getByRole("button", { name: "approval.rejectRequest" });

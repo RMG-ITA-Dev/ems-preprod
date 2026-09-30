@@ -26,7 +26,8 @@
 --   PB  1 línea aprobada (E1), semana MUY pasada — check 3 (alcance semana, sin ventana)
 --   PC  1 línea aprobada (E1)                   — check 7 (cascada)
 --   PD  1 línea aprobada (E1)                   — check 8 (rechazo)
---   PE  1 línea aprobada (E1), dueño S_PARTNER  — check 12 (unsubmit_timesheet_safe intacto)
+--   PE  1 línea aprobada (E1), dueño S_PARTNER  — checks 12 (unsubmit_timesheet_safe intacto),
+--                                                  15 (rol partner recibe reversal_rejected)
 
 BEGIN;
 
@@ -103,6 +104,7 @@ DECLARE
   v_r1     uuid; -- request de MGR sobre PA/E1 (checks 4,5,6,11)
   v_r3     uuid; -- request de MGR sobre PC/E1 (check 7, cascada)
   v_r2     uuid; -- request de OWNER sobre PD, semana (check 8)
+  v_r4     uuid; -- request de PARTNER sobre PE, semana (check 15)
   v_result uuid;
   v_status text;
   v_notes  text;
@@ -221,6 +223,22 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — check 9: la reversión directa del admin (sin solicitud) deja fila is_direct=true/executed';
 
+  -- ── Check 13 (review iteración 1, hallazgo #5): reintentar un alcance ENCARGO que ya no
+  -- tiene líneas approved (PA/E1 ya quedó pending en el check 4) no debe marcarse executed
+  -- sin haber revertido nada ──
+  denied := false;
+  BEGIN
+    PERFORM public.execute_timesheet_reversal(
+      'b0923209-0000-4000-8000-000000000001', 'engagement',
+      'e0923209-0000-4000-8000-000000000001', 'reintento sin nada que revertir', NULL);
+  EXCEPTION WHEN raise_exception THEN
+    denied := true; errmsg := SQLERRM;
+  END;
+  IF NOT denied OR errmsg <> 'REVERSAL_NOTHING_APPROVED' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 13: revertir un encargo sin líneas approved no dio REVERSAL_NOTHING_APPROVED (denied=%, err=%)', denied, errmsg;
+  END IF;
+  RAISE NOTICE 'PASS — check 13: ejecutar alcance encargo sin líneas approved (ya revertidas) da REVERSAL_NOTHING_APPROVED en vez de marcar executed';
+
   -- ── Check 3: alcance SEMANA sobre una semana MUY pasada -- sin ventana ──
   SELECT public.execute_timesheet_reversal(
     'b0923209-0000-4000-8000-000000000002', 'week', NULL, 'ejecuta semana pasada', NULL) INTO v_result;
@@ -237,6 +255,21 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 3: quedaron % líneas approved en PB tras la reversión de semana', n;
   END IF;
   RAISE NOTICE 'PASS — check 3: admin ejecuta alcance semana sobre una semana pasada sin APPROVED_WEEK_RECALL_WINDOW_CLOSED';
+
+  -- ── Check 14 (review iteración 1, hallazgo #5): reintentar un alcance SEMANA sobre un
+  -- período que ya volvió a Draft (PB, recién revertido en el check 3) no debe marcarse
+  -- executed sin haber revertido nada ──
+  denied := false;
+  BEGIN
+    PERFORM public.execute_timesheet_reversal(
+      'b0923209-0000-4000-8000-000000000002', 'week', NULL, 'reintento semana ya draft', NULL);
+  EXCEPTION WHEN raise_exception THEN
+    denied := true; errmsg := SQLERRM;
+  END;
+  IF NOT denied OR errmsg <> 'REVERSAL_NOT_SUBMITTED' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 14: revertir una semana ya en Draft no dio REVERSAL_NOT_SUBMITTED (denied=%, err=%)', denied, errmsg;
+  END IF;
+  RAISE NOTICE 'PASS — check 14: ejecutar alcance semana sobre un período ya en Draft da REVERSAL_NOT_SUBMITTED en vez de marcar executed';
 
   -- ── Check 7: ejecución de alcance SEMANA cierra en cascada las solicitudes de encargo pending del período ──
   PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000002');
@@ -276,6 +309,15 @@ BEGIN
   SELECT status INTO v_status FROM public.timesheet_reversal_requests WHERE request_id = v_r2;
   IF v_status <> 'rejected' THEN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 8: la solicitud rechazada no quedó en status=rejected (got %)', v_status;
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_reversal_requests
+   WHERE request_id = v_r2
+     AND resolved_by = '50923209-0000-4000-8000-000000000001'
+     AND resolved_at IS NOT NULL
+     AND resolution_notes = 'no corresponde revertir';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 8: el rechazo no dejó resolved_by/resolved_at/resolution_notes correctos';
   END IF;
 
   PERFORM 1 FROM public.timesheet_periods
@@ -345,6 +387,27 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 12: el intento fallido de unsubmit igual tocó submitted_at de PE';
   END IF;
   RAISE NOTICE 'PASS — check 12: unsubmit_timesheet_safe conserva su firma, su chequeo de dueño y su ventana de semana en curso';
+
+  -- ── Check 15 (review iteración 1, hallazgo #3): approval.reversal_rejected debe llegar
+  -- también a roles que sólo tienen timesheet_approval.read (p.ej. partner) pero igual son
+  -- dueños de su propia boleta y pueden solicitar alcance semana -- antes de la corrección,
+  -- notification_role_types no tenía fila para 'partner' y notify_staff descartaba el aviso
+  -- en silencio. PE sigue enviada/aprobada/sin bloquear porque el check 12 (unsubmit) falló. ──
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000005');
+  SELECT public.request_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000005', 'week', NULL, 'solicitud del socio') INTO v_r4;
+
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000001');
+  PERFORM public.reject_timesheet_reversal(v_r4, 'no corresponde para el socio tampoco');
+
+  PERFORM 1 FROM public.notifications
+   WHERE recipient_staff_id = '50923209-0000-4000-8000-000000000005'
+     AND type_key = 'approval.reversal_rejected'
+     AND entity_id = v_r4::text;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 15: un partner que solicitó y fue rechazado no recibió approval.reversal_rejected (¿falta su role_key en notification_role_types?)';
+  END IF;
+  RAISE NOTICE 'PASS — check 15: approval.reversal_rejected llega también a roles con sólo timesheet_approval.read (partner) cuando son dueños de su propia boleta';
 END $$;
 
 -- ── Check 10: RLS -- el solicitante ve su fila, el admin ve todas, un tercero ninguna ──

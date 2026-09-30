@@ -5,6 +5,11 @@ import { subWeeks } from "date-fns";
 import i18n from "@/i18n";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import { toISODateString } from "@/lib/timesheetUtils";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+
+// PostgREST trunca en silencio a 1000 filas por página (riesgo G4): "Aprobadas" es histórico
+// y puede superarlo dentro del rango de semanas filtrado, así que se pagina hasta agotar.
+const APPROVED_LINES_PAGE_SIZE = 1000;
 
 export type ReversalScope = "engagement" | "week";
 export type ReversalStatus = "pending" | "executed" | "rejected";
@@ -116,6 +121,20 @@ function handleReversalError(context: string) {
 // llamante puede ver (can_approve_timesheet_line vía la policy de timesheet_line_approvals;
 // el admin ve todo por is_admin()). Filtro de rango de semanas en servidor (default últimas
 // 8): "approved" es histórico y PostgREST trunca en silencio a 1000 filas (riesgo G4).
+type ApprovedLineRow = {
+  period_id: string;
+  engagement_id: string;
+  period: {
+    period_id: string;
+    week_start_date: string;
+    week_number: number;
+    year: number;
+    staff_id: string;
+    staff: ApprovedApprovalGroup["staff"] | null;
+  } | null;
+  engagement: ApprovedApprovalGroup["engagement"] | null;
+} & Record<string, unknown>;
+
 export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
   const weeksBack = filters.weeksBack ?? 8;
 
@@ -124,56 +143,55 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
     queryFn: async (): Promise<ApprovedApprovalGroup[]> => {
       const sinceDate = toISODateString(subWeeks(new Date(), weeksBack));
 
-      let query = supabase
-        .from("timesheet_line_approvals")
-        .select(`
-          period_id,
-          engagement_id,
-          status,
-          period:timesheet_periods!inner(
+      // Página hasta agotar: una sola llamada sin `.range()` se corta en silencio a 1000
+      // filas -- "aprobadas" es histórico y ese tope se puede superar aun dentro de las 8
+      // semanas por defecto (riesgo G4).
+      const rows: ApprovedLineRow[] = [];
+      let page = 0;
+      for (;;) {
+        let query = supabase
+          .from("timesheet_line_approvals")
+          .select(`
             period_id,
-            week_start_date,
-            week_number,
-            year,
-            staff_id,
-            staff:staff!timesheet_periods_staff_id_fkey(
-              staff_id,
-              first_name,
-              last_name,
-              short_name
-            )
-          ),
-          engagement:engagements(
             engagement_id,
-            engagement_code,
-            engagement_name
-          )
-        `)
-        .eq("status", "approved")
-        .gte("period.week_start_date", sinceDate);
+            status,
+            period:timesheet_periods!inner(
+              period_id,
+              week_start_date,
+              week_number,
+              year,
+              staff_id,
+              staff:staff!timesheet_periods_staff_id_fkey(
+                staff_id,
+                first_name,
+                last_name,
+                short_name
+              )
+            ),
+            engagement:engagements(
+              engagement_id,
+              engagement_code,
+              engagement_name
+            )
+          `)
+          .eq("status", "approved")
+          .gte("period.week_start_date", sinceDate)
+          .range(page * APPROVED_LINES_PAGE_SIZE, page * APPROVED_LINES_PAGE_SIZE + APPROVED_LINES_PAGE_SIZE - 1);
 
-      if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
-      if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
+        if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
+        if (filters.engagementId) query = query.eq("engagement_id", filters.engagementId);
 
-      const { data, error } = await query;
-      if (error) throw error;
+        const { data, error } = await query;
+        if (error) throw error;
 
-      type Row = {
-        period_id: string;
-        engagement_id: string;
-        period: {
-          period_id: string;
-          week_start_date: string;
-          week_number: number;
-          year: number;
-          staff_id: string;
-          staff: ApprovedApprovalGroup["staff"] | null;
-        } | null;
-        engagement: ApprovedApprovalGroup["engagement"] | null;
-      } & Record<string, unknown>;
+        const batch = (data || []) as unknown as ApprovedLineRow[];
+        rows.push(...batch);
+        if (batch.length < APPROVED_LINES_PAGE_SIZE) break;
+        page++;
+      }
 
       const groups = new Map<string, ApprovedApprovalGroup>();
-      ((data || []) as unknown as Row[]).forEach((row) => {
+      rows.forEach((row) => {
         if (!row.period || !row.period.staff || !row.engagement) return;
         const key = `${row.period_id}:${row.engagement_id}`;
         const existing = groups.get(key);
@@ -246,21 +264,42 @@ export function useReversalRequests(
 }
 
 // "Mis solicitudes": todas las del usuario actual, de cualquier alcance y estado (decisión
-// del operador, §i.2 -- incluidas las de su propia boleta).
+// del operador, §i.2 -- incluidas las de su propia boleta). Filtra por `requested_by`: la RLS
+// por sí sola es más amplia (también expone, a un aprobador, las solicitudes de alcance
+// ENCARGO que OTRO aprobador hizo sobre un encargo que ambos pueden aprobar), así que sin este
+// `.eq` "mis solicitudes" mostraba pedidos ajenos (review iteración 1, hallazgo #4).
 export function useMyReversalRequests() {
+  const { staffRecord } = useCurrentStaff();
+  const staffId = staffRecord?.staff_id;
+
   return useQuery({
-    queryKey: ["reversal-requests", "mine"],
+    queryKey: ["reversal-requests", "mine", staffId],
+    enabled: !!staffId,
     queryFn: async (): Promise<ReversalRequest[]> => {
       const { data, error } = await supabase
         .from("timesheet_reversal_requests" as never)
         .select(`
           *,
+          period:timesheet_periods!inner(
+            period_id,
+            week_start_date,
+            week_number,
+            year,
+            staff_id,
+            staff:staff!timesheet_periods_staff_id_fkey(
+              staff_id,
+              first_name,
+              last_name,
+              short_name
+            )
+          ),
           engagement:engagements(
             engagement_id,
             engagement_code,
             engagement_name
           )
         `)
+        .eq("requested_by", staffId as string)
         .order("requested_at", { ascending: false });
 
       if (error) throw error;

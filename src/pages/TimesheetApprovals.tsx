@@ -35,7 +35,6 @@ const TimesheetApprovals = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = roleKey === "admin";
   const canApprove = can("timesheet_approval.approve");
-  const defaultTab = searchParams.get("tab") ?? "pending";
   // Badge del tab "Solicitudes de reversión": sólo se pide cuando importa (admin), y sólo
   // se muestra el "(N)" cuando N > 0 -- una cola vacía no necesita un contador en cero.
   const { data: pendingReversals } = useReversalRequests({ status: "pending", enabled: isAdmin });
@@ -80,6 +79,14 @@ const TimesheetApprovals = () => {
     : canApprove
       ? { value: "my-requests", label: t("approval.tabs.myRequests") }
       : null;
+
+  // Normaliza un `?tab=` que no existe para este perfil (review iteración 1, hallazgo #9):
+  // approval.reversal_executed notifica a gerentes/socios con `?tab=reversals`, una tab que
+  // sólo el admin tiene -- sin esto, Radix se quedaba sin ningún tab activo (pantalla en
+  // blanco) para cualquiera que llegara con un valor que no le correspondía.
+  const requestedTab = searchParams.get("tab") ?? "pending";
+  const validTabValues = new Set(["pending", "approved", ...(thirdTab ? [thirdTab.value] : [])]);
+  const defaultTab = validTabValues.has(requestedTab) ? requestedTab : "pending";
 
   const pendingContent = (
       <div className="space-y-6">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,12 +35,15 @@ export function TimesheetReversalDialog({
   const { t } = useTranslation();
   const [reason, setReason] = useState("");
 
-  const trimmedReason = reason.trim();
+  // Reinicia la razón cada vez que el diálogo se cierra, sin importar la causa: un cierre por
+  // éxito (el padre pone `open=false` directo, sin pasar por `onOpenChange`) dejaba el texto
+  // anterior pre-cargado -- y el botón ya habilitado -- la próxima vez que se abría para OTRA
+  // fila (review iteración 1, hallazgo #8).
+  useEffect(() => {
+    if (!open) setReason("");
+  }, [open]);
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) setReason("");
-    onOpenChange(next);
-  };
+  const trimmedReason = reason.trim();
 
   const handleConfirm = () => {
     if (!trimmedReason) return;
@@ -48,7 +51,7 @@ export function TimesheetReversalDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("timesheet.reversalDialogTitle")}</DialogTitle>
@@ -63,7 +66,7 @@ export function TimesheetReversalDialog({
           />
         </div>
         <DialogFooter>
-          <Button variant="cancel" onClick={() => handleOpenChange(false)}>
+          <Button variant="cancel" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
           <Button onClick={handleConfirm} disabled={isPending || !trimmedReason}>

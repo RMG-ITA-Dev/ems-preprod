@@ -633,12 +633,19 @@ export function notificationRoute(
         : null;
     }
     case "timesheet_approval": {
-      // 0923-209: los dos avisos AJENOS (alguien solicitó / el admin ejecutó una reversión)
-      // van a la cola de reversiones -- entity_id es el request_id (reversal_requested) o el
-      // period_id (reversal_executed), ninguno parametro de ruta, así que el destino es fijo.
-      if (event.type_key === "approval.reversal_requested"
-          || event.type_key === "approval.reversal_executed") {
+      // 0923-209: approval.reversal_requested sólo lo recibe el admin, que siempre tiene la
+      // tab "reversals" (la cola) -- entity_id es el request_id, no parametro de ruta, así
+      // que el destino es fijo.
+      if (event.type_key === "approval.reversal_requested") {
         return "/timesheet/approvals?tab=reversals";
+      }
+      // approval.reversal_executed lo reciben gerentes/socios de los encargos afectados, que
+      // NO son admin -- para ellos la tab "reversals" ni siquiera existe (review iteración 1,
+      // hallazgo #9: quedaban en una pantalla en blanco). "pending" es la única tab que
+      // cualquier perfil con timesheet_approval.read puede ver, y es la más accionable: las
+      // líneas revertidas vuelven a aparecer ahí para volver a aprobarse.
+      if (event.type_key === "approval.reversal_executed") {
+        return "/timesheet/approvals?tab=pending";
       }
       // El veredicto es sobre una linea MIA: el destino es mi hoja de tiempo, no la bandeja
       // de aprobaciones. `entity_id` es el approval_id, que no es parametro de ninguna ruta.
