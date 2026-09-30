@@ -3870,6 +3870,268 @@ COMMENT ON FUNCTION public.engagement_overview(p_engagement_id uuid, p_start dat
 
 
 --
+-- Name: execute_timesheet_reversal(uuid, text, uuid, text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.execute_timesheet_reversal(p_period_id uuid, p_scope text, p_engagement_id uuid DEFAULT NULL::uuid, p_reason text DEFAULT NULL::text, p_request_id uuid DEFAULT NULL::uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_admin_staff        uuid;
+  v_period             record;
+  v_request            record;
+  v_stale_week_request record;
+  v_reason             text;
+  v_scope              text;
+  v_period_id          uuid;
+  v_engagement_id      uuid;
+  v_request_id         uuid;
+  v_recipients         uuid[];
+  v_recipient          uuid;
+  v_affected           integer;
+  v_all_approved       boolean;
+  -- Token de sistema, no texto libre (review iteración 4, hallazgo #5): antes era una oración
+  -- fija en español, así que un destinatario en inglés la veía sin traducir tanto en la
+  -- notificación como en "Mis solicitudes". El frontend traduce este token con
+  -- `approval.reversalCascadeNote` en cada lugar donde se muestre (REVERSAL_CASCADE_NOTE_TOKEN
+  -- en src/lib/notifications.ts) -- a diferencia de un motivo/nota real de una persona, que sí
+  -- debe quedar en el idioma en que se escribió.
+  v_cascade_note       text := 'SYSTEM_CASCADE_WEEK_STALE';
+BEGIN
+  -- quien_ejecuta: SOLO el admin, sin excepción. El aprobador ya no auto-ejecuta lo que
+  -- él mismo aprobó -- sólo solicita.
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_ADMIN';
+  END IF;
+
+  v_admin_staff := public.get_my_staff_id();
+
+  v_reason := btrim(COALESCE(p_reason, ''));
+  IF v_reason = '' THEN
+    RAISE EXCEPTION 'REVERSAL_REASON_REQUIRED';
+  END IF;
+
+  IF p_request_id IS NOT NULL THEN
+    -- Espiar el destino SIN bloquear todavía la solicitud (review iteración 3, hallazgo #2):
+    -- request_timesheet_reversal bloquea período -> (choca con el índice único al insertar);
+    -- si acá bloqueáramos la solicitud antes que el período, dos transacciones concurrentes
+    -- sobre el mismo destino podrían esperarse en un ciclo (deadlock) en vez de serializar
+    -- limpio. Bloquear el período PRIMERO, en las dos RPC, evita el ciclo.
+    SELECT period_id, scope, engagement_id INTO v_period_id, v_scope, v_engagement_id
+      FROM public.timesheet_reversal_requests
+     WHERE request_id = p_request_id;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_PENDING';
+    END IF;
+  ELSE
+    -- Reversión directa (botón "Revertir" en "Aprobadas", sin solicitud previa).
+    IF p_scope NOT IN ('engagement', 'week') THEN
+      RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+    END IF;
+    IF p_scope = 'engagement' AND p_engagement_id IS NULL THEN
+      RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+    END IF;
+    IF p_scope = 'week' AND p_engagement_id IS NOT NULL THEN
+      RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+    END IF;
+
+    v_scope         := p_scope;
+    v_period_id     := p_period_id;
+    v_engagement_id := p_engagement_id;
+  END IF;
+
+  SELECT tp.* INTO v_period
+    FROM public.timesheet_periods tp
+   WHERE tp.period_id = v_period_id
+     FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+  END IF;
+
+  IF v_period.is_period_locked THEN
+    RAISE EXCEPTION 'REVERSAL_PERIOD_LOCKED';
+  END IF;
+
+  IF p_request_id IS NOT NULL THEN
+    -- Ahora sí bloquear y revalidar la solicitud, con el período ya bloqueado (mismo orden
+    -- que request_timesheet_reversal). Re-derivar del row bloqueado, no de la espiada arriba:
+    -- es la fuente de verdad una vez que ya no puede cambiar bajo nuestros pies.
+    SELECT * INTO v_request
+      FROM public.timesheet_reversal_requests
+     WHERE request_id = p_request_id
+       FOR UPDATE;
+
+    IF NOT FOUND OR v_request.status <> 'pending' THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_PENDING';
+    END IF;
+
+    v_scope         := v_request.scope;
+    v_period_id     := v_request.period_id;
+    v_engagement_id := v_request.engagement_id;
+  END IF;
+
+  IF v_scope = 'engagement' THEN
+    -- El período NO se toca: sigue enviado. Sólo las líneas del encargo objetivo vuelven a
+    -- pending -- el resto de encargos de esa semana sigue aprobado.
+    --
+    -- Revalidación tras el lock (review iteración 3, hallazgo #3): un unsubmit PARCIAL
+    -- (unsubmit_timesheet_safe sólo borra las líneas approved cuando v_all_approved) puede
+    -- dejar el período en Draft con líneas approved sueltas -- sin este chequeo, esta rama
+    -- las revertiría igual sobre un período que el dueño ya retiró.
+    IF v_period.submitted_at IS NULL THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+    END IF;
+
+    UPDATE public.timesheet_line_approvals
+       SET status = 'pending', approved_by = NULL, approved_at = NULL, review_notes = v_reason
+     WHERE period_id = v_period_id AND engagement_id = v_engagement_id AND status = 'approved';
+
+    -- Revalidación tras el lock (review iteración 1, hallazgo #5 / riesgo G7): una solicitud
+    -- desactualizada -- las líneas ya se revirtieron por otra vía entre el pedido y esta
+    -- ejecución -- no puede quedar marcada `executed` sin haber revertido nada.
+    GET DIAGNOSTICS v_affected = ROW_COUNT;
+    IF v_affected = 0 THEN
+      RAISE EXCEPTION 'REVERSAL_NOTHING_APPROVED';
+    END IF;
+
+    -- Cierre en cascada simétrico (review iteración 3, hallazgo #4): en cuanto una línea de
+    -- este período vuelve a pending, el período deja de estar "totalmente aprobado" -- así
+    -- que cualquier solicitud de alcance SEMANA pending sobre el mismo período ya NUNCA podrá
+    -- ejecutarse (la revalidación de la rama SEMANA la bloquearía con
+    -- REVERSAL_NOT_FULLY_APPROVED). A diferencia del cierre en cascada de la rama SEMANA (que
+    -- sí logra lo que la solicitud de encargo pedía, y por eso se marca `executed`), acá el
+    -- pedido de revertir TODA la semana no se cumplió -- sólo se marca `rejected`, con aviso
+    -- real al solicitante, para no hacerle creer que su solicitud se ejecutó.
+    FOR v_stale_week_request IN
+      SELECT request_id, requested_by
+        FROM public.timesheet_reversal_requests
+       WHERE period_id = v_period_id AND scope = 'week' AND status = 'pending'
+         FOR UPDATE
+    LOOP
+      UPDATE public.timesheet_reversal_requests
+         SET status = 'rejected', resolved_by = v_admin_staff, resolved_at = now(),
+             resolution_notes = v_cascade_note
+       WHERE request_id = v_stale_week_request.request_id;
+
+      PERFORM public.notify_staff('approval.reversal_rejected', v_stale_week_request.requested_by,
+        v_stale_week_request.request_id::text, jsonb_build_object('notes', v_cascade_note));
+    END LOOP;
+
+    -- Cierre en cascada del MISMO destino (review iteración 5, hallazgo #2): si además de esta
+    -- ejecución (directa o por otra solicitud) hay OTRA solicitud `pending` de alcance ENCARGO
+    -- sobre el mismo (período, encargo), ya se cumplió lo que pedía -- sin esto quedaba
+    -- `pending` para siempre, porque el próximo intento de ejecutarla encuentra 0 líneas
+    -- `approved` y falla con REVERSAL_NOTHING_APPROVED. El índice único `uq_trr_open_engagement`
+    -- garantiza a lo sumo una fila. Mismo criterio que el cierre en cascada de la rama SEMANA de
+    -- abajo (:414-420): se marca `executed`, sin aviso aparte, porque el pedido sí se cumplió.
+    UPDATE public.timesheet_reversal_requests
+       SET status = 'executed', resolved_by = v_admin_staff, resolved_at = now(),
+           resolution_notes = v_reason
+     WHERE period_id = v_period_id AND engagement_id = v_engagement_id AND scope = 'engagement'
+       AND status = 'pending' AND (p_request_id IS NULL OR request_id <> p_request_id);
+
+    SELECT ARRAY(
+      SELECT DISTINCT sid FROM (
+        SELECT manager_id AS sid FROM public.engagements WHERE engagement_id = v_engagement_id
+        UNION
+        SELECT partner_id AS sid FROM public.engagements WHERE engagement_id = v_engagement_id
+      ) x WHERE sid IS NOT NULL AND sid IS DISTINCT FROM v_admin_staff
+    ) INTO v_recipients;
+  ELSE
+    -- Alcance SEMANA: replica LITERALMENTE los pasos 8/9 de unsubmit_timesheet_safe (cero_02,
+    -- borra -- no pasa a pending -- las líneas approved, para que el reenvío re-dispare la
+    -- auto-aprobación), sin el chequeo de dueño (paso 1-3), el rol legacy (paso 6b) ni la
+    -- ventana de la semana en curso (paso 7): eso es justo lo que esta función admin-only
+    -- releva (decisión `alcance_de_semanas`).
+    --
+    -- Revalidación tras el lock (review iteración 1, hallazgo #5 / riesgo G7): entre el pedido
+    -- y esta ejecución el período pudo volver a Draft por otra vía (p.ej. unsubmit_timesheet_safe
+    -- del propio dueño, o una ejecución concurrente de alcance semana) o una línea pudo
+    -- reabrirse por el bypass de RLS documentado en G6 -- ambos casos dejan de cumplir lo que
+    -- ya se validó en request_timesheet_reversal.
+    IF v_period.submitted_at IS NULL THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+    END IF;
+
+    SELECT COALESCE(bool_and(tla.status = 'approved'), false)
+      INTO v_all_approved
+      FROM public.timesheet_line_approvals tla
+     WHERE tla.period_id = v_period_id;
+
+    IF NOT v_all_approved THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_FULLY_APPROVED';
+    END IF;
+
+    -- Los destinatarios se capturan ANTES del DELETE, que es lo que borra las filas que
+    -- identifican los encargos afectados.
+    SELECT ARRAY(
+      SELECT DISTINCT sid FROM (
+        SELECT e.manager_id AS sid
+          FROM public.timesheet_line_approvals tla
+          JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+         WHERE tla.period_id = v_period_id
+        UNION
+        SELECT e.partner_id AS sid
+          FROM public.timesheet_line_approvals tla
+          JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+         WHERE tla.period_id = v_period_id
+      ) x WHERE sid IS NOT NULL AND sid IS DISTINCT FROM v_admin_staff
+    ) INTO v_recipients;
+
+    UPDATE public.timesheet_periods
+       SET submitted_at = NULL
+     WHERE period_id = v_period_id;
+
+    DELETE FROM public.timesheet_line_approvals
+     WHERE period_id = v_period_id AND status = 'approved';
+
+    -- Cierre en cascada: las solicitudes `pending` de este período quedan sobre líneas que ya se
+    -- borraron -- sin esto, la cola del admin las mostraría como accionables. Sin filtro de
+    -- `scope` (review iteración 10, hallazgo #1): una reversión DIRECTA de semana
+    -- (p_request_id NULL) también deja inviable una solicitud SEMANA pendiente del mismo período
+    -- (volvería a fallar con REVERSAL_NOT_SUBMITTED); `uq_trr_open_week` garantiza a lo sumo una.
+    -- La propia solicitud que se está ejecutando (p_request_id) se excluye: se cierra más abajo.
+    UPDATE public.timesheet_reversal_requests
+       SET status = 'executed', resolved_by = v_admin_staff, resolved_at = now(),
+           resolution_notes = v_reason
+     WHERE period_id = v_period_id AND status = 'pending'
+       AND (p_request_id IS NULL OR request_id <> p_request_id);
+  END IF;
+
+  -- notificacion_al_ejecutar_admin: la razón a los gerentes/socios de los encargos
+  -- afectados (todos los del período en alcance SEMANA, sólo uno en alcance ENCARGO),
+  -- excluyendo al admin ejecutor.
+  FOREACH v_recipient IN ARRAY v_recipients LOOP
+    PERFORM public.notify_staff('approval.reversal_executed', v_recipient, v_period_id::text,
+      jsonb_build_object('reason', v_reason, 'scope', v_scope, 'engagement_id', v_engagement_id));
+  END LOOP;
+
+  IF p_request_id IS NULL THEN
+    -- Bitácora de la reversión directa: nace ya ejecutada (is_direct = true).
+    INSERT INTO public.timesheet_reversal_requests
+      (period_id, scope, engagement_id, requested_by, reason, status, is_direct,
+       resolved_by, resolved_at, resolution_notes)
+    VALUES
+      (v_period_id, v_scope, v_engagement_id, v_admin_staff, v_reason, 'executed', true,
+       v_admin_staff, now(), v_reason)
+    RETURNING request_id INTO v_request_id;
+  ELSE
+    UPDATE public.timesheet_reversal_requests
+       SET status = 'executed', resolved_by = v_admin_staff, resolved_at = now(),
+           resolution_notes = v_reason
+     WHERE request_id = p_request_id
+     RETURNING request_id INTO v_request_id;
+  END IF;
+
+  RETURN v_request_id;
+END;
+$$;
+
+
+--
 -- Name: finalize_all_stale_timers(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -12624,6 +12886,50 @@ COMMENT ON FUNCTION public.reject_engagement_assignment_move() IS 'Rechaza cambi
 
 
 --
+-- Name: reject_timesheet_reversal(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_timesheet_reversal(p_request_id uuid, p_notes text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_admin   uuid;
+  v_request record;
+  v_notes   text;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_ADMIN';
+  END IF;
+
+  v_notes := btrim(COALESCE(p_notes, ''));
+  IF v_notes = '' THEN
+    RAISE EXCEPTION 'REVERSAL_REJECT_NOTES_REQUIRED';
+  END IF;
+
+  v_admin := public.get_my_staff_id();
+
+  SELECT * INTO v_request
+    FROM public.timesheet_reversal_requests
+   WHERE request_id = p_request_id
+     FOR UPDATE;
+
+  IF NOT FOUND OR v_request.status <> 'pending' THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_PENDING';
+  END IF;
+
+  UPDATE public.timesheet_reversal_requests
+     SET status = 'rejected', resolved_by = v_admin, resolved_at = now(), resolution_notes = v_notes
+   WHERE request_id = p_request_id;
+
+  -- rechazo_de_solicitud: notifica al solicitante, mismo patrón que el rechazo de líneas.
+  PERFORM public.notify_staff('approval.reversal_rejected', v_request.requested_by,
+    p_request_id::text, jsonb_build_object('notes', v_notes));
+END;
+$$;
+
+
+--
 -- Name: reject_work_order_engagement_move(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -12789,6 +13095,108 @@ BEGIN
   END LOOP;
 END;
 $_$;
+
+
+--
+-- Name: request_timesheet_reversal(uuid, text, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.request_timesheet_reversal(p_period_id uuid, p_scope text, p_engagement_id uuid, p_reason text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff_id     uuid;
+  v_period       record;
+  v_reason       text;
+  v_all_approved boolean;
+  v_has_approved boolean;
+  v_request_id   uuid;
+  v_admin        uuid;
+BEGIN
+  v_staff_id := public.get_my_staff_id();
+  IF v_staff_id IS NULL THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_AUTHORIZED';
+  END IF;
+
+  IF p_scope NOT IN ('engagement', 'week') THEN
+    RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+  END IF;
+  IF p_scope = 'engagement' AND p_engagement_id IS NULL THEN
+    RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+  END IF;
+  IF p_scope = 'week' AND p_engagement_id IS NOT NULL THEN
+    RAISE EXCEPTION 'REVERSAL_BAD_SCOPE';
+  END IF;
+
+  v_reason := btrim(COALESCE(p_reason, ''));
+  IF v_reason = '' THEN
+    RAISE EXCEPTION 'REVERSAL_REASON_REQUIRED';
+  END IF;
+
+  SELECT tp.* INTO v_period
+    FROM public.timesheet_periods tp
+   WHERE tp.period_id = p_period_id
+     FOR UPDATE;
+
+  IF NOT FOUND OR v_period.submitted_at IS NULL THEN
+    RAISE EXCEPTION 'REVERSAL_NOT_SUBMITTED';
+  END IF;
+
+  IF v_period.is_period_locked THEN
+    RAISE EXCEPTION 'REVERSAL_PERIOD_LOCKED';
+  END IF;
+
+  IF p_scope = 'week' THEN
+    -- El colaborador siempre solicita alcance SEMANA sobre su propia boleta (decisión del
+    -- operador, §i.1): la pantalla /timesheet no ofrece selector de alcance.
+    IF v_period.staff_id IS DISTINCT FROM v_staff_id THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_AUTHORIZED';
+    END IF;
+
+    -- Mismo umbral que la UI ("boleta aprobada" = isFullyApproved).
+    SELECT COALESCE(bool_and(tla.status = 'approved'), false)
+      INTO v_all_approved
+      FROM public.timesheet_line_approvals tla
+     WHERE tla.period_id = p_period_id;
+
+    IF NOT v_all_approved THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_FULLY_APPROVED';
+    END IF;
+  ELSE
+    -- Alcance ENCARGO: sólo quien puede aprobar esas líneas puede solicitar su reversión.
+    IF NOT public.can_approve_timesheet_line(auth.uid(), p_period_id, p_engagement_id) THEN
+      RAISE EXCEPTION 'REVERSAL_NOT_AUTHORIZED';
+    END IF;
+
+    SELECT EXISTS (
+      SELECT 1 FROM public.timesheet_line_approvals
+       WHERE period_id = p_period_id AND engagement_id = p_engagement_id AND status = 'approved'
+    ) INTO v_has_approved;
+
+    IF NOT v_has_approved THEN
+      RAISE EXCEPTION 'REVERSAL_NOTHING_APPROVED';
+    END IF;
+  END IF;
+
+  BEGIN
+    INSERT INTO public.timesheet_reversal_requests
+      (period_id, scope, engagement_id, requested_by, reason)
+    VALUES (p_period_id, p_scope, p_engagement_id, v_staff_id, v_reason)
+    RETURNING request_id INTO v_request_id;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'REVERSAL_ALREADY_REQUESTED';
+  END;
+
+  FOR v_admin IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+  LOOP
+    PERFORM public.notify_staff('approval.reversal_requested', v_admin, v_request_id::text,
+      jsonb_build_object('reason', v_reason, 'scope', p_scope, 'period_id', p_period_id));
+  END LOOP;
+
+  RETURN v_request_id;
+END;
+$$;
 
 
 --
@@ -18310,6 +18718,41 @@ CREATE TABLE public.timesheet_periods (
 
 
 --
+-- Name: timesheet_reversal_requests; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.timesheet_reversal_requests (
+    request_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    period_id uuid NOT NULL,
+    scope text NOT NULL,
+    engagement_id uuid,
+    requested_by uuid NOT NULL,
+    requested_at timestamp with time zone DEFAULT now() NOT NULL,
+    reason text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    is_direct boolean DEFAULT false NOT NULL,
+    resolved_by uuid,
+    resolved_at timestamp with time zone,
+    resolution_notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT trr_direct_is_executed CHECK (((NOT is_direct) OR (status = 'executed'::text))),
+    CONSTRAINT trr_reason_not_empty CHECK ((btrim(reason) <> ''::text)),
+    CONSTRAINT trr_reject_needs_notes CHECK (((status <> 'rejected'::text) OR (btrim(COALESCE(resolution_notes, ''::text)) <> ''::text))),
+    CONSTRAINT trr_scope_check CHECK ((scope = ANY (ARRAY['engagement'::text, 'week'::text]))),
+    CONSTRAINT trr_scope_engagement_coherence CHECK ((((scope = 'engagement'::text) AND (engagement_id IS NOT NULL)) OR ((scope = 'week'::text) AND (engagement_id IS NULL)))),
+    CONSTRAINT trr_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'executed'::text, 'rejected'::text])))
+);
+
+
+--
+-- Name: TABLE timesheet_reversal_requests; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.timesheet_reversal_requests IS '0923-209: solicitudes (y bitácora de reversiones directas del admin) para revertir líneas ya aprobadas de una boleta. El único escritor es la RPC SECURITY DEFINER de este archivo -- sin GRANT de INSERT/UPDATE/DELETE a authenticated.';
+
+
+--
 -- Name: user_lifecycle_audit_log; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -19881,6 +20324,14 @@ ALTER TABLE ONLY public.timesheet_periods
 
 
 --
+-- Name: timesheet_reversal_requests timesheet_reversal_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timesheet_reversal_requests
+    ADD CONSTRAINT timesheet_reversal_requests_pkey PRIMARY KEY (request_id);
+
+
+--
 -- Name: user_lifecycle_audit_log user_lifecycle_audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -20968,6 +21419,20 @@ CREATE INDEX idx_tla_pending_engagement ON public.timesheet_line_approvals USING
 
 
 --
+-- Name: idx_trr_queue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trr_queue ON public.timesheet_reversal_requests USING btree (status, requested_at DESC);
+
+
+--
+-- Name: idx_trr_requester; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_trr_requester ON public.timesheet_reversal_requests USING btree (requested_by, requested_at DESC);
+
+
+--
 -- Name: idx_user_roles_role_key; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21028,6 +21493,20 @@ CREATE INDEX idx_wo_staffing_requirements_wo ON public.wo_staffing_requirements 
 --
 
 CREATE UNIQUE INDEX practicas_abbreviation_unique ON public.practicas USING btree (abbreviation) WHERE (abbreviation IS NOT NULL);
+
+
+--
+-- Name: uq_trr_open_engagement; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_trr_open_engagement ON public.timesheet_reversal_requests USING btree (period_id, engagement_id) WHERE ((status = 'pending'::text) AND (scope = 'engagement'::text));
+
+
+--
+-- Name: uq_trr_open_week; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX uq_trr_open_week ON public.timesheet_reversal_requests USING btree (period_id) WHERE ((status = 'pending'::text) AND (scope = 'week'::text));
 
 
 --
@@ -21857,6 +22336,13 @@ CREATE TRIGGER update_timesheet_periods_updated_at BEFORE UPDATE ON public.times
 
 
 --
+-- Name: timesheet_reversal_requests update_timesheet_reversal_requests_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER update_timesheet_reversal_requests_updated_at BEFORE UPDATE ON public.timesheet_reversal_requests FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
 -- Name: wo_payment_installments update_wo_payment_installments_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22613,6 +23099,38 @@ ALTER TABLE ONLY public.timesheet_line_approvals
 
 ALTER TABLE ONLY public.timesheet_periods
     ADD CONSTRAINT timesheet_periods_staff_id_fkey FOREIGN KEY (staff_id) REFERENCES public.staff(staff_id) ON DELETE CASCADE;
+
+
+--
+-- Name: timesheet_reversal_requests timesheet_reversal_requests_engagement_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timesheet_reversal_requests
+    ADD CONSTRAINT timesheet_reversal_requests_engagement_id_fkey FOREIGN KEY (engagement_id) REFERENCES public.engagements(engagement_id);
+
+
+--
+-- Name: timesheet_reversal_requests timesheet_reversal_requests_period_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timesheet_reversal_requests
+    ADD CONSTRAINT timesheet_reversal_requests_period_id_fkey FOREIGN KEY (period_id) REFERENCES public.timesheet_periods(period_id) ON DELETE CASCADE;
+
+
+--
+-- Name: timesheet_reversal_requests timesheet_reversal_requests_requested_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timesheet_reversal_requests
+    ADD CONSTRAINT timesheet_reversal_requests_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: timesheet_reversal_requests timesheet_reversal_requests_resolved_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.timesheet_reversal_requests
+    ADD CONSTRAINT timesheet_reversal_requests_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.staff(staff_id);
 
 
 --
@@ -24329,6 +24847,21 @@ CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authent
 --
 
 CREATE POLICY "timer_entries update" ON public.timer_entries FOR UPDATE TO authenticated USING ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id()))) WITH CHECK ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id())));
+
+
+--
+-- Name: timesheet_reversal_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timesheet_reversal_requests ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timesheet_reversal_requests trr_select_visible; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY trr_select_visible ON public.timesheet_reversal_requests FOR SELECT TO authenticated USING ((public.is_admin() OR (requested_by = public.get_my_staff_id()) OR (EXISTS ( SELECT 1
+   FROM public.timesheet_periods tp
+  WHERE ((tp.period_id = timesheet_reversal_requests.period_id) AND (tp.staff_id = public.get_my_staff_id())))) OR ((scope = 'engagement'::text) AND public.can_approve_timesheet_line(auth.uid(), period_id, engagement_id))));
 
 
 --
