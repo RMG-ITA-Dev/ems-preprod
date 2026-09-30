@@ -79,7 +79,7 @@ export function TimesheetReversalDialog({
           <Button variant="cancel" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={handleConfirm} disabled={isPending || !trimmedReason}>
+          <Button variant="submit" onClick={handleConfirm} disabled={isPending || !trimmedReason}>
             {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {confirmLabel ?? t("timesheet.requestReversal")}
           </Button>

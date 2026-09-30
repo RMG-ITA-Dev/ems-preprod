@@ -1267,6 +1267,21 @@
  public       | service_role  | timesheet_periods                              | TRIGGER
  public       | service_role  | timesheet_periods                              | TRUNCATE
  public       | service_role  | timesheet_periods                              | UPDATE
+ public       | authenticated | timesheet_reversal_requests                    | SELECT
+ public       | postgres      | timesheet_reversal_requests                    | DELETE
+ public       | postgres      | timesheet_reversal_requests                    | INSERT
+ public       | postgres      | timesheet_reversal_requests                    | REFERENCES
+ public       | postgres      | timesheet_reversal_requests                    | SELECT
+ public       | postgres      | timesheet_reversal_requests                    | TRIGGER
+ public       | postgres      | timesheet_reversal_requests                    | TRUNCATE
+ public       | postgres      | timesheet_reversal_requests                    | UPDATE
+ public       | service_role  | timesheet_reversal_requests                    | DELETE
+ public       | service_role  | timesheet_reversal_requests                    | INSERT
+ public       | service_role  | timesheet_reversal_requests                    | REFERENCES
+ public       | service_role  | timesheet_reversal_requests                    | SELECT
+ public       | service_role  | timesheet_reversal_requests                    | TRIGGER
+ public       | service_role  | timesheet_reversal_requests                    | TRUNCATE
+ public       | service_role  | timesheet_reversal_requests                    | UPDATE
  public       | anon          | user_lifecycle_audit_log                       | REFERENCES
  public       | anon          | user_lifecycle_audit_log                       | SELECT
  public       | anon          | user_lifecycle_audit_log                       | TRIGGER
@@ -1773,5 +1788,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1773 rows)
+(1788 rows)
 

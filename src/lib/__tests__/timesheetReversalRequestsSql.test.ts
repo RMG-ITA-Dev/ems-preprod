@@ -118,4 +118,27 @@ describe("0923-209 timesheet_reversal_requests migration", () => {
       expect(sql).toMatch(roleGrant);
     }
   });
+
+  // review iteración 8, hallazgo #3: roles de solo consulta con alcance assigned_engagements
+  // (partner/director/sqr/risk_partner) necesitan leer las líneas y el período de sus encargos.
+  it("adds scoped read policies for assigned_engagements readers without opening write access", () => {
+    expect(sql).toMatch(
+      /CREATE POLICY "Assigned read line approvals" ON public\.timesheet_line_approvals\s+FOR SELECT TO authenticated USING \(/,
+    );
+    expect(sql).toMatch(/CREATE POLICY "Assigned read periods" ON public\.timesheet_periods\s+FOR SELECT TO authenticated/);
+    expect(sql).toMatch(/permission_scope\('timesheet_approval\.read'\) = 'assigned_engagements'/);
+    expect(sql).toMatch(/public\.is_assigned_to_engagement\(engagement_id\)/);
+  });
+
+  it("reads periods through a SECURITY DEFINER helper to avoid an RLS cycle with timesheet_line_approvals", () => {
+    expect(sql).toMatch(
+      /CREATE FUNCTION public\.can_read_assigned_timesheet_period\(p_period_id uuid\) RETURNS boolean\s+LANGUAGE sql STABLE SECURITY DEFINER\s+SET search_path TO 'public'/,
+    );
+    expect(sql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.can_read_assigned_timesheet_period\(uuid\) FROM PUBLIC, anon;/,
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.can_read_assigned_timesheet_period\(uuid\) TO authenticated, service_role;/,
+    );
+  });
 });
