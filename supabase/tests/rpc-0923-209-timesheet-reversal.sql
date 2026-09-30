@@ -36,6 +36,8 @@
 --   PH  1 línea aprobada (E1)                    — check 18 (revertir encargo DIRECTO cierra
 --                                                  en cascada una solicitud de encargo pendiente
 --                                                  sobre el MISMO destino)
+--   PJ  1 línea aprobada (E1)                    — check 20 (revertir SEMANA directo cierra en
+--                                                  cascada una solicitud SEMANA pendiente)
 --   E3         encargo con partner_id = S_PARTNER (partner asignado)
 --   PI  1 línea aprobada (E3), dueño S_OWNER    — check 19 (lectura de roles `assigned_engagements`)
 
@@ -116,6 +118,14 @@ INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at) VALUES
   ('1a923209-0000-4000-8000-000000000011', 'b0923209-0000-4000-8000-000000000009', 'e0923209-0000-4000-8000-000000000003', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PI/E3
 
+-- Check 20 (review iteración 10, hallazgo #1): PJ es un período enviado y 100% aprobado, dueño
+-- S_OWNER, para pedir SEMANA y luego revertir la semana DIRECTO (sin p_request_id).
+INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, submitted_at, is_period_locked) VALUES
+  ('b0923209-0000-4000-8000-000000000010', '50923209-0000-4000-8000-000000000004', '2020-09-07', 37, 2020, now(), false); -- PJ
+
+INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at) VALUES
+  ('1a923209-0000-4000-8000-000000000012', 'b0923209-0000-4000-8000-000000000010', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PJ/E1
+
 -- ── Impersonation helper (temp; se va con la sesión) ──────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
 LANGUAGE sql AS $$
@@ -137,6 +147,7 @@ DECLARE
   v_r5     uuid; -- request de MGR sobre PG/E1, encargo (check 17, cascada inversa)
   v_r6     uuid; -- request de OWNER sobre PG, semana (check 17, cascada inversa)
   v_r7     uuid; -- request de MGR sobre PH/E1, encargo (check 18, cascada mismo destino)
+  v_r8     uuid; -- request de OWNER sobre PJ, semana (check 20, cascada de reversión directa)
   v_result uuid;
   v_status text;
   v_notes  text;
@@ -536,6 +547,30 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 18: la línea de PH/E1 no quedó pending tras la reversión directa';
   END IF;
   RAISE NOTICE 'PASS — check 18: revertir un encargo directo cierra en cascada (executed) una solicitud de encargo pendiente sobre el mismo destino';
+
+  -- ── Check 20 (review iteración 10, hallazgo #1): revertir la SEMANA DIRECTO (sin solicitud
+  -- previa) cierra en cascada, como executed, una solicitud SEMANA pending del MISMO período --
+  -- sin esto quedaba en la cola del admin y al ejecutarla fallaba con REVERSAL_NOT_SUBMITTED ──
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000004'); -- OWNER
+  SELECT public.request_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000010', 'week', NULL, 'solicitud semana PJ') INTO v_r8;
+
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000001'); -- ADMIN
+  PERFORM public.execute_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000010', 'week', NULL, 'revierto semana directo PJ', NULL);
+
+  SELECT status INTO v_status FROM public.timesheet_reversal_requests WHERE request_id = v_r8;
+  IF v_status <> 'executed' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 20: la solicitud SEMANA pending de PJ no se cerró en cascada como executed tras la reversión directa (status=%)', v_status;
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_reversal_requests
+   WHERE request_id = v_r8 AND resolved_by = '50923209-0000-4000-8000-000000000001'
+     AND resolved_at IS NOT NULL AND resolution_notes = 'revierto semana directo PJ';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 20: la solicitud SEMANA cerrada en cascada no dejó resolved_by/resolved_at/resolution_notes de la ejecución directa';
+  END IF;
+  RAISE NOTICE 'PASS — check 20: revertir la semana directo cierra en cascada (executed) una solicitud SEMANA pendiente del mismo período';
 END $$;
 
 -- ── Check 10: RLS -- el solicitante ve su fila, el admin ve todas, un tercero ninguna ──

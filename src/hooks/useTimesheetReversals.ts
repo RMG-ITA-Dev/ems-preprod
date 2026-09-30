@@ -90,6 +90,11 @@ export interface ApprovedApprovalGroup {
     engagement_id: string;
     engagement_code: string | null;
     engagement_name: string;
+    // Sólo gerente/socio pueden solicitar reversión (can_approve_timesheet_line); la policy de
+    // lectura `assigned_engagements` también muestra encargos donde se es sqr/encargado
+    // (review iteración 10, hallazgo #2).
+    manager_id?: string | null;
+    partner_id?: string | null;
   };
   approvedLineCount: number;
 }
@@ -199,7 +204,9 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
             engagement:engagements(
               engagement_id,
               engagement_code,
-              engagement_name
+              engagement_name,
+              manager_id,
+              partner_id
             )
           `)
           .eq("status", "approved")

@@ -6,7 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { AlertTriangle, Search, CalendarIcon, X } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { cn } from "@/lib/utils";
-import { parseDateLocal } from "@/lib/timesheetUtils";
+import { parseDateLocal, getWeekMonday } from "@/lib/timesheetUtils";
 
 // 0923-209: helpers compartidos por ApprovedLinesTab y ReversalRequestsTab (review iteración 1,
 // nice-to-have #1) -- ambos formateaban la semana y renderizaban la misma barra de filtros por
@@ -87,7 +87,11 @@ function WeekFilterDatePicker({ value, onChange }: { value: string; onChange: (v
           <Calendar
             mode="single"
             selected={selected}
-            onSelect={(date) => onChange(date ? format(date, "yyyy-MM-dd") : "")}
+            onSelect={(date) =>
+              // `week_start_date` es siempre lunes y los filtros comparan igualdad exacta: cualquier
+              // día elegido se normaliza a su lunes (review iteración 10, hallazgo #3).
+              onChange(date ? format(getWeekMonday(date), "yyyy-MM-dd") : "")
+            }
             defaultMonth={selected}
             initialFocus
             className="pointer-events-auto"

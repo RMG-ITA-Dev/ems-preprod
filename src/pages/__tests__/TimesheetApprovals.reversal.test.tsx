@@ -45,6 +45,9 @@ const refs = vi.hoisted(() => {
   ];
   return {
     roleKey: "manager" as string | null,
+    staffId: "me" as string,
+    engagementManagerId: "me" as string | null,
+    engagementPartnerId: null as string | null,
     canApprove: true,
     requestReversalMutate: vi.fn(),
     executeReversalMutate: vi.fn(),
@@ -61,6 +64,10 @@ vi.mock("@/hooks/useAuthorization", () => ({
     roleKey: refs.roleKey,
     isLoading: false,
   }),
+}));
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ staffRecord: { staff_id: refs.staffId } }),
 }));
 
 vi.mock("@/hooks/useTimesheetApprovals", () => ({
@@ -92,7 +99,13 @@ vi.mock("@/hooks/useTimesheetReversals", () => ({
         week_number: 15,
         year: 2026,
         staff: { staff_id: "s2", first_name: "Beto", last_name: "Vera", short_name: null },
-        engagement: { engagement_id: "eng-2", engagement_code: "E-2", engagement_name: "Eng Two" },
+        engagement: {
+          engagement_id: "eng-2",
+          engagement_code: "E-2",
+          engagement_name: "Eng Two",
+          manager_id: refs.engagementManagerId,
+          partner_id: refs.engagementPartnerId,
+        },
         approvedLineCount: 3,
       },
     ],
@@ -116,6 +129,9 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     vi.clearAllMocks();
     refs.roleKey = "manager";
     refs.canApprove = true;
+    refs.staffId = "me";
+    refs.engagementManagerId = "me";
+    refs.engagementPartnerId = null;
     refs.pendingReversals = refs.onePendingReversal;
     refs.myRequests = [];
   });
@@ -133,6 +149,29 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.queryByText("approval.revert")).not.toBeInTheDocument();
     expect(screen.getByText("approval.tabs.myRequests")).toBeInTheDocument();
     expect(screen.queryByText("approval.tabs.reversalQueue")).not.toBeInTheDocument();
+  });
+
+  // Review iteración 10, hallazgo #2: un aprobador asignado al encargo sólo como sqr/encargado ve
+  // la fila (policy assigned_engagements) pero no es gerente/socio, así que la RPC lo rechazaría.
+  it("TA1e: an approver who is neither manager nor partner of the engagement gets no requestReversal button", async () => {
+    refs.engagementManagerId = "someone-else";
+    refs.engagementPartnerId = "another-one";
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+  });
+
+  it("TA1f: the engagement's partner also gets requestReversal", async () => {
+    refs.engagementManagerId = "someone-else";
+    refs.engagementPartnerId = "me";
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+
+    expect(screen.getAllByText("approval.requestReversal")[0]).toBeInTheDocument();
   });
 
   // Review iteración 2, hallazgo #4: "Mis solicitudes" vacío usaba el copy genérico de

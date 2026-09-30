@@ -18,6 +18,7 @@ import {
   useExecuteTimesheetReversal,
   type ApprovedApprovalGroup,
 } from "@/hooks/useTimesheetReversals";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
 import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
 
@@ -55,6 +56,17 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
   });
 
   const showActions = canRequestReversal || isAdmin;
+
+  // Elegibilidad por grupo (review iteración 10, hallazgo #2): request_timesheet_reversal delega
+  // en can_approve_timesheet_line, que sólo autoriza al gerente/socio del encargo. El admin
+  // (Revertir) no depende del encargo.
+  const { staffRecord } = useCurrentStaff();
+  const canActOnGroup = (group: ApprovedApprovalGroup) =>
+    isAdmin ||
+    (canRequestReversal &&
+      !!staffRecord?.staff_id &&
+      (group.engagement.manager_id === staffRecord.staff_id ||
+        group.engagement.partner_id === staffRecord.staff_id));
 
   const closeDialog = () => {
     setActiveGroup(null);
@@ -156,10 +168,12 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
                       </TableCell>
                       {showActions && (
                         <TableCell className="text-center">
-                          <Button size="sm" variant="outline" onClick={() => openDialog(group)}>
-                            <RotateCcw className="h-4 w-4 mr-1" />
-                            {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
-                          </Button>
+                          {canActOnGroup(group) && (
+                            <Button size="sm" variant="outline" onClick={() => openDialog(group)}>
+                              <RotateCcw className="h-4 w-4 mr-1" />
+                              {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
+                            </Button>
+                          )}
                         </TableCell>
                       )}
                     </TableRow>
@@ -194,7 +208,7 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
                       {group.approvedLineCount} {t("approval.lines")}
                     </span>
                   </div>
-                  {showActions && (
+                  {showActions && canActOnGroup(group) && (
                     <Button
                       size="sm"
                       variant="outline"

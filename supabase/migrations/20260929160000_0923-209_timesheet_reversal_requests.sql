@@ -487,12 +487,16 @@ BEGIN
     DELETE FROM public.timesheet_line_approvals
      WHERE period_id = v_period_id AND status = 'approved';
 
-    -- Cierre en cascada: las solicitudes de encargo `pending` de este período quedan sobre
-    -- líneas que ya se borraron -- sin esto, la cola del admin las mostraría como accionables.
+    -- Cierre en cascada: las solicitudes `pending` de este período quedan sobre líneas que ya se
+    -- borraron -- sin esto, la cola del admin las mostraría como accionables. Sin filtro de
+    -- `scope` (review iteración 10, hallazgo #1): una reversión DIRECTA de semana
+    -- (p_request_id NULL) también deja inviable una solicitud SEMANA pendiente del mismo período
+    -- (volvería a fallar con REVERSAL_NOT_SUBMITTED); `uq_trr_open_week` garantiza a lo sumo una.
+    -- La propia solicitud que se está ejecutando (p_request_id) se excluye: se cierra más abajo.
     UPDATE public.timesheet_reversal_requests
        SET status = 'executed', resolved_by = v_admin_staff, resolved_at = now(),
            resolution_notes = v_reason
-     WHERE period_id = v_period_id AND scope = 'engagement' AND status = 'pending'
+     WHERE period_id = v_period_id AND status = 'pending'
        AND (p_request_id IS NULL OR request_id <> p_request_id);
   END IF;
 
