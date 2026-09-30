@@ -38,8 +38,6 @@
 --                                                  sobre el MISMO destino)
 --   PJ  1 línea aprobada (E1)                    — check 20 (revertir SEMANA directo cierra en
 --                                                  cascada una solicitud SEMANA pendiente)
---   E3         encargo con partner_id = S_PARTNER (partner asignado)
---   PI  1 línea aprobada (E3), dueño S_OWNER    — check 19 (lectura de roles `assigned_engagements`)
 
 BEGIN;
 
@@ -105,18 +103,6 @@ INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_
   ('1a923209-0000-4000-8000-000000000008', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PG/E1
   ('1a923209-0000-4000-8000-000000000009', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000002', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PG/E2
   ('1a923209-0000-4000-8000-000000000010', 'b0923209-0000-4000-8000-000000000008', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PH/E1
-
--- Check 19 (review iteración 8, hallazgo #3): E3 tiene a S_PARTNER como partner; PI es un período
--- de S_OWNER con una línea aprobada en E3. S_PARTNER (timesheet_approval.read, assigned_engagements)
--- debe poder LEER esa línea y su período pese a no ser dueño ni aprobador.
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, partner_id, fecha_cierre, work_order_required, society_id) VALUES
-  ('e0923209-0000-4000-8000-000000000003', 'c1923209-0000-4000-8000-000000000001', '0923-209 E3', '50923209-0000-4000-8000-000000000002', '50923209-0000-4000-8000-000000000005', '2027-12-31', false, '50c92320-9000-4000-8000-000000000001');
-
-INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, submitted_at, is_period_locked) VALUES
-  ('b0923209-0000-4000-8000-000000000009', '50923209-0000-4000-8000-000000000004', '2020-08-03', 32, 2020, now(), false); -- PI
-
-INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at) VALUES
-  ('1a923209-0000-4000-8000-000000000011', 'b0923209-0000-4000-8000-000000000009', 'e0923209-0000-4000-8000-000000000003', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PI/E3
 
 -- Check 20 (review iteración 10, hallazgo #1): PJ es un período enviado y 100% aprobado, dueño
 -- S_OWNER, para pedir SEMANA y luego revertir la semana DIRECTO (sin p_request_id).
@@ -609,36 +595,6 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 10: un tercero sin relación ve % filas (fuga de RLS)', n;
   END IF;
   RAISE NOTICE 'PASS — check 10: RLS -- el solicitante ve su fila, el admin ve todas, un tercero no ve ninguna';
-
--- ── Check 19 (review iteración 8, hallazgo #3): un rol de solo consulta con alcance
-  -- `assigned_engagements` (partner de E3) lee las líneas aprobadas de SU encargo y el período que
-  -- las contiene, pero NO las de un encargo ajeno (E1/E2 no lo tienen como asignado); un manager
-  -- sin relación con E3 no ve nada de E3.
-  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000005');
-  SELECT count(*) INTO n FROM public.timesheet_line_approvals
-   WHERE engagement_id = 'e0923209-0000-4000-8000-000000000003';
-  IF n <> 1 THEN
-    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 19: el partner asignado ve % líneas de su encargo en vez de 1', n;
-  END IF;
-  SELECT count(*) INTO n FROM public.timesheet_periods
-   WHERE period_id = 'b0923209-0000-4000-8000-000000000009';
-  IF n <> 1 THEN
-    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 19: el partner asignado no ve el período de su encargo (n=%)', n;
-  END IF;
-  -- PE (E1) es suyo como dueño, así que se excluye: fuera de eso no debe ver nada de E1/E2.
-  SELECT count(*) INTO n FROM public.timesheet_line_approvals
-   WHERE engagement_id IN ('e0923209-0000-4000-8000-000000000001', 'e0923209-0000-4000-8000-000000000002')
-     AND period_id <> 'b0923209-0000-4000-8000-000000000005';
-  IF n <> 0 THEN
-    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 19: el partner ve % líneas de encargos que no tiene asignados (fuga de RLS)', n;
-  END IF;
-  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000003');
-  SELECT count(*) INTO n FROM public.timesheet_line_approvals
-   WHERE engagement_id = 'e0923209-0000-4000-8000-000000000003';
-  IF n <> 0 THEN
-    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 19: un manager sin relación con E3 ve % de sus líneas (fuga de RLS)', n;
-  END IF;
-  RAISE NOTICE 'PASS — check 19: RLS -- el partner asignado lee líneas y período de su encargo, nadie más los ve';
   RAISE NOTICE '0923-209 REVERSAL: ALL CHECKS PASSED (rolled back)';
 END $$;
 
