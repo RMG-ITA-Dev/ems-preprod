@@ -188,6 +188,7 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
               week_number,
               year,
               staff_id,
+              submitted_at,
               staff:staff!timesheet_periods_staff_id_fkey(
                 staff_id,
                 first_name,
@@ -203,6 +204,13 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
           `)
           .eq("status", "approved")
           .gte("period.week_start_date", sinceDate)
+          // Excluye períodos retirados (review iteración 5, hallazgo #3): un unsubmit parcial
+          // (riesgo documentado en la iteración 3, hallazgo #3) puede dejar `submitted_at NULL`
+          // con líneas `approved` sueltas -- ambas RPC rechazan con REVERSAL_NOT_SUBMITTED sobre
+          // un período así, así que sin este filtro la fila se ve accionable pero cualquier
+          // acción sobre ella siempre falla. Mismo filtro que ya aplica la query de "Pendientes"
+          // (useTimesheetApprovals.ts).
+          .not("period.submitted_at", "is", null)
           .order("approval_id", { ascending: true })
           .limit(REVERSAL_LIST_PAGE_SIZE);
 

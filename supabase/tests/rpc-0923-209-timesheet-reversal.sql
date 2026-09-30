@@ -33,6 +33,9 @@
 --       approved suelta, sin necesidad de reproducir unsubmit_timesheet_safe paso a paso)
 --   PG  2 líneas aprobadas (E1, E2)              — check 17 (cascada: ejecutar encargo cierra
 --                                                  en cascada la solicitud semana pendiente)
+--   PH  1 línea aprobada (E1)                    — check 18 (revertir encargo DIRECTO cierra
+--                                                  en cascada una solicitud de encargo pendiente
+--                                                  sobre el MISMO destino)
 
 BEGIN;
 
@@ -84,7 +87,8 @@ INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week
   ('b0923209-0000-4000-8000-000000000004', '50923209-0000-4000-8000-000000000004', '2020-03-02', 10, 2020, now(), false), -- PD
   ('b0923209-0000-4000-8000-000000000005', '50923209-0000-4000-8000-000000000005', '2020-04-06', 15, 2020, now(), false), -- PE
   ('b0923209-0000-4000-8000-000000000006', '50923209-0000-4000-8000-000000000004', '2020-05-04', 19, 2020, NULL, false), -- PF (ya Draft)
-  ('b0923209-0000-4000-8000-000000000007', '50923209-0000-4000-8000-000000000004', '2020-06-01', 23, 2020, now(), false); -- PG
+  ('b0923209-0000-4000-8000-000000000007', '50923209-0000-4000-8000-000000000004', '2020-06-01', 23, 2020, now(), false), -- PG
+  ('b0923209-0000-4000-8000-000000000008', '50923209-0000-4000-8000-000000000004', '2020-07-06', 28, 2020, now(), false); -- PH
 
 INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at) VALUES
   ('1a923209-0000-4000-8000-000000000001', 'b0923209-0000-4000-8000-000000000001', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PA/E1
@@ -95,7 +99,8 @@ INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_
   ('1a923209-0000-4000-8000-000000000006', 'b0923209-0000-4000-8000-000000000005', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PE/E1
   ('1a923209-0000-4000-8000-000000000007', 'b0923209-0000-4000-8000-000000000006', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PF/E1
   ('1a923209-0000-4000-8000-000000000008', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PG/E1
-  ('1a923209-0000-4000-8000-000000000009', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000002', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PG/E2
+  ('1a923209-0000-4000-8000-000000000009', 'b0923209-0000-4000-8000-000000000007', 'e0923209-0000-4000-8000-000000000002', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()), -- PG/E2
+  ('1a923209-0000-4000-8000-000000000010', 'b0923209-0000-4000-8000-000000000008', 'e0923209-0000-4000-8000-000000000001', 'ac923209-0000-4000-8000-000000000001', 'approved', '50923209-0000-4000-8000-000000000002', now()); -- PH/E1
 
 -- ── Impersonation helper (temp; se va con la sesión) ──────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -117,6 +122,7 @@ DECLARE
   v_r4     uuid; -- request de PARTNER sobre PE, semana (check 15)
   v_r5     uuid; -- request de MGR sobre PG/E1, encargo (check 17, cascada inversa)
   v_r6     uuid; -- request de OWNER sobre PG, semana (check 17, cascada inversa)
+  v_r7     uuid; -- request de MGR sobre PH/E1, encargo (check 18, cascada mismo destino)
   v_result uuid;
   v_status text;
   v_notes  text;
@@ -482,6 +488,40 @@ BEGIN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 17: la línea de PG/E1 no quedó pending tras ejecutar el encargo';
   END IF;
   RAISE NOTICE 'PASS — check 17: ejecutar alcance encargo cierra en cascada (rejected, con aviso real) la solicitud semana pendiente del mismo período';
+
+  -- ── Check 18 (review iteración 5, hallazgo #2): revertir un encargo DIRECTO (sin solicitud
+  -- previa, botón "Revertir" de "Aprobadas") cierra en cascada, como executed, una solicitud
+  -- de encargo pending que ya apuntaba al MISMO (período, encargo) -- sin esto quedaba pending
+  -- para siempre: el próximo intento de ejecutarla encuentra 0 líneas approved y falla con
+  -- REVERSAL_NOTHING_APPROVED ──
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000002'); -- MGR
+  SELECT public.request_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000008', 'engagement',
+    'e0923209-0000-4000-8000-000000000001', 'solicitud encargo PH') INTO v_r7;
+
+  PERFORM pg_temp.impersonate('a0923209-0000-4000-8000-000000000001'); -- ADMIN
+  PERFORM public.execute_timesheet_reversal(
+    'b0923209-0000-4000-8000-000000000008', 'engagement',
+    'e0923209-0000-4000-8000-000000000001', 'revierto directo PH', NULL);
+
+  SELECT status INTO v_status FROM public.timesheet_reversal_requests WHERE request_id = v_r7;
+  IF v_status <> 'executed' THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 18: la solicitud de encargo pending de PH no se cerró en cascada como executed (status=%)', v_status;
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_reversal_requests
+   WHERE request_id = v_r7 AND resolved_by = '50923209-0000-4000-8000-000000000001'
+     AND resolved_at IS NOT NULL AND resolution_notes = 'revierto directo PH';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 18: la solicitud cerrada en cascada de PH no dejó resolved_by/resolved_at/resolution_notes de la ejecución directa';
+  END IF;
+
+  PERFORM 1 FROM public.timesheet_line_approvals
+   WHERE approval_id = '1a923209-0000-4000-8000-000000000010' AND status = 'pending';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 18: la línea de PH/E1 no quedó pending tras la reversión directa';
+  END IF;
+  RAISE NOTICE 'PASS — check 18: revertir un encargo directo cierra en cascada (executed) una solicitud de encargo pendiente sobre el mismo destino';
 END $$;
 
 -- ── Check 10: RLS -- el solicitante ve su fila, el admin ve todas, un tercero ninguna ──

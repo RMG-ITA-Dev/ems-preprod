@@ -77,12 +77,17 @@ function RequestNote({ request }: { request: ReversalRequest }) {
     request.resolution_notes === REVERSAL_CASCADE_NOTE_TOKEN
       ? t("approval.reversalCascadeNote")
       : request.resolution_notes;
+  // El label acompaña el ESTADO real (review iteración 5, hallazgo #1): antes decía siempre
+  // "Nota de rechazo", aunque la solicitud hubiera sido EJECUTADA -- la razón de la ejecución
+  // se guarda en la misma columna `resolution_notes` que la del rechazo.
+  const resolutionNoteLabel =
+    request.status === "executed" ? t("approval.executionNote") : t("approval.rejectionNote");
   return (
     <>
       <p>{request.reason}</p>
       {showResolutionNote && (
         <p className="mt-1 text-muted-foreground">
-          {t("approval.rejectionNote")} <span>{resolutionNoteText}</span>
+          {resolutionNoteLabel} <span>{resolutionNoteText}</span>
         </p>
       )}
     </>

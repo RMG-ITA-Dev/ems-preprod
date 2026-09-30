@@ -2017,6 +2017,7 @@
     "remainingLabel": "rem",
     "budgetNA": "N/A",
     "rejectionNote": "Rejection note:",
+    "executionNote": "Execution note:",
     "tabs": {
       "pending": "Pending Approval",
       "approved": "Approved",

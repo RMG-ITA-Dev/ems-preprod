@@ -1,8 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Search } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AlertTriangle, Search, CalendarIcon, X } from "lucide-react";
 import { format, addDays } from "date-fns";
+import { cn } from "@/lib/utils";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 // 0923-209: helpers compartidos por ApprovedLinesTab y ReversalRequestsTab (review iteración 1,
@@ -50,12 +53,59 @@ export function ReversalFiltersBar({
         onChange={(e) => setEngagementSearch(e.target.value)}
         className="max-w-xs"
       />
-      <Input
-        type="date"
-        value={weekFilter}
-        onChange={(e) => setWeekFilter(e.target.value)}
-        className="max-w-[180px]"
-      />
+      <WeekFilterDatePicker value={weekFilter} onChange={setWeekFilter} />
+    </div>
+  );
+}
+
+// `<input type="date">` delega el formato mostrado al locale del navegador -- en un navegador
+// en inglés se ve MM/DD/YYYY, justo al lado de rangos de semana que siempre están en DD/MM/YYYY
+// (review iteración 5, hallazgo #4). Mismo patrón `Popover` + `Calendar` + `common.pickDate` que
+// ya usa el resto del repo (p. ej. StaffAssignmentsCard.tsx, EngagementForm.tsx) para forzar
+// DD/MM/YYYY sin importar el locale del SO.
+function WeekFilterDatePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { t } = useTranslation();
+  const selected = value ? parseDateLocal(value) : undefined;
+
+  return (
+    <div className="flex items-center gap-1">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              "w-[180px] justify-start text-left font-normal",
+              !selected && "text-muted-foreground",
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+            {selected ? format(selected, "dd/MM/yyyy") : t("common.pickDate")}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={selected}
+            onSelect={(date) => onChange(date ? format(date, "yyyy-MM-dd") : "")}
+            defaultMonth={selected}
+            initialFocus
+            className="pointer-events-auto"
+          />
+        </PopoverContent>
+      </Popover>
+      {selected && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0"
+          aria-label={t("common.clear")}
+          onClick={() => onChange("")}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 }

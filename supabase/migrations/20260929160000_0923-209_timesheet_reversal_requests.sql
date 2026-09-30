@@ -356,6 +356,19 @@ BEGIN
         v_stale_week_request.request_id::text, jsonb_build_object('notes', v_cascade_note));
     END LOOP;
 
+    -- Cierre en cascada del MISMO destino (review iteración 5, hallazgo #2): si además de esta
+    -- ejecución (directa o por otra solicitud) hay OTRA solicitud `pending` de alcance ENCARGO
+    -- sobre el mismo (período, encargo), ya se cumplió lo que pedía -- sin esto quedaba
+    -- `pending` para siempre, porque el próximo intento de ejecutarla encuentra 0 líneas
+    -- `approved` y falla con REVERSAL_NOTHING_APPROVED. El índice único `uq_trr_open_engagement`
+    -- garantiza a lo sumo una fila. Mismo criterio que el cierre en cascada de la rama SEMANA de
+    -- abajo (:414-420): se marca `executed`, sin aviso aparte, porque el pedido sí se cumplió.
+    UPDATE public.timesheet_reversal_requests
+       SET status = 'executed', resolved_by = v_admin_staff, resolved_at = now(),
+           resolution_notes = v_reason
+     WHERE period_id = v_period_id AND engagement_id = v_engagement_id AND scope = 'engagement'
+       AND status = 'pending' AND (p_request_id IS NULL OR request_id <> p_request_id);
+
     SELECT ARRAY(
       SELECT DISTINCT sid FROM (
         SELECT manager_id AS sid FROM public.engagements WHERE engagement_id = v_engagement_id

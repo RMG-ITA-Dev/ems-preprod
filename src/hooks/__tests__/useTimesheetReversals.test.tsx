@@ -63,7 +63,7 @@ function createWrapper() {
 // `.gt()`/`.or()` se agregan condicionalmente DESPUÉS de `.limit()` sobre el mismo builder.
 function makeQueryBuilder(result: { data: unknown[] | null; error: unknown }) {
   const builder: Record<string, ReturnType<typeof vi.fn>> = {};
-  for (const method of ["select", "eq", "gte", "gt", "or", "order", "limit"]) {
+  for (const method of ["select", "eq", "gte", "gt", "or", "not", "order", "limit"]) {
     builder[method] = vi.fn(() => builder);
   }
   return Object.assign(builder, {

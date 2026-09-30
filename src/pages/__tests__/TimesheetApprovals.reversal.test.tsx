@@ -183,6 +183,44 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.getAllByText("motivo original del solicitante")[0]).toBeInTheDocument();
   });
 
+  // TA1d (review iteración 5, hallazgo #1): una solicitud EJECUTADA (no rechazada) debe
+  // mostrar "Nota de ejecución", no "Nota de rechazo" -- ambos estados guardan su explicación
+  // en la misma columna `resolution_notes`, y el label previo era fijo.
+  it("TA1d: an executed request in myRequests shows an execution note label, not a rejection one", async () => {
+    refs.myRequests = [
+      {
+        request_id: "req-10",
+        period_id: "per-10",
+        scope: "engagement",
+        engagement_id: "eng-1",
+        requested_by: "me",
+        requested_at: "2026-05-01T10:00:00Z",
+        reason: "motivo original del solicitante",
+        status: "executed",
+        is_direct: false,
+        resolved_by: "admin-1",
+        resolved_at: "2026-05-02T10:00:00Z",
+        resolution_notes: "revertido por el administrador",
+        period: {
+          period_id: "per-10",
+          week_start_date: "2026-03-02",
+          week_number: 10,
+          year: 2026,
+          staff_id: "me",
+          staff: { staff_id: "me", first_name: "Yo", last_name: "Mismo", short_name: null },
+        },
+      },
+    ];
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.myRequests"));
+
+    // La columna se sigue llamando "Nota de rechazo" para toda la tabla (eso no cambia); lo que
+    // sí cambia es el label puntual de ESTA fila ejecutada.
+    expect(screen.getAllByText("approval.executionNote")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("revertido por el administrador")[0]).toBeInTheDocument();
+  });
+
   // TA2: admin -- "Revertir" directo en Aprobadas y la cola "Solicitudes de reversión".
   it("TA2: admin sees revert (not requestReversal) in Approved, and the reversal queue tab", async () => {
     refs.roleKey = "admin";
