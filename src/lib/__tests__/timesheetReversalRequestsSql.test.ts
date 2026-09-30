@@ -44,10 +44,32 @@ describe("0923-209 timesheet_reversal_requests migration", () => {
     expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE) ON public\.timesheet_reversal_requests/);
   });
 
-  // `service_role` ya bypassea RLS y tiene GRANT ALL explícito en toda otra tabla del esquema
-  // (cero_06_grants.sql); sin el mismo grant acá, la service key queda bloqueada en ESTA tabla
-  // a diferencia de cualquier otra -- gap real encontrado al re-aceptar el fixture de
-  // consolidated-replay (catalog_grants/catalog_column_grants divergían).
+  // El bootstrap de la plataforma fija `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO
+  // anon, authenticated, service_role, postgres` (cero_06_grants.sql:1801-1814): toda tabla
+  // nueva nace con ALL para anon/authenticated. Sin el REVOKE explícito de acá (mismo patrón
+  // que cero_06 aplica tabla por tabla), ambos roles conservarían INSERT/UPDATE/DELETE/SELECT
+  // crudos sobre las 14 columnas -- gap real encontrado al re-aceptar el fixture de
+  // consolidated-replay (catalog_grants/catalog_column_grants divergían en 224 filas: 14
+  // columnas x 4 roles x 4 privilegios). El REVOKE debe preceder al GRANT SELECT angosto.
+  it("revokes the default-privileges ALL grant from anon and authenticated before narrowing", () => {
+    const revokeAnonIndex = sql.indexOf(
+      "REVOKE ALL ON TABLE public.timesheet_reversal_requests FROM anon;",
+    );
+    const revokeAuthenticatedIndex = sql.indexOf(
+      "REVOKE ALL ON TABLE public.timesheet_reversal_requests FROM authenticated;",
+    );
+    const grantSelectIndex = sql.indexOf(
+      "GRANT SELECT ON public.timesheet_reversal_requests TO authenticated;",
+    );
+    expect(revokeAnonIndex).toBeGreaterThan(-1);
+    expect(revokeAuthenticatedIndex).toBeGreaterThan(-1);
+    expect(revokeAuthenticatedIndex).toBeLessThan(grantSelectIndex);
+  });
+
+  // `service_role` ya bypassea RLS y ya tiene ALL sobre esta tabla vía el default privileges de
+  // arriba (nunca se le hace REVOKE, a propósito) -- este GRANT es redundante en la práctica,
+  // pero se re-afirma explícito para que la intención quede clara en el archivo, mismo patrón
+  // que cero_06_grants.sql y exchange_rate_history.sql.
   it("grants service_role full access to the table (consistent with every other table in the schema)", () => {
     expect(sql).toMatch(/GRANT ALL ON TABLE public\.timesheet_reversal_requests TO service_role;/);
   });

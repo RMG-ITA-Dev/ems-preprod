@@ -95,15 +95,28 @@ CREATE POLICY trr_select_visible ON public.timesheet_reversal_requests
     OR (scope = 'engagement'
         AND public.can_approve_timesheet_line(auth.uid(), period_id, engagement_id)));
 
+-- El bootstrap de la plataforma fija `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON
+-- TABLES TO anon, authenticated, service_role, postgres` (documentado en
+-- cero_06_grants.sql:1801-1814): toda tabla nueva nace con ALL para anon/authenticated, así que
+-- sin este REVOKE explícito -- mismo patrón que cero_06 aplica tabla por tabla al hardenizar --
+-- `anon` y `authenticated` conservarían INSERT/UPDATE/DELETE/SELECT crudos sobre las 14
+-- columnas. RLS los bloquea en la práctica (la única policy es de SELECT), pero el GRANT
+-- quedaría contradiciendo la intención documentada más abajo ("sin GRANT de INSERT/UPDATE/
+-- DELETE a authenticated") -- hallazgo real: así es como este archivo llegó a divergir del
+-- fingerprint aceptado de consolidated-replay. El REVOKE a nivel de tabla también revoca
+-- cualquier SELECT por columna ya otorgado al mismo rol, así que va ANTES del GRANT angosto.
+REVOKE ALL ON TABLE public.timesheet_reversal_requests FROM anon;
+REVOKE ALL ON TABLE public.timesheet_reversal_requests FROM authenticated;
+
 GRANT SELECT ON public.timesheet_reversal_requests TO authenticated;
 
 -- `service_role` es un límite de confianza distinto de `authenticated`/`anon`: ya bypassea RLS
--- (BYPASSRLS) y en toda otra tabla del esquema tiene GRANT ALL explícito (cero_06_grants.sql,
--- y el mismo patrón para tablas nuevas en exchange_rate_history.sql). Sin este GRANT, el
--- service_role key no puede ni siquiera hacer SELECT (BYPASSRLS no reemplaza el GRANT a nivel
--- de objeto) -- una herramienta de soporte/backend con la service key quedaría bloqueada acá,
--- a diferencia de cualquier otra tabla del sistema. No relaja la restricción real: el único
--- escritor pensado para `authenticated` sigue siendo la RPC SECURITY DEFINER.
+-- (BYPASSRLS) y ya tiene ALL sobre esta tabla vía el default privileges de arriba (nunca se le
+-- hizo REVOKE, a propósito). Se re-afirma explícito, no porque haga falta funcionalmente, sino
+-- para que la intención quede clara en el archivo -- mismo patrón que cero_06_grants.sql y
+-- exchange_rate_history.sql, que tampoco confían en el default implícito sin declararlo. No
+-- relaja la restricción real: el único escritor pensado para `authenticated` sigue siendo la
+-- RPC SECURITY DEFINER.
 GRANT ALL ON TABLE public.timesheet_reversal_requests TO service_role;
 
 -- =====================================================================
