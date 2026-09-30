@@ -135,7 +135,12 @@ function MyRequestsView() {
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
                   <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
-                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
+                  {/* Header genérico (review iteración 6, hallazgo #2): antes decía siempre
+                      "Nota de rechazo", aunque la columna muestre el motivo original mientras
+                      está pending y recién agrega la nota de resolución una vez resuelta -- el
+                      label específico ("Nota de ejecución"/"Nota de rechazo") ya lo pone
+                      `RequestNote` fila por fila (iteración 5, hallazgo #1). */}
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.reasonNote")}</TableHead>
                   <TableHead className="font-semibold text-center">{t("approval.decision.title")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -292,7 +297,11 @@ function QueueView() {
                   <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
                   <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
                   <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
-                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.rejectionNote")}</TableHead>
+                  {/* Header genérico (review iteración 6, hallazgo #2): en esta cola TODAS las
+                      filas están `pending`, así que "Nota de rechazo" nunca era correcto acá --
+                      lo que se ve es el motivo del solicitante (`r.reason`), no una nota de
+                      resolución. */}
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.reasonNote")}</TableHead>
                   <TableHead className="w-10 text-center">{t("approval.actions")}</TableHead>
                 </TableRow>
               </TableHeader>

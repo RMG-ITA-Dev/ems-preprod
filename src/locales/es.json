@@ -2018,6 +2018,7 @@
     "budgetNA": "N/D",
     "rejectionNote": "Nota de rechazo:",
     "executionNote": "Nota de ejecución:",
+    "reasonNote": "Motivo",
     "tabs": {
       "pending": "Pendientes de aprobación",
       "approved": "Aprobadas",
