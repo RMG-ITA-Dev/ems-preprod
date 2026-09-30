@@ -1976,6 +1976,7 @@
     "searchPlaceholder": "Buscar por personal...",
     "pendingCount": "{{count}} pendientes",
     "noPending": "Sin aprobaciones pendientes",
+    "noReversalRequests": "Todavía no solicitaste ninguna reversión",
     "loadError": "No pudimos cargar esta información. Intente de nuevo.",
     "retry": "Reintentar",
     "horasPendientesAprobacion": "Horas Pendientes de Aprobación",

@@ -92,7 +92,7 @@ function MyRequestsView() {
         setWeekFilter={setWeekFilter}
       />
       {filtered.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">{t("approval.noPending")}</div>
+        <div className="text-center py-12 text-muted-foreground">{t("approval.noReversalRequests")}</div>
       ) : (
         <>
           {/* Desktop: tabla (>= md) */}

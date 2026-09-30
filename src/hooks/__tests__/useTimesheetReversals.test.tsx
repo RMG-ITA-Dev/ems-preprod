@@ -96,7 +96,8 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
         },
       ];
       const mockRange = vi.fn().mockResolvedValue({ data: rows, error: null });
-      const mockGte = vi.fn().mockReturnValue({ range: mockRange });
+      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
+      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
       const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
@@ -111,11 +112,14 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
       expect(result.current.data?.[0].staff.first_name).toBe("Ana");
       // Una sola página: sólo 1 llamada a range() (review iteración 1, hallazgo #6).
       expect(mockRange).toHaveBeenCalledTimes(1);
+      // Orden estable por PK antes de paginar (review iteración 2, hallazgo #2).
+      expect(mockOrder).toHaveBeenCalledWith("approval_id", { ascending: true });
     });
 
     it("returns an empty array without throwing when there are no approved lines", async () => {
       const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
-      const mockGte = vi.fn().mockReturnValue({ range: mockRange });
+      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
+      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
       const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
@@ -154,7 +158,8 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
         .fn()
         .mockResolvedValueOnce({ data: firstPage, error: null })
         .mockResolvedValueOnce({ data: secondPage, error: null });
-      const mockGte = vi.fn().mockReturnValue({ range: mockRange });
+      const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
+      const mockGte = vi.fn().mockReturnValue({ order: mockOrder });
       const mockEq = vi.fn().mockReturnValue({ gte: mockGte });
       const mockSelect = vi.fn().mockReturnValue({ eq: mockEq });
       vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);

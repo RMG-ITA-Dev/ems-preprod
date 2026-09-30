@@ -1976,6 +1976,7 @@
     "searchPlaceholder": "Search by staff...",
     "pendingCount": "{{count}} pending",
     "noPending": "No pending approvals",
+    "noReversalRequests": "You haven't requested any reversals yet",
     "loadError": "We couldn't load this information. Please try again.",
     "retry": "Retry",
     "horasPendientesAprobacion": "Hours Pending Approval",

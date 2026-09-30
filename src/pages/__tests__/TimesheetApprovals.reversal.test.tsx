@@ -133,6 +133,16 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.queryByText("approval.tabs.reversalQueue")).not.toBeInTheDocument();
   });
 
+  // Review iteración 2, hallazgo #4: "Mis solicitudes" vacío usaba el copy genérico de
+  // "sin pendientes", impreciso porque esa tab también lista ejecutadas/rechazadas.
+  it("TA1b: the empty myRequests tab uses its own copy, not the generic pending one", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.myRequests"));
+
+    expect(screen.getByText("approval.noReversalRequests")).toBeInTheDocument();
+  });
+
   // TA2: admin -- "Revertir" directo en Aprobadas y la cola "Solicitudes de reversión".
   it("TA2: admin sees revert (not requestReversal) in Approved, and the reversal queue tab", async () => {
     refs.roleKey = "admin";

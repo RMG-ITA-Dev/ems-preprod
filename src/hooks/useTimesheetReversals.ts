@@ -176,6 +176,11 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
           `)
           .eq("status", "approved")
           .gte("period.week_start_date", sinceDate)
+          // Orden estable por PK: sin esto, `.range()` no garantiza la misma posición de fila
+          // entre páginas -- un INSERT/UPDATE concurrente entre el fetch de una página y la
+          // siguiente puede correr una fila de lugar y dejarla fuera de ambas (review
+          // iteración 2, hallazgo #2).
+          .order("approval_id", { ascending: true })
           .range(page * APPROVED_LINES_PAGE_SIZE, page * APPROVED_LINES_PAGE_SIZE + APPROVED_LINES_PAGE_SIZE - 1);
 
         if (filters.staffId) query = query.eq("period.staff_id", filters.staffId);
