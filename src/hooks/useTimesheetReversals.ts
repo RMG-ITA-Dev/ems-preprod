@@ -211,6 +211,10 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
           // acción sobre ella siempre falla. Mismo filtro que ya aplica la query de "Pendientes"
           // (useTimesheetApprovals.ts).
           .not("period.submitted_at", "is", null)
+          // Excluye períodos bloqueados (review iteración 9, hallazgo #2): ambas RPC rechazan con
+          // REVERSAL_PERIOD_LOCKED, así que sin este filtro la fila ofrece acciones que siempre
+          // fallan. `is.true` negado también deja pasar NULL, igual que `IF v_period.is_period_locked`.
+          .not("period.is_period_locked", "is", true)
           .order("approval_id", { ascending: true })
           .limit(REVERSAL_LIST_PAGE_SIZE);
 

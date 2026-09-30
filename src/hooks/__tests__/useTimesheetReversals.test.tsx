@@ -140,6 +140,9 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
       expect(builder.order).toHaveBeenCalledWith("approval_id", { ascending: true });
       // Primera página: sin cursor, no hay `.gt()` (review iteración 4, hallazgo #3).
       expect(builder.gt).not.toHaveBeenCalled();
+      // Períodos retirados y bloqueados fuera (review iteración 5 #3 y iteración 9 #2).
+      expect(builder.not).toHaveBeenCalledWith("period.submitted_at", "is", null);
+      expect(builder.not).toHaveBeenCalledWith("period.is_period_locked", "is", true);
     });
 
     it("returns an empty array without throwing when there are no approved lines", async () => {
