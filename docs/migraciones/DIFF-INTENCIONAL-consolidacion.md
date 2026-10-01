@@ -209,3 +209,33 @@ Todo el diff proviene de la única migración de la rama,
 3. Las listas de estados terminales pasan de `(6, 7, 9)` a `(6, 7)` — en el guard de edición de
    fechas y en el `NOT IN` de la vista que deriva el estado.
 4. El mensaje de la excepción de fechas deja de nombrar «Congelado».
+
+### 6.3 — Carril A del incidente RLS 2026-09-28 (`user_roles`, su respaldo y `assign_user_role_atomic`)
+
+**Re-aceptación pendiente**: debe hacerse desde el artifact `route-fingerprint-replay` del primer run
+del gate `consolidated-replay` sobre esta rama (`VERSIONS.md`), no desde una réplica local. Hasta
+entonces el gate falla en los tres fixtures de grants, y es esperado.
+
+Cambio deliberado de seguridad, no de consolidación: un bloque nuevo de `REVOKE` al final de
+`cero_06_grants.sql`, con el mismo mecanismo que §3 (los `GRANT ALL` del dump quedan verbatim y el
+estado final se corrige con `REVOKE` explícitos, que también limpian el grant directo del default
+de plataforma). Contexto, consumidores verificados y hallazgos: `bugs/seguridad/barrido_plan.md` §5 y
+`bugs/seguridad/barrido_report.md` (BAR-001, BAR-004, BAR-007).
+
+Hunks esperados (todos son filas que **desaparecen**; `service_role` y `postgres` no cambian):
+
+1. `consolidado_renamed_catalog_grants.txt`: `user_roles` pierde `DELETE`, `INSERT`, `REFERENCES`,
+   `TRIGGER`, `TRUNCATE` y `UPDATE` para `anon` y `authenticated` (conserva `SELECT`);
+   `user_roles_backup_0220_56_20260224` pierde todos los privilegios de `anon` y `authenticated`.
+2. `consolidado_renamed_catalog_column_grants.txt`: las filas por columna derivadas de esos mismos
+   privilegios (`INSERT`/`REFERENCES`/`UPDATE` de `user_roles`; las cuatro de cada columna del
+   respaldo) para `anon` y `authenticated`.
+3. `consolidado_renamed_catalog_routine_grants.txt`: `assign_user_role_atomic(uuid)` pierde
+   `EXECUTE` para `anon` y `authenticated`.
+
+`catalog_policies`, `catalog_storage_buckets` y `schema.sql` no deberían cambiar: no se toca ninguna
+política, flag de RLS ni definición. Si el diff del artifact trae algo fuera de esta lista, es drift
+real y hay que parar.
+
+Guardia de regresión: `supabase/tests/schema-convergence-assertions.sql`, checks 11 (estos grants) y
+12 (compuerta `relrowsecurity` con lista de excepciones).

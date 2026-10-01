@@ -1850,3 +1850,31 @@ REVOKE EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(p_requireme
 REVOKE EXECUTE ON FUNCTION public.save_engagement_assignments(p_engagement_id uuid, p_upserts jsonb, p_deleted_ids uuid[]) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.save_wo_staffing(p_wo_id uuid, p_requirements jsonb) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.staff_id_number_conflict(p_id_number text, p_exclude_staff_id uuid) FROM anon;
+
+--
+-- Carril A — contención del incidente RLS del 2026-09-28 (bugs/seguridad/barrido_plan.md §5;
+-- hallazgos BAR-001, BAR-004 y BAR-007 de bugs/seguridad/barrido_report.md). Mismo mecanismo que
+-- los dos bloques de arriba: los GRANT ALL de más arriba quedan verbatim del dump y el estado final
+-- se corrige con REVOKE explícitos, que además limpian el GRANT directo que el default de
+-- plataforma da a anon/authenticated al crear el objeto. service_role no se toca.
+--
+-- A.1 user_roles: has_role() resuelve privilegios leyendo esta tabla y no tiene RLS, así que la
+--     escritura directa por la Data API permitía a cualquier sesión cambiar su propio rol sin pasar
+--     por admin_set_user_role (ni por su escritura en user_lifecycle_audit_log). Toda escritura
+--     legítima entra por funciones SECURITY DEFINER (admin_set_user_role[_key], handle_new_user,
+--     assign_user_role_atomic, rollback_unconfirmed_signup, prepare_account_deletion,
+--     clear_account_deletion_mark) o por service_role. SELECT se conserva: lo usan useAuth,
+--     useUserRole y StaffForm; la lectura anónima se cierra en el Carril B al habilitar RLS.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM authenticated;
+
+-- A.2 user_roles_backup_0220_56_20260224: copia histórica sin consumidores (ni código, ni funciones,
+--     ni seeds); nace vacía en un reset. Se retira todo acceso de los roles de API y se deja la
+--     tabla en su lugar (no DROP, no cambio de esquema).
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM anon;
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM authenticated;
+
+-- BAR-007 assign_user_role_atomic: no valida al llamador y con user_roles vacío asigna 'admin' al
+--     identificador recibido. Su único consumidor es la Edge Function assign-user-role, que la llama
+--     con service_role. PUBLIC se incluye porque una función nace ejecutable por PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.assign_user_role_atomic(p_user_id uuid) FROM PUBLIC, anon, authenticated;

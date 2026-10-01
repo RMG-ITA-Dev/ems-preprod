@@ -28,6 +28,11 @@
 --                                            fixtures to invoke it end to end
 --                                            — that path is exercised for real
 --                                            in Rutas A/B/C against Docker).
+--
+-- Incidente RLS 2026-09-28 (bugs/seguridad/barrido_plan.md §5, Carril A):
+--   Sin escritura de roles por la Data API -> part 1, check 11
+--   Compuerta relrowsecurity (A.3)         -> part 1, check 12 (lista de
+--                                            excepciones = pendiente del Carril B)
 
 BEGIN;
 
@@ -200,6 +205,107 @@ BEGIN
     RAISE EXCEPTION 'CONVERGENCE FAIL — falta (o no está validado) chk_engagements_manager_not_specialist en engagements (BUG 0828-185)';
   END IF;
   RAISE NOTICE 'PASS — engagements.society_id es NOT NULL y chk_engagements_manager_not_specialist está presente y validado (BUG 0828-185)';
+
+  -- 11. Carril A del incidente RLS 2026-09-28 (bugs/seguridad/barrido_plan.md §5, BAR-001/004/007):
+  --     ningún rol de API escribe user_roles, ni toca su respaldo, ni ejecuta assign_user_role_atomic;
+  --     service_role conserva todo. El SELECT de user_roles se mantiene a propósito (lo usa el frontend).
+  DECLARE
+    r    text;
+    priv text;
+  BEGIN
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+      IF to_regrole(r) IS NULL THEN CONTINUE; END IF;
+      FOREACH priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+        IF has_table_privilege(r, 'public.user_roles', priv) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — % retains % on public.user_roles (escalada de rol por la Data API, BAR-001)', r, priv;
+        END IF;
+      END LOOP;
+      IF has_any_column_privilege(r, 'public.user_roles', 'INSERT, UPDATE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains a column-level INSERT/UPDATE on public.user_roles (BAR-001)', r;
+      END IF;
+      IF NOT has_table_privilege(r, 'public.user_roles', 'SELECT') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % lost SELECT on public.user_roles (useAuth/useUserRole/StaffForm lo leen)', r;
+      END IF;
+      IF has_table_privilege(r, 'public.user_roles_backup_0220_56_20260224',
+                             'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+         OR has_any_column_privilege(r, 'public.user_roles_backup_0220_56_20260224', 'SELECT, INSERT, UPDATE, REFERENCES') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains a privilege on public.user_roles_backup_0220_56_20260224 (BAR-004)', r;
+      END IF;
+      IF has_function_privilege(r, 'public.assign_user_role_atomic(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains EXECUTE on public.assign_user_role_atomic(uuid) (BAR-007)', r;
+      END IF;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+       WHERE p.oid = 'public.assign_user_role_atomic(uuid)'::regprocedure
+         AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — PUBLIC retains EXECUTE on public.assign_user_role_atomic(uuid) (BAR-007)';
+    END IF;
+    IF to_regrole('service_role') IS NOT NULL AND NOT (
+         has_table_privilege('service_role', 'public.user_roles', 'SELECT')
+         AND has_table_privilege('service_role', 'public.user_roles', 'INSERT')
+         AND has_table_privilege('service_role', 'public.user_roles', 'UPDATE')
+         AND has_table_privilege('service_role', 'public.user_roles', 'DELETE')
+         AND has_table_privilege('service_role', 'public.user_roles_backup_0220_56_20260224', 'SELECT')
+         AND has_function_privilege('service_role', 'public.assign_user_role_atomic(uuid)', 'EXECUTE')) THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — service_role lost a privilege on user_roles / its backup / assign_user_role_atomic (Edge Functions dependen de él)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — Carril A: anon/authenticated sin escritura en user_roles (SELECT intacto), sin acceso al respaldo ni EXECUTE en assign_user_role_atomic; service_role intacto';
+
+  -- 12. Compuerta de RLS (barrido_plan.md §5 A.3): toda tabla de `public` (el esquema que publica la
+  --     Data API) tiene relrowsecurity, salvo las de esta lista. La causa raíz del incidente es que
+  --     nada verificaba pg_class.relrowsecurity: 177 políticas escritas, 16 tablas con política y RLS
+  --     apagado. La lista es el pendiente vivo del Carril B y solo puede encoger: falla también si
+  --     una excepción ya tiene RLS (hay que retirarla de acá) o si la tabla dejó de existir.
+  --     Responsable de cada entrada: por asignar (barrido_report.md §10).
+  DECLARE
+    v_exceptions text[] := ARRAY[
+      -- Grupo A — identidad y logs (P0)
+      'user_roles',                          -- BAR-001: escritura cerrada en el Carril A; falta RLS para la lectura
+      'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
+      'migration_run_log',                   -- sin políticas; log interno
+      -- Grupo B — núcleo de negocio (P0)
+      'staff',                               -- BAR-002/003: PII; hardening por columna anulado por anon
+      'clients',                             -- BAR-002
+      'engagements',                         -- BAR-002
+      'time_entries',                        -- BAR-002
+      'timer_entries',                       -- BAR-002
+      'timesheet_line_approvals',            -- BAR-002
+      'timesheet_periods',                   -- BAR-002
+      -- Grupo C — presupuestos y gastos
+      'activity_worksheet_cells',            -- BAR-002
+      'wo_budget_lines',                     -- BAR-002
+      'wo_expense_budget',                   -- BAR-002
+      -- Grupo D — configuración y catálogos (P1/P2)
+      'global_settings',                     -- BAR-002: la pantalla de login la lee sin sesión
+      'activity_codes',                      -- BAR-002
+      'categories',                          -- BAR-002
+      'expense_types',                       -- BAR-002
+      'industries'                           -- BAR-002
+    ];
+    v_list text;
+  BEGIN
+    SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_list
+      FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity
+       AND c.relname <> ALL (v_exceptions);
+    IF v_list IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — public tables without RLS and not in the exception list: % (habilitar RLS con sus políticas, o registrar la excepción con justificación)', v_list;
+    END IF;
+
+    SELECT string_agg(e, ', ' ORDER BY e) INTO v_list
+      FROM unnest(v_exceptions) e
+     WHERE NOT EXISTS (
+       SELECT 1 FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+        WHERE ns.nspname = 'public' AND c.relname = e AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity);
+    IF v_list IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — stale RLS exception(s), the table now has RLS or no longer exists: % (retirarla de la lista)', v_list;
+    END IF;
+    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity except the % listed exceptions (Carril B pendiente)',
+      array_length(v_exceptions, 1);
+  END;
 END $$;
 
 -- =====================================================================
