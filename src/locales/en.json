@@ -1699,6 +1699,7 @@
     "activityChangeError": "Failed to update activity. Change has been reverted.",
     "submitPairMismatch": "Submit failed: engagement and activity lists do not match. Please reload and try again.",
     "requestReversal": "Request Reversal",
+    "reversalPending": "Reversal request pending",
     "reversalRequested": "Reversal requested",
     "reversalReasonRequired": "A reason is required",
     "reversalDialogTitle": "Request Reversal",

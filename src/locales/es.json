@@ -1699,6 +1699,7 @@
     "activityChangeError": "Error al actualizar la actividad. El cambio fue revertido.",
     "submitPairMismatch": "Error al enviar: las listas de encargos y actividades no coinciden. Por favor recargue e intente nuevamente.",
     "requestReversal": "Solicitar reversión",
+    "reversalPending": "Solicitud de reversión pendiente",
     "reversalRequested": "Reversión solicitada",
     "reversalReasonRequired": "Se requiere una razón",
     "reversalDialogTitle": "Solicitar reversión",

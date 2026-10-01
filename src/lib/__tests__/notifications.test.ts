@@ -655,6 +655,18 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e, (p) => p === "timesheet_approval.read")).toBeNull();
   });
 
+  // review iteración 12, hallazgo #2: el rechazo de una solicitud ENCARGO (la pide un gerente/socio
+  // sobre la boleta de otra persona) va a "Mis solicitudes", con timesheet_approval.read.
+  it("0923-209: el rechazo de una solicitud de alcance ENCARGO lleva a Mis solicitudes, no a /timesheet", () => {
+    const e = { ...event("n1", "timesheet_approval"), type_key: "approval.reversal_rejected",
+                entity_id: "req-3", payload: { scope: "engagement", notes: "no" } };
+    expect(notificationRoute(e, (p) => p === "timesheet_approval.read"))
+      .toBe("/timesheet/approvals?tab=my-requests");
+    expect(notificationRoute(e, (p) => p === "timesheet.read")).toBeNull();
+    const week = { ...e, payload: { scope: "week", notes: "no" } };
+    expect(notificationRoute(week, (p) => p === "timesheet.read")).toBe("/timesheet");
+  });
+
   it("el timer cerrado solo lleva a ESE registro del tracker (FASE 3.d)", () => {
     const e = { ...event("n1", "tracker"), type_key: "tracker.timer.auto_stopped",
                 entity_id: "timer-4" };

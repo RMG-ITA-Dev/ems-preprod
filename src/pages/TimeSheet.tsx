@@ -18,7 +18,7 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { useAuth } from "@/hooks/useAuth";
 import { usePeriodLineApprovals } from "@/hooks/useTimesheetApprovals";
 import { useSubmitTimesheet, useUnsubmitTimesheet, useCopyPreviousWeek, useCopyToCurrentWeek } from "@/hooks/useTimesheetMutations";
-import { useRequestTimesheetReversal } from "@/hooks/useTimesheetReversals";
+import { useRequestTimesheetReversal, usePendingWeekReversal } from "@/hooks/useTimesheetReversals";
 import { TimesheetReversalDialog } from "@/components/timesheet/TimesheetReversalDialog";
 import { isTimesheetError } from "@/lib/timesheetErrors";
 import { useStaffAssignmentSegments } from "@/hooks/scheduler/useStaffAssignmentSegments";
@@ -284,6 +284,7 @@ const TimeSheet = () => {
   const submitTimesheet = useSubmitTimesheet();
   const unsubmitTimesheet = useUnsubmitTimesheet();
   const requestReversal = useRequestTimesheetReversal();
+  const { data: hasPendingWeekReversal = false } = usePendingWeekReversal(period?.period_id);
   const copyPreviousWeek = useCopyPreviousWeek();
   const copyToCurrentWeek = useCopyToCurrentWeek();
   const queryClient = useQueryClient();
@@ -422,10 +423,14 @@ const TimeSheet = () => {
   // 0923-209: exclusión mutua con "Retirar Envío" (decisión convivencia_con_retirar_envio).
   // `!canUnsubmit` es lo que garantiza que nunca se vean los dos botones a la vez;
   // `isFullyApproved` es lo que el paquete llama "boleta aprobada".
-  const canRequestReversal = isSubmitted
+  const canOfferReversal = isSubmitted
     && !period?.is_period_locked
     && isFullyApproved
     && !canUnsubmit;
+  // Con una solicitud SEMANA abierta el botón se reemplaza por un aviso (review iteración 12,
+  // hallazgo #1): la RPC respondería REVERSAL_ALREADY_REQUESTED.
+  const canRequestReversal = canOfferReversal && !hasPendingWeekReversal;
+  const showReversalPending = canOfferReversal && hasPendingWeekReversal;
 
   const canSaveDraft = !isBeforeHireDate
     && !isAfterTerminationDate
@@ -922,6 +927,12 @@ const TimeSheet = () => {
             )}
 
             {/* Request Reversal Button (0923-209) -- exclusión mutua con Unsubmit de arriba */}
+            {showReversalPending && (
+              <Button variant="outline" disabled>
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {t("timesheet.reversalPending")}
+              </Button>
+            )}
             {canRequestReversal && (
               <Button
                 variant="outline"

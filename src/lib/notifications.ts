@@ -523,8 +523,9 @@ const TYPE_ROUTE_PERMISSION: Record<string, string> = {
   "timesheet.team_submitted_for_approval": "timesheet_approval.read",
   // 0923-209: los dos avisos sobre una solicitud/ejecución AJENA van a la cola de
   // reversiones de /timesheet/approvals -- igual que los dos de envío de arriba.
-  // approval.reversal_rejected NO entra acá: su destino es la boleta PROPIA del
-  // solicitante, que cae al default del módulo (timesheet.read).
+  // approval.reversal_rejected NO entra acá: una solicitud SEMANA apunta a la boleta PROPIA
+  // del solicitante y cae al default del módulo (timesheet.read); una ENCARGO se resuelve
+  // por alcance en notificationRoute (review iteración 12, hallazgo #2).
   "approval.reversal_requested": "timesheet_approval.read",
   "approval.reversal_executed": "timesheet_approval.read",
 };
@@ -557,6 +558,16 @@ export function notificationRoute(
     if (context === "assigned" || context === "unassigned") {
       return event.entity_id ? `/timesheet/assignments?engagementId=${event.entity_id}` : null;
     }
+  }
+
+  // 0923-209 (review iteración 12, hallazgo #2): el rechazo de una solicitud de alcance ENCARGO
+  // lo recibe un gerente/socio que pidió revertir líneas de OTRA persona -- su hoja de tiempo
+  // (/timesheet) no tiene relación. Va a "Mis solicitudes", donde ve el veredicto y la nota.
+  // Exige `timesheet_approval.read`, no `timesheet.read` (un hr_manager tiene el primero y no
+  // el segundo). Los avisos sin `scope` (o de alcance SEMANA) siguen al default del módulo.
+  if (event.type_key === "approval.reversal_rejected" && event.payload?.scope === "engagement") {
+    if (can && !can("timesheet_approval.read")) return null;
+    return "/timesheet/approvals?tab=my-requests";
   }
 
   const permission =

@@ -384,7 +384,8 @@ BEGIN
   PERFORM 1 FROM public.notifications
    WHERE recipient_staff_id = '50923209-0000-4000-8000-000000000004'
      AND type_key = 'approval.reversal_rejected'
-     AND entity_id = v_r2::text;
+     AND entity_id = v_r2::text
+     AND payload->>'scope' = 'week'; -- review iteración 12, hallazgo #2: el aviso lleva el alcance
   IF NOT FOUND THEN
     RAISE EXCEPTION '0923-209 REVERSAL FAIL — check 11: el solicitante (dueño) no recibió approval.reversal_rejected';
   END IF;

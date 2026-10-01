@@ -379,6 +379,30 @@ export function useMyReversalRequests() {
   });
 }
 
+// ¿Ya hay una solicitud SEMANA abierta sobre este período? (review iteración 12, hallazgo #1).
+// El dueño la puede leer por RLS (trr_select_visible, rama "dueño del período"). Se usa para
+// reemplazar "Solicitar reversión" por "Solicitud pendiente" en /timesheet: el período sigue
+// enviado y 100% aprobado hasta que el admin resuelva, así que sin esto el botón se reactiva
+// y todo nuevo intento sólo falla con REVERSAL_ALREADY_REQUESTED. Cuelga de la llave
+// ["reversal-requests"], que las 3 mutaciones ya invalidan por prefijo.
+export function usePendingWeekReversal(periodId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["reversal-requests", "pending-week", periodId],
+    enabled: !!periodId,
+    queryFn: async (): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from("timesheet_reversal_requests" as never)
+        .select("request_id")
+        .eq("period_id", periodId as string)
+        .eq("scope", "week")
+        .eq("status", "pending")
+        .limit(1);
+      if (error) throw error;
+      return ((data as unknown[] | null) ?? []).length > 0;
+    },
+  });
+}
+
 export function useRequestTimesheetReversal() {
   const queryClient = useQueryClient();
 

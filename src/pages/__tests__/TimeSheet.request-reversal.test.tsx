@@ -37,6 +37,7 @@ const refs = vi.hoisted(() => ({
     { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
   ] as Array<{ approval_id: string; status: string; engagement_id: string; period_id: string }>,
   isPeriodLocked: false,
+  pendingWeekReversal: false,
 }));
 
 vi.mock("@/lib/timesheetUtils", async (importOriginal) => {
@@ -166,6 +167,7 @@ vi.mock("@/hooks/useTimesheetMutations", async (importOriginal) => {
 
 vi.mock("@/hooks/useTimesheetReversals", () => ({
   useRequestTimesheetReversal: () => ({ mutate: refs.requestReversalMutate, isPending: false }),
+  usePendingWeekReversal: () => ({ data: refs.pendingWeekReversal }),
 }));
 
 // Lazy import after all mocks are hoisted
@@ -193,6 +195,7 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
     refs.unsubmitMutate = vi.fn();
     refs.roleKey = "partner";
     refs.isPeriodLocked = false;
+    refs.pendingWeekReversal = false;
     refs.lineApprovals = [
       { approval_id: "a1", status: "approved", engagement_id: "eng-1", period_id: "p1" },
       { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
@@ -260,6 +263,16 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
       { periodId: "p1", scope: "week", engagementId: null, reason: "necesito corregir horas" },
       expect.anything(),
     );
+  });
+
+  // RR8 (review iteración 12, hallazgo #1): con una solicitud SEMANA abierta el botón se sustituye
+  // por un aviso deshabilitado; la RPC sólo respondería REVERSAL_ALREADY_REQUESTED.
+  it("RR8: replaces requestReversal with a disabled pending notice while a week request is open", () => {
+    refs.pendingWeekReversal = true;
+    setPastWeek();
+    renderWithRouter(<TimeSheet />);
+    expect(screen.queryByText("timesheet.requestReversal")).not.toBeInTheDocument();
+    expect(screen.getByText("timesheet.reversalPending").closest("button")).toBeDisabled();
   });
 
   // RR6: período parcialmente aprobado, semana pasada -> ningún botón de reversión.

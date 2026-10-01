@@ -375,7 +375,8 @@ BEGIN
        WHERE request_id = v_stale_week_request.request_id;
 
       PERFORM public.notify_staff('approval.reversal_rejected', v_stale_week_request.requested_by,
-        v_stale_week_request.request_id::text, jsonb_build_object('notes', v_cascade_note));
+        v_stale_week_request.request_id::text,
+        jsonb_build_object('notes', v_cascade_note, 'scope', 'week'));
     END LOOP;
 
     -- Cierre en cascada del MISMO destino (review iteración 5, hallazgo #2): si además de esta
@@ -526,7 +527,10 @@ BEGIN
 
   -- rechazo_de_solicitud: notifica al solicitante, mismo patrón que el rechazo de líneas.
   PERFORM public.notify_staff('approval.reversal_rejected', v_request.requested_by,
-    p_request_id::text, jsonb_build_object('notes', v_notes));
+    -- `scope` decide a dónde lleva el aviso (review iteración 12, hallazgo #2): SEMANA es la
+    -- boleta propia del dueño (/timesheet); ENCARGO lo piden gerentes/socios sobre la boleta de
+    -- OTRA persona, así que el destino es su "Mis solicitudes".
+    p_request_id::text, jsonb_build_object('notes', v_notes, 'scope', v_request.scope));
 END;
 $$;
 
