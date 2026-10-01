@@ -38,6 +38,7 @@ const refs = vi.hoisted(() => ({
   ] as Array<{ approval_id: string; status: string; engagement_id: string; period_id: string }>,
   isPeriodLocked: false,
   pendingWeekReversal: false,
+  pendingWeekLoading: false,
 }));
 
 vi.mock("@/lib/timesheetUtils", async (importOriginal) => {
@@ -167,7 +168,7 @@ vi.mock("@/hooks/useTimesheetMutations", async (importOriginal) => {
 
 vi.mock("@/hooks/useTimesheetReversals", () => ({
   useRequestTimesheetReversal: () => ({ mutate: refs.requestReversalMutate, isPending: false }),
-  usePendingWeekReversal: () => ({ data: refs.pendingWeekReversal }),
+  usePendingWeekReversal: () => ({ data: refs.pendingWeekReversal, isLoading: refs.pendingWeekLoading }),
 }));
 
 // Lazy import after all mocks are hoisted
@@ -196,6 +197,7 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
     refs.roleKey = "partner";
     refs.isPeriodLocked = false;
     refs.pendingWeekReversal = false;
+    refs.pendingWeekLoading = false;
     refs.lineApprovals = [
       { approval_id: "a1", status: "approved", engagement_id: "eng-1", period_id: "p1" },
       { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
@@ -273,6 +275,15 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
     renderWithRouter(<TimeSheet />);
     expect(screen.queryByText("timesheet.requestReversal")).not.toBeInTheDocument();
     expect(screen.getByText("timesheet.reversalPending").closest("button")).toBeDisabled();
+  });
+
+  // RR9 (review iteración 13, hallazgo #1): mientras se averigua si ya hay una solicitud abierta el
+  // botón de solicitar existe pero queda deshabilitado (no se ofrece una acción que puede fallar).
+  it("RR9: keeps requestReversal disabled while the pending-request check is loading", () => {
+    refs.pendingWeekLoading = true;
+    setPastWeek();
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText("timesheet.requestReversal").closest("button")).toBeDisabled();
   });
 
   // RR6: período parcialmente aprobado, semana pasada -> ningún botón de reversión.

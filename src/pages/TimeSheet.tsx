@@ -284,7 +284,12 @@ const TimeSheet = () => {
   const submitTimesheet = useSubmitTimesheet();
   const unsubmitTimesheet = useUnsubmitTimesheet();
   const requestReversal = useRequestTimesheetReversal();
-  const { data: hasPendingWeekReversal = false } = usePendingWeekReversal(period?.period_id);
+  // `isLoading` (no `isError`): mientras se averigua si ya hay una solicitud abierta el botón queda
+  // deshabilitado (review iteración 13, hallazgo #1); si la consulta falla NO se bloquea -- el
+  // servidor sigue siendo la barrera (REVERSAL_ALREADY_REQUESTED) y un error del hook no debe
+  // impedir solicitar.
+  const { data: hasPendingWeekReversal = false, isLoading: isCheckingPendingReversal } =
+    usePendingWeekReversal(period?.period_id);
   const copyPreviousWeek = useCopyPreviousWeek();
   const copyToCurrentWeek = useCopyToCurrentWeek();
   const queryClient = useQueryClient();
@@ -937,7 +942,7 @@ const TimeSheet = () => {
               <Button
                 variant="outline"
                 onClick={() => setShowReversalDialog(true)}
-                disabled={requestReversal.isPending}
+                disabled={requestReversal.isPending || isCheckingPendingReversal}
               >
                 {requestReversal.isPending && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
