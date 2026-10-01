@@ -39,6 +39,7 @@ const refs = vi.hoisted(() => ({
   isPeriodLocked: false,
   pendingWeekReversal: false,
   pendingWeekLoading: false,
+  retroDays: undefined as number | undefined,
 }));
 
 vi.mock("@/lib/timesheetUtils", async (importOriginal) => {
@@ -118,7 +119,15 @@ vi.mock("@/hooks/useEmsData", () => ({
 }));
 
 vi.mock("@/hooks/useTimesheetPolicies", () => ({
-  useTimesheetPolicies: () => ({ canEdit: true, canSubmit: true, canUnsubmit: true, isLocked: false }),
+  useTimesheetPolicies: () => ({
+    canEdit: true,
+    canSubmit: true,
+    canUnsubmit: true,
+    isLocked: false,
+    // Sólo cuando un test fija la ventana de edición; si no, `policies` queda indefinido y la
+    // página usa sus valores por defecto (30 días).
+    data: refs.retroDays ? { employeeRetroDays: refs.retroDays } : undefined,
+  }),
 }));
 
 vi.mock("@/hooks/useWeekStatuses", () => ({
@@ -198,6 +207,7 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
     refs.isPeriodLocked = false;
     refs.pendingWeekReversal = false;
     refs.pendingWeekLoading = false;
+    refs.retroDays = undefined;
     refs.lineApprovals = [
       { approval_id: "a1", status: "approved", engagement_id: "eng-1", period_id: "p1" },
       { approval_id: "a2", status: "approved", engagement_id: "eng-2", period_id: "p1" },
@@ -275,6 +285,17 @@ describe("TimeSheet request-reversal (BUG 0923-209)", () => {
     renderWithRouter(<TimeSheet />);
     expect(screen.queryByText("timesheet.requestReversal")).not.toBeInTheDocument();
     expect(screen.getByText("timesheet.reversalPending").closest("button")).toBeDisabled();
+  });
+
+  // RR10 (review iteración 15, hallazgo #2; decisión del operador): una semana fuera de la ventana
+  // de edición no ofrece la reversión -- devuelta a borrador, su dueño no podría corregirla ni
+  // reenviarla. Fecha fija 2026-05-14; la semana pasada termina el 08/05 (6 días antes).
+  it("RR10: hides requestReversal when the week is outside the editable window", () => {
+    refs.retroDays = 3;
+    setPastWeek();
+    renderWithRouter(<TimeSheet />);
+    expect(screen.queryByText("timesheet.requestReversal")).not.toBeInTheDocument();
+    expect(screen.queryByText("timesheet.reversalPending")).not.toBeInTheDocument();
   });
 
   // RR9 (review iteración 13, hallazgo #1): mientras se averigua si ya hay una solicitud abierta el

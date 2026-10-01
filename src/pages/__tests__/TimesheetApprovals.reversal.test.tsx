@@ -50,6 +50,9 @@ const refs = vi.hoisted(() => {
     engagementPartnerId: null as string | null,
     pendingEngagementKeys: new Set<string>(),
     pendingEngagementLoading: false,
+    // Ventana de edición (días): enorme por defecto para que la semana fija de los fixtures
+    // (2026-04-06) siga "dentro"; TA1i la reduce para ejercitar el corte.
+    retroDays: 100000,
     canApprove: true,
     requestReversalMutate: vi.fn(),
     executeReversalMutate: vi.fn(),
@@ -66,6 +69,10 @@ vi.mock("@/hooks/useAuthorization", () => ({
     roleKey: refs.roleKey,
     isLoading: false,
   }),
+}));
+
+vi.mock("@/hooks/useTimesheetPolicies", () => ({
+  useTimesheetPolicies: () => ({ data: { workDays: 5, employeeRetroDays: refs.retroDays } }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
@@ -140,6 +147,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     refs.engagementPartnerId = null;
     refs.pendingEngagementKeys = new Set<string>();
     refs.pendingEngagementLoading = false;
+    refs.retroDays = 100000;
     refs.pendingReversals = refs.onePendingReversal;
     refs.myRequests = [];
   });
@@ -180,6 +188,28 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     await goToApprovedTab(user);
 
     expect(screen.getAllByText("approval.requestReversal")[0]).toBeInTheDocument();
+  });
+
+  // Review iteración 15, hallazgo #2 (decisión del operador): una semana fuera de la ventana de
+  // edición del colaborador no se puede revertir -- devuelta a borrador no podría corregirla ni
+  // reenviarla --, ni por solicitud ni de forma directa.
+  it("TA1i: a week outside the editable window offers neither requestReversal nor revert", async () => {
+    refs.retroDays = 1;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+  });
+
+  it("TA2d: the admin's revert is also hidden for a week outside the editable window", async () => {
+    refs.retroDays = 1;
+    refs.roleKey = "admin";
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.revert")).not.toBeInTheDocument();
   });
 
   // Review iteración 14, hallazgo #1: con una solicitud ENCARGO abierta sobre el mismo

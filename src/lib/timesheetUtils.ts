@@ -40,6 +40,25 @@ export const getWeekMonday = (date: Date): Date => {
   return startOfWeek(date, { weekStartsOn: 1 }); // 1 = Monday
 };
 
+// ¿La semana todavía cae dentro de la ventana en que el colaborador puede editarla/reenviarla?
+// Misma regla que `isWithinEditableWindow` de TimeSheet.tsx: la semana actual y las futuras
+// siempre; una pasada, hasta `retroDays` días después de su último día laborable
+// (TS_EMPLOYEE_RETRO_DAYS, 30 por defecto). Se usa para no ofrecer la reversión de una boleta que,
+// una vez devuelta a borrador, su dueño ya no podría corregir ni reenviar (0923-209, review
+// iteración 15, hallazgo #2).
+export const isWeekWithinEditableWindow = (
+  weekStartDate: Date,
+  workDays: number = 5,
+  retroDays: number = 30,
+  today: Date = new Date(),
+): boolean => {
+  if (weekStartDate.getTime() >= getWeekMonday(today).getTime()) return true;
+  const weekEnd = new Date(weekStartDate);
+  weekEnd.setDate(weekEnd.getDate() + workDays - 1);
+  const daysSinceWeekEnd = Math.floor((today.getTime() - weekEnd.getTime()) / (1000 * 60 * 60 * 24));
+  return daysSinceWeekEnd <= retroDays;
+};
+
 // Get the Friday of the week (for 5-day work week)
 export const getWeekFriday = (date: Date): Date => {
   const monday = getWeekMonday(date);

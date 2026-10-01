@@ -428,7 +428,11 @@ const TimeSheet = () => {
   // 0923-209: exclusión mutua con "Retirar Envío" (decisión convivencia_con_retirar_envio).
   // `!canUnsubmit` es lo que garantiza que nunca se vean los dos botones a la vez;
   // `isFullyApproved` es lo que el paquete llama "boleta aprobada".
+  // `isWithinEditableWindow`: no se ofrece revertir una semana que, devuelta a borrador, su dueño ya
+  // no podría editar ni reenviar (review iteración 15, hallazgo #2; decisión del operador: la
+  // reversión y la edición comparten la misma ventana).
   const canOfferReversal = isSubmitted
+    && isWithinEditableWindow
     && !period?.is_period_locked
     && isFullyApproved
     && !canUnsubmit;

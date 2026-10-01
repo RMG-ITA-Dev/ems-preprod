@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/table";
 import { Loader2, RotateCcw } from "lucide-react";
 import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
+import { isWeekWithinEditableWindow, parseDateLocal } from "@/lib/timesheetUtils";
+import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 import {
   useApprovedApprovalGroups,
   useRequestTimesheetReversal,
@@ -95,12 +97,25 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
     );
   };
 
+  // Ventana de edición del colaborador (review iteración 15, hallazgo #2; decisión del operador):
+  // revertir una semana que su dueño ya no podría editar ni reenviar no sirve, así que ni el
+  // aprobador (Solicitar) ni el admin (Revertir) ven la acción fuera de esa ventana. Mientras las
+  // políticas cargan se usan los valores por defecto de `useTimesheetPolicies` (30 días / 5 días).
+  const { data: policies } = useTimesheetPolicies();
+  const isGroupWithinWindow = (group: ApprovedApprovalGroup) =>
+    isWeekWithinEditableWindow(
+      parseDateLocal(group.week_start_date),
+      policies?.workDays ?? 5,
+      policies?.employeeRetroDays ?? 30,
+    );
+
   const canActOnGroup = (group: ApprovedApprovalGroup) =>
-    isAdmin ||
-    (canRequestReversal &&
-      !!staffRecord?.staff_id &&
-      (group.engagement.manager_id === staffRecord.staff_id ||
-        group.engagement.partner_id === staffRecord.staff_id));
+    isGroupWithinWindow(group) &&
+    (isAdmin ||
+      (canRequestReversal &&
+        !!staffRecord?.staff_id &&
+        (group.engagement.manager_id === staffRecord.staff_id ||
+          group.engagement.partner_id === staffRecord.staff_id)));
 
   const closeDialog = () => {
     setActiveGroup(null);
