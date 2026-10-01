@@ -239,3 +239,54 @@ real y hay que parar.
 
 Guardia de regresión: `supabase/tests/schema-convergence-assertions.sql`, checks 11 (estos grants) y
 12 (compuerta `relrowsecurity` con lista de excepciones).
+
+#### Ambientes que ya aplicaron `cero_06` (Test, Dev 2.0, Lovable)
+
+Editar `cero_06` en su lugar solo protege a un proyecto que la aplique por primera vez (producción
+`xcdcxtduotwgwmhxvsiz` nace vacía, y cualquier reset desde cero). `supabase db push` salta las
+migraciones ya registradas en `supabase_migrations.schema_migrations`, así que un proyecto vivo que
+ya tenga `20251204000006` en su ledger **sigue expuesto** aunque reciba esta rama (hallazgo de review
+del PR #362). Se decidió no crear una migración nueva (ver `barrido_plan.md` rev. 3: esos ambientes se
+resetean o se corrigen una vez). Para el que **no** se vaya a resetear, correr este bloque una sola
+vez en su SQL Editor, verificando antes que el editor abierto es el del `project-ref` correcto:
+
+```sql
+-- Carril A, aplicación única en un ambiente ya migrado. Idempotente: repetirlo no cambia nada.
+BEGIN;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM authenticated;
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM anon;
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM authenticated;
+REVOKE EXECUTE ON FUNCTION public.assign_user_role_atomic(p_user_id uuid) FROM PUBLIC, anon, authenticated;
+COMMIT;
+
+-- Verificación (solo lectura). Esperado: las cuatro primeras columnas en false,
+-- user_roles_select en true para ambos roles y service_role_ok en true.
+SELECT r.rol,
+       has_table_privilege(r.rol, 'public.user_roles', 'INSERT')
+         OR has_table_privilege(r.rol, 'public.user_roles', 'UPDATE')
+         OR has_table_privilege(r.rol, 'public.user_roles', 'DELETE')
+         OR has_table_privilege(r.rol, 'public.user_roles', 'TRUNCATE')            AS user_roles_escritura,
+       has_any_column_privilege(r.rol, 'public.user_roles', 'INSERT, UPDATE')   AS user_roles_escritura_columna,
+       has_table_privilege(r.rol, 'public.user_roles_backup_0220_56_20260224',
+                           'SELECT, INSERT, UPDATE, DELETE, TRUNCATE')            AS respaldo_acceso,
+       has_function_privilege(r.rol, 'public.assign_user_role_atomic(uuid)', 'EXECUTE') AS assign_execute,
+       has_table_privilege(r.rol, 'public.user_roles', 'SELECT')                  AS user_roles_select,
+       has_table_privilege('service_role', 'public.user_roles', 'INSERT')
+         AND has_function_privilege('service_role', 'public.assign_user_role_atomic(uuid)', 'EXECUTE') AS service_role_ok
+  FROM (VALUES ('anon'), ('authenticated')) r(rol);
+```
+
+Reversión exacta, solo si el bloque rompe un flujo legítimo (restaura la exposición; registrar el
+motivo en `bugs/seguridad/barrido_report.md` §3 antes de correrla):
+
+```sql
+BEGIN;
+GRANT ALL ON TABLE public.user_roles TO anon, authenticated;
+GRANT ALL ON TABLE public.user_roles_backup_0220_56_20260224 TO anon, authenticated;
+GRANT ALL ON FUNCTION public.assign_user_role_atomic(p_user_id uuid) TO anon, authenticated;
+COMMIT;
+```
+
+La reversión no devuelve el `EXECUTE` a `PUBLIC`: no lo necesita ningún consumidor y, con
+`anon`/`authenticated` restaurados, el comportamiento previo queda igual para la Data API.
