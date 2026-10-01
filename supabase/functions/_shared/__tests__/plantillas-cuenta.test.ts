@@ -55,14 +55,14 @@ describe("construirEnlaceVerificacion", () => {
 describe("renderizarCorreoAuth", () => {
   it("el alta pide confirmar la cuenta", () => {
     const correo = renderizarCorreoAuth(datos({ tipo: "signup" }));
-    expect(correo.asunto).toBe("Confirme su cuenta de EMS");
+    expect(correo.asunto).toBe("Confirme su cuenta");
     expect(correo.cuerpoTexto).toContain("Estimado/a Neil:");
     expect(correo.cuerpoHtml).toContain("type=signup");
   });
 
   it("la recuperacion habla de contrasena nueva", () => {
     const correo = renderizarCorreoAuth(datos());
-    expect(correo.asunto).toBe("Restablezca su contraseña de EMS");
+    expect(correo.asunto).toBe("Restablezca su contraseña");
     expect(correo.cuerpoTexto).toContain("Definir contraseña:");
   });
 
@@ -74,7 +74,7 @@ describe("renderizarCorreoAuth", () => {
     expect(esDesbloqueoAdministrativo(entrada)).toBe(true);
 
     const correo = renderizarCorreoAuth(entrada);
-    expect(correo.asunto).toBe("Su cuenta de EMS fue desbloqueada");
+    expect(correo.asunto).toBe("Su cuenta fue desbloqueada");
     expect(correo.cuerpoTexto).toContain("Seguridad TI");
   });
 

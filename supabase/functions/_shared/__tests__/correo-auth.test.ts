@@ -70,7 +70,7 @@ describe("generarYEnviarCorreoAuth", () => {
     const enviado = enviar.enviados[0] as { destinatarios: string[]; asunto: string; cuerpoTexto: string };
     expect(enviado.destinatarios).toEqual(["persona@ruizmier.com"]);
     // `reason=admin_unlock` en el destino cambia la copia, igual que en el hook.
-    expect(enviado.asunto).toBe("Su cuenta de EMS fue desbloqueada");
+    expect(enviado.asunto).toBe("Su cuenta fue desbloqueada");
     expect(enviado.cuerpoTexto).toContain("token=pkce_abc123");
   });
 
