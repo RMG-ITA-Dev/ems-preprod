@@ -2030,6 +2030,7 @@
     "requestReversal": "Solicitar reversión",
     "rejectRequest": "Rechazar",
     "executeRequest": "Ejecutar",
+    "reversalOutOfWindow": "Venció el plazo de edición del dueño: sólo se puede rechazar",
     "reversalExecuted": "Reversión ejecutada",
     "reversalRejected": "Solicitud rechazada",
     "revertDialogTitle": "Revertir líneas aprobadas",

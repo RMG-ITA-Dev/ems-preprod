@@ -422,6 +422,43 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(confirmButton).not.toBeDisabled();
   });
 
+  // Review iteración 17, hallazgo #2 (decisión del operador): si la semana de la solicitud ya salió
+  // de la ventana de edición del dueño, el admin SÓLO puede rechazarla.
+  it("TA5b: inside the editing window the queue offers both execute and reject", async () => {
+    refs.roleKey = "admin";
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.reversalQueue (1)"));
+
+    expect(screen.getAllByText("approval.executeRequest")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("approval.rejectRequest")[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.reversalOutOfWindow")).not.toBeInTheDocument();
+  });
+
+  it("TA5c: past the editing window the queue offers only reject, with an explanatory note", async () => {
+    refs.roleKey = "admin";
+    refs.retroDays = 1;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.reversalQueue (1)"));
+
+    expect(screen.queryByText("approval.executeRequest")).not.toBeInTheDocument();
+    expect(screen.getAllByText("approval.reversalOutOfWindow")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("approval.rejectRequest")[0]).toBeInTheDocument();
+  });
+
+  it("TA5d: while the policies load the queue decides nothing: no execute, no note, reject stays", async () => {
+    refs.roleKey = "admin";
+    refs.policiesLoading = true;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await user.click(screen.getByText("approval.tabs.reversalQueue (1)"));
+
+    expect(screen.queryByText("approval.executeRequest")).not.toBeInTheDocument();
+    expect(screen.queryByText("approval.reversalOutOfWindow")).not.toBeInTheDocument();
+    expect(screen.getAllByText("approval.rejectRequest")[0]).toBeInTheDocument();
+  });
+
   // TA6: la tab "pending" sigue renderizando la tabla de hoy, sin cambios.
   it("TA6: the pending tab still renders today's table unchanged by default", () => {
     renderWithRouter(<TimesheetApprovals />);

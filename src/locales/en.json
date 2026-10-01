@@ -2030,6 +2030,7 @@
     "requestReversal": "Request Reversal",
     "rejectRequest": "Reject",
     "executeRequest": "Execute",
+    "reversalOutOfWindow": "Past the owner's editing window: it can only be rejected",
     "reversalExecuted": "Reversal executed",
     "reversalRejected": "Request rejected",
     "revertDialogTitle": "Revert Approved Lines",

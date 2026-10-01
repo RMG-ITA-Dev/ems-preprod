@@ -22,6 +22,8 @@ import {
 import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
 import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
 import { REVERSAL_CASCADE_NOTE_TOKEN } from "@/lib/notifications";
+import { isWeekWithinEditableWindow, parseDateLocal } from "@/lib/timesheetUtils";
+import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
 
 interface ReversalRequestsTabProps {
   /** "mine": seguimiento propio (aprobador). "queue": cola del admin (ejecutar/rechazar). */
@@ -170,7 +172,7 @@ function MyRequestsView() {
           {/* Mobile: tarjetas (< md) */}
           <div className="space-y-2 md:hidden">
             {filtered.map((r) => (
-              <Card key={r.request_id} className="p-3">
+              <Card key={r.request_id} className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-foreground">
@@ -206,6 +208,7 @@ function QueueView() {
 
   const executeReversal = useExecuteTimesheetReversal();
   const rejectReversal = useRejectTimesheetReversal();
+  const { data: policies } = useTimesheetPolicies();
   const [activeRequest, setActiveRequest] = useState<ReversalRequest | null>(null);
   const [dialogMode, setDialogMode] = useState<"execute" | "reject" | null>(null);
 
@@ -252,17 +255,37 @@ function QueueView() {
     return <ReversalErrorState onRetry={() => refetch()} />;
   }
 
+  // Ventana de edición del dueño (review iteración 17, hallazgo #2; decisión del operador): si la
+  // semana de la solicitud ya salió de ella, ejecutar la dejaría en un borrador que su dueño no
+  // puede editar ni reenviar -- el admin SÓLO puede rechazarla. Sin políticas cargadas no se
+  // decide todavía: no se ofrece "Ejecutar" ni se muestra el aviso.
+  const windowFor = (r: ReversalRequest): "unknown" | "inside" | "outside" => {
+    if (!policies || !r.period) return "unknown";
+    return isWeekWithinEditableWindow(
+      parseDateLocal(r.period.week_start_date),
+      policies.workDays,
+      policies.employeeRetroDays,
+    )
+      ? "inside"
+      : "outside";
+  };
+
   const actions = (r: ReversalRequest, layout: "row" | "stack") => (
-    <div className={layout === "row" ? "space-x-2" : "flex gap-2 mt-2"}>
-      <Button
-        size="sm"
-        variant="outline"
-        className={layout === "stack" ? "flex-1" : undefined}
-        onClick={() => openDialog(r, "execute")}
-      >
-        <Check className="h-4 w-4 mr-1" />
-        {t("approval.executeRequest")}
-      </Button>
+    <div className={layout === "row" ? "space-x-2" : "flex flex-wrap gap-2 mt-2"}>
+      {windowFor(r) === "outside" && (
+        <p className="w-full text-xs text-muted-foreground">{t("approval.reversalOutOfWindow")}</p>
+      )}
+      {windowFor(r) === "inside" && (
+        <Button
+          size="sm"
+          variant="outline"
+          className={layout === "stack" ? "flex-1" : undefined}
+          onClick={() => openDialog(r, "execute")}
+        >
+          <Check className="h-4 w-4 mr-1" />
+          {t("approval.executeRequest")}
+        </Button>
+      )}
       <Button
         size="sm"
         variant="destructive"
@@ -330,7 +353,7 @@ function QueueView() {
           {/* Mobile: tarjetas (< md) */}
           <div className="space-y-2 md:hidden">
             {filtered.map((r) => (
-              <Card key={r.request_id} className="p-3">
+              <Card key={r.request_id} className="p-4">
                 <p className="truncate text-sm font-medium text-foreground">
                   {r.period?.staff
                     ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
