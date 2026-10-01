@@ -102,11 +102,16 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
   // aprobador (Solicitar) ni el admin (Revertir) ven la acción fuera de esa ventana. Mientras las
   // políticas cargan se usan los valores por defecto de `useTimesheetPolicies` (30 días / 5 días).
   const { data: policies } = useTimesheetPolicies();
+  // Sin políticas cargadas (`policies` indefinido) NO se ofrece ninguna acción (review iteración
+  // 16, hallazgo #2): usar 30/5 por defecto podía mostrar "Revertir" para una semana fuera de la
+  // ventana realmente configurada, o esconderla en una dentro. Si el fetch FALLA el hook ya
+  // devuelve sus valores por defecto, así que no queda bloqueado para siempre.
   const isGroupWithinWindow = (group: ApprovedApprovalGroup) =>
+    !!policies &&
     isWeekWithinEditableWindow(
       parseDateLocal(group.week_start_date),
-      policies?.workDays ?? 5,
-      policies?.employeeRetroDays ?? 30,
+      policies.workDays,
+      policies.employeeRetroDays,
     );
 
   const canActOnGroup = (group: ApprovedApprovalGroup) =>

@@ -53,6 +53,7 @@ const refs = vi.hoisted(() => {
     // Ventana de edición (días): enorme por defecto para que la semana fija de los fixtures
     // (2026-04-06) siga "dentro"; TA1i la reduce para ejercitar el corte.
     retroDays: 100000,
+    policiesLoading: false,
     canApprove: true,
     requestReversalMutate: vi.fn(),
     executeReversalMutate: vi.fn(),
@@ -72,7 +73,9 @@ vi.mock("@/hooks/useAuthorization", () => ({
 }));
 
 vi.mock("@/hooks/useTimesheetPolicies", () => ({
-  useTimesheetPolicies: () => ({ data: { workDays: 5, employeeRetroDays: refs.retroDays } }),
+  useTimesheetPolicies: () => ({
+    data: refs.policiesLoading ? undefined : { workDays: 5, employeeRetroDays: refs.retroDays },
+  }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
@@ -148,6 +151,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     refs.pendingEngagementKeys = new Set<string>();
     refs.pendingEngagementLoading = false;
     refs.retroDays = 100000;
+    refs.policiesLoading = false;
     refs.pendingReversals = refs.onePendingReversal;
     refs.myRequests = [];
   });
@@ -195,6 +199,17 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
   // reenviarla --, ni por solicitud ni de forma directa.
   it("TA1i: a week outside the editable window offers neither requestReversal nor revert", async () => {
     refs.retroDays = 1;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+  });
+
+  // Review iteración 16, hallazgo #2: mientras las políticas cargan no se ofrece ninguna acción
+  // (los valores por defecto 30/5 podrían no ser los configurados).
+  it("TA1j: no reversal action is offered while the editing-window policies are still loading", async () => {
+    refs.policiesLoading = true;
     const user = userEvent.setup();
     renderWithRouter(<TimesheetApprovals />);
     await goToApprovedTab(user);
