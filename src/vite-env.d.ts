@@ -12,3 +12,8 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** `version` de package.json, inyectada por `define` en vite.config.ts y en
+ *  vitest.config.ts. Es un reemplazo literal en build, no una variable en runtime:
+ *  no existe en `import.meta.env` ni se puede leer dinámicamente. */
+declare const __APP_VERSION__: string;

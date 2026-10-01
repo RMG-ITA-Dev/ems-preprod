@@ -205,11 +205,19 @@ const Auth = () => {
         <div>
           <div className="mb-16">
             {/* Brand name — identical across Auth.tsx, AppHeader.tsx, NotFound.tsx,
-                ResetPassword.tsx and index.html. Deliberately not i18n. */}
-            <h1 className="text-2xl font-bold text-primary-foreground">RuizmierGroup - EMS 2.0</h1>
+                ResetPassword.tsx and index.html. Deliberately not i18n. The logo
+                carries it visually; the heading stays for screen readers. */}
+            <h1 className="sr-only">RuizmierGroup - EMS 2.0</h1>
+            <img
+              src="/logo.png"
+              alt="EMS"
+              className="h-20 w-auto brightness-0 invert"
+            />
             {/* "EMS" IS the English acronym the product is named after — translating
-                it would rename the product, so EN and ES share the same value. */}
-            <p className="text-primary-foreground/70 text-sm">{t("auth.brandTagline")}</p>
+                it would rename the product, so EN and ES share the same value. Va
+                pegado al logo de EMS: la línea solo significa algo como expansión de
+                la sigla que tiene encima. */}
+            <p className="text-primary-foreground/70 text-sm mt-4">{t("auth.brandTagline")}</p>
           </div>
 
           <div className="space-y-8">
@@ -227,14 +235,47 @@ const Auth = () => {
           </div>
         </div>
 
-        <p className="text-primary-foreground/50 text-sm">
-          {t("auth.trustedBy")}
-        </p>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <img src="/brain.png" alt="" className="h-10 w-auto brightness-0 invert" />
+            <img
+              src="/logo-oscuro.png"
+              alt="Ruizmier Group"
+              className="h-7 w-auto brightness-0 invert"
+            />
+          </div>
+          <p className="text-primary-foreground/50 text-sm">
+            {t("auth.trustedBy")}
+          </p>
+        </div>
       </div>
 
       {/* Right Panel - Auth Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
           <div className="w-full max-w-md">
+          <div className="lg:hidden flex flex-col items-center gap-4 mb-8">
+            <div className="flex flex-col items-center gap-2">
+              <img
+                src="/logo.png"
+                alt="EMS"
+                className="h-16 w-auto dark:brightness-0 dark:invert"
+              />
+              <p className="text-muted-foreground text-sm">{t("auth.brandTagline")}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <img src="/brain.png" alt="" className="h-9 w-auto dark:brightness-0 dark:invert" />
+              <img
+                src="/logo-claro.png"
+                alt="Ruizmier Group"
+                className="h-6 w-auto dark:hidden"
+              />
+              <img
+                src="/logo-oscuro.png"
+                alt="Ruizmier Group"
+                className="h-6 w-auto hidden dark:block"
+              />
+            </div>
+          </div>
           {emailSent ? (
             <div className="bg-card rounded-2xl border border-border shadow-xl p-8 text-center">
               <div className="mx-auto h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">

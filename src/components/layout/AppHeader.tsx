@@ -49,9 +49,9 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
   };
 
   return (
-    <header className="h-16 border-b border-border bg-card px-4 md:px-6 grid grid-cols-[1fr_auto_1fr] items-center">
+    <header className="h-16 border-b border-border bg-card px-4 md:px-6 flex gap-3 md:gap-0 md:grid md:grid-cols-[1fr_auto_1fr] items-center">
       {/* Left zone: trigger + title */}
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="flex items-center gap-4 min-w-0 flex-1">
         {!focusMode && (
           <div className="hidden md:block">
             <SidebarTrigger>
@@ -67,10 +67,15 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
         </h1>
       </div>
 
-      {/* Center zone: brand - hidden on mobile */}
-      <div className="hidden md:flex items-center justify-center px-2">
+      {/* Center zone: brand */}
+      <div className="flex items-center justify-center px-2 shrink-0">
+        <img
+          src="/logo.png"
+          alt="EMS"
+          className="h-8 w-auto shrink-0 md:hidden dark:brightness-0 dark:invert"
+        />
         <span
-          className="font-bold text-primary text-lg md:text-xl leading-none whitespace-nowrap"
+          className="hidden md:inline font-bold text-primary text-lg md:text-xl leading-none whitespace-nowrap"
           style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
         >
           RuizmierGroup - EMS 2.0
@@ -78,7 +83,7 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
       </div>
 
       {/* Right zone: running timer chip + exchange rate + bell + purple user name + avatar dropdown */}
-      <div className="flex items-center gap-3 justify-self-end min-w-0">
+      <div className="flex items-center gap-3 justify-self-end min-w-0 shrink-0">
         <RunningTimerChip />
         <ExchangeRateIndicator />
         <NotificationsPanel />

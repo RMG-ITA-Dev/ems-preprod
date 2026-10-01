@@ -1,9 +1,20 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { readFileSync } from "node:fs";
+
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8")) as {
+  version: string;
+};
 
 export default defineConfig({
   plugins: [react()],
+  // Espejo del `define` de vite.config.ts. Vitest no lee ese archivo, así que sin esta
+  // clave cualquier test que monte AppSidebar falla con `__APP_VERSION__ is not defined`.
+  // Sale del mismo package.json para que no haya dos versiones que mantener.
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   test: {
     globals: true,
     environment: "jsdom",
