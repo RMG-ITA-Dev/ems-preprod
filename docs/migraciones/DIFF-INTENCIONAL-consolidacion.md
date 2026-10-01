@@ -212,9 +212,9 @@ Todo el diff proviene de la única migración de la rama,
 
 ### 6.3 — Carril A del incidente RLS 2026-09-28 (`user_roles`, su respaldo y `assign_user_role_atomic`)
 
-**Re-aceptación pendiente**: debe hacerse desde el artifact `route-fingerprint-replay` del primer run
-del gate `consolidated-replay` sobre esta rama (`VERSIONS.md`), no desde una réplica local. Hasta
-entonces el gate falla en los tres fixtures de grants, y es esperado.
+Re-aceptado desde el artifact del run **36932176260** (`headSha` a9b2fbc5, 2026-10-01, PR #362).
+Divergieron exactamente los tres fixtures de grants, con solo filas que desaparecen (−26, −68, −3);
+`catalog_policies`, `catalog_storage_buckets` y `consolidado_renamed_schema.sql` quedaron idénticos.
 
 Cambio deliberado de seguridad, no de consolidación: un bloque nuevo de `REVOKE` al final de
 `cero_06_grants.sql`, con el mismo mecanismo que §3 (los `GRANT ALL` del dump quedan verbatim y el
@@ -231,7 +231,7 @@ Hunks esperados (todos son filas que **desaparecen**; `service_role` y `postgres
    privilegios (`INSERT`/`REFERENCES`/`UPDATE` de `user_roles`; las cuatro de cada columna del
    respaldo) para `anon` y `authenticated`.
 3. `consolidado_renamed_catalog_routine_grants.txt`: `assign_user_role_atomic(uuid)` pierde
-   `EXECUTE` para `anon` y `authenticated`.
+   `EXECUTE` para `anon`, `authenticated` y `PUBLIC` (en el fixture, `unknown (OID=0)`).
 
 `catalog_policies`, `catalog_storage_buckets` y `schema.sql` no deberían cambiar: no se toca ninguna
 política, flag de RLS ni definición. Si el diff del artifact trae algo fuera de esta lista, es drift

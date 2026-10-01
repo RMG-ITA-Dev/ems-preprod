@@ -7652,14 +7652,8 @@
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | REFERENCES
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | SELECT
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | UPDATE
- anon          | public       | user_roles                                     | created_at                   | INSERT
- anon          | public       | user_roles                                     | created_at                   | REFERENCES
  anon          | public       | user_roles                                     | created_at                   | SELECT
- anon          | public       | user_roles                                     | created_at                   | UPDATE
- authenticated | public       | user_roles                                     | created_at                   | INSERT
- authenticated | public       | user_roles                                     | created_at                   | REFERENCES
  authenticated | public       | user_roles                                     | created_at                   | SELECT
- authenticated | public       | user_roles                                     | created_at                   | UPDATE
  postgres      | public       | user_roles                                     | created_at                   | INSERT
  postgres      | public       | user_roles                                     | created_at                   | REFERENCES
  postgres      | public       | user_roles                                     | created_at                   | SELECT
@@ -7668,14 +7662,8 @@
  service_role  | public       | user_roles                                     | created_at                   | REFERENCES
  service_role  | public       | user_roles                                     | created_at                   | SELECT
  service_role  | public       | user_roles                                     | created_at                   | UPDATE
- anon          | public       | user_roles                                     | deletion_email               | INSERT
- anon          | public       | user_roles                                     | deletion_email               | REFERENCES
  anon          | public       | user_roles                                     | deletion_email               | SELECT
- anon          | public       | user_roles                                     | deletion_email               | UPDATE
- authenticated | public       | user_roles                                     | deletion_email               | INSERT
- authenticated | public       | user_roles                                     | deletion_email               | REFERENCES
  authenticated | public       | user_roles                                     | deletion_email               | SELECT
- authenticated | public       | user_roles                                     | deletion_email               | UPDATE
  postgres      | public       | user_roles                                     | deletion_email               | INSERT
  postgres      | public       | user_roles                                     | deletion_email               | REFERENCES
  postgres      | public       | user_roles                                     | deletion_email               | SELECT
@@ -7684,14 +7672,8 @@
  service_role  | public       | user_roles                                     | deletion_email               | REFERENCES
  service_role  | public       | user_roles                                     | deletion_email               | SELECT
  service_role  | public       | user_roles                                     | deletion_email               | UPDATE
- anon          | public       | user_roles                                     | id                           | INSERT
- anon          | public       | user_roles                                     | id                           | REFERENCES
  anon          | public       | user_roles                                     | id                           | SELECT
- anon          | public       | user_roles                                     | id                           | UPDATE
- authenticated | public       | user_roles                                     | id                           | INSERT
- authenticated | public       | user_roles                                     | id                           | REFERENCES
  authenticated | public       | user_roles                                     | id                           | SELECT
- authenticated | public       | user_roles                                     | id                           | UPDATE
  postgres      | public       | user_roles                                     | id                           | INSERT
  postgres      | public       | user_roles                                     | id                           | REFERENCES
  postgres      | public       | user_roles                                     | id                           | SELECT
@@ -7700,14 +7682,8 @@
  service_role  | public       | user_roles                                     | id                           | REFERENCES
  service_role  | public       | user_roles                                     | id                           | SELECT
  service_role  | public       | user_roles                                     | id                           | UPDATE
- anon          | public       | user_roles                                     | role                         | INSERT
- anon          | public       | user_roles                                     | role                         | REFERENCES
  anon          | public       | user_roles                                     | role                         | SELECT
- anon          | public       | user_roles                                     | role                         | UPDATE
- authenticated | public       | user_roles                                     | role                         | INSERT
- authenticated | public       | user_roles                                     | role                         | REFERENCES
  authenticated | public       | user_roles                                     | role                         | SELECT
- authenticated | public       | user_roles                                     | role                         | UPDATE
  postgres      | public       | user_roles                                     | role                         | INSERT
  postgres      | public       | user_roles                                     | role                         | REFERENCES
  postgres      | public       | user_roles                                     | role                         | SELECT
@@ -7716,14 +7692,8 @@
  service_role  | public       | user_roles                                     | role                         | REFERENCES
  service_role  | public       | user_roles                                     | role                         | SELECT
  service_role  | public       | user_roles                                     | role                         | UPDATE
- anon          | public       | user_roles                                     | role_key                     | INSERT
- anon          | public       | user_roles                                     | role_key                     | REFERENCES
  anon          | public       | user_roles                                     | role_key                     | SELECT
- anon          | public       | user_roles                                     | role_key                     | UPDATE
- authenticated | public       | user_roles                                     | role_key                     | INSERT
- authenticated | public       | user_roles                                     | role_key                     | REFERENCES
  authenticated | public       | user_roles                                     | role_key                     | SELECT
- authenticated | public       | user_roles                                     | role_key                     | UPDATE
  postgres      | public       | user_roles                                     | role_key                     | INSERT
  postgres      | public       | user_roles                                     | role_key                     | REFERENCES
  postgres      | public       | user_roles                                     | role_key                     | SELECT
@@ -7732,14 +7702,8 @@
  service_role  | public       | user_roles                                     | role_key                     | REFERENCES
  service_role  | public       | user_roles                                     | role_key                     | SELECT
  service_role  | public       | user_roles                                     | role_key                     | UPDATE
- anon          | public       | user_roles                                     | user_id                      | INSERT
- anon          | public       | user_roles                                     | user_id                      | REFERENCES
  anon          | public       | user_roles                                     | user_id                      | SELECT
- anon          | public       | user_roles                                     | user_id                      | UPDATE
- authenticated | public       | user_roles                                     | user_id                      | INSERT
- authenticated | public       | user_roles                                     | user_id                      | REFERENCES
  authenticated | public       | user_roles                                     | user_id                      | SELECT
- authenticated | public       | user_roles                                     | user_id                      | UPDATE
  postgres      | public       | user_roles                                     | user_id                      | INSERT
  postgres      | public       | user_roles                                     | user_id                      | REFERENCES
  postgres      | public       | user_roles                                     | user_id                      | SELECT
@@ -7748,14 +7712,6 @@
  service_role  | public       | user_roles                                     | user_id                      | REFERENCES
  service_role  | public       | user_roles                                     | user_id                      | SELECT
  service_role  | public       | user_roles                                     | user_id                      | UPDATE
- anon          | public       | user_roles_backup_0220_56_20260224             | created_at                   | INSERT
- anon          | public       | user_roles_backup_0220_56_20260224             | created_at                   | REFERENCES
- anon          | public       | user_roles_backup_0220_56_20260224             | created_at                   | SELECT
- anon          | public       | user_roles_backup_0220_56_20260224             | created_at                   | UPDATE
- authenticated | public       | user_roles_backup_0220_56_20260224             | created_at                   | INSERT
- authenticated | public       | user_roles_backup_0220_56_20260224             | created_at                   | REFERENCES
- authenticated | public       | user_roles_backup_0220_56_20260224             | created_at                   | SELECT
- authenticated | public       | user_roles_backup_0220_56_20260224             | created_at                   | UPDATE
  postgres      | public       | user_roles_backup_0220_56_20260224             | created_at                   | INSERT
  postgres      | public       | user_roles_backup_0220_56_20260224             | created_at                   | REFERENCES
  postgres      | public       | user_roles_backup_0220_56_20260224             | created_at                   | SELECT
@@ -7764,14 +7720,6 @@
  service_role  | public       | user_roles_backup_0220_56_20260224             | created_at                   | REFERENCES
  service_role  | public       | user_roles_backup_0220_56_20260224             | created_at                   | SELECT
  service_role  | public       | user_roles_backup_0220_56_20260224             | created_at                   | UPDATE
- anon          | public       | user_roles_backup_0220_56_20260224             | id                           | INSERT
- anon          | public       | user_roles_backup_0220_56_20260224             | id                           | REFERENCES
- anon          | public       | user_roles_backup_0220_56_20260224             | id                           | SELECT
- anon          | public       | user_roles_backup_0220_56_20260224             | id                           | UPDATE
- authenticated | public       | user_roles_backup_0220_56_20260224             | id                           | INSERT
- authenticated | public       | user_roles_backup_0220_56_20260224             | id                           | REFERENCES
- authenticated | public       | user_roles_backup_0220_56_20260224             | id                           | SELECT
- authenticated | public       | user_roles_backup_0220_56_20260224             | id                           | UPDATE
  postgres      | public       | user_roles_backup_0220_56_20260224             | id                           | INSERT
  postgres      | public       | user_roles_backup_0220_56_20260224             | id                           | REFERENCES
  postgres      | public       | user_roles_backup_0220_56_20260224             | id                           | SELECT
@@ -7780,14 +7728,6 @@
  service_role  | public       | user_roles_backup_0220_56_20260224             | id                           | REFERENCES
  service_role  | public       | user_roles_backup_0220_56_20260224             | id                           | SELECT
  service_role  | public       | user_roles_backup_0220_56_20260224             | id                           | UPDATE
- anon          | public       | user_roles_backup_0220_56_20260224             | role                         | INSERT
- anon          | public       | user_roles_backup_0220_56_20260224             | role                         | REFERENCES
- anon          | public       | user_roles_backup_0220_56_20260224             | role                         | SELECT
- anon          | public       | user_roles_backup_0220_56_20260224             | role                         | UPDATE
- authenticated | public       | user_roles_backup_0220_56_20260224             | role                         | INSERT
- authenticated | public       | user_roles_backup_0220_56_20260224             | role                         | REFERENCES
- authenticated | public       | user_roles_backup_0220_56_20260224             | role                         | SELECT
- authenticated | public       | user_roles_backup_0220_56_20260224             | role                         | UPDATE
  postgres      | public       | user_roles_backup_0220_56_20260224             | role                         | INSERT
  postgres      | public       | user_roles_backup_0220_56_20260224             | role                         | REFERENCES
  postgres      | public       | user_roles_backup_0220_56_20260224             | role                         | SELECT
@@ -7796,14 +7736,6 @@
  service_role  | public       | user_roles_backup_0220_56_20260224             | role                         | REFERENCES
  service_role  | public       | user_roles_backup_0220_56_20260224             | role                         | SELECT
  service_role  | public       | user_roles_backup_0220_56_20260224             | role                         | UPDATE
- anon          | public       | user_roles_backup_0220_56_20260224             | user_id                      | INSERT
- anon          | public       | user_roles_backup_0220_56_20260224             | user_id                      | REFERENCES
- anon          | public       | user_roles_backup_0220_56_20260224             | user_id                      | SELECT
- anon          | public       | user_roles_backup_0220_56_20260224             | user_id                      | UPDATE
- authenticated | public       | user_roles_backup_0220_56_20260224             | user_id                      | INSERT
- authenticated | public       | user_roles_backup_0220_56_20260224             | user_id                      | REFERENCES
- authenticated | public       | user_roles_backup_0220_56_20260224             | user_id                      | SELECT
- authenticated | public       | user_roles_backup_0220_56_20260224             | user_id                      | UPDATE
  postgres      | public       | user_roles_backup_0220_56_20260224             | user_id                      | INSERT
  postgres      | public       | user_roles_backup_0220_56_20260224             | user_id                      | REFERENCES
  postgres      | public       | user_roles_backup_0220_56_20260224             | user_id                      | SELECT
@@ -10466,5 +10398,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(10466 rows)
+(10398 rows)
 

@@ -1304,20 +1304,8 @@
  public       | service_role  | user_lifecycle_audit_log                       | TRIGGER
  public       | service_role  | user_lifecycle_audit_log                       | TRUNCATE
  public       | service_role  | user_lifecycle_audit_log                       | UPDATE
- public       | anon          | user_roles                                     | DELETE
- public       | anon          | user_roles                                     | INSERT
- public       | anon          | user_roles                                     | REFERENCES
  public       | anon          | user_roles                                     | SELECT
- public       | anon          | user_roles                                     | TRIGGER
- public       | anon          | user_roles                                     | TRUNCATE
- public       | anon          | user_roles                                     | UPDATE
- public       | authenticated | user_roles                                     | DELETE
- public       | authenticated | user_roles                                     | INSERT
- public       | authenticated | user_roles                                     | REFERENCES
  public       | authenticated | user_roles                                     | SELECT
- public       | authenticated | user_roles                                     | TRIGGER
- public       | authenticated | user_roles                                     | TRUNCATE
- public       | authenticated | user_roles                                     | UPDATE
  public       | postgres      | user_roles                                     | DELETE
  public       | postgres      | user_roles                                     | INSERT
  public       | postgres      | user_roles                                     | REFERENCES
@@ -1332,20 +1320,6 @@
  public       | service_role  | user_roles                                     | TRIGGER
  public       | service_role  | user_roles                                     | TRUNCATE
  public       | service_role  | user_roles                                     | UPDATE
- public       | anon          | user_roles_backup_0220_56_20260224             | DELETE
- public       | anon          | user_roles_backup_0220_56_20260224             | INSERT
- public       | anon          | user_roles_backup_0220_56_20260224             | REFERENCES
- public       | anon          | user_roles_backup_0220_56_20260224             | SELECT
- public       | anon          | user_roles_backup_0220_56_20260224             | TRIGGER
- public       | anon          | user_roles_backup_0220_56_20260224             | TRUNCATE
- public       | anon          | user_roles_backup_0220_56_20260224             | UPDATE
- public       | authenticated | user_roles_backup_0220_56_20260224             | DELETE
- public       | authenticated | user_roles_backup_0220_56_20260224             | INSERT
- public       | authenticated | user_roles_backup_0220_56_20260224             | REFERENCES
- public       | authenticated | user_roles_backup_0220_56_20260224             | SELECT
- public       | authenticated | user_roles_backup_0220_56_20260224             | TRIGGER
- public       | authenticated | user_roles_backup_0220_56_20260224             | TRUNCATE
- public       | authenticated | user_roles_backup_0220_56_20260224             | UPDATE
  public       | postgres      | user_roles_backup_0220_56_20260224             | DELETE
  public       | postgres      | user_roles_backup_0220_56_20260224             | INSERT
  public       | postgres      | user_roles_backup_0220_56_20260224             | REFERENCES
@@ -1788,5 +1762,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1788 rows)
+(1762 rows)
 
