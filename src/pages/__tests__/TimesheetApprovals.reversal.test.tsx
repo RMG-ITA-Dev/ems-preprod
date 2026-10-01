@@ -48,6 +48,8 @@ const refs = vi.hoisted(() => {
     staffId: "me" as string,
     engagementManagerId: "me" as string | null,
     engagementPartnerId: null as string | null,
+    pendingEngagementKeys: new Set<string>(),
+    pendingEngagementLoading: false,
     canApprove: true,
     requestReversalMutate: vi.fn(),
     executeReversalMutate: vi.fn(),
@@ -111,6 +113,10 @@ vi.mock("@/hooks/useTimesheetReversals", () => ({
     ],
     isLoading: false,
   }),
+  usePendingEngagementReversals: () => ({
+    data: refs.pendingEngagementKeys,
+    isLoading: refs.pendingEngagementLoading,
+  }),
   useReversalRequests: () => ({ data: refs.pendingReversals, isLoading: false }),
   useMyReversalRequests: () => ({ data: refs.myRequests, isLoading: false }),
   useRequestTimesheetReversal: () => ({ mutate: refs.requestReversalMutate, isPending: false }),
@@ -132,6 +138,8 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     refs.staffId = "me";
     refs.engagementManagerId = "me";
     refs.engagementPartnerId = null;
+    refs.pendingEngagementKeys = new Set<string>();
+    refs.pendingEngagementLoading = false;
     refs.pendingReversals = refs.onePendingReversal;
     refs.myRequests = [];
   });
@@ -172,6 +180,38 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     await goToApprovedTab(user);
 
     expect(screen.getAllByText("approval.requestReversal")[0]).toBeInTheDocument();
+  });
+
+  // Review iteración 14, hallazgo #1: con una solicitud ENCARGO abierta sobre el mismo
+  // (período, encargo) el botón se sustituye por un aviso deshabilitado.
+  it("TA1g: an open engagement request replaces requestReversal with a disabled pending notice", async () => {
+    refs.pendingEngagementKeys = new Set(["per-2:eng-2"]);
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+    expect(screen.getAllByText("timesheet.reversalPending")[0].closest("button")).toBeDisabled();
+  });
+
+  it("TA1h: requestReversal stays disabled while the pending-request check loads", async () => {
+    refs.pendingEngagementLoading = true;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+
+    expect(screen.getAllByText("approval.requestReversal")[0].closest("button")).toBeDisabled();
+  });
+
+  it("TA2c: the admin's revert button ignores open engagement requests", async () => {
+    refs.roleKey = "admin";
+    refs.pendingEngagementKeys = new Set(["per-2:eng-2"]);
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+
+    expect(screen.getAllByText("approval.revert")[0].closest("button")).toBeEnabled();
+    expect(screen.queryByText("timesheet.reversalPending")).not.toBeInTheDocument();
   });
 
   // Review iteración 2, hallazgo #4: "Mis solicitudes" vacío usaba el copy genérico de

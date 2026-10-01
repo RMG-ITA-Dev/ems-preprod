@@ -403,6 +403,30 @@ export function usePendingWeekReversal(periodId: string | null | undefined) {
   });
 }
 
+// Solicitudes ENCARGO abiertas visibles para el usuario, como claves `period_id:engagement_id`
+// (review iteración 14, hallazgo #1). Caso hermano de `usePendingWeekReversal`: en "Aprobadas"
+// el botón de un aprobador seguía activo tras solicitar, y `uq_trr_open_engagement` es único por
+// (período, encargo) sin importar QUIÉN pidió -- por eso se traen todas las pendientes que la RLS
+// le deja ver (incluidas las de otro aprobador del mismo encargo), no sólo las propias. Sólo hay
+// tantas filas como solicitudes abiertas, así que no necesita paginar. `enabled` evita la
+// consulta para perfiles que no solicitan (sólo lectura / admin).
+export function usePendingEngagementReversals(enabled: boolean) {
+  return useQuery({
+    queryKey: ["reversal-requests", "pending-engagement"],
+    enabled,
+    queryFn: async (): Promise<Set<string>> => {
+      const { data, error } = await supabase
+        .from("timesheet_reversal_requests" as never)
+        .select("period_id, engagement_id")
+        .eq("scope", "engagement")
+        .eq("status", "pending");
+      if (error) throw error;
+      const rows = (data as Array<{ period_id: string; engagement_id: string | null }> | null) ?? [];
+      return new Set(rows.map((r) => `${r.period_id}:${r.engagement_id}`));
+    },
+  });
+}
+
 export function useRequestTimesheetReversal() {
   const queryClient = useQueryClient();
 

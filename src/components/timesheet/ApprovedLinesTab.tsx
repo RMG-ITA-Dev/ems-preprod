@@ -16,6 +16,7 @@ import {
   useApprovedApprovalGroups,
   useRequestTimesheetReversal,
   useExecuteTimesheetReversal,
+  usePendingEngagementReversals,
   type ApprovedApprovalGroup,
 } from "@/hooks/useTimesheetReversals";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -61,6 +62,39 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
   // en can_approve_timesheet_line, que sólo autoriza al gerente/socio del encargo. El admin
   // (Revertir) no depende del encargo.
   const { staffRecord } = useCurrentStaff();
+
+  // Con una solicitud ENCARGO abierta sobre el mismo (período, encargo) el botón se reemplaza por
+  // un aviso deshabilitado (review iteración 14, hallazgo #1): la RPC respondería
+  // REVERSAL_ALREADY_REQUESTED. Mientras la consulta carga, el botón queda deshabilitado; si
+  // FALLA no se bloquea (el servidor sigue siendo la barrera). El admin no depende de esto.
+  const { data: pendingEngagementKeys, isLoading: isCheckingPending } =
+    usePendingEngagementReversals(canRequestReversal && !isAdmin);
+  const hasPendingRequest = (group: ApprovedApprovalGroup) =>
+    !isAdmin && !!pendingEngagementKeys?.has(`${group.period_id}:${group.engagement_id}`);
+
+  const renderRowAction = (group: ApprovedApprovalGroup, className?: string) => {
+    if (hasPendingRequest(group)) {
+      return (
+        <Button size="sm" variant="outline" className={className} disabled>
+          <RotateCcw className="h-4 w-4 mr-1" />
+          {t("timesheet.reversalPending")}
+        </Button>
+      );
+    }
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className={className}
+        onClick={() => openDialog(group)}
+        disabled={!isAdmin && isCheckingPending}
+      >
+        <RotateCcw className="h-4 w-4 mr-1" />
+        {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
+      </Button>
+    );
+  };
+
   const canActOnGroup = (group: ApprovedApprovalGroup) =>
     isAdmin ||
     (canRequestReversal &&
@@ -168,12 +202,7 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
                       </TableCell>
                       {showActions && (
                         <TableCell className="text-center">
-                          {canActOnGroup(group) && (
-                            <Button size="sm" variant="outline" onClick={() => openDialog(group)}>
-                              <RotateCcw className="h-4 w-4 mr-1" />
-                              {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
-                            </Button>
-                          )}
+                          {canActOnGroup(group) && renderRowAction(group)}
                         </TableCell>
                       )}
                     </TableRow>
@@ -208,17 +237,7 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
                       {group.approvedLineCount} {t("approval.lines")}
                     </span>
                   </div>
-                  {showActions && canActOnGroup(group) && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-2 w-full"
-                      onClick={() => openDialog(group)}
-                    >
-                      <RotateCcw className="h-4 w-4 mr-1" />
-                      {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
-                    </Button>
-                  )}
+                  {showActions && canActOnGroup(group) && renderRowAction(group, "mt-2 w-full")}
                 </Card>
               );
             })}
