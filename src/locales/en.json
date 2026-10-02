@@ -2323,7 +2323,7 @@
         "weekly_submitted": "{{staff_name}} submitted their weekly timesheet",
         "own_submit_confirmed": "Your weekly timesheet changed status",
         "own_submit_confirmed_submitted": "You submitted your weekly timesheet",
-        "own_submit_confirmed_withdrawn": "You withdrew your weekly timesheet",
+        "own_submit_confirmed_withdrawn": "Your weekly timesheet was withdrawn",
         "team_submitted_for_approval": "{{staff_name}} submitted a timesheet for your approval"
       },
       "tracker": {

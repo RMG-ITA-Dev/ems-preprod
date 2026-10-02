@@ -2323,7 +2323,7 @@
         "weekly_submitted": "{{staff_name}} envió su boleta semanal",
         "own_submit_confirmed": "Tu boleta semanal cambió de estado",
         "own_submit_confirmed_submitted": "Enviaste tu boleta semanal",
-        "own_submit_confirmed_withdrawn": "Retiraste tu boleta semanal",
+        "own_submit_confirmed_withdrawn": "Tu boleta semanal fue retirada",
         "team_submitted_for_approval": "{{staff_name}} envió su boleta a tu aprobación"
       },
       "tracker": {
