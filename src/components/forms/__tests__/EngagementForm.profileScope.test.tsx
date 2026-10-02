@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { addDays, addYears, format } from "date-fns";
+
+// Computed at run time (not hardcoded) so the non-admin "no backdating" guard in
+// EngagementForm (start_date >= today) never trips as the test suite ages.
+const ENGAGEMENT_START_DATE = format(addDays(new Date(), 1), "yyyy-MM-dd");
+const ENGAGEMENT_END_DATE = format(addYears(addDays(new Date(), 1), 1), "yyyy-MM-dd");
 
 /**
  * BUG 0817-180 — sociedad/práctica/oficina de un encargo se restringen a la ficha del creador.
@@ -364,8 +370,8 @@ describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817
     await user.click(screen.getByRole("option", { name: "Ana Manager" }));
 
     const calendars = screen.getAllByTestId("calendar-mock");
-    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
-    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+    fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
+    fireEvent.change(calendars[1], { target: { value: ENGAGEMENT_END_DATE } });
 
     // Cambio suelto 2026-08-26: función también queda fija (Cliente) para un creador
     // restringido — no hace falta seleccionarla; Cliente exige una taxonomía real (0602-136).
