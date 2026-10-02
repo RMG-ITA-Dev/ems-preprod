@@ -380,3 +380,95 @@ COMMIT;
 
 Para `staff`, `GRANT ALL` a `anon` restaura el estado original del dump (línea 1296 de `cero_06`), que
 no tiene grants por columna para `anon`.
+
+### 6.5 — A.5: lectura anónima y escritura anónima por RPC (BAR-001/002/003/008/010/014/015/016)
+
+Re-aceptado desde el artifact del run **37058843503** (`headSha` b6461bee, 2026-10-02, PR #362).
+Divergieron `catalog_grants` (−21), `catalog_column_grants` (−220), `catalog_routine_grants` (−9),
+`catalog_policies` (+1) y `consolidado_renamed_schema.sql`; `catalog_storage_buckets` quedó idéntico.
+
+A diferencia de §6.3 y §6.4, **esta entrada no trae bloque único para ambientes ya migrados**: el
+operador decidió el 02/10/2026 reconstruir Test desde las migraciones en vez de parcharlo. El ledger
+de Test tenía registradas solo las 14 `cero_*` de las 44 migraciones aplicadas, así que `db push`
+tampoco era una alternativa. Producción nace de cero y no necesita nada.
+
+#### A.5a — `cero_06_grants.sql`, tercer bloque de `REVOKE`
+
+Mismo mecanismo que §3, §6.3 y §6.4, y por la misma razón: borrar la línea del `GRANT` no sirve,
+porque el privilegio no lo pone esa línea sino el default de plataforma al crear el objeto (§3).
+
+- **`REVOKE SELECT ... FROM anon`** en 16 tablas y 5 vistas. Las tablas son las 16 de A.4 **menos**
+  `global_settings` —que se trata con RLS en A.5b, porque la pantalla de login la lee sin sesión—
+  **más** `user_roles`, cuyo `SELECT` anónimo entregaba el mapa completo de quién es administrador.
+- **`REVOKE EXECUTE ... FROM PUBLIC, anon`** en `update_timesheet_minmax_settings`,
+  `submit_timesheet_safe` y `sync_worksheet_to_wo_budget`. Las tres conservan `authenticated`: tienen
+  consumidor con sesión (`Settings.tsx:823`, `useTimesheetMutations.ts:226`,
+  `useWorksheetMutations.ts:231/:282`). Que no validen al llamador es Carril B.
+- **`REVOKE EXECUTE ... FROM PUBLIC, anon, authenticated`** en `finalize_due_engagements`, que no
+  tiene ningún consumidor: el job diario corre como `postgres`, su dueño. Cierra BAR-008.
+
+Por qué estas cuatro y no otras: un inventario de las definidoras ejecutables por `anon` en Test
+mostró 22 que escriben sin validar al llamador, de las cuales 18 son funciones de trigger —PostgREST
+no las expone y no se pueden invocar fuera de un trigger—. Las cuatro restantes son estas.
+
+**Cuidado al extender esto a `authenticated` en el Carril B:** un `REVOKE` de tabla borra también los
+grants por columna del mismo rol (§3, "orden crítico"), así que un `REVOKE SELECT ON staff FROM
+authenticated` agregado al final destruiría el hardening de PII de las líneas 1305-1361. A `anon` no
+lo afecta: no tiene grants por columna en ninguna tabla.
+
+#### A.5b — `cero_05_rls_policies.sql`, editado en sitio
+
+Acá sí se edita el archivo en vez de apendar: las políticas y `relrowsecurity` no tienen fuente
+oculta, lo que dice el archivo es lo que queda en una base nueva.
+
+- `ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY` + política
+  `anon reads login settings` (`FOR SELECT TO anon`), acotada a `LANGUAGE`, `COMPACT_FONT` y
+  `ALLOWED_EMAIL_DOMAIN`. Las tres son las únicas que la app necesita sin sesión. Encender la RLS
+  activa además las tres políticas de `authenticated` que ya existían y hasta ahora no se aplicaban,
+  lo que cierra la escritura de cualquier empleado sobre `TAX_RATE`, los parámetros de bloqueo de
+  cuentas y `EXCHANGE_RATE_API_URL` (mitad de escritura de BAR-013).
+- **Sin `FORCE ROW LEVEL SECURITY`, a propósito.** El dueño es `postgres` y tiene que seguir exento:
+  de eso dependen las 14 funciones `SECURITY DEFINER` que leen la tabla, el trigger
+  `guard_auth_lockout_settings` y los jobs de `pg_cron`. `service_role` tampoco se ve afectado
+  (`rolbypassrls = true`, verificado en Test), que es lo que mantiene vivas las lecturas de
+  `register-user`, `dashboard-data` y `exchange-rate-sync`.
+- `Authenticated users can read holidays` pasa a llevar `TO authenticated` (BAR-016). Sin cláusula
+  `TO`, una política rige para `PUBLIC`, que incluye a `anon`; con `USING (true)`, `holidays` era la
+  única tabla del esquema con RLS encendida que un visitante sin cuenta podía leer igual. Verificado
+  contra Test que las demás políticas sin `TO` filtran por `auth.uid()`, NULL sin sesión.
+
+#### Hunks esperados
+
+Solo filas que **desaparecen**, salvo la política nueva:
+
+1. `catalog_grants` −21: `SELECT` de `anon` en los 21 objetos.
+2. `catalog_column_grants` −220: las mismas por columna, **todas de `SELECT`**. Ninguna de
+   `INSERT`/`UPDATE`/`REFERENCES`: esas ya las retiró A.4.
+3. `catalog_routine_grants` −9: `anon` y `PUBLIC` (`unknown (OID=0)`) en las cuatro funciones, más
+   `authenticated` solo en `finalize_due_engagements`.
+4. `catalog_policies` +1: la política de `anon`.
+5. `schema.sql`: esa política, el `ENABLE ROW LEVEL SECURITY` de `global_settings` y el `TO
+   authenticated` de `holidays`. El resto es el ruido conocido (`\restrict`/`\unrestrict` y las
+   particiones `realtime.messages_YYYY_MM_DD`).
+
+Ninguna fila de `service_role` ni `postgres`, y de `authenticated` solo la de
+`finalize_due_engagements`. Si el diff trae algo fuera de esta lista, es drift real y hay que parar.
+
+**`catalog_policies` no captura los roles de una política** (columnas: `schemaname`, `tablename`,
+`policyname`, `cmd`, `qual`, `with_check`), así que el arreglo de `holidays` es invisible para ese
+fixture y solo aparece en `schema.sql`. El replay no atraparía una regresión de BAR-016; la atrapa el
+check 16.
+
+#### Guardias de regresión
+
+`schema-convergence-assertions.sql`: check 11 acotado a `authenticated`, `global_settings` retirado de
+las excepciones del check 12, y checks 14 (A.5a), 15 (A.5b) y 16 (BAR-016) nuevos. El 15 es
+**conductual** —siembra una clave de login y una que no lo es, lee como `anon` y exige ver la primera
+y no la segunda— en vez de comparar el texto del `USING`, que cambia al reordenar el `IN` sin cambiar
+el efecto. Las tres guardias se probaron por mutación: 3 escenarios para A.5a y 4 para A.5b, todas
+fallan al neutralizar lo que protegen.
+
+Del lado de la app, `SessionCacheGuard` invalida `global_settings` al pasar de sin sesión a con
+sesión: su `queryKey` no lleva identidad y el `staleTime` es de 60 s, así que sin eso el login
+heredaba la vista de 3 claves y `TAX_RATE` caía a su default 0.13 durante un minuto, sin error ni
+403 visible. Cubierto por el caso (6) de `SessionCacheGuard.test.tsx`, que falla si se quita el fix.

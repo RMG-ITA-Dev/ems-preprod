@@ -953,7 +953,6 @@
  postgres      | auth         | webauthn_credentials                           | user_id                      | REFERENCES
  postgres      | auth         | webauthn_credentials                           | user_id                      | SELECT
  postgres      | auth         | webauthn_credentials                           | user_id                      | UPDATE
- anon          | public       | activity_codes                                 | activity_code                | SELECT
  authenticated | public       | activity_codes                                 | activity_code                | INSERT
  authenticated | public       | activity_codes                                 | activity_code                | REFERENCES
  authenticated | public       | activity_codes                                 | activity_code                | SELECT
@@ -966,7 +965,6 @@
  service_role  | public       | activity_codes                                 | activity_code                | REFERENCES
  service_role  | public       | activity_codes                                 | activity_code                | SELECT
  service_role  | public       | activity_codes                                 | activity_code                | UPDATE
- anon          | public       | activity_codes                                 | activity_id                  | SELECT
  authenticated | public       | activity_codes                                 | activity_id                  | INSERT
  authenticated | public       | activity_codes                                 | activity_id                  | REFERENCES
  authenticated | public       | activity_codes                                 | activity_id                  | SELECT
@@ -979,7 +977,6 @@
  service_role  | public       | activity_codes                                 | activity_id                  | REFERENCES
  service_role  | public       | activity_codes                                 | activity_id                  | SELECT
  service_role  | public       | activity_codes                                 | activity_id                  | UPDATE
- anon          | public       | activity_codes                                 | created_at                   | SELECT
  authenticated | public       | activity_codes                                 | created_at                   | INSERT
  authenticated | public       | activity_codes                                 | created_at                   | REFERENCES
  authenticated | public       | activity_codes                                 | created_at                   | SELECT
@@ -992,7 +989,6 @@
  service_role  | public       | activity_codes                                 | created_at                   | REFERENCES
  service_role  | public       | activity_codes                                 | created_at                   | SELECT
  service_role  | public       | activity_codes                                 | created_at                   | UPDATE
- anon          | public       | activity_codes                                 | default_category_id          | SELECT
  authenticated | public       | activity_codes                                 | default_category_id          | INSERT
  authenticated | public       | activity_codes                                 | default_category_id          | REFERENCES
  authenticated | public       | activity_codes                                 | default_category_id          | SELECT
@@ -1005,7 +1001,6 @@
  service_role  | public       | activity_codes                                 | default_category_id          | REFERENCES
  service_role  | public       | activity_codes                                 | default_category_id          | SELECT
  service_role  | public       | activity_codes                                 | default_category_id          | UPDATE
- anon          | public       | activity_codes                                 | description                  | SELECT
  authenticated | public       | activity_codes                                 | description                  | INSERT
  authenticated | public       | activity_codes                                 | description                  | REFERENCES
  authenticated | public       | activity_codes                                 | description                  | SELECT
@@ -1018,7 +1013,6 @@
  service_role  | public       | activity_codes                                 | description                  | REFERENCES
  service_role  | public       | activity_codes                                 | description                  | SELECT
  service_role  | public       | activity_codes                                 | description                  | UPDATE
- anon          | public       | activity_codes                                 | entity_type                  | SELECT
  authenticated | public       | activity_codes                                 | entity_type                  | INSERT
  authenticated | public       | activity_codes                                 | entity_type                  | REFERENCES
  authenticated | public       | activity_codes                                 | entity_type                  | SELECT
@@ -1031,7 +1025,6 @@
  service_role  | public       | activity_codes                                 | entity_type                  | REFERENCES
  service_role  | public       | activity_codes                                 | entity_type                  | SELECT
  service_role  | public       | activity_codes                                 | entity_type                  | UPDATE
- anon          | public       | activity_codes                                 | is_active                    | SELECT
  authenticated | public       | activity_codes                                 | is_active                    | INSERT
  authenticated | public       | activity_codes                                 | is_active                    | REFERENCES
  authenticated | public       | activity_codes                                 | is_active                    | SELECT
@@ -1044,7 +1037,6 @@
  service_role  | public       | activity_codes                                 | is_active                    | REFERENCES
  service_role  | public       | activity_codes                                 | is_active                    | SELECT
  service_role  | public       | activity_codes                                 | is_active                    | UPDATE
- anon          | public       | activity_codes                                 | is_system                    | SELECT
  authenticated | public       | activity_codes                                 | is_system                    | INSERT
  authenticated | public       | activity_codes                                 | is_system                    | REFERENCES
  authenticated | public       | activity_codes                                 | is_system                    | SELECT
@@ -1057,7 +1049,6 @@
  service_role  | public       | activity_codes                                 | is_system                    | REFERENCES
  service_role  | public       | activity_codes                                 | is_system                    | SELECT
  service_role  | public       | activity_codes                                 | is_system                    | UPDATE
- anon          | public       | activity_codes                                 | practica_id                  | SELECT
  authenticated | public       | activity_codes                                 | practica_id                  | INSERT
  authenticated | public       | activity_codes                                 | practica_id                  | REFERENCES
  authenticated | public       | activity_codes                                 | practica_id                  | SELECT
@@ -1070,7 +1061,6 @@
  service_role  | public       | activity_codes                                 | practica_id                  | REFERENCES
  service_role  | public       | activity_codes                                 | practica_id                  | SELECT
  service_role  | public       | activity_codes                                 | practica_id                  | UPDATE
- anon          | public       | activity_worksheet_cells                       | activity_id                  | SELECT
  authenticated | public       | activity_worksheet_cells                       | activity_id                  | INSERT
  authenticated | public       | activity_worksheet_cells                       | activity_id                  | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | activity_id                  | SELECT
@@ -1083,7 +1073,6 @@
  service_role  | public       | activity_worksheet_cells                       | activity_id                  | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | activity_id                  | SELECT
  service_role  | public       | activity_worksheet_cells                       | activity_id                  | UPDATE
- anon          | public       | activity_worksheet_cells                       | budget_hours                 | SELECT
  authenticated | public       | activity_worksheet_cells                       | budget_hours                 | INSERT
  authenticated | public       | activity_worksheet_cells                       | budget_hours                 | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | budget_hours                 | SELECT
@@ -1096,7 +1085,6 @@
  service_role  | public       | activity_worksheet_cells                       | budget_hours                 | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | budget_hours                 | SELECT
  service_role  | public       | activity_worksheet_cells                       | budget_hours                 | UPDATE
- anon          | public       | activity_worksheet_cells                       | category_id                  | SELECT
  authenticated | public       | activity_worksheet_cells                       | category_id                  | INSERT
  authenticated | public       | activity_worksheet_cells                       | category_id                  | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | category_id                  | SELECT
@@ -1109,7 +1097,6 @@
  service_role  | public       | activity_worksheet_cells                       | category_id                  | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | category_id                  | SELECT
  service_role  | public       | activity_worksheet_cells                       | category_id                  | UPDATE
- anon          | public       | activity_worksheet_cells                       | created_at                   | SELECT
  authenticated | public       | activity_worksheet_cells                       | created_at                   | INSERT
  authenticated | public       | activity_worksheet_cells                       | created_at                   | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | created_at                   | SELECT
@@ -1122,7 +1109,6 @@
  service_role  | public       | activity_worksheet_cells                       | created_at                   | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | created_at                   | SELECT
  service_role  | public       | activity_worksheet_cells                       | created_at                   | UPDATE
- anon          | public       | activity_worksheet_cells                       | id                           | SELECT
  authenticated | public       | activity_worksheet_cells                       | id                           | INSERT
  authenticated | public       | activity_worksheet_cells                       | id                           | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | id                           | SELECT
@@ -1135,7 +1121,6 @@
  service_role  | public       | activity_worksheet_cells                       | id                           | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | id                           | SELECT
  service_role  | public       | activity_worksheet_cells                       | id                           | UPDATE
- anon          | public       | activity_worksheet_cells                       | updated_at                   | SELECT
  authenticated | public       | activity_worksheet_cells                       | updated_at                   | INSERT
  authenticated | public       | activity_worksheet_cells                       | updated_at                   | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | updated_at                   | SELECT
@@ -1148,7 +1133,6 @@
  service_role  | public       | activity_worksheet_cells                       | updated_at                   | REFERENCES
  service_role  | public       | activity_worksheet_cells                       | updated_at                   | SELECT
  service_role  | public       | activity_worksheet_cells                       | updated_at                   | UPDATE
- anon          | public       | activity_worksheet_cells                       | worksheet_id                 | SELECT
  authenticated | public       | activity_worksheet_cells                       | worksheet_id                 | INSERT
  authenticated | public       | activity_worksheet_cells                       | worksheet_id                 | REFERENCES
  authenticated | public       | activity_worksheet_cells                       | worksheet_id                 | SELECT
@@ -1721,7 +1705,6 @@
  service_role  | public       | authorization_roles                            | updated_at                   | REFERENCES
  service_role  | public       | authorization_roles                            | updated_at                   | SELECT
  service_role  | public       | authorization_roles                            | updated_at                   | UPDATE
- anon          | public       | categories                                     | can_approve_timesheets       | SELECT
  authenticated | public       | categories                                     | can_approve_timesheets       | INSERT
  authenticated | public       | categories                                     | can_approve_timesheets       | REFERENCES
  authenticated | public       | categories                                     | can_approve_timesheets       | SELECT
@@ -1734,7 +1717,6 @@
  service_role  | public       | categories                                     | can_approve_timesheets       | REFERENCES
  service_role  | public       | categories                                     | can_approve_timesheets       | SELECT
  service_role  | public       | categories                                     | can_approve_timesheets       | UPDATE
- anon          | public       | categories                                     | can_approve_wo               | SELECT
  authenticated | public       | categories                                     | can_approve_wo               | INSERT
  authenticated | public       | categories                                     | can_approve_wo               | REFERENCES
  authenticated | public       | categories                                     | can_approve_wo               | SELECT
@@ -1747,7 +1729,6 @@
  service_role  | public       | categories                                     | can_approve_wo               | REFERENCES
  service_role  | public       | categories                                     | can_approve_wo               | SELECT
  service_role  | public       | categories                                     | can_approve_wo               | UPDATE
- anon          | public       | categories                                     | category_id                  | SELECT
  authenticated | public       | categories                                     | category_id                  | INSERT
  authenticated | public       | categories                                     | category_id                  | REFERENCES
  authenticated | public       | categories                                     | category_id                  | SELECT
@@ -1760,7 +1741,6 @@
  service_role  | public       | categories                                     | category_id                  | REFERENCES
  service_role  | public       | categories                                     | category_id                  | SELECT
  service_role  | public       | categories                                     | category_id                  | UPDATE
- anon          | public       | categories                                     | category_name                | SELECT
  authenticated | public       | categories                                     | category_name                | INSERT
  authenticated | public       | categories                                     | category_name                | REFERENCES
  authenticated | public       | categories                                     | category_name                | SELECT
@@ -1773,7 +1753,6 @@
  service_role  | public       | categories                                     | category_name                | REFERENCES
  service_role  | public       | categories                                     | category_name                | SELECT
  service_role  | public       | categories                                     | category_name                | UPDATE
- anon          | public       | categories                                     | created_at                   | SELECT
  authenticated | public       | categories                                     | created_at                   | INSERT
  authenticated | public       | categories                                     | created_at                   | REFERENCES
  authenticated | public       | categories                                     | created_at                   | SELECT
@@ -1786,7 +1765,6 @@
  service_role  | public       | categories                                     | created_at                   | REFERENCES
  service_role  | public       | categories                                     | created_at                   | SELECT
  service_role  | public       | categories                                     | created_at                   | UPDATE
- anon          | public       | categories                                     | default_app_role             | SELECT
  authenticated | public       | categories                                     | default_app_role             | INSERT
  authenticated | public       | categories                                     | default_app_role             | REFERENCES
  authenticated | public       | categories                                     | default_app_role             | SELECT
@@ -1799,7 +1777,6 @@
  service_role  | public       | categories                                     | default_app_role             | REFERENCES
  service_role  | public       | categories                                     | default_app_role             | SELECT
  service_role  | public       | categories                                     | default_app_role             | UPDATE
- anon          | public       | categories                                     | default_role_key             | SELECT
  authenticated | public       | categories                                     | default_role_key             | INSERT
  authenticated | public       | categories                                     | default_role_key             | REFERENCES
  authenticated | public       | categories                                     | default_role_key             | SELECT
@@ -1812,7 +1789,6 @@
  service_role  | public       | categories                                     | default_role_key             | REFERENCES
  service_role  | public       | categories                                     | default_role_key             | SELECT
  service_role  | public       | categories                                     | default_role_key             | UPDATE
- anon          | public       | categories                                     | display_order                | SELECT
  authenticated | public       | categories                                     | display_order                | INSERT
  authenticated | public       | categories                                     | display_order                | REFERENCES
  authenticated | public       | categories                                     | display_order                | SELECT
@@ -1825,7 +1801,6 @@
  service_role  | public       | categories                                     | display_order                | REFERENCES
  service_role  | public       | categories                                     | display_order                | SELECT
  service_role  | public       | categories                                     | display_order                | UPDATE
- anon          | public       | categories                                     | practica_id                  | SELECT
  authenticated | public       | categories                                     | practica_id                  | INSERT
  authenticated | public       | categories                                     | practica_id                  | REFERENCES
  authenticated | public       | categories                                     | practica_id                  | SELECT
@@ -1838,7 +1813,6 @@
  service_role  | public       | categories                                     | practica_id                  | REFERENCES
  service_role  | public       | categories                                     | practica_id                  | SELECT
  service_role  | public       | categories                                     | practica_id                  | UPDATE
- anon          | public       | categories                                     | rate_high_bob                | SELECT
  authenticated | public       | categories                                     | rate_high_bob                | INSERT
  authenticated | public       | categories                                     | rate_high_bob                | REFERENCES
  authenticated | public       | categories                                     | rate_high_bob                | SELECT
@@ -1851,7 +1825,6 @@
  service_role  | public       | categories                                     | rate_high_bob                | REFERENCES
  service_role  | public       | categories                                     | rate_high_bob                | SELECT
  service_role  | public       | categories                                     | rate_high_bob                | UPDATE
- anon          | public       | categories                                     | rate_high_usd                | SELECT
  authenticated | public       | categories                                     | rate_high_usd                | INSERT
  authenticated | public       | categories                                     | rate_high_usd                | REFERENCES
  authenticated | public       | categories                                     | rate_high_usd                | SELECT
@@ -1864,7 +1837,6 @@
  service_role  | public       | categories                                     | rate_high_usd                | REFERENCES
  service_role  | public       | categories                                     | rate_high_usd                | SELECT
  service_role  | public       | categories                                     | rate_high_usd                | UPDATE
- anon          | public       | categories                                     | rate_low_bob                 | SELECT
  authenticated | public       | categories                                     | rate_low_bob                 | INSERT
  authenticated | public       | categories                                     | rate_low_bob                 | REFERENCES
  authenticated | public       | categories                                     | rate_low_bob                 | SELECT
@@ -1877,7 +1849,6 @@
  service_role  | public       | categories                                     | rate_low_bob                 | REFERENCES
  service_role  | public       | categories                                     | rate_low_bob                 | SELECT
  service_role  | public       | categories                                     | rate_low_bob                 | UPDATE
- anon          | public       | categories                                     | rate_low_usd                 | SELECT
  authenticated | public       | categories                                     | rate_low_usd                 | INSERT
  authenticated | public       | categories                                     | rate_low_usd                 | REFERENCES
  authenticated | public       | categories                                     | rate_low_usd                 | SELECT
@@ -1890,7 +1861,6 @@
  service_role  | public       | categories                                     | rate_low_usd                 | REFERENCES
  service_role  | public       | categories                                     | rate_low_usd                 | SELECT
  service_role  | public       | categories                                     | rate_low_usd                 | UPDATE
- anon          | public       | categories                                     | updated_at                   | SELECT
  authenticated | public       | categories                                     | updated_at                   | INSERT
  authenticated | public       | categories                                     | updated_at                   | REFERENCES
  authenticated | public       | categories                                     | updated_at                   | SELECT
@@ -1903,7 +1873,6 @@
  service_role  | public       | categories                                     | updated_at                   | REFERENCES
  service_role  | public       | categories                                     | updated_at                   | SELECT
  service_role  | public       | categories                                     | updated_at                   | UPDATE
- anon          | public       | clients                                        | address                      | SELECT
  authenticated | public       | clients                                        | address                      | INSERT
  authenticated | public       | clients                                        | address                      | REFERENCES
  authenticated | public       | clients                                        | address                      | SELECT
@@ -1916,7 +1885,6 @@
  service_role  | public       | clients                                        | address                      | REFERENCES
  service_role  | public       | clients                                        | address                      | SELECT
  service_role  | public       | clients                                        | address                      | UPDATE
- anon          | public       | clients                                        | client_id                    | SELECT
  authenticated | public       | clients                                        | client_id                    | INSERT
  authenticated | public       | clients                                        | client_id                    | REFERENCES
  authenticated | public       | clients                                        | client_id                    | SELECT
@@ -1929,7 +1897,6 @@
  service_role  | public       | clients                                        | client_id                    | REFERENCES
  service_role  | public       | clients                                        | client_id                    | SELECT
  service_role  | public       | clients                                        | client_id                    | UPDATE
- anon          | public       | clients                                        | client_legal_name            | SELECT
  authenticated | public       | clients                                        | client_legal_name            | INSERT
  authenticated | public       | clients                                        | client_legal_name            | REFERENCES
  authenticated | public       | clients                                        | client_legal_name            | SELECT
@@ -1942,7 +1909,6 @@
  service_role  | public       | clients                                        | client_legal_name            | REFERENCES
  service_role  | public       | clients                                        | client_legal_name            | SELECT
  service_role  | public       | clients                                        | client_legal_name            | UPDATE
- anon          | public       | clients                                        | contact_email                | SELECT
  authenticated | public       | clients                                        | contact_email                | INSERT
  authenticated | public       | clients                                        | contact_email                | REFERENCES
  authenticated | public       | clients                                        | contact_email                | SELECT
@@ -1955,7 +1921,6 @@
  service_role  | public       | clients                                        | contact_email                | REFERENCES
  service_role  | public       | clients                                        | contact_email                | SELECT
  service_role  | public       | clients                                        | contact_email                | UPDATE
- anon          | public       | clients                                        | contact_name                 | SELECT
  authenticated | public       | clients                                        | contact_name                 | INSERT
  authenticated | public       | clients                                        | contact_name                 | REFERENCES
  authenticated | public       | clients                                        | contact_name                 | SELECT
@@ -1968,7 +1933,6 @@
  service_role  | public       | clients                                        | contact_name                 | REFERENCES
  service_role  | public       | clients                                        | contact_name                 | SELECT
  service_role  | public       | clients                                        | contact_name                 | UPDATE
- anon          | public       | clients                                        | contact_phone                | SELECT
  authenticated | public       | clients                                        | contact_phone                | INSERT
  authenticated | public       | clients                                        | contact_phone                | REFERENCES
  authenticated | public       | clients                                        | contact_phone                | SELECT
@@ -1981,7 +1945,6 @@
  service_role  | public       | clients                                        | contact_phone                | REFERENCES
  service_role  | public       | clients                                        | contact_phone                | SELECT
  service_role  | public       | clients                                        | contact_phone                | UPDATE
- anon          | public       | clients                                        | created_at                   | SELECT
  authenticated | public       | clients                                        | created_at                   | INSERT
  authenticated | public       | clients                                        | created_at                   | REFERENCES
  authenticated | public       | clients                                        | created_at                   | SELECT
@@ -1994,7 +1957,6 @@
  service_role  | public       | clients                                        | created_at                   | REFERENCES
  service_role  | public       | clients                                        | created_at                   | SELECT
  service_role  | public       | clients                                        | created_at                   | UPDATE
- anon          | public       | clients                                        | created_by_staff_id          | SELECT
  authenticated | public       | clients                                        | created_by_staff_id          | INSERT
  authenticated | public       | clients                                        | created_by_staff_id          | REFERENCES
  authenticated | public       | clients                                        | created_by_staff_id          | SELECT
@@ -2007,7 +1969,6 @@
  service_role  | public       | clients                                        | created_by_staff_id          | REFERENCES
  service_role  | public       | clients                                        | created_by_staff_id          | SELECT
  service_role  | public       | clients                                        | created_by_staff_id          | UPDATE
- anon          | public       | clients                                        | industry_id                  | SELECT
  authenticated | public       | clients                                        | industry_id                  | INSERT
  authenticated | public       | clients                                        | industry_id                  | REFERENCES
  authenticated | public       | clients                                        | industry_id                  | SELECT
@@ -2020,7 +1981,6 @@
  service_role  | public       | clients                                        | industry_id                  | REFERENCES
  service_role  | public       | clients                                        | industry_id                  | SELECT
  service_role  | public       | clients                                        | industry_id                  | UPDATE
- anon          | public       | clients                                        | is_active                    | SELECT
  authenticated | public       | clients                                        | is_active                    | INSERT
  authenticated | public       | clients                                        | is_active                    | REFERENCES
  authenticated | public       | clients                                        | is_active                    | SELECT
@@ -2033,7 +1993,6 @@
  service_role  | public       | clients                                        | is_active                    | REFERENCES
  service_role  | public       | clients                                        | is_active                    | SELECT
  service_role  | public       | clients                                        | is_active                    | UPDATE
- anon          | public       | clients                                        | unique_tax_id                | SELECT
  authenticated | public       | clients                                        | unique_tax_id                | INSERT
  authenticated | public       | clients                                        | unique_tax_id                | REFERENCES
  authenticated | public       | clients                                        | unique_tax_id                | SELECT
@@ -2046,7 +2005,6 @@
  service_role  | public       | clients                                        | unique_tax_id                | REFERENCES
  service_role  | public       | clients                                        | unique_tax_id                | SELECT
  service_role  | public       | clients                                        | unique_tax_id                | UPDATE
- anon          | public       | clients                                        | updated_at                   | SELECT
  authenticated | public       | clients                                        | updated_at                   | INSERT
  authenticated | public       | clients                                        | updated_at                   | REFERENCES
  authenticated | public       | clients                                        | updated_at                   | SELECT
@@ -2059,7 +2017,6 @@
  service_role  | public       | clients                                        | updated_at                   | REFERENCES
  service_role  | public       | clients                                        | updated_at                   | SELECT
  service_role  | public       | clients                                        | updated_at                   | UPDATE
- anon          | public       | clients_directory                              | address                      | SELECT
  authenticated | public       | clients_directory                              | address                      | INSERT
  authenticated | public       | clients_directory                              | address                      | REFERENCES
  authenticated | public       | clients_directory                              | address                      | SELECT
@@ -2072,7 +2029,6 @@
  service_role  | public       | clients_directory                              | address                      | REFERENCES
  service_role  | public       | clients_directory                              | address                      | SELECT
  service_role  | public       | clients_directory                              | address                      | UPDATE
- anon          | public       | clients_directory                              | client_id                    | SELECT
  authenticated | public       | clients_directory                              | client_id                    | INSERT
  authenticated | public       | clients_directory                              | client_id                    | REFERENCES
  authenticated | public       | clients_directory                              | client_id                    | SELECT
@@ -2085,7 +2041,6 @@
  service_role  | public       | clients_directory                              | client_id                    | REFERENCES
  service_role  | public       | clients_directory                              | client_id                    | SELECT
  service_role  | public       | clients_directory                              | client_id                    | UPDATE
- anon          | public       | clients_directory                              | client_legal_name            | SELECT
  authenticated | public       | clients_directory                              | client_legal_name            | INSERT
  authenticated | public       | clients_directory                              | client_legal_name            | REFERENCES
  authenticated | public       | clients_directory                              | client_legal_name            | SELECT
@@ -2098,7 +2053,6 @@
  service_role  | public       | clients_directory                              | client_legal_name            | REFERENCES
  service_role  | public       | clients_directory                              | client_legal_name            | SELECT
  service_role  | public       | clients_directory                              | client_legal_name            | UPDATE
- anon          | public       | clients_directory                              | contact_email                | SELECT
  authenticated | public       | clients_directory                              | contact_email                | INSERT
  authenticated | public       | clients_directory                              | contact_email                | REFERENCES
  authenticated | public       | clients_directory                              | contact_email                | SELECT
@@ -2111,7 +2065,6 @@
  service_role  | public       | clients_directory                              | contact_email                | REFERENCES
  service_role  | public       | clients_directory                              | contact_email                | SELECT
  service_role  | public       | clients_directory                              | contact_email                | UPDATE
- anon          | public       | clients_directory                              | contact_name                 | SELECT
  authenticated | public       | clients_directory                              | contact_name                 | INSERT
  authenticated | public       | clients_directory                              | contact_name                 | REFERENCES
  authenticated | public       | clients_directory                              | contact_name                 | SELECT
@@ -2124,7 +2077,6 @@
  service_role  | public       | clients_directory                              | contact_name                 | REFERENCES
  service_role  | public       | clients_directory                              | contact_name                 | SELECT
  service_role  | public       | clients_directory                              | contact_name                 | UPDATE
- anon          | public       | clients_directory                              | contact_phone                | SELECT
  authenticated | public       | clients_directory                              | contact_phone                | INSERT
  authenticated | public       | clients_directory                              | contact_phone                | REFERENCES
  authenticated | public       | clients_directory                              | contact_phone                | SELECT
@@ -2137,7 +2089,6 @@
  service_role  | public       | clients_directory                              | contact_phone                | REFERENCES
  service_role  | public       | clients_directory                              | contact_phone                | SELECT
  service_role  | public       | clients_directory                              | contact_phone                | UPDATE
- anon          | public       | clients_directory                              | created_at                   | SELECT
  authenticated | public       | clients_directory                              | created_at                   | INSERT
  authenticated | public       | clients_directory                              | created_at                   | REFERENCES
  authenticated | public       | clients_directory                              | created_at                   | SELECT
@@ -2150,7 +2101,6 @@
  service_role  | public       | clients_directory                              | created_at                   | REFERENCES
  service_role  | public       | clients_directory                              | created_at                   | SELECT
  service_role  | public       | clients_directory                              | created_at                   | UPDATE
- anon          | public       | clients_directory                              | industry_id                  | SELECT
  authenticated | public       | clients_directory                              | industry_id                  | INSERT
  authenticated | public       | clients_directory                              | industry_id                  | REFERENCES
  authenticated | public       | clients_directory                              | industry_id                  | SELECT
@@ -2163,7 +2113,6 @@
  service_role  | public       | clients_directory                              | industry_id                  | REFERENCES
  service_role  | public       | clients_directory                              | industry_id                  | SELECT
  service_role  | public       | clients_directory                              | industry_id                  | UPDATE
- anon          | public       | clients_directory                              | is_active                    | SELECT
  authenticated | public       | clients_directory                              | is_active                    | INSERT
  authenticated | public       | clients_directory                              | is_active                    | REFERENCES
  authenticated | public       | clients_directory                              | is_active                    | SELECT
@@ -2176,7 +2125,6 @@
  service_role  | public       | clients_directory                              | is_active                    | REFERENCES
  service_role  | public       | clients_directory                              | is_active                    | SELECT
  service_role  | public       | clients_directory                              | is_active                    | UPDATE
- anon          | public       | clients_directory                              | updated_at                   | SELECT
  authenticated | public       | clients_directory                              | updated_at                   | INSERT
  authenticated | public       | clients_directory                              | updated_at                   | REFERENCES
  authenticated | public       | clients_directory                              | updated_at                   | SELECT
@@ -2369,7 +2317,6 @@
  service_role  | public       | engagement_assignments                         | updated_at                   | REFERENCES
  service_role  | public       | engagement_assignments                         | updated_at                   | SELECT
  service_role  | public       | engagement_assignments                         | updated_at                   | UPDATE
- anon          | public       | engagement_wo_state                            | approval_status              | SELECT
  authenticated | public       | engagement_wo_state                            | approval_status              | INSERT
  authenticated | public       | engagement_wo_state                            | approval_status              | REFERENCES
  authenticated | public       | engagement_wo_state                            | approval_status              | SELECT
@@ -2382,7 +2329,6 @@
  service_role  | public       | engagement_wo_state                            | approval_status              | REFERENCES
  service_role  | public       | engagement_wo_state                            | approval_status              | SELECT
  service_role  | public       | engagement_wo_state                            | approval_status              | UPDATE
- anon          | public       | engagement_wo_state                            | approved_at                  | SELECT
  authenticated | public       | engagement_wo_state                            | approved_at                  | INSERT
  authenticated | public       | engagement_wo_state                            | approved_at                  | REFERENCES
  authenticated | public       | engagement_wo_state                            | approved_at                  | SELECT
@@ -2395,7 +2341,6 @@
  service_role  | public       | engagement_wo_state                            | approved_at                  | REFERENCES
  service_role  | public       | engagement_wo_state                            | approved_at                  | SELECT
  service_role  | public       | engagement_wo_state                            | approved_at                  | UPDATE
- anon          | public       | engagement_wo_state                            | engagement_id                | SELECT
  authenticated | public       | engagement_wo_state                            | engagement_id                | INSERT
  authenticated | public       | engagement_wo_state                            | engagement_id                | REFERENCES
  authenticated | public       | engagement_wo_state                            | engagement_id                | SELECT
@@ -2408,7 +2353,6 @@
  service_role  | public       | engagement_wo_state                            | engagement_id                | REFERENCES
  service_role  | public       | engagement_wo_state                            | engagement_id                | SELECT
  service_role  | public       | engagement_wo_state                            | engagement_id                | UPDATE
- anon          | public       | engagement_wo_state                            | risk_status                  | SELECT
  authenticated | public       | engagement_wo_state                            | risk_status                  | INSERT
  authenticated | public       | engagement_wo_state                            | risk_status                  | REFERENCES
  authenticated | public       | engagement_wo_state                            | risk_status                  | SELECT
@@ -2421,7 +2365,6 @@
  service_role  | public       | engagement_wo_state                            | risk_status                  | REFERENCES
  service_role  | public       | engagement_wo_state                            | risk_status                  | SELECT
  service_role  | public       | engagement_wo_state                            | risk_status                  | UPDATE
- anon          | public       | engagements                                    | activity_required            | SELECT
  authenticated | public       | engagements                                    | activity_required            | INSERT
  authenticated | public       | engagements                                    | activity_required            | REFERENCES
  authenticated | public       | engagements                                    | activity_required            | SELECT
@@ -2434,7 +2377,6 @@
  service_role  | public       | engagements                                    | activity_required            | REFERENCES
  service_role  | public       | engagements                                    | activity_required            | SELECT
  service_role  | public       | engagements                                    | activity_required            | UPDATE
- anon          | public       | engagements                                    | anio_fiscal                  | SELECT
  authenticated | public       | engagements                                    | anio_fiscal                  | INSERT
  authenticated | public       | engagements                                    | anio_fiscal                  | REFERENCES
  authenticated | public       | engagements                                    | anio_fiscal                  | SELECT
@@ -2447,7 +2389,6 @@
  service_role  | public       | engagements                                    | anio_fiscal                  | REFERENCES
  service_role  | public       | engagements                                    | anio_fiscal                  | SELECT
  service_role  | public       | engagements                                    | anio_fiscal                  | UPDATE
- anon          | public       | engagements                                    | anio_fiscal_override         | SELECT
  authenticated | public       | engagements                                    | anio_fiscal_override         | INSERT
  authenticated | public       | engagements                                    | anio_fiscal_override         | REFERENCES
  authenticated | public       | engagements                                    | anio_fiscal_override         | SELECT
@@ -2460,7 +2401,6 @@
  service_role  | public       | engagements                                    | anio_fiscal_override         | REFERENCES
  service_role  | public       | engagements                                    | anio_fiscal_override         | SELECT
  service_role  | public       | engagements                                    | anio_fiscal_override         | UPDATE
- anon          | public       | engagements                                    | approval_required            | SELECT
  authenticated | public       | engagements                                    | approval_required            | INSERT
  authenticated | public       | engagements                                    | approval_required            | REFERENCES
  authenticated | public       | engagements                                    | approval_required            | SELECT
@@ -2473,7 +2413,6 @@
  service_role  | public       | engagements                                    | approval_required            | REFERENCES
  service_role  | public       | engagements                                    | approval_required            | SELECT
  service_role  | public       | engagements                                    | approval_required            | UPDATE
- anon          | public       | engagements                                    | client_id                    | SELECT
  authenticated | public       | engagements                                    | client_id                    | INSERT
  authenticated | public       | engagements                                    | client_id                    | REFERENCES
  authenticated | public       | engagements                                    | client_id                    | SELECT
@@ -2486,7 +2425,6 @@
  service_role  | public       | engagements                                    | client_id                    | REFERENCES
  service_role  | public       | engagements                                    | client_id                    | SELECT
  service_role  | public       | engagements                                    | client_id                    | UPDATE
- anon          | public       | engagements                                    | contract_file_path           | SELECT
  authenticated | public       | engagements                                    | contract_file_path           | INSERT
  authenticated | public       | engagements                                    | contract_file_path           | REFERENCES
  authenticated | public       | engagements                                    | contract_file_path           | SELECT
@@ -2499,7 +2437,6 @@
  service_role  | public       | engagements                                    | contract_file_path           | REFERENCES
  service_role  | public       | engagements                                    | contract_file_path           | SELECT
  service_role  | public       | engagements                                    | contract_file_path           | UPDATE
- anon          | public       | engagements                                    | created_at                   | SELECT
  authenticated | public       | engagements                                    | created_at                   | INSERT
  authenticated | public       | engagements                                    | created_at                   | REFERENCES
  authenticated | public       | engagements                                    | created_at                   | SELECT
@@ -2512,7 +2449,6 @@
  service_role  | public       | engagements                                    | created_at                   | REFERENCES
  service_role  | public       | engagements                                    | created_at                   | SELECT
  service_role  | public       | engagements                                    | created_at                   | UPDATE
- anon          | public       | engagements                                    | created_by_staff_id          | SELECT
  authenticated | public       | engagements                                    | created_by_staff_id          | INSERT
  authenticated | public       | engagements                                    | created_by_staff_id          | REFERENCES
  authenticated | public       | engagements                                    | created_by_staff_id          | SELECT
@@ -2525,7 +2461,6 @@
  service_role  | public       | engagements                                    | created_by_staff_id          | REFERENCES
  service_role  | public       | engagements                                    | created_by_staff_id          | SELECT
  service_role  | public       | engagements                                    | created_by_staff_id          | UPDATE
- anon          | public       | engagements                                    | encargado_id                 | SELECT
  authenticated | public       | engagements                                    | encargado_id                 | INSERT
  authenticated | public       | engagements                                    | encargado_id                 | REFERENCES
  authenticated | public       | engagements                                    | encargado_id                 | SELECT
@@ -2538,7 +2473,6 @@
  service_role  | public       | engagements                                    | encargado_id                 | REFERENCES
  service_role  | public       | engagements                                    | encargado_id                 | SELECT
  service_role  | public       | engagements                                    | encargado_id                 | UPDATE
- anon          | public       | engagements                                    | end_date                     | SELECT
  authenticated | public       | engagements                                    | end_date                     | INSERT
  authenticated | public       | engagements                                    | end_date                     | REFERENCES
  authenticated | public       | engagements                                    | end_date                     | SELECT
@@ -2551,7 +2485,6 @@
  service_role  | public       | engagements                                    | end_date                     | REFERENCES
  service_role  | public       | engagements                                    | end_date                     | SELECT
  service_role  | public       | engagements                                    | end_date                     | UPDATE
- anon          | public       | engagements                                    | engagement_code              | SELECT
  authenticated | public       | engagements                                    | engagement_code              | INSERT
  authenticated | public       | engagements                                    | engagement_code              | REFERENCES
  authenticated | public       | engagements                                    | engagement_code              | SELECT
@@ -2564,7 +2497,6 @@
  service_role  | public       | engagements                                    | engagement_code              | REFERENCES
  service_role  | public       | engagements                                    | engagement_code              | SELECT
  service_role  | public       | engagements                                    | engagement_code              | UPDATE
- anon          | public       | engagements                                    | engagement_id                | SELECT
  authenticated | public       | engagements                                    | engagement_id                | INSERT
  authenticated | public       | engagements                                    | engagement_id                | REFERENCES
  authenticated | public       | engagements                                    | engagement_id                | SELECT
@@ -2577,7 +2509,6 @@
  service_role  | public       | engagements                                    | engagement_id                | REFERENCES
  service_role  | public       | engagements                                    | engagement_id                | SELECT
  service_role  | public       | engagements                                    | engagement_id                | UPDATE
- anon          | public       | engagements                                    | engagement_name              | SELECT
  authenticated | public       | engagements                                    | engagement_name              | INSERT
  authenticated | public       | engagements                                    | engagement_name              | REFERENCES
  authenticated | public       | engagements                                    | engagement_name              | SELECT
@@ -2590,7 +2521,6 @@
  service_role  | public       | engagements                                    | engagement_name              | REFERENCES
  service_role  | public       | engagements                                    | engagement_name              | SELECT
  service_role  | public       | engagements                                    | engagement_name              | UPDATE
- anon          | public       | engagements                                    | engagement_state_override    | SELECT
  authenticated | public       | engagements                                    | engagement_state_override    | INSERT
  authenticated | public       | engagements                                    | engagement_state_override    | REFERENCES
  authenticated | public       | engagements                                    | engagement_state_override    | SELECT
@@ -2603,7 +2533,6 @@
  service_role  | public       | engagements                                    | engagement_state_override    | REFERENCES
  service_role  | public       | engagements                                    | engagement_state_override    | SELECT
  service_role  | public       | engagements                                    | engagement_state_override    | UPDATE
- anon          | public       | engagements                                    | fecha_cierre                 | SELECT
  authenticated | public       | engagements                                    | fecha_cierre                 | INSERT
  authenticated | public       | engagements                                    | fecha_cierre                 | REFERENCES
  authenticated | public       | engagements                                    | fecha_cierre                 | SELECT
@@ -2616,7 +2545,6 @@
  service_role  | public       | engagements                                    | fecha_cierre                 | REFERENCES
  service_role  | public       | engagements                                    | fecha_cierre                 | SELECT
  service_role  | public       | engagements                                    | fecha_cierre                 | UPDATE
- anon          | public       | engagements                                    | funcion                      | SELECT
  authenticated | public       | engagements                                    | funcion                      | INSERT
  authenticated | public       | engagements                                    | funcion                      | REFERENCES
  authenticated | public       | engagements                                    | funcion                      | SELECT
@@ -2629,7 +2557,6 @@
  service_role  | public       | engagements                                    | funcion                      | REFERENCES
  service_role  | public       | engagements                                    | funcion                      | SELECT
  service_role  | public       | engagements                                    | funcion                      | UPDATE
- anon          | public       | engagements                                    | is_internal                  | SELECT
  authenticated | public       | engagements                                    | is_internal                  | INSERT
  authenticated | public       | engagements                                    | is_internal                  | REFERENCES
  authenticated | public       | engagements                                    | is_internal                  | SELECT
@@ -2642,7 +2569,6 @@
  service_role  | public       | engagements                                    | is_internal                  | REFERENCES
  service_role  | public       | engagements                                    | is_internal                  | SELECT
  service_role  | public       | engagements                                    | is_internal                  | UPDATE
- anon          | public       | engagements                                    | manager_id                   | SELECT
  authenticated | public       | engagements                                    | manager_id                   | INSERT
  authenticated | public       | engagements                                    | manager_id                   | REFERENCES
  authenticated | public       | engagements                                    | manager_id                   | SELECT
@@ -2655,7 +2581,6 @@
  service_role  | public       | engagements                                    | manager_id                   | REFERENCES
  service_role  | public       | engagements                                    | manager_id                   | SELECT
  service_role  | public       | engagements                                    | manager_id                   | UPDATE
- anon          | public       | engagements                                    | oficina                      | SELECT
  authenticated | public       | engagements                                    | oficina                      | INSERT
  authenticated | public       | engagements                                    | oficina                      | REFERENCES
  authenticated | public       | engagements                                    | oficina                      | SELECT
@@ -2668,7 +2593,6 @@
  service_role  | public       | engagements                                    | oficina                      | REFERENCES
  service_role  | public       | engagements                                    | oficina                      | SELECT
  service_role  | public       | engagements                                    | oficina                      | UPDATE
- anon          | public       | engagements                                    | partner_id                   | SELECT
  authenticated | public       | engagements                                    | partner_id                   | INSERT
  authenticated | public       | engagements                                    | partner_id                   | REFERENCES
  authenticated | public       | engagements                                    | partner_id                   | SELECT
@@ -2681,7 +2605,6 @@
  service_role  | public       | engagements                                    | partner_id                   | REFERENCES
  service_role  | public       | engagements                                    | partner_id                   | SELECT
  service_role  | public       | engagements                                    | partner_id                   | UPDATE
- anon          | public       | engagements                                    | practica                     | SELECT
  authenticated | public       | engagements                                    | practica                     | INSERT
  authenticated | public       | engagements                                    | practica                     | REFERENCES
  authenticated | public       | engagements                                    | practica                     | SELECT
@@ -2694,7 +2617,6 @@
  service_role  | public       | engagements                                    | practica                     | REFERENCES
  service_role  | public       | engagements                                    | practica                     | SELECT
  service_role  | public       | engagements                                    | practica                     | UPDATE
- anon          | public       | engagements                                    | society_id                   | SELECT
  authenticated | public       | engagements                                    | society_id                   | INSERT
  authenticated | public       | engagements                                    | society_id                   | REFERENCES
  authenticated | public       | engagements                                    | society_id                   | SELECT
@@ -2707,7 +2629,6 @@
  service_role  | public       | engagements                                    | society_id                   | REFERENCES
  service_role  | public       | engagements                                    | society_id                   | SELECT
  service_role  | public       | engagements                                    | society_id                   | UPDATE
- anon          | public       | engagements                                    | specialist_it_id             | SELECT
  authenticated | public       | engagements                                    | specialist_it_id             | INSERT
  authenticated | public       | engagements                                    | specialist_it_id             | REFERENCES
  authenticated | public       | engagements                                    | specialist_it_id             | SELECT
@@ -2720,7 +2641,6 @@
  service_role  | public       | engagements                                    | specialist_it_id             | REFERENCES
  service_role  | public       | engagements                                    | specialist_it_id             | SELECT
  service_role  | public       | engagements                                    | specialist_it_id             | UPDATE
- anon          | public       | engagements                                    | specialist_tax_id            | SELECT
  authenticated | public       | engagements                                    | specialist_tax_id            | INSERT
  authenticated | public       | engagements                                    | specialist_tax_id            | REFERENCES
  authenticated | public       | engagements                                    | specialist_tax_id            | SELECT
@@ -2733,7 +2653,6 @@
  service_role  | public       | engagements                                    | specialist_tax_id            | REFERENCES
  service_role  | public       | engagements                                    | specialist_tax_id            | SELECT
  service_role  | public       | engagements                                    | specialist_tax_id            | UPDATE
- anon          | public       | engagements                                    | sqr_id                       | SELECT
  authenticated | public       | engagements                                    | sqr_id                       | INSERT
  authenticated | public       | engagements                                    | sqr_id                       | REFERENCES
  authenticated | public       | engagements                                    | sqr_id                       | SELECT
@@ -2746,7 +2665,6 @@
  service_role  | public       | engagements                                    | sqr_id                       | REFERENCES
  service_role  | public       | engagements                                    | sqr_id                       | SELECT
  service_role  | public       | engagements                                    | sqr_id                       | UPDATE
- anon          | public       | engagements                                    | start_date                   | SELECT
  authenticated | public       | engagements                                    | start_date                   | INSERT
  authenticated | public       | engagements                                    | start_date                   | REFERENCES
  authenticated | public       | engagements                                    | start_date                   | SELECT
@@ -2759,7 +2677,6 @@
  service_role  | public       | engagements                                    | start_date                   | REFERENCES
  service_role  | public       | engagements                                    | start_date                   | SELECT
  service_role  | public       | engagements                                    | start_date                   | UPDATE
- anon          | public       | engagements                                    | status                       | SELECT
  authenticated | public       | engagements                                    | status                       | INSERT
  authenticated | public       | engagements                                    | status                       | REFERENCES
  authenticated | public       | engagements                                    | status                       | SELECT
@@ -2772,7 +2689,6 @@
  service_role  | public       | engagements                                    | status                       | REFERENCES
  service_role  | public       | engagements                                    | status                       | SELECT
  service_role  | public       | engagements                                    | status                       | UPDATE
- anon          | public       | engagements                                    | taxonomy_id                  | SELECT
  authenticated | public       | engagements                                    | taxonomy_id                  | INSERT
  authenticated | public       | engagements                                    | taxonomy_id                  | REFERENCES
  authenticated | public       | engagements                                    | taxonomy_id                  | SELECT
@@ -2785,7 +2701,6 @@
  service_role  | public       | engagements                                    | taxonomy_id                  | REFERENCES
  service_role  | public       | engagements                                    | taxonomy_id                  | SELECT
  service_role  | public       | engagements                                    | taxonomy_id                  | UPDATE
- anon          | public       | engagements                                    | updated_at                   | SELECT
  authenticated | public       | engagements                                    | updated_at                   | INSERT
  authenticated | public       | engagements                                    | updated_at                   | REFERENCES
  authenticated | public       | engagements                                    | updated_at                   | SELECT
@@ -2798,7 +2713,6 @@
  service_role  | public       | engagements                                    | updated_at                   | REFERENCES
  service_role  | public       | engagements                                    | updated_at                   | SELECT
  service_role  | public       | engagements                                    | updated_at                   | UPDATE
- anon          | public       | engagements                                    | work_order_required          | SELECT
  authenticated | public       | engagements                                    | work_order_required          | INSERT
  authenticated | public       | engagements                                    | work_order_required          | REFERENCES
  authenticated | public       | engagements                                    | work_order_required          | SELECT
@@ -3035,7 +2949,6 @@
  service_role  | public       | exchange_rate_history                          | version_metodologia          | REFERENCES
  service_role  | public       | exchange_rate_history                          | version_metodologia          | SELECT
  service_role  | public       | exchange_rate_history                          | version_metodologia          | UPDATE
- anon          | public       | expense_types                                  | created_at                   | SELECT
  authenticated | public       | expense_types                                  | created_at                   | INSERT
  authenticated | public       | expense_types                                  | created_at                   | REFERENCES
  authenticated | public       | expense_types                                  | created_at                   | SELECT
@@ -3048,7 +2961,6 @@
  service_role  | public       | expense_types                                  | created_at                   | REFERENCES
  service_role  | public       | expense_types                                  | created_at                   | SELECT
  service_role  | public       | expense_types                                  | created_at                   | UPDATE
- anon          | public       | expense_types                                  | default_unit_cost            | SELECT
  authenticated | public       | expense_types                                  | default_unit_cost            | INSERT
  authenticated | public       | expense_types                                  | default_unit_cost            | REFERENCES
  authenticated | public       | expense_types                                  | default_unit_cost            | SELECT
@@ -3061,7 +2973,6 @@
  service_role  | public       | expense_types                                  | default_unit_cost            | REFERENCES
  service_role  | public       | expense_types                                  | default_unit_cost            | SELECT
  service_role  | public       | expense_types                                  | default_unit_cost            | UPDATE
- anon          | public       | expense_types                                  | expense_name                 | SELECT
  authenticated | public       | expense_types                                  | expense_name                 | INSERT
  authenticated | public       | expense_types                                  | expense_name                 | REFERENCES
  authenticated | public       | expense_types                                  | expense_name                 | SELECT
@@ -3074,7 +2985,6 @@
  service_role  | public       | expense_types                                  | expense_name                 | REFERENCES
  service_role  | public       | expense_types                                  | expense_name                 | SELECT
  service_role  | public       | expense_types                                  | expense_name                 | UPDATE
- anon          | public       | expense_types                                  | expense_type_id              | SELECT
  authenticated | public       | expense_types                                  | expense_type_id              | INSERT
  authenticated | public       | expense_types                                  | expense_type_id              | REFERENCES
  authenticated | public       | expense_types                                  | expense_type_id              | SELECT
@@ -3519,7 +3429,6 @@
  service_role  | public       | fund_request_expenses                          | wo_id                        | REFERENCES
  service_role  | public       | fund_request_expenses                          | wo_id                        | SELECT
  service_role  | public       | fund_request_expenses                          | wo_id                        | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | approval_status              | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | approval_status              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
@@ -3532,7 +3441,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | currency                     | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | currency                     | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | currency                     | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | currency                     | SELECT
@@ -3545,7 +3453,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
@@ -3558,7 +3465,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
@@ -3571,7 +3477,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
@@ -3584,7 +3489,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
@@ -3597,7 +3501,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
@@ -3610,7 +3513,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
@@ -3623,7 +3525,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
@@ -3636,7 +3537,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
@@ -3649,7 +3549,6 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | UPDATE
- anon          | public       | fund_request_selectable_work_orders            | wo_id                        | SELECT
  authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | INSERT
  authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | SELECT
@@ -4447,7 +4346,6 @@
  service_role  | public       | holidays                                       | updated_at                   | REFERENCES
  service_role  | public       | holidays                                       | updated_at                   | SELECT
  service_role  | public       | holidays                                       | updated_at                   | UPDATE
- anon          | public       | industries                                     | created_at                   | SELECT
  authenticated | public       | industries                                     | created_at                   | INSERT
  authenticated | public       | industries                                     | created_at                   | REFERENCES
  authenticated | public       | industries                                     | created_at                   | SELECT
@@ -4460,7 +4358,6 @@
  service_role  | public       | industries                                     | created_at                   | REFERENCES
  service_role  | public       | industries                                     | created_at                   | SELECT
  service_role  | public       | industries                                     | created_at                   | UPDATE
- anon          | public       | industries                                     | fiscal_year_end              | SELECT
  authenticated | public       | industries                                     | fiscal_year_end              | INSERT
  authenticated | public       | industries                                     | fiscal_year_end              | REFERENCES
  authenticated | public       | industries                                     | fiscal_year_end              | SELECT
@@ -4473,7 +4370,6 @@
  service_role  | public       | industries                                     | fiscal_year_end              | REFERENCES
  service_role  | public       | industries                                     | fiscal_year_end              | SELECT
  service_role  | public       | industries                                     | fiscal_year_end              | UPDATE
- anon          | public       | industries                                     | industry_id                  | SELECT
  authenticated | public       | industries                                     | industry_id                  | INSERT
  authenticated | public       | industries                                     | industry_id                  | REFERENCES
  authenticated | public       | industries                                     | industry_id                  | SELECT
@@ -4486,7 +4382,6 @@
  service_role  | public       | industries                                     | industry_id                  | REFERENCES
  service_role  | public       | industries                                     | industry_id                  | SELECT
  service_role  | public       | industries                                     | industry_id                  | UPDATE
- anon          | public       | industries                                     | industry_name                | SELECT
  authenticated | public       | industries                                     | industry_name                | INSERT
  authenticated | public       | industries                                     | industry_name                | REFERENCES
  authenticated | public       | industries                                     | industry_name                | SELECT
@@ -4499,7 +4394,6 @@
  service_role  | public       | industries                                     | industry_name                | REFERENCES
  service_role  | public       | industries                                     | industry_name                | SELECT
  service_role  | public       | industries                                     | industry_name                | UPDATE
- anon          | public       | industries                                     | updated_at                   | SELECT
  authenticated | public       | industries                                     | updated_at                   | INSERT
  authenticated | public       | industries                                     | updated_at                   | REFERENCES
  authenticated | public       | industries                                     | updated_at                   | SELECT
@@ -4512,7 +4406,6 @@
  service_role  | public       | industries                                     | updated_at                   | REFERENCES
  service_role  | public       | industries                                     | updated_at                   | SELECT
  service_role  | public       | industries                                     | updated_at                   | UPDATE
- anon          | public       | migration_run_log                              | backup_table_name            | SELECT
  authenticated | public       | migration_run_log                              | backup_table_name            | INSERT
  authenticated | public       | migration_run_log                              | backup_table_name            | REFERENCES
  authenticated | public       | migration_run_log                              | backup_table_name            | SELECT
@@ -4525,7 +4418,6 @@
  service_role  | public       | migration_run_log                              | backup_table_name            | REFERENCES
  service_role  | public       | migration_run_log                              | backup_table_name            | SELECT
  service_role  | public       | migration_run_log                              | backup_table_name            | UPDATE
- anon          | public       | migration_run_log                              | created_at                   | SELECT
  authenticated | public       | migration_run_log                              | created_at                   | INSERT
  authenticated | public       | migration_run_log                              | created_at                   | REFERENCES
  authenticated | public       | migration_run_log                              | created_at                   | SELECT
@@ -4538,7 +4430,6 @@
  service_role  | public       | migration_run_log                              | created_at                   | REFERENCES
  service_role  | public       | migration_run_log                              | created_at                   | SELECT
  service_role  | public       | migration_run_log                              | created_at                   | UPDATE
- anon          | public       | migration_run_log                              | executed_by                  | SELECT
  authenticated | public       | migration_run_log                              | executed_by                  | INSERT
  authenticated | public       | migration_run_log                              | executed_by                  | REFERENCES
  authenticated | public       | migration_run_log                              | executed_by                  | SELECT
@@ -4551,7 +4442,6 @@
  service_role  | public       | migration_run_log                              | executed_by                  | REFERENCES
  service_role  | public       | migration_run_log                              | executed_by                  | SELECT
  service_role  | public       | migration_run_log                              | executed_by                  | UPDATE
- anon          | public       | migration_run_log                              | id                           | SELECT
  authenticated | public       | migration_run_log                              | id                           | INSERT
  authenticated | public       | migration_run_log                              | id                           | REFERENCES
  authenticated | public       | migration_run_log                              | id                           | SELECT
@@ -4564,7 +4454,6 @@
  service_role  | public       | migration_run_log                              | id                           | REFERENCES
  service_role  | public       | migration_run_log                              | id                           | SELECT
  service_role  | public       | migration_run_log                              | id                           | UPDATE
- anon          | public       | migration_run_log                              | migration_key                | SELECT
  authenticated | public       | migration_run_log                              | migration_key                | INSERT
  authenticated | public       | migration_run_log                              | migration_key                | REFERENCES
  authenticated | public       | migration_run_log                              | migration_key                | SELECT
@@ -5625,7 +5514,6 @@
  service_role  | public       | society                                        | society_id                   | REFERENCES
  service_role  | public       | society                                        | society_id                   | SELECT
  service_role  | public       | society                                        | society_id                   | UPDATE
- anon          | public       | staff                                          | aud_reg_number               | SELECT
  authenticated | public       | staff                                          | aud_reg_number               | INSERT
  authenticated | public       | staff                                          | aud_reg_number               | REFERENCES
  authenticated | public       | staff                                          | aud_reg_number               | UPDATE
@@ -5637,7 +5525,6 @@
  service_role  | public       | staff                                          | aud_reg_number               | REFERENCES
  service_role  | public       | staff                                          | aud_reg_number               | SELECT
  service_role  | public       | staff                                          | aud_reg_number               | UPDATE
- anon          | public       | staff                                          | auth_user_id                 | SELECT
  authenticated | public       | staff                                          | auth_user_id                 | INSERT
  authenticated | public       | staff                                          | auth_user_id                 | REFERENCES
  authenticated | public       | staff                                          | auth_user_id                 | SELECT
@@ -5650,7 +5537,6 @@
  service_role  | public       | staff                                          | auth_user_id                 | REFERENCES
  service_role  | public       | staff                                          | auth_user_id                 | SELECT
  service_role  | public       | staff                                          | auth_user_id                 | UPDATE
- anon          | public       | staff                                          | category_id                  | SELECT
  authenticated | public       | staff                                          | category_id                  | INSERT
  authenticated | public       | staff                                          | category_id                  | REFERENCES
  authenticated | public       | staff                                          | category_id                  | SELECT
@@ -5663,7 +5549,6 @@
  service_role  | public       | staff                                          | category_id                  | REFERENCES
  service_role  | public       | staff                                          | category_id                  | SELECT
  service_role  | public       | staff                                          | category_id                  | UPDATE
- anon          | public       | staff                                          | city                         | SELECT
  authenticated | public       | staff                                          | city                         | INSERT
  authenticated | public       | staff                                          | city                         | REFERENCES
  authenticated | public       | staff                                          | city                         | SELECT
@@ -5676,7 +5561,6 @@
  service_role  | public       | staff                                          | city                         | REFERENCES
  service_role  | public       | staff                                          | city                         | SELECT
  service_role  | public       | staff                                          | city                         | UPDATE
- anon          | public       | staff                                          | created_at                   | SELECT
  authenticated | public       | staff                                          | created_at                   | INSERT
  authenticated | public       | staff                                          | created_at                   | REFERENCES
  authenticated | public       | staff                                          | created_at                   | SELECT
@@ -5689,7 +5573,6 @@
  service_role  | public       | staff                                          | created_at                   | REFERENCES
  service_role  | public       | staff                                          | created_at                   | SELECT
  service_role  | public       | staff                                          | created_at                   | UPDATE
- anon          | public       | staff                                          | deleted_at                   | SELECT
  authenticated | public       | staff                                          | deleted_at                   | INSERT
  authenticated | public       | staff                                          | deleted_at                   | REFERENCES
  authenticated | public       | staff                                          | deleted_at                   | SELECT
@@ -5702,7 +5585,6 @@
  service_role  | public       | staff                                          | deleted_at                   | REFERENCES
  service_role  | public       | staff                                          | deleted_at                   | SELECT
  service_role  | public       | staff                                          | deleted_at                   | UPDATE
- anon          | public       | staff                                          | email                        | SELECT
  authenticated | public       | staff                                          | email                        | INSERT
  authenticated | public       | staff                                          | email                        | REFERENCES
  authenticated | public       | staff                                          | email                        | SELECT
@@ -5715,7 +5597,6 @@
  service_role  | public       | staff                                          | email                        | REFERENCES
  service_role  | public       | staff                                          | email                        | SELECT
  service_role  | public       | staff                                          | email                        | UPDATE
- anon          | public       | staff                                          | first_name                   | SELECT
  authenticated | public       | staff                                          | first_name                   | INSERT
  authenticated | public       | staff                                          | first_name                   | REFERENCES
  authenticated | public       | staff                                          | first_name                   | SELECT
@@ -5728,7 +5609,6 @@
  service_role  | public       | staff                                          | first_name                   | REFERENCES
  service_role  | public       | staff                                          | first_name                   | SELECT
  service_role  | public       | staff                                          | first_name                   | UPDATE
- anon          | public       | staff                                          | hire_date                    | SELECT
  authenticated | public       | staff                                          | hire_date                    | INSERT
  authenticated | public       | staff                                          | hire_date                    | REFERENCES
  authenticated | public       | staff                                          | hire_date                    | SELECT
@@ -5741,7 +5621,6 @@
  service_role  | public       | staff                                          | hire_date                    | REFERENCES
  service_role  | public       | staff                                          | hire_date                    | SELECT
  service_role  | public       | staff                                          | hire_date                    | UPDATE
- anon          | public       | staff                                          | id_number                    | SELECT
  authenticated | public       | staff                                          | id_number                    | INSERT
  authenticated | public       | staff                                          | id_number                    | REFERENCES
  authenticated | public       | staff                                          | id_number                    | UPDATE
@@ -5753,7 +5632,6 @@
  service_role  | public       | staff                                          | id_number                    | REFERENCES
  service_role  | public       | staff                                          | id_number                    | SELECT
  service_role  | public       | staff                                          | id_number                    | UPDATE
- anon          | public       | staff                                          | initials                     | SELECT
  authenticated | public       | staff                                          | initials                     | INSERT
  authenticated | public       | staff                                          | initials                     | REFERENCES
  authenticated | public       | staff                                          | initials                     | SELECT
@@ -5766,7 +5644,6 @@
  service_role  | public       | staff                                          | initials                     | REFERENCES
  service_role  | public       | staff                                          | initials                     | SELECT
  service_role  | public       | staff                                          | initials                     | UPDATE
- anon          | public       | staff                                          | is_active                    | SELECT
  authenticated | public       | staff                                          | is_active                    | INSERT
  authenticated | public       | staff                                          | is_active                    | REFERENCES
  authenticated | public       | staff                                          | is_active                    | SELECT
@@ -5779,7 +5656,6 @@
  service_role  | public       | staff                                          | is_active                    | REFERENCES
  service_role  | public       | staff                                          | is_active                    | SELECT
  service_role  | public       | staff                                          | is_active                    | UPDATE
- anon          | public       | staff                                          | is_blocked                   | SELECT
  authenticated | public       | staff                                          | is_blocked                   | INSERT
  authenticated | public       | staff                                          | is_blocked                   | REFERENCES
  authenticated | public       | staff                                          | is_blocked                   | SELECT
@@ -5792,7 +5668,6 @@
  service_role  | public       | staff                                          | is_blocked                   | REFERENCES
  service_role  | public       | staff                                          | is_blocked                   | SELECT
  service_role  | public       | staff                                          | is_blocked                   | UPDATE
- anon          | public       | staff                                          | is_schedulable               | SELECT
  authenticated | public       | staff                                          | is_schedulable               | INSERT
  authenticated | public       | staff                                          | is_schedulable               | REFERENCES
  authenticated | public       | staff                                          | is_schedulable               | SELECT
@@ -5805,7 +5680,6 @@
  service_role  | public       | staff                                          | is_schedulable               | REFERENCES
  service_role  | public       | staff                                          | is_schedulable               | SELECT
  service_role  | public       | staff                                          | is_schedulable               | UPDATE
- anon          | public       | staff                                          | last_name                    | SELECT
  authenticated | public       | staff                                          | last_name                    | INSERT
  authenticated | public       | staff                                          | last_name                    | REFERENCES
  authenticated | public       | staff                                          | last_name                    | SELECT
@@ -5818,7 +5692,6 @@
  service_role  | public       | staff                                          | last_name                    | REFERENCES
  service_role  | public       | staff                                          | last_name                    | SELECT
  service_role  | public       | staff                                          | last_name                    | UPDATE
- anon          | public       | staff                                          | practica_id                  | SELECT
  authenticated | public       | staff                                          | practica_id                  | INSERT
  authenticated | public       | staff                                          | practica_id                  | REFERENCES
  authenticated | public       | staff                                          | practica_id                  | SELECT
@@ -5831,7 +5704,6 @@
  service_role  | public       | staff                                          | practica_id                  | REFERENCES
  service_role  | public       | staff                                          | practica_id                  | SELECT
  service_role  | public       | staff                                          | practica_id                  | UPDATE
- anon          | public       | staff                                          | short_name                   | SELECT
  authenticated | public       | staff                                          | short_name                   | INSERT
  authenticated | public       | staff                                          | short_name                   | REFERENCES
  authenticated | public       | staff                                          | short_name                   | SELECT
@@ -5844,7 +5716,6 @@
  service_role  | public       | staff                                          | short_name                   | REFERENCES
  service_role  | public       | staff                                          | short_name                   | SELECT
  service_role  | public       | staff                                          | short_name                   | UPDATE
- anon          | public       | staff                                          | society_id                   | SELECT
  authenticated | public       | staff                                          | society_id                   | INSERT
  authenticated | public       | staff                                          | society_id                   | REFERENCES
  authenticated | public       | staff                                          | society_id                   | SELECT
@@ -5857,7 +5728,6 @@
  service_role  | public       | staff                                          | society_id                   | REFERENCES
  service_role  | public       | staff                                          | society_id                   | SELECT
  service_role  | public       | staff                                          | society_id                   | UPDATE
- anon          | public       | staff                                          | staff_id                     | SELECT
  authenticated | public       | staff                                          | staff_id                     | INSERT
  authenticated | public       | staff                                          | staff_id                     | REFERENCES
  authenticated | public       | staff                                          | staff_id                     | SELECT
@@ -5870,7 +5740,6 @@
  service_role  | public       | staff                                          | staff_id                     | REFERENCES
  service_role  | public       | staff                                          | staff_id                     | SELECT
  service_role  | public       | staff                                          | staff_id                     | UPDATE
- anon          | public       | staff                                          | target_utilization_percent   | SELECT
  authenticated | public       | staff                                          | target_utilization_percent   | INSERT
  authenticated | public       | staff                                          | target_utilization_percent   | REFERENCES
  authenticated | public       | staff                                          | target_utilization_percent   | UPDATE
@@ -5882,7 +5751,6 @@
  service_role  | public       | staff                                          | target_utilization_percent   | REFERENCES
  service_role  | public       | staff                                          | target_utilization_percent   | SELECT
  service_role  | public       | staff                                          | target_utilization_percent   | UPDATE
- anon          | public       | staff                                          | termination_date             | SELECT
  authenticated | public       | staff                                          | termination_date             | INSERT
  authenticated | public       | staff                                          | termination_date             | REFERENCES
  authenticated | public       | staff                                          | termination_date             | SELECT
@@ -5895,7 +5763,6 @@
  service_role  | public       | staff                                          | termination_date             | REFERENCES
  service_role  | public       | staff                                          | termination_date             | SELECT
  service_role  | public       | staff                                          | termination_date             | UPDATE
- anon          | public       | staff                                          | updated_at                   | SELECT
  authenticated | public       | staff                                          | updated_at                   | INSERT
  authenticated | public       | staff                                          | updated_at                   | REFERENCES
  authenticated | public       | staff                                          | updated_at                   | SELECT
@@ -5908,7 +5775,6 @@
  service_role  | public       | staff                                          | updated_at                   | REFERENCES
  service_role  | public       | staff                                          | updated_at                   | SELECT
  service_role  | public       | staff                                          | updated_at                   | UPDATE
- anon          | public       | staff                                          | weekly_capacity_hours        | SELECT
  authenticated | public       | staff                                          | weekly_capacity_hours        | INSERT
  authenticated | public       | staff                                          | weekly_capacity_hours        | REFERENCES
  authenticated | public       | staff                                          | weekly_capacity_hours        | SELECT
@@ -6001,7 +5867,6 @@
  service_role  | public       | staff_alert_seen                               | staff_id                     | REFERENCES
  service_role  | public       | staff_alert_seen                               | staff_id                     | SELECT
  service_role  | public       | staff_alert_seen                               | staff_id                     | UPDATE
- anon          | public       | staff_directory                                | category_id                  | SELECT
  authenticated | public       | staff_directory                                | category_id                  | INSERT
  authenticated | public       | staff_directory                                | category_id                  | REFERENCES
  authenticated | public       | staff_directory                                | category_id                  | SELECT
@@ -6014,7 +5879,6 @@
  service_role  | public       | staff_directory                                | category_id                  | REFERENCES
  service_role  | public       | staff_directory                                | category_id                  | SELECT
  service_role  | public       | staff_directory                                | category_id                  | UPDATE
- anon          | public       | staff_directory                                | city                         | SELECT
  authenticated | public       | staff_directory                                | city                         | INSERT
  authenticated | public       | staff_directory                                | city                         | REFERENCES
  authenticated | public       | staff_directory                                | city                         | SELECT
@@ -6027,7 +5891,6 @@
  service_role  | public       | staff_directory                                | city                         | REFERENCES
  service_role  | public       | staff_directory                                | city                         | SELECT
  service_role  | public       | staff_directory                                | city                         | UPDATE
- anon          | public       | staff_directory                                | created_at                   | SELECT
  authenticated | public       | staff_directory                                | created_at                   | INSERT
  authenticated | public       | staff_directory                                | created_at                   | REFERENCES
  authenticated | public       | staff_directory                                | created_at                   | SELECT
@@ -6040,7 +5903,6 @@
  service_role  | public       | staff_directory                                | created_at                   | REFERENCES
  service_role  | public       | staff_directory                                | created_at                   | SELECT
  service_role  | public       | staff_directory                                | created_at                   | UPDATE
- anon          | public       | staff_directory                                | first_name                   | SELECT
  authenticated | public       | staff_directory                                | first_name                   | INSERT
  authenticated | public       | staff_directory                                | first_name                   | REFERENCES
  authenticated | public       | staff_directory                                | first_name                   | SELECT
@@ -6053,7 +5915,6 @@
  service_role  | public       | staff_directory                                | first_name                   | REFERENCES
  service_role  | public       | staff_directory                                | first_name                   | SELECT
  service_role  | public       | staff_directory                                | first_name                   | UPDATE
- anon          | public       | staff_directory                                | initials                     | SELECT
  authenticated | public       | staff_directory                                | initials                     | INSERT
  authenticated | public       | staff_directory                                | initials                     | REFERENCES
  authenticated | public       | staff_directory                                | initials                     | SELECT
@@ -6066,7 +5927,6 @@
  service_role  | public       | staff_directory                                | initials                     | REFERENCES
  service_role  | public       | staff_directory                                | initials                     | SELECT
  service_role  | public       | staff_directory                                | initials                     | UPDATE
- anon          | public       | staff_directory                                | is_active                    | SELECT
  authenticated | public       | staff_directory                                | is_active                    | INSERT
  authenticated | public       | staff_directory                                | is_active                    | REFERENCES
  authenticated | public       | staff_directory                                | is_active                    | SELECT
@@ -6079,7 +5939,6 @@
  service_role  | public       | staff_directory                                | is_active                    | REFERENCES
  service_role  | public       | staff_directory                                | is_active                    | SELECT
  service_role  | public       | staff_directory                                | is_active                    | UPDATE
- anon          | public       | staff_directory                                | last_name                    | SELECT
  authenticated | public       | staff_directory                                | last_name                    | INSERT
  authenticated | public       | staff_directory                                | last_name                    | REFERENCES
  authenticated | public       | staff_directory                                | last_name                    | SELECT
@@ -6092,7 +5951,6 @@
  service_role  | public       | staff_directory                                | last_name                    | REFERENCES
  service_role  | public       | staff_directory                                | last_name                    | SELECT
  service_role  | public       | staff_directory                                | last_name                    | UPDATE
- anon          | public       | staff_directory                                | short_name                   | SELECT
  authenticated | public       | staff_directory                                | short_name                   | INSERT
  authenticated | public       | staff_directory                                | short_name                   | REFERENCES
  authenticated | public       | staff_directory                                | short_name                   | SELECT
@@ -6105,7 +5963,6 @@
  service_role  | public       | staff_directory                                | short_name                   | REFERENCES
  service_role  | public       | staff_directory                                | short_name                   | SELECT
  service_role  | public       | staff_directory                                | short_name                   | UPDATE
- anon          | public       | staff_directory                                | staff_id                     | SELECT
  authenticated | public       | staff_directory                                | staff_id                     | INSERT
  authenticated | public       | staff_directory                                | staff_id                     | REFERENCES
  authenticated | public       | staff_directory                                | staff_id                     | SELECT
@@ -6118,7 +5975,6 @@
  service_role  | public       | staff_directory                                | staff_id                     | REFERENCES
  service_role  | public       | staff_directory                                | staff_id                     | SELECT
  service_role  | public       | staff_directory                                | staff_id                     | UPDATE
- anon          | public       | staff_directory                                | updated_at                   | SELECT
  authenticated | public       | staff_directory                                | updated_at                   | INSERT
  authenticated | public       | staff_directory                                | updated_at                   | REFERENCES
  authenticated | public       | staff_directory                                | updated_at                   | SELECT
@@ -6243,7 +6099,6 @@
  service_role  | public       | staff_skills                                   | updated_at                   | REFERENCES
  service_role  | public       | staff_skills                                   | updated_at                   | SELECT
  service_role  | public       | staff_skills                                   | updated_at                   | UPDATE
- anon          | public       | time_entries                                   | activity_id                  | SELECT
  authenticated | public       | time_entries                                   | activity_id                  | INSERT
  authenticated | public       | time_entries                                   | activity_id                  | REFERENCES
  authenticated | public       | time_entries                                   | activity_id                  | SELECT
@@ -6256,7 +6111,6 @@
  service_role  | public       | time_entries                                   | activity_id                  | REFERENCES
  service_role  | public       | time_entries                                   | activity_id                  | SELECT
  service_role  | public       | time_entries                                   | activity_id                  | UPDATE
- anon          | public       | time_entries                                   | created_at                   | SELECT
  authenticated | public       | time_entries                                   | created_at                   | INSERT
  authenticated | public       | time_entries                                   | created_at                   | REFERENCES
  authenticated | public       | time_entries                                   | created_at                   | SELECT
@@ -6269,7 +6123,6 @@
  service_role  | public       | time_entries                                   | created_at                   | REFERENCES
  service_role  | public       | time_entries                                   | created_at                   | SELECT
  service_role  | public       | time_entries                                   | created_at                   | UPDATE
- anon          | public       | time_entries                                   | date_worked                  | SELECT
  authenticated | public       | time_entries                                   | date_worked                  | INSERT
  authenticated | public       | time_entries                                   | date_worked                  | REFERENCES
  authenticated | public       | time_entries                                   | date_worked                  | SELECT
@@ -6282,7 +6135,6 @@
  service_role  | public       | time_entries                                   | date_worked                  | REFERENCES
  service_role  | public       | time_entries                                   | date_worked                  | SELECT
  service_role  | public       | time_entries                                   | date_worked                  | UPDATE
- anon          | public       | time_entries                                   | description                  | SELECT
  authenticated | public       | time_entries                                   | description                  | INSERT
  authenticated | public       | time_entries                                   | description                  | REFERENCES
  authenticated | public       | time_entries                                   | description                  | SELECT
@@ -6295,7 +6147,6 @@
  service_role  | public       | time_entries                                   | description                  | REFERENCES
  service_role  | public       | time_entries                                   | description                  | SELECT
  service_role  | public       | time_entries                                   | description                  | UPDATE
- anon          | public       | time_entries                                   | engagement_id                | SELECT
  authenticated | public       | time_entries                                   | engagement_id                | INSERT
  authenticated | public       | time_entries                                   | engagement_id                | REFERENCES
  authenticated | public       | time_entries                                   | engagement_id                | SELECT
@@ -6308,7 +6159,6 @@
  service_role  | public       | time_entries                                   | engagement_id                | REFERENCES
  service_role  | public       | time_entries                                   | engagement_id                | SELECT
  service_role  | public       | time_entries                                   | engagement_id                | UPDATE
- anon          | public       | time_entries                                   | hours_logged                 | SELECT
  authenticated | public       | time_entries                                   | hours_logged                 | INSERT
  authenticated | public       | time_entries                                   | hours_logged                 | REFERENCES
  authenticated | public       | time_entries                                   | hours_logged                 | SELECT
@@ -6321,7 +6171,6 @@
  service_role  | public       | time_entries                                   | hours_logged                 | REFERENCES
  service_role  | public       | time_entries                                   | hours_logged                 | SELECT
  service_role  | public       | time_entries                                   | hours_logged                 | UPDATE
- anon          | public       | time_entries                                   | is_forecast                  | SELECT
  authenticated | public       | time_entries                                   | is_forecast                  | INSERT
  authenticated | public       | time_entries                                   | is_forecast                  | REFERENCES
  authenticated | public       | time_entries                                   | is_forecast                  | SELECT
@@ -6334,7 +6183,6 @@
  service_role  | public       | time_entries                                   | is_forecast                  | REFERENCES
  service_role  | public       | time_entries                                   | is_forecast                  | SELECT
  service_role  | public       | time_entries                                   | is_forecast                  | UPDATE
- anon          | public       | time_entries                                   | period_id                    | SELECT
  authenticated | public       | time_entries                                   | period_id                    | INSERT
  authenticated | public       | time_entries                                   | period_id                    | REFERENCES
  authenticated | public       | time_entries                                   | period_id                    | SELECT
@@ -6347,7 +6195,6 @@
  service_role  | public       | time_entries                                   | period_id                    | REFERENCES
  service_role  | public       | time_entries                                   | period_id                    | SELECT
  service_role  | public       | time_entries                                   | period_id                    | UPDATE
- anon          | public       | time_entries                                   | staff_id                     | SELECT
  authenticated | public       | time_entries                                   | staff_id                     | INSERT
  authenticated | public       | time_entries                                   | staff_id                     | REFERENCES
  authenticated | public       | time_entries                                   | staff_id                     | SELECT
@@ -6360,7 +6207,6 @@
  service_role  | public       | time_entries                                   | staff_id                     | REFERENCES
  service_role  | public       | time_entries                                   | staff_id                     | SELECT
  service_role  | public       | time_entries                                   | staff_id                     | UPDATE
- anon          | public       | time_entries                                   | time_id                      | SELECT
  authenticated | public       | time_entries                                   | time_id                      | INSERT
  authenticated | public       | time_entries                                   | time_id                      | REFERENCES
  authenticated | public       | time_entries                                   | time_id                      | SELECT
@@ -6373,7 +6219,6 @@
  service_role  | public       | time_entries                                   | time_id                      | REFERENCES
  service_role  | public       | time_entries                                   | time_id                      | SELECT
  service_role  | public       | time_entries                                   | time_id                      | UPDATE
- anon          | public       | time_entries                                   | updated_at                   | SELECT
  authenticated | public       | time_entries                                   | updated_at                   | INSERT
  authenticated | public       | time_entries                                   | updated_at                   | REFERENCES
  authenticated | public       | time_entries                                   | updated_at                   | SELECT
@@ -6386,7 +6231,6 @@
  service_role  | public       | time_entries                                   | updated_at                   | REFERENCES
  service_role  | public       | time_entries                                   | updated_at                   | SELECT
  service_role  | public       | time_entries                                   | updated_at                   | UPDATE
- anon          | public       | timer_entries                                  | activity_id                  | SELECT
  authenticated | public       | timer_entries                                  | activity_id                  | INSERT
  authenticated | public       | timer_entries                                  | activity_id                  | REFERENCES
  authenticated | public       | timer_entries                                  | activity_id                  | SELECT
@@ -6399,7 +6243,6 @@
  service_role  | public       | timer_entries                                  | activity_id                  | REFERENCES
  service_role  | public       | timer_entries                                  | activity_id                  | SELECT
  service_role  | public       | timer_entries                                  | activity_id                  | UPDATE
- anon          | public       | timer_entries                                  | created_at                   | SELECT
  authenticated | public       | timer_entries                                  | created_at                   | INSERT
  authenticated | public       | timer_entries                                  | created_at                   | REFERENCES
  authenticated | public       | timer_entries                                  | created_at                   | SELECT
@@ -6412,7 +6255,6 @@
  service_role  | public       | timer_entries                                  | created_at                   | REFERENCES
  service_role  | public       | timer_entries                                  | created_at                   | SELECT
  service_role  | public       | timer_entries                                  | created_at                   | UPDATE
- anon          | public       | timer_entries                                  | description                  | SELECT
  authenticated | public       | timer_entries                                  | description                  | INSERT
  authenticated | public       | timer_entries                                  | description                  | REFERENCES
  authenticated | public       | timer_entries                                  | description                  | SELECT
@@ -6425,7 +6267,6 @@
  service_role  | public       | timer_entries                                  | description                  | REFERENCES
  service_role  | public       | timer_entries                                  | description                  | SELECT
  service_role  | public       | timer_entries                                  | description                  | UPDATE
- anon          | public       | timer_entries                                  | duration_minutes             | SELECT
  authenticated | public       | timer_entries                                  | duration_minutes             | INSERT
  authenticated | public       | timer_entries                                  | duration_minutes             | REFERENCES
  authenticated | public       | timer_entries                                  | duration_minutes             | SELECT
@@ -6438,7 +6279,6 @@
  service_role  | public       | timer_entries                                  | duration_minutes             | REFERENCES
  service_role  | public       | timer_entries                                  | duration_minutes             | SELECT
  service_role  | public       | timer_entries                                  | duration_minutes             | UPDATE
- anon          | public       | timer_entries                                  | ended_at                     | SELECT
  authenticated | public       | timer_entries                                  | ended_at                     | INSERT
  authenticated | public       | timer_entries                                  | ended_at                     | REFERENCES
  authenticated | public       | timer_entries                                  | ended_at                     | SELECT
@@ -6451,7 +6291,6 @@
  service_role  | public       | timer_entries                                  | ended_at                     | REFERENCES
  service_role  | public       | timer_entries                                  | ended_at                     | SELECT
  service_role  | public       | timer_entries                                  | ended_at                     | UPDATE
- anon          | public       | timer_entries                                  | engagement_id                | SELECT
  authenticated | public       | timer_entries                                  | engagement_id                | INSERT
  authenticated | public       | timer_entries                                  | engagement_id                | REFERENCES
  authenticated | public       | timer_entries                                  | engagement_id                | SELECT
@@ -6464,7 +6303,6 @@
  service_role  | public       | timer_entries                                  | engagement_id                | REFERENCES
  service_role  | public       | timer_entries                                  | engagement_id                | SELECT
  service_role  | public       | timer_entries                                  | engagement_id                | UPDATE
- anon          | public       | timer_entries                                  | has_explicit_times           | SELECT
  authenticated | public       | timer_entries                                  | has_explicit_times           | INSERT
  authenticated | public       | timer_entries                                  | has_explicit_times           | REFERENCES
  authenticated | public       | timer_entries                                  | has_explicit_times           | SELECT
@@ -6477,7 +6315,6 @@
  service_role  | public       | timer_entries                                  | has_explicit_times           | REFERENCES
  service_role  | public       | timer_entries                                  | has_explicit_times           | SELECT
  service_role  | public       | timer_entries                                  | has_explicit_times           | UPDATE
- anon          | public       | timer_entries                                  | imported_to_time_id          | SELECT
  authenticated | public       | timer_entries                                  | imported_to_time_id          | INSERT
  authenticated | public       | timer_entries                                  | imported_to_time_id          | REFERENCES
  authenticated | public       | timer_entries                                  | imported_to_time_id          | SELECT
@@ -6490,7 +6327,6 @@
  service_role  | public       | timer_entries                                  | imported_to_time_id          | REFERENCES
  service_role  | public       | timer_entries                                  | imported_to_time_id          | SELECT
  service_role  | public       | timer_entries                                  | imported_to_time_id          | UPDATE
- anon          | public       | timer_entries                                  | is_imported                  | SELECT
  authenticated | public       | timer_entries                                  | is_imported                  | INSERT
  authenticated | public       | timer_entries                                  | is_imported                  | REFERENCES
  authenticated | public       | timer_entries                                  | is_imported                  | SELECT
@@ -6503,7 +6339,6 @@
  service_role  | public       | timer_entries                                  | is_imported                  | REFERENCES
  service_role  | public       | timer_entries                                  | is_imported                  | SELECT
  service_role  | public       | timer_entries                                  | is_imported                  | UPDATE
- anon          | public       | timer_entries                                  | staff_id                     | SELECT
  authenticated | public       | timer_entries                                  | staff_id                     | INSERT
  authenticated | public       | timer_entries                                  | staff_id                     | REFERENCES
  authenticated | public       | timer_entries                                  | staff_id                     | SELECT
@@ -6516,7 +6351,6 @@
  service_role  | public       | timer_entries                                  | staff_id                     | REFERENCES
  service_role  | public       | timer_entries                                  | staff_id                     | SELECT
  service_role  | public       | timer_entries                                  | staff_id                     | UPDATE
- anon          | public       | timer_entries                                  | started_at                   | SELECT
  authenticated | public       | timer_entries                                  | started_at                   | INSERT
  authenticated | public       | timer_entries                                  | started_at                   | REFERENCES
  authenticated | public       | timer_entries                                  | started_at                   | SELECT
@@ -6529,7 +6363,6 @@
  service_role  | public       | timer_entries                                  | started_at                   | REFERENCES
  service_role  | public       | timer_entries                                  | started_at                   | SELECT
  service_role  | public       | timer_entries                                  | started_at                   | UPDATE
- anon          | public       | timer_entries                                  | timer_id                     | SELECT
  authenticated | public       | timer_entries                                  | timer_id                     | INSERT
  authenticated | public       | timer_entries                                  | timer_id                     | REFERENCES
  authenticated | public       | timer_entries                                  | timer_id                     | SELECT
@@ -6542,7 +6375,6 @@
  service_role  | public       | timer_entries                                  | timer_id                     | REFERENCES
  service_role  | public       | timer_entries                                  | timer_id                     | SELECT
  service_role  | public       | timer_entries                                  | timer_id                     | UPDATE
- anon          | public       | timesheet_line_approvals                       | activity_id                  | SELECT
  authenticated | public       | timesheet_line_approvals                       | activity_id                  | INSERT
  authenticated | public       | timesheet_line_approvals                       | activity_id                  | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | activity_id                  | SELECT
@@ -6555,7 +6387,6 @@
  service_role  | public       | timesheet_line_approvals                       | activity_id                  | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | activity_id                  | SELECT
  service_role  | public       | timesheet_line_approvals                       | activity_id                  | UPDATE
- anon          | public       | timesheet_line_approvals                       | approval_id                  | SELECT
  authenticated | public       | timesheet_line_approvals                       | approval_id                  | INSERT
  authenticated | public       | timesheet_line_approvals                       | approval_id                  | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | approval_id                  | SELECT
@@ -6568,7 +6399,6 @@
  service_role  | public       | timesheet_line_approvals                       | approval_id                  | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | approval_id                  | SELECT
  service_role  | public       | timesheet_line_approvals                       | approval_id                  | UPDATE
- anon          | public       | timesheet_line_approvals                       | approved_at                  | SELECT
  authenticated | public       | timesheet_line_approvals                       | approved_at                  | INSERT
  authenticated | public       | timesheet_line_approvals                       | approved_at                  | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | approved_at                  | SELECT
@@ -6581,7 +6411,6 @@
  service_role  | public       | timesheet_line_approvals                       | approved_at                  | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | approved_at                  | SELECT
  service_role  | public       | timesheet_line_approvals                       | approved_at                  | UPDATE
- anon          | public       | timesheet_line_approvals                       | approved_by                  | SELECT
  authenticated | public       | timesheet_line_approvals                       | approved_by                  | INSERT
  authenticated | public       | timesheet_line_approvals                       | approved_by                  | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | approved_by                  | SELECT
@@ -6594,7 +6423,6 @@
  service_role  | public       | timesheet_line_approvals                       | approved_by                  | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | approved_by                  | SELECT
  service_role  | public       | timesheet_line_approvals                       | approved_by                  | UPDATE
- anon          | public       | timesheet_line_approvals                       | created_at                   | SELECT
  authenticated | public       | timesheet_line_approvals                       | created_at                   | INSERT
  authenticated | public       | timesheet_line_approvals                       | created_at                   | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | created_at                   | SELECT
@@ -6607,7 +6435,6 @@
  service_role  | public       | timesheet_line_approvals                       | created_at                   | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | created_at                   | SELECT
  service_role  | public       | timesheet_line_approvals                       | created_at                   | UPDATE
- anon          | public       | timesheet_line_approvals                       | engagement_id                | SELECT
  authenticated | public       | timesheet_line_approvals                       | engagement_id                | INSERT
  authenticated | public       | timesheet_line_approvals                       | engagement_id                | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | engagement_id                | SELECT
@@ -6620,7 +6447,6 @@
  service_role  | public       | timesheet_line_approvals                       | engagement_id                | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | engagement_id                | SELECT
  service_role  | public       | timesheet_line_approvals                       | engagement_id                | UPDATE
- anon          | public       | timesheet_line_approvals                       | period_id                    | SELECT
  authenticated | public       | timesheet_line_approvals                       | period_id                    | INSERT
  authenticated | public       | timesheet_line_approvals                       | period_id                    | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | period_id                    | SELECT
@@ -6633,7 +6459,6 @@
  service_role  | public       | timesheet_line_approvals                       | period_id                    | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | period_id                    | SELECT
  service_role  | public       | timesheet_line_approvals                       | period_id                    | UPDATE
- anon          | public       | timesheet_line_approvals                       | review_notes                 | SELECT
  authenticated | public       | timesheet_line_approvals                       | review_notes                 | INSERT
  authenticated | public       | timesheet_line_approvals                       | review_notes                 | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | review_notes                 | SELECT
@@ -6646,7 +6471,6 @@
  service_role  | public       | timesheet_line_approvals                       | review_notes                 | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | review_notes                 | SELECT
  service_role  | public       | timesheet_line_approvals                       | review_notes                 | UPDATE
- anon          | public       | timesheet_line_approvals                       | status                       | SELECT
  authenticated | public       | timesheet_line_approvals                       | status                       | INSERT
  authenticated | public       | timesheet_line_approvals                       | status                       | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | status                       | SELECT
@@ -6659,7 +6483,6 @@
  service_role  | public       | timesheet_line_approvals                       | status                       | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | status                       | SELECT
  service_role  | public       | timesheet_line_approvals                       | status                       | UPDATE
- anon          | public       | timesheet_line_approvals                       | updated_at                   | SELECT
  authenticated | public       | timesheet_line_approvals                       | updated_at                   | INSERT
  authenticated | public       | timesheet_line_approvals                       | updated_at                   | REFERENCES
  authenticated | public       | timesheet_line_approvals                       | updated_at                   | SELECT
@@ -6672,7 +6495,6 @@
  service_role  | public       | timesheet_line_approvals                       | updated_at                   | REFERENCES
  service_role  | public       | timesheet_line_approvals                       | updated_at                   | SELECT
  service_role  | public       | timesheet_line_approvals                       | updated_at                   | UPDATE
- anon          | public       | timesheet_periods                              | created_at                   | SELECT
  authenticated | public       | timesheet_periods                              | created_at                   | INSERT
  authenticated | public       | timesheet_periods                              | created_at                   | REFERENCES
  authenticated | public       | timesheet_periods                              | created_at                   | SELECT
@@ -6685,7 +6507,6 @@
  service_role  | public       | timesheet_periods                              | created_at                   | REFERENCES
  service_role  | public       | timesheet_periods                              | created_at                   | SELECT
  service_role  | public       | timesheet_periods                              | created_at                   | UPDATE
- anon          | public       | timesheet_periods                              | deadline                     | SELECT
  authenticated | public       | timesheet_periods                              | deadline                     | INSERT
  authenticated | public       | timesheet_periods                              | deadline                     | REFERENCES
  authenticated | public       | timesheet_periods                              | deadline                     | SELECT
@@ -6698,7 +6519,6 @@
  service_role  | public       | timesheet_periods                              | deadline                     | REFERENCES
  service_role  | public       | timesheet_periods                              | deadline                     | SELECT
  service_role  | public       | timesheet_periods                              | deadline                     | UPDATE
- anon          | public       | timesheet_periods                              | is_period_locked             | SELECT
  authenticated | public       | timesheet_periods                              | is_period_locked             | INSERT
  authenticated | public       | timesheet_periods                              | is_period_locked             | REFERENCES
  authenticated | public       | timesheet_periods                              | is_period_locked             | SELECT
@@ -6711,7 +6531,6 @@
  service_role  | public       | timesheet_periods                              | is_period_locked             | REFERENCES
  service_role  | public       | timesheet_periods                              | is_period_locked             | SELECT
  service_role  | public       | timesheet_periods                              | is_period_locked             | UPDATE
- anon          | public       | timesheet_periods                              | period_id                    | SELECT
  authenticated | public       | timesheet_periods                              | period_id                    | INSERT
  authenticated | public       | timesheet_periods                              | period_id                    | REFERENCES
  authenticated | public       | timesheet_periods                              | period_id                    | SELECT
@@ -6724,7 +6543,6 @@
  service_role  | public       | timesheet_periods                              | period_id                    | REFERENCES
  service_role  | public       | timesheet_periods                              | period_id                    | SELECT
  service_role  | public       | timesheet_periods                              | period_id                    | UPDATE
- anon          | public       | timesheet_periods                              | staff_id                     | SELECT
  authenticated | public       | timesheet_periods                              | staff_id                     | INSERT
  authenticated | public       | timesheet_periods                              | staff_id                     | REFERENCES
  authenticated | public       | timesheet_periods                              | staff_id                     | SELECT
@@ -6737,7 +6555,6 @@
  service_role  | public       | timesheet_periods                              | staff_id                     | REFERENCES
  service_role  | public       | timesheet_periods                              | staff_id                     | SELECT
  service_role  | public       | timesheet_periods                              | staff_id                     | UPDATE
- anon          | public       | timesheet_periods                              | submitted_at                 | SELECT
  authenticated | public       | timesheet_periods                              | submitted_at                 | INSERT
  authenticated | public       | timesheet_periods                              | submitted_at                 | REFERENCES
  authenticated | public       | timesheet_periods                              | submitted_at                 | SELECT
@@ -6750,7 +6567,6 @@
  service_role  | public       | timesheet_periods                              | submitted_at                 | REFERENCES
  service_role  | public       | timesheet_periods                              | submitted_at                 | SELECT
  service_role  | public       | timesheet_periods                              | submitted_at                 | UPDATE
- anon          | public       | timesheet_periods                              | total_hours                  | SELECT
  authenticated | public       | timesheet_periods                              | total_hours                  | INSERT
  authenticated | public       | timesheet_periods                              | total_hours                  | REFERENCES
  authenticated | public       | timesheet_periods                              | total_hours                  | SELECT
@@ -6763,7 +6579,6 @@
  service_role  | public       | timesheet_periods                              | total_hours                  | REFERENCES
  service_role  | public       | timesheet_periods                              | total_hours                  | SELECT
  service_role  | public       | timesheet_periods                              | total_hours                  | UPDATE
- anon          | public       | timesheet_periods                              | updated_at                   | SELECT
  authenticated | public       | timesheet_periods                              | updated_at                   | INSERT
  authenticated | public       | timesheet_periods                              | updated_at                   | REFERENCES
  authenticated | public       | timesheet_periods                              | updated_at                   | SELECT
@@ -6776,7 +6591,6 @@
  service_role  | public       | timesheet_periods                              | updated_at                   | REFERENCES
  service_role  | public       | timesheet_periods                              | updated_at                   | SELECT
  service_role  | public       | timesheet_periods                              | updated_at                   | UPDATE
- anon          | public       | timesheet_periods                              | week_number                  | SELECT
  authenticated | public       | timesheet_periods                              | week_number                  | INSERT
  authenticated | public       | timesheet_periods                              | week_number                  | REFERENCES
  authenticated | public       | timesheet_periods                              | week_number                  | SELECT
@@ -6789,7 +6603,6 @@
  service_role  | public       | timesheet_periods                              | week_number                  | REFERENCES
  service_role  | public       | timesheet_periods                              | week_number                  | SELECT
  service_role  | public       | timesheet_periods                              | week_number                  | UPDATE
- anon          | public       | timesheet_periods                              | week_start_date              | SELECT
  authenticated | public       | timesheet_periods                              | week_start_date              | INSERT
  authenticated | public       | timesheet_periods                              | week_start_date              | REFERENCES
  authenticated | public       | timesheet_periods                              | week_start_date              | SELECT
@@ -6802,7 +6615,6 @@
  service_role  | public       | timesheet_periods                              | week_start_date              | REFERENCES
  service_role  | public       | timesheet_periods                              | week_start_date              | SELECT
  service_role  | public       | timesheet_periods                              | week_start_date              | UPDATE
- anon          | public       | timesheet_periods                              | year                         | SELECT
  authenticated | public       | timesheet_periods                              | year                         | INSERT
  authenticated | public       | timesheet_periods                              | year                         | REFERENCES
  authenticated | public       | timesheet_periods                              | year                         | SELECT
@@ -7073,7 +6885,6 @@
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | REFERENCES
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | SELECT
  service_role  | public       | user_lifecycle_audit_log                       | target_user_id               | UPDATE
- anon          | public       | user_roles                                     | created_at                   | SELECT
  authenticated | public       | user_roles                                     | created_at                   | SELECT
  postgres      | public       | user_roles                                     | created_at                   | INSERT
  postgres      | public       | user_roles                                     | created_at                   | REFERENCES
@@ -7083,7 +6894,6 @@
  service_role  | public       | user_roles                                     | created_at                   | REFERENCES
  service_role  | public       | user_roles                                     | created_at                   | SELECT
  service_role  | public       | user_roles                                     | created_at                   | UPDATE
- anon          | public       | user_roles                                     | deletion_email               | SELECT
  authenticated | public       | user_roles                                     | deletion_email               | SELECT
  postgres      | public       | user_roles                                     | deletion_email               | INSERT
  postgres      | public       | user_roles                                     | deletion_email               | REFERENCES
@@ -7093,7 +6903,6 @@
  service_role  | public       | user_roles                                     | deletion_email               | REFERENCES
  service_role  | public       | user_roles                                     | deletion_email               | SELECT
  service_role  | public       | user_roles                                     | deletion_email               | UPDATE
- anon          | public       | user_roles                                     | id                           | SELECT
  authenticated | public       | user_roles                                     | id                           | SELECT
  postgres      | public       | user_roles                                     | id                           | INSERT
  postgres      | public       | user_roles                                     | id                           | REFERENCES
@@ -7103,7 +6912,6 @@
  service_role  | public       | user_roles                                     | id                           | REFERENCES
  service_role  | public       | user_roles                                     | id                           | SELECT
  service_role  | public       | user_roles                                     | id                           | UPDATE
- anon          | public       | user_roles                                     | role                         | SELECT
  authenticated | public       | user_roles                                     | role                         | SELECT
  postgres      | public       | user_roles                                     | role                         | INSERT
  postgres      | public       | user_roles                                     | role                         | REFERENCES
@@ -7113,7 +6921,6 @@
  service_role  | public       | user_roles                                     | role                         | REFERENCES
  service_role  | public       | user_roles                                     | role                         | SELECT
  service_role  | public       | user_roles                                     | role                         | UPDATE
- anon          | public       | user_roles                                     | role_key                     | SELECT
  authenticated | public       | user_roles                                     | role_key                     | SELECT
  postgres      | public       | user_roles                                     | role_key                     | INSERT
  postgres      | public       | user_roles                                     | role_key                     | REFERENCES
@@ -7123,7 +6930,6 @@
  service_role  | public       | user_roles                                     | role_key                     | REFERENCES
  service_role  | public       | user_roles                                     | role_key                     | SELECT
  service_role  | public       | user_roles                                     | role_key                     | UPDATE
- anon          | public       | user_roles                                     | user_id                      | SELECT
  authenticated | public       | user_roles                                     | user_id                      | SELECT
  postgres      | public       | user_roles                                     | user_id                      | INSERT
  postgres      | public       | user_roles                                     | user_id                      | REFERENCES
@@ -7720,7 +7526,6 @@
  service_role  | public       | vw_wo_budget_hours_by_category_activity        | worksheet_id                 | REFERENCES
  service_role  | public       | vw_wo_budget_hours_by_category_activity        | worksheet_id                 | SELECT
  service_role  | public       | vw_wo_budget_hours_by_category_activity        | worksheet_id                 | UPDATE
- anon          | public       | wo_budget_lines                                | budgeted_hours               | SELECT
  authenticated | public       | wo_budget_lines                                | budgeted_hours               | INSERT
  authenticated | public       | wo_budget_lines                                | budgeted_hours               | REFERENCES
  authenticated | public       | wo_budget_lines                                | budgeted_hours               | SELECT
@@ -7733,7 +7538,6 @@
  service_role  | public       | wo_budget_lines                                | budgeted_hours               | REFERENCES
  service_role  | public       | wo_budget_lines                                | budgeted_hours               | SELECT
  service_role  | public       | wo_budget_lines                                | budgeted_hours               | UPDATE
- anon          | public       | wo_budget_lines                                | category_id                  | SELECT
  authenticated | public       | wo_budget_lines                                | category_id                  | INSERT
  authenticated | public       | wo_budget_lines                                | category_id                  | REFERENCES
  authenticated | public       | wo_budget_lines                                | category_id                  | SELECT
@@ -7746,7 +7550,6 @@
  service_role  | public       | wo_budget_lines                                | category_id                  | REFERENCES
  service_role  | public       | wo_budget_lines                                | category_id                  | SELECT
  service_role  | public       | wo_budget_lines                                | category_id                  | UPDATE
- anon          | public       | wo_budget_lines                                | created_at                   | SELECT
  authenticated | public       | wo_budget_lines                                | created_at                   | INSERT
  authenticated | public       | wo_budget_lines                                | created_at                   | REFERENCES
  authenticated | public       | wo_budget_lines                                | created_at                   | SELECT
@@ -7759,7 +7562,6 @@
  service_role  | public       | wo_budget_lines                                | created_at                   | REFERENCES
  service_role  | public       | wo_budget_lines                                | created_at                   | SELECT
  service_role  | public       | wo_budget_lines                                | created_at                   | UPDATE
- anon          | public       | wo_budget_lines                                | standard_rate                | SELECT
  authenticated | public       | wo_budget_lines                                | standard_rate                | INSERT
  authenticated | public       | wo_budget_lines                                | standard_rate                | REFERENCES
  authenticated | public       | wo_budget_lines                                | standard_rate                | SELECT
@@ -7772,7 +7574,6 @@
  service_role  | public       | wo_budget_lines                                | standard_rate                | REFERENCES
  service_role  | public       | wo_budget_lines                                | standard_rate                | SELECT
  service_role  | public       | wo_budget_lines                                | standard_rate                | UPDATE
- anon          | public       | wo_budget_lines                                | wo_id                        | SELECT
  authenticated | public       | wo_budget_lines                                | wo_id                        | INSERT
  authenticated | public       | wo_budget_lines                                | wo_id                        | REFERENCES
  authenticated | public       | wo_budget_lines                                | wo_id                        | SELECT
@@ -7785,7 +7586,6 @@
  service_role  | public       | wo_budget_lines                                | wo_id                        | REFERENCES
  service_role  | public       | wo_budget_lines                                | wo_id                        | SELECT
  service_role  | public       | wo_budget_lines                                | wo_id                        | UPDATE
- anon          | public       | wo_budget_lines                                | wo_line_id                   | SELECT
  authenticated | public       | wo_budget_lines                                | wo_line_id                   | INSERT
  authenticated | public       | wo_budget_lines                                | wo_line_id                   | REFERENCES
  authenticated | public       | wo_budget_lines                                | wo_line_id                   | SELECT
@@ -7798,7 +7598,6 @@
  service_role  | public       | wo_budget_lines                                | wo_line_id                   | REFERENCES
  service_role  | public       | wo_budget_lines                                | wo_line_id                   | SELECT
  service_role  | public       | wo_budget_lines                                | wo_line_id                   | UPDATE
- anon          | public       | wo_expense_budget                              | budgeted_amount              | SELECT
  authenticated | public       | wo_expense_budget                              | budgeted_amount              | INSERT
  authenticated | public       | wo_expense_budget                              | budgeted_amount              | REFERENCES
  authenticated | public       | wo_expense_budget                              | budgeted_amount              | SELECT
@@ -7811,7 +7610,6 @@
  service_role  | public       | wo_expense_budget                              | budgeted_amount              | REFERENCES
  service_role  | public       | wo_expense_budget                              | budgeted_amount              | SELECT
  service_role  | public       | wo_expense_budget                              | budgeted_amount              | UPDATE
- anon          | public       | wo_expense_budget                              | created_at                   | SELECT
  authenticated | public       | wo_expense_budget                              | created_at                   | INSERT
  authenticated | public       | wo_expense_budget                              | created_at                   | REFERENCES
  authenticated | public       | wo_expense_budget                              | created_at                   | SELECT
@@ -7824,7 +7622,6 @@
  service_role  | public       | wo_expense_budget                              | created_at                   | REFERENCES
  service_role  | public       | wo_expense_budget                              | created_at                   | SELECT
  service_role  | public       | wo_expense_budget                              | created_at                   | UPDATE
- anon          | public       | wo_expense_budget                              | expense_type_id              | SELECT
  authenticated | public       | wo_expense_budget                              | expense_type_id              | INSERT
  authenticated | public       | wo_expense_budget                              | expense_type_id              | REFERENCES
  authenticated | public       | wo_expense_budget                              | expense_type_id              | SELECT
@@ -7837,7 +7634,6 @@
  service_role  | public       | wo_expense_budget                              | expense_type_id              | REFERENCES
  service_role  | public       | wo_expense_budget                              | expense_type_id              | SELECT
  service_role  | public       | wo_expense_budget                              | expense_type_id              | UPDATE
- anon          | public       | wo_expense_budget                              | wo_exp_id                    | SELECT
  authenticated | public       | wo_expense_budget                              | wo_exp_id                    | INSERT
  authenticated | public       | wo_expense_budget                              | wo_exp_id                    | REFERENCES
  authenticated | public       | wo_expense_budget                              | wo_exp_id                    | SELECT
@@ -7850,7 +7646,6 @@
  service_role  | public       | wo_expense_budget                              | wo_exp_id                    | REFERENCES
  service_role  | public       | wo_expense_budget                              | wo_exp_id                    | SELECT
  service_role  | public       | wo_expense_budget                              | wo_exp_id                    | UPDATE
- anon          | public       | wo_expense_budget                              | wo_id                        | SELECT
  authenticated | public       | wo_expense_budget                              | wo_id                        | INSERT
  authenticated | public       | wo_expense_budget                              | wo_id                        | REFERENCES
  authenticated | public       | wo_expense_budget                              | wo_id                        | SELECT
@@ -8363,7 +8158,6 @@
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | REFERENCES
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | SELECT
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | UPDATE
- anon          | public       | work_order_summary                             | adjustment_amount            | SELECT
  authenticated | public       | work_order_summary                             | adjustment_amount            | INSERT
  authenticated | public       | work_order_summary                             | adjustment_amount            | REFERENCES
  authenticated | public       | work_order_summary                             | adjustment_amount            | SELECT
@@ -8376,7 +8170,6 @@
  service_role  | public       | work_order_summary                             | adjustment_amount            | REFERENCES
  service_role  | public       | work_order_summary                             | adjustment_amount            | SELECT
  service_role  | public       | work_order_summary                             | adjustment_amount            | UPDATE
- anon          | public       | work_order_summary                             | approval_status              | SELECT
  authenticated | public       | work_order_summary                             | approval_status              | INSERT
  authenticated | public       | work_order_summary                             | approval_status              | REFERENCES
  authenticated | public       | work_order_summary                             | approval_status              | SELECT
@@ -8389,7 +8182,6 @@
  service_role  | public       | work_order_summary                             | approval_status              | REFERENCES
  service_role  | public       | work_order_summary                             | approval_status              | SELECT
  service_role  | public       | work_order_summary                             | approval_status              | UPDATE
- anon          | public       | work_order_summary                             | approved_at                  | SELECT
  authenticated | public       | work_order_summary                             | approved_at                  | INSERT
  authenticated | public       | work_order_summary                             | approved_at                  | REFERENCES
  authenticated | public       | work_order_summary                             | approved_at                  | SELECT
@@ -8402,7 +8194,6 @@
  service_role  | public       | work_order_summary                             | approved_at                  | REFERENCES
  service_role  | public       | work_order_summary                             | approved_at                  | SELECT
  service_role  | public       | work_order_summary                             | approved_at                  | UPDATE
- anon          | public       | work_order_summary                             | approved_by                  | SELECT
  authenticated | public       | work_order_summary                             | approved_by                  | INSERT
  authenticated | public       | work_order_summary                             | approved_by                  | REFERENCES
  authenticated | public       | work_order_summary                             | approved_by                  | SELECT
@@ -8415,7 +8206,6 @@
  service_role  | public       | work_order_summary                             | approved_by                  | REFERENCES
  service_role  | public       | work_order_summary                             | approved_by                  | SELECT
  service_role  | public       | work_order_summary                             | approved_by                  | UPDATE
- anon          | public       | work_order_summary                             | created_at                   | SELECT
  authenticated | public       | work_order_summary                             | created_at                   | INSERT
  authenticated | public       | work_order_summary                             | created_at                   | REFERENCES
  authenticated | public       | work_order_summary                             | created_at                   | SELECT
@@ -8428,7 +8218,6 @@
  service_role  | public       | work_order_summary                             | created_at                   | REFERENCES
  service_role  | public       | work_order_summary                             | created_at                   | SELECT
  service_role  | public       | work_order_summary                             | created_at                   | UPDATE
- anon          | public       | work_order_summary                             | currency                     | SELECT
  authenticated | public       | work_order_summary                             | currency                     | INSERT
  authenticated | public       | work_order_summary                             | currency                     | REFERENCES
  authenticated | public       | work_order_summary                             | currency                     | SELECT
@@ -8441,7 +8230,6 @@
  service_role  | public       | work_order_summary                             | currency                     | REFERENCES
  service_role  | public       | work_order_summary                             | currency                     | SELECT
  service_role  | public       | work_order_summary                             | currency                     | UPDATE
- anon          | public       | work_order_summary                             | engagement_id                | SELECT
  authenticated | public       | work_order_summary                             | engagement_id                | INSERT
  authenticated | public       | work_order_summary                             | engagement_id                | REFERENCES
  authenticated | public       | work_order_summary                             | engagement_id                | SELECT
@@ -8454,7 +8242,6 @@
  service_role  | public       | work_order_summary                             | engagement_id                | REFERENCES
  service_role  | public       | work_order_summary                             | engagement_id                | SELECT
  service_role  | public       | work_order_summary                             | engagement_id                | UPDATE
- anon          | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
  authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | INSERT
  authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | REFERENCES
  authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
@@ -8467,7 +8254,6 @@
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | REFERENCES
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | UPDATE
- anon          | public       | work_order_summary                             | notes                        | SELECT
  authenticated | public       | work_order_summary                             | notes                        | INSERT
  authenticated | public       | work_order_summary                             | notes                        | REFERENCES
  authenticated | public       | work_order_summary                             | notes                        | SELECT
@@ -8480,7 +8266,6 @@
  service_role  | public       | work_order_summary                             | notes                        | REFERENCES
  service_role  | public       | work_order_summary                             | notes                        | SELECT
  service_role  | public       | work_order_summary                             | notes                        | UPDATE
- anon          | public       | work_order_summary                             | realization_percent          | SELECT
  authenticated | public       | work_order_summary                             | realization_percent          | INSERT
  authenticated | public       | work_order_summary                             | realization_percent          | REFERENCES
  authenticated | public       | work_order_summary                             | realization_percent          | SELECT
@@ -8493,7 +8278,6 @@
  service_role  | public       | work_order_summary                             | realization_percent          | REFERENCES
  service_role  | public       | work_order_summary                             | realization_percent          | SELECT
  service_role  | public       | work_order_summary                             | realization_percent          | UPDATE
- anon          | public       | work_order_summary                             | season_mode                  | SELECT
  authenticated | public       | work_order_summary                             | season_mode                  | INSERT
  authenticated | public       | work_order_summary                             | season_mode                  | REFERENCES
  authenticated | public       | work_order_summary                             | season_mode                  | SELECT
@@ -8506,7 +8290,6 @@
  service_role  | public       | work_order_summary                             | season_mode                  | REFERENCES
  service_role  | public       | work_order_summary                             | season_mode                  | SELECT
  service_role  | public       | work_order_summary                             | season_mode                  | UPDATE
- anon          | public       | work_order_summary                             | tax_rate                     | SELECT
  authenticated | public       | work_order_summary                             | tax_rate                     | INSERT
  authenticated | public       | work_order_summary                             | tax_rate                     | REFERENCES
  authenticated | public       | work_order_summary                             | tax_rate                     | SELECT
@@ -8519,7 +8302,6 @@
  service_role  | public       | work_order_summary                             | tax_rate                     | REFERENCES
  service_role  | public       | work_order_summary                             | tax_rate                     | SELECT
  service_role  | public       | work_order_summary                             | tax_rate                     | UPDATE
- anon          | public       | work_order_summary                             | total_standard_fee           | SELECT
  authenticated | public       | work_order_summary                             | total_standard_fee           | INSERT
  authenticated | public       | work_order_summary                             | total_standard_fee           | REFERENCES
  authenticated | public       | work_order_summary                             | total_standard_fee           | SELECT
@@ -8532,7 +8314,6 @@
  service_role  | public       | work_order_summary                             | total_standard_fee           | REFERENCES
  service_role  | public       | work_order_summary                             | total_standard_fee           | SELECT
  service_role  | public       | work_order_summary                             | total_standard_fee           | UPDATE
- anon          | public       | work_order_summary                             | updated_at                   | SELECT
  authenticated | public       | work_order_summary                             | updated_at                   | INSERT
  authenticated | public       | work_order_summary                             | updated_at                   | REFERENCES
  authenticated | public       | work_order_summary                             | updated_at                   | SELECT
@@ -8545,7 +8326,6 @@
  service_role  | public       | work_order_summary                             | updated_at                   | REFERENCES
  service_role  | public       | work_order_summary                             | updated_at                   | SELECT
  service_role  | public       | work_order_summary                             | updated_at                   | UPDATE
- anon          | public       | work_order_summary                             | wo_id                        | SELECT
  authenticated | public       | work_order_summary                             | wo_id                        | INSERT
  authenticated | public       | work_order_summary                             | wo_id                        | REFERENCES
  authenticated | public       | work_order_summary                             | wo_id                        | SELECT
@@ -9741,5 +9521,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(9741 rows)
+(9521 rows)
 

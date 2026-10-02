@@ -69,7 +69,14 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 ## Backend (Supabase)
 
 - Supabase project ID: `ugqxfnrxvksiltwxzist`
-- 14 Edge Functions (inventory below)
+- 13 Edge Functions en el repo, 12 desplegables (inventory below). `test-minmax-settings` se eliminó el
+  02/10/2026 y `test-resubmission-state` quedó **sin desplegar**: son arneses de prueba que llaman RPC de
+  negocio con `service_role` y sin comprobación de llamador, así que desplegados eran alcanzables por
+  cualquiera con la clave publishable (barrido de seguridad, `bugs/seguridad/barrido_report.md`). Las
+  cuatro validaciones de `test-minmax-settings` ya están dentro de la propia RPC; los escenarios S1–S15 de
+  `test-resubmission-state`, en cambio, **no tienen equivalente en `npm test`** — son la única cobertura de
+  integración de `submit_timesheet_safe` y `enforce_holiday_blocking`, y su destino es portarlos a
+  `supabase/tests/` (harness RLS, base efímera local) en vez de ejecutarlos contra un proyecto vivo.
 - Migrations in `supabase/migrations/` (run `ls supabase/migrations | sort` for the current count/list — it grows with every incremental bug/feature branch, so it's not tracked as a fixed number here): 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. Everything else is an incremental migration applied on top of that set, one per bug/feature ID (e.g. `20260825120000_0825-183_worksheet_activity_practice_scope.sql`).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
@@ -84,8 +91,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
 | `secure-signin` | Sole legitimate caller of the account-lockout RPCs (`check_login_allowed`, `record_failed_login`); fronts sign-in so `anon` can no longer trip lockout directly (BUG 0514-115) |
 | `scheduler-data` | Scheduler L1/staff-load/staff-timeline read-only queries, scoped by role visibility and effective engagement state (Fase 3) |
 | `scheduler-gaps` | Firmwide Gap Reporting aggregates (headcount/hours/competency/bench), firmwide roles only (Fase 3) |
-| `test-minmax-settings` | Backend integration tests for the min/max settings RPC |
-| `test-resubmission-state` | Backend integration tests for timesheet resubmission state |
+| `test-resubmission-state` | Escenarios S1–S15 de integración de `submit_timesheet_safe` / `enforce_holiday_blocking`. **No desplegar**: usa `service_role` sin comprobación de llamador. Pendiente de portar a `supabase/tests/` |
 | `unlock-account` | Admin manual account unlock — clears `staff.is_blocked` + sends password reset email (BUG 0601-132) |
 | `auth-email-hook` | Supabase Auth Send Email Hook — renders the account emails (signup / recovery / admin unlock) and sends them through Microsoft Graph instead of Supabase's built-in mail service. Authenticated by the Standard Webhooks signature, not a JWT (`docs/plan-correos-notificaciones.md` §3) |
 | `request-password-reset` | Public "forgot password" endpoint. Asks GoTrue for the recovery token with `generateLink()` (which sends no email) and delivers it through Microsoft Graph, so the flow is no longer capped by Supabase's built-in 2-emails/hour limit. Abuse control is `claim_auth_email_slot()`, and the response is identical whether or not the account exists |
