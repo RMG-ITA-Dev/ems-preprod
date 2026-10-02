@@ -293,9 +293,10 @@ La reversión no devuelve el `EXECUTE` a `PUBLIC`: no lo necesita ningún consum
 
 ### 6.4 — A.4: escritura anónima en las 16 tablas sin RLS y en 5 vistas (BAR-002, BAR-010)
 
-**Re-aceptación pendiente**: desde el artifact `route-fingerprint-replay` del primer run del gate
-`consolidated-replay` con este cambio (`VERSIONS.md`), no desde una réplica local. Hasta entonces el
-gate falla en `catalog_grants` y `catalog_column_grants`, y es esperado.
+Re-aceptado desde el artifact del run **37025305304** (`headSha` 53a82a8d, 2026-10-02, PR #362).
+Divergieron exactamente `catalog_grants` (−126) y `catalog_column_grants` (−657), con solo filas de `anon`
+que desaparecen; `catalog_routine_grants`, `catalog_policies`, `catalog_storage_buckets` y
+`consolidado_renamed_schema.sql` quedaron idénticos.
 
 Segundo bloque de `REVOKE` al final de `cero_06_grants.sql`, mismo mecanismo que §3 y §6.3. Retira
 `DELETE`, `INSERT`, `REFERENCES`, `TRIGGER`, `TRUNCATE` y `UPDATE` a **`anon`** sobre:
