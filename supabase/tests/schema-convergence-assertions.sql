@@ -33,6 +33,7 @@
 --   Sin escritura de roles por la Data API -> part 1, check 11
 --   Compuerta relrowsecurity (A.3)         -> part 1, check 12 (lista de
 --                                            excepciones = pendiente del Carril B)
+--   Sin escritura anónima (A.4)            -> part 1, check 13 (16 tablas + 5 vistas)
 
 BEGIN;
 
@@ -306,6 +307,42 @@ BEGIN
     RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity except the % listed exceptions (Carril B pendiente)',
       array_length(v_exceptions, 1);
   END;
+
+  -- 13. A.4 (BAR-002/BAR-010): anon no escribe las tablas sin RLS ni las vistas con grant a anon.
+  --     Las vistas importan aparte: son simples, de postgres y sin security_invoker, así que la
+  --     escritura a través de ellas se autoriza contra el dueño y rodea el REVOKE de la tabla base.
+  --     SELECT de global_settings se conserva (la pantalla de login lo lee sin sesión).
+  IF to_regrole('anon') IS NOT NULL THEN
+    DECLARE
+      obj  text;
+      priv text;
+    BEGIN
+      FOREACH obj IN ARRAY ARRAY[
+        'activity_codes', 'activity_worksheet_cells', 'categories', 'clients', 'engagements',
+        'expense_types', 'global_settings', 'industries', 'migration_run_log', 'staff',
+        'time_entries', 'timer_entries', 'timesheet_line_approvals', 'timesheet_periods',
+        'wo_budget_lines', 'wo_expense_budget',
+        'clients_directory', 'engagement_wo_state', 'fund_request_selectable_work_orders',
+        'staff_directory', 'work_order_summary'
+      ] LOOP
+        IF to_regclass('public.' || obj) IS NULL THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — public.% not found (A.4 lista desactualizada)', obj;
+        END IF;
+        FOREACH priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+          IF has_table_privilege('anon', 'public.' || obj, priv) THEN
+            RAISE EXCEPTION 'CONVERGENCE FAIL — anon retains % on public.% (escritura anónima, BAR-002/010)', priv, obj;
+          END IF;
+        END LOOP;
+        IF has_any_column_privilege('anon', 'public.' || obj, 'INSERT, UPDATE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon retains a column-level INSERT/UPDATE on public.% (BAR-002/010)', obj;
+        END IF;
+      END LOOP;
+      IF NOT has_table_privilege('anon', 'public.global_settings', 'SELECT') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon lost SELECT on public.global_settings (la pantalla de login lo lee sin sesión)';
+      END IF;
+    END;
+    RAISE NOTICE 'PASS — A.4: anon sin escritura en las 16 tablas sin RLS ni en las 5 vistas; SELECT de global_settings intacto';
+  END IF;
 END $$;
 
 -- =====================================================================

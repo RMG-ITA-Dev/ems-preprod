@@ -1878,3 +1878,39 @@ REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM authenticated
 --     identificador recibido. Su único consumidor es la Edge Function assign-user-role, que la llama
 --     con service_role. PUBLIC se incluye porque una función nace ejecutable por PUBLIC.
 REVOKE EXECUTE ON FUNCTION public.assign_user_role_atomic(p_user_id uuid) FROM PUBLIC, anon, authenticated;
+
+-- A.4 escritura anónima sobre las 16 tablas de §4.3 que siguen sin RLS (BAR-002) y sobre las 5 vistas
+--     con grant a anon (BAR-010). Es el vector que demostró el informe del 2026-09-28 (PATCH anónimo
+--     a engagements -> 204). RLS y políticas de estas tablas son del Carril B; esto solo retira la
+--     ESCRITURA de anon. SELECT se conserva: la pantalla de login lee global_settings sin sesión, y
+--     el resto de la lectura anónima se cierra con RLS en el Carril B.
+--     Verificado sin consumidores: ningún flujo del frontend ni de las Edge Functions escribe estas
+--     tablas como anon (todo corre tras el login con el JWT del usuario, o con service_role), y las
+--     funciones SECURITY INVOKER ejecutables por anon no hacen DML sobre ellas.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.activity_codes FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.activity_worksheet_cells FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.categories FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.clients FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.engagements FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.expense_types FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.global_settings FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.industries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.migration_run_log FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.staff FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.time_entries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timer_entries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timesheet_line_approvals FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timesheet_periods FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.wo_budget_lines FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.wo_expense_budget FROM anon;
+
+--     Vistas: revocar solo la tabla base NO basta. clients_directory, staff_directory y
+--     engagement_wo_state son vistas simples (auto-actualizables) propiedad de postgres y sin
+--     security_invoker, así que Postgres comprueba el permiso de escritura contra el DUEÑO de la
+--     vista y no contra anon: un UPDATE a la vista pasa aunque la tabla ya esté revocada
+--     (reproducido en local). Mismas revocaciones sobre las cinco vistas con grant a anon.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.clients_directory FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.engagement_wo_state FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.fund_request_selectable_work_orders FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.staff_directory FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.work_order_summary FROM anon;

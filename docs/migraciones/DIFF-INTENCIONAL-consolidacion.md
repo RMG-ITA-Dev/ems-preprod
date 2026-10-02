@@ -290,3 +290,92 @@ COMMIT;
 
 La reversión no devuelve el `EXECUTE` a `PUBLIC`: no lo necesita ningún consumidor y, con
 `anon`/`authenticated` restaurados, el comportamiento previo queda igual para la Data API.
+
+### 6.4 — A.4: escritura anónima en las 16 tablas sin RLS y en 5 vistas (BAR-002, BAR-010)
+
+**Re-aceptación pendiente**: desde el artifact `route-fingerprint-replay` del primer run del gate
+`consolidated-replay` con este cambio (`VERSIONS.md`), no desde una réplica local. Hasta entonces el
+gate falla en `catalog_grants` y `catalog_column_grants`, y es esperado.
+
+Segundo bloque de `REVOKE` al final de `cero_06_grants.sql`, mismo mecanismo que §3 y §6.3. Retira
+`DELETE`, `INSERT`, `REFERENCES`, `TRIGGER`, `TRUNCATE` y `UPDATE` a **`anon`** sobre:
+
+- Tablas (16): `activity_codes`, `activity_worksheet_cells`, `categories`, `clients`, `engagements`,
+  `expense_types`, `global_settings`, `industries`, `migration_run_log`, `staff`, `time_entries`,
+  `timer_entries`, `timesheet_line_approvals`, `timesheet_periods`, `wo_budget_lines`,
+  `wo_expense_budget`.
+- Vistas (5): `clients_directory`, `engagement_wo_state`, `fund_request_selectable_work_orders`,
+  `staff_directory`, `work_order_summary`.
+
+`SELECT` de `anon` se conserva en todos (la pantalla de login lee `global_settings` sin sesión);
+`authenticated` y `service_role` no cambian. **Las vistas van aparte a propósito**: `clients_directory`,
+`staff_directory` y `engagement_wo_state` son vistas simples (auto-actualizables), propiedad de
+`postgres` y sin `security_invoker`, así que una escritura a la vista se autoriza contra el dueño y
+rodea el `REVOKE` de la tabla base. Reproducido en local: con la tabla revocada, `UPDATE` anónimo a
+la tabla da `permission denied` y el mismo `UPDATE` a la vista pasa.
+
+Hunks esperados (solo filas que **desaparecen**; ninguna de `authenticated`, `service_role` ni
+`postgres`; ninguna de `SELECT`):
+
+1. `consolidado_renamed_catalog_grants.txt`: para `anon`, `DELETE`, `INSERT`, `REFERENCES`,
+   `TRIGGER`, `TRUNCATE` y `UPDATE` de los 21 objetos de arriba.
+2. `consolidado_renamed_catalog_column_grants.txt`: las filas por columna derivadas de esos mismos
+   privilegios (`INSERT`/`REFERENCES`/`UPDATE`) para `anon`.
+
+`catalog_routine_grants`, `catalog_policies`, `catalog_storage_buckets` y `schema.sql` no deberían
+cambiar. Si el diff trae algo fuera de esta lista, es drift real y hay que parar.
+
+Guardia de regresión: `schema-convergence-assertions.sql`, check 13.
+
+#### Ambientes que ya aplicaron `cero_06`: bloque único de A.4
+
+Mismas razones que en §6.3. Verificar antes que el editor abierto es el del `project-ref` correcto.
+
+```sql
+-- A.4, aplicación única en un ambiente ya migrado. Idempotente.
+BEGIN;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE
+  public.activity_codes, public.activity_worksheet_cells, public.categories, public.clients,
+  public.engagements, public.expense_types, public.global_settings, public.industries,
+  public.migration_run_log, public.staff, public.time_entries, public.timer_entries,
+  public.timesheet_line_approvals, public.timesheet_periods, public.wo_budget_lines,
+  public.wo_expense_budget,
+  public.clients_directory, public.engagement_wo_state,
+  public.fund_request_selectable_work_orders, public.staff_directory, public.work_order_summary
+FROM anon;
+COMMIT;
+
+-- Verificación (solo lectura). Esperado: 0 filas con escritura; global_settings_select = true.
+SELECT c.relname AS objeto, p.priv
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+  CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) p(priv)
+ WHERE c.relname IN ('activity_codes','activity_worksheet_cells','categories','clients','engagements',
+         'expense_types','global_settings','industries','migration_run_log','staff','time_entries',
+         'timer_entries','timesheet_line_approvals','timesheet_periods','wo_budget_lines',
+         'wo_expense_budget','clients_directory','engagement_wo_state',
+         'fund_request_selectable_work_orders','staff_directory','work_order_summary')
+   AND has_table_privilege('anon', c.oid, p.priv);
+
+SELECT has_table_privilege('anon', 'public.global_settings', 'SELECT') AS global_settings_select;
+```
+
+Reversión exacta, solo si el bloque rompe un flujo legítimo (restaura la exposición; registrar el
+motivo en `bugs/seguridad/barrido_report.md` §3 antes de correrla):
+
+```sql
+BEGIN;
+GRANT ALL ON TABLE
+  public.activity_codes, public.activity_worksheet_cells, public.categories, public.clients,
+  public.engagements, public.expense_types, public.global_settings, public.industries,
+  public.migration_run_log, public.staff, public.time_entries, public.timer_entries,
+  public.timesheet_line_approvals, public.timesheet_periods, public.wo_budget_lines,
+  public.wo_expense_budget,
+  public.clients_directory, public.engagement_wo_state,
+  public.fund_request_selectable_work_orders, public.staff_directory, public.work_order_summary
+TO anon;
+COMMIT;
+```
+
+Para `staff`, `GRANT ALL` a `anon` restaura el estado original del dump (línea 1296 de `cero_06`), que
+no tiene grants por columna para `anon`.
