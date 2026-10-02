@@ -499,6 +499,17 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
 };
 
 /**
+ * Token de sistema para la nota de cierre en cascada de `execute_timesheet_reversal` (review
+ * iteración 4, hallazgo #5): antes la RPC guardaba/enviaba una oración fija en español
+ * (`v_cascade_note`) como si fuera una nota escrita por una persona, así que un destinatario
+ * en inglés la veía sin traducir en su notificación y en "Mis solicitudes". Ahora la RPC
+ * guarda/envía este token neutro, y el frontend lo traduce con `approval.reversalCascadeNote`
+ * en cada lugar donde se muestre (a diferencia de un motivo/nota real de una persona, que sí
+ * queda en el idioma en que se escribió, por diseño).
+ */
+export const REVERSAL_CASCADE_NOTE_TOKEN = "SYSTEM_CASCADE_WEEK_STALE";
+
+/**
  * Tipos que se apartan del permiso de su modulo, porque su destino es otra pantalla.
  *
  * Los dos eventos de envio AJENO del modulo Timesheets llevan al detalle de aprobacion
@@ -510,6 +521,13 @@ const MODULE_ROUTE_PERMISSION: Partial<Record<NotificationModule, string>> = {
 const TYPE_ROUTE_PERMISSION: Record<string, string> = {
   "timesheet.weekly_submitted": "timesheet_approval.read",
   "timesheet.team_submitted_for_approval": "timesheet_approval.read",
+  // 0923-209: los dos avisos sobre una solicitud/ejecución AJENA van a la cola de
+  // reversiones de /timesheet/approvals -- igual que los dos de envío de arriba.
+  // approval.reversal_rejected NO entra acá: una solicitud SEMANA apunta a la boleta PROPIA
+  // del solicitante y cae al default del módulo (timesheet.read); una ENCARGO se resuelve
+  // por alcance en notificationRoute (review iteración 12, hallazgo #2).
+  "approval.reversal_requested": "timesheet_approval.read",
+  "approval.reversal_executed": "timesheet_approval.read",
 };
 
 /**
@@ -540,6 +558,16 @@ export function notificationRoute(
     if (context === "assigned" || context === "unassigned") {
       return event.entity_id ? `/timesheet/assignments?engagementId=${event.entity_id}` : null;
     }
+  }
+
+  // 0923-209 (review iteración 12, hallazgo #2): el rechazo de una solicitud de alcance ENCARGO
+  // lo recibe un gerente/socio que pidió revertir líneas de OTRA persona -- su hoja de tiempo
+  // (/timesheet) no tiene relación. Va a "Mis solicitudes", donde ve el veredicto y la nota.
+  // Exige `timesheet_approval.read`, no `timesheet.read` (un hr_manager tiene el primero y no
+  // el segundo). Los avisos sin `scope` (o de alcance SEMANA) siguen al default del módulo.
+  if (event.type_key === "approval.reversal_rejected" && event.payload?.scope === "engagement") {
+    if (can && !can("timesheet_approval.read")) return null;
+    return "/timesheet/approvals?tab=my-requests";
   }
 
   const permission =
@@ -627,6 +655,20 @@ export function notificationRoute(
         : null;
     }
     case "timesheet_approval": {
+      // 0923-209: approval.reversal_requested sólo lo recibe el admin, que siempre tiene la
+      // tab "reversals" (la cola) -- entity_id es el request_id, no parametro de ruta, así
+      // que el destino es fijo.
+      if (event.type_key === "approval.reversal_requested") {
+        return "/timesheet/approvals?tab=reversals";
+      }
+      // approval.reversal_executed lo reciben gerentes/socios de los encargos afectados, que
+      // NO son admin -- para ellos la tab "reversals" ni siquiera existe (review iteración 1,
+      // hallazgo #9: quedaban en una pantalla en blanco). "pending" es la única tab que
+      // cualquier perfil con timesheet_approval.read puede ver, y es la más accionable: las
+      // líneas revertidas vuelven a aparecer ahí para volver a aprobarse.
+      if (event.type_key === "approval.reversal_executed") {
+        return "/timesheet/approvals?tab=pending";
+      }
       // El veredicto es sobre una linea MIA: el destino es mi hoja de tiempo, no la bandeja
       // de aprobaciones. `entity_id` es el approval_id, que no es parametro de ninguna ruta.
       return "/timesheet";

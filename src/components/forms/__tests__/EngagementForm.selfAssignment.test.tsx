@@ -418,7 +418,12 @@ describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", 
 
     await user.click(screen.getByText("common.pickDate"));
     const calendarMock = await screen.findByTestId("calendar-mock");
-    fireEvent.change(calendarMock, { target: { value: "2026-09-30" } });
+    // Fecha de inicio relativa a HOY (mañana): el formulario rechaza inicios anteriores a hoy
+    // (startDateBeforeCreation), así que una fecha fija caduca con el calendario.
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const startValue = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+    fireEvent.change(calendarMock, { target: { value: startValue } });
 
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: "engagement.closingDate *" })).toBeInTheDocument()

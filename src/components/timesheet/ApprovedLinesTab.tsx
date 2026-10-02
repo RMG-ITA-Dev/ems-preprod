@@ -1,0 +1,281 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Loader2, RotateCcw } from "lucide-react";
+import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
+import { isWeekWithinEditableWindow, parseDateLocal } from "@/lib/timesheetUtils";
+import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
+import {
+  useApprovedApprovalGroups,
+  useRequestTimesheetReversal,
+  useExecuteTimesheetReversal,
+  usePendingEngagementReversals,
+  type ApprovedApprovalGroup,
+} from "@/hooks/useTimesheetReversals";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
+import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
+
+interface ApprovedLinesTabProps {
+  /** El usuario tiene timesheet_approval.approve: puede SOLICITAR reversión de encargo. */
+  canRequestReversal: boolean;
+  /** El usuario es admin: puede EJECUTAR (revertir directo) sin pasar por una solicitud. */
+  isAdmin: boolean;
+}
+
+// 0923-209 §c.5: grupos (staff x encargo x semana) con >=1 línea aprobada. Tres perfiles:
+// sólo lectura (ni canRequestReversal ni isAdmin), aprobador (Solicitar reversión), admin
+// (Revertir directo). Filtros por usuario/semana/encargo aplican para los tres.
+export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesTabProps) {
+  const { t } = useTranslation();
+  const { data: groups, isLoading, isError, refetch } = useApprovedApprovalGroups();
+  const [staffSearch, setStaffSearch] = useState("");
+  const [engagementSearch, setEngagementSearch] = useState("");
+  const [weekFilter, setWeekFilter] = useState("");
+  const [activeGroup, setActiveGroup] = useState<ApprovedApprovalGroup | null>(null);
+  const [dialogMode, setDialogMode] = useState<"request" | "revert" | null>(null);
+
+  const requestReversal = useRequestTimesheetReversal();
+  const executeReversal = useExecuteTimesheetReversal();
+
+  const filtered = (groups ?? []).filter((g) => {
+    const staffName = g.staff.short_name || `${g.staff.first_name} ${g.staff.last_name}`;
+    if (staffSearch && !staffName.toLowerCase().includes(staffSearch.toLowerCase())) return false;
+    if (engagementSearch) {
+      const engName = `${g.engagement.engagement_code ?? ""} ${g.engagement.engagement_name}`.toLowerCase();
+      if (!engName.includes(engagementSearch.toLowerCase())) return false;
+    }
+    if (weekFilter && g.week_start_date !== weekFilter) return false;
+    return true;
+  });
+
+  const showActions = canRequestReversal || isAdmin;
+
+  // Elegibilidad por grupo (review iteración 10, hallazgo #2): request_timesheet_reversal delega
+  // en can_approve_timesheet_line, que sólo autoriza al gerente/socio del encargo. El admin
+  // (Revertir) no depende del encargo.
+  const { staffRecord } = useCurrentStaff();
+
+  // Con una solicitud ENCARGO abierta sobre el mismo (período, encargo) el botón se reemplaza por
+  // un aviso deshabilitado (review iteración 14, hallazgo #1): la RPC respondería
+  // REVERSAL_ALREADY_REQUESTED. Mientras la consulta carga, el botón queda deshabilitado; si
+  // FALLA no se bloquea (el servidor sigue siendo la barrera). El admin no depende de esto.
+  const { data: pendingEngagementKeys, isLoading: isCheckingPending } =
+    usePendingEngagementReversals(canRequestReversal && !isAdmin);
+  const hasPendingRequest = (group: ApprovedApprovalGroup) =>
+    !isAdmin && !!pendingEngagementKeys?.has(`${group.period_id}:${group.engagement_id}`);
+
+  const renderRowAction = (group: ApprovedApprovalGroup, className?: string) => {
+    if (hasPendingRequest(group)) {
+      return (
+        <Button size="sm" variant="outline" className={className} disabled>
+          <RotateCcw className="h-4 w-4 mr-1" />
+          {t("timesheet.reversalPending")}
+        </Button>
+      );
+    }
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        className={className}
+        onClick={() => openDialog(group)}
+        disabled={!isAdmin && isCheckingPending}
+      >
+        <RotateCcw className="h-4 w-4 mr-1" />
+        {isAdmin ? t("approval.revert") : t("approval.requestReversal")}
+      </Button>
+    );
+  };
+
+  // Ventana de edición del colaborador (review iteración 15, hallazgo #2; decisión del operador):
+  // revertir una semana que su dueño ya no podría editar ni reenviar no sirve, así que ni el
+  // aprobador (Solicitar) ni el admin (Revertir) ven la acción fuera de esa ventana. Mientras las
+  // políticas cargan se usan los valores por defecto de `useTimesheetPolicies` (30 días / 5 días).
+  const { data: policies } = useTimesheetPolicies();
+  // Sin políticas cargadas (`policies` indefinido) NO se ofrece ninguna acción (review iteración
+  // 16, hallazgo #2): usar 30/5 por defecto podía mostrar "Revertir" para una semana fuera de la
+  // ventana realmente configurada, o esconderla en una dentro. Si el fetch FALLA el hook ya
+  // devuelve sus valores por defecto, así que no queda bloqueado para siempre.
+  const isGroupWithinWindow = (group: ApprovedApprovalGroup) =>
+    !!policies &&
+    isWeekWithinEditableWindow(
+      parseDateLocal(group.week_start_date),
+      policies.workDays,
+      policies.employeeRetroDays,
+    );
+
+  const canActOnGroup = (group: ApprovedApprovalGroup) =>
+    isGroupWithinWindow(group) &&
+    (isAdmin ||
+      (canRequestReversal &&
+        !!staffRecord?.staff_id &&
+        (group.engagement.manager_id === staffRecord.staff_id ||
+          group.engagement.partner_id === staffRecord.staff_id)));
+
+  const closeDialog = () => {
+    setActiveGroup(null);
+    setDialogMode(null);
+  };
+
+  const handleConfirm = (reason: string) => {
+    if (!activeGroup) return;
+    if (dialogMode === "request") {
+      requestReversal.mutate(
+        {
+          periodId: activeGroup.period_id,
+          scope: "engagement",
+          engagementId: activeGroup.engagement_id,
+          reason,
+        },
+        { onSuccess: closeDialog }
+      );
+    } else if (dialogMode === "revert") {
+      executeReversal.mutate(
+        {
+          periodId: activeGroup.period_id,
+          scope: "engagement",
+          engagementId: activeGroup.engagement_id,
+          reason,
+        },
+        { onSuccess: closeDialog }
+      );
+    }
+  };
+
+  const openDialog = (group: ApprovedApprovalGroup) => {
+    setActiveGroup(group);
+    setDialogMode(isAdmin ? "revert" : "request");
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return <ReversalErrorState onRetry={() => refetch()} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <ReversalFiltersBar
+        staffSearch={staffSearch}
+        setStaffSearch={setStaffSearch}
+        engagementSearch={engagementSearch}
+        setEngagementSearch={setEngagementSearch}
+        weekFilter={weekFilter}
+        setWeekFilter={setWeekFilter}
+      />
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">{t("approval.noPending")}</div>
+      ) : (
+        <>
+          {/* Desktop: tabla (>= md) */}
+          <div className="hidden md:block bg-card rounded-xl border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.lines")}</TableHead>
+                  {showActions && (
+                    <TableHead className="w-10 text-center">{t("approval.actions")}</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((group) => {
+                  const weekDisplay = getWeekDisplayInfo(group.week_start_date);
+                  const key = `${group.period_id}:${group.engagement_id}`;
+                  return (
+                    <TableRow key={key}>
+                      <TableCell className="font-medium text-left border-r border-border">
+                        {group.staff.short_name || `${group.staff.first_name} ${group.staff.last_name}`}
+                      </TableCell>
+                      <TableCell className="text-left border-r border-border">
+                        <span className="text-muted-foreground mr-2">
+                          {t("timesheet.week")} {weekDisplay.isValid ? weekDisplay.weekNumber : "—"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "—"}
+                        </span>
+                        <span className="text-sm">({formatReversalWeekRange(group.week_start_date)})</span>
+                      </TableCell>
+                      <TableCell className="text-left border-r border-border">
+                        {group.engagement.engagement_code ? `${group.engagement.engagement_code} - ` : ""}
+                        {group.engagement.engagement_name}
+                      </TableCell>
+                      <TableCell className="text-right font-mono border-r border-border">
+                        {group.approvedLineCount}
+                      </TableCell>
+                      {showActions && (
+                        <TableCell className="text-center">
+                          {canActOnGroup(group) && renderRowAction(group)}
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: tarjetas (< md) */}
+          <div className="space-y-2 md:hidden">
+            {filtered.map((group) => {
+              const weekDisplay = getWeekDisplayInfo(group.week_start_date);
+              const key = `${group.period_id}:${group.engagement_id}`;
+              return (
+                <Card key={key} className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {group.staff.short_name || `${group.staff.first_name} ${group.staff.last_name}`}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t("timesheet.week")} {weekDisplay.isValid ? weekDisplay.weekNumber : "—"}, {weekDisplay.isValid ? weekDisplay.fiscalYear : "—"}
+                        {" "}({formatReversalWeekRange(group.week_start_date)})
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {group.engagement.engagement_code ? `${group.engagement.engagement_code} - ` : ""}
+                        {group.engagement.engagement_name}
+                      </p>
+                    </div>
+                    <span className="font-mono text-sm text-foreground shrink-0">
+                      {group.approvedLineCount} {t("approval.lines")}
+                    </span>
+                  </div>
+                  {showActions && canActOnGroup(group) && renderRowAction(group, "mt-2 w-full")}
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      <TimesheetReversalDialog
+        open={activeGroup !== null}
+        onOpenChange={(next) => {
+          if (!next) closeDialog();
+        }}
+        onConfirm={handleConfirm}
+        isPending={requestReversal.isPending || executeReversal.isPending}
+        confirmLabel={dialogMode === "revert" ? t("approval.revert") : t("approval.requestReversal")}
+        title={dialogMode === "revert" ? t("approval.revertDialogTitle") : undefined}
+        description={dialogMode === "revert" ? t("approval.revertDialogDescription") : undefined}
+      />
+    </div>
+  );
+}

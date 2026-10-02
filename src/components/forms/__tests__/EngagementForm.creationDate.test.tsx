@@ -95,6 +95,14 @@ describe("EngagementForm start date default (BUG #0602-134)", () => {
   it("create mode: 'Fecha de Inicio' defaults to today", () => {
     render(<EngagementForm />);
     const today = format(startOfDay(new Date()), "dd/MM/yyyy");
-    expect(screen.getByText(today)).toBeInTheDocument();
+    // Scoped to the start-date field itself (shadcn's FormLabel sets `htmlFor` to the same id
+    // FormControl puts on this button, so its accessible name is the field's label) instead of
+    // an unscoped `getByText(today)`: on any day that today's date is also one of the "upcoming
+    // closing dates" offered by the Fecha de Cierre <Select> below, Radix mirrors that option
+    // into a hidden native <select> that's always in the DOM, so the SAME formatted date shows
+    // up a second time and `getByText` throws "multiple elements" -- most recently reproduced
+    // on 2026-09-30, unrelated to any change in this file.
+    const startDateButton = screen.getByRole("button", { name: /engagement\.startDate/i });
+    expect(startDateButton).toHaveTextContent(today);
   });
 });

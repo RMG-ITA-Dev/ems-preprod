@@ -7394,6 +7394,132 @@
  service_role  | public       | timesheet_periods                              | year                         | REFERENCES
  service_role  | public       | timesheet_periods                              | year                         | SELECT
  service_role  | public       | timesheet_periods                              | year                         | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | created_at                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | created_at                   | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | created_at                   | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | created_at                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | created_at                   | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | created_at                   | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | created_at                   | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | created_at                   | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | created_at                   | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | engagement_id                | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | engagement_id                | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | engagement_id                | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | engagement_id                | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | engagement_id                | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | engagement_id                | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | engagement_id                | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | engagement_id                | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | engagement_id                | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | is_direct                    | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | is_direct                    | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | is_direct                    | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | is_direct                    | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | is_direct                    | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | is_direct                    | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | is_direct                    | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | is_direct                    | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | is_direct                    | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | period_id                    | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | period_id                    | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | period_id                    | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | period_id                    | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | period_id                    | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | period_id                    | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | period_id                    | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | period_id                    | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | period_id                    | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | reason                       | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | reason                       | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | reason                       | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | reason                       | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | reason                       | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | reason                       | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | reason                       | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | reason                       | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | reason                       | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | request_id                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | request_id                   | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | request_id                   | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | request_id                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | request_id                   | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | request_id                   | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | request_id                   | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | request_id                   | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | request_id                   | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | requested_at                 | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | requested_at                 | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | requested_at                 | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | requested_at                 | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | requested_at                 | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | requested_at                 | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | requested_at                 | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | requested_at                 | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | requested_at                 | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | requested_by                 | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | requested_by                 | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | requested_by                 | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | requested_by                 | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | requested_by                 | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | requested_by                 | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | requested_by                 | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | requested_by                 | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | requested_by                 | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | resolution_notes             | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolution_notes             | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | resolution_notes             | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | resolution_notes             | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolution_notes             | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | resolution_notes             | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | resolution_notes             | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | resolution_notes             | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | resolution_notes             | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | resolved_at                  | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_at                  | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_at                  | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | resolved_at                  | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_at                  | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | resolved_at                  | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | resolved_at                  | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | resolved_at                  | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | resolved_at                  | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | resolved_by                  | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_by                  | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_by                  | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | resolved_by                  | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | resolved_by                  | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | resolved_by                  | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | resolved_by                  | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | resolved_by                  | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | resolved_by                  | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | scope                        | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | scope                        | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | scope                        | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | scope                        | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | scope                        | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | scope                        | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | scope                        | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | scope                        | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | scope                        | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | status                       | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | status                       | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | status                       | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | status                       | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | status                       | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | status                       | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | status                       | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | status                       | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | status                       | UPDATE
+ authenticated | public       | timesheet_reversal_requests                    | updated_at                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | updated_at                   | INSERT
+ postgres      | public       | timesheet_reversal_requests                    | updated_at                   | REFERENCES
+ postgres      | public       | timesheet_reversal_requests                    | updated_at                   | SELECT
+ postgres      | public       | timesheet_reversal_requests                    | updated_at                   | UPDATE
+ service_role  | public       | timesheet_reversal_requests                    | updated_at                   | INSERT
+ service_role  | public       | timesheet_reversal_requests                    | updated_at                   | REFERENCES
+ service_role  | public       | timesheet_reversal_requests                    | updated_at                   | SELECT
+ service_role  | public       | timesheet_reversal_requests                    | updated_at                   | UPDATE
  anon          | public       | user_lifecycle_audit_log                       | action                       | REFERENCES
  anon          | public       | user_lifecycle_audit_log                       | action                       | SELECT
  authenticated | public       | user_lifecycle_audit_log                       | action                       | REFERENCES
@@ -10340,5 +10466,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(10340 rows)
+(10466 rows)
 

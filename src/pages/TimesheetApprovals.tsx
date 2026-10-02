@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -14,15 +15,30 @@ import {
 } from "@/components/ui/table";
 import { Loader2, Search, ChevronRight } from "lucide-react";
 import { usePendingApprovalSummaries } from "@/hooks/useTimesheetApprovals";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { format, addDays } from "date-fns";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
+import { ApprovedLinesTab } from "@/components/timesheet/ApprovedLinesTab";
+import { ReversalRequestsTab } from "@/components/timesheet/ReversalRequestsTab";
+import { useReversalRequests } from "@/hooks/useTimesheetReversals";
 
+// 0923-209: la ruta y su permiso (timesheet_approval.read) no cambian -- sólo se agregan
+// tabs. "pending" es el contenido de siempre, intacto. "approved"/"my-requests"/"reversals"
+// son nuevas y ramifican por perfil (§c.5): sólo-lectura, aprobador (.approve) o admin.
 const TimesheetApprovals = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: summaries, isLoading } = usePendingApprovalSummaries();
   const [searchTerm, setSearchTerm] = useState("");
+  const { can, roleKey } = useAuthorization();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isAdmin = roleKey === "admin";
+  const canApprove = can("timesheet_approval.approve");
+  // Badge del tab "Solicitudes de reversión": sólo se pide cuando importa (admin), y sólo
+  // se muestra el "(N)" cuando N > 0 -- una cola vacía no necesita un contador en cero.
+  const { data: pendingReversals } = useReversalRequests({ status: "pending", enabled: isAdmin });
+  const pendingReversalCount = pendingReversals?.length ?? 0;
 
   const filteredSummaries = summaries?.filter((summary) => {
     const staffName = summary.staff.short_name || 
@@ -51,8 +67,28 @@ const TimesheetApprovals = () => {
     );
   }
 
-  return (
-    <AppLayout title={t("approval.title")}>
+  // Perfil admin: cola de solicitudes ("reversals"). Perfil aprobador (.approve, no admin):
+  // seguimiento propio ("my-requests"). Sólo-lectura (.read nada más): sin tercera tab.
+  const thirdTab = isAdmin
+    ? {
+        value: "reversals",
+        label: pendingReversalCount > 0
+          ? `${t("approval.tabs.reversalQueue")} (${pendingReversalCount})`
+          : t("approval.tabs.reversalQueue"),
+      }
+    : canApprove
+      ? { value: "my-requests", label: t("approval.tabs.myRequests") }
+      : null;
+
+  // Normaliza un `?tab=` que no existe para este perfil (review iteración 1, hallazgo #9):
+  // approval.reversal_executed notifica a gerentes/socios con `?tab=reversals`, una tab que
+  // sólo el admin tiene -- sin esto, Radix se quedaba sin ningún tab activo (pantalla en
+  // blanco) para cualquiera que llegara con un valor que no le correspondía.
+  const requestedTab = searchParams.get("tab") ?? "pending";
+  const validTabValues = new Set(["pending", "approved", ...(thirdTab ? [thirdTab.value] : [])]);
+  const defaultTab = validTabValues.has(requestedTab) ? requestedTab : "pending";
+
+  const pendingContent = (
       <div className="space-y-6">
         {/* Search */}
         <div className="relative max-w-md">
@@ -126,6 +162,38 @@ const TimesheetApprovals = () => {
           </div>
         )}
       </div>
+  );
+
+  return (
+    <AppLayout title={t("approval.title")}>
+      <Tabs
+        // Controlado, no `defaultValue` (review iteración 3, hallazgo #7): Radix sólo lee
+        // `defaultValue` al montar. Con eso, un click en una notificación (navegación de
+        // React Router, sin desmontar esta pantalla) cambiaba el `?tab=` de la URL pero
+        // dejaba la tab visible sin cambiar. `value` sigue a `defaultTab` en cada render.
+        value={defaultTab}
+        onValueChange={(value) => setSearchParams({ tab: value })}
+      >
+        <TabsList>
+          <TabsTrigger value="pending">{t("approval.tabs.pending")}</TabsTrigger>
+          <TabsTrigger value="approved">{t("approval.tabs.approved")}</TabsTrigger>
+          {thirdTab && <TabsTrigger value={thirdTab.value}>{thirdTab.label}</TabsTrigger>}
+        </TabsList>
+        <TabsContent value="pending">{pendingContent}</TabsContent>
+        <TabsContent value="approved">
+          <ApprovedLinesTab canRequestReversal={canApprove && !isAdmin} isAdmin={isAdmin} />
+        </TabsContent>
+        {isAdmin && (
+          <TabsContent value="reversals">
+            <ReversalRequestsTab mode="queue" />
+          </TabsContent>
+        )}
+        {!isAdmin && canApprove && (
+          <TabsContent value="my-requests">
+            <ReversalRequestsTab mode="mine" />
+          </TabsContent>
+        )}
+      </Tabs>
     </AppLayout>
   );
 };

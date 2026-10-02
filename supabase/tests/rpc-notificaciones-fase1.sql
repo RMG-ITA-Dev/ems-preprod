@@ -233,18 +233,24 @@ BEGIN
   SELECT COUNT(*) INTO v_grants FROM public.notification_role_types;
   SELECT COUNT(DISTINCT role_key) INTO v_roles FROM public.notification_role_types;
 
-  -- 76 = los 71 originales + los 4 recordatorios periodicos de D-44 (delivery='email') + el aviso
-  -- de asignacion a los gerentes especialistas (D-43).
-  IF v_types <> 76 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 76 (¿corriste el parser?)', v_types;
+  -- 79 = los 71 originales + los 4 recordatorios periodicos de D-44 (delivery='email') + el aviso
+  -- de asignacion a los gerentes especialistas (D-43) + los 3 de BUG 0923-209
+  -- (approval.reversal_requested/executed/rejected, fuera del seed generado a proposito -- ver
+  -- la cabecera de 20260929160000_0923-209_timesheet_reversal_requests.sql).
+  IF v_types <> 79 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 79 (¿corriste el parser?)', v_types;
   END IF;
-  IF v_grants <> 464 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 464', v_grants;
+  -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
+  -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
+  -- todos los roles que timesheet.reverted ya notifica cuando el admin revierte su semana, no
+  -- sólo a los 7 que reportan horas de base.
+  IF v_grants <> 492 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 492', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 76 tipos, 464 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 79 tipos, 492 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

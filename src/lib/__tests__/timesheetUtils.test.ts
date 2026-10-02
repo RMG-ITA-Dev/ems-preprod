@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   getLocale,
   getWeekMonday,
+  isWeekWithinEditableWindow,
   getWorkDays,
   getWeekInfo,
   getPreviousWeek,
@@ -36,6 +37,24 @@ describe("getLocale", () => {
 
   it("returns English locale for unknown language", () => {
     expect(getLocale("fr")).toBe(enUS);
+  });
+});
+
+describe("isWeekWithinEditableWindow", () => {
+  const today = new Date("2026-05-14T12:00:00"); // jueves; lunes de su semana = 2026-05-11
+
+  it("siempre es true para la semana actual y las futuras", () => {
+    expect(isWeekWithinEditableWindow(new Date("2026-05-11T00:00:00"), 5, 0, today)).toBe(true);
+    expect(isWeekWithinEditableWindow(new Date("2026-06-01T00:00:00"), 5, 0, today)).toBe(true);
+  });
+
+  it("una semana pasada cuenta los días desde su último día laborable contra retroDays", () => {
+    // semana 2026-05-04 .. viernes 05-08 -> 6 días antes del 05-14
+    const week = new Date("2026-05-04T00:00:00");
+    expect(isWeekWithinEditableWindow(week, 5, 6, today)).toBe(true);
+    expect(isWeekWithinEditableWindow(week, 5, 5, today)).toBe(false);
+    // con 6 días laborables el último día es el sábado 05-09 -> 5 días antes
+    expect(isWeekWithinEditableWindow(week, 6, 5, today)).toBe(true);
   });
 });
 

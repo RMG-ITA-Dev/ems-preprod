@@ -1,0 +1,397 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Loader2, Check, X } from "lucide-react";
+import {
+  useMyReversalRequests,
+  useReversalRequests,
+  useExecuteTimesheetReversal,
+  useRejectTimesheetReversal,
+  type ReversalRequest,
+} from "@/hooks/useTimesheetReversals";
+import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
+import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
+import { REVERSAL_CASCADE_NOTE_TOKEN } from "@/lib/notifications";
+import { isWeekWithinEditableWindow, parseDateLocal } from "@/lib/timesheetUtils";
+import { useTimesheetPolicies } from "@/hooks/useTimesheetPolicies";
+
+interface ReversalRequestsTabProps {
+  /** "mine": seguimiento propio (aprobador). "queue": cola del admin (ejecutar/rechazar). */
+  mode: "mine" | "queue";
+}
+
+function statusBadgeVariant(status: ReversalRequest["status"]): "secondary" | "default" | "destructive" {
+  if (status === "executed") return "default";
+  if (status === "rejected") return "destructive";
+  return "secondary";
+}
+
+interface RequestFilters {
+  staffSearch: string;
+  engagementSearch: string;
+  weekFilter: string;
+}
+
+function useFilteredRequests(requests: ReversalRequest[] | undefined, filters: RequestFilters) {
+  return (requests ?? []).filter((r) => {
+    if (filters.staffSearch && r.period?.staff) {
+      const staffName =
+        r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`;
+      if (!staffName.toLowerCase().includes(filters.staffSearch.toLowerCase())) return false;
+    }
+    if (filters.engagementSearch) {
+      const engName = `${r.engagement?.engagement_code ?? ""} ${r.engagement?.engagement_name ?? ""}`.toLowerCase();
+      if (!engName.includes(filters.engagementSearch.toLowerCase())) return false;
+    }
+    if (filters.weekFilter && r.period?.week_start_date !== filters.weekFilter) return false;
+    return true;
+  });
+}
+
+function engagementLabel(r: ReversalRequest, weekScopeLabel: string) {
+  return r.engagement
+    ? `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`
+    : weekScopeLabel;
+}
+
+// "Mis solicitudes" (review iteración 3, hallazgo #6 + iteración 4, hallazgo #4): mientras
+// está pending sólo existe el motivo original. Una vez ejecutada o rechazada, se agrega la
+// NOTA DEL ADMIN (resolution_notes) debajo, SIN reemplazar el motivo -- la corrección de la
+// iteración 3 mostraba una u otra cosa y el solicitante perdía su propio motivo apenas se
+// resolvía la solicitud.
+function RequestNote({ request }: { request: ReversalRequest }) {
+  const { t } = useTranslation();
+  const showResolutionNote = request.status !== "pending" && !!request.resolution_notes;
+  // Cierre en cascada (review iteración 4, hallazgo #5): la nota es un TOKEN de sistema, no
+  // texto de una persona -- se traduce acá en vez de mostrarse cruda (antes era una oración
+  // fija en español).
+  const resolutionNoteText =
+    request.resolution_notes === REVERSAL_CASCADE_NOTE_TOKEN
+      ? t("approval.reversalCascadeNote")
+      : request.resolution_notes;
+  // El label acompaña el ESTADO real (review iteración 5, hallazgo #1): antes decía siempre
+  // "Nota de rechazo", aunque la solicitud hubiera sido EJECUTADA -- la razón de la ejecución
+  // se guarda en la misma columna `resolution_notes` que la del rechazo.
+  const resolutionNoteLabel =
+    request.status === "executed" ? t("approval.executionNote") : t("approval.rejectionNote");
+  return (
+    <>
+      <p>{request.reason}</p>
+      {showResolutionNote && (
+        <p className="mt-1 text-muted-foreground">
+          {resolutionNoteLabel} <span>{resolutionNoteText}</span>
+        </p>
+      )}
+    </>
+  );
+}
+
+function MyRequestsView() {
+  const { t } = useTranslation();
+  const { data, isLoading, isError, refetch } = useMyReversalRequests();
+  const [staffSearch, setStaffSearch] = useState("");
+  const [engagementSearch, setEngagementSearch] = useState("");
+  const [weekFilter, setWeekFilter] = useState("");
+  const filtered = useFilteredRequests(data, { staffSearch, engagementSearch, weekFilter });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return <ReversalErrorState onRetry={() => refetch()} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <ReversalFiltersBar
+        staffSearch={staffSearch}
+        setStaffSearch={setStaffSearch}
+        engagementSearch={engagementSearch}
+        setEngagementSearch={setEngagementSearch}
+        weekFilter={weekFilter}
+        setWeekFilter={setWeekFilter}
+      />
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">{t("approval.noReversalRequests")}</div>
+      ) : (
+        <>
+          {/* Desktop: tabla (>= md) */}
+          <div className="hidden md:block bg-card rounded-xl border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
+                  {/* Header genérico (review iteración 6, hallazgo #2): antes decía siempre
+                      "Nota de rechazo", aunque la columna muestre el motivo original mientras
+                      está pending y recién agrega la nota de resolución una vez resuelta -- el
+                      label específico ("Nota de ejecución"/"Nota de rechazo") ya lo pone
+                      `RequestNote` fila por fila (iteración 5, hallazgo #1). */}
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.reasonNote")}</TableHead>
+                  <TableHead className="font-semibold text-center">{t("approval.decision.title")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.request_id}>
+                    <TableCell className="text-left border-r border-border">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      <RequestNote request={r} />
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant={statusBadgeVariant(r.status)}>
+                        {t(`approval.reversalStatus.${r.status}`)}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: tarjetas (< md) */}
+          <div className="space-y-2 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.request_id} className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </p>
+                  </div>
+                  <Badge variant={statusBadgeVariant(r.status)} className="shrink-0">
+                    {t(`approval.reversalStatus.${r.status}`)}
+                  </Badge>
+                </div>
+                <div className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                  <RequestNote request={r} />
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function QueueView() {
+  const { t } = useTranslation();
+  const { data, isLoading, isError, refetch } = useReversalRequests({ status: "pending" });
+  const [staffSearch, setStaffSearch] = useState("");
+  const [engagementSearch, setEngagementSearch] = useState("");
+  const [weekFilter, setWeekFilter] = useState("");
+  const filtered = useFilteredRequests(data, { staffSearch, engagementSearch, weekFilter });
+
+  const executeReversal = useExecuteTimesheetReversal();
+  const rejectReversal = useRejectTimesheetReversal();
+  const { data: policies } = useTimesheetPolicies();
+  const [activeRequest, setActiveRequest] = useState<ReversalRequest | null>(null);
+  const [dialogMode, setDialogMode] = useState<"execute" | "reject" | null>(null);
+
+  const closeDialog = () => {
+    setActiveRequest(null);
+    setDialogMode(null);
+  };
+
+  const openDialog = (request: ReversalRequest, mode: "execute" | "reject") => {
+    setActiveRequest(request);
+    setDialogMode(mode);
+  };
+
+  const handleConfirm = (reason: string) => {
+    if (!activeRequest) return;
+    if (dialogMode === "execute") {
+      executeReversal.mutate(
+        {
+          periodId: activeRequest.period_id,
+          scope: activeRequest.scope,
+          engagementId: activeRequest.engagement_id,
+          reason,
+          requestId: activeRequest.request_id,
+        },
+        { onSuccess: closeDialog }
+      );
+    } else if (dialogMode === "reject") {
+      rejectReversal.mutate(
+        { requestId: activeRequest.request_id, notes: reason },
+        { onSuccess: closeDialog }
+      );
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return <ReversalErrorState onRetry={() => refetch()} />;
+  }
+
+  // Ventana de edición del dueño (review iteración 17, hallazgo #2; decisión del operador): si la
+  // semana de la solicitud ya salió de ella, ejecutar la dejaría en un borrador que su dueño no
+  // puede editar ni reenviar -- el admin SÓLO puede rechazarla. Sin políticas cargadas no se
+  // decide todavía: no se ofrece "Ejecutar" ni se muestra el aviso.
+  const windowFor = (r: ReversalRequest): "unknown" | "inside" | "outside" => {
+    if (!policies || !r.period) return "unknown";
+    return isWeekWithinEditableWindow(
+      parseDateLocal(r.period.week_start_date),
+      policies.workDays,
+      policies.employeeRetroDays,
+    )
+      ? "inside"
+      : "outside";
+  };
+
+  const actions = (r: ReversalRequest, layout: "row" | "stack") => (
+    <div className={layout === "row" ? "space-x-2" : "flex flex-wrap gap-2 mt-2"}>
+      {windowFor(r) === "outside" && (
+        <p className="w-full text-xs text-muted-foreground">{t("approval.reversalOutOfWindow")}</p>
+      )}
+      {windowFor(r) === "inside" && (
+        <Button
+          size="sm"
+          variant="outline"
+          className={layout === "stack" ? "flex-1" : undefined}
+          onClick={() => openDialog(r, "execute")}
+        >
+          <Check className="h-4 w-4 mr-1" />
+          {t("approval.executeRequest")}
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="destructive"
+        className={layout === "stack" ? "flex-1" : undefined}
+        onClick={() => openDialog(r, "reject")}
+      >
+        <X className="h-4 w-4 mr-1" />
+        {t("approval.rejectRequest")}
+      </Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <ReversalFiltersBar
+        staffSearch={staffSearch}
+        setStaffSearch={setStaffSearch}
+        engagementSearch={engagementSearch}
+        setEngagementSearch={setEngagementSearch}
+        weekFilter={weekFilter}
+        setWeekFilter={setWeekFilter}
+      />
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">{t("approval.noPending")}</div>
+      ) : (
+        <>
+          {/* Desktop: tabla (>= md) */}
+          <div className="hidden md:block bg-card rounded-xl border border-border overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold text-center border-r border-border">{t("staff.name")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.week")}</TableHead>
+                  <TableHead className="font-semibold text-center border-r border-border">{t("timesheet.engagement")}</TableHead>
+                  {/* Header genérico (review iteración 6, hallazgo #2): en esta cola TODAS las
+                      filas están `pending`, así que "Nota de rechazo" nunca era correcto acá --
+                      lo que se ve es el motivo del solicitante (`r.reason`), no una nota de
+                      resolución. */}
+                  <TableHead className="font-semibold text-center border-r border-border">{t("approval.reasonNote")}</TableHead>
+                  <TableHead className="w-10 text-center">{t("approval.actions")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((r) => (
+                  <TableRow key={r.request_id}>
+                    <TableCell className="font-medium text-left border-r border-border">
+                      {r.period?.staff
+                        ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">
+                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                    </TableCell>
+                    <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
+                    <TableCell className="text-center">{actions(r, "row")}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile: tarjetas (< md) */}
+          <div className="space-y-2 md:hidden">
+            {filtered.map((r) => (
+              <Card key={r.request_id} className="p-4">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {r.period?.staff
+                    ? r.period.staff.short_name || `${r.period.staff.first_name} ${r.period.staff.last_name}`
+                    : "—"}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
+                  {" · "}
+                  {engagementLabel(r, t("approval.reversalScope.week"))}
+                </p>
+                {/* Sin truncar (review iteración 4, hallazgo #1): el admin decide ejecutar o
+                    rechazar leyendo este motivo, y en 768px un `truncate` podía esconder la
+                    mayor parte de una justificación obligatoria. */}
+                <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{r.reason}</p>
+                {actions(r, "stack")}
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
+      <TimesheetReversalDialog
+        open={activeRequest !== null}
+        onOpenChange={(next) => {
+          if (!next) closeDialog();
+        }}
+        onConfirm={handleConfirm}
+        isPending={executeReversal.isPending || rejectReversal.isPending}
+        confirmLabel={dialogMode === "reject" ? t("approval.rejectRequest") : t("approval.executeRequest")}
+        title={dialogMode === "reject" ? t("approval.rejectDialogTitle") : t("approval.executeDialogTitle")}
+        description={
+          dialogMode === "reject" ? t("approval.rejectDialogDescription") : t("approval.executeDialogDescription")
+        }
+      />
+    </div>
+  );
+}
+
+export function ReversalRequestsTab({ mode }: ReversalRequestsTabProps) {
+  return mode === "mine" ? <MyRequestsView /> : <QueueView />;
+}
