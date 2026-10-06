@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
@@ -205,6 +205,34 @@ const baseEngagement: Engagement = {
   taxonomy_id: null,
   society_id: null,
 };
+
+/**
+ * El reloj queda fijo antes del 2026-09-30, que es la `start_date` que usa la prueba de submit
+ * de este archivo.
+ *
+ * POR QUÉ: `EngagementForm` le pone piso a `start_date` en `startOfDay(new Date())` para todo
+ * creador que no sea admin (BUG #0602-134), y `onSubmit` corta con `setError` ANTES de llegar a
+ * los guards de campo obligatorio. Con el reloj real esta prueba pasó desde que se escribió
+ * hasta el 2026-09-30, y después empezó a fallar sola, sin que nadie tocara el código: la fecha
+ * quemada quedó en el pasado y el error que aparece pasó a ser `startDateBeforeCreation` en vez
+ * del `requiredPartner` que la prueba afirma.
+ *
+ * Mover la fecha a otra futura sólo reprograma la misma caída. Lo que la elimina es que la
+ * prueba no dependa de cuándo se corre. Mismo tratamiento en
+ * `EngagementForm.profileScope.test.tsx` y `EngagementForm.servicesCatalog.test.tsx`.
+ *
+ * `toFake: ["Date"]` y no los timers completos: `userEvent` y `waitFor` necesitan `setTimeout`
+ * real, y con `vi.useFakeTimers()` a secas el archivo entero se cuelga.
+ */
+const AHORA = new Date("2026-09-15T12:00:00");
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"], now: AHORA });
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("EngagementForm — autoasignación y bloqueo del creador (0810-172)", () => {
   beforeEach(() => {
