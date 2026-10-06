@@ -5,7 +5,6 @@ import {
   Users,
   Settings,
   FileText,
-  LogOut,
   CheckSquare,
   Timer,
   Grid3X3,
@@ -18,13 +17,11 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
-import { useAuth } from "@/hooks/useAuth";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
-import { useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -46,8 +43,6 @@ interface NavItem {
 
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { signOut } = useAuth();
-  const navigate = useNavigate();
   const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
   const { data: staffRecord } = useCurrentStaff();
@@ -59,11 +54,6 @@ export function AppSidebar() {
   const schedulerEnabled = isSchedulerEnabled();
   const canSeeSchedulerPlanning = schedulerEnabled && canSeePlanning(roleKey);
   const canSeeSchedulerGaps = schedulerEnabled && canSeeGaps(roleKey);
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/auth");
-  };
 
   // FASE 5: cada ítem se muestra por permiso (has_permission vía useAuthorization).
   // La aprobación de fondos conserva el acceso relacional (manager de una OT).
