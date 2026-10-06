@@ -241,7 +241,7 @@ export function AppSidebar() {
             className="h-12 w-auto shrink-0 brightness-0 invert"
           />
           <p className="text-xs font-medium leading-tight text-left text-sidebar-foreground">
-            Engagement Management System
+            {t("auth.brandTagline")}
           </p>
         </div>
         <hr className="mt-4 h-px shrink-0 border-0 bg-sidebar-foreground/10" />
