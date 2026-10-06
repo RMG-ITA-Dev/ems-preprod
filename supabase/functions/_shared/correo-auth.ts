@@ -13,6 +13,7 @@
  */
 
 import { renderizarCorreoAuth } from "./plantillas/cuenta.ts";
+import type { AdjuntoInline } from "./plantillas/layout.ts";
 
 /**
  * El envío, inyectado. Es la costura entre armar el correo y mandarlo: deja este módulo sin
@@ -24,6 +25,14 @@ export type EnviarCorreoFn = (input: {
   asunto: string;
   cuerpoTexto: string;
   cuerpoHtml?: string;
+  /**
+   * Los logos que el HTML referencia por `cid:`. NO es opcional de verdad: el cuerpo que arma
+   * `renderizarCorreoAuth` siempre trae los dos `<img src="cid:...">`, así que un envío sin
+   * adjuntos sale con el ícono de imagen rota en el encabezado y en el pie.
+   *
+   * Va como opcional sólo para que los dobles de prueba que ya existen sigan compilando.
+   */
+  adjuntos?: AdjuntoInline[];
 }) => Promise<{ estado: "enviado" | "simulado"; redirigido: boolean }>;
 
 /** Los tipos de enlace que `generateLink` sabe emitir y que este proyecto usa. */
@@ -190,6 +199,7 @@ export async function generarYEnviarCorreoAuth(parametros: {
       asunto: correo.asunto,
       cuerpoTexto: correo.cuerpoTexto,
       cuerpoHtml: correo.cuerpoHtml,
+      adjuntos: correo.adjuntos,
     });
   } catch (error) {
     throw new FalloDeEnvio(error, data?.user?.id ?? null);

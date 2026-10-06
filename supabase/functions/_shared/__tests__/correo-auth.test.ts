@@ -277,3 +277,48 @@ describe("generarYEnviarCorreoAuth", () => {
     });
   });
 });
+
+/**
+ * El cuerpo y sus imágenes viajan juntos o no viajan.
+ *
+ * Este módulo no llama a `enviarCorreo`: lo recibe inyectado, así que el compilador no avisa
+ * cuando el cuerpo gana una parte nueva y la llamada se queda con las de antes. Fue exactamente
+ * lo que pasó al incrustar los logos: los tres `enviarCorreo({...})` directos se actualizaron y
+ * este camino no, y por acá salen el alta, el reseteo de contraseña y el desbloqueo — o sea, la
+ * mayoría de los correos del sistema.
+ *
+ * La afirmación es sobre la relación, no sobre los dos cids de hoy: cualquier `cid:` que aparezca
+ * en el HTML tiene que tener su adjunto, sin que haya que acordarse de tocar este test.
+ */
+describe("logos incrustados en el camino inyectado", () => {
+  const tipos = ["recovery", "signup", "invite", "magiclink"] as const;
+
+  it.each(tipos)("%s: todo cid del HTML llega con su adjunto", async (tipo) => {
+    const enviar = enviarFalso();
+
+    await generarYEnviarCorreoAuth({
+      admin: adminFalso({ hashedToken: "pkce_abc123" }),
+      enviar,
+      tipo,
+      email: "persona@ruizmier.com",
+      redirectTo: REDIRECT,
+      supabaseUrl: SUPABASE_URL,
+    });
+
+    const enviado = enviar.enviados[0] as {
+      cuerpoHtml: string;
+      adjuntos?: { contentId: string; contenido: Uint8Array }[];
+    };
+
+    const citados = [...enviado.cuerpoHtml.matchAll(/src="cid:([^"]+)"/g)].map((m) => m[1]);
+    expect(citados.length).toBeGreaterThan(0);
+
+    const adjuntados = (enviado.adjuntos ?? []).map((a) => a.contentId);
+    expect(adjuntados.sort()).toEqual([...citados].sort());
+
+    // Los bytes también: reenviar una lista de adjuntos vacíos pasaría la comparación de arriba.
+    for (const adjunto of enviado.adjuntos ?? []) {
+      expect(adjunto.contenido.byteLength).toBeGreaterThan(1000);
+    }
+  });
+});
