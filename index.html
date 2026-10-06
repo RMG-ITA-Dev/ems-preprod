@@ -16,9 +16,14 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Ruizmier Group" />
     <meta property="og:locale" content="es" />
-    <!-- Absoluta porque og:image no resuelve rutas relativas en la mayoría de los
-         scrapers. El host sale de la Published URL (README.md); si cambia el dominio,
-         estas dos líneas y og:url son lo que hay que tocar. -->
+    <!-- Absoluta porque og:image no resuelve rutas relativas en la mayoría de los scrapers.
+
+         PENDIENTE AL PASAR A PREPROD: este host es el de Lovable, y `docs/operations.md` ya
+         fija Railway como destino del frontend ("Target model (decided 2026-09-11): frontend
+         on Railway, backend on Supabase, no Lovable"). Mientras esto siga en desarrollo el
+         host viejo sirve; cuando haya dominio de Railway hay que tocar tres lugares:
+         `og:image`, `twitter:image` y la línea "Published URL" de README.md, que es de donde
+         salió este valor y que todavía contradice a operations.md. -->
     <meta property="og:image" content="https://aurora-engage-pro.lovable.app/logo.png" />
     <meta property="og:image:alt" content="EMS 2.0" />
 
