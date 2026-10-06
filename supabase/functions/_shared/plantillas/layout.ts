@@ -12,6 +12,8 @@
  * de sistema quiere saber qué pasó y qué tiene que hacer, en ese orden.
  */
 
+import { LOGO_EMS, LOGO_RUIZMIER, type LogoCorreo } from "./constants/logos.ts";
+
 const NOMBRE_SISTEMA = "EMS 2.0 - Ruizmier";
 const PIE = "Mensaje automático. No responda a esta dirección.";
 
@@ -70,6 +72,24 @@ export type CorreoRenderizado = {
   asunto: string;
   cuerpoTexto: string;
   cuerpoHtml: string;
+  /**
+   * Los logos que el HTML referencia por `cid:`. Van acá y no dentro de `mail-graph.ts` porque
+   * el que sabe qué imágenes usa el cuerpo es quien arma el cuerpo: el servicio de envío es
+   * genérico y no tiene por qué conocer la marca.
+   *
+   * Quien llame a `enviarCorreo` tiene que pasarlos. Sin ellos el `<img src="cid:...">` queda
+   * apuntando a un adjunto que no viaja, y el cliente dibuja el ícono de imagen rota.
+   */
+  adjuntos: AdjuntoInline[];
+};
+
+/** Un logo listo para `enviarCorreo`. Espejo de `AdjuntoCorreo` de `mail-graph.ts`, sin importarlo:
+ *  aquel módulo es Deno puro y este lo importa vitest. */
+export type AdjuntoInline = {
+  nombre: string;
+  tipoContenido: string;
+  contenido: Uint8Array;
+  contentId: string;
 };
 
 export type OpcionesCuerpo = {
@@ -80,6 +100,44 @@ export type OpcionesCuerpo = {
   /** Los enlaces con token vencen; los que apuntan a una pantalla, no. */
   mencionarVencimiento?: boolean;
 };
+
+/**
+ * Los bytes de cada logo, decodificados una sola vez.
+ *
+ * `atob` y no `Buffer`: existe tanto en Deno como en el jsdom de vitest, y este archivo lo
+ * importan los dos. La caché evita repetir la decodificación en cada correo de una tanda — el
+ * drenaje de la bandeja de salida manda varios por invocación y los logos son siempre los mismos.
+ */
+const bytesCache = new Map<string, Uint8Array>();
+
+function bytesDeLogo(logo: LogoCorreo): Uint8Array {
+  const guardado = bytesCache.get(logo.cid);
+  if (guardado) return guardado;
+
+  const binario = atob(logo.base64);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  bytesCache.set(logo.cid, bytes);
+  return bytes;
+}
+
+function adjuntoDeLogo(logo: LogoCorreo): AdjuntoInline {
+  return {
+    nombre: logo.nombre,
+    tipoContenido: "image/png",
+    contenido: bytesDeLogo(logo),
+    contentId: logo.cid,
+  };
+}
+
+/**
+ * `width` y `height` como ATRIBUTOS, no sólo en el `style`: Outlook los necesita para reservar
+ * el espacio, y sin ellos pinta la imagen a tamaño original —el archivo mide el doble, por
+ * pantallas HiDPI— y el encabezado del correo sale al doble de lo previsto.
+ */
+function etiquetaLogo(logo: LogoCorreo): string {
+  return `<img src="cid:${logo.cid}" alt="${escaparHtml(logo.alt)}" width="${logo.anchoCss}" height="${logo.altoCss}" style="display:block;border:0;width:${logo.anchoCss}px;height:${logo.altoCss}px;" />`;
+}
 
 export function escaparHtml(valor: string): string {
   return valor
@@ -156,6 +214,7 @@ export function construirCuerpos(
 <html lang="es">
   <body style="margin:0;padding:24px;background:${COLORES.fondo};font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${COLORES.texto};">
     <div style="max-width:560px;margin:0 auto;background:${COLORES.tarjeta};border-radius:8px;padding:32px;">
+      <div style="margin:0 0 24px;">${etiquetaLogo(LOGO_EMS)}</div>
       <p style="margin:0 0 16px;font-size:15px;">${escaparHtml(encabezado)}</p>
       <p style="margin:0 0 24px;font-size:15px;line-height:1.5;">${escaparHtml(copia.intro)}</p>
       ${detallesHtml}
@@ -175,6 +234,7 @@ export function construirCuerpos(
         ? `<p style="margin:16px 0 0;font-size:13px;color:${COLORES.textoTenue};line-height:1.5;">${notaFinal}</p>`
         : ""}
       <hr style="border:none;border-top:1px solid ${COLORES.borde};margin:24px 0;" />
+      <div style="margin:0 0 12px;">${etiquetaLogo(LOGO_RUIZMIER)}</div>
       <p style="margin:0;font-size:12px;color:${COLORES.textoTenue};">
         ${escaparHtml(NOMBRE_SISTEMA)} - ${escaparHtml(PIE)}
       </p>
@@ -192,5 +252,13 @@ export function renderizar(
   opciones: OpcionesCuerpo = {},
 ): CorreoRenderizado {
   const { cuerpoTexto, cuerpoHtml } = construirCuerpos(copia, enlace, opciones);
-  return { asunto: copia.asunto, cuerpoTexto, cuerpoHtml };
+  return {
+    asunto: copia.asunto,
+    cuerpoTexto,
+    cuerpoHtml,
+    // Siempre los dos, porque `construirCuerpos` siempre emite los dos `<img>`. Si alguna vez
+    // un logo pasa a ser condicional, esta lista tiene que seguir la misma condición: un
+    // adjunto inline que el HTML no referencia igual aparece como archivo en algunos clientes.
+    adjuntos: [adjuntoDeLogo(LOGO_EMS), adjuntoDeLogo(LOGO_RUIZMIER)],
+  };
 }

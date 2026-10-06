@@ -24,6 +24,15 @@ export type AdjuntoCorreo = {
   nombre: string; // con extensión: "reporte-avance.xlsx"
   tipoContenido?: string; // default "application/octet-stream"
   contenido: Uint8Array;
+  /**
+   * Presente SÓLO para imágenes incrustadas en el HTML. Es el identificador al que apunta un
+   * `<img src="cid:...">`: Graph marca el adjunto como `isInline` y el cliente lo pinta dentro
+   * del cuerpo en vez de listarlo como archivo descargable.
+   *
+   * Existe porque Outlook bloquea las imágenes remotas por defecto. Con `<img src="https://...">`
+   * el logo del encabezado sale como un recuadro vacío hasta que el lector acepta descargarlas.
+   */
+  contentId?: string;
 };
 
 export type EnviarCorreoInput = {
@@ -93,6 +102,9 @@ type AdjuntoGraph = {
   name: string;
   contentType: string;
   contentBytes: string;
+  /** Las dos viajan juntas: `contentId` sin `isInline` deja el adjunto visible en la lista. */
+  contentId?: string;
+  isInline?: boolean;
 };
 
 type MensajeGraph = {
@@ -189,6 +201,7 @@ function construirAdjuntos(adjuntos: AdjuntoCorreo[]): AdjuntoGraph[] {
     name: adjunto.nombre.trim(),
     contentType: adjunto.tipoContenido ?? "application/octet-stream",
     contentBytes: base64Encode(adjunto.contenido),
+    ...(adjunto.contentId ? { contentId: adjunto.contentId, isInline: true } : {}),
   }));
 }
 

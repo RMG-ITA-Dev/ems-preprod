@@ -132,6 +132,7 @@ Deno.serve(async (req) => {
       asunto: correo.asunto,
       cuerpoTexto: correo.cuerpoTexto,
       cuerpoHtml: correo.cuerpoHtml,
+      adjuntos: correo.adjuntos,
     });
 
     console.log(

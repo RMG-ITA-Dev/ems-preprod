@@ -190,7 +190,7 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
           </div>
         </div>
 
-        <div className="px-4 pb-8 space-y-6 overflow-y-auto">
+        <div className="px-4 space-y-6 overflow-y-auto pb-[calc(5rem+env(safe-area-inset-bottom,0px))]">
           {renderGroup(t("nav.main"), mainItems)}
           {canSeeSchedulerPlanning && renderGroup(t("nav.planning"), planningItems)}
           {renderGroup(t("nav.operations"), operationsItems)}
@@ -205,6 +205,22 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
               <LogOut className="h-5 w-5" />
               <span className="text-sm font-medium">{t("nav.signOut")}</span>
             </button>
+          </div>
+
+          <div className="flex flex-col items-center gap-2 pt-2">
+            <img
+              src="/logo-claro.png"
+              alt="Ruizmier Group"
+              className="h-6 w-auto dark:hidden"
+            />
+            <img
+              src="/logo-oscuro.png"
+              alt="Ruizmier Group"
+              className="h-6 w-auto hidden dark:block"
+            />
+            <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              v{__APP_VERSION__}
+            </span>
           </div>
         </div>
       </DrawerContent>

@@ -52,12 +52,12 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
   // Dos variantes del mismo tipo: el rol se deriva de la categoría, así que cambiar la categoría
   // de alguien también dispara este aviso. El emisor deja el origen en el payload.
   "auth.role.changed": {
-    asunto: "Su rol en EMS cambió",
+    asunto: "Su rol cambió",
     intro: "Un administrador modificó su rol. Con esto cambia lo que puede hacer en el sistema.",
     boton: "Ver mi ficha",
   },
   "auth.role.changed:category": {
-    asunto: "Su categoría en EMS cambió",
+    asunto: "Su categoría cambió",
     intro:
       "Un administrador modificó su categoría y, con ella, su rol en el sistema. Esto cambia lo que puede hacer.",
     boton: "Ver mi ficha",

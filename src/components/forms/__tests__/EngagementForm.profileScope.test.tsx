@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vitest";
 import { render, screen, waitFor } from "@/test/utils";
 import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -196,6 +196,34 @@ const restrictedStaff: MockStaffRecord = {
   practica_id: SVC_TAX,
   city: "Santa Cruz",
 };
+
+/**
+ * El reloj queda fijo antes del 2026-10-01, que es la `start_date` que usan las pruebas de
+ * creación de este archivo.
+ *
+ * POR QUÉ: `EngagementForm` le pone piso a `start_date` en `startOfDay(new Date())` para todo
+ * creador que no sea admin (BUG #0602-134), y `onSubmit` corta con `setError` ANTES de llamar a
+ * la mutación. Con el reloj real estas pruebas pasaron desde que se escribieron hasta el
+ * 2026-10-01, y a partir de esa fecha empezaron a fallar solas, sin que nadie tocara el código:
+ * la fecha quemada había quedado en el pasado. El síntoma no señala la causa —el botón no está
+ * deshabilitado, no hay Alert, `mutateAsync` simplemente nunca se llama—, así que conviene
+ * dejarlo escrito.
+ *
+ * Mover la fecha a otra futura sólo reprograma la misma caída. Lo que la elimina es que la
+ * prueba no dependa de cuándo se corre.
+ *
+ * `toFake: ["Date"]` y no los timers completos: `userEvent` y `waitFor` necesitan `setTimeout`
+ * real, y con `vi.useFakeTimers()` a secas el archivo entero se cuelga.
+ */
+const AHORA = new Date("2026-09-15T12:00:00");
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"], now: AHORA });
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("EngagementForm — profile-scoped sociedad/práctica/oficina (BUG 0817-180)", () => {
   beforeEach(() => {
