@@ -1,7 +1,30 @@
 // supabase/functions/_shared/plantillas/constants/logos.ts
 //
-// ARCHIVO GENERADO — no editar a mano.
-// Fuente: `public/*.png`. Regenerar con `python tools/generar-logos-correo.py`.
+// ARCHIVO GENERADO — no editar a mano. El base64 de abajo es un derivado de `public/*.png`,
+// no el archivo original: no sirve de nada corregirlo acá.
+//
+// La receta, entera, porque el script que la aplica no está en el repo y sin esto el próximo
+// cambio de logo no es reproducible. Sobre cada PNG de `public/`:
+//
+//   1. Redimensionar al ancho que dice cada constante más abajo, que es el DOBLE del `anchoCss`.
+//      Los clientes de correo no entienden `srcset`: mandar el doble y limitarlo por atributo
+//      `width` es la única forma de que no se vea borroso en pantallas HiDPI.
+//   2. Aplanar sobre blanco (`#ffffff`, que es `COLORES.tarjeta` de `layout.ts`). Los tres PNG
+//      de origen son RGBA, y Outlook pinta el canal alfa de negro en algunos modos de
+//      compatibilidad: sin aplanar, el logo sale sobre un rectángulo negro.
+//   3. Guardar como PNG con `optimize` y codificar en base64 sin el prefijo `data:`.
+//
+// QUÉ VARIANTE VA EN CADA LUGAR, que no es intercambiable. Medido con el promedio RGB de los
+// píxeles opacos de cada archivo:
+//
+//   public/logo.png         tinta (8, 79, 117)     navy          -> encabezado
+//   public/logo-claro.png   tinta (22, 83, 122)    navy          -> pie
+//   public/logo-oscuro.png  tinta (196, 224, 225)  casi blanca   -> NO USAR acá
+//
+// El pie usa `logo-claro.png` y no `logo-oscuro.png` aunque el nombre sugiera lo contrario: el
+// oscuro es la versión PARA fondo oscuro, y en la app aparece sólo dentro de `dark:block` o
+// pasado por `brightness-0 invert`. El correo no tiene ninguno de los dos, así que sobre la
+// tarjeta blanca saldría invisible.
 //
 // Los logos viajan como adjunto inline (`cid:`) y no como `<img src="https://...">` porque
 // Outlook bloquea las imágenes remotas por defecto: con URL el encabezado del correo sale como
