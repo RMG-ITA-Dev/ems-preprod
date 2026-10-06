@@ -234,17 +234,17 @@ export function AppSidebar() {
   return (
     <Sidebar className="border-r-0" collapsible="offcanvas">
       <SidebarContent className="px-3 pb-4">
-        <div className="h-16 flex flex-col items-center px-3 pt-4 -mb-2 justify-center">
+        <div className="h-16 flex flex-row items-center gap-2 px-3 pt-4 -mb-2 justify-start">
           <img
             src="/logo.png"
             alt="EMS"
-            className="h-12 w-auto brightness-0 invert"
+            className="h-12 w-auto shrink-0 brightness-0 invert"
           />
-          <p className="text-xs font-medium text-sidebar-foreground">
+          <p className="text-xs font-medium leading-tight text-left text-sidebar-foreground">
             Engagement Management System
           </p>
         </div>
-        <hr className="mt-4 h-px shrink-0 border-0 bg-sidebar-foreground/30" />
+        <hr className="mt-4 h-px shrink-0 border-0 bg-sidebar-foreground/10" />
         {renderGroup(t("nav.main"), mainNavItems)}
         {canSeeSchedulerPlanning &&
           renderGroup(t("nav.planning"), planningItems, true)}
