@@ -172,3 +172,52 @@ describe("paleta de la marca", () => {
     expect(html).not.toContain("#7c3aed"); // brand-purple
   });
 });
+
+/**
+ * Los logos viajan DENTRO del mensaje, no por URL.
+ *
+ * Outlook bloquea las imágenes remotas por defecto: con `<img src="https://...">` el encabezado
+ * sale como un recuadro vacío hasta que el lector hace clic en "Descargar imagenes". Lo que
+ * sostiene esa decisión son dos mitades que tienen que viajar juntas —el `cid:` del HTML y el
+ * adjunto con ese mismo `contentId`—, y nada en el tipo obliga a que coincidan: si una se mueve
+ * sin la otra, el correo sale con el ícono de imagen rota y los tests de arriba no se enteran.
+ */
+describe("logos incrustados", () => {
+  const correo = renderizarCorreoAuth(datos());
+
+  it("el HTML referencia los dos logos por cid, no por URL", () => {
+    expect(correo.cuerpoHtml).toContain('src="cid:logo-ems"');
+    expect(correo.cuerpoHtml).toContain('src="cid:logo-ruizmier"');
+    expect(correo.cuerpoHtml).not.toMatch(/<img[^>]+src="https?:/);
+  });
+
+  it("cada cid del HTML tiene su adjunto", () => {
+    const citados = [...correo.cuerpoHtml.matchAll(/src="cid:([^"]+)"/g)].map((m) => m[1]);
+    const adjuntados = correo.adjuntos.map((a) => a.contentId);
+    expect(adjuntados.sort()).toEqual(citados.sort());
+  });
+
+  it("los adjuntos son PNG con bytes reales y nombre con extensión", () => {
+    expect(correo.adjuntos).toHaveLength(2);
+    for (const adjunto of correo.adjuntos) {
+      expect(adjunto.tipoContenido).toBe("image/png");
+      expect(adjunto.nombre).toMatch(/\.png$/);
+      expect(adjunto.contenido.byteLength).toBeGreaterThan(1000);
+      // Firma PNG: \x89 P N G. Atrapa un base64 cortado o mal decodificado, que de otro modo
+      // sólo se vería abriendo el correo.
+      expect([...adjunto.contenido.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    }
+  });
+
+  it("el `<img>` fija width y height, que es lo que Outlook necesita", () => {
+    // El archivo mide el doble del tamaño de presentación, por pantallas HiDPI. Sin los
+    // atributos Outlook lo pinta a tamaño original y el encabezado sale al doble.
+    expect(correo.cuerpoHtml).toMatch(/<img src="cid:logo-ems"[^>]*width="120"[^>]*height="90"/);
+  });
+
+  it("el cuerpo de texto plano no menciona los logos", () => {
+    // Quien lee la versión de texto no tiene imágenes: nombrarlas sería ruido.
+    expect(correo.cuerpoTexto).not.toContain("cid:");
+    expect(correo.cuerpoTexto).not.toContain("logo");
+  });
+});

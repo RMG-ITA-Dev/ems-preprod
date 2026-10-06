@@ -296,6 +296,7 @@ Deno.serve(async (req) => {
           asunto: aviso.asunto,
           cuerpoTexto: aviso.cuerpoTexto,
           cuerpoHtml: aviso.cuerpoHtml,
+          adjuntos: aviso.adjuntos,
         });
       } catch (errorAviso) {
         console.error(
