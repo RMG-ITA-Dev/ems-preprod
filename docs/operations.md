@@ -77,10 +77,11 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
   `test-resubmission-state`, en cambio, **no tienen equivalente en `npm test`** — son la única cobertura de
   integración de `submit_timesheet_safe` y `enforce_holiday_blocking`, y su destino es portarlos a
   `supabase/tests/` (harness RLS, base efímera local) en vez de ejecutarlos contra un proyecto vivo.
-  «Sin desplegar» está confirmado solo para Test (borradas el 02/10/2026) y producción (nunca tuvo
-  funciones). **Dev 2.0 y Lovable no se han verificado**: borrar el código del repo no retira una
-  función ya desplegada. Antes de darlos por limpios, correr `supabase functions list --project-ref <ref>`
-  y, si aparece alguna de las dos, `supabase functions delete <nombre> --project-ref <ref>`.
+  Borrar el código del repo **no** retira una función ya desplegada: en cada proyecto hay que correr
+  `supabase functions list --project-ref <ref>` y, si aparece alguna de las dos,
+  `supabase functions delete <nombre> --project-ref <ref>`. Estado por proyecto: Test, borradas el
+  02/10/2026; Dev 2.0, las dos estaban ACTIVE (desplegadas en julio) y se retiraron el 08/10/2026;
+  producción nunca tuvo funciones; Lovable está fuera de uso.
 - Migrations in `supabase/migrations/` (run `ls supabase/migrations | sort` for the current count/list — it grows with every incremental bug/feature branch, so it's not tracked as a fixed number here): 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. Everything else is an incremental migration applied on top of that set, one per bug/feature ID (e.g. `20260825120000_0825-183_worksheet_activity_practice_scope.sql`).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 

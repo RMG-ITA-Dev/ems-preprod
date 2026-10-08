@@ -387,10 +387,12 @@ Re-aceptado desde el artifact del run **37058843503** (`headSha` b6461bee, 2026-
 Divergieron `catalog_grants` (−21), `catalog_column_grants` (−220), `catalog_routine_grants` (−9),
 `catalog_policies` (+1) y `consolidado_renamed_schema.sql`; `catalog_storage_buckets` quedó idéntico.
 
-A diferencia de §6.3 y §6.4, **esta entrada no trae bloque único para ambientes ya migrados**: el
-operador decidió el 02/10/2026 reconstruir Test desde las migraciones en vez de parcharlo. El ledger
-de Test tenía registradas solo las 14 `cero_*` de las 44 migraciones aplicadas, así que `db push`
-tampoco era una alternativa. Producción nace de cero y no necesita nada.
+Para Test, el operador decidió el 02/10/2026 reconstruirlo desde las migraciones en vez de parcharlo:
+su ledger tenía registradas solo las 14 `cero_*` de las 44 migraciones aplicadas, así que `db push`
+tampoco era una alternativa. Producción nace de cero y no necesita nada. **Dev 2.0** está en la misma
+situación de ledger (solo las 14 `cero_*`) y el 08/10/2026 pasó a ser el ambiente de prueba de
+migraciones, así que se corrigió con el bloque único del final de esta sección, después de los de §6.3
+y §6.4.
 
 #### A.5a — `cero_06_grants.sql`, tercer bloque de `REVOKE`
 
@@ -472,3 +474,89 @@ Del lado de la app, `SessionCacheGuard` invalida `global_settings` al pasar de s
 sesión: su `queryKey` no lleva identidad y el `staleTime` es de 60 s, así que sin eso el login
 heredaba la vista de 3 claves y `TAX_RATE` caía a su default 0.13 durante un minuto, sin error ni
 403 visible. Cubierto por el caso (6) de `SessionCacheGuard.test.tsx`, que falla si se quita el fix.
+
+#### Ambientes que ya aplicaron `cero_05`/`cero_06`: bloque único de A.5
+
+Mismas razones que en §6.3. Va **después** de los bloques de §6.3 y §6.4, y verificando antes que el
+editor abierto es el del `project-ref` correcto. Aplicado y verificado en Dev 2.0 (`oapgycqovzqsucliwbpu`)
+el 08/10/2026. El frontend del ambiente tiene que incluir el arreglo de `SessionCacheGuard` de arriba.
+
+```sql
+-- A.5, aplicación única en un ambiente ya migrado. Idempotente.
+BEGIN;
+-- A.5a: lectura anónima en 16 tablas y 5 vistas
+REVOKE SELECT ON TABLE
+  public.activity_codes, public.activity_worksheet_cells, public.categories, public.clients,
+  public.engagements, public.expense_types, public.industries, public.migration_run_log,
+  public.staff, public.time_entries, public.timer_entries, public.timesheet_line_approvals,
+  public.timesheet_periods, public.user_roles, public.wo_budget_lines, public.wo_expense_budget,
+  public.clients_directory, public.engagement_wo_state, public.fund_request_selectable_work_orders,
+  public.staff_directory, public.work_order_summary
+FROM anon;
+-- A.5a: RPC definidoras que escriben sin validar al llamador
+REVOKE EXECUTE ON FUNCTION public.update_timesheet_minmax_settings(p_daily_min numeric, p_daily_max numeric, p_weekly_min numeric, p_weekly_max numeric, p_work_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uuid, p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.finalize_due_engagements() FROM PUBLIC, anon, authenticated;
+-- A.5b: global_settings con RLS; anon solo ve las tres claves del login
+ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "anon reads login settings" ON public.global_settings;
+CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon
+  USING (setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN'));
+-- BAR-016: holidays deja de regir para PUBLIC
+ALTER POLICY "Authenticated users can read holidays" ON public.holidays TO authenticated;
+COMMIT;
+
+-- Verificación (solo lectura). Esperado: 0 filas en 1) y 2).
+-- 1) anon no lee ninguno de los 21 objetos
+SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+ WHERE c.relname IN ('activity_codes','activity_worksheet_cells','categories','clients','engagements',
+         'expense_types','industries','migration_run_log','staff','time_entries','timer_entries',
+         'timesheet_line_approvals','timesheet_periods','user_roles','wo_budget_lines','wo_expense_budget',
+         'clients_directory','engagement_wo_state','fund_request_selectable_work_orders','staff_directory',
+         'work_order_summary')
+   AND has_table_privilege('anon', c.oid, 'SELECT');
+-- 2) anon no ejecuta las 4 RPC
+SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+ WHERE p.proname IN ('update_timesheet_minmax_settings','submit_timesheet_safe',
+                     'sync_worksheet_to_wo_budget','finalize_due_engagements')
+   AND has_function_privilege('anon', p.oid, 'EXECUTE');
+-- 3) Esperado: authenticated = true en las tres primeras y false en finalize_due_engagements
+SELECT p.proname, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace AND n.nspname = 'public'
+ WHERE p.proname IN ('update_timesheet_minmax_settings','submit_timesheet_safe',
+                     'sync_worksheet_to_wo_budget','finalize_due_engagements');
+-- 4) Esperado: rls = true y holidays = {authenticated}
+SELECT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.global_settings'::regclass) AS rls,
+       (SELECT roles FROM pg_policies WHERE tablename = 'holidays'
+           AND policyname = 'Authenticated users can read holidays') AS holidays;
+```
+
+Desde fuera, con la clave `anon` del ambiente: `GET /rest/v1/global_settings?select=*` devuelve 3 filas
+y `GET /rest/v1/engagements` da 401 con `42501`.
+
+Reversión exacta, solo si el bloque rompe un flujo legítimo (restaura la exposición; registrar el
+motivo en `bugs/seguridad/barrido_report.md` §3 antes de correrla):
+
+```sql
+BEGIN;
+GRANT SELECT ON TABLE
+  public.activity_codes, public.activity_worksheet_cells, public.categories, public.clients,
+  public.engagements, public.expense_types, public.industries, public.migration_run_log,
+  public.staff, public.time_entries, public.timer_entries, public.timesheet_line_approvals,
+  public.timesheet_periods, public.user_roles, public.wo_budget_lines, public.wo_expense_budget,
+  public.clients_directory, public.engagement_wo_state, public.fund_request_selectable_work_orders,
+  public.staff_directory, public.work_order_summary
+TO anon;
+GRANT EXECUTE ON FUNCTION public.update_timesheet_minmax_settings(p_daily_min numeric, p_daily_max numeric, p_weekly_min numeric, p_weekly_max numeric, p_work_days integer) TO anon;
+GRANT EXECUTE ON FUNCTION public.submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) TO anon;
+GRANT EXECUTE ON FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uuid, p_wo_id uuid) TO anon;
+GRANT EXECUTE ON FUNCTION public.finalize_due_engagements() TO anon, authenticated;
+DROP POLICY "anon reads login settings" ON public.global_settings;
+ALTER TABLE public.global_settings DISABLE ROW LEVEL SECURITY;
+ALTER POLICY "Authenticated users can read holidays" ON public.holidays TO public;
+COMMIT;
+```
+
+Como en §6.3, la reversión no devuelve el `EXECUTE` a `PUBLIC`: con `anon` y `authenticated`
+restaurados, el comportamiento previo queda igual para la Data API.
