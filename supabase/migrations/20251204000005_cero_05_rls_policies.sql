@@ -332,7 +332,13 @@ CREATE POLICY "Authenticated users can read expense types" ON public.expense_typ
 -- Name: holidays Authenticated users can read holidays; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Authenticated users can read holidays" ON public.holidays FOR SELECT USING (true);
+-- El `TO authenticated` lo agregó el barrido de seguridad del 02/10/2026 (BAR-016). Sin cláusula TO
+-- una política rige para PUBLIC, que incluye a `anon`: con `USING (true)` esta era la ÚNICA tabla del
+-- esquema con RLS encendida que un visitante sin cuenta podía leer igual. El nombre de la política ya
+-- decía la intención; faltaba expresarla. Verificado en vivo contra Test (consulta de políticas que
+-- alcanzan a anon/PUBLIC): el resto de las políticas sin TO resuelven por auth.uid(), que es NULL sin
+-- sesión, así que esta era el único caso efectivo.
+CREATE POLICY "Authenticated users can read holidays" ON public.holidays FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -1229,6 +1235,37 @@ ALTER TABLE public.fund_requests ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY "global_settings write" ON public.global_settings TO authenticated USING (public.has_permission('global_settings.update'::text)) WITH CHECK (public.has_permission('global_settings.update'::text));
+
+
+--
+--
+-- Name: global_settings anon reads login settings; Type: POLICY; Schema: public; Owner: -
+--
+-- A.5b del barrido de seguridad (bugs/seguridad/barrido_report.md §3; BAR-002 lectura, BAR-013
+-- escritura). global_settings es la única tabla que la app consulta SIN sesión: LanguageSync
+-- (montado en toda la app) y Auth.tsx piden `global_settings?select=*` desde la pantalla de login.
+-- Por eso no se resuelve con REVOKE como las otras 16 tablas de A.5a — el login perdería el idioma
+-- y la validación del dominio de correo — ni con permisos por columna, porque la app pide `select=*`
+-- y además hace falta filtrar FILAS, no columnas: hoy `anon` recibe las 27 claves, incluidas
+-- AUTH_MAX_FAILED_ATTEMPTS, AUTH_LOCKOUT_MINUTES, AUTH_EMAIL_GLOBAL_MAX_PER_HOUR, ADM_ACTIVITY_ID
+-- y EXCHANGE_RATE_API_URL.
+--
+-- Encender RLS acá tiene un segundo efecto deliberado: las tres políticas de arriba, que hasta ahora
+-- no se aplicaban, pasan a regir la escritura de `authenticated` y cierran que cualquier empleado
+-- pueda reescribir TAX_RATE, los parámetros de bloqueo de cuentas o EXCHANGE_RATE_API_URL por la
+-- Data API sin ningún control (la mitad de escritura de BAR-013).
+--
+-- No se activa FORCE ROW LEVEL SECURITY a propósito: el dueño es `postgres`, y de eso dependen las
+-- 14 funciones SECURITY DEFINER que leen esta tabla, el trigger guard_auth_lockout_settings y los
+-- jobs de pg_cron. `service_role` tampoco se ve afectado (tiene BYPASSRLS), que es lo que mantiene
+-- vivas las lecturas de register-user, dashboard-data y exchange-rate-sync.
+--
+-- El ENABLE y esta política van en el mismo archivo, o sea en la misma transacción: no existe un
+-- instante en que la tabla tenga RLS sin política y el login se quede sin acceso.
+
+ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon USING (setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN'));
 
 
 --

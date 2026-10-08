@@ -1850,3 +1850,130 @@ REVOKE EXECUTE ON FUNCTION public.resolve_wo_req_skill_engagement_id(p_requireme
 REVOKE EXECUTE ON FUNCTION public.save_engagement_assignments(p_engagement_id uuid, p_upserts jsonb, p_deleted_ids uuid[]) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.save_wo_staffing(p_wo_id uuid, p_requirements jsonb) FROM anon, service_role;
 REVOKE EXECUTE ON FUNCTION public.staff_id_number_conflict(p_id_number text, p_exclude_staff_id uuid) FROM anon;
+
+--
+-- Carril A — contención del incidente RLS del 2026-09-28 (bugs/seguridad/barrido_plan.md §5;
+-- hallazgos BAR-001, BAR-004 y BAR-007 de bugs/seguridad/barrido_report.md). Mismo mecanismo que
+-- los dos bloques de arriba: los GRANT ALL de más arriba quedan verbatim del dump y el estado final
+-- se corrige con REVOKE explícitos, que además limpian el GRANT directo que el default de
+-- plataforma da a anon/authenticated al crear el objeto. service_role no se toca.
+--
+-- A.1 user_roles: has_role() resuelve privilegios leyendo esta tabla y no tiene RLS, así que la
+--     escritura directa por la Data API permitía a cualquier sesión cambiar su propio rol sin pasar
+--     por admin_set_user_role (ni por su escritura en user_lifecycle_audit_log). Toda escritura
+--     legítima entra por funciones SECURITY DEFINER (admin_set_user_role[_key], handle_new_user,
+--     assign_user_role_atomic, rollback_unconfirmed_signup, prepare_account_deletion,
+--     clear_account_deletion_mark) o por service_role. El SELECT de authenticated se conserva: lo usan
+--     useAuth, useUserRole y StaffForm. El de anon lo retira A.5a, más abajo.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.user_roles FROM authenticated;
+
+-- A.2 user_roles_backup_0220_56_20260224: copia histórica sin consumidores (ni código, ni funciones,
+--     ni seeds); nace vacía en un reset. Se retira todo acceso de los roles de API y se deja la
+--     tabla en su lugar (no DROP, no cambio de esquema).
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM anon;
+REVOKE ALL ON TABLE public.user_roles_backup_0220_56_20260224 FROM authenticated;
+
+-- BAR-007 assign_user_role_atomic: no valida al llamador y con user_roles vacío asigna 'admin' al
+--     identificador recibido. Su único consumidor es la Edge Function assign-user-role, que la llama
+--     con service_role. PUBLIC se incluye porque una función nace ejecutable por PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.assign_user_role_atomic(p_user_id uuid) FROM PUBLIC, anon, authenticated;
+
+-- A.4 escritura anónima sobre las 16 tablas de §4.3 que siguen sin RLS (BAR-002) y sobre las 5 vistas
+--     con grant a anon (BAR-010). Es el vector que demostró el informe del 2026-09-28 (PATCH anónimo
+--     a engagements -> 204). RLS y políticas de estas tablas son del Carril B; esto solo retira la
+--     ESCRITURA de anon. SELECT se conserva: la pantalla de login lee global_settings sin sesión, y
+--     el resto de la lectura anónima se cierra con RLS en el Carril B.
+--     Verificado sin consumidores: ningún flujo del frontend ni de las Edge Functions escribe estas
+--     tablas como anon (todo corre tras el login con el JWT del usuario, o con service_role), y las
+--     funciones SECURITY INVOKER ejecutables por anon no hacen DML sobre ellas.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.activity_codes FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.activity_worksheet_cells FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.categories FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.clients FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.engagements FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.expense_types FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.global_settings FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.industries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.migration_run_log FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.staff FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.time_entries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timer_entries FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timesheet_line_approvals FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.timesheet_periods FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.wo_budget_lines FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.wo_expense_budget FROM anon;
+
+--     Vistas: revocar solo la tabla base NO basta. clients_directory, staff_directory y
+--     engagement_wo_state son vistas simples (auto-actualizables) propiedad de postgres y sin
+--     security_invoker, así que Postgres comprueba el permiso de escritura contra el DUEÑO de la
+--     vista y no contra anon: un UPDATE a la vista pasa aunque la tabla ya esté revocada
+--     (reproducido en local). Mismas revocaciones sobre las cinco vistas con grant a anon.
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.clients_directory FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.engagement_wo_state FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.fund_request_selectable_work_orders FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.staff_directory FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.work_order_summary FROM anon;
+
+-- A.5a lectura anónima: un visitante sin cuenta no lee datos de la firma. Cierra la mitad de LECTURA
+--     de BAR-001, BAR-002, BAR-003 y BAR-010, que A.4 dejó abierta a propósito (un GET anónimo a
+--     engagements seguía devolviendo 200). Son las mismas 16 tablas de arriba, salvo global_settings
+--     —la pantalla de login la lee sin sesión; se trata con RLS + política en cero_05, no con REVOKE—
+--     más user_roles, cuyo SELECT anónimo entrega el mapa completo de quién es administrador.
+--     Verificado sin consumidores anónimos: la única consulta a la Data API antes del login es
+--     global_settings, desde LanguageSync y Auth.tsx. useCurrentStaff y useUserRole están cerrados con
+--     `enabled: !!user?.id`; las lecturas de staff y user_roles de useAuth ocurren después de
+--     setSession(), o sea con JWT; ResetPassword, Bootstrap y ForgotPasswordDialog no consultan tablas.
+--     Ninguna Edge Function lee estas tablas como anon: las que usan la clave anon adjuntan siempre el
+--     JWT del llamador, y las lecturas del lado servidor van con service_role (que tiene BYPASSRLS).
+--     Tampoco queda ruta lateral: ninguna vista lee global_settings, las otras cinco vistas (vw_*) ya
+--     revocan SELECT a anon más arriba y son security_invoker=on, y las definidoras que devuelven el
+--     mapa de roles (get_all_user_roles, get_my_authorization_context, has_permission,
+--     permission_scope) resuelven todas por auth.uid(), que es NULL sin sesión.
+--     CUIDADO al extender esto a `authenticated` en el Carril B: un REVOKE de SELECT a nivel de tabla
+--     borra también los GRANT SELECT(columna) del mismo rol (ver §3 de DIFF-INTENCIONAL-consolidacion.md),
+--     así que un `REVOKE SELECT ON staff FROM authenticated` agregado aquí destruiría el hardening de
+--     PII de las líneas 1305-1361. A anon no lo afecta: no tiene grants por columna en ninguna tabla.
+REVOKE SELECT ON TABLE public.activity_codes FROM anon;
+REVOKE SELECT ON TABLE public.activity_worksheet_cells FROM anon;
+REVOKE SELECT ON TABLE public.categories FROM anon;
+REVOKE SELECT ON TABLE public.clients FROM anon;
+REVOKE SELECT ON TABLE public.engagements FROM anon;
+REVOKE SELECT ON TABLE public.expense_types FROM anon;
+REVOKE SELECT ON TABLE public.industries FROM anon;
+REVOKE SELECT ON TABLE public.migration_run_log FROM anon;
+REVOKE SELECT ON TABLE public.staff FROM anon;
+REVOKE SELECT ON TABLE public.time_entries FROM anon;
+REVOKE SELECT ON TABLE public.timer_entries FROM anon;
+REVOKE SELECT ON TABLE public.timesheet_line_approvals FROM anon;
+REVOKE SELECT ON TABLE public.timesheet_periods FROM anon;
+REVOKE SELECT ON TABLE public.user_roles FROM anon;
+REVOKE SELECT ON TABLE public.wo_budget_lines FROM anon;
+REVOKE SELECT ON TABLE public.wo_expense_budget FROM anon;
+
+--     Las mismas cinco vistas: con security_invoker=false Postgres resuelve la lectura contra el DUEÑO,
+--     así que revocar solo la tabla base dejaría la lectura viva por la vista (el mismo mecanismo que
+--     A.4 cerró para la escritura).
+REVOKE SELECT ON TABLE public.clients_directory FROM anon;
+REVOKE SELECT ON TABLE public.engagement_wo_state FROM anon;
+REVOKE SELECT ON TABLE public.fund_request_selectable_work_orders FROM anon;
+REVOKE SELECT ON TABLE public.staff_directory FROM anon;
+REVOKE SELECT ON TABLE public.work_order_summary FROM anon;
+
+-- A.5a escritura anónima por RPC: A.4 revisó tablas, vistas y las funciones SECURITY INVOKER, pero no
+--     las DEFINIDORAS. Una SECURITY DEFINER corre como su dueño (postgres), así que ni los REVOKE de
+--     arriba ni la RLS del Carril B la alcanzan. Del inventario de definidoras ejecutables por anon,
+--     cuatro escriben sin validar al llamador; el resto que marca el triage son funciones de trigger,
+--     que PostgREST no expone y que no se pueden invocar fuera de un trigger.
+--     Las tres primeras conservan EXECUTE para authenticated porque tienen consumidor con sesión
+--     (Settings.tsx, useTimesheetMutations.ts, useWorksheetMutations.ts); que un empleado cualquiera
+--     pueda llamarlas sin control es BAR-009/BAR-013 y se corrige con validación interna en el Carril B.
+--     PUBLIC se incluye porque una función nace ejecutable por PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.update_timesheet_minmax_settings(p_daily_min numeric, p_daily_max numeric, p_weekly_min numeric, p_weekly_max numeric, p_work_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uuid, p_wo_id uuid) FROM PUBLIC, anon;
+
+--     finalize_due_engagements sí pierde también authenticated: no tiene ningún consumidor en el
+--     frontend ni en las Edge Functions, y el job diario que la ejecuta corre como postgres, que es su
+--     dueño. Esto cierra BAR-008 por completo.
+REVOKE EXECUTE ON FUNCTION public.finalize_due_engagements() FROM PUBLIC, anon, authenticated;

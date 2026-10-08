@@ -155,13 +155,6 @@
  auth         | postgres      | webauthn_credentials                           | TRIGGER
  auth         | postgres      | webauthn_credentials                           | TRUNCATE
  auth         | postgres      | webauthn_credentials                           | UPDATE
- public       | anon          | activity_codes                                 | DELETE
- public       | anon          | activity_codes                                 | INSERT
- public       | anon          | activity_codes                                 | REFERENCES
- public       | anon          | activity_codes                                 | SELECT
- public       | anon          | activity_codes                                 | TRIGGER
- public       | anon          | activity_codes                                 | TRUNCATE
- public       | anon          | activity_codes                                 | UPDATE
  public       | authenticated | activity_codes                                 | DELETE
  public       | authenticated | activity_codes                                 | INSERT
  public       | authenticated | activity_codes                                 | REFERENCES
@@ -183,13 +176,6 @@
  public       | service_role  | activity_codes                                 | TRIGGER
  public       | service_role  | activity_codes                                 | TRUNCATE
  public       | service_role  | activity_codes                                 | UPDATE
- public       | anon          | activity_worksheet_cells                       | DELETE
- public       | anon          | activity_worksheet_cells                       | INSERT
- public       | anon          | activity_worksheet_cells                       | REFERENCES
- public       | anon          | activity_worksheet_cells                       | SELECT
- public       | anon          | activity_worksheet_cells                       | TRIGGER
- public       | anon          | activity_worksheet_cells                       | TRUNCATE
- public       | anon          | activity_worksheet_cells                       | UPDATE
  public       | authenticated | activity_worksheet_cells                       | DELETE
  public       | authenticated | activity_worksheet_cells                       | INSERT
  public       | authenticated | activity_worksheet_cells                       | REFERENCES
@@ -351,13 +337,6 @@
  public       | service_role  | authorization_roles                            | TRIGGER
  public       | service_role  | authorization_roles                            | TRUNCATE
  public       | service_role  | authorization_roles                            | UPDATE
- public       | anon          | categories                                     | DELETE
- public       | anon          | categories                                     | INSERT
- public       | anon          | categories                                     | REFERENCES
- public       | anon          | categories                                     | SELECT
- public       | anon          | categories                                     | TRIGGER
- public       | anon          | categories                                     | TRUNCATE
- public       | anon          | categories                                     | UPDATE
  public       | authenticated | categories                                     | DELETE
  public       | authenticated | categories                                     | INSERT
  public       | authenticated | categories                                     | REFERENCES
@@ -379,13 +358,6 @@
  public       | service_role  | categories                                     | TRIGGER
  public       | service_role  | categories                                     | TRUNCATE
  public       | service_role  | categories                                     | UPDATE
- public       | anon          | clients                                        | DELETE
- public       | anon          | clients                                        | INSERT
- public       | anon          | clients                                        | REFERENCES
- public       | anon          | clients                                        | SELECT
- public       | anon          | clients                                        | TRIGGER
- public       | anon          | clients                                        | TRUNCATE
- public       | anon          | clients                                        | UPDATE
  public       | authenticated | clients                                        | DELETE
  public       | authenticated | clients                                        | INSERT
  public       | authenticated | clients                                        | REFERENCES
@@ -407,13 +379,6 @@
  public       | service_role  | clients                                        | TRIGGER
  public       | service_role  | clients                                        | TRUNCATE
  public       | service_role  | clients                                        | UPDATE
- public       | anon          | clients_directory                              | DELETE
- public       | anon          | clients_directory                              | INSERT
- public       | anon          | clients_directory                              | REFERENCES
- public       | anon          | clients_directory                              | SELECT
- public       | anon          | clients_directory                              | TRIGGER
- public       | anon          | clients_directory                              | TRUNCATE
- public       | anon          | clients_directory                              | UPDATE
  public       | authenticated | clients_directory                              | DELETE
  public       | authenticated | clients_directory                              | INSERT
  public       | authenticated | clients_directory                              | REFERENCES
@@ -456,13 +421,6 @@
  public       | service_role  | engagement_assignments                         | TRIGGER
  public       | service_role  | engagement_assignments                         | TRUNCATE
  public       | service_role  | engagement_assignments                         | UPDATE
- public       | anon          | engagement_wo_state                            | DELETE
- public       | anon          | engagement_wo_state                            | INSERT
- public       | anon          | engagement_wo_state                            | REFERENCES
- public       | anon          | engagement_wo_state                            | SELECT
- public       | anon          | engagement_wo_state                            | TRIGGER
- public       | anon          | engagement_wo_state                            | TRUNCATE
- public       | anon          | engagement_wo_state                            | UPDATE
  public       | authenticated | engagement_wo_state                            | DELETE
  public       | authenticated | engagement_wo_state                            | INSERT
  public       | authenticated | engagement_wo_state                            | REFERENCES
@@ -484,13 +442,6 @@
  public       | service_role  | engagement_wo_state                            | TRIGGER
  public       | service_role  | engagement_wo_state                            | TRUNCATE
  public       | service_role  | engagement_wo_state                            | UPDATE
- public       | anon          | engagements                                    | DELETE
- public       | anon          | engagements                                    | INSERT
- public       | anon          | engagements                                    | REFERENCES
- public       | anon          | engagements                                    | SELECT
- public       | anon          | engagements                                    | TRIGGER
- public       | anon          | engagements                                    | TRUNCATE
- public       | anon          | engagements                                    | UPDATE
  public       | authenticated | engagements                                    | DELETE
  public       | authenticated | engagements                                    | INSERT
  public       | authenticated | engagements                                    | REFERENCES
@@ -540,13 +491,6 @@
  public       | service_role  | exchange_rate_history                          | TRIGGER
  public       | service_role  | exchange_rate_history                          | TRUNCATE
  public       | service_role  | exchange_rate_history                          | UPDATE
- public       | anon          | expense_types                                  | DELETE
- public       | anon          | expense_types                                  | INSERT
- public       | anon          | expense_types                                  | REFERENCES
- public       | anon          | expense_types                                  | SELECT
- public       | anon          | expense_types                                  | TRIGGER
- public       | anon          | expense_types                                  | TRUNCATE
- public       | anon          | expense_types                                  | UPDATE
  public       | authenticated | expense_types                                  | DELETE
  public       | authenticated | expense_types                                  | INSERT
  public       | authenticated | expense_types                                  | REFERENCES
@@ -596,13 +540,6 @@
  public       | service_role  | fund_request_expenses                          | TRIGGER
  public       | service_role  | fund_request_expenses                          | TRUNCATE
  public       | service_role  | fund_request_expenses                          | UPDATE
- public       | anon          | fund_request_selectable_work_orders            | DELETE
- public       | anon          | fund_request_selectable_work_orders            | INSERT
- public       | anon          | fund_request_selectable_work_orders            | REFERENCES
- public       | anon          | fund_request_selectable_work_orders            | SELECT
- public       | anon          | fund_request_selectable_work_orders            | TRIGGER
- public       | anon          | fund_request_selectable_work_orders            | TRUNCATE
- public       | anon          | fund_request_selectable_work_orders            | UPDATE
  public       | authenticated | fund_request_selectable_work_orders            | DELETE
  public       | authenticated | fund_request_selectable_work_orders            | INSERT
  public       | authenticated | fund_request_selectable_work_orders            | REFERENCES
@@ -680,13 +617,7 @@
  public       | service_role  | fund_requests                                  | TRIGGER
  public       | service_role  | fund_requests                                  | TRUNCATE
  public       | service_role  | fund_requests                                  | UPDATE
- public       | anon          | global_settings                                | DELETE
- public       | anon          | global_settings                                | INSERT
- public       | anon          | global_settings                                | REFERENCES
  public       | anon          | global_settings                                | SELECT
- public       | anon          | global_settings                                | TRIGGER
- public       | anon          | global_settings                                | TRUNCATE
- public       | anon          | global_settings                                | UPDATE
  public       | authenticated | global_settings                                | DELETE
  public       | authenticated | global_settings                                | INSERT
  public       | authenticated | global_settings                                | REFERENCES
@@ -736,13 +667,6 @@
  public       | service_role  | holidays                                       | TRIGGER
  public       | service_role  | holidays                                       | TRUNCATE
  public       | service_role  | holidays                                       | UPDATE
- public       | anon          | industries                                     | DELETE
- public       | anon          | industries                                     | INSERT
- public       | anon          | industries                                     | REFERENCES
- public       | anon          | industries                                     | SELECT
- public       | anon          | industries                                     | TRIGGER
- public       | anon          | industries                                     | TRUNCATE
- public       | anon          | industries                                     | UPDATE
  public       | authenticated | industries                                     | DELETE
  public       | authenticated | industries                                     | INSERT
  public       | authenticated | industries                                     | REFERENCES
@@ -764,13 +688,6 @@
  public       | service_role  | industries                                     | TRIGGER
  public       | service_role  | industries                                     | TRUNCATE
  public       | service_role  | industries                                     | UPDATE
- public       | anon          | migration_run_log                              | DELETE
- public       | anon          | migration_run_log                              | INSERT
- public       | anon          | migration_run_log                              | REFERENCES
- public       | anon          | migration_run_log                              | SELECT
- public       | anon          | migration_run_log                              | TRIGGER
- public       | anon          | migration_run_log                              | TRUNCATE
- public       | anon          | migration_run_log                              | UPDATE
  public       | authenticated | migration_run_log                              | DELETE
  public       | authenticated | migration_run_log                              | INSERT
  public       | authenticated | migration_run_log                              | REFERENCES
@@ -1044,13 +961,6 @@
  public       | service_role  | society                                        | TRIGGER
  public       | service_role  | society                                        | TRUNCATE
  public       | service_role  | society                                        | UPDATE
- public       | anon          | staff                                          | DELETE
- public       | anon          | staff                                          | INSERT
- public       | anon          | staff                                          | REFERENCES
- public       | anon          | staff                                          | SELECT
- public       | anon          | staff                                          | TRIGGER
- public       | anon          | staff                                          | TRUNCATE
- public       | anon          | staff                                          | UPDATE
  public       | authenticated | staff                                          | DELETE
  public       | authenticated | staff                                          | INSERT
  public       | authenticated | staff                                          | REFERENCES
@@ -1099,13 +1009,6 @@
  public       | service_role  | staff_alert_seen                               | TRIGGER
  public       | service_role  | staff_alert_seen                               | TRUNCATE
  public       | service_role  | staff_alert_seen                               | UPDATE
- public       | anon          | staff_directory                                | DELETE
- public       | anon          | staff_directory                                | INSERT
- public       | anon          | staff_directory                                | REFERENCES
- public       | anon          | staff_directory                                | SELECT
- public       | anon          | staff_directory                                | TRIGGER
- public       | anon          | staff_directory                                | TRUNCATE
- public       | anon          | staff_directory                                | UPDATE
  public       | authenticated | staff_directory                                | DELETE
  public       | authenticated | staff_directory                                | INSERT
  public       | authenticated | staff_directory                                | REFERENCES
@@ -1155,13 +1058,6 @@
  public       | service_role  | staff_skills                                   | TRIGGER
  public       | service_role  | staff_skills                                   | TRUNCATE
  public       | service_role  | staff_skills                                   | UPDATE
- public       | anon          | time_entries                                   | DELETE
- public       | anon          | time_entries                                   | INSERT
- public       | anon          | time_entries                                   | REFERENCES
- public       | anon          | time_entries                                   | SELECT
- public       | anon          | time_entries                                   | TRIGGER
- public       | anon          | time_entries                                   | TRUNCATE
- public       | anon          | time_entries                                   | UPDATE
  public       | authenticated | time_entries                                   | DELETE
  public       | authenticated | time_entries                                   | INSERT
  public       | authenticated | time_entries                                   | REFERENCES
@@ -1183,13 +1079,6 @@
  public       | service_role  | time_entries                                   | TRIGGER
  public       | service_role  | time_entries                                   | TRUNCATE
  public       | service_role  | time_entries                                   | UPDATE
- public       | anon          | timer_entries                                  | DELETE
- public       | anon          | timer_entries                                  | INSERT
- public       | anon          | timer_entries                                  | REFERENCES
- public       | anon          | timer_entries                                  | SELECT
- public       | anon          | timer_entries                                  | TRIGGER
- public       | anon          | timer_entries                                  | TRUNCATE
- public       | anon          | timer_entries                                  | UPDATE
  public       | authenticated | timer_entries                                  | DELETE
  public       | authenticated | timer_entries                                  | INSERT
  public       | authenticated | timer_entries                                  | REFERENCES
@@ -1211,13 +1100,6 @@
  public       | service_role  | timer_entries                                  | TRIGGER
  public       | service_role  | timer_entries                                  | TRUNCATE
  public       | service_role  | timer_entries                                  | UPDATE
- public       | anon          | timesheet_line_approvals                       | DELETE
- public       | anon          | timesheet_line_approvals                       | INSERT
- public       | anon          | timesheet_line_approvals                       | REFERENCES
- public       | anon          | timesheet_line_approvals                       | SELECT
- public       | anon          | timesheet_line_approvals                       | TRIGGER
- public       | anon          | timesheet_line_approvals                       | TRUNCATE
- public       | anon          | timesheet_line_approvals                       | UPDATE
  public       | authenticated | timesheet_line_approvals                       | DELETE
  public       | authenticated | timesheet_line_approvals                       | INSERT
  public       | authenticated | timesheet_line_approvals                       | REFERENCES
@@ -1239,13 +1121,6 @@
  public       | service_role  | timesheet_line_approvals                       | TRIGGER
  public       | service_role  | timesheet_line_approvals                       | TRUNCATE
  public       | service_role  | timesheet_line_approvals                       | UPDATE
- public       | anon          | timesheet_periods                              | DELETE
- public       | anon          | timesheet_periods                              | INSERT
- public       | anon          | timesheet_periods                              | REFERENCES
- public       | anon          | timesheet_periods                              | SELECT
- public       | anon          | timesheet_periods                              | TRIGGER
- public       | anon          | timesheet_periods                              | TRUNCATE
- public       | anon          | timesheet_periods                              | UPDATE
  public       | authenticated | timesheet_periods                              | DELETE
  public       | authenticated | timesheet_periods                              | INSERT
  public       | authenticated | timesheet_periods                              | REFERENCES
@@ -1304,20 +1179,7 @@
  public       | service_role  | user_lifecycle_audit_log                       | TRIGGER
  public       | service_role  | user_lifecycle_audit_log                       | TRUNCATE
  public       | service_role  | user_lifecycle_audit_log                       | UPDATE
- public       | anon          | user_roles                                     | DELETE
- public       | anon          | user_roles                                     | INSERT
- public       | anon          | user_roles                                     | REFERENCES
- public       | anon          | user_roles                                     | SELECT
- public       | anon          | user_roles                                     | TRIGGER
- public       | anon          | user_roles                                     | TRUNCATE
- public       | anon          | user_roles                                     | UPDATE
- public       | authenticated | user_roles                                     | DELETE
- public       | authenticated | user_roles                                     | INSERT
- public       | authenticated | user_roles                                     | REFERENCES
  public       | authenticated | user_roles                                     | SELECT
- public       | authenticated | user_roles                                     | TRIGGER
- public       | authenticated | user_roles                                     | TRUNCATE
- public       | authenticated | user_roles                                     | UPDATE
  public       | postgres      | user_roles                                     | DELETE
  public       | postgres      | user_roles                                     | INSERT
  public       | postgres      | user_roles                                     | REFERENCES
@@ -1332,20 +1194,6 @@
  public       | service_role  | user_roles                                     | TRIGGER
  public       | service_role  | user_roles                                     | TRUNCATE
  public       | service_role  | user_roles                                     | UPDATE
- public       | anon          | user_roles_backup_0220_56_20260224             | DELETE
- public       | anon          | user_roles_backup_0220_56_20260224             | INSERT
- public       | anon          | user_roles_backup_0220_56_20260224             | REFERENCES
- public       | anon          | user_roles_backup_0220_56_20260224             | SELECT
- public       | anon          | user_roles_backup_0220_56_20260224             | TRIGGER
- public       | anon          | user_roles_backup_0220_56_20260224             | TRUNCATE
- public       | anon          | user_roles_backup_0220_56_20260224             | UPDATE
- public       | authenticated | user_roles_backup_0220_56_20260224             | DELETE
- public       | authenticated | user_roles_backup_0220_56_20260224             | INSERT
- public       | authenticated | user_roles_backup_0220_56_20260224             | REFERENCES
- public       | authenticated | user_roles_backup_0220_56_20260224             | SELECT
- public       | authenticated | user_roles_backup_0220_56_20260224             | TRIGGER
- public       | authenticated | user_roles_backup_0220_56_20260224             | TRUNCATE
- public       | authenticated | user_roles_backup_0220_56_20260224             | UPDATE
  public       | postgres      | user_roles_backup_0220_56_20260224             | DELETE
  public       | postgres      | user_roles_backup_0220_56_20260224             | INSERT
  public       | postgres      | user_roles_backup_0220_56_20260224             | REFERENCES
@@ -1459,13 +1307,6 @@
  public       | service_role  | vw_wo_budget_hours_by_category_activity        | TRIGGER
  public       | service_role  | vw_wo_budget_hours_by_category_activity        | TRUNCATE
  public       | service_role  | vw_wo_budget_hours_by_category_activity        | UPDATE
- public       | anon          | wo_budget_lines                                | DELETE
- public       | anon          | wo_budget_lines                                | INSERT
- public       | anon          | wo_budget_lines                                | REFERENCES
- public       | anon          | wo_budget_lines                                | SELECT
- public       | anon          | wo_budget_lines                                | TRIGGER
- public       | anon          | wo_budget_lines                                | TRUNCATE
- public       | anon          | wo_budget_lines                                | UPDATE
  public       | authenticated | wo_budget_lines                                | DELETE
  public       | authenticated | wo_budget_lines                                | INSERT
  public       | authenticated | wo_budget_lines                                | REFERENCES
@@ -1487,13 +1328,6 @@
  public       | service_role  | wo_budget_lines                                | TRIGGER
  public       | service_role  | wo_budget_lines                                | TRUNCATE
  public       | service_role  | wo_budget_lines                                | UPDATE
- public       | anon          | wo_expense_budget                              | DELETE
- public       | anon          | wo_expense_budget                              | INSERT
- public       | anon          | wo_expense_budget                              | REFERENCES
- public       | anon          | wo_expense_budget                              | SELECT
- public       | anon          | wo_expense_budget                              | TRIGGER
- public       | anon          | wo_expense_budget                              | TRUNCATE
- public       | anon          | wo_expense_budget                              | UPDATE
  public       | authenticated | wo_expense_budget                              | DELETE
  public       | authenticated | wo_expense_budget                              | INSERT
  public       | authenticated | wo_expense_budget                              | REFERENCES
@@ -1613,13 +1447,6 @@
  public       | service_role  | wo_staffing_requirements                       | TRIGGER
  public       | service_role  | wo_staffing_requirements                       | TRUNCATE
  public       | service_role  | wo_staffing_requirements                       | UPDATE
- public       | anon          | work_order_summary                             | DELETE
- public       | anon          | work_order_summary                             | INSERT
- public       | anon          | work_order_summary                             | REFERENCES
- public       | anon          | work_order_summary                             | SELECT
- public       | anon          | work_order_summary                             | TRIGGER
- public       | anon          | work_order_summary                             | TRUNCATE
- public       | anon          | work_order_summary                             | UPDATE
  public       | authenticated | work_order_summary                             | DELETE
  public       | authenticated | work_order_summary                             | INSERT
  public       | authenticated | work_order_summary                             | REFERENCES
@@ -1788,5 +1615,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1788 rows)
+(1615 rows)
 
