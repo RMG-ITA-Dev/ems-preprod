@@ -69,9 +69,11 @@ BEGIN
   -- corregidos a incluidos el 2026-09-16; risk_partner con scope 'assigned_engagements'
   -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7) + 1 de
   -- 20260918120000_dash_encargo_engagement_overview.sql (dashboard.engagement.read para
-  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/).
-  IF n <> 758 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 758, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 758 concesiones';
+  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/) + 2 de
+  -- 20251204001004_cero_13_seed_authorization_rbac.sql (fund_disbursement.read/update para
+  -- accounting_analyst, paridad contable — docs/plan-contabilidad-gastos.md Fase 1.2).
+  IF n <> 760 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 760, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 760 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
