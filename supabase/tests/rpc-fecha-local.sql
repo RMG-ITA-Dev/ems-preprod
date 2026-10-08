@@ -54,6 +54,7 @@ DECLARE
   v_zona      text;
   v_semanas   jsonb;
   v_actual    date;
+  v_ultima    date;
   v_cuantas   integer;
 BEGIN
   -- ── 1. Convergencia: el cuerpo ya no consulta CURRENT_DATE ──
@@ -126,9 +127,14 @@ BEGIN
   RAISE NOTICE 'PASS - la semana actual la fija la fecha de La Paz y no el huso de la sesion';
 
   -- ── 3. get_my_pending_hours corta por la misma fecha ──
-  -- Sin horas cargadas, la ultima semana reclamada tiene que ser la ANTERIOR a la de hoy en La
-  -- Paz: la semana en curso se excluye por incompleta. Con CURRENT_DATE en un huso adelantado,
-  -- el corte se movia y llegaba a reclamar la semana que todavia esta corriendo.
+  -- Sin horas cargadas, la ultima semana reclamada es la ultima que YA TERMINO en La Paz: la
+  -- funcion salta una semana mientras su viernes sea hoy o futuro, asi que de lunes a viernes
+  -- es la anterior a la de hoy, pero sabado y domingo la semana lun-vie recien cerrada ya
+  -- cuenta (v_ultima). Con CURRENT_DATE en un huso adelantado, el corte se movia y llegaba a
+  -- reclamar la semana que todavia esta corriendo.
+  v_ultima := (v_hoy - (EXTRACT(ISODOW FROM v_hoy)::int - 1))
+              - CASE WHEN EXTRACT(ISODOW FROM v_hoy)::int >= 6 THEN 0 ELSE 7 END;
+
   FOREACH v_zona IN ARRAY ARRAY['Etc/GMT-14', 'Etc/GMT+12'] LOOP
     EXECUTE format('SET LOCAL TimeZone = %L', v_zona);
 
@@ -138,9 +144,9 @@ BEGIN
     IF v_actual IS NULL THEN
       RAISE EXCEPTION 'TEST FAIL - con la sesion en % no se reclamo ninguna semana pendiente', v_zona;
     END IF;
-    IF v_actual >= v_hoy - (EXTRACT(ISODOW FROM v_hoy)::int - 1) THEN
-      RAISE EXCEPTION 'TEST FAIL - con la sesion en % se reclamo la semana en curso (arranca el %, hoy en La Paz es %)',
-        v_zona, v_actual, v_hoy;
+    IF v_actual > v_ultima THEN
+      RAISE EXCEPTION 'TEST FAIL - con la sesion en % se reclamo una semana que todavia no termino (arranca el %, la ultima valida arranca el %, hoy en La Paz es %)',
+        v_zona, v_actual, v_ultima, v_hoy;
     END IF;
   END LOOP;
 
