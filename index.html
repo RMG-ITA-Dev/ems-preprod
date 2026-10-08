@@ -1,22 +1,42 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RuizmierGroup - EMS 2.0 - Engagement Management System</title>
-    <meta name="description" content="Professional Engagement Management System for audit and consulting firms. Track clients, engagements, work orders, time sheets, and expenses." />
-    <meta name="author" content="RuizmierGroup - EMS 2.0" />
-    <meta name="keywords" content="audit management, engagement tracking, time sheets, consulting, work orders" />
+    <title>EMS 2.0 - Engagement Management System</title>
+    <meta name="description" content="Sistema de gestión de encargos para firmas de auditoría y consultoría. Clientes, encargos, órdenes de trabajo, hojas de tiempo y gastos." />
+    <!-- `author` es la organización que publica el sitio, no el nombre del producto. -->
+    <meta name="author" content="Ruizmier Group" />
+    <meta name="keywords" content="gestión de encargos, auditoría, hojas de tiempo, consultoría, órdenes de trabajo, control de gastos" />
 
-    <meta property="og:title" content="RuizmierGroup - EMS 2.0 - Engagement Management System" />
-    <meta property="og:description" content="Professional Engagement Management System for audit and consulting firms" />
+    <!-- og:* y twitter:* repiten el <title> a propósito: si divergen, el nombre que
+         ve quien comparte el enlace deja de ser el de la pestaña. -->
+    <meta property="og:title" content="EMS 2.0 - Engagement Management System" />
+    <meta property="og:description" content="Sistema de gestión de encargos para firmas de auditoría y consultoría" />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:site_name" content="Ruizmier Group" />
+    <meta property="og:locale" content="es" />
+    <!-- Absoluta porque og:image no resuelve rutas relativas en la mayoría de los scrapers.
 
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="RuizmierGroup - EMS 2.0 - Engagement Management System" />
-    <meta name="twitter:description" content="Professional Engagement Management System for audit and consulting firms" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+         PENDIENTE AL PASAR A PREPROD: este host es el de Lovable, y `docs/operations.md` ya
+         fija Railway como destino del frontend ("Target model (decided 2026-09-11): frontend
+         on Railway, backend on Supabase, no Lovable"). Mientras esto siga en desarrollo el
+         host viejo sirve; cuando haya dominio de Railway hay que tocar tres lugares:
+         `og:image`, `twitter:image` y la línea "Published URL" de README.md, que es de donde
+         salió este valor y que todavía contradice a operations.md. -->
+    <meta property="og:image" content="https://aurora-engage-pro.lovable.app/logo.png" />
+    <meta property="og:image:alt" content="EMS 2.0" />
+
+    <!-- `summary`, no `summary_large_image`: logo.png es casi cuadrado (1444x1089) y
+         en la tarjeta ancha saldría recortado por arriba y por abajo. -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="EMS 2.0 - Engagement Management System" />
+    <meta name="twitter:description" content="Sistema de gestión de encargos para firmas de auditoría y consultoría" />
+    <meta name="twitter:image" content="https://aurora-engage-pro.lovable.app/logo.png" />
+    <meta name="twitter:image:alt" content="EMS 2.0" />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/logo.png" />
 
     <!-- Preconnect to critical origins to reduce network chain latency -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

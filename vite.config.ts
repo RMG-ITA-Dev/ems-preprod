@@ -2,10 +2,21 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { readFileSync } from "node:fs";
 import { componentTagger } from "lovable-tagger";
+
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8")) as {
+  version: string;
+};
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Se consume en AppSidebar (chip de versión). El tipo está en src/vite-env.d.ts y
+  // vitest.config.ts repite esta clave: sin eso, cualquier test que monte AppSidebar
+  // muere con `__APP_VERSION__ is not defined`.
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   server: {
     host: "::",
     port: 8080,

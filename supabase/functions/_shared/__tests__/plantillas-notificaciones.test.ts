@@ -139,8 +139,8 @@ describe("renderizarCorreoNotificacion — eventos", () => {
       }),
     );
 
-    expect(directo.asunto).toBe("Su rol en EMS cambió");
-    expect(porCategoria.asunto).toBe("Su categoría en EMS cambió");
+    expect(directo.asunto).toBe("Su rol cambió");
+    expect(porCategoria.asunto).toBe("Su categoría cambió");
     expect(porCategoria.cuerpoTexto).toContain("/staff/s-1");
   });
 

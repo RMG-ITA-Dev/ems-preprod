@@ -26,31 +26,31 @@ export const TIPOS_SOPORTADOS: TipoAccionCorreo[] = [
 
 export const TEXTOS_CUENTA: Record<TipoAccionCorreo, Copia> = {
   signup: {
-    asunto: "Confirme su cuenta de EMS",
+    asunto: "Confirme su cuenta",
     intro: "Se creó una cuenta con este correo. Confírmela para activarla.",
     boton: "Confirmar cuenta",
     cierre: "Si no creó esta cuenta, ignore este mensaje: sin confirmar, no se activa.",
   },
   recovery: {
-    asunto: "Restablezca su contraseña de EMS",
+    asunto: "Restablezca su contraseña",
     intro: "Solicitó restablecer su contraseña. Defina una nueva desde el siguiente enlace.",
     boton: "Definir contraseña",
     cierre: "Si no lo solicitó, ignore este mensaje: su contraseña actual sigue vigente.",
   },
   invite: {
-    asunto: "Invitación a EMS",
+    asunto: "Acepte su invitación",
     intro: "Le crearon una cuenta en el sistema. Acepte la invitación y defina su contraseña.",
     boton: "Aceptar invitación",
     cierre: "Si considera que es un error, consulte con quien lo invitó antes de usar el enlace.",
   },
   magiclink: {
-    asunto: "Su enlace de acceso a EMS",
+    asunto: "Su enlace de acceso",
     intro: "Solicitó ingresar con un enlace de acceso.",
     boton: "Ingresar",
     cierre: "Si no lo solicitó, ignore este mensaje.",
   },
   email_change: {
-    asunto: "Confirme su correo nuevo en EMS",
+    asunto: "Confirme su correo nuevo",
     intro: "Solicitó cambiar el correo de su cuenta. Confirme la dirección nueva.",
     boton: "Confirmar correo",
     cierre: "Si no lo solicitó, informe al área de Seguridad TI.",
@@ -62,7 +62,7 @@ export const TEXTOS_CUENTA: Record<TipoAccionCorreo, Copia> = {
  * contraseña", pero el usuario no pidió nada: el texto tiene que decirlo.
  */
 export const TEXTO_DESBLOQUEO: Copia = {
-  asunto: "Su cuenta de EMS fue desbloqueada",
+  asunto: "Su cuenta fue desbloqueada",
   intro:
     "Un administrador desbloqueó su cuenta. Defina una contraseña nueva para volver a ingresar.",
   boton: "Definir contraseña",

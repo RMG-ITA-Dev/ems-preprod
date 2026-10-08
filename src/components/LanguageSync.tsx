@@ -21,5 +21,11 @@ export function LanguageSync() {
     }
   }, [settings, i18n]);
 
+  // `lang` vive en index.html como valor estatico, asi que sin esto el idioma que
+  // anuncian lectores de pantalla y traductores queda fijo aunque la UI cambie.
+  useEffect(() => {
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
   return null;
 }
