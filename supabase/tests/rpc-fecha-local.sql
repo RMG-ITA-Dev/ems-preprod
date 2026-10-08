@@ -144,8 +144,11 @@ BEGIN
     IF v_actual IS NULL THEN
       RAISE EXCEPTION 'TEST FAIL - con la sesion en % no se reclamo ninguna semana pendiente', v_zona;
     END IF;
-    IF v_actual > v_ultima THEN
-      RAISE EXCEPTION 'TEST FAIL - con la sesion en % se reclamo una semana que todavia no termino (arranca el %, la ultima valida arranca el %, hoy en La Paz es %)',
+    -- Igualdad exacta, no solo "no pasarse": un corte movido hacia ADELANTE reclama una semana
+    -- que todavia corre, y uno movido hacia ATRAS (sabado/domingo) se salta la semana lun-vie
+    -- recien cerrada. Sin horas ni feriados que cubran una semana entera, ambas se notan aqui.
+    IF v_actual <> v_ultima THEN
+      RAISE EXCEPTION 'TEST FAIL - con la sesion en % la ultima semana reclamada arranca el %, se esperaba el % (hoy en La Paz es %)',
         v_zona, v_actual, v_ultima, v_hoy;
     END IF;
   END LOOP;
