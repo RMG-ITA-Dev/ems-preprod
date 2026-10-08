@@ -1742,15 +1742,8 @@ CREATE FUNCTION public.engagement_in_my_fund_request(p_engagement_id uuid) RETUR
       and (
         fr.requester_staff_id = get_my_staff_id()
         or frwo.manager_staff_id = get_my_staff_id()
-        -- Contabilidad, con el MISMO corte que fr_select_accounting (Ola D):
-        --   Gerente (fund_disbursement.read)  -> toda la fase contable.
-        --   Analista (expense_settlement.read) -> hasta 'fondos_entregados'; queda
-        --   fuera de 'en_liquidacion' y 'cerrado'.
-        or (public.has_permission('fund_disbursement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados',
-                                       'en_liquidacion','cerrado']::fund_request_status[]))
-        or (public.has_permission('expense_settlement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados']::fund_request_status[]))
+        -- Contabilidad: el MISMO corte que fr_select_accounting (helper único).
+        or public.fr_accounting_sees(fr.status, fr.cancelled_from_status)
       )
   );
 $$;
@@ -1910,6 +1903,31 @@ BEGIN
   GET DIAGNOSTICS v_count = ROW_COUNT;
   RETURN v_count;
 END;
+$$;
+
+
+--
+--
+-- Name: fr_accounting_sees(public.fund_request_status, public.fund_request_status); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Corte ÚNICO de visibilidad de Contabilidad (docs/plan-contabilidad-gastos.md, Fase 1.4).
+  -- Gerente y Analista de Contabilidad tienen los mismos permisos (Q2), así que ya no hay un
+  -- corte por permiso: cualquiera de los dos permisos contables ve toda la fase contable.
+  -- Lo usan fr_select_accounting, fre_select_accounting, frwo_select_accounting,
+  -- wo_in_my_fund_request y engagement_in_my_fund_request: un solo lugar para cambiarlo.
+  -- Una solicitud cancelada se ve solo si se canceló desde la fase contable.
+  select (public.has_permission('fund_disbursement.read')
+          or public.has_permission('expense_settlement.read'))
+     and (p_status = any (array['aprobado_gerente','fondos_entregados',
+                                'en_liquidacion','cerrado']::public.fund_request_status[])
+          or (p_status = 'cancelado'
+              and p_cancelled_from = any (array['aprobado_gerente','fondos_entregados',
+                                                'en_liquidacion']::public.fund_request_status[])));
 $$;
 
 
@@ -2425,6 +2443,217 @@ $$;
 
 --
 --
+-- Name: fund_request_cancel(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+BEGIN
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'El motivo de la cancelación es obligatorio';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  -- Admin: cualquier estado no terminal. Contabilidad (los dos roles): solo la fase contable,
+  -- que es lo que ve (fr_accounting_sees).
+  IF is_admin() THEN
+    IF v_status IN ('borrador', 'cerrado', 'cancelado') THEN
+      RAISE EXCEPTION 'La solicitud no se puede cancelar en su estado actual (%)', v_status;
+    END IF;
+  ELSIF public.has_permission('fund_disbursement.update') THEN
+    IF v_status NOT IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion') THEN
+      RAISE EXCEPTION 'La solicitud no se puede cancelar en su estado actual (%)', v_status;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'No autorizado a cancelar esta solicitud' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'cancelado',
+      rejection_reason = btrim(p_reason),
+      cancelled_at = now(),
+      cancelled_by_staff_id = get_my_staff_id(),
+      cancelled_from_status = v_status
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+--
+-- Name: fund_request_close(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+BEGIN
+  IF NOT public.has_permission('fund_disbursement.update') THEN
+    RAISE EXCEPTION 'No autorizado a cerrar la solicitud' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'en_liquidacion' THEN
+    RAISE EXCEPTION 'La solicitud no se puede cerrar en su estado actual (%)', v_status;
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'cerrado',
+      closed_at = now(),
+      closed_by_staff_id = get_my_staff_id(),
+      accounting_notes = COALESCE(NULLIF(btrim(p_notes), ''), accounting_notes)
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+--
+-- Name: fund_request_disburse(uuid, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+  v_total NUMERIC;
+BEGIN
+  IF NOT public.has_permission('fund_disbursement.update') THEN
+    RAISE EXCEPTION 'No autorizado a desembolsar' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, total_requested_amount INTO v_status, v_total
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'aprobado_gerente' THEN
+    RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
+  END IF;
+
+  IF p_amount IS NULL OR p_amount <= 0 OR round(p_amount, 2) > round(v_total, 2) THEN
+    RAISE EXCEPTION 'El monto a desembolsar debe ser mayor a 0 y no superar lo solicitado (%)', v_total;
+  END IF;
+
+  -- El actor sale de la sesión, nunca del cliente.
+  UPDATE public.fund_requests
+  SET status = 'fondos_entregados',
+      total_disbursed_amount = round(p_amount, 2),
+      disbursed_at = now(),
+      disbursed_by_staff_id = get_my_staff_id(),
+      accounting_notes = NULLIF(btrim(p_notes), '')
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+--
+-- Name: fund_request_expense_review(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_expense_status;
+  v_amount NUMERIC;
+  v_fr_status public.fund_request_status;
+  v_notes TEXT := NULLIF(btrim(p_notes), '');
+BEGIN
+  IF NOT public.has_permission('expense_settlement.update') THEN
+    RAISE EXCEPTION 'No autorizado a revisar gastos' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT fre.status, fre.amount, fr.status INTO v_status, v_amount, v_fr_status
+  FROM public.fund_request_expenses fre
+  JOIN public.fund_requests fr ON fr.fund_request_id = fre.fund_request_id
+  WHERE fre.fre_id = p_fre_id
+  FOR UPDATE OF fre;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Gasto % no encontrado', p_fre_id;
+  END IF;
+
+  IF v_fr_status <> 'fondos_entregados' THEN
+    RAISE EXCEPTION 'La solicitud no admite revisión de gastos en su estado actual (%)', v_fr_status;
+  END IF;
+
+  IF v_status <> 'aprobado_gerente' THEN
+    RAISE EXCEPTION 'El gasto no está esperando revisión de contabilidad (estado %)', v_status;
+  END IF;
+
+  IF p_decision IN ('incorrect', 'return') AND v_notes IS NULL THEN
+    RAISE EXCEPTION 'La observación es obligatoria';
+  END IF;
+
+  IF p_decision = 'correct' THEN
+    UPDATE public.fund_request_expenses
+    SET status = 'revisado_asistente',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        has_invoice_observation = false,
+        invoice_observation_notes = NULL,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'incorrect' THEN
+    -- Factura incorrecta: se valida igual, con penalidad del 13% (IVA) sobre el monto.
+    UPDATE public.fund_request_expenses
+    SET status = 'revisado_asistente',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        has_invoice_observation = true,
+        invoice_observation_notes = v_notes,
+        iva_penalty_amount = round(v_amount * 0.13, 2)
+    WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'return' THEN
+    -- Sin respaldo: vuelve al solicitante, que lo reenvía directo a contabilidad.
+    UPDATE public.fund_request_expenses
+    SET status = 'observado',
+        returned_by_assistant = true,
+        has_invoice_observation = false,
+        invoice_observation_notes = v_notes,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
+  ELSE
+    RAISE EXCEPTION 'Decisión de revisión no válida: %', p_decision;
+  END IF;
+END;
+$$;
+
+
+--
+--
 -- Name: fund_request_save_edit(uuid, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2469,6 +2698,92 @@ BEGIN
       FROM jsonb_array_elements(p_allocations) AS a;
     END IF;
   END IF;
+END;
+$$;
+
+
+--
+--
+-- Name: fund_request_settle(uuid, text, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+  v_disbursed NUMERIC;
+  v_spent NUMERIC;
+  v_iva NUMERIC;
+  v_balance NUMERIC;
+  v_amount NUMERIC;
+BEGIN
+  IF NOT public.has_permission('expense_settlement.update') THEN
+    RAISE EXCEPTION 'No autorizado a liquidar' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, total_disbursed_amount INTO v_status, v_disbursed
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'fondos_entregados' THEN
+    RAISE EXCEPTION 'La solicitud no se puede liquidar en su estado actual (%)', v_status;
+  END IF;
+
+  -- Gastos a medio camino impiden liquidar (mismo criterio que unfinishedExpenses en la UI).
+  IF EXISTS (
+    SELECT 1 FROM public.fund_request_expenses
+    WHERE fund_request_id = p_fund_request_id
+      AND status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado', 'rechazado')
+  ) THEN
+    RAISE EXCEPTION 'Hay gastos sin finalizar; no se puede liquidar';
+  END IF;
+
+  -- El snapshot se calcula AQUÍ, no lo manda el cliente: solo lo validado cuenta como gastado.
+  SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(iva_penalty_amount), 0)
+  INTO v_spent, v_iva
+  FROM public.fund_request_expenses
+  WHERE fund_request_id = p_fund_request_id
+    AND status = 'revisado_asistente';
+
+  v_balance := round(v_disbursed - v_spent, 2);
+
+  -- La resolución debe corresponder al signo del saldo (> 0 sobró, < 0 gastó de más).
+  IF v_balance = 0 THEN
+    IF p_resolution <> 'sin_saldo' THEN
+      RAISE EXCEPTION 'Sin saldo, la resolución debe ser sin_saldo (recibido %)', p_resolution;
+    END IF;
+    v_amount := 0;
+  ELSE
+    IF v_balance < 0 AND p_resolution <> 'pago_solicitante' THEN
+      RAISE EXCEPTION 'Saldo a favor del solicitante, la resolución debe ser pago_solicitante (recibido %)', p_resolution;
+    END IF;
+    IF v_balance > 0 AND p_resolution NOT IN ('devolucion', 'descuento_planilla') THEN
+      RAISE EXCEPTION 'Saldo a favor de la firma, la resolución debe ser devolucion o descuento_planilla (recibido %)', p_resolution;
+    END IF;
+    IF p_amount IS NULL OR p_amount < 0 THEN
+      RAISE EXCEPTION 'El monto de la resolución debe ser mayor o igual a 0';
+    END IF;
+    v_amount := round(p_amount, 2);
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'en_liquidacion',
+      settlement_total_spent = v_spent,
+      settlement_balance = v_balance,
+      settlement_iva_total = v_iva,
+      settlement_resolution = p_resolution,
+      settlement_amount = v_amount,
+      settlement_notes = NULLIF(btrim(p_notes), ''),
+      settled_at = now(),
+      settled_by_staff_id = get_my_staff_id()
+  WHERE fund_request_id = p_fund_request_id;
 END;
 $$;
 
@@ -5632,15 +5947,8 @@ CREATE FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) RETURNS boolean
       and (
         fr.requester_staff_id = get_my_staff_id()
         or frwo.manager_staff_id = get_my_staff_id()
-        -- Contabilidad, con el MISMO corte que fr_select_accounting (Ola D):
-        --   Gerente (fund_disbursement.read)  -> toda la fase contable.
-        --   Analista (expense_settlement.read) -> hasta 'fondos_entregados'; queda
-        --   fuera de 'en_liquidacion' y 'cerrado'.
-        or (public.has_permission('fund_disbursement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados',
-                                       'en_liquidacion','cerrado']::fund_request_status[]))
-        or (public.has_permission('expense_settlement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados']::fund_request_status[]))
+        -- Contabilidad: el MISMO corte que fr_select_accounting (helper único).
+        or public.fr_accounting_sees(fr.status, fr.cancelled_from_status)
       )
   );
 $$;
@@ -6106,6 +6414,10 @@ CREATE TABLE public.fund_requests (
     settlement_notes text,
     settled_at timestamp with time zone,
     settled_by_staff_id uuid,
+    closed_by_staff_id uuid,
+    cancelled_at timestamp with time zone,
+    cancelled_by_staff_id uuid,
+    cancelled_from_status public.fund_request_status,
     CONSTRAINT fund_requests_currency_check CHECK (currency IN ('BOB', 'USD')),
     CONSTRAINT fund_requests_disbursed_nonneg CHECK ((total_disbursed_amount >= (0)::numeric)),
     CONSTRAINT fund_requests_settlement_resolution_check CHECK (((settlement_resolution IS NULL) OR (settlement_resolution = ANY (ARRAY['sin_saldo'::text, 'devolucion'::text, 'descuento_planilla'::text, 'pago_solicitante'::text])))),

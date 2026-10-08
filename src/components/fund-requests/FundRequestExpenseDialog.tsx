@@ -265,8 +265,6 @@ export function FundRequestExpenseDialog({
         id: expense.fre_id,
         hasObservation: invoiceCorrect === "no",
         observationNotes: notes,
-        amount: Number(expense.amount),
-        reviewedByStaffId: staffRecord?.staff_id ?? null,
       });
       onOpenChange(false);
     } catch {

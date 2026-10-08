@@ -543,6 +543,56 @@ GRANT ALL ON FUNCTION public.fund_request_submit(p_fund_request_id uuid) TO serv
 
 --
 --
+-- Name: FUNCTION fund_request_cancel(p_fund_request_id uuid, p_reason text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_close(p_fund_request_id uuid, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) TO service_role;
+
+
+--
+--
 -- Name: FUNCTION fund_requests_enforce_bob(); Type: ACL; Schema: public; Owner: -
 --
 

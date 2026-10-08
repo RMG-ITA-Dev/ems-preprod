@@ -798,6 +798,24 @@ ALTER TABLE ONLY public.fund_requests
 
 --
 --
+-- Name: fund_requests fund_requests_closed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_closed_by_staff_id_fkey FOREIGN KEY (closed_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
+-- Name: fund_requests fund_requests_cancelled_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_cancelled_by_staff_id_fkey FOREIGN KEY (cancelled_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
 -- Name: holidays holidays_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

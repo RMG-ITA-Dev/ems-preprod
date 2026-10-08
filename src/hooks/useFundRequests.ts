@@ -70,6 +70,11 @@ export interface FundRequest {
   settlement_notes: string | null;
   settled_at: string | null;
   settled_by_staff_id: string | null;
+  // Cierre / cancelación: el actor lo pone la RPC (fund_request_close / fund_request_cancel).
+  closed_by_staff_id: string | null;
+  cancelled_at: string | null;
+  cancelled_by_staff_id: string | null;
+  cancelled_from_status: FundRequestStatus | null;
   created_at: string;
   updated_at: string;
   requester?: Staff;

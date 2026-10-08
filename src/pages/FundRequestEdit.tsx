@@ -139,16 +139,20 @@ const FundRequestEdit = () => {
     can("expense_settlement.update") && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
   const canCloseSettlement = can("fund_disbursement.update") && fr?.status === "en_liquidacion";
+  // Cancelar: admin en cualquier estado no terminal; Contabilidad (los dos roles)
+  // solo en la fase contable. Mismo criterio que la RPC fund_request_cancel.
   const canCancel =
-    isAdmin &&
     !!fr &&
-    !["borrador", "cerrado", "cancelado"].includes(fr.status);
+    (isAdmin
+      ? !["borrador", "cerrado", "cancelado"].includes(fr.status)
+      : can("fund_disbursement.update") &&
+        ["aprobado_gerente", "fondos_entregados", "en_liquidacion"].includes(fr.status));
   // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante),
-  // para solicitante, gerente de la FR o admin.
+  // para solicitante, gerente de la FR, Contabilidad o admin.
   const canViewExpenses =
     !!fr &&
     ["fondos_entregados", "en_liquidacion", "cerrado"].includes(fr.status) &&
-    (isRequester || isManagerOfThisFr || isAdmin);
+    (isRequester || isManagerOfThisFr || isAdmin || can("expense_settlement.read"));
 
   const isDirty = useMemo(() => {
     if (!values || !original) return false;
@@ -242,12 +246,7 @@ const FundRequestEdit = () => {
   const handleDisburse = async ({ amount, notes }: { amount: number; notes: string }) => {
     if (!fr) return;
     try {
-      await disburseFr.mutateAsync({
-        id: fr.fund_request_id,
-        amount,
-        notes,
-        disbursedByStaffId: staffRecord?.staff_id ?? null,
-      });
+      await disburseFr.mutateAsync({ id: fr.fund_request_id, amount, notes });
       setShowDisburseDialog(false);
     } catch {
       // toast por mutation
@@ -274,18 +273,9 @@ const FundRequestEdit = () => {
     notes: string;
   }) => {
     if (!fr) return;
-    const disbursed = Number(fr.total_disbursed_amount);
     try {
-      await settleFr.mutateAsync({
-        id: fr.fund_request_id,
-        totalSpent: settlementSpent,
-        balance: Math.round((disbursed - settlementSpent) * 100) / 100,
-        ivaTotal: settlementIvaTotal,
-        resolution,
-        amount,
-        notes,
-        settledByStaffId: staffRecord?.staff_id ?? null,
-      });
+      // El snapshot (gastado, saldo, IVA) lo calcula el servidor.
+      await settleFr.mutateAsync({ id: fr.fund_request_id, resolution, amount, notes });
       setShowLiquidationDialog(false);
     } catch {
       // toast por mutation
@@ -423,7 +413,7 @@ const FundRequestEdit = () => {
         </Card>
 
         {/* Guard: no se puede liquidar con gastos sin finalizar */}
-        {isAdmin && fr.status === "fondos_entregados" && settlementBlocked && (
+        {can("expense_settlement.update") && fr.status === "fondos_entregados" && settlementBlocked && (
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>

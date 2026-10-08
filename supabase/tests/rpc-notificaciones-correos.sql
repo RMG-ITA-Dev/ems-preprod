@@ -615,7 +615,10 @@ BEGIN
   VALUES (v_plan, v_wo, 2, 50, 500, 'Pending', v_hoy,
           date_trunc('week', v_hoy)::date + 6, 6.96, 6.96);
 
-  -- ---- 19.a Fondos: el analista lee SOLO el contador que la matriz le concede ---------------
+  -- ---- 19.a Fondos: el analista recibe los MISMOS cuatro contadores que el gerente ---------
+  -- Paridad contable (2026-10-08, docs/matriz-notificaciones.md): Gerente y Analista de
+  -- Contabilidad tienen los mismos permisos en Fondos, así que la matriz les concede los mismos
+  -- contadores. Antes el analista solo tenía revision_gastos.
   DELETE FROM public.notification_emails;
   PERFORM public.notif_emit_fund_reminder_weekly();
 
@@ -624,20 +627,21 @@ BEGIN
   IF v_pay IS NULL THEN
     RAISE EXCEPTION 'TEST FAIL - el analista de contabilidad no recibio el recordatorio de fondos';
   END IF;
-  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - al analista le falta el contador que SI tiene concedido: %', v_pay;
+  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   < 1
+     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al analista le faltan contadores de Contabilidad: %', v_pay;
   END IF;
-  IF COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   <> 0
-     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) <> 0
-     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       <> 0 THEN
-    RAISE EXCEPTION 'TEST FAIL - el analista recibio contadores de Contabilidad que no tiene: %', v_pay;
-  END IF;
-  -- Y el total es el de lo que ve, no el de la firma: si no, el asunto del correo promete un
-  -- numero que el cuerpo no puede explicar.
-  IF (v_pay->>'total')::int <> COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) THEN
+  -- Y el total es la suma de lo que se le entrega: el asunto del correo no promete un numero
+  -- que el cuerpo no puede explicar.
+  IF (v_pay->>'total')::int <> COALESCE((v_pay->'revision_gastos'->>'count')::int, 0)
+                              + COALESCE((v_pay->'desembolsos'->>'count')::int, 0)
+                              + COALESCE((v_pay->'liquidaciones'->>'count')::int, 0)
+                              + COALESCE((v_pay->'cierres'->>'count')::int, 0) THEN
     RAISE EXCEPTION 'TEST FAIL - el total del analista no coincide con lo que se le entrega: %', v_pay;
   END IF;
-  RAISE NOTICE 'PASS - el recordatorio de fondos le entrega al analista solo su contador';
+  RAISE NOTICE 'PASS - el recordatorio de fondos le entrega al analista los cuatro contadores';
 
   -- El Gerente de Contabilidad, que los tiene los cuatro, no pierde ninguno.
   SELECT payload INTO v_pay FROM public.notification_emails

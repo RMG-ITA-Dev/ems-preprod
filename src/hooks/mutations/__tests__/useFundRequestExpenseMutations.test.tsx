@@ -46,68 +46,47 @@ function mockUpdateIn(rows: { fre_id: string }[] = [{ fre_id: "e1" }, { fre_id: 
 describe("useFundRequestExpenseMutations", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // La revisión contable va por la RPC fund_request_expense_review: el 13% de IVA, el
+  // revisor y la validación de estado viven en el servidor (cubiertos por
+  // supabase/tests/rls-fund-accounting-parity.sql).
   describe("useReviewFundRequestExpense", () => {
-    it("applies a 13% IVA penalty when the invoice has an observation", async () => {
-      const { update } = mockUpdateEq();
+    it("sends 'incorrect' with the observation when the invoice has one", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReviewFundRequestExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({
-        id: "e1",
-        hasObservation: true,
-        observationNotes: "NIT incorrecto",
-        amount: 100,
-        reviewedByStaffId: "s1",
-      });
+      result.current.mutate({ id: "e1", hasObservation: true, observationNotes: "NIT incorrecto" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "revisado_asistente",
-          has_invoice_observation: true,
-          iva_penalty_amount: 13,
-        }),
-      );
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "incorrect",
+        p_notes: "NIT incorrecto",
+      });
+      expect(supabase.from).not.toHaveBeenCalled();
     });
 
-    it("validates with zero penalty when the invoice is correct", async () => {
-      const { update } = mockUpdateEq();
+    it("sends 'correct' without notes when the invoice is correct", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReviewFundRequestExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: "e1", hasObservation: false, amount: 100 });
+      result.current.mutate({ id: "e1", hasObservation: false, observationNotes: "ignorada" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "revisado_asistente",
-          has_invoice_observation: false,
-          iva_penalty_amount: 0,
-        }),
-      );
-    });
-
-    it("rounds the 13% penalty to 2 decimals", async () => {
-      const { update } = mockUpdateEq();
-      const { result } = renderHook(() => useReviewFundRequestExpense(), {
-        wrapper: createWrapper(),
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "correct",
+        p_notes: null,
       });
-
-      result.current.mutate({ id: "e1", hasObservation: true, amount: 33.33 });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      // 33.33 * 0.13 = 4.3329 → 4.33
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({ iva_penalty_amount: 4.33 }),
-      );
     });
   });
 
   describe("useReturnFundRequestExpense", () => {
-    it("returns to the requester as observado with the flag set", async () => {
-      const { update } = mockUpdateEq();
+    it("returns the expense to the requester through the RPC", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReturnFundRequestExpense(), {
         wrapper: createWrapper(),
       });
@@ -115,14 +94,11 @@ describe("useFundRequestExpenseMutations", () => {
       result.current.mutate({ id: "e1", notes: "falta respaldo" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "observado",
-          returned_by_assistant: true,
-          has_invoice_observation: false,
-          iva_penalty_amount: 0,
-        }),
-      );
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "return",
+        p_notes: "falta respaldo",
+      });
     });
   });
 

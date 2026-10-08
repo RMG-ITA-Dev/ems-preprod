@@ -243,14 +243,16 @@ BEGIN
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
   -- todos los roles que timesheet.reverted ya notifica cuando el admin revierte su semana, no
-  -- sólo a los 7 que reportan horas de base.
-  IF v_grants <> 492 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 492', v_grants;
+  -- sólo a los 7 que reportan horas de base. + 3 de la paridad contable (2026-10-08): el
+  -- Analista de Contabilidad recibe fund.disbursement/settlement/closure pending, igual que el
+  -- Gerente (docs/matriz-notificaciones.md).
+  IF v_grants <> 495 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 495', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 79 tipos, 492 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 79 tipos, 495 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

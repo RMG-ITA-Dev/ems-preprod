@@ -1,4 +1,4 @@
--- Seed del catalogo de notificaciones: 76 tipos, 464 concesiones rol x tipo.
+-- Seed del catalogo de notificaciones: 76 tipos, 467 concesiones rol x tipo.
 -- Archivo generado a partir de la matriz de notificaciones. Idempotente.
 
 insert into public.notification_types
@@ -381,8 +381,11 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('accounting_manager', 'fund.expense.review_pending', 'department'),
   ('accounting_analyst', 'fund.expense.review_pending', 'department'),
   ('accounting_manager', 'fund.settlement.pending', 'department'),
+  ('accounting_analyst', 'fund.settlement.pending', 'department'),
   ('accounting_manager', 'fund.request.closure_pending', 'department'),
+  ('accounting_analyst', 'fund.request.closure_pending', 'department'),
   ('accounting_manager', 'fund.disbursement.pending', 'department'),
+  ('accounting_analyst', 'fund.disbursement.pending', 'department'),
   ('accounting_manager', 'fund.expense.sent_to_support_review', 'department'),
   ('accounting_analyst', 'fund.expense.sent_to_support_review', 'department'),
   ('accounting_manager', 'fund.expense.resubmitted', 'department'),
@@ -850,8 +853,11 @@ delete from public.notification_role_types
    ('accounting_manager', 'fund.expense.review_pending'),
    ('accounting_analyst', 'fund.expense.review_pending'),
    ('accounting_manager', 'fund.settlement.pending'),
+   ('accounting_analyst', 'fund.settlement.pending'),
    ('accounting_manager', 'fund.request.closure_pending'),
+   ('accounting_analyst', 'fund.request.closure_pending'),
    ('accounting_manager', 'fund.disbursement.pending'),
+   ('accounting_analyst', 'fund.disbursement.pending'),
    ('accounting_manager', 'fund.expense.sent_to_support_review'),
    ('accounting_analyst', 'fund.expense.sent_to_support_review'),
    ('accounting_manager', 'fund.expense.resubmitted'),
