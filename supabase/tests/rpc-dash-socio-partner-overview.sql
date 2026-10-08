@@ -18,8 +18,32 @@
 -- facturadas/cobradas directamente (fixture historico, no un flujo real) se deshabilitan
 -- puntualmente durante la carga del fixture, igual que 0828-185 deshabilita
 -- trg_engagements_created_by para poder fijar created_by_staff_id a mano.
+--
+-- Fechas: el fixture mezclaba cobranza relativa a "hoy" (hoy-100, hoy+29, ...) con fechas de
+-- calendario que eran literales de 2026 (horas de marzo, cierres de 2026-2027, el encargo E11
+-- de 2025) y un periodo fijo 2026-01-01..2026-12-31. Las primeras caian dentro del periodo
+-- solo mientras "hoy" siguiera en 2026: desde 2027-01-01 la suite fallaba. Ahora todo cuelga
+-- de una ventana movil de 365 dias, pg_temp.p_start()..p_end() = [hoy-260, hoy+104] (hoy =
+-- fecha de La Paz, la misma que usa la RPC), y pg_temp.sh(d) traslada cada fecha antigua
+-- conservando su desfase respecto de 2026-01-01. Asi cada hora, cuota y cierre conserva su
+-- posicion relativa (dentro del periodo, pasado, futuro, o el anio anterior en el caso de
+-- E11) en cualquier fecha de ejecucion. Los 2025/2026 que quedan en p_fiscal_year y
+-- anio_fiscal son etiquetas que la RPC solo compara entre si, sin calendario.
 
 BEGIN;
+
+CREATE FUNCTION pg_temp.p_start() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT ((now() AT TIME ZONE 'America/La_Paz')::date) - 260
+$$;
+
+CREATE FUNCTION pg_temp.p_end() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT pg_temp.p_start() + 364
+$$;
+
+-- Traslada una fecha del calendario original (2026-01-01 = inicio del periodo de prueba).
+CREATE FUNCTION pg_temp.sh(p_orig date) RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT pg_temp.p_start() + (p_orig - DATE '2026-01-01')
+$$;
 
 -- ── Sociedades, industrias, clientes ─────────────────────────────────────────────────────
 INSERT INTO public.society (society_id, name, is_active) VALUES
@@ -144,35 +168,35 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
                                 work_order_required, anio_fiscal, end_date, engagement_state_override,
                                 funcion) VALUES
   ('70da5c10-0000-4000-8000-000000000001', '60da5c10-0000-4000-8000-000000000001',
-   'DA5C10 E1 Norte', 'active', '2027-06-30',
+   'DA5C10 E1 Norte', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000002',
    '50da5c10-0000-4000-8000-000000000005', NULL, true, 2025, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000002', '60da5c10-0000-4000-8000-000000000002',
-   'DA5C10 E2 Sur', 'active', '2027-06-30',
+   'DA5C10 E2 Sur', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000003', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E3 Norte pendiente', 'active', '2027-06-30',
+   'DA5C10 E3 Norte pendiente', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000004', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E4 Norte finalizado', 'active', '2027-06-30',
-   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, '2026-06-30', 7, 1),
+   'DA5C10 E4 Norte finalizado', 'active', pg_temp.sh('2027-06-30'),
+   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, pg_temp.sh('2026-06-30'), 7, 1),
   ('70da5c10-0000-4000-8000-000000000005', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E5 Norte administrativo', 'active', '2027-06-30',
+   'DA5C10 E5 Norte administrativo', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, false, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000006', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E6 Norte sqr', 'active', '2027-06-30',
+   'DA5C10 E6 Norte sqr', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000004',
    NULL, '50da5c10-0000-4000-8000-000000000003', true, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000007', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E7 Norte TC prereq', 'active', '2027-06-30',
+   'DA5C10 E7 Norte TC prereq', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', NULL, '50da5c10-0000-4000-8000-000000000005',
    NULL, true, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000008', '60da5c10-0000-4000-8000-000000000002',
-   'DA5C10 E8 Sur risk_partner', 'active', '2027-06-30',
+   'DA5C10 E8 Sur risk_partner', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000002', '50da5c10-0000-4000-8000-000000000011',
    NULL, NULL, true, NULL, NULL, NULL, 1),
   ('70da5c10-0000-4000-8000-000000000009', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E9 Norte no-cliente', 'active', '2027-06-30',
+   'DA5C10 E9 Norte no-cliente', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000002',
    NULL, NULL, false, NULL, NULL, NULL, 0)
 ON CONFLICT (engagement_id) DO NOTHING;
@@ -194,11 +218,11 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
                                 work_order_required, anio_fiscal, end_date, engagement_state_override,
                                 funcion, start_date) VALUES
   ('70da5c10-0000-4000-8000-000000000010', '60da5c10-0000-4000-8000-000000000002',
-   'DA5C10 E10 Sur rechazadas', 'active', '2027-06-30',
+   'DA5C10 E10 Sur rechazadas', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, NULL, NULL, 1, NULL),
   ('70da5c10-0000-4000-8000-000000000011', '60da5c10-0000-4000-8000-000000000003',
-   'DA5C10 E11 Norte anio anterior', 'active', '2026-06-30',
-   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, '2025-06-30', NULL, 1, '2025-01-01'),
+   'DA5C10 E11 Norte anio anterior', 'active', pg_temp.sh('2026-06-30'),
+   '5ada5c10-0000-4000-8000-000000000001', NULL, NULL, NULL, true, NULL, pg_temp.sh('2025-06-30'), NULL, 1, pg_temp.sh('2025-01-01')),
   -- E12 Sur (SF-02, review.md iteracion 1 de bugs/dashboard/cartera): finalizado CON datos
   -- reales -- end_date dentro del periodo de prueba, OT Approved BOB, presupuesto, horas en
   -- los tres estados y una cuota Completed. Complementa a E4, que cubre el camino de los
@@ -209,34 +233,34 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
   -- cargar horas. Igual que en la vida real, el override a 7 se aplica DESPUES de que las
   -- horas ya existen (ver el UPDATE al final del bloque de horas, mas abajo).
   ('70da5c10-0000-4000-8000-000000000012', '60da5c10-0000-4000-8000-000000000002',
-   'DA5C10 E12 Sur finalizado con OT', 'active', '2027-06-30',
-   '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, '2026-08-31', NULL, 1, NULL)
+   'DA5C10 E12 Sur finalizado con OT', 'active', pg_temp.sh('2027-06-30'),
+   '5ada5c10-0000-4000-8000-000000000002', NULL, NULL, NULL, true, NULL, pg_temp.sh('2026-08-31'), NULL, 1, NULL)
 ON CONFLICT (engagement_id) DO NOTHING;
 
 -- ── Ordenes de trabajo ──────────────────────────────────────────────────────────────────────
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax_rate,
                                 adjustment_amount, approval_status, approved_at, risk_status) VALUES
   ('d0da5c10-0000-4000-8000-000000000001', '70da5c10-0000-4000-8000-000000000001',
-   'USD', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'USD', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   -- review.md iteración 9, G-01: moneda USD (no BOB) a propósito -- para que rate_to_bob
   -- venga del TC del plan y así poder probar que next_7_days usa invoice_rate (congelado),
   -- no rate_to_bob, en una cuota ya facturada.
   ('d0da5c10-0000-4000-8000-000000000002', '70da5c10-0000-4000-8000-000000000002',
-   'USD', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'USD', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000003', '70da5c10-0000-4000-8000-000000000003',
    'BOB', 'High', 0.13, 0, 'Pending_Approval', NULL, 'Pending'),
   ('d0da5c10-0000-4000-8000-000000000006', '70da5c10-0000-4000-8000-000000000006',
-   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000007', '70da5c10-0000-4000-8000-000000000007',
    'USD', 'High', 0.13, 0, 'Draft', NULL, 'Pending'),
   ('d0da5c10-0000-4000-8000-000000000008', '70da5c10-0000-4000-8000-000000000008',
-   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000010', '70da5c10-0000-4000-8000-000000000010',
-   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved'),
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000011', '70da5c10-0000-4000-8000-000000000011',
-   'BOB', 'High', 0.13, 0, 'Approved', '2025-03-01T00:00:00Z', 'Approved'),
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2025-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   ('d0da5c10-0000-4000-8000-000000000012', '70da5c10-0000-4000-8000-000000000012',
-   'BOB', 'High', 0.13, 0, 'Approved', '2026-03-01T00:00:00Z', 'Approved')
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved')
 ON CONFLICT (wo_id) DO NOTHING;
 
 INSERT INTO public.wo_budget_lines (wo_line_id, wo_id, category_id, budgeted_hours, standard_rate) VALUES
@@ -328,11 +352,11 @@ INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, inst
     invoice_exchange_rate, payment_exchange_rate) VALUES
   ('f0da5c10-0000-4000-8000-000000000012', 'e0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 1,
    0, 500, 'Completed',
-   '2026-07-01', '2026-07-31', '2026-07-01', '2026-07-30', '2026-07-30',
+   pg_temp.sh('2026-07-01'), pg_temp.sh('2026-07-31'), pg_temp.sh('2026-07-01'), pg_temp.sh('2026-07-30'), pg_temp.sh('2026-07-30'),
    1, 1),
   ('f0da5c10-0000-4000-8000-000000000013', 'e0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 2,
    0, 400, 'Invoiced',
-   '2026-08-01', '2026-08-31', '2026-08-01', NULL, NULL,
+   pg_temp.sh('2026-08-01'), pg_temp.sh('2026-08-31'), pg_temp.sh('2026-08-01'), NULL, NULL,
    1, NULL)
 ON CONFLICT (installment_id) DO NOTHING;
 
@@ -366,27 +390,27 @@ INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expens
     expense_date, amount, currency, status) VALUES
   ('b4da5c10-0000-4000-8000-000000000001', 'b3da5c10-0000-4000-8000-000000000001',
    'd0da5c10-0000-4000-8000-000000000001', '9eda5c10-0000-4000-8000-000000000001',
-   '2026-04-01', 500, 'BOB', 'revisado_asistente'),
+   pg_temp.sh('2026-04-01'), 500, 'BOB', 'revisado_asistente'),
   ('b4da5c10-0000-4000-8000-000000000002', 'b3da5c10-0000-4000-8000-000000000001',
    'd0da5c10-0000-4000-8000-000000000001', '9eda5c10-0000-4000-8000-000000000001',
-   '2026-04-02', 300, 'BOB', 'aprobado_gerente'),
+   pg_temp.sh('2026-04-02'), 300, 'BOB', 'aprobado_gerente'),
   ('b4da5c10-0000-4000-8000-000000000003', 'b3da5c10-0000-4000-8000-000000000001',
    'd0da5c10-0000-4000-8000-000000000001', '9eda5c10-0000-4000-8000-000000000001',
-   '2026-04-03', 999, 'BOB', 'pendiente_aprobacion')
+   pg_temp.sh('2026-04-03'), 999, 'BOB', 'pendiente_aprobacion')
 ON CONFLICT (fre_id) DO NOTHING;
 
 -- ── Horas: periodos + entradas de tiempo para w1(Socio)/w2(Senior)/w3(SQR) sobre E1 ─────────
 INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year) VALUES
-  ('11da5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000008', '2026-03-02', 9, 2026),
-  ('11da5c10-0000-4000-8000-000000000002', '50da5c10-0000-4000-8000-000000000009', '2026-03-02', 9, 2026),
+  ('11da5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000008', pg_temp.sh('2026-03-02'), 9, 2026),
+  ('11da5c10-0000-4000-8000-000000000002', '50da5c10-0000-4000-8000-000000000009', pg_temp.sh('2026-03-02'), 9, 2026),
   -- timesheet_periods tiene UNIQUE(staff_id, week_start_date) -- w1 necesita una fecha
   -- distinta para su 2do periodo (detectado corriendo test:rls de verdad: el fixture
   -- original repetia 2026-03-02, ya usado en la fila de arriba para el mismo staff_id).
-  ('11da5c10-0000-4000-8000-000000000003', '50da5c10-0000-4000-8000-000000000008', '2026-03-09', 10, 2026),  -- w1, 2do periodo (para la linea rechazada)
+  ('11da5c10-0000-4000-8000-000000000003', '50da5c10-0000-4000-8000-000000000008', pg_temp.sh('2026-03-09'), 10, 2026),  -- w1, 2do periodo (para la linea rechazada)
   -- review.md iteracion 4, SF-01: periodo del propio partner (u2/s2) para probar que
   -- `funcion=1` tambien excluye KPI3/4 personales (my_partner_hours), no solo el scope
   -- general -- hueco de cobertura senalado en reporte_ejecucion.md, quinta correccion.
-  ('11da5c10-0000-4000-8000-000000000004', '50da5c10-0000-4000-8000-000000000002', '2026-03-02', 9, 2026)  -- u2 (partner), para la linea sobre E9
+  ('11da5c10-0000-4000-8000-000000000004', '50da5c10-0000-4000-8000-000000000002', pg_temp.sh('2026-03-02'), 9, 2026)  -- u2 (partner), para la linea sobre E9
 ON CONFLICT (period_id) DO NOTHING;
 
 -- Orden real: primero se cargan las horas, recien despues se aprueba la linea -- el trigger
@@ -397,23 +421,23 @@ ON CONFLICT (period_id) DO NOTHING;
 INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, engagement_id,
                                  activity_id, period_id, is_forecast) VALUES
   -- te1: w1 Socio, periodo aprobado, 2h en el periodo -> aprobadas
-  ('13da5c10-0000-4000-8000-000000000001', '2026-03-03', 2, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000001', pg_temp.sh('2026-03-03'), 2, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000001', false),
   -- te1b: w1 Socio, SIN periodo (NULL) -> pendiente, 1h
-  ('13da5c10-0000-4000-8000-000000000002', '2026-03-04', 1, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000002', pg_temp.sh('2026-03-04'), 1, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    NULL, false),
   -- te2: w2 Senior, periodo aprobado, 2h -> aprobadas (con wo_budget_lines: standard_rate=50)
-  ('13da5c10-0000-4000-8000-000000000003', '2026-03-03', 2, '50da5c10-0000-4000-8000-000000000009',
+  ('13da5c10-0000-4000-8000-000000000003', pg_temp.sh('2026-03-03'), 2, '50da5c10-0000-4000-8000-000000000009',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000002', false),
   -- te3: w3 SQR, SIN aprobacion -> pendiente, 3h (SIN linea en wo_budget_lines -> fallback categories.rate_high_usd)
-  ('13da5c10-0000-4000-8000-000000000004', '2026-03-05', 3, '50da5c10-0000-4000-8000-000000000010',
+  ('13da5c10-0000-4000-8000-000000000004', pg_temp.sh('2026-03-05'), 3, '50da5c10-0000-4000-8000-000000000010',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    NULL, false),
   -- te4: w1 Socio, is_forecast = true -> NO cuenta en ningun lado (hours_logged es numeric(4,2), max 99.99)
-  ('13da5c10-0000-4000-8000-000000000005', '2026-03-06', 9, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000005', pg_temp.sh('2026-03-06'), 9, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    NULL, true),
   -- te5: w1 Socio, fecha 2020 (fuera del periodo, cuenta solo en "vida completa") -> sobregiro
@@ -421,40 +445,40 @@ INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, e
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    NULL, false),
   -- te6: w1 Socio, periodo rechazado, 1.5h -> rechazadas
-  ('13da5c10-0000-4000-8000-000000000007', '2026-03-07', 1.5, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000007', pg_temp.sh('2026-03-07'), 1.5, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000001', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000003', false),
   -- E10 (MF-03): 5h aprobadas + 3h pendientes (8h, DENTRO del presupuesto de 10h) + 6h
   -- RECHAZADAS -- 5+3+6=14h > 10h si las rechazadas contaran (bug), 8h < 10h si no cuentan
   -- (fix). Reutiliza los mismos period_id de w1 (0001=aprobado, 0003=rechazado); la
   -- aprobacion se resuelve por (period_id, engagement_id, activity_id), no por staff_id.
-  ('13da5c10-0000-4000-8000-000000000010', '2026-03-03', 5, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000010', pg_temp.sh('2026-03-03'), 5, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000010', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000001', false),
-  ('13da5c10-0000-4000-8000-000000000011', '2026-03-04', 3, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000011', pg_temp.sh('2026-03-04'), 3, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000010', 'acda5c10-0000-4000-8000-000000000001',
    NULL, false),
-  ('13da5c10-0000-4000-8000-000000000012', '2026-03-07', 6, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000012', pg_temp.sh('2026-03-07'), 6, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000010', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000003', false),
   -- te13 (review.md iteracion 4, SF-01): u2 (partner, socio de E1/E5/E9) carga 4h sobre E9
   -- (funcion=0, Administrativo -- NO Cliente) y la linea queda aprobada mas abajo. Si el
   -- filtro `funcion=1` de my_partner_engagements (KPI3) no se aplicara, estas 4h apareceriran
   -- en kpis.my_partner_hours.approved -- la asercion 11b confirma que NO aparecen.
-  ('13da5c10-0000-4000-8000-000000000013', '2026-03-03', 4, '50da5c10-0000-4000-8000-000000000002',
+  ('13da5c10-0000-4000-8000-000000000013', pg_temp.sh('2026-03-03'), 4, '50da5c10-0000-4000-8000-000000000002',
    '70da5c10-0000-4000-8000-000000000009', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000004', false),
   -- E12 (SF-02): 6h aprobadas + 1h pendiente = 7h de vida completa; las 4h RECHAZADAS no
   -- cuentan. Mismos periodos de w1 (la aprobacion se resuelve por (period_id,
   -- engagement_id, activity_id), no por staff). E12 esta finalizado (estado 7), asi que
   -- estas horas solo se ven en finalized_summary.executed_hours.
-  ('13da5c10-0000-4000-8000-000000000014', '2026-03-03', 6, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000014', pg_temp.sh('2026-03-03'), 6, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000001', false),
-  ('13da5c10-0000-4000-8000-000000000015', '2026-03-04', 1, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000015', pg_temp.sh('2026-03-04'), 1, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
    NULL, false),
-  ('13da5c10-0000-4000-8000-000000000016', '2026-03-07', 4, '50da5c10-0000-4000-8000-000000000008',
+  ('13da5c10-0000-4000-8000-000000000016', pg_temp.sh('2026-03-07'), 4, '50da5c10-0000-4000-8000-000000000008',
    '70da5c10-0000-4000-8000-000000000012', 'acda5c10-0000-4000-8000-000000000001',
    '11da5c10-0000-4000-8000-000000000003', false)
 ON CONFLICT (time_id) DO NOTHING;
@@ -510,7 +534,7 @@ LANGUAGE sql AS $$
   SELECT EXISTS (SELECT 1 FROM jsonb_array_elements(p_items) e WHERE (e->>'engagement_id')::uuid = p_id)
 $$;
 
--- Periodo de prueba: FY 2026 completo.
+-- Periodo de prueba: ventana movil de 365 dias (pg_temp.p_start()..p_end()), ver cabecera.
 -- (v_start/v_end se recalculan por bloque via variables psql-less: usamos literales directos)
 
 SET LOCAL ROLE authenticated;
@@ -520,7 +544,7 @@ DO $$
 BEGIN
   PERFORM set_config('request.jwt.claims', '', true);
   BEGIN
-    PERFORM public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+    PERFORM public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
     RAISE EXCEPTION 'FAIL: sin impersonar deberia lanzar FORBIDDEN';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'FORBIDDEN%' THEN
@@ -539,7 +563,7 @@ BEGIN
   LOOP
     PERFORM pg_temp.impersonate(v_uid);
     BEGIN
-      PERFORM public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+      PERFORM public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
       RAISE EXCEPTION 'FAIL: % deberia lanzar FORBIDDEN (no tiene dashboard.partner.read)', v_role;
     EXCEPTION WHEN OTHERS THEN
       IF SQLERRM NOT LIKE 'FORBIDDEN%' THEN
@@ -557,10 +581,10 @@ DO $$
 DECLARE v jsonb; v_senior jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v_senior := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v_senior := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
 
   PERFORM pg_temp.impersonate(pg_temp.u(6));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF v->'meta'->>'scope_kind' <> 'firm' THEN
     RAISE EXCEPTION 'FAIL: admin scope_kind esperado firm, obtuvo %', v->'meta'->>'scope_kind';
   END IF;
@@ -580,7 +604,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'meta'->>'unfiltered_scope_count')::int <> 6 THEN
     RAISE EXCEPTION 'FAIL: senior_partner unfiltered_scope_count esperado 6, obtuvo %', v->'meta'->>'unfiltered_scope_count';
   END IF;
@@ -595,7 +619,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'meta'->>'scope_count')::int <> 3 THEN
     RAISE EXCEPTION 'FAIL: partner Norte scope_count esperado 3, obtuvo %', v->'meta'->>'scope_count';
   END IF;
@@ -619,24 +643,24 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));  -- director, sqr_id de E6 (NO partner_id de nada)
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'meta'->>'scope_count')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: director (solo sqr_id de E6) scope_count esperado 0, obtuvo %', v->'meta'->>'scope_count';
   END IF;
   -- 2026-09-17: engagement_hours_preview se retiro de partner_overview() (Bloque F
   -- rediseñado); la presencia/ausencia de un encargo puntual se verifica ahora contra
   -- partner_overview_engagements(), unica fuente de filas de ese bloque.
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   IF pg_temp.has_eng(v->'items', pg_temp.e(6)) THEN
     RAISE EXCEPTION 'FAIL: director (solo sqr_id de E6) NO deberia ver E6 en partner_overview_engagements';
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(4));  -- rol 'sqr', pero partner_id de E6
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: sqr (partner_id de E6) scope_count esperado 1, obtuvo %', v->'meta'->>'scope_count';
   END IF;
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   IF NOT pg_temp.has_eng(v->'items', pg_temp.e(6)) THEN
     RAISE EXCEPTION 'FAIL: sqr (partner_id de E6) deberia ver E6 en partner_overview_engagements';
   END IF;
@@ -651,14 +675,14 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(11));  -- risk_partner, partner_id de E8
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: risk_partner scope_count esperado 1 (E8), obtuvo %', v->'meta'->>'scope_count';
   END IF;
   IF v->'meta'->>'scope_kind' <> 'own' THEN
     RAISE EXCEPTION 'FAIL: risk_partner scope_kind esperado own, obtuvo %', v->'meta'->>'scope_kind';
   END IF;
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   IF NOT pg_temp.has_eng(v->'items', pg_temp.e(8)) THEN
     RAISE EXCEPTION 'FAIL: risk_partner no vio E8 en partner_overview_engagements';
   END IF;
@@ -670,8 +694,8 @@ DO $$
 DECLARE v_unfiltered jsonb; v_filtered jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v_unfiltered := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
-  v_filtered := public.partner_overview('2026-01-01'::date, '2026-12-31'::date, NULL,
+  v_unfiltered := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
+  v_filtered := public.partner_overview(pg_temp.p_start(), pg_temp.p_end(), NULL,
     '60da5c10-0000-4000-8000-000000000001'::uuid);
   IF (v_filtered->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: filtro por cliente de E1 esperaba scope_count=1, obtuvo %', v_filtered->'meta'->>'scope_count';
@@ -690,19 +714,19 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF jsonb_array_length(v->'filters'->'managers') <> 1 THEN
     RAISE EXCEPTION 'FAIL: filters.managers esperaba exactamente 1 gerente (solo E1 tiene manager_id), obtuvo %',
       jsonb_array_length(v->'filters'->'managers');
   END IF;
 
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date, NULL, NULL,
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end(), NULL, NULL,
     '50da5c10-0000-4000-8000-000000000005'::uuid);
   IF (v->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: filtro por gerente esperaba scope_count=1, obtuvo %', v->'meta'->>'scope_count';
   END IF;
 
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL,
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL,
     '90da5c10-0000-4000-8000-000000000001'::uuid);
   IF (v->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: filtro por sector I1 esperaba scope_count=1, obtuvo %', v->'meta'->>'scope_count';
@@ -722,14 +746,14 @@ BEGIN
   SELECT count(*) INTO v_active_societies FROM public.society WHERE is_active;
 
   PERFORM pg_temp.impersonate(pg_temp.u(1));  -- senior_partner: unico rol que ve el filtro en la UI
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF jsonb_array_length(v->'filters'->'societies') <> v_active_societies THEN
     RAISE EXCEPTION 'FAIL: filters.societies esperaba % (todas las sociedades activas del catalogo), obtuvo %',
       v_active_societies, jsonb_array_length(v->'filters'->'societies');
   END IF;
 
   -- E10 (Sur, MF-03, agregado 2026-09-17) suma a la Sociedad Sur junto con E2/E8.
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL, NULL,
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL, NULL,
     '5ada5c10-0000-4000-8000-000000000002'::uuid);  -- Sociedad Sur
   IF (v->'meta'->>'scope_count')::int <> 3 THEN
     RAISE EXCEPTION 'FAIL: filtro por Sociedad Sur esperaba scope_count=3 (E2, E8, E10), obtuvo %', v->'meta'->>'scope_count';
@@ -751,7 +775,7 @@ BEGIN
   SELECT count(*) INTO v_active_societies FROM public.society WHERE is_active;
 
   PERFORM pg_temp.impersonate(pg_temp.u(1));  -- senior_partner
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date, 1900);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end(), 1900);
   IF (v->'meta'->>'unfiltered_scope_count')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: p_fiscal_year=1900 deberia dejar unfiltered_scope_count en 0, obtuvo %',
       v->'meta'->>'unfiltered_scope_count';
@@ -768,12 +792,12 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date, 2026);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end(), 2026);
   IF pg_temp.has_eng(v->'items', pg_temp.e(1)) THEN
     RAISE EXCEPTION 'FAIL: con p_fiscal_year=2026, E1 (anio_fiscal=2025) no debia aparecer';
   END IF;
 
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date, NULL);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end(), NULL);
   IF NOT pg_temp.has_eng(v->'items', pg_temp.e(1)) THEN
     RAISE EXCEPTION 'FAIL: con p_fiscal_year NULL y solapamiento de fechas, E1 debia aparecer';
   END IF;
@@ -785,7 +809,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'engagements'->>'finalized_in_period')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: finalized_in_period esperado 2 (E4 sin OT + E12 con OT), obtuvo %', v->'kpis'->'engagements'->>'finalized_in_period';
   END IF;
@@ -805,7 +829,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'finalized_summary'->>'count')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 2 (E4 sin OT + E12 con OT), obtuvo %', v->'finalized_summary'->>'count';
   END IF;
@@ -827,7 +851,7 @@ DO $$
 DECLARE v jsonb; v_expected numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: E1,E5,E6 (E6 linea SQR a $0)
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   v_expected := (10*100 + 5*50) * 6.96;  -- 1250 * 6.96 = 8700
   IF abs((v->'kpis'->'fees'->>'total_bob')::numeric - v_expected) > 0.01 THEN
     RAISE EXCEPTION 'FAIL: kpis.fees.total_bob esperado % (solo E1; E5/E6 suman 0), obtuvo %',
@@ -848,7 +872,7 @@ DO $$
 DECLARE v jsonb; v_delta numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: ve E1/E5/E6 en ambas ventanas + E11 solo en la anterior
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   v_delta := (v->'kpis'->'fees'->>'previous_total_bob')::numeric - (v->'kpis'->'fees'->>'total_bob')::numeric;
   IF abs(v_delta - 1000) > 0.01 THEN
     RAISE EXCEPTION 'FAIL: previous_total_bob - total_bob esperado 1000 (fee_net de E11, solo en el anio anterior), obtuvo % (previous=%, actual=%)',
@@ -862,14 +886,14 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'my_partner_hours'->>'budget')::numeric <> 10 THEN
     RAISE EXCEPTION 'FAIL: my_partner_hours.budget esperado 10 (Socio de E1), obtuvo %',
       v->'kpis'->'my_partner_hours'->>'budget';
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(3));  -- director, sqr_id de E6
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'my_sqr_hours'->>'budget')::numeric <> 8 THEN
     RAISE EXCEPTION 'FAIL: my_sqr_hours.budget esperado 8 (SQR de E6), obtuvo %',
       v->'kpis'->'my_sqr_hours'->>'budget';
@@ -891,7 +915,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'my_partner_hours'->>'approved')::numeric <> 0 THEN
     RAISE EXCEPTION 'FAIL: my_partner_hours.approved esperado 0 (las 4h de u2 sobre E9 son funcion=0, deben quedar excluidas), obtuvo %',
       v->'kpis'->'my_partner_hours'->>'approved';
@@ -907,7 +931,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'profitability'->'hours'->>'approved')::numeric <> 9 THEN
     RAISE EXCEPTION 'FAIL: hours.approved esperado 9 (te1 2h + te2 2h + E10.te10a 5h), obtuvo %', v->'profitability'->'hours'->>'approved';
   END IF;
@@ -928,7 +952,7 @@ DO $$
 DECLARE v jsonb; v_expected_approved numeric; v_expected_pending numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   v_expected_approved := 2*100 + 2*50 + 5*50;   -- te1 (Socio@100) + te2 (Senior@50) + E10.te10a (Socio@50)
   v_expected_pending  := 1*100 + 3*145 + 3*50;  -- te1b (Socio@100) + te3 (SQR fallback@145) + E10.te10b (Socio@50)
   IF abs((v->'profitability'->'money_bob'->>'hours_valued_approved')::numeric - v_expected_approved) > 0.01 THEN
@@ -947,7 +971,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   -- Los 3 gastos son BOB (un gasto ligado a una OT nunca puede ser USD -- ver la nota de
   -- arriba, junto al INSERT de fund_requests: fr_wo_validate_approved()/enforce_bob lo
   -- impiden por diseno), asi que no hay conversion de moneda que aplicar (montos literales).
@@ -967,7 +991,7 @@ DO $$
 DECLARE v jsonb; v_base numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: solo E1 tiene installment_base valorizable en USD
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   v_base := (1250 + 200) / 0.87;  -- installment_base de E1
   IF abs((v->'economic_cycle'->>'to_invoice_bob')::numeric - v_base*6.96) > 0.05 THEN
     RAISE EXCEPTION 'FAIL: to_invoice_bob esperado ~% (base c/IVA * 6.96), obtuvo %', v_base*6.96,
@@ -991,7 +1015,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));  -- senior_partner: ve E1 y E2
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(v->'collections'->'next_7_days') it
      WHERE (it->>'installment_id')::uuid = 'f0da5c10-0000-4000-8000-000000000004'::uuid
@@ -1037,11 +1061,11 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'alerts'->>'over_budget_count')::int < 1 THEN
     RAISE EXCEPTION 'FAIL: over_budget_count debia contar E1 (vida completa 28h aprob+pend > presupuesto 15h)';
   END IF;
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   IF NOT pg_temp.has_eng(v->'items', pg_temp.e(1)) THEN
     RAISE EXCEPTION 'FAIL: E1 debia aparecer en partner_overview_engagements';
   END IF;
@@ -1057,7 +1081,7 @@ DO $$
 DECLARE v jsonb; v_item jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));  -- senior_partner: ve E10 (Sur)
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   SELECT it INTO v_item FROM jsonb_array_elements(v->'items') it
    WHERE (it->>'engagement_id')::uuid = pg_temp.e(10);
   IF v_item IS NULL THEN
@@ -1073,7 +1097,7 @@ BEGIN
   END IF;
 
   v := public.partner_overview_engagements(
-    '2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL, NULL, NULL, 'end_date', true, 50, 0);
+    pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL, NULL, NULL, 'end_date', true, 50, 0);
   IF pg_temp.has_eng(v->'items', pg_temp.e(10)) THEN
     RAISE EXCEPTION 'FAIL: con p_over_budget_only=true, E10 NO deberia aparecer (no esta realmente sobregirado)';
   END IF;
@@ -1085,13 +1109,13 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'alerts'->>'pending_wo_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: partner Norte pending_wo_count esperado 1 (E3), obtuvo %', v->'kpis'->'alerts'->>'pending_wo_count';
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF (v->'kpis'->'alerts'->>'pending_wo_count')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: director pending_wo_count esperado 0 (no es partner/sqr de E3), obtuvo %',
       v->'kpis'->'alerts'->>'pending_wo_count';
@@ -1104,7 +1128,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.partner_overview('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
   IF v::text ILIKE '%"email"%' OR v::text ILIKE '%"id_number"%'
      OR v::text ILIKE '%"aud_reg_number"%' OR v::text ILIKE '%"auth_user_id"%' THEN
     RAISE EXCEPTION 'FAIL: el payload expone una clave PII cruda: %', v;
@@ -1126,7 +1150,7 @@ DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: E1, E5, E6 (E9 excluido por funcion)
   v := public.partner_overview_engagements(
-    '2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL, NULL, NULL, 'end_date', false, 1, 0);
+    pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL, NULL, NULL, 'end_date', false, 1, 0);
   IF (v->>'total')::int <> 3 THEN
     RAISE EXCEPTION 'FAIL: partner_overview_engagements total esperado 3, obtuvo %', v->>'total';
   END IF;
@@ -1135,7 +1159,7 @@ BEGIN
   END IF;
 
   v := public.partner_overview_engagements(
-    '2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL, NULL, NULL, 'end_date', false, 1, 1);
+    pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL, NULL, NULL, 'end_date', false, 1, 1);
   IF jsonb_array_length(v->'items') <> 1 THEN
     RAISE EXCEPTION 'FAIL: con p_offset=1 (total=3) se esperaba 1 item, obtuvo %', jsonb_array_length(v->'items');
   END IF;
@@ -1144,7 +1168,7 @@ BEGIN
   -- aprobadas+pendientes > 15h presupuestadas, ver asercion 17); E5 no tiene OT/horas, E6
   -- no tiene horas cargadas.
   v := public.partner_overview_engagements(
-    '2026-01-01'::date, '2026-12-31'::date, NULL, NULL, NULL, NULL, NULL, 'end_date', true, 50, 0);
+    pg_temp.p_start(), pg_temp.p_end(), NULL, NULL, NULL, NULL, NULL, 'end_date', true, 50, 0);
   IF (v->>'total')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: con p_over_budget_only=true total esperado 1 (solo E1), obtuvo %', v->>'total';
   END IF;
@@ -1163,7 +1187,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte, partner_id de E9 tambien
-  v := public.partner_overview_engagements('2026-01-01'::date, '2026-12-31'::date);
+  v := public.partner_overview_engagements(pg_temp.p_start(), pg_temp.p_end());
   IF pg_temp.has_eng(v->'items', pg_temp.e(9)) THEN
     RAISE EXCEPTION 'FAIL: E9 (funcion=0, Administrativo) NO deberia aparecer en partner_overview_engagements';
   END IF;
