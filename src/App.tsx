@@ -39,6 +39,8 @@ const FundRequestNew = lazy(() => import("./pages/FundRequestNew"));
 const FundRequestEdit = lazy(() => import("./pages/FundRequestEdit"));
 const FundRequestApprovals = lazy(() => import("./pages/FundRequestApprovals"));
 const FundRequestDisbursements = lazy(() => import("./pages/FundRequestDisbursements"));
+const FundRequestWorkOrders = lazy(() => import("./pages/FundRequestWorkOrders"));
+const FundRequestWorkOrderExpenses = lazy(() => import("./pages/FundRequestWorkOrderExpenses"));
 const FundRequestExpenses = lazy(() => import("./pages/FundRequestExpenses"));
 const Staff = lazy(() => import("./pages/Staff"));
 const StaffNew = lazy(() => import("./pages/StaffNew"));
@@ -140,6 +142,9 @@ const router = createBrowserRouter([
       { path: "/fund-requests/new", element: <ProtectedRoute><PermissionRoute permission="fund_request.create"><FundRequestNew /></PermissionRoute></ProtectedRoute> },
       { path: "/fund-requests/approvals", element: <ProtectedRoute><FundRequestApprovals /></ProtectedRoute> },
       { path: "/fund-requests/disbursements", element: <ProtectedRoute><PermissionRoute permission="fund_disbursement.read"><FundRequestDisbursements /></PermissionRoute></ProtectedRoute> },
+      // Gastos por OT (plan-contabilidad-gastos Fase 5): solo Contabilidad. Las RPC exigen el mismo permiso.
+      { path: "/fund-requests/work-orders", element: <ProtectedRoute><PermissionRoute permission="expense_settlement.read"><FundRequestWorkOrders /></PermissionRoute></ProtectedRoute> },
+      { path: "/fund-requests/work-orders/:woId", element: <ProtectedRoute><PermissionRoute permission="expense_settlement.read"><FundRequestWorkOrderExpenses /></PermissionRoute></ProtectedRoute> },
       { path: "/fund-requests/:id", element: <ProtectedRoute><PermissionRoute permission="fund_request.read"><FundRequestEdit /></PermissionRoute></ProtectedRoute> },
       { path: "/fund-requests/:id/expenses", element: <ProtectedRoute><PermissionRoute permission="fund_expense.read"><FundRequestExpenses /></PermissionRoute></ProtectedRoute> },
       { path: "/staff", element: <ProtectedRoute><PermissionRoute permission="staff.read"><Staff /></PermissionRoute></ProtectedRoute> },

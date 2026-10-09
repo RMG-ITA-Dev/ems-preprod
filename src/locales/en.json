@@ -101,7 +101,8 @@
     "timeEntries": "Time Entries",
     "planning": "Planning",
     "scheduler": "Scheduler",
-    "schedulerGaps": "Gap Reporting"
+    "schedulerGaps": "Gap Reporting",
+    "fundRequestWorkOrders": "Expenses by WO"
   },
   "tracker": {
     "title": "Time Records",
@@ -3079,6 +3080,35 @@
       "CONFIRMED": "Confirmed",
       "COMPLETED": "Completed",
       "CANCELLED": "Cancelled"
+    }
+  },
+  "workOrderExpenses": {
+    "title": "Expenses by work order",
+    "searchPlaceholder": "Search by work order, engagement or client...",
+    "workOrder": "WO",
+    "engagement": "Engagement",
+    "requests": "Requests",
+    "request": "Request",
+    "assigned": "Assigned",
+    "spent": "Spent",
+    "inProcess": "In process",
+    "difference": "Difference",
+    "budget": "Budget",
+    "budgetUsage": "Budget usage",
+    "usage": "% used",
+    "budgetSection": "Budget vs spent by type",
+    "expensesSection": "Work order expenses",
+    "noType": "No type",
+    "groupByRequest": "Group by request",
+    "filteredSummary": "{{count}} expenses · spent {{spent}} BOB · in process {{inProcess}} BOB",
+    "filters": {
+      "from": "From",
+      "to": "To",
+      "all": "All"
+    },
+    "report": {
+      "sheetName": "Expenses by WO",
+      "filenamePrefix": "WO_Expenses"
     }
   }
 }

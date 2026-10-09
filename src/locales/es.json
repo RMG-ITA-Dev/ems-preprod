@@ -101,7 +101,8 @@
     "timeEntries": "Entradas de Tiempo",
     "planning": "Planificación",
     "scheduler": "Planificador GANTT",
-    "schedulerGaps": "Brechas"
+    "schedulerGaps": "Brechas",
+    "fundRequestWorkOrders": "Gastos por OT"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -3079,6 +3080,35 @@
       "CONFIRMED": "Confirmada",
       "COMPLETED": "Completada",
       "CANCELLED": "Cancelada"
+    }
+  },
+  "workOrderExpenses": {
+    "title": "Gastos por OT",
+    "searchPlaceholder": "Buscar por OT, encargo o cliente...",
+    "workOrder": "OT",
+    "engagement": "Encargo",
+    "requests": "Solicitudes",
+    "request": "Solicitud",
+    "assigned": "Asignado",
+    "spent": "Gastado",
+    "inProcess": "En proceso",
+    "difference": "Diferencia",
+    "budget": "Presupuesto",
+    "budgetUsage": "Uso del presupuesto",
+    "usage": "% usado",
+    "budgetSection": "Presupuesto vs gastado por tipo",
+    "expensesSection": "Gastos de la OT",
+    "noType": "Sin tipo",
+    "groupByRequest": "Agrupar por solicitud",
+    "filteredSummary": "{{count}} gastos · gastado {{spent}} BOB · en proceso {{inProcess}} BOB",
+    "filters": {
+      "from": "Desde",
+      "to": "Hasta",
+      "all": "Todos"
+    },
+    "report": {
+      "sheetName": "Gastos por OT",
+      "filenamePrefix": "Gastos_OT"
     }
   }
 }

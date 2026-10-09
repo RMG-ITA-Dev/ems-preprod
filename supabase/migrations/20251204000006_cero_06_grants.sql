@@ -543,6 +543,26 @@ GRANT ALL ON FUNCTION public.fund_request_submit(p_fund_request_id uuid) TO serv
 
 --
 --
+-- Name: FUNCTION fund_work_order_expense_summary(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_work_order_expense_summary() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_summary() TO authenticated;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_summary() TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_work_order_expense_detail(p_wo_id uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) TO service_role;
+
+
+--
+--
 -- Name: FUNCTION fund_request_run_deadlines(p_today date); Type: ACL; Schema: public; Owner: -
 --
 

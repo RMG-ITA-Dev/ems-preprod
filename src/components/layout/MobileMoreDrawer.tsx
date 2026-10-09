@@ -14,6 +14,7 @@ import {
   UserX,
   Wallet,
   Banknote,
+  Receipt,
   CalendarRange,
   ChartColumnDecreasing,
 } from "lucide-react";
@@ -99,6 +100,7 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests", show: can("fund_request.read") },
     { path: "/fund-requests/approvals", icon: CheckSquare, labelKey: "nav.fundRequestApprovals", show: can("fund_approval.read") || !!managesAnyOt },
     { path: "/fund-requests/disbursements", icon: Banknote, labelKey: "nav.fundRequestDisbursements", show: can("fund_disbursement.read") },
+    { path: "/fund-requests/work-orders", icon: Receipt, labelKey: "nav.fundRequestWorkOrders", show: can("expense_settlement.read") },
   ].filter((i) => i.show);
 
   // Mismo predicado que AppSidebar.tsx — la matriz no puede divergir entre sidebar y drawer

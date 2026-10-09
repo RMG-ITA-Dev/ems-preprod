@@ -2705,6 +2705,201 @@ $$;
 
 --
 --
+-- Name: fund_work_order_expense_summary(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_work_order_expense_summary() RETURNS TABLE(wo_id uuid, engagement_code text, engagement_name text, client_name text, request_count integer, expense_count integer, assigned numeric, spent numeric, in_process numeric, budget numeric)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Detalle de gastos por OT (docs/plan-contabilidad-gastos.md, Fase 5): una fila por OT que tiene
+-- solicitudes de fondos en la fase contable. Lo ven el Gerente y el Analista de Contabilidad
+-- (V1), que NO tienen work_order.read: por eso es SECURITY DEFINER con su propio portón de
+-- permiso, y devuelve solo lo que la pantalla necesita (nada de presupuesto de honorarios ni
+-- datos del cliente más allá del nombre).
+--   assigned   = lo asignado a la OT en esas solicitudes (fund_request_work_orders).
+--   spent      = gastos validados por Contabilidad (revisado_asistente): lo que cuenta en la
+--                liquidación.
+--   in_process = gastos enviados que todavía no son finales (pendiente / aprobado por el
+--                gerente / observado).
+--   budget     = presupuesto de gastos de la OT (wo_expense_budget), para comparar.
+-- Solicitudes consideradas: aprobado_gerente, fondos_entregados, en_liquidacion, cerrado
+-- (canceladas fuera).
+BEGIN
+  IF NOT public.has_permission('expense_settlement.read') THEN
+    RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  WITH frs AS (
+    SELECT fr.fund_request_id
+      FROM public.fund_requests fr
+     WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+  ),
+  alloc AS (
+    SELECT frw.wo_id,
+           count(DISTINCT frw.fund_request_id)::int AS request_count,
+           sum(frw.allocated_amount) AS assigned
+      FROM public.fund_request_work_orders frw
+      JOIN frs ON frs.fund_request_id = frw.fund_request_id
+     GROUP BY frw.wo_id
+  ),
+  exp AS (
+    SELECT e.wo_id,
+           count(*) FILTER (WHERE e.status NOT IN ('borrador', 'vencido'))::int AS expense_count,
+           COALESCE(sum(e.amount) FILTER (WHERE e.status = 'revisado_asistente'), 0) AS spent,
+           COALESCE(sum(e.amount) FILTER (WHERE e.status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')), 0) AS in_process
+      FROM public.fund_request_expenses e
+      JOIN frs ON frs.fund_request_id = e.fund_request_id
+     GROUP BY e.wo_id
+  ),
+  bud AS (
+    SELECT b.wo_id, sum(b.budgeted_amount) AS budget
+      FROM public.wo_expense_budget b
+     GROUP BY b.wo_id
+  )
+  SELECT a.wo_id,
+         eng.engagement_code::text,
+         eng.engagement_name::text,
+         cl.client_legal_name::text,
+         a.request_count,
+         COALESCE(x.expense_count, 0),
+         a.assigned,
+         COALESCE(x.spent, 0),
+         COALESCE(x.in_process, 0),
+         COALESCE(bu.budget, 0)
+    FROM alloc a
+    JOIN public.work_orders wo ON wo.wo_id = a.wo_id
+    JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+    LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
+    LEFT JOIN exp x ON x.wo_id = a.wo_id
+    LEFT JOIN bud bu ON bu.wo_id = a.wo_id
+   ORDER BY eng.engagement_code;
+END;
+$$;
+
+
+--
+--
+-- Name: fund_work_order_expense_detail(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Detalle de UNA OT (Fase 5): totales, sus solicitudes, la lista plana de gastos enviados (con
+-- la solicitud de origen, para agrupar en la pantalla) y el presupuesto vs gastado por tipo.
+-- Mismo portón y mismo corte de solicitudes que fund_work_order_expense_summary. Los borradores
+-- y vencidos no se envían nunca, así que no aparecen.
+DECLARE
+  v_out jsonb;
+BEGIN
+  IF NOT public.has_permission('expense_settlement.read') THEN
+    RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
+  END IF;
+
+  WITH frs AS (
+    SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id
+      FROM public.fund_requests fr
+     WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND EXISTS (SELECT 1 FROM public.fund_request_work_orders frw
+                    WHERE frw.fund_request_id = fr.fund_request_id AND frw.wo_id = p_wo_id)
+  ),
+  exps AS (
+    SELECT e.*, frs.request_number, frs.requester_staff_id, et.expense_name
+      FROM public.fund_request_expenses e
+      JOIN frs ON frs.fund_request_id = e.fund_request_id
+      LEFT JOIN public.expense_types et ON et.expense_type_id = e.expense_type_id
+     WHERE e.wo_id = p_wo_id
+       AND e.status NOT IN ('borrador', 'vencido')
+  ),
+  types AS (
+    SELECT b.expense_type_id FROM public.wo_expense_budget b WHERE b.wo_id = p_wo_id
+    UNION
+    SELECT x.expense_type_id FROM exps x
+  )
+  SELECT jsonb_build_object(
+    'work_order', (
+      SELECT jsonb_build_object(
+        'wo_id', wo.wo_id,
+        'engagement_code', eng.engagement_code,
+        'engagement_name', eng.engagement_name,
+        'client_name', cl.client_legal_name)
+        FROM public.work_orders wo
+        JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+        LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
+       WHERE wo.wo_id = p_wo_id),
+    'totals', jsonb_build_object(
+      'assigned', (SELECT COALESCE(sum(frw.allocated_amount), 0)
+                     FROM public.fund_request_work_orders frw
+                     JOIN frs ON frs.fund_request_id = frw.fund_request_id
+                    WHERE frw.wo_id = p_wo_id),
+      'spent', (SELECT COALESCE(sum(amount), 0) FROM exps WHERE status = 'revisado_asistente'),
+      'in_process', (SELECT COALESCE(sum(amount), 0) FROM exps
+                      WHERE status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')),
+      'budget', (SELECT COALESCE(sum(budgeted_amount), 0) FROM public.wo_expense_budget
+                  WHERE wo_id = p_wo_id)),
+    'requests', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'fund_request_id', frs.fund_request_id,
+               'request_number', frs.request_number,
+               'status', frs.status,
+               'requester_name', btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')),
+               'allocated_amount', frw.allocated_amount)
+             ORDER BY frs.request_number)
+        FROM frs
+        JOIN public.fund_request_work_orders frw
+          ON frw.fund_request_id = frs.fund_request_id AND frw.wo_id = p_wo_id
+        LEFT JOIN public.staff s ON s.staff_id = frs.requester_staff_id), '[]'::jsonb),
+    'expenses', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'fre_id', x.fre_id,
+               'fund_request_id', x.fund_request_id,
+               'request_number', x.request_number,
+               'requester_staff_id', x.requester_staff_id,
+               'requester_name', btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')),
+               'expense_date', x.expense_date,
+               'expense_date_end', x.expense_date_end,
+               'amount', x.amount,
+               'currency', x.currency,
+               'status', x.status,
+               'expense_type_id', x.expense_type_id,
+               'expense_type_name', x.expense_name,
+               'description', x.description,
+               'document_number', x.document_number,
+               'supplier_name', x.supplier_name,
+               'iva_penalty_amount', x.iva_penalty_amount,
+               'manager_auto_approved', x.manager_auto_approved,
+               'review_auto_approved', x.review_auto_approved)
+             ORDER BY x.expense_date DESC, x.fre_id)
+        FROM exps x
+        LEFT JOIN public.staff s ON s.staff_id = x.requester_staff_id), '[]'::jsonb),
+    'budget_by_type', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'expense_type_id', t.expense_type_id,
+               'expense_type_name', et.expense_name,
+               'budgeted', COALESCE((SELECT sum(b.budgeted_amount) FROM public.wo_expense_budget b
+                                      WHERE b.wo_id = p_wo_id
+                                        AND b.expense_type_id IS NOT DISTINCT FROM t.expense_type_id), 0),
+               'spent', COALESCE((SELECT sum(x.amount) FROM exps x
+                                   WHERE x.expense_type_id IS NOT DISTINCT FROM t.expense_type_id
+                                     AND x.status = 'revisado_asistente'), 0),
+               'in_process', COALESCE((SELECT sum(x.amount) FROM exps x
+                                        WHERE x.expense_type_id IS NOT DISTINCT FROM t.expense_type_id
+                                          AND x.status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')), 0))
+             ORDER BY et.expense_name NULLS LAST)
+        FROM types t
+        LEFT JOIN public.expense_types et ON et.expense_type_id = t.expense_type_id), '[]'::jsonb)
+  ) INTO v_out;
+
+  RETURN v_out;
+END;
+$$;
+
+
+--
+--
 -- Name: fund_today(); Type: FUNCTION; Schema: public; Owner: -
 --
 

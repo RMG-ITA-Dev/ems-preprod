@@ -12,6 +12,7 @@ import {
   TableProperties,
   Wallet,
   Banknote,
+  Receipt,
   CalendarRange,
   ChartColumnDecreasing,
 } from "lucide-react";
@@ -134,6 +135,13 @@ export function AppSidebar() {
       url: "/fund-requests/disbursements",
       icon: Banknote,
       show: can("fund_disbursement.read"),
+    },
+    {
+      // Gastos por OT (Fase 5): Gerente y Analista de Contabilidad.
+      title: t("nav.fundRequestWorkOrders"),
+      url: "/fund-requests/work-orders",
+      icon: Receipt,
+      show: can("expense_settlement.read"),
     },
   ].filter((i) => i.show);
 
