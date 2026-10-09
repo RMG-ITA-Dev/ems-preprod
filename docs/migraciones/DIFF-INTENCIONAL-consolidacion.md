@@ -391,8 +391,11 @@ Para Test, el operador decidió el 02/10/2026 reconstruirlo desde las migracione
 su ledger tenía registradas solo las 14 `cero_*` de las 44 migraciones aplicadas, así que `db push`
 tampoco era una alternativa. Producción nace de cero y no necesita nada. **Dev 2.0** está en la misma
 situación de ledger (solo las 14 `cero_*`) y el 08/10/2026 pasó a ser el ambiente de prueba de
-migraciones, así que se corrigió con el bloque único del final de esta sección, después de los de §6.3
-y §6.4.
+migraciones, así que se corrigió con los bloques únicos de §6.3, §6.4 y el del final de esta sección.
+**Corrección del 09/10/2026:** el de A.5 se aplicó el 08/10, pero los de §6.3 y §6.4 recién el 09/10;
+hasta entonces Dev 2.0 conservaba la escritura de `user_roles` por `authenticated` y la escritura anónima
+en las 16 tablas y 5 vistas. Lección: después de cada bloque, correr **su** verificación; la de un bloque
+no prueba los otros.
 
 #### A.5a — `cero_06_grants.sql`, tercer bloque de `REVOKE`
 
@@ -479,7 +482,7 @@ heredaba la vista de 3 claves y `TAX_RATE` caía a su default 0.13 durante un mi
 
 Mismas razones que en §6.3. Va **después** de los bloques de §6.3 y §6.4, y verificando antes que el
 editor abierto es el del `project-ref` correcto. Aplicado y verificado en Dev 2.0 (`oapgycqovzqsucliwbpu`)
-el 08/10/2026. El frontend del ambiente tiene que incluir el arreglo de `SessionCacheGuard` de arriba.
+el 08/10/2026; los de §6.3 y §6.4, el 09/10/2026 (ver la corrección al inicio de esta sección). El frontend del ambiente tiene que incluir el arreglo de `SessionCacheGuard` de arriba.
 
 ```sql
 -- A.5, aplicación única en un ambiente ya migrado. Idempotente.

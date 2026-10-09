@@ -76,7 +76,8 @@ comprobaron BAR-013, BAR-015 y BAR-009 (ver Parte I).
 | 02/10/2026 | **A.4** (escritura anónima) y **A.5** (lectura anónima y RPC). Retiro de los arneses de prueba desplegados. Primera evidencia con sesión: BAR-013 a BAR-017. Checks 13 a 16. |
 | 05/10/2026 | Test reconstruido desde las 44 migraciones, con datos del respaldo. El operador verificó los bloques A/B/C, la escalera de privilegios en Postman y el cambio de rol con auditoría. |
 | 07/10/2026 | Security Advisor de Test: las 34 alertas críticas coinciden con la lista conocida. BAR-018. |
-| 08/10/2026 | Dev 2.0 corregido con los bloques únicos y verificado. Arneses retirados de Dev 2.0. BAR-015 y BAR-009 reproducidos con una cuenta de asistente. |
+| 08/10/2026 | Dev 2.0: bloque único de A.5 aplicado y verificado. Arneses retirados de Dev 2.0. BAR-015 y BAR-009 reproducidos con una cuenta de asistente. |
+| 09/10/2026 | Dev 2.0: se detecta que faltaban los bloques del Carril A y de A.4; se aplican y verifican. Dev 2.0 al día con las 44 migraciones y su ledger reparado. Foto «antes» del Carril B con la regresión por rol. |
 
 ---
 
@@ -234,7 +235,8 @@ flag de RLS se editan en sitio en `cero_05`. Rama `fix/rls-carril-a`, PR #362 ha
 | 02/10 | **Frontend.** `SessionCacheGuard` invalida `global_settings` al iniciar sesión; sin esto, durante un minuto el impuesto caía al 13 % por defecto | `b6461bee` | Efecto secundario de A.5b |
 | 02/10 | **CI.** Checks 14 a 16, probados rompiendo a propósito cada protección; fixtures del replay re-aceptados | `b6461bee`, `da1832d8` | Guardias de A.5 |
 | 05/10 | **Test** reconstruido desde las 44 migraciones y verificado por el operador | — | Paridad del repo con un ambiente real |
-| 08/10 | **Dev 2.0** corregido con bloques únicos (`DIFF-INTENCIONAL-consolidacion.md` §6.3 a §6.5), porque su ledger ya tenía las migraciones cero y `db push` no las repite. Verificado por catálogo y desde fuera con `anon`. Arneses retirados | `51fdfe94` (documentación) | Exposición anónima en Dev 2.0 |
+| 08/10 | **Dev 2.0**, bloque único de A.5 (`DIFF-INTENCIONAL-consolidacion.md` §6.5), porque su ledger ya tenía las migraciones cero y `db push` no las repite. Verificado por catálogo y desde fuera con `anon`. Arneses retirados | `51fdfe94` (documentación) | Lectura anónima en Dev 2.0 |
+| 09/10 | **Dev 2.0**, bloques de §6.3 (Carril A) y §6.4 (A.4). **Faltaban:** el 08/10 se había verificado solo el de A.5, y el `PATCH` anónimo de prueba fallaba por falta de lectura, no de escritura. Hasta el 09/10, cualquier empleado podía cambiar su propio rol y un visitante podía insertar filas. Verificado por catálogo y con la regresión por rol. Sin señales de abuso: 2 admins, los esperados | — | Escalada de rol y escritura anónima en Dev 2.0 |
 
 Producción (`xcdcxtduotwgwmhxvsiz`) está vacía y recibirá las migraciones ya corregidas, así que nace con
 todo lo anterior.
