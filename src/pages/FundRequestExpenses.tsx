@@ -41,6 +41,7 @@ import {
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -67,6 +68,7 @@ const FundRequestExpenses = () => {
 
   const { data: fr, isLoading: frLoading } = useFundRequestById(id);
   const { data: expenses, isLoading: expLoading } = useFundRequestExpenses(id);
+  const { data: events } = useFundRequestEvents(id);
   const { staffRecord } = useCurrentStaff();
   // "Ve todo el pedido" es el rol de Contabilidad (liquidación), no admin. El
   // comentario original decía "admin (contabilidad por ahora)": ahora se decide
@@ -255,10 +257,21 @@ const FundRequestExpenses = () => {
       frStatusLabel: (s) => t(`fundRequest.status.${s}`),
       otStatusLabel: (s) => t(`fundRequest.otApproval.status.${s}`),
       expenseStatusLabel: (s) => t(`fundRequestExpense.status.${s}`),
+      history: {
+        section: t("fundRequestEvent.title"),
+        dateTime: t("fundRequestEvent.report.dateTime"),
+        action: t("fundRequestEvent.report.action"),
+        actor: t("fundRequestEvent.report.actor"),
+        workOrder: t("fundRequestEvent.report.workOrder"),
+        notes: t("fundRequestEvent.report.notes"),
+        amount: t("fundRequestEvent.report.amount"),
+        system: t("fundRequestEvent.system"),
+      },
+      actionLabel: (a) => t(`fundRequestEvent.actions.${a}`, { defaultValue: a }),
     };
     try {
       await downloadExpenseReportXlsx(
-        { fr, expenses: expenses ?? [], totals },
+        { fr, expenses: expenses ?? [], totals, events: events ?? [] },
         labels,
         reportFilename(
           fr.request_number,

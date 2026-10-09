@@ -2110,6 +2110,103 @@ $$;
 
 --
 --
+-- Name: fr_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora de la solicitud (docs/plan-contabilidad-gastos.md, Fase 2). Registra cada cambio de
+-- estado con su actor, tomado de la sesión. Sin sesión (seed, cron) el actor queda NULL y la UI
+-- lo muestra como "Sistema". Es un trigger y no una escritura en cada RPC para que ningún camino
+-- (RPC, UPDATE directo permitido por RLS, rollup de OTs, cron) quede sin registrar.
+DECLARE
+  v_action TEXT;
+  v_notes TEXT;
+  v_amount NUMERIC;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_action := 'created';
+  ELSE
+    IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+      RETURN NULL;
+    END IF;
+    v_action := CASE NEW.status
+      WHEN 'pendiente_aprobacion' THEN 'submitted'
+      WHEN 'aprobado_gerente'     THEN 'approved'
+      WHEN 'observado'            THEN 'observed'
+      WHEN 'rechazado'            THEN 'rejected'
+      WHEN 'fondos_entregados'    THEN 'disbursed'
+      WHEN 'en_liquidacion'       THEN 'settled'
+      WHEN 'cerrado'              THEN 'closed'
+      WHEN 'cancelado'            THEN 'cancelled'
+      ELSE 'status_changed'
+    END;
+    v_notes := CASE NEW.status
+      WHEN 'fondos_entregados' THEN NEW.accounting_notes
+      WHEN 'en_liquidacion'    THEN NEW.settlement_notes
+      -- Al cerrar solo cuenta una nota NUEVA: la RPC conserva la del desembolso si no hay otra.
+      WHEN 'cerrado' THEN CASE WHEN NEW.accounting_notes IS DISTINCT FROM OLD.accounting_notes
+                               THEN NEW.accounting_notes END
+      WHEN 'cancelado' THEN NEW.rejection_reason
+      ELSE NULL
+    END;
+    v_amount := CASE NEW.status
+      WHEN 'fondos_entregados' THEN NEW.total_disbursed_amount
+      WHEN 'en_liquidacion'    THEN NEW.settlement_amount
+      ELSE NULL
+    END;
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, action, from_status, to_status, actor_staff_id, notes, amount)
+  VALUES
+    (NEW.fund_request_id, 'request', v_action,
+     CASE WHEN TG_OP = 'UPDATE' THEN OLD.status::text END, NEW.status::text,
+     get_my_staff_id(), v_notes, v_amount);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+--
+-- Name: fr_wo_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_wo_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora: decisión del gerente sobre UNA OT de la solicitud. El reset a 'pendiente' del
+-- reenvío no se registra (es ruido: el evento 'submitted' de la solicitud ya lo cuenta).
+BEGIN
+  IF NEW.approval_status IS NOT DISTINCT FROM OLD.approval_status
+     OR NEW.approval_status = 'pendiente' THEN
+    RETURN NULL;
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, fr_wo_id, wo_id, action, from_status, to_status,
+     actor_staff_id, notes)
+  VALUES
+    (NEW.fund_request_id, 'work_order', NEW.fr_wo_id, NEW.wo_id,
+     CASE NEW.approval_status
+       WHEN 'aprobado'  THEN 'wo_approved'
+       WHEN 'observado' THEN 'wo_observed'
+       WHEN 'rechazado' THEN 'wo_rejected'
+       ELSE 'wo_status_changed'
+     END,
+     OLD.approval_status::text, NEW.approval_status::text,
+     get_my_staff_id(), COALESCE(NEW.rejection_reason, NEW.manager_notes));
+  RETURN NULL;
+END;
+$$;
+
+
+--
+--
 -- Name: fr_wo_rollup_status(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2239,6 +2336,60 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: fre_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fre_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora de un gasto: cada cambio de estado con su actor (NULL = Sistema).
+DECLARE
+  v_action TEXT;
+  v_notes TEXT;
+  v_amount NUMERIC;
+BEGIN
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    RETURN NULL;
+  END IF;
+
+  IF NEW.status = 'pendiente_aprobacion' THEN
+    v_action := 'expense_submitted';
+  ELSIF NEW.status = 'aprobado_gerente' AND OLD.status = 'observado' AND OLD.returned_by_assistant THEN
+    v_action := 'expense_resubmitted_to_accounting';
+  ELSIF NEW.status = 'aprobado_gerente' THEN
+    v_action := 'expense_manager_approved';
+    v_notes := NEW.manager_notes;
+  ELSIF NEW.status = 'observado' AND NEW.returned_by_assistant AND NOT OLD.returned_by_assistant THEN
+    v_action := 'expense_returned_by_accounting';
+    v_notes := NEW.invoice_observation_notes;
+  ELSIF NEW.status = 'observado' THEN
+    v_action := 'expense_manager_observed';
+    v_notes := NEW.manager_notes;
+  ELSIF NEW.status = 'rechazado' THEN
+    v_action := 'expense_manager_rejected';
+    v_notes := NEW.rejection_reason;
+  ELSIF NEW.status = 'revisado_asistente' THEN
+    v_action := 'expense_reviewed';
+    v_notes := NEW.invoice_observation_notes;
+    v_amount := NULLIF(NEW.iva_penalty_amount, 0);
+  ELSE
+    v_action := 'expense_status_changed';
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, wo_id, fre_id, action, from_status, to_status,
+     actor_staff_id, notes, amount)
+  VALUES
+    (NEW.fund_request_id, 'expense', NEW.wo_id, NEW.fre_id, v_action,
+     OLD.status::text, NEW.status::text, get_my_staff_id(), v_notes, v_amount);
+  RETURN NULL;
 END;
 $$;
 
@@ -6248,6 +6399,40 @@ CREATE TABLE public.expense_types (
 
 --
 --
+-- Name: fund_request_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fund_request_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    -- Orden real de inserción: created_at es now() y empata dentro de una transacción
+    -- (p. ej. el envío y el rollup de OTs).
+    seq bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+    fund_request_id uuid NOT NULL,
+    entity text NOT NULL,
+    fr_wo_id uuid,
+    wo_id uuid,
+    fre_id uuid,
+    action text NOT NULL,
+    from_status text,
+    to_status text,
+    actor_staff_id uuid,
+    notes text,
+    amount numeric,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fund_request_events_entity_check CHECK ((entity = ANY (ARRAY['request'::text, 'work_order'::text, 'expense'::text])))
+);
+
+
+--
+--
+-- Name: TABLE fund_request_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.fund_request_events IS 'Bitácora append-only de Solicitud de Fondos: cada cambio de estado de la solicitud, de sus OTs y de sus gastos, con el actor de la sesión (NULL = Sistema). La escriben solo los triggers fr_log_event / fr_wo_log_event / fre_log_event; no hay policy de escritura.';
+
+
+--
+--
 -- Name: fund_request_expenses; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6389,7 +6574,6 @@ CREATE TABLE public.fund_requests (
     fund_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
     request_number character varying,
     requester_staff_id uuid NOT NULL,
-    approver_manager_staff_id uuid,
     total_requested_amount numeric NOT NULL,
     currency character varying NOT NULL,
     status public.fund_request_status DEFAULT 'borrador'::public.fund_request_status NOT NULL,

@@ -23,6 +23,7 @@ import {
   type FundRequestFormValues,
 } from "@/components/fund-requests/FundRequestForm";
 import { OtApprovalList } from "@/components/fund-requests/OtApprovalList";
+import { FundRequestTimeline } from "@/components/fund-requests/FundRequestTimeline";
 import { DisbursementDialog } from "@/components/fund-requests/DisbursementDialog";
 import { LiquidationDialog } from "@/components/fund-requests/LiquidationDialog";
 import { SimpleConfirmDialog } from "@/components/fund-requests/SimpleConfirmDialog";
@@ -30,6 +31,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info, Receipt } from "lucide-react";
 import { useFundRequestById } from "@/hooks/useFundRequests";
 import { useFundRequestExpenses } from "@/hooks/useFundRequestExpenses";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
 import {
   useUpdateFundRequest,
   useSubmitFundRequest,
@@ -53,6 +55,15 @@ const FundRequestEdit = () => {
 
   const { data: fr, isLoading } = useFundRequestById(id);
   const { data: expenses } = useFundRequestExpenses(id);
+  const { data: events } = useFundRequestEvents(id);
+  // Historial de la solicitud y sus OTs; los eventos de cada gasto van en su diálogo.
+  const requestEvents = useMemo(
+    () => (events ?? []).filter((e) => e.entity !== "expense"),
+    [events],
+  );
+  const workOrderLabel = (woId: string) =>
+    (fr?.fund_request_work_orders ?? []).find((o) => o.wo_id === woId)?.work_order?.engagement
+      ?.engagement_code;
   // Los gastos cargaron (data !== undefined). Mientras cargan, los totales de
   // liquidación dan 0 y no se debe permitir liquidar (condición de carrera).
   const expensesLoaded = expenses !== undefined;
@@ -575,6 +586,17 @@ const FundRequestEdit = () => {
             (en estados editables se muestra "Distribución por OT" del formulario) */}
         {isReadOnly && fr.status !== "borrador" && (
           <OtApprovalList fr={fr} myStaffId={staffRecord?.staff_id} />
+        )}
+
+        {/* Historial (P5): quién aprobó, desembolsó, liquidó, cerró o rechazó, y cuándo.
+            Los eventos de cada gasto se ven en su propio diálogo. */}
+        {requestEvents.length > 0 && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <p className="text-sm font-medium">{t("fundRequestEvent.title")}</p>
+              <FundRequestTimeline events={requestEvents} workOrderLabel={workOrderLabel} />
+            </CardContent>
+          </Card>
         )}
       </div>
 

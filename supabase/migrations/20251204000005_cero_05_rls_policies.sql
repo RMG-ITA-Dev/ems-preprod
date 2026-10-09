@@ -1178,6 +1178,28 @@ CREATE POLICY frwo_select_accounting ON public.fund_request_work_orders FOR SELE
 
 --
 --
+-- Name: fund_request_events fr_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY fr_events_select ON public.fund_request_events FOR SELECT TO authenticated USING (((EXISTS ( SELECT 1
+   FROM public.fund_requests fr
+  WHERE (fr.fund_request_id = fund_request_events.fund_request_id))) AND ((fr_wo_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_work_orders frwo
+  WHERE (frwo.fr_wo_id = fund_request_events.fr_wo_id)))) AND ((fre_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_expenses fre
+  WHERE (fre.fre_id = fund_request_events.fre_id))))));
+
+
+--
+--
+-- Name: fund_request_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fund_request_events ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: fund_request_expenses; Type: ROW SECURITY; Schema: public; Owner: -
 --
 

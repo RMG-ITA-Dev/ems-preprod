@@ -1320,6 +1320,15 @@ GRANT ALL ON TABLE public.expense_types TO service_role;
 
 --
 --
+-- Name: TABLE fund_request_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.fund_request_events TO authenticated;
+GRANT ALL ON TABLE public.fund_request_events TO service_role;
+
+
+--
+--
 -- Name: TABLE fund_request_expenses; Type: ACL; Schema: public; Owner: -
 --
 

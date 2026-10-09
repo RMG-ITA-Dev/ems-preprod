@@ -65,6 +65,30 @@ CREATE TRIGGER tr_fr_wo_validate_approved BEFORE INSERT OR UPDATE OF wo_id ON pu
 
 --
 --
+-- Name: fund_requests tr_fr_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_log_event AFTER INSERT OR UPDATE OF status ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_log_event();
+
+
+--
+--
+-- Name: fund_request_work_orders tr_fr_wo_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_wo_log_event AFTER UPDATE OF approval_status ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_log_event();
+
+
+--
+--
+-- Name: fund_request_expenses tr_fre_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_log_event AFTER UPDATE OF status ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_log_event();
+
+
+--
+--
 -- Name: fund_request_expenses tr_fre_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -708,6 +732,42 @@ ALTER TABLE ONLY public.fund_request_expenses
 
 --
 --
+-- Name: fund_request_events fund_request_events_fund_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fund_request_id_fkey FOREIGN KEY (fund_request_id) REFERENCES public.fund_requests(fund_request_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_fr_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fr_wo_id_fkey FOREIGN KEY (fr_wo_id) REFERENCES public.fund_request_work_orders(fr_wo_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
 -- Name: fund_request_expenses fund_request_expenses_fund_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -758,15 +818,6 @@ ALTER TABLE ONLY public.fund_request_work_orders
 
 ALTER TABLE ONLY public.fund_request_work_orders
     ADD CONSTRAINT fund_request_work_orders_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id);
-
-
---
---
--- Name: fund_requests fund_requests_approver_manager_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.fund_requests
-    ADD CONSTRAINT fund_requests_approver_manager_staff_id_fkey FOREIGN KEY (approver_manager_staff_id) REFERENCES public.staff(staff_id);
 
 
 --

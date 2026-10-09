@@ -57,6 +57,8 @@ const invalidate = (
   if (expenseId) qc.invalidateQueries({ queryKey: ["fund_request_expense", expenseId] });
   // Indicadores de las listas (conteos por estado)
   qc.invalidateQueries({ queryKey: ["fund_request_expense_counts"] });
+  // La bitácora la escriben triggers: cualquier cambio de estado agrega eventos.
+  qc.invalidateQueries({ queryKey: ["fund_request_events"] });
 };
 
 export function useCreateFundRequestExpense() {

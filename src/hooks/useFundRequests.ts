@@ -46,7 +46,6 @@ export interface FundRequest {
   fund_request_id: string;
   request_number: string;
   requester_staff_id: string;
-  approver_manager_staff_id: string | null;
   total_requested_amount: number;
   total_disbursed_amount: number;
   currency: "BOB" | "USD";
@@ -78,18 +77,18 @@ export interface FundRequest {
   created_at: string;
   updated_at: string;
   requester?: Staff;
-  approver_manager?: Staff;
   disbursed_by?: Staff;
   settled_by?: Staff;
+  closed_by?: Staff;
   fund_request_work_orders?: FundRequestWorkOrder[];
 }
 
 const fundRequestSelect = `
   *,
   requester:staff!fund_requests_requester_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
-  approver_manager:staff!fund_requests_approver_manager_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   disbursed_by:staff!fund_requests_disbursed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   settled_by:staff!fund_requests_settled_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
+  closed_by:staff!fund_requests_closed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   fund_request_work_orders(
     *,
     manager:staff!fund_request_work_orders_manager_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),

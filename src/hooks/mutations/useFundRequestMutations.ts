@@ -36,6 +36,8 @@ export interface FundRequestUpdateInput {
 const invalidateAll = (qc: ReturnType<typeof useQueryClient>, id?: string) => {
   qc.invalidateQueries({ queryKey: ["fund_requests"] });
   if (id) qc.invalidateQueries({ queryKey: ["fund_request", id] });
+  // La bitácora la escriben triggers: cualquier cambio de estado agrega eventos.
+  qc.invalidateQueries({ queryKey: ["fund_request_events"] });
 };
 
 export function useCreateFundRequest() {

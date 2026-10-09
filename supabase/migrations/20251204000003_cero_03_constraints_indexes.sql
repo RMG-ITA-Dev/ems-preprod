@@ -189,6 +189,31 @@ ALTER TABLE ONLY public.expense_types
 
 --
 --
+-- Name: fund_request_events fund_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_pkey PRIMARY KEY (event_id);
+
+
+--
+--
+-- Name: idx_fund_request_events_fr; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fr ON public.fund_request_events USING btree (fund_request_id, seq);
+
+
+--
+--
+-- Name: idx_fund_request_events_fre; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fre ON public.fund_request_events USING btree (fre_id) WHERE (fre_id IS NOT NULL);
+
+
+--
+--
 -- Name: fund_request_expenses fund_request_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -743,14 +768,6 @@ CREATE INDEX idx_engagements_partner_status ON public.engagements USING btree (p
 --
 
 CREATE INDEX idx_fr_created_at ON public.fund_requests USING btree (created_at DESC);
-
-
---
---
--- Name: idx_fr_manager_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_fr_manager_status ON public.fund_requests USING btree (approver_manager_staff_id, status);
 
 
 --

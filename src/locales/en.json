@@ -2626,6 +2626,44 @@
       "disbursedAmountExceedsRequested": "The disbursed amount cannot exceed the requested amount"
     }
   },
+  "fundRequestEvent": {
+    "title": "History",
+    "empty": "No activity recorded",
+    "system": "System",
+    "by": "by {{name}}",
+    "report": {
+      "dateTime": "Date and time",
+      "action": "Action",
+      "actor": "Done by",
+      "workOrder": "Work order",
+      "notes": "Notes",
+      "amount": "Amount"
+    },
+    "actions": {
+      "created": "Request created",
+      "submitted": "Submitted for approval",
+      "approved": "Approved (all work orders)",
+      "observed": "Observed",
+      "rejected": "Rejected",
+      "disbursed": "Funds disbursed",
+      "settled": "Settled",
+      "closed": "Closed",
+      "cancelled": "Cancelled",
+      "status_changed": "Status changed",
+      "wo_approved": "Work order approved",
+      "wo_observed": "Work order observed",
+      "wo_rejected": "Work order rejected",
+      "wo_status_changed": "Work order status changed",
+      "expense_submitted": "Sent to the manager",
+      "expense_manager_approved": "Approved by the manager",
+      "expense_manager_observed": "Observed by the manager",
+      "expense_manager_rejected": "Rejected by the manager",
+      "expense_returned_by_accounting": "Returned by Accounting",
+      "expense_resubmitted_to_accounting": "Resent to Accounting",
+      "expense_reviewed": "Reviewed by Accounting",
+      "expense_status_changed": "Expense status changed"
+    }
+  },
   "fundRequestExpense": {
     "title": "Request Expenses",
     "report": {

@@ -20,6 +20,8 @@ import {
 import { computeExpenseDays } from "@/lib/fundRequest";
 import type { FundRequest } from "@/hooks/useFundRequests";
 import type { FundRequestExpense } from "@/hooks/useFundRequestExpenses";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import { FundRequestTimeline } from "@/components/fund-requests/FundRequestTimeline";
 import {
   useCreateFundRequestExpense,
   useUpdateFundRequestExpense,
@@ -73,6 +75,8 @@ export function FundRequestExpenseDialog({
   // Con `isAdmin` del enum legacy, el Gerente y el Analista de Contabilidad no
   // podían revisar aunque la matriz les da Liquidación de Gastos.
   const { can } = useAuthorization();
+  const { data: events } = useFundRequestEvents(open && expense ? fundRequest.fund_request_id : undefined);
+  const expenseEvents = (events ?? []).filter((e) => !!expense && e.fre_id === expense.fre_id);
   const canSettleExpenses = can("expense_settlement.update");
 
   const createExpense = useCreateFundRequestExpense();
@@ -295,7 +299,7 @@ export function FundRequestExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !anyPending && onOpenChange(o)}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {subPanel === "review" && <FileSearch className="h-5 w-5 text-info" />}
@@ -505,6 +509,14 @@ export function FundRequestExpenseDialog({
               disabled={!isEditable}
               onlyAttachment={isReturnedByAssistant}
             />
+
+            {/* Historial del gasto (P5): quién lo envió, aprobó, devolvió o revisó. */}
+            {expenseEvents.length > 0 && (
+              <div className="space-y-3 border-t pt-4">
+                <p className="text-sm font-medium">{t("fundRequestEvent.title")}</p>
+                <FundRequestTimeline events={expenseEvents} />
+              </div>
+            )}
           </>
         )}
 
