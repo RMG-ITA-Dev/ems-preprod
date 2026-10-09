@@ -303,6 +303,8 @@ export interface ExpenseType {
   expense_type_id: string;
   expense_name: string;
   default_unit_cost: number;
+  /** Fase 1.7: desactivado = no se ofrece para gastos ni presupuestos nuevos (ver selectableExpenseTypes). */
+  is_active: boolean;
 }
 
 export interface GlobalSetting {
@@ -933,7 +935,8 @@ export function useExpenseTypes() {
         .select('*')
         .order('expense_name');
       if (error) throw error;
-      return data as ExpenseType[];
+      // `unknown` hasta que Lovable regenere types.ts con expense_types.is_active (Fase 1.7).
+      return data as unknown as ExpenseType[];
     },
   });
 }

@@ -622,7 +622,10 @@
     "newExpenseType": "New Expense Type",
     "editExpenseType": "Edit Expense Type",
     "createExpenseType": "Create Expense Type",
-    "deleteExpenseType": "Delete Expense Type"
+    "deleteExpenseType": "Delete Expense Type",
+    "active": "Active",
+    "activeHint": "When inactive it is not offered for new expenses or budgets; existing records keep it. Deleting only works if it was never used.",
+    "inactiveSuffix": "(inactive)"
   },
   "staff": {
     "name": "Name",

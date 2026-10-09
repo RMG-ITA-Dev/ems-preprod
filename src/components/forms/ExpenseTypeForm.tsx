@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { NumericInput } from "@/components/ui/numeric-input";
+import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -37,10 +39,11 @@ import { ExpenseType } from "@/hooks/useEmsData";
 import { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from "@/hooks/mutations";
 import { Trash2 } from "lucide-react";
 
-// TODO(is_active): add an `is_active` toggle once the `expense_types` table gains an `is_active` column (DB migration + useEmsData/ExpenseType type update).
 const formSchema = z.object({
   expense_name: z.string().min(1, "Expense name is required"),
   default_unit_cost: z.coerce.number().min(0, "Cost must be positive"),
+  // Fase 1.7: desactivar en vez de borrar (borrar un tipo en uso rompería los datos anteriores).
+  is_active: z.boolean(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -64,6 +67,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
     defaultValues: {
       expense_name: "",
       default_unit_cost: 0,
+      is_active: true,
     },
   });
 
@@ -72,6 +76,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
       form.reset({
         expense_name: expenseType?.expense_name || "",
         default_unit_cost: expenseType?.default_unit_cost || 0,
+        is_active: expenseType?.is_active ?? true,
       });
     }
   }, [open, expenseType, form]);
@@ -80,6 +85,7 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
     const payload = {
       expense_name: data.expense_name,
       default_unit_cost: data.default_unit_cost,
+      is_active: data.is_active,
     };
     if (isEdit && expenseType) {
       await updateMutation.mutateAsync({ id: expenseType.expense_type_id, data: payload });
@@ -130,6 +136,22 @@ export function ExpenseTypeForm({ open, onOpenChange, expenseType }: ExpenseType
                     <NumericInput decimals={2} locale={numericLocale} min={0} placeholder="0.00" value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="is_active"
+              render={({ field }) => (
+                <FormItem className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                  <div className="space-y-0.5">
+                    <FormLabel>{t("expense.active")}</FormLabel>
+                    <FormDescription>{t("expense.activeHint")}</FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
                 </FormItem>
               )}
             />

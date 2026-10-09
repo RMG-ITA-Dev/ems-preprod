@@ -184,6 +184,44 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — detalle: lista plana con su solicitud y presupuesto vs gastado por tipo';
 
+  -- ── 4. Tipo de gasto desactivado (Fase 1.7) ────────────────────────────────
+  -- Como dueño: el portón es el trigger, no la RLS.
+  EXECUTE 'RESET ROLE';
+  UPDATE public.expense_types SET is_active = false
+   WHERE expense_type_id = '77f00000-0000-4000-8000-000000000003';
+  denied := false;
+  BEGIN
+    INSERT INTO public.fund_request_expenses (fund_request_id, wo_id, expense_type_id,
+                                              expense_date, amount, currency, status)
+    VALUES ('f7f00000-0000-4000-8000-000000000002', c_wo, '77f00000-0000-4000-8000-000000000003',
+            '2026-10-09', 10, 'BOB', 'borrador');
+  EXCEPTION WHEN raise_exception THEN
+    denied := SQLERRM LIKE '%desactivado%';
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'FUND WO FAIL — se registró un gasto nuevo con un tipo desactivado';
+  END IF;
+  denied := false;
+  BEGIN
+    UPDATE public.wo_expense_budget SET expense_type_id = '77f00000-0000-4000-8000-000000000003'
+     WHERE wo_id = c_wo AND expense_type_id = '77f00000-0000-4000-8000-000000000002';
+  EXCEPTION WHEN raise_exception THEN
+    denied := SQLERRM LIKE '%desactivado%';
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'FUND WO FAIL — un presupuesto pasó a un tipo desactivado';
+  END IF;
+  -- Lo ya registrado conserva su tipo: reescribir la fila sin cambiar el tipo no dispara la
+  -- validación (sin sesión, como un proceso del sistema).
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.fund_request_expenses SET expense_type_id = expense_type_id
+   WHERE fre_id = 'b7f00000-0000-4000-8000-000000000003';
+  IF (SELECT expense_type_id FROM public.fund_request_expenses
+       WHERE fre_id = 'b7f00000-0000-4000-8000-000000000003') <> '77f00000-0000-4000-8000-000000000003' THEN
+    RAISE EXCEPTION 'FUND WO FAIL — el gasto existente perdió su tipo desactivado';
+  END IF;
+  RAISE NOTICE 'PASS — tipo desactivado: no entra en gastos ni presupuestos nuevos; lo registrado se conserva';
+
   RAISE NOTICE 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED (rolled back)';
 END $$;
 

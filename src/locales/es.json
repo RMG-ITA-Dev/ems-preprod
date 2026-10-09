@@ -622,7 +622,10 @@
     "newExpenseType": "Nuevo Tipo de Gasto",
     "editExpenseType": "Editar Tipo de Gasto",
     "createExpenseType": "Crear Tipo de Gasto",
-    "deleteExpenseType": "Eliminar Tipo de Gasto"
+    "deleteExpenseType": "Eliminar Tipo de Gasto",
+    "active": "Activo",
+    "activeHint": "Desactivado no se ofrece para gastos ni presupuestos nuevos; lo ya registrado lo conserva. Borrar solo funciona si nunca se usó.",
+    "inactiveSuffix": "(desactivado)"
   },
   "staff": {
     "name": "Nombre",

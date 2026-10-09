@@ -97,6 +97,22 @@ CREATE TRIGGER tr_fr_validate_period_month BEFORE INSERT OR UPDATE OF expense_pe
 
 --
 --
+-- Name: fund_request_expenses tr_fre_expense_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_expense_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
+--
+-- Name: wo_expense_budget tr_wo_expense_budget_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_wo_expense_budget_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.wo_expense_budget FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
+--
 -- Name: fund_request_expenses tr_fre_log_event; Type: TRIGGER; Schema: public; Owner: -
 --
 

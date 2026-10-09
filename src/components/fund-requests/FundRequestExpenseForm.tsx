@@ -16,6 +16,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { useExpenseTypes } from "@/hooks/useEmsData";
+import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { computeExpenseDays } from "@/lib/fundRequest";
@@ -180,9 +181,10 @@ export function FundRequestExpenseForm({
                 <SelectValue placeholder={t("fundRequestExpense.selectExpenseType")} />
               </SelectTrigger>
               <SelectContent>
-                {(expenseTypes ?? []).map((et) => (
+                {selectableExpenseTypes(expenseTypes, values.expense_type_id).map((et) => (
                   <SelectItem key={et.expense_type_id} value={et.expense_type_id}>
                     {et.expense_name}
+                    {et.is_active === false && ` ${t("expense.inactiveSuffix")}`}
                   </SelectItem>
                 ))}
               </SelectContent>

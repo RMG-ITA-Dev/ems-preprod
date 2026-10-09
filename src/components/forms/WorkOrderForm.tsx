@@ -57,6 +57,7 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
+import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import {
   STAFFING_PROFICIENCY_LEVELS,
   createEmptyRequirement,
@@ -1153,7 +1154,8 @@ export function WorkOrderForm({
                     .map((e) => e.expense_type_id)
                     .filter(Boolean),
                 );
-                const expenseTypeOptions = (expenseTypes ?? []).filter(
+                // Fase 1.7: solo tipos activos, más el que ya tiene esta línea.
+                const expenseTypeOptions = selectableExpenseTypes(expenseTypes, exp.expense_type_id).filter(
                   (type) =>
                     type.expense_type_id === exp.expense_type_id ||
                     !usedByOtherExpenses.has(type.expense_type_id),
@@ -1179,6 +1181,7 @@ export function WorkOrderForm({
                             value={type.expense_type_id}
                           >
                             {type.expense_name}
+                            {type.is_active === false && ` ${t("expense.inactiveSuffix")}`}
                           </SelectItem>
                         ))}
                       </SelectContent>

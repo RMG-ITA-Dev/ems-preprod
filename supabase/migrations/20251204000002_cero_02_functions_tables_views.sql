@@ -6643,6 +6643,31 @@ $$;
 
 --
 --
+-- Name: validate_expense_type_active(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_expense_type_active() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Tipo de gasto desactivado (docs/plan-contabilidad-gastos.md, Fase 1.7 / V4): no se puede
+-- usar en un gasto ni en un presupuesto de OT NUEVOS, ni al cambiar el tipo de uno existente.
+-- Lo ya registrado conserva su tipo: editar otro campo de un gasto viejo sigue funcionando.
+-- Se desactiva en vez de borrar porque borrar un tipo en uso rompería los datos anteriores.
+BEGIN
+  IF NEW.expense_type_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.expense_type_id IS DISTINCT FROM OLD.expense_type_id)
+     AND EXISTS (SELECT 1 FROM public.expense_types et
+                  WHERE et.expense_type_id = NEW.expense_type_id AND NOT et.is_active) THEN
+    RAISE EXCEPTION 'El tipo de gasto está desactivado; elija otro';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
 -- Name: wo_in_my_fund_request(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6957,7 +6982,10 @@ CREATE TABLE public.expense_types (
     expense_type_id uuid DEFAULT gen_random_uuid() NOT NULL,
     expense_name character varying(100) NOT NULL,
     default_unit_cost numeric(10,2) DEFAULT 0,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    -- Fase 1.7 (V4): desactivar en vez de borrar. Inactivo = no se ofrece para gastos ni
+    -- presupuestos nuevos; lo registrado lo conserva (trigger validate_expense_type_active).
+    is_active boolean DEFAULT true NOT NULL
 );
 
 
