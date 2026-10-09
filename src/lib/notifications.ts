@@ -193,11 +193,11 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
   // FASE 3.a — Fondos. Alcance `department`: son la cola de trabajo del area de
   // Contabilidad, no algo del usuario, asi que la ruta lleva a la bandeja del area.
   // Cada contador lleva a SU bandeja del modulo de desembolsos, no a la primera pestania:
-  // aprobado_gerente -> to_disburse, en_liquidacion -> in_settlement (mapeo de
-  // FundRequestDisbursements.tsx).
+  // aprobado_gerente -> to_disburse, listas para liquidar -> ready_to_settle, en_liquidacion
+  // (pago/cobro pendiente) -> in_settlement (mapeo de FundRequestDisbursements.tsx).
   { typeKey: "fund.disbursement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=to_disburse", permission: "fund_disbursement.read" },
   { typeKey: "fund.expense.review_pending", section: "fund_request", route: "/fund-requests/disbursements?tab=expenses_review", permission: "fund_disbursement.read" },
-  { typeKey: "fund.settlement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=in_settlement", permission: "fund_disbursement.read" },
+  { typeKey: "fund.settlement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=ready_to_settle", permission: "fund_disbursement.read" },
   { typeKey: "fund.request.closure_pending", section: "fund_request", route: "/fund-requests/disbursements?tab=in_settlement", permission: "fund_disbursement.read" },
   // FASE 3.b — cuotas del plan de pagos. No se solapan: "por vencer" cuenta de hoy al
   // domingo, "vencida" cuenta lo anterior a hoy. La vencida va primero por criticidad.

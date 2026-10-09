@@ -715,11 +715,23 @@ DROP FUNCTION IF EXISTS public.notif_agg_fund_settlement_pending();
 CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     AS $$
-  -- En liquidación y sin liquidación registrada. La liquidación es de dos pasos manuales,
-  -- así que `en_liquidacion` con settled_at NULL es exactamente "falta registrarla".
+  -- Solicitudes listas para liquidar: fondos entregados, ningún gasto en curso ni esperando
+  -- revisión, y con gastos o con la fecha fin ya pasada (una solicitud sin gastos al vencer se
+  -- liquida igual: devolución total). Mismo criterio que expensePhase() 'ready' en la bandeja
+  -- de Desembolsos y que fund_request_settle (plan-contabilidad-gastos Fases 3 y 4). Antes
+  -- contaba `en_liquidacion` sin settled_at, que desde las RPC contables no existe.
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE status = 'en_liquidacion' AND settled_at IS NULL;
+    FROM public.fund_requests fr
+   WHERE fr.status = 'fondos_entregados'
+     AND (EXISTS (SELECT 1 FROM public.fund_request_expenses e
+                   WHERE e.fund_request_id = fr.fund_request_id)
+          OR public.fund_today() > public.fund_request_deadline(fr.expense_period_month))
+     AND NOT EXISTS (
+       SELECT 1 FROM public.fund_request_expenses e
+        WHERE e.fund_request_id = fr.fund_request_id
+          AND (e.status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado')
+               OR (e.status = 'rechazado'
+                   AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month))));
 $$;
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_closure_pending();

@@ -2272,7 +2272,11 @@
         },
         "settlement": {
           "recorded": "Liquidación registrada",
-          "pending": "Liquidaciones por registrar"
+          "pending": "Liquidaciones por registrar",
+          "confirmed": "Movimiento de dinero confirmado · {{currency}} {{amount}}",
+          "confirmed_reimbursement": "Tu reembolso de {{currency}} {{amount}} fue pagado ({{confirmed_label}})",
+          "confirmed_return": "Contabilidad recibió tu devolución de {{currency}} {{amount}} ({{confirmed_label}})",
+          "confirmed_payroll": "Se aplicó el descuento de {{currency}} {{amount}} en tu planilla ({{confirmed_label}})"
         },
         "expenses": {
           "all_reviewed": "Contabilidad aprobó todos los gastos"
@@ -2523,7 +2527,7 @@
       "observado": "Observado",
       "rechazado": "Rechazado",
       "fondos_entregados": "Fondos Entregados",
-      "en_liquidacion": "En Liquidación",
+      "en_liquidacion": "Pago / cobro pendiente",
       "cerrado": "Cerrado",
       "cancelado": "Cancelado"
     },
@@ -2554,7 +2558,7 @@
       "toDisburse": "Por Desembolsar",
       "delivered": "Entregados",
       "readyToSettle": "Por Liquidar",
-      "inSettlement": "En Liquidación",
+      "inSettlement": "Pendiente de pago / cobro",
       "closed": "Cerrados",
       "pending": "Pendientes",
       "approved": "Aprobadas",
@@ -2593,7 +2597,7 @@
     "settlement": {
       "action": "Liquidar",
       "title": "Liquidación de la solicitud",
-      "body": "Revisa el cálculo y registra cómo se resuelve el saldo. Al confirmar, la liquidación se envía al encargado de Contabilidad para el cierre.",
+      "body": "Revisa el cálculo y registra cómo se resuelve el saldo. Sin saldo, la solicitud se cierra; con saldo, queda pendiente hasta confirmar el pago o el cobro.",
       "confirm": "Liquidar",
       "summaryTitle": "Liquidación",
       "resolutionLabel": "Resolución",
@@ -2606,21 +2610,21 @@
       "noBalance": "sin saldo",
       "favorsFirm": "a favor de la firma",
       "favorsRequester": "a favor del solicitante",
-      "noBalanceHelp": "No hay saldo pendiente.",
-      "payRequesterHelp": "El solicitante gastó de más: Contabilidad procesará el pago del saldo a su favor.",
+      "noBalanceHelp": "No hay saldo pendiente: al liquidar, la solicitud se cierra.",
+      "payRequesterHelp": "El solicitante gastó de más: la solicitud queda pendiente hasta confirmar el reembolso.",
       "firmQuestion": "Sobró dinero. ¿Cómo se resolvió?",
       "blockedHint": "Hay {{count}} gasto(s) sin finalizar. No puedes marcar en liquidación hasta que todos estén revisados o rechazados.",
       "resolution": {
         "sin_saldo": "Sin saldo",
-        "devolucion": "Devolución en plazo",
+        "devolucion": "Devolución del empleado",
         "descuento_planilla": "Descuento en planilla",
-        "pago_solicitante": "Pago al solicitante"
+        "pago_solicitante": "Reembolso al empleado"
       }
     },
     "messages": {
       "submittedSuccess": "Solicitud enviada a aprobación",
       "otDecisionSaved": "Decisión registrada en la OT",
-      "settledSuccess": "Liquidación registrada y enviada para cierre",
+      "settledSuccess": "Liquidación registrada",
       "approvedSuccess": "Solicitud aprobada",
       "observedSuccess": "Solicitud observada — el solicitante puede corregirla",
       "rejectedSuccess": "Solicitud rechazada",
@@ -2643,7 +2647,79 @@
     },
     "periodMonth": "Mes de la solicitud",
     "periodMonthPlaceholder": "Elige el mes",
-    "periodMonthHelp": "Gastos hasta el {{date}}"
+    "periodMonthHelp": "Gastos hasta el {{date}}",
+    "progress": {
+      "label": "Avance de la solicitud",
+      "steps": {
+        "requested": "Solicitada",
+        "approved": "Aprobada",
+        "disbursed": "Desembolsada",
+        "settled": "Liquidada",
+        "closed": "Cerrada"
+      }
+    },
+    "movement": {
+      "kind": {
+        "reimbursement": "Reembolso al empleado",
+        "return": "Devolución del empleado",
+        "payroll": "Descuento en planilla"
+      },
+      "type": "Movimiento",
+      "pendingBadge": {
+        "reimbursement": "Reembolso pendiente",
+        "return": "Devolución pendiente",
+        "payroll": "Descuento pendiente"
+      },
+      "doneBadge": {
+        "reimbursement": "Reembolso pagado",
+        "return": "Devolución recibida",
+        "payroll": "Descuento aplicado"
+      },
+      "pendingText": {
+        "requester": {
+          "reimbursement": "Contabilidad liquidó tu solicitud. Te corresponde un reembolso de {{amount}}. Pago pendiente.",
+          "return": "Contabilidad liquidó tu solicitud. Debes devolver {{amount}}.",
+          "payroll": "Contabilidad liquidó tu solicitud. Se descontarán {{amount}} de tu planilla."
+        },
+        "staff": {
+          "reimbursement": "Hay que pagar {{amount}} a {{name}}.",
+          "return": "{{name}} debe devolver {{amount}}.",
+          "payroll": "Hay que descontar {{amount}} de la planilla de {{name}}."
+        }
+      },
+      "doneText": {
+        "requester": {
+          "reimbursement": "Tu reembolso de {{amount}} fue pagado.",
+          "return": "Contabilidad recibió tu devolución de {{amount}}.",
+          "payroll": "Se descontaron {{amount}} de tu planilla."
+        },
+        "staff": {
+          "reimbursement": "Reembolso de {{amount}} pagado a {{name}}.",
+          "return": "Devolución de {{amount}} recibida de {{name}}.",
+          "payroll": "Descuento de {{amount}} aplicado en la planilla de {{name}}."
+        }
+      },
+      "confirmTitle": {
+        "reimbursement": "Confirmar pago del reembolso",
+        "return": "Confirmar devolución recibida",
+        "payroll": "Confirmar descuento en planilla"
+      },
+      "confirmBody": "Al confirmar, se registra la fecha y la hora y la solicitud se cierra.",
+      "confirmAction": {
+        "reimbursement": "Confirmar pago",
+        "return": "Confirmar devolución",
+        "payroll": "Confirmar descuento"
+      },
+      "ack": {
+        "reimbursement": "Confirmo que el pago fue realizado. Esta acción no se puede deshacer.",
+        "return": "Confirmo que la devolución fue recibida. Esta acción no se puede deshacer.",
+        "payroll": "Confirmo que el descuento fue aplicado en planilla. Esta acción no se puede deshacer."
+      },
+      "ackRequired": "Marca la confirmación para continuar.",
+      "reference": "Referencia",
+      "referencePlaceholder": "Nº de cheque, transferencia o recibo (opcional)",
+      "confirmedSuccess": "Movimiento confirmado: la solicitud se cerró"
+    }
   },
   "fundRequestEvent": {
     "title": "Historial",
@@ -2684,7 +2760,9 @@
       "expense_expired": "Vencido: no se envió hasta la fecha fin",
       "expense_manager_auto_approved": "Aprobado automáticamente (el gerente no decidió)",
       "expense_review_auto_approved": "Revisado automáticamente (Contabilidad no revisó)",
-      "expense_rejected_by_accounting": "Rechazado por Contabilidad"
+      "expense_rejected_by_accounting": "Rechazado por Contabilidad",
+      "settled_closed": "Liquidada sin saldo y cerrada",
+      "settlement_confirmed": "Movimiento de dinero confirmado y cerrada"
     }
   },
   "fundRequestExpense": {

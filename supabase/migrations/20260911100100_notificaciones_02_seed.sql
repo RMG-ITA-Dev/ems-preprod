@@ -1,4 +1,4 @@
--- Seed del catalogo de notificaciones: 83 tipos, 525 concesiones rol x tipo.
+-- Seed del catalogo de notificaciones: 84 tipos, 534 concesiones rol x tipo.
 -- Archivo generado a partir de la matriz de notificaciones. Idempotente.
 
 insert into public.notification_types
@@ -85,7 +85,8 @@ insert into public.notification_types
   ('fund.expense.manager_auto_approved', 'fund_request', 'notifications.types.fund.expense.manager_auto_approved', 'event', 80, true, true),
   ('fund.expense.review_auto_approved', 'fund_request', 'notifications.types.fund.expense.review_auto_approved', 'event', 81, true, true),
   ('fund.expense.expired', 'fund_request', 'notifications.types.fund.expense.expired', 'event', 82, true, true),
-  ('fund.expense.rejected_by_accounting', 'fund_request', 'notifications.types.fund.expense.rejected_by_accounting', 'event', 83, true, true)
+  ('fund.expense.rejected_by_accounting', 'fund_request', 'notifications.types.fund.expense.rejected_by_accounting', 'event', 83, true, true),
+  ('fund.settlement.confirmed', 'fund_request', 'notifications.types.fund.settlement.confirmed', 'event', 84, true, true)
 on conflict (type_key) do update set
   module_key    = excluded.module_key,
   label_key     = excluded.label_key,
@@ -619,7 +620,16 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('tax_senior', 'fund.expense.rejected_by_accounting', 'own'),
   ('tax_assistant', 'fund.expense.rejected_by_accounting', 'own'),
   ('accounting_analyst', 'fund.expense.rejected_by_accounting', 'own'),
-  ('collections_analyst', 'fund.expense.rejected_by_accounting', 'own')
+  ('collections_analyst', 'fund.expense.rejected_by_accounting', 'own'),
+  ('senior', 'fund.settlement.confirmed', 'own'),
+  ('semisenior', 'fund.settlement.confirmed', 'own'),
+  ('assistant', 'fund.settlement.confirmed', 'own'),
+  ('ita_senior', 'fund.settlement.confirmed', 'own'),
+  ('ita_assistant', 'fund.settlement.confirmed', 'own'),
+  ('tax_senior', 'fund.settlement.confirmed', 'own'),
+  ('tax_assistant', 'fund.settlement.confirmed', 'own'),
+  ('accounting_analyst', 'fund.settlement.confirmed', 'own'),
+  ('collections_analyst', 'fund.settlement.confirmed', 'own')
 on conflict (role_key, type_key) do update set scope_key = excluded.scope_key;
 
 -- Filas que ya no estan en la matriz dejan de existir en el catalogo.
@@ -1149,7 +1159,16 @@ delete from public.notification_role_types
    ('tax_senior', 'fund.expense.rejected_by_accounting'),
    ('tax_assistant', 'fund.expense.rejected_by_accounting'),
    ('accounting_analyst', 'fund.expense.rejected_by_accounting'),
-   ('collections_analyst', 'fund.expense.rejected_by_accounting')
+   ('collections_analyst', 'fund.expense.rejected_by_accounting'),
+   ('senior', 'fund.settlement.confirmed'),
+   ('semisenior', 'fund.settlement.confirmed'),
+   ('assistant', 'fund.settlement.confirmed'),
+   ('ita_senior', 'fund.settlement.confirmed'),
+   ('ita_assistant', 'fund.settlement.confirmed'),
+   ('tax_senior', 'fund.settlement.confirmed'),
+   ('tax_assistant', 'fund.settlement.confirmed'),
+   ('accounting_analyst', 'fund.settlement.confirmed'),
+   ('collections_analyst', 'fund.settlement.confirmed')
  );
 delete from public.notification_types
  where type_key not in (
@@ -1235,5 +1254,6 @@ delete from public.notification_types
    'fund.expense.manager_auto_approved',
    'fund.expense.review_auto_approved',
    'fund.expense.expired',
-   'fund.expense.rejected_by_accounting'
+   'fund.expense.rejected_by_accounting',
+   'fund.settlement.confirmed'
  );

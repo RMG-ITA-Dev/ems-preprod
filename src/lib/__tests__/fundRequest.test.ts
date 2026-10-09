@@ -3,6 +3,8 @@ import {
   computeExpenseDays,
   computeSettlement,
   expensePhase,
+  settlementMovement,
+  fundRequestStepIndex,
 } from "@/lib/fundRequest";
 
 describe("computeExpenseDays", () => {
@@ -91,5 +93,51 @@ describe("expensePhase", () => {
 
   it("prioritizes 'review' over in-flight expenses", () => {
     expect(expensePhase({ total: 2, aprobado_gerente: 1, borrador: 1 })).toBe("review");
+  });
+});
+
+describe("expensePhase — sin gastos al vencer (Fase 4)", () => {
+  it("una solicitud sin gastos queda lista para liquidar cuando pasa la fecha fin", () => {
+    expect(expensePhase({ total: 0 }, false)).toBe("delivered");
+    expect(expensePhase({ total: 0 }, true)).toBe("ready");
+  });
+});
+
+describe("settlementMovement", () => {
+  const base = { settlement_amount: 350, settlement_confirmed_at: null };
+
+  it("mapea cada resolución con saldo a su movimiento de dinero", () => {
+    expect(settlementMovement({ ...base, settlement_resolution: "pago_solicitante" })?.kind).toBe("reimbursement");
+    expect(settlementMovement({ ...base, settlement_resolution: "devolucion" })?.kind).toBe("return");
+    expect(settlementMovement({ ...base, settlement_resolution: "descuento_planilla" })?.kind).toBe("payroll");
+  });
+
+  it("sin saldo o sin liquidar no hay movimiento", () => {
+    expect(settlementMovement({ ...base, settlement_resolution: "sin_saldo" })).toBeNull();
+    expect(settlementMovement({ ...base, settlement_resolution: null })).toBeNull();
+  });
+
+  it("queda pendiente hasta que Contabilidad lo confirma", () => {
+    expect(settlementMovement({ ...base, settlement_resolution: "devolucion" })?.pending).toBe(true);
+    const done = settlementMovement({
+      ...base,
+      settlement_resolution: "devolucion",
+      settlement_confirmed_at: "2026-10-08T18:32:00Z",
+    });
+    expect(done?.pending).toBe(false);
+    expect(done?.amount).toBe(350);
+  });
+});
+
+describe("fundRequestStepIndex", () => {
+  it("ubica cada estado en la línea de pasos", () => {
+    expect(fundRequestStepIndex("pendiente_aprobacion")).toBe(0);
+    expect(fundRequestStepIndex("observado")).toBe(0);
+    expect(fundRequestStepIndex("aprobado_gerente")).toBe(1);
+    expect(fundRequestStepIndex("fondos_entregados")).toBe(2);
+    expect(fundRequestStepIndex("en_liquidacion")).toBe(3);
+    expect(fundRequestStepIndex("cerrado")).toBe(4);
+    expect(fundRequestStepIndex("borrador")).toBeNull();
+    expect(fundRequestStepIndex("cancelado")).toBeNull();
   });
 });

@@ -141,7 +141,7 @@ BEGIN
   PERFORM pg_temp.impersonate('a7e00000-0000-4000-8000-000000000004');
   PERFORM public.fund_request_expense_review(c_fre, 'incorrect', 'NIT equivocado');
   PERFORM public.fund_request_settle(c_fr, 'devolucion', 900, NULL);
-  PERFORM public.fund_request_close(c_fr, NULL);
+  PERFORM public.fund_request_confirm_settlement(c_fr, 'REC-9', 'en caja');
 
   -- 1.a Solicitud + OTs, en orden.
   SELECT string_agg(action || ':' || COALESCE(actor_staff_id::text, 'SISTEMA'), ' > '
@@ -158,7 +158,7 @@ BEGIN
   SELECT string_agg(action, ' > ' ORDER BY seq) INTO v_want
     FROM public.fund_request_events
    WHERE fund_request_id = c_fr AND entity IN ('request', 'work_order');
-  IF v_want <> 'created > submitted > wo_approved > wo_approved > approved > disbursed > settled > closed' THEN
+  IF v_want <> 'created > submitted > wo_approved > wo_approved > approved > disbursed > settled > settlement_confirmed' THEN
     RAISE EXCEPTION 'EVENTS FAIL — orden inesperado: %', v_want;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.fund_request_events WHERE fund_request_id = c_fr
@@ -179,7 +179,8 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public.fund_request_events WHERE fund_request_id = c_fr
                    AND action = 'settled' AND actor_staff_id = c_acc AND amount = 900)
      OR NOT EXISTS (SELECT 1 FROM public.fund_request_events WHERE fund_request_id = c_fr
-                   AND action = 'closed' AND actor_staff_id = c_acc) THEN
+                   AND action = 'settlement_confirmed' AND actor_staff_id = c_acc
+                   AND notes = 'REC-9 · en caja' AND amount = 900) THEN
     RAISE EXCEPTION 'EVENTS FAIL — eventos de solicitud/OT incompletos o con actor equivocado: %', v_got;
   END IF;
   -- El reset de OTs del envío NO genera eventos.

@@ -8,7 +8,7 @@ import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestSt
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
-import { expensePhase } from "@/lib/fundRequest";
+import { expensePhase, settlementMovement } from "@/lib/fundRequest";
 import { isDeadlinePassed, laPazToday } from "@/lib/fundRequestCalendar";
 import { useAuthorization } from "@/hooks/useAuthorization";
 
@@ -207,7 +207,21 @@ const FundRequestDisbursements = () => {
       label: t("common.status"),
       sortable: true,
       mobilePriority: "primary",
-      render: (row) => <FundRequestStatusBadge status={row.status} />,
+      render: (row) => {
+        // Fase 4 (P8): una solicitud liquidada con saldo muestra qué movimiento de dinero falta.
+        const movement = settlementMovement(row);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FundRequestStatusBadge status={row.status} />
+            {movement?.pending && (
+              <ExpenseActionBadge
+                label={t(`fundRequest.movement.pendingBadge.${movement.kind}`)}
+                tone="warning"
+              />
+            )}
+          </div>
+        );
+      },
     },
   ];
 

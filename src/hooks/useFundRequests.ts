@@ -70,8 +70,15 @@ export interface FundRequest {
   settlement_notes: string | null;
   settled_at: string | null;
   settled_by_staff_id: string | null;
-  // Cierre / cancelación: el actor lo pone la RPC (fund_request_close / fund_request_cancel).
+  // Cierre / cancelación: el actor lo pone la RPC (fund_request_settle sin saldo,
+  // fund_request_confirm_settlement o fund_request_cancel).
   closed_by_staff_id: string | null;
+  // Fase 4: confirmación del movimiento de dinero (reembolso pagado, devolución recibida o
+  // descuento aplicado). Fecha y hora las pone el servidor; confirmarlo cierra la solicitud.
+  settlement_confirmed_at: string | null;
+  settlement_confirmed_by_staff_id: string | null;
+  settlement_reference: string | null;
+  settlement_confirmation_notes: string | null;
   cancelled_at: string | null;
   cancelled_by_staff_id: string | null;
   cancelled_from_status: FundRequestStatus | null;
@@ -81,6 +88,7 @@ export interface FundRequest {
   disbursed_by?: Staff;
   settled_by?: Staff;
   closed_by?: Staff;
+  settlement_confirmed_by?: Staff;
   fund_request_work_orders?: FundRequestWorkOrder[];
 }
 
@@ -90,6 +98,7 @@ const fundRequestSelect = `
   disbursed_by:staff!fund_requests_disbursed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   settled_by:staff!fund_requests_settled_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   closed_by:staff!fund_requests_closed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
+  settlement_confirmed_by:staff!fund_requests_settlement_confirmed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   fund_request_work_orders(
     *,
     manager:staff!fund_request_work_orders_manager_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),

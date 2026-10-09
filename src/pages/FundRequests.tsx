@@ -6,6 +6,7 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest } from "@/hooks/useFundRequests";
+import { settlementMovement } from "@/lib/fundRequest";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 
@@ -130,7 +131,21 @@ const FundRequests = () => {
       sortable: true,
       filterKey: "status",
       mobilePriority: "primary",
-      render: (row) => <FundRequestStatusBadge status={row.status} />,
+      render: (row) => {
+        // Fase 4 (P8): una solicitud liquidada con saldo muestra qué movimiento de dinero falta.
+        const movement = settlementMovement(row);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FundRequestStatusBadge status={row.status} />
+            {movement?.pending && (
+              <ExpenseActionBadge
+                label={t(`fundRequest.movement.pendingBadge.${movement.kind}`)}
+                tone="warning"
+              />
+            )}
+          </div>
+        );
+      },
     },
   ];
 

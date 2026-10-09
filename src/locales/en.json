@@ -2272,7 +2272,11 @@
         },
         "settlement": {
           "recorded": "Settlement recorded",
-          "pending": "Settlements pending"
+          "pending": "Settlements pending",
+          "confirmed": "Money movement confirmed · {{currency}} {{amount}}",
+          "confirmed_reimbursement": "Your {{currency}} {{amount}} reimbursement was paid ({{confirmed_label}})",
+          "confirmed_return": "Accounting received your {{currency}} {{amount}} return ({{confirmed_label}})",
+          "confirmed_payroll": "The {{currency}} {{amount}} payroll deduction was applied ({{confirmed_label}})"
         },
         "expenses": {
           "all_reviewed": "Accounting approved all expenses"
@@ -2523,7 +2527,7 @@
       "observado": "Observed",
       "rechazado": "Rejected",
       "fondos_entregados": "Funds Delivered",
-      "en_liquidacion": "In Settlement",
+      "en_liquidacion": "Payment / collection pending",
       "cerrado": "Closed",
       "cancelado": "Cancelled"
     },
@@ -2554,7 +2558,7 @@
       "toDisburse": "To Disburse",
       "delivered": "Delivered",
       "readyToSettle": "Ready to Settle",
-      "inSettlement": "In Settlement",
+      "inSettlement": "Payment / collection pending",
       "closed": "Closed",
       "pending": "Pending",
       "approved": "Approved",
@@ -2593,7 +2597,7 @@
     "settlement": {
       "action": "Settle",
       "title": "Request settlement",
-      "body": "Review the calculation and record how the balance is resolved. On confirm, the settlement is sent to the Accounting head for closing.",
+      "body": "Review the calculation and record how the balance is resolved. With no balance the request closes; with a balance it stays pending until the payment or collection is confirmed.",
       "confirm": "Settle",
       "summaryTitle": "Settlement",
       "resolutionLabel": "Resolution",
@@ -2606,21 +2610,21 @@
       "noBalance": "no balance",
       "favorsFirm": "in favor of the firm",
       "favorsRequester": "in favor of the requester",
-      "noBalanceHelp": "There is no pending balance.",
-      "payRequesterHelp": "The requester overspent: Accounting will process the payment of the balance owed to them.",
+      "noBalanceHelp": "No pending balance: settling closes the request.",
+      "payRequesterHelp": "The requester overspent: the request stays pending until the reimbursement is confirmed.",
       "firmQuestion": "Money was left over. How was it resolved?",
       "blockedHint": "There are {{count}} unfinished expense(s). You can't start settlement until all are reviewed or rejected.",
       "resolution": {
         "sin_saldo": "No balance",
-        "devolucion": "Return within deadline",
+        "devolucion": "Employee return",
         "descuento_planilla": "Payroll deduction",
-        "pago_solicitante": "Payment to requester"
+        "pago_solicitante": "Reimbursement to the employee"
       }
     },
     "messages": {
       "submittedSuccess": "Request submitted for approval",
       "otDecisionSaved": "Decision saved on the WO",
-      "settledSuccess": "Settlement recorded and sent for closing",
+      "settledSuccess": "Settlement recorded",
       "approvedSuccess": "Request approved",
       "observedSuccess": "Request observed — the requester can correct it",
       "rejectedSuccess": "Request rejected",
@@ -2643,7 +2647,79 @@
     },
     "periodMonth": "Request month",
     "periodMonthPlaceholder": "Choose the month",
-    "periodMonthHelp": "Expenses until {{date}}"
+    "periodMonthHelp": "Expenses until {{date}}",
+    "progress": {
+      "label": "Request progress",
+      "steps": {
+        "requested": "Requested",
+        "approved": "Approved",
+        "disbursed": "Disbursed",
+        "settled": "Settled",
+        "closed": "Closed"
+      }
+    },
+    "movement": {
+      "kind": {
+        "reimbursement": "Reimbursement to the employee",
+        "return": "Employee return",
+        "payroll": "Payroll deduction"
+      },
+      "type": "Movement",
+      "pendingBadge": {
+        "reimbursement": "Reimbursement pending",
+        "return": "Return pending",
+        "payroll": "Deduction pending"
+      },
+      "doneBadge": {
+        "reimbursement": "Reimbursement paid",
+        "return": "Return received",
+        "payroll": "Deduction applied"
+      },
+      "pendingText": {
+        "requester": {
+          "reimbursement": "Accounting settled your request. You are owed a reimbursement of {{amount}}. Payment pending.",
+          "return": "Accounting settled your request. You must return {{amount}}.",
+          "payroll": "Accounting settled your request. {{amount}} will be deducted from your payroll."
+        },
+        "staff": {
+          "reimbursement": "{{amount}} must be paid to {{name}}.",
+          "return": "{{name}} must return {{amount}}.",
+          "payroll": "{{amount}} must be deducted from {{name}}'s payroll."
+        }
+      },
+      "doneText": {
+        "requester": {
+          "reimbursement": "Your reimbursement of {{amount}} was paid.",
+          "return": "Accounting received your return of {{amount}}.",
+          "payroll": "{{amount}} was deducted from your payroll."
+        },
+        "staff": {
+          "reimbursement": "Reimbursement of {{amount}} paid to {{name}}.",
+          "return": "Return of {{amount}} received from {{name}}.",
+          "payroll": "Deduction of {{amount}} applied to {{name}}'s payroll."
+        }
+      },
+      "confirmTitle": {
+        "reimbursement": "Confirm reimbursement payment",
+        "return": "Confirm return received",
+        "payroll": "Confirm payroll deduction"
+      },
+      "confirmBody": "Confirming records the date and time and closes the request.",
+      "confirmAction": {
+        "reimbursement": "Confirm payment",
+        "return": "Confirm return",
+        "payroll": "Confirm deduction"
+      },
+      "ack": {
+        "reimbursement": "I confirm the payment was made. This cannot be undone.",
+        "return": "I confirm the return was received. This cannot be undone.",
+        "payroll": "I confirm the deduction was applied to payroll. This cannot be undone."
+      },
+      "ackRequired": "Check the confirmation to continue.",
+      "reference": "Reference",
+      "referencePlaceholder": "Check, transfer or receipt number (optional)",
+      "confirmedSuccess": "Movement confirmed: the request was closed"
+    }
   },
   "fundRequestEvent": {
     "title": "History",
@@ -2684,7 +2760,9 @@
       "expense_expired": "Expired: not sent by the end date",
       "expense_manager_auto_approved": "Approved automatically (the manager did not decide)",
       "expense_review_auto_approved": "Reviewed automatically (Accounting did not review)",
-      "expense_rejected_by_accounting": "Rejected by Accounting"
+      "expense_rejected_by_accounting": "Rejected by Accounting",
+      "settled_closed": "Settled with no balance and closed",
+      "settlement_confirmed": "Money movement confirmed and closed"
     }
   },
   "fundRequestExpense": {

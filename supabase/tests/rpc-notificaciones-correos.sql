@@ -78,8 +78,9 @@ BEGIN
   -- el aviso de asignacion a los gerentes especialistas).
   -- + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9): salen por campana Y correo.
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
-  IF v_n <> 39 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 39', v_n;
+  -- + 1 de la Fase 4 (fund.settlement.confirmed).
+  IF v_n <> 40 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 40', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types
@@ -567,9 +568,13 @@ BEGIN
   -- Desembolsos: aprobada por el gerente y sin desembolsar.
   INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
   VALUES (c_mgr, 100, 'BOB', 'aprobado_gerente');
-  -- Liquidaciones: en liquidacion y sin liquidar.
-  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
-  VALUES (c_mgr, 100, 'BOB', 'en_liquidacion');
+  -- Liquidaciones: lista para liquidar (plan-contabilidad-gastos Fase 4). Fondos entregados,
+  -- sin gastos en curso y con la fecha fin ya pasada (mes de hace dos meses): se liquida igual,
+  -- como devolución total.
+  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status,
+                                    disbursed_at, expense_period_month)
+  VALUES (c_mgr, 100, 'BOB', 'fondos_entregados', now() - interval '2 months',
+          (date_trunc('month', now() - interval '2 months'))::date);
   -- Cierres: liquidada y sin cerrar. `settled_at` va en el INSERT para no pelear con el guard
   -- de columnas de Contabilidad, que mira los UPDATE.
   INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency,

@@ -242,13 +242,26 @@ export function useSettleFundRequest() {
   });
 }
 
-/** Cerrar (Contabilidad): cierra el flujo una vez registrada la liquidación. */
-export function useCloseFundRequest() {
+/**
+ * Confirmar el movimiento de dinero (Contabilidad, Fase 4): el reembolso se pagó, la devolución
+ * se recibió o el descuento se aplicó. Cierra la solicitud. Fecha, hora y actor los pone el
+ * servidor; no se revierte.
+ */
+export function useConfirmSettlement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
-      const { error } = await sb.rpc("fund_request_close", {
+    mutationFn: async ({
+      id,
+      reference,
+      notes,
+    }: {
+      id: string;
+      reference?: string;
+      notes?: string;
+    }) => {
+      const { error } = await sb.rpc("fund_request_confirm_settlement", {
         p_fund_request_id: id,
+        p_reference: reference ?? null,
         p_notes: notes ?? null,
       });
       if (error) throw error;
@@ -256,9 +269,9 @@ export function useCloseFundRequest() {
     },
     onSuccess: (_, { id }) => {
       invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.closedSuccess"));
+      toast.success(i18n.t("fundRequest.movement.confirmedSuccess"));
     },
-    onError: createMutationErrorHandler("closing fund request"),
+    onError: createMutationErrorHandler("confirming settlement movement"),
   });
 }
 

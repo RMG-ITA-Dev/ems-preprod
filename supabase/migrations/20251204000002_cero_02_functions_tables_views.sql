@@ -1951,7 +1951,15 @@ begin
     new.disbursed_at is distinct from old.disbursed_at or
     new.disbursed_by_staff_id is distinct from old.disbursed_by_staff_id or
     new.accounting_notes is distinct from old.accounting_notes or
-    new.closed_at is distinct from old.closed_at
+    new.closed_at is distinct from old.closed_at or
+    new.closed_by_staff_id is distinct from old.closed_by_staff_id or
+    new.settlement_confirmed_at is distinct from old.settlement_confirmed_at or
+    new.settlement_confirmed_by_staff_id is distinct from old.settlement_confirmed_by_staff_id or
+    new.settlement_reference is distinct from old.settlement_reference or
+    new.settlement_confirmation_notes is distinct from old.settlement_confirmation_notes or
+    new.cancelled_at is distinct from old.cancelled_at or
+    new.cancelled_by_staff_id is distinct from old.cancelled_by_staff_id or
+    new.cancelled_from_status is distinct from old.cancelled_from_status
   ) and not public.has_permission('fund_disbursement.update') then
     raise exception 'Solo contabilidad (desembolso) puede modificar estos campos';
   end if;
@@ -2132,7 +2140,13 @@ BEGIN
     IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
       RETURN NULL;
     END IF;
-    v_action := CASE NEW.status
+    v_action := CASE
+      WHEN NEW.status = 'cerrado' AND OLD.status = 'fondos_entregados' THEN 'settled_closed'
+      WHEN NEW.status = 'cerrado' AND NEW.settlement_confirmed_at IS NOT NULL
+           AND OLD.settlement_confirmed_at IS NULL THEN 'settlement_confirmed'
+      ELSE NULL
+    END;
+    v_action := COALESCE(v_action, CASE NEW.status
       WHEN 'pendiente_aprobacion' THEN 'submitted'
       WHEN 'aprobado_gerente'     THEN 'approved'
       WHEN 'observado'            THEN 'observed'
@@ -2142,8 +2156,12 @@ BEGIN
       WHEN 'cerrado'              THEN 'closed'
       WHEN 'cancelado'            THEN 'cancelled'
       ELSE 'status_changed'
-    END;
-    v_notes := CASE NEW.status
+    END);
+    v_notes := CASE
+      WHEN v_action = 'settled_closed' THEN NEW.settlement_notes
+      WHEN v_action = 'settlement_confirmed'
+        THEN NULLIF(concat_ws(' · ', NEW.settlement_reference, NEW.settlement_confirmation_notes), '')
+      ELSE CASE NEW.status
       WHEN 'fondos_entregados' THEN NEW.accounting_notes
       WHEN 'en_liquidacion'    THEN NEW.settlement_notes
       -- Al cerrar solo cuenta una nota NUEVA: la RPC conserva la del desembolso si no hay otra.
@@ -2151,12 +2169,14 @@ BEGIN
                                THEN NEW.accounting_notes END
       WHEN 'cancelado' THEN NEW.rejection_reason
       ELSE NULL
-    END;
-    v_amount := CASE NEW.status
+    END END;
+    v_amount := CASE
+      WHEN v_action = 'settlement_confirmed' THEN NEW.settlement_amount
+      ELSE CASE NEW.status
       WHEN 'fondos_entregados' THEN NEW.total_disbursed_amount
       WHEN 'en_liquidacion'    THEN NEW.settlement_amount
       ELSE NULL
-    END;
+    END END;
   END IF;
 
   INSERT INTO public.fund_request_events
@@ -2708,6 +2728,58 @@ $$;
 
 --
 --
+-- Name: fund_request_confirm_settlement(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text DEFAULT NULL::text, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Fase 4 (plan-contabilidad-gastos): Contabilidad confirma que el dinero se movió —el reembolso
+-- al empleado se pagó, la devolución se recibió o el descuento se aplicó en planilla— y eso
+-- CIERRA la solicitud. Fecha y hora las pone el servidor; el actor sale de la sesión. No se
+-- revierte (N6). Reemplaza al "Cerrar" manual: una solicitud con saldo ya no se cierra sin
+-- confirmar que el dinero se movió.
+DECLARE
+  v_status public.fund_request_status;
+  v_resolution TEXT;
+BEGIN
+  IF NOT public.has_permission('fund_disbursement.update') THEN
+    RAISE EXCEPTION 'No autorizado a confirmar el movimiento de dinero' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, settlement_resolution INTO v_status, v_resolution
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'en_liquidacion' THEN
+    RAISE EXCEPTION 'La solicitud no tiene un movimiento de dinero pendiente (estado %)', v_status;
+  END IF;
+
+  IF v_resolution NOT IN ('pago_solicitante', 'devolucion', 'descuento_planilla') THEN
+    RAISE EXCEPTION 'La liquidación (%) no tiene movimiento de dinero que confirmar', v_resolution;
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'cerrado',
+      settlement_confirmed_at = now(),
+      settlement_confirmed_by_staff_id = get_my_staff_id(),
+      settlement_reference = NULLIF(btrim(p_reference), ''),
+      settlement_confirmation_notes = NULLIF(btrim(p_notes), ''),
+      closed_at = now(),
+      closed_by_staff_id = get_my_staff_id()
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+--
 -- Name: fund_request_deadline(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2795,45 +2867,6 @@ BEGIN
       cancelled_at = now(),
       cancelled_by_staff_id = get_my_staff_id(),
       cancelled_from_status = v_status
-  WHERE fund_request_id = p_fund_request_id;
-END;
-$$;
-
-
---
---
--- Name: fund_request_close(uuid, text); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text DEFAULT NULL::text) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_status public.fund_request_status;
-BEGIN
-  IF NOT public.has_permission('fund_disbursement.update') THEN
-    RAISE EXCEPTION 'No autorizado a cerrar la solicitud' USING ERRCODE = '42501';
-  END IF;
-
-  SELECT status INTO v_status
-  FROM public.fund_requests
-  WHERE fund_request_id = p_fund_request_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
-  END IF;
-
-  IF v_status <> 'en_liquidacion' THEN
-    RAISE EXCEPTION 'La solicitud no se puede cerrar en su estado actual (%)', v_status;
-  END IF;
-
-  UPDATE public.fund_requests
-  SET status = 'cerrado',
-      closed_at = now(),
-      closed_by_staff_id = get_my_staff_id(),
-      accounting_notes = COALESCE(NULLIF(btrim(p_notes), ''), accounting_notes)
   WHERE fund_request_id = p_fund_request_id;
 END;
 $$;
@@ -3253,8 +3286,15 @@ BEGIN
     v_amount := round(p_amount, 2);
   END IF;
 
+  -- Fase 4: sin saldo no hay dinero que mover, así que la liquidación cierra la solicitud. Con
+  -- saldo queda en `en_liquidacion` = "esperando el movimiento de dinero" hasta que Contabilidad
+  -- lo confirme (fund_request_confirm_settlement).
   UPDATE public.fund_requests
-  SET status = 'en_liquidacion',
+  SET status = CASE WHEN p_resolution = 'sin_saldo' THEN 'cerrado'::public.fund_request_status
+                    ELSE 'en_liquidacion'::public.fund_request_status END,
+      closed_at = CASE WHEN p_resolution = 'sin_saldo' THEN now() ELSE closed_at END,
+      closed_by_staff_id = CASE WHEN p_resolution = 'sin_saldo' THEN get_my_staff_id()
+                                ELSE closed_by_staff_id END,
       settlement_total_spent = v_spent,
       settlement_balance = v_balance,
       settlement_iva_total = v_iva,
@@ -6930,6 +6970,10 @@ CREATE TABLE public.fund_requests (
     settled_at timestamp with time zone,
     settled_by_staff_id uuid,
     closed_by_staff_id uuid,
+    settlement_confirmed_at timestamp with time zone,
+    settlement_confirmed_by_staff_id uuid,
+    settlement_reference text,
+    settlement_confirmation_notes text,
     cancelled_at timestamp with time zone,
     cancelled_by_staff_id uuid,
     cancelled_from_status public.fund_request_status,

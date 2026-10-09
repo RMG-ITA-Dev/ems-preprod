@@ -318,6 +318,27 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
       "Algunos gastos no se enviaron hasta la fecha fin y quedaron vencidos. No cuentan como gastado: ese monto se resuelve en la liquidación.",
     boton: "Ver gastos",
   },
+  // ── Movimiento de dinero de la liquidación (Fase 4): solo al solicitante ──
+  "fund.settlement.confirmed": {
+    asunto: "Se confirmó el movimiento de dinero de su solicitud",
+    intro: "Contabilidad confirmó el movimiento de dinero de su liquidación y la solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:reimbursement": {
+    asunto: "Su reembolso fue pagado",
+    intro: "Contabilidad confirmó el pago de su reembolso. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:return": {
+    asunto: "Contabilidad recibió su devolución",
+    intro: "Contabilidad confirmó que recibió su devolución. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:payroll": {
+    asunto: "Se aplicó el descuento en su planilla",
+    intro: "Contabilidad confirmó el descuento en su planilla. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
   "fund.expense.rejected_by_accounting": {
     asunto: "Contabilidad rechazó un gasto",
     intro:
@@ -350,6 +371,9 @@ export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fec
   // Calendario de gastos (Fase 3.9): los resúmenes dicen cuántos gastos y de cuántas solicitudes.
   { clave: "expense_count", etiqueta: "Gastos" },
   { clave: "request_count", etiqueta: "Solicitudes" },
+  // Movimiento de dinero confirmado (Fase 4): cuándo y con qué comprobante.
+  { clave: "confirmed_label", etiqueta: "Confirmado" },
+  { clave: "reference", etiqueta: "Referencia" },
   // El cliente encabeza al encargo porque es el dato que lo ubica: "Auditoria Externa 2026" se
   // repite entre clientes, y un correo sin boton —ver `engagement.specialist_assigned`— no
   // tiene pantalla a la que ir a averiguar de cual se trata.

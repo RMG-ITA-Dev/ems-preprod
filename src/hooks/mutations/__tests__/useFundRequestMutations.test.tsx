@@ -9,7 +9,7 @@ import {
   useSubmitFundRequest,
   useDecideWorkOrder,
   useSettleFundRequest,
-  useCloseFundRequest,
+  useConfirmSettlement,
   useDisburseFundRequest,
   useCancelFundRequest,
 } from "../useFundRequestMutations";
@@ -190,16 +190,17 @@ describe("useFundRequestMutations", () => {
     });
   });
 
-  describe("useCloseFundRequest", () => {
-    it("closes the request through the RPC", async () => {
+  describe("useConfirmSettlement", () => {
+    it("confirms the money movement through the RPC (closes the request)", async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
 
-      const { result } = renderHook(() => useCloseFundRequest(), { wrapper: createWrapper() });
-      result.current.mutate({ id: "fr1" });
+      const { result } = renderHook(() => useConfirmSettlement(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", reference: "CH-123" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_close", {
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_confirm_settlement", {
         p_fund_request_id: "fr1",
+        p_reference: "CH-123",
         p_notes: null,
       });
       expect(supabase.from).not.toHaveBeenCalled();

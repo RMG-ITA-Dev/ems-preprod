@@ -24,6 +24,10 @@ import {
 } from "@/components/fund-requests/FundRequestForm";
 import { OtApprovalList } from "@/components/fund-requests/OtApprovalList";
 import { FundRequestTimeline } from "@/components/fund-requests/FundRequestTimeline";
+import { FundRequestProgress } from "@/components/fund-requests/FundRequestProgress";
+import { SettlementMovementCard } from "@/components/fund-requests/SettlementMovementCard";
+import { ConfirmSettlementDialog } from "@/components/fund-requests/ConfirmSettlementDialog";
+import { settlementMovement } from "@/lib/fundRequest";
 import { DisbursementDialog } from "@/components/fund-requests/DisbursementDialog";
 import { LiquidationDialog } from "@/components/fund-requests/LiquidationDialog";
 import { SimpleConfirmDialog } from "@/components/fund-requests/SimpleConfirmDialog";
@@ -39,7 +43,7 @@ import {
   useDeleteFundRequest,
   useDisburseFundRequest,
   useSettleFundRequest,
-  useCloseFundRequest,
+  useConfirmSettlement,
   useCancelFundRequest,
 } from "@/hooks/mutations/useFundRequestMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -76,7 +80,7 @@ const FundRequestEdit = () => {
   const deleteFr = useDeleteFundRequest();
   const disburseFr = useDisburseFundRequest();
   const settleFr = useSettleFundRequest();
-  const closeFr = useCloseFundRequest();
+  const confirmMovement = useConfirmSettlement();
   const cancelFr = useCancelFundRequest();
 
   const [values, setValues] = useState<FundRequestFormValues | null>(null);
@@ -85,7 +89,7 @@ const FundRequestEdit = () => {
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showDisburseDialog, setShowDisburseDialog] = useState(false);
   const [showLiquidationDialog, setShowLiquidationDialog] = useState(false);
-  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showConfirmMovement, setShowConfirmMovement] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   // Cargar valores cuando llega la data
@@ -151,7 +155,11 @@ const FundRequestEdit = () => {
   const canLiquidate =
     can("expense_settlement.update") && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
-  const canCloseSettlement = can("fund_disbursement.update") && fr?.status === "en_liquidacion";
+  // Fase 4: ya no hay "Cerrar" manual. Con saldo, la solicitud espera en en_liquidacion hasta que
+  // Contabilidad confirma el movimiento de dinero; confirmarlo la cierra.
+  const movement = fr ? settlementMovement(fr) : null;
+  const canConfirmMovement =
+    can("fund_disbursement.update") && fr?.status === "en_liquidacion" && !!movement?.pending;
   // Cancelar: admin en cualquier estado no terminal; Contabilidad (los dos roles)
   // solo en la fase contable. Mismo criterio que la RPC fund_request_cancel.
   const canCancel =
@@ -253,7 +261,7 @@ const FundRequestEdit = () => {
   const accountingPending =
     disburseFr.isPending ||
     settleFr.isPending ||
-    closeFr.isPending ||
+    confirmMovement.isPending ||
     cancelFr.isPending;
 
   const handleDisburse = async ({
@@ -274,11 +282,11 @@ const FundRequestEdit = () => {
     }
   };
 
-  const handleClose = async (notes: string) => {
+  const handleConfirmMovement = async ({ reference, notes }: { reference: string; notes: string }) => {
     if (!fr) return;
     try {
-      await closeFr.mutateAsync({ id: fr.fund_request_id, notes });
-      setShowCloseDialog(false);
+      await confirmMovement.mutateAsync({ id: fr.fund_request_id, reference, notes });
+      setShowConfirmMovement(false);
     } catch {
       // toast por mutation
     }
@@ -423,15 +431,13 @@ const FundRequestEdit = () => {
                   </Button>
                 )}
 
-                {canCloseSettlement && (
-                  <Button onClick={() => setShowCloseDialog(true)} disabled={accountingPending}>
-                    {t("fundRequest.actions.close")}
-                  </Button>
-                )}
               </div>
             </div>
           </CardContent>
         </Card>
+
+        {/* Dónde está la solicitud (Fase 4.4) */}
+        <FundRequestProgress status={fr.status} />
 
         {/* Guard: no se puede liquidar con gastos sin finalizar */}
         {can("expense_settlement.update") && fr.status === "fondos_entregados" && settlementBlocked && (
@@ -485,6 +491,21 @@ const FundRequestEdit = () => {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Movimiento de dinero de la liquidación (Fase 4, P3/P8): pendiente o confirmado */}
+        {movement && (
+          <SettlementMovementCard
+            movement={movement}
+            currency={fr.currency}
+            employeeName={staffName(fr.requester)}
+            confirmedByName={fr.settlement_confirmed_by ? staffName(fr.settlement_confirmed_by) : undefined}
+            reference={fr.settlement_reference}
+            isRequester={isRequester}
+            canConfirm={canConfirmMovement}
+            disabled={accountingPending}
+            onConfirmClick={() => setShowConfirmMovement(true)}
+          />
         )}
 
         {fr.status === "cancelado" && fr.rejection_reason && (
@@ -621,18 +642,19 @@ const FundRequestEdit = () => {
         onConfirm={handleDisburse}
       />
 
-      {/* Close dialog (encargado cierra el flujo tras la liquidación) */}
-      <SimpleConfirmDialog
-        open={showCloseDialog}
-        onOpenChange={setShowCloseDialog}
-        title={t("fundRequest.dialog.closeTitle")}
-        body={t("fundRequest.dialog.closeBody")}
-        confirmLabel={t("fundRequest.actions.close")}
-        notesLabel={t("fundRequest.accountingNotes")}
-        notesRequired={false}
-        isSubmitting={closeFr.isPending}
-        onConfirm={handleClose}
-      />
+      {/* Confirmar el movimiento de dinero (cierra la solicitud; con doble confirmación) */}
+      {movement && (
+        <ConfirmSettlementDialog
+          open={showConfirmMovement}
+          onOpenChange={setShowConfirmMovement}
+          kind={movement.kind}
+          amount={movement.amount}
+          currency={fr.currency}
+          employeeName={staffName(fr.requester)}
+          isSubmitting={confirmMovement.isPending}
+          onConfirm={handleConfirmMovement}
+        />
+      )}
 
       {/* Liquidation dialog */}
       <LiquidationDialog

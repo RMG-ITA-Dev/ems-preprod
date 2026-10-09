@@ -562,12 +562,12 @@ GRANT ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reaso
 
 --
 --
--- Name: FUNCTION fund_request_close(p_fund_request_id uuid, p_notes text); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) TO authenticated;
-GRANT ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes text) TO service_role;
+REVOKE ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) TO service_role;
 
 
 --

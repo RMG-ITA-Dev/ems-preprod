@@ -151,11 +151,34 @@ BEGIN
     END LOOP;
   END IF;
 
+  -- Fase 4 (plan-contabilidad-gastos): si el cierre es la confirmación del movimiento de dinero,
+  -- el solicitante recibe un aviso propio ("Tu reembolso fue pagado" / "Contabilidad recibió tu
+  -- devolución" / "Se aplicó el descuento"), con fecha y hora, EN LUGAR del genérico "Solicitud
+  -- cerrada". Los gerentes de OT siguen recibiendo el genérico (decisión de Neil, 2026-10-09).
+  IF OLD.settlement_confirmed_at IS NULL AND NEW.settlement_confirmed_at IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.settlement.confirmed',
+              NEW.requester_staff_id, NEW.fund_request_id::text,
+              v_payload || jsonb_build_object(
+                'context', CASE NEW.settlement_resolution
+                             WHEN 'pago_solicitante'   THEN 'reimbursement'
+                             WHEN 'devolucion'         THEN 'return'
+                             WHEN 'descuento_planilla' THEN 'payroll'
+                           END,
+                -- El monto del aviso es el del movimiento, no el solicitado.
+                'amount', NEW.settlement_amount,
+                'confirmed_label', to_char(NEW.settlement_confirmed_at AT TIME ZONE 'America/La_Paz',
+                                           'DD/MM/YYYY HH24:MI'),
+                'reference', NEW.settlement_reference));
+  END IF;
+
   IF OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL THEN
     FOR v_rec IN
       SELECT NEW.requester_staff_id AS staff_id
+       WHERE NEW.settlement_confirmed_at IS NULL
       UNION
       SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+       WHERE NEW.settlement_confirmed_at IS NULL
+          OR staff_id IS DISTINCT FROM NEW.requester_staff_id
     LOOP
       PERFORM public.notify_staff('fund.request.closed',
                 v_rec.staff_id, NEW.fund_request_id::text, v_payload);

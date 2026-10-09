@@ -32,8 +32,8 @@ describe("cobertura contra el seed", () => {
     );
 
     const marcados = [...bloque.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
-    // 32 + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9).
-    expect(marcados.length).toBe(39);
+    // 32 + 7 del calendario de gastos (Fase 3.9) + 1 de la confirmación del movimiento (Fase 4).
+    expect(marcados.length).toBe(40);
 
     const conPlantilla = new Set(tiposConPlantilla());
     const faltantes = marcados.filter((t) => !conPlantilla.has(t));
@@ -55,8 +55,8 @@ describe("cobertura contra el seed", () => {
       "utf-8",
     );
     const marcados = [...seed.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
-    // 32 + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9).
-    expect(marcados.length).toBe(39);
+    // 32 + 7 del calendario de gastos (Fase 3.9) + 1 de la confirmación del movimiento (Fase 4).
+    expect(marcados.length).toBe(40);
 
     // Un payload con todo lo que las ramas pueden necesitar: los gastos rutean por
     // `fund_request_id` y los eventos de cuenta por `staff_id`, porque su entity_id no es
@@ -144,6 +144,28 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     expect(para("accounting").asunto).toBe("El sistema aprobó gastos porque el gerente no lo hizo");
     expect(para("manager").cuerpoTexto).toContain("- Gastos: 2");
     expect(para("manager").cuerpoTexto).toContain("https://ems.ruizmier.com/fund-requests/fr-9/expenses");
+  });
+
+  it("la confirmacion del movimiento se redacta segun el tipo de movimiento (Fase 4)", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.settlement.confirmed",
+        entityId: "fr-9",
+        payload: {
+          context: "reimbursement",
+          amount: 350,
+          currency: "BOB",
+          confirmed_label: "08/10/2026 14:32",
+          reference: "CH-123",
+        },
+      }),
+    );
+
+    expect(correo.asunto).toBe("Su reembolso fue pagado");
+    expect(correo.cuerpoTexto).toContain("- Monto: BOB 350");
+    expect(correo.cuerpoTexto).toContain("- Confirmado: 08/10/2026 14:32");
+    expect(correo.cuerpoTexto).toContain("- Referencia: CH-123");
+    expect(correo.cuerpoTexto).toContain("https://ems.ruizmier.com/fund-requests/fr-9");
   });
 
   it("el recordatorio de revision avisa el ultimo dia y lleva a la bandeja de Contabilidad", () => {
@@ -557,7 +579,9 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
   it.each([
     ["desembolsos", "to_disburse"],
     ["revision_gastos", "expenses_review"],
-    ["liquidaciones", "in_settlement"],
+    // Fase 4 (plan-contabilidad-gastos): "por liquidar" son las listas para liquidar; "cierres" son
+    // las liquidadas que esperan la confirmación del pago o el cobro.
+    ["liquidaciones", "ready_to_settle"],
     ["cierres", "in_settlement"],
   ])("el bucket %s manda a su pestaña (%s)", (clave, tab) => {
     // El mapeo es el mismo de PENDING_ALARMS en src/lib/notifications.ts, tab por tab: la campana

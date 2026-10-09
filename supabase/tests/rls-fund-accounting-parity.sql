@@ -7,7 +7,7 @@
 --
 -- Under test:
 --   1. Cada rol contable recorre el flujo completo por las RPC (fund_request_disburse →
---      fund_request_expense_review → fund_request_settle → fund_request_close) y ve la
+--      fund_request_expense_review → fund_request_settle → fund_request_confirm_settlement) y ve la
 --      solicitud en cada estado. El actor lo pone el servidor (get_my_staff_id()).
 --   2. Las escrituras contables van SOLO por RPC: un UPDATE directo de Contabilidad no afecta
 --      filas (no hay policy UPDATE contable).
@@ -85,13 +85,16 @@ VALUES
   ('f7c00000-0000-4000-8000-000000000003', '57c00000-0000-4000-8000-000000000001', 500, 'BOB', 'aprobado_gerente', 0),
   ('f7c00000-0000-4000-8000-000000000004', '57c00000-0000-4000-8000-000000000001', 500, 'BOB', 'fondos_entregados', 500),
   ('f7c00000-0000-4000-8000-000000000005', '57c00000-0000-4000-8000-000000000001', 500, 'BOB', 'fondos_entregados', 500),
-  ('f7c00000-0000-4000-8000-000000000006', '57c00000-0000-4000-8000-000000000001', 500, 'BOB', 'pendiente_aprobacion', 0);
+  ('f7c00000-0000-4000-8000-000000000006', '57c00000-0000-4000-8000-000000000001', 500, 'BOB', 'pendiente_aprobacion', 0),
+  -- f..7: gastó exactamente lo entregado (liquidación sin saldo). f..8: borrador del solicitante.
+  ('f7c00000-0000-4000-8000-000000000007', '57c00000-0000-4000-8000-000000000001', 300, 'BOB', 'fondos_entregados', 300),
+  ('f7c00000-0000-4000-8000-000000000008', '57c00000-0000-4000-8000-000000000001', 100, 'BOB', 'borrador', 0);
 
 INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount, approval_status)
 SELECT ('f7c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'd7c00000-0000-4000-8000-000000000001', 500,
        CASE WHEN n = 6 THEN 'pendiente' ELSE 'aprobado' END::public.fr_wo_approval_status
-  FROM generate_series(2, 6) n;
+  FROM generate_series(2, 7) n;
 
 -- Gastos ya aprobados por el gerente, esperando a Contabilidad: 300 en f..2 y 300 en f..3
 -- (saldo 200 a favor de la firma). En f..5, uno todavía pendiente del gerente.
@@ -103,7 +106,9 @@ VALUES
   ('b7c00000-0000-4000-8000-000000000003', 'f7c00000-0000-4000-8000-000000000003',
    'd7c00000-0000-4000-8000-000000000001', '2026-10-01', 300, 'BOB', 'aprobado_gerente'),
   ('b7c00000-0000-4000-8000-000000000005', 'f7c00000-0000-4000-8000-000000000005',
-   'd7c00000-0000-4000-8000-000000000001', '2026-10-01', 100, 'BOB', 'pendiente_aprobacion');
+   'd7c00000-0000-4000-8000-000000000001', '2026-10-01', 100, 'BOB', 'pendiente_aprobacion'),
+  ('b7c00000-0000-4000-8000-000000000007', 'f7c00000-0000-4000-8000-000000000007',
+   'd7c00000-0000-4000-8000-000000000001', '2026-10-01', 300, 'BOB', 'revisado_asistente');
 
 -- ── Helpers (temp; vanish with the session) ───────────────────────────────
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -184,17 +189,21 @@ BEGIN
     RAISE EXCEPTION 'FUND ACCT FAIL — %: no ve la solicitud en en_liquidacion', p_label;
   END IF;
 
-  -- Cerrar.
+  -- Confirmar el movimiento de dinero (Fase 4): la devolución se recibió → cierra.
   BEGIN
-    PERFORM public.fund_request_close(p_fr, NULL);
+    PERFORM public.fund_request_confirm_settlement(p_fr, 'REC-001', 'en caja');
   EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION 'FUND ACCT FAIL — %: no puede cerrar (%)', p_label, SQLERRM;
+    RAISE EXCEPTION 'FUND ACCT FAIL — %: no puede confirmar el movimiento (%)', p_label, SQLERRM;
   END;
-  SELECT status, closed_by_staff_id INTO r FROM public.fund_requests WHERE fund_request_id = p_fr;
-  IF r.status <> 'cerrado' OR r.closed_by_staff_id IS DISTINCT FROM p_staff THEN
-    RAISE EXCEPTION 'FUND ACCT FAIL — %: cierre mal registrado (%)', p_label, row_to_json(r);
+  SELECT status, closed_by_staff_id, settlement_confirmed_by_staff_id, settlement_confirmed_at,
+         settlement_reference INTO r
+    FROM public.fund_requests WHERE fund_request_id = p_fr;
+  IF r.status <> 'cerrado' OR r.closed_by_staff_id IS DISTINCT FROM p_staff
+     OR r.settlement_confirmed_by_staff_id IS DISTINCT FROM p_staff
+     OR r.settlement_confirmed_at IS NULL OR r.settlement_reference <> 'REC-001' THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — %: confirmación mal registrada (%)', p_label, row_to_json(r);
   END IF;
-  RAISE NOTICE 'PASS — % cierra y ve la solicitud cerrada', p_label;
+  RAISE NOTICE 'PASS — % confirma el movimiento (cierra) y ve la solicitud cerrada', p_label;
 END $$;
 
 -- Espera que la sentencia falle; devuelve el mensaje.
@@ -285,6 +294,73 @@ BEGIN
     RAISE EXCEPTION 'FUND ACCT FAIL — la cancelación no quedó registrada o Contabilidad no la ve';
   END IF;
   RAISE NOTICE 'PASS — Contabilidad cancela en la fase contable y sigue viendo la cancelada';
+
+  -- 5. Fase 4: liquidar sin saldo cierra directo; no hay movimiento que confirmar.
+  PERFORM pg_temp.impersonate('a7c00000-0000-4000-8000-000000000003');
+  PERFORM public.fund_request_settle('f7c00000-0000-4000-8000-000000000007', 'sin_saldo', 0, NULL);
+  SELECT count(*) INTO n FROM public.fund_requests
+   WHERE fund_request_id = 'f7c00000-0000-4000-8000-000000000007'
+     AND status = 'cerrado' AND closed_by_staff_id = '57c00000-0000-4000-8000-000000000003'
+     AND settlement_confirmed_at IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — liquidar sin saldo no cerró la solicitud';
+  END IF;
+  msg := pg_temp.expect_error($q$SELECT public.fund_request_confirm_settlement('f7c00000-0000-4000-8000-000000000007', NULL, NULL)$q$);
+  IF msg IS NULL OR msg NOT LIKE '%no tiene un movimiento%' THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — se confirmó un movimiento en una solicitud sin saldo (%)', msg;
+  END IF;
+  RAISE NOTICE 'PASS — liquidar sin saldo cierra directo y no admite confirmación';
+
+  -- El solicitante no confirma ni forja la confirmación sobre su propio borrador.
+  PERFORM pg_temp.impersonate('a7c00000-0000-4000-8000-000000000001');
+  msg := pg_temp.expect_error($q$SELECT public.fund_request_confirm_settlement('f7c00000-0000-4000-8000-000000000002', NULL, NULL)$q$);
+  IF msg IS NULL OR msg NOT LIKE '%No autorizado%' THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — el solicitante pudo confirmar un movimiento (%)', msg;
+  END IF;
+  msg := pg_temp.expect_error($q$UPDATE public.fund_requests SET settlement_confirmed_at = now()
+        WHERE fund_request_id = 'f7c00000-0000-4000-8000-000000000008'$q$);
+  IF msg IS NULL OR msg NOT LIKE '%Solo contabilidad%' THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — el solicitante pudo escribir la confirmación en su borrador (%)', msg;
+  END IF;
+  RAISE NOTICE 'PASS — solo Contabilidad confirma el movimiento de dinero';
+
+  RAISE NOTICE 'FUND ACCOUNTING PARITY CHECKS DONE';
+END $$;
+
+-- ── 6. Aviso de la confirmación (Fase 4.6), como dueño para leer la campana de otros ──
+RESET ROLE;
+
+DO $$
+DECLARE
+  n int;
+BEGIN
+  -- El solicitante recibe el aviso propio de la confirmación (una devolución recibida, en las
+  -- dos solicitudes del flujo completo) y NO el genérico "Solicitud cerrada" de esas mismas.
+  SELECT count(*) INTO n FROM public.notifications
+   WHERE type_key = 'fund.settlement.confirmed'
+     AND recipient_staff_id = '57c00000-0000-4000-8000-000000000001'
+     AND payload->>'context' = 'return'
+     AND (payload->>'amount')::numeric = 200
+     AND payload->>'reference' = 'REC-001'
+     AND payload->>'confirmed_label' IS NOT NULL;
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — avisos de confirmación al solicitante: % de 2', n;
+  END IF;
+  SELECT count(*) INTO n FROM public.notifications
+   WHERE type_key = 'fund.request.closed'
+     AND recipient_staff_id = '57c00000-0000-4000-8000-000000000001'
+     AND entity_id IN ('f7c00000-0000-4000-8000-000000000002', 'f7c00000-0000-4000-8000-000000000003');
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — el solicitante recibió además el genérico "Solicitud cerrada"';
+  END IF;
+  -- La liquidación sin saldo (f..7) cierra sin movimiento: ahí sí va el genérico.
+  IF NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type_key = 'fund.request.closed'
+                    AND recipient_staff_id = '57c00000-0000-4000-8000-000000000001'
+                    AND entity_id = 'f7c00000-0000-4000-8000-000000000007') THEN
+    RAISE EXCEPTION 'FUND ACCT FAIL — la liquidación sin saldo no avisó el cierre';
+  END IF;
+  RAISE NOTICE 'PASS — confirmación: aviso propio al solicitante en lugar del genérico';
 
   RAISE NOTICE 'FUND ACCOUNTING PARITY RLS: ALL CHECKS PASSED (rolled back)';
 END $$;
