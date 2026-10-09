@@ -9,6 +9,7 @@ import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadg
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
 import { expensePhase } from "@/lib/fundRequest";
+import { isDeadlinePassed, laPazToday } from "@/lib/fundRequestCalendar";
 import { useAuthorization } from "@/hooks/useAuthorization";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -71,13 +72,18 @@ const FundRequestDisbursements = () => {
     setSearchParams(params, { replace: true });
   };
 
+  // Hoy en La Paz: decide si una solicitud ya pasó su fecha fin (un rechazado deja de estar en curso).
+  const today = laPazToday();
   const tabOf = useCallback(
     (fr: FundRequest): Tab | null => {
       if (fr.status === "aprobado_gerente") return "to_disburse";
       if (fr.status === "en_liquidacion") return "in_settlement";
       if (fr.status === "cerrado" || fr.status === "cancelado") return "closed";
       if (fr.status === "fondos_entregados") {
-        const phase = expensePhase(expenseCounts?.[fr.fund_request_id]);
+        const phase = expensePhase(
+          expenseCounts?.[fr.fund_request_id],
+          isDeadlinePassed(fr.expense_period_month, today),
+        );
         return phase === "review"
           ? "expenses_review"
           : phase === "ready"
@@ -86,7 +92,7 @@ const FundRequestDisbursements = () => {
       }
       return null;
     },
-    [expenseCounts],
+    [expenseCounts, today],
   );
 
   const filtered = useMemo(

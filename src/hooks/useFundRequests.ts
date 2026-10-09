@@ -51,7 +51,8 @@ export interface FundRequest {
   currency: "BOB" | "USD";
   status: FundRequestStatus;
   purpose: string | null;
-  due_back_date: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'). Fecha fin = día 3 del mes siguiente (fundRequestCalendar). */
+  expense_period_month: string;
   submitted_at: string | null;
   manager_decided_at: string | null;
   manager_notes: string | null;

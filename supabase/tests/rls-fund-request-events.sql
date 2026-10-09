@@ -120,7 +120,8 @@ BEGIN
   PERFORM pg_temp.impersonate('a7e00000-0000-4000-8000-000000000001');
   INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_date,
                                             amount, currency, status)
-  VALUES (c_fre, c_fr, 'd7e00000-0000-4000-8000-000000000001', '2026-10-01', 100, 'BOB', 'borrador');
+  -- Fecha del gasto = hoy: el calendario (Fase 3) exige que caiga entre el desembolso y hoy.
+  VALUES (c_fre, c_fr, 'd7e00000-0000-4000-8000-000000000001', public.fund_today(), 100, 'BOB', 'borrador');
   UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion', submitted_at = now()
    WHERE fre_id = c_fre;
 

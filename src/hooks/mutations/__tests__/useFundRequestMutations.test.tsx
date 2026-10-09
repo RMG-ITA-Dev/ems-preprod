@@ -218,6 +218,7 @@ describe("useFundRequestMutations", () => {
         p_fund_request_id: "fr1",
         p_amount: 250,
         p_notes: "efectivo",
+        p_new_month: null,
       });
     });
   });

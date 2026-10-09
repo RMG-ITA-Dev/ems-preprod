@@ -43,10 +43,12 @@ vi.mock("@/components/ui/alert-dialog", () => ({
 
 // ── Import under test (after all vi.mock hoists) ───────────────────────────────
 import { DisbursementDialog } from "../DisbursementDialog";
+import { laPazToday, monthStart } from "@/lib/fundRequestCalendar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function renderDialog(requestedAmount: number) {
+// Mes de la solicitud: el actual (fecha fin vigente) salvo que el test pida uno vencido.
+function renderDialog(requestedAmount: number, periodMonth = monthStart(laPazToday())) {
   const onConfirm = vi.fn();
   const { container } = render(
     <DisbursementDialog
@@ -54,6 +56,7 @@ function renderDialog(requestedAmount: number) {
       onOpenChange={vi.fn()}
       requestedAmount={requestedAmount}
       currency="BOB"
+      periodMonth={periodMonth}
       onConfirm={onConfirm}
     />,
   );
@@ -73,7 +76,7 @@ describe("DisbursementDialog — montos decimales (0722-161)", () => {
     fireEvent.change(input, { target: { value: "1250,75" } });
     fireEvent.click(confirm);
 
-    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "" });
+    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "", newMonth: null });
   });
 
   it("entrega un monto con centavos tecleado con punto", () => {
@@ -82,7 +85,7 @@ describe("DisbursementDialog — montos decimales (0722-161)", () => {
     fireEvent.change(input, { target: { value: "1250.75" } });
     fireEvent.click(confirm);
 
-    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "" });
+    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "", newMonth: null });
   });
 
   it("sigue bloqueando un monto que excede lo solicitado, aun por centavos", () => {
@@ -103,7 +106,7 @@ describe("DisbursementDialog — montos decimales (0722-161)", () => {
     fireEvent.change(input, { target: { value: "1250,75" } });
     fireEvent.click(confirm);
 
-    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "" });
+    expect(onConfirm).toHaveBeenCalledWith({ amount: 1250.75, notes: "", newMonth: null });
   });
 
   it("muestra el hint de lo solicitado con decimales, no redondeado", () => {
@@ -112,5 +115,18 @@ describe("DisbursementDialog — montos decimales (0722-161)", () => {
     renderDialog(1250.75);
 
     expect(screen.getByText("fundRequest.requestedHint:1.250,75")).toBeInTheDocument();
+  });
+});
+
+describe("DisbursementDialog — fecha fin vencida (Fase 3, U1)", () => {
+  it("no desembolsa sin elegir un mes nuevo cuando la fecha fin ya venció", () => {
+    // 2020-01 → fecha fin 03/02/2020: vencida siempre.
+    const { onConfirm, confirm } = renderDialog(2000, "2020-01-01");
+
+    expect(screen.getByText("fundRequest.dialog.disburseExpired")).toBeInTheDocument();
+    fireEvent.click(confirm);
+
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByText("fundRequest.errors.newMonthRequired")).toBeInTheDocument();
   });
 });

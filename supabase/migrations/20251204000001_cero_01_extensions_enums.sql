@@ -77,7 +77,8 @@ CREATE TYPE public.fund_request_expense_status AS ENUM (
     'aprobado_gerente',
     'observado',
     'rechazado',
-    'revisado_asistente'
+    'revisado_asistente',
+    'vencido'
 );
 
 

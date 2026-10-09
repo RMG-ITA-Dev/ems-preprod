@@ -1,17 +1,31 @@
 import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { WorkOrderAllocationEditor } from "@/components/fund-requests/WorkOrderAllocationEditor";
 import type { AllocationInput } from "@/hooks/mutations/useFundRequestMutations";
+import {
+  formatDateDMY,
+  formatMonthLabel,
+  fundRequestDeadline,
+  laPazToday,
+  selectableMonths,
+} from "@/lib/fundRequestCalendar";
 
 export interface FundRequestFormValues {
   total_requested_amount: number;
   currency: "BOB" | "USD";
   purpose: string;
-  due_back_date: string; // YYYY-MM-DD
+  /** Mes de la solicitud ('YYYY-MM-01'). La fecha fin es el día 3 del mes siguiente. */
+  expense_period_month: string;
   allocations: AllocationInput[];
 }
 
@@ -31,6 +45,14 @@ export function FundRequestForm({
 }: Props) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
+  const dateLocale = numericLocale === "es" ? "es-BO" : "en-US";
+  // El actual y hasta 5 meses adelante. Si la solicitud ya tiene un mes fuera de ese rango
+  // (un borrador viejo), se muestra igual para no perder el valor al abrirla.
+  const months = selectableMonths(laPazToday());
+  const monthOptions =
+    values.expense_period_month && !months.includes(values.expense_period_month)
+      ? [values.expense_period_month, ...months]
+      : months;
 
   return (
     <Card>
@@ -59,14 +81,30 @@ export function FundRequestForm({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="fr-due-back">{t("fundRequest.dueBackDate")}</Label>
-            <Input
-              id="fr-due-back"
-              type="date"
-              value={values.due_back_date || ""}
-              onChange={(e) => onChange({ due_back_date: e.target.value })}
+            <Label htmlFor="fr-period-month">{t("fundRequest.periodMonth")} *</Label>
+            <Select
+              value={values.expense_period_month || undefined}
+              onValueChange={(v) => onChange({ expense_period_month: v })}
               disabled={disabled}
-            />
+            >
+              <SelectTrigger id="fr-period-month">
+                <SelectValue placeholder={t("fundRequest.periodMonthPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map((m) => (
+                  <SelectItem key={m} value={m} className="capitalize">
+                    {formatMonthLabel(m, dateLocale)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {values.expense_period_month && (
+              <p className="text-xs text-muted-foreground">
+                {t("fundRequest.periodMonthHelp", {
+                  date: formatDateDMY(fundRequestDeadline(values.expense_period_month)),
+                })}
+              </p>
+            )}
           </div>
         </div>
 

@@ -323,6 +323,9 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
     -- excepcion el correo le ofrecia un boton a "Sin acceso".
     WHEN p_type_key = 'fund.reminder.weekly' THEN 'fund_disbursement.read'
+    -- Calendario de gastos (Fase 3): el recordatorio de revisión no es de una solicitud sino de
+    -- la bandeja de Contabilidad.
+    WHEN p_type_key = 'fund.expense.review_reminder' THEN 'fund_disbursement.read'
     WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
     WHEN p_module_key = 'work_order'         THEN 'work_order.read'
     WHEN p_module_key = 'engagement'         THEN 'engagement.read'

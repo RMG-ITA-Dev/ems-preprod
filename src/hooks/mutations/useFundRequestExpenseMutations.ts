@@ -177,14 +177,16 @@ export function useSubmitAllFundRequestExpenses() {
  * había devuelto: adjunta el respaldo y vuelve a 'aprobado_gerente' (no pasa
  * por el gerente otra vez). Solo se cambia el respaldo; el resto queda igual.
  */
+// Reenvío directo a Contabilidad de un gasto devuelto: el solicitante puede haber corregido
+// cualquier campo (decisión S3), así que viaja el gasto completo junto con el cambio de estado.
 export function useResendReturnedExpense() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, attachmentUrl }: { id: string; attachmentUrl: string | null }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
       const { data: affected, error } = await sb
         .from("fund_request_expenses")
         .update({
-          attachment_url: attachmentUrl,
+          ...data,
           status: "aprobado_gerente",
           returned_by_assistant: false,
         })
@@ -225,6 +227,31 @@ export function useReturnFundRequestExpense() {
       toast.success(i18n.t("fundRequestExpense.messages.returnedSuccess"));
     },
     onError: createMutationErrorHandler("returning fund request expense"),
+  });
+}
+
+/**
+ * Contabilidad rechaza un gasto en los días 4 y 5 (pasada la fecha fin ya nadie podría
+ * corregirlo, así que no se devuelve). El servidor valida la ventana.
+ */
+export function useAccountingRejectFundRequestExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
+      const { error } = await sb.rpc("fund_request_expense_review", {
+        p_fre_id: id,
+        p_decision: "reject",
+        p_notes: notes,
+      });
+      if (error) throw error;
+      return { fre_id: id };
+    },
+    onSuccess: (_, { id }) => {
+      invalidate(queryClient, undefined, id);
+      queryClient.invalidateQueries({ queryKey: ["fund_request_expenses"] });
+      toast.success(i18n.t("fundRequestExpense.messages.rejectedByAccountingSuccess"));
+    },
+    onError: createMutationErrorHandler("rejecting fund request expense"),
   });
 }
 

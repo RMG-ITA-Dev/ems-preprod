@@ -543,6 +543,15 @@ GRANT ALL ON FUNCTION public.fund_request_submit(p_fund_request_id uuid) TO serv
 
 --
 --
+-- Name: FUNCTION fund_request_run_deadlines(p_today date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_run_deadlines(p_today date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_run_deadlines(p_today date) TO service_role;
+
+
+--
+--
 -- Name: FUNCTION fund_request_cancel(p_fund_request_id uuid, p_reason text); Type: ACL; Schema: public; Owner: -
 --
 
@@ -563,12 +572,12 @@ GRANT ALL ON FUNCTION public.fund_request_close(p_fund_request_id uuid, p_notes 
 
 --
 --
--- Name: FUNCTION fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text); Type: ACL; Schema: public; Owner: -
+-- Name: FUNCTION fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date); Type: ACL; Schema: public; Owner: -
 --
 
-REVOKE ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) TO authenticated;
-GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text) TO service_role;
+REVOKE ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) TO service_role;
 
 
 --

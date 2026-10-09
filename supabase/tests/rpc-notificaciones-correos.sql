@@ -76,9 +76,10 @@ BEGIN
 
   -- 18.a El seed trae la bandera, y la trae para los tipos que decidió D-44 (+ D-43, que agrego
   -- el aviso de asignacion a los gerentes especialistas).
+  -- + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9): salen por campana Y correo.
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
-  IF v_n <> 32 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 32', v_n;
+  IF v_n <> 39 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 39', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types

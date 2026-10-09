@@ -21,7 +21,8 @@ export interface FundRequestCreateInput {
   total_requested_amount: number;
   currency: "BOB" | "USD";
   purpose?: string | null;
-  due_back_date?: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'); la fecha fin es el día 3 del mes siguiente. */
+  expense_period_month?: string;
   allocations: AllocationInput[];
 }
 
@@ -29,7 +30,8 @@ export interface FundRequestUpdateInput {
   total_requested_amount?: number;
   currency?: "BOB" | "USD";
   purpose?: string | null;
-  due_back_date?: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'); la fecha fin es el día 3 del mes siguiente. */
+  expense_period_month?: string;
   allocations?: AllocationInput[];
 }
 
@@ -178,11 +180,23 @@ export function useDecideWorkOrder() {
 export function useDisburseFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, amount, notes }: { id: string; amount: number; notes?: string }) => {
+    mutationFn: async ({
+      id,
+      amount,
+      notes,
+      newMonth,
+    }: {
+      id: string;
+      amount: number;
+      notes?: string;
+      /** Mes nuevo de la solicitud: obligatorio si la fecha fin ya venció (el servidor lo exige). */
+      newMonth?: string | null;
+    }) => {
       const { error } = await sb.rpc("fund_request_disburse", {
         p_fund_request_id: id,
         p_amount: amount,
         p_notes: notes ?? null,
+        p_new_month: newMonth ?? null,
       });
       if (error) throw error;
       return { fund_request_id: id };

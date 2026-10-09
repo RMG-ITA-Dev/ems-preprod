@@ -81,6 +81,22 @@ CREATE TRIGGER tr_fr_wo_log_event AFTER UPDATE OF approval_status ON public.fund
 
 --
 --
+-- Name: fund_request_expenses tr_fre_enforce_window; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_enforce_window BEFORE INSERT OR UPDATE ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_enforce_window();
+
+
+--
+--
+-- Name: fund_requests tr_fr_validate_period_month; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_validate_period_month BEFORE INSERT OR UPDATE OF expense_period_month ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_validate_period_month();
+
+
+--
+--
 -- Name: fund_request_expenses tr_fre_log_event; Type: TRIGGER; Schema: public; Owner: -
 --
 

@@ -32,6 +32,7 @@ import { Info, Receipt } from "lucide-react";
 import { useFundRequestById } from "@/hooks/useFundRequests";
 import { useFundRequestExpenses } from "@/hooks/useFundRequestExpenses";
 import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import { isDeadlinePassed, laPazToday } from "@/lib/fundRequestCalendar";
 import {
   useUpdateFundRequest,
   useSubmitFundRequest,
@@ -94,7 +95,7 @@ const FundRequestEdit = () => {
       total_requested_amount: Number(fr.total_requested_amount),
       currency: fr.currency,
       purpose: fr.purpose || "",
-      due_back_date: fr.due_back_date || "",
+      expense_period_month: fr.expense_period_month,
       allocations: (fr.fund_request_work_orders || []).map((a) => ({
         wo_id: a.wo_id,
         allocated_amount: Number(a.allocated_amount),
@@ -128,17 +129,18 @@ const FundRequestEdit = () => {
     () => (expenses ?? []).reduce((s, e) => s + Number(e.iva_penalty_amount || 0), 0),
     [expenses],
   );
-  // Gastos a medio camino impiden liquidar (datos incompletos).
+  // Gastos a medio camino impiden liquidar (datos incompletos). Mismo criterio que
+  // fund_request_settle: `vencido` es final; `rechazado` entra solo hasta la fecha fin,
+  // mientras el solicitante todavía puede corregirlo y reenviarlo.
+  const deadlinePassed = !!fr && isDeadlinePassed(fr.expense_period_month, laPazToday());
   const unfinishedExpenses = useMemo(
     () =>
-      (expenses ?? []).filter((e) =>
-        // rechazado entra: el solicitante aún puede corregirlo y reenviarlo, así
-        // que liquidar antes lo dejaría sin resolver y sin contar en el snapshot.
-        ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado", "rechazado"].includes(
-          e.status,
-        ),
+      (expenses ?? []).filter(
+        (e) =>
+          ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado"].includes(e.status) ||
+          (e.status === "rechazado" && !deadlinePassed),
       ),
-    [expenses],
+    [expenses, deadlinePassed],
   );
 
   // Contabilidad / Asistente lo hace admin por ahora
@@ -207,7 +209,7 @@ const FundRequestEdit = () => {
           total_requested_amount: values.total_requested_amount,
           currency: values.currency,
           purpose: values.purpose || null,
-          due_back_date: values.due_back_date || null,
+          expense_period_month: values.expense_period_month,
           allocations: values.allocations,
         },
       });
@@ -232,7 +234,7 @@ const FundRequestEdit = () => {
           total_requested_amount: values.total_requested_amount,
           currency: values.currency,
           purpose: values.purpose || null,
-          due_back_date: values.due_back_date || null,
+          expense_period_month: values.expense_period_month,
           allocations: values.allocations,
         },
       });
@@ -254,10 +256,18 @@ const FundRequestEdit = () => {
     closeFr.isPending ||
     cancelFr.isPending;
 
-  const handleDisburse = async ({ amount, notes }: { amount: number; notes: string }) => {
+  const handleDisburse = async ({
+    amount,
+    notes,
+    newMonth,
+  }: {
+    amount: number;
+    notes: string;
+    newMonth: string | null;
+  }) => {
     if (!fr) return;
     try {
-      await disburseFr.mutateAsync({ id: fr.fund_request_id, amount, notes });
+      await disburseFr.mutateAsync({ id: fr.fund_request_id, amount, notes, newMonth });
       setShowDisburseDialog(false);
     } catch {
       // toast por mutation
@@ -606,6 +616,7 @@ const FundRequestEdit = () => {
         onOpenChange={setShowDisburseDialog}
         requestedAmount={Number(fr.total_requested_amount)}
         currency={fr.currency}
+        periodMonth={fr.expense_period_month}
         isSubmitting={disburseFr.isPending}
         onConfirm={handleDisburse}
       />

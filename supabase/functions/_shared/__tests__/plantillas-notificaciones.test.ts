@@ -32,7 +32,8 @@ describe("cobertura contra el seed", () => {
     );
 
     const marcados = [...bloque.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
-    expect(marcados.length).toBe(32);
+    // 32 + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9).
+    expect(marcados.length).toBe(39);
 
     const conPlantilla = new Set(tiposConPlantilla());
     const faltantes = marcados.filter((t) => !conPlantilla.has(t));
@@ -54,7 +55,8 @@ describe("cobertura contra el seed", () => {
       "utf-8",
     );
     const marcados = [...seed.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
-    expect(marcados.length).toBe(32);
+    // 32 + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9).
+    expect(marcados.length).toBe(39);
 
     // Un payload con todo lo que las ramas pueden necesitar: los gastos rutean por
     // `fund_request_id` y los eventos de cuenta por `staff_id`, porque su entity_id no es
@@ -125,6 +127,39 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     expect(correo.cuerpoTexto).toContain("- Solicitud: FR-2026-2027");
     // El comentario de arriba ya decia "BOB 1.500"; la linea salia "1500" a secas.
     expect(correo.cuerpoTexto).toContain("- Monto: BOB 1.500");
+  });
+
+  it("la aprobacion automatica se redacta distinto para cada audiencia (calendario, Fase 3.9)", () => {
+    const para = (context: string) =>
+      renderizarCorreoNotificacion(
+        base({
+          typeKey: "fund.expense.manager_auto_approved",
+          entityId: "fr-9",
+          payload: { fund_request_id: "fr-9", request_number: "SF-1", expense_count: 2, context },
+        }),
+      );
+
+    expect(para("manager").asunto).toBe("No aprobó a tiempo: el sistema aprobó los gastos");
+    expect(para("requester").asunto).toBe("Sus gastos fueron aprobados por el sistema");
+    expect(para("accounting").asunto).toBe("El sistema aprobó gastos porque el gerente no lo hizo");
+    expect(para("manager").cuerpoTexto).toContain("- Gastos: 2");
+    expect(para("manager").cuerpoTexto).toContain("https://ems.ruizmier.com/fund-requests/fr-9/expenses");
+  });
+
+  it("el recordatorio de revision avisa el ultimo dia y lleva a la bandeja de Contabilidad", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "fund.expense.review_reminder",
+        entityId: null,
+        payload: { expense_count: 4, request_count: 2, deadline: "2026-12-05", context: "last_day" },
+      }),
+    );
+
+    expect(correo.asunto).toBe("Hoy vence la revisión de gastos");
+    expect(correo.cuerpoTexto).toContain("- Plazo: 05/12/2026");
+    expect(correo.cuerpoTexto).toContain(
+      "https://ems.ruizmier.com/fund-requests/disbursements?tab=expenses_review",
+    );
   });
 
   it("un cambio de rol derivado de la categoria tiene otra redaccion", () => {

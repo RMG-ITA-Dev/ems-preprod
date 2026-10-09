@@ -43,8 +43,11 @@ interface Props {
   disabled?: boolean;
   /** Renderiza sin la Card contenedora (para usar dentro de un modal) */
   bare?: boolean;
-  /** Solo el Respaldo editable; el resto en solo lectura (gasto devuelto por contabilidad) */
+  /** Solo el Respaldo editable; el resto en solo lectura */
   onlyAttachment?: boolean;
+  /** Calendario (Fase 3): primer y último día válidos para la fecha del gasto ('YYYY-MM-DD'). */
+  minDate?: string;
+  maxDate?: string;
 }
 
 export function FundRequestExpenseForm({
@@ -55,6 +58,8 @@ export function FundRequestExpenseForm({
   disabled = false,
   bare = false,
   onlyAttachment = false,
+  minDate,
+  maxDate,
 }: Props) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
@@ -191,6 +196,8 @@ export function FundRequestExpenseForm({
               id="fre-date"
               type="date"
               value={values.expense_date || ""}
+              min={minDate}
+              max={maxDate}
               onChange={(e) => onChange({ expense_date: e.target.value })}
               disabled={fieldsDisabled}
             />
@@ -203,7 +210,8 @@ export function FundRequestExpenseForm({
               id="fre-date-end"
               type="date"
               value={values.expense_date_end || ""}
-              min={values.expense_date || undefined}
+              min={values.expense_date || minDate}
+              max={maxDate}
               onChange={(e) => onChange({ expense_date_end: e.target.value })}
               disabled={fieldsDisabled}
             />

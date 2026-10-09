@@ -381,7 +381,9 @@ BEGIN
       'purpose', frs.purpose,
       'status', frs.status,
       'request_currency', frs.currency,
-      'due_back_date', frs.due_back_date,
+      -- Vencimiento de la rendición = fecha fin de la solicitud (Fase 3). Se conserva la
+      -- clave del payload para no mover el contrato con la pestaña Personal.
+      'due_back_date', public.fund_request_deadline(frs.expense_period_month),
       'amounts_by_currency', COALESCE(faj.items, '[]'::jsonb),
       'expenses', COALESCE(fej.items, '[]'::jsonb)
     ) ORDER BY COALESCE(frs.submitted_at, frs.created_at) DESC, frs.fund_request_id), '[]'::jsonb) AS items

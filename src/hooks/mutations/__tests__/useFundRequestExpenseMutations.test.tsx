@@ -7,6 +7,7 @@ import {
   useReviewFundRequestExpense,
   useReturnFundRequestExpense,
   useResendReturnedExpense,
+  useAccountingRejectFundRequestExpense,
   useSubmitAllFundRequestExpenses,
   useDecideAllFundRequestExpenses,
 } from "../useFundRequestExpenseMutations";
@@ -102,18 +103,38 @@ describe("useFundRequestExpenseMutations", () => {
     });
   });
 
+  describe("useAccountingRejectFundRequestExpense", () => {
+    it("rejects through the review RPC (days 4-5; the server checks the calendar)", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+      const { result } = renderHook(() => useAccountingRejectFundRequestExpense(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "e1", notes: "factura de otro gasto" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "reject",
+        p_notes: "factura de otro gasto",
+      });
+    });
+  });
+
   describe("useResendReturnedExpense", () => {
-    it("resends straight to accounting (aprobado_gerente) and clears the flag", async () => {
+    it("resends the corrected expense straight to accounting (aprobado_gerente) and clears the flag", async () => {
       const { update } = mockUpdateEq();
       const { result } = renderHook(() => useResendReturnedExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: "e1", attachmentUrl: "https://x/r.pdf" });
+      // Decisión S3: el solicitante corrige cualquier campo, no solo el respaldo.
+      result.current.mutate({ id: "e1", data: { attachment_url: "https://x/r.pdf", amount: 80 } });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(update).toHaveBeenCalledWith({
         attachment_url: "https://x/r.pdf",
+        amount: 80,
         status: "aprobado_gerente",
         returned_by_assistant: false,
       });

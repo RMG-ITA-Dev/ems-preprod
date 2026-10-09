@@ -71,6 +71,8 @@ function makeFr(over: Record<string, unknown> = {}) {
     requester_staff_id: "other",
     currency: "BOB",
     status: "fondos_entregados",
+    // Fase 3: el mes de la solicitud define la fecha fin (ventana de gastos).
+    expense_period_month: "2026-11-01",
     total_disbursed_amount: 40,
     fund_request_work_orders: [{ wo_id: "wo-1", manager_staff_id: "other-mgr" }],
     ...over,

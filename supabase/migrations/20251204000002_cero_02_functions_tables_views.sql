@@ -2342,6 +2342,93 @@ $$;
 
 --
 --
+-- Name: fre_enforce_window(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fre_enforce_window() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3). Ventana del SOLICITANTE: desde
+-- el día del desembolso hasta la fecha fin (día 3 del mes siguiente al mes elegido). Fuera de
+-- ella no registra, no edita, no envía ni reenvía; y la fecha del gasto debe caer entre el día
+-- del desembolso y el menor entre hoy y la fecha fin. El GERENTE decide hasta la fecha fin.
+-- Contabilidad tiene sus propias reglas en fund_request_expense_review. Exentos: admin, el job
+-- de plazos y los procesos sin sesión (seed).
+DECLARE
+  v_me UUID := get_my_staff_id();
+  v_requester UUID;
+  v_disbursed TIMESTAMPTZ;
+  v_month DATE;
+  v_today DATE := public.fund_today();
+  v_deadline DATE;
+  v_min DATE;
+  v_max DATE;
+BEGIN
+  IF COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' OR v_me IS NULL OR is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT requester_staff_id, disbursed_at, expense_period_month
+    INTO v_requester, v_disbursed, v_month
+  FROM public.fund_requests
+  WHERE fund_request_id = NEW.fund_request_id;
+
+  v_deadline := public.fund_request_deadline(v_month);
+
+  IF v_requester = v_me THEN
+    IF v_today > v_deadline THEN
+      RAISE EXCEPTION 'El plazo para registrar y enviar gastos de esta solicitud venció el %', v_deadline;
+    END IF;
+    IF v_disbursed IS NULL THEN
+      RAISE EXCEPTION 'La solicitud todavía no tiene fondos desembolsados';
+    END IF;
+    v_min := (v_disbursed AT TIME ZONE 'America/La_Paz')::date;
+    v_max := LEAST(v_today, v_deadline);
+    IF NEW.expense_date < v_min OR NEW.expense_date > v_max
+       OR (NEW.expense_date_end IS NOT NULL
+           AND (NEW.expense_date_end < v_min OR NEW.expense_date_end > v_max)) THEN
+      RAISE EXCEPTION 'La fecha del gasto debe estar entre el % y el %', v_min, v_max;
+    END IF;
+  ELSIF TG_OP = 'UPDATE'
+        AND OLD.status = 'pendiente_aprobacion'
+        AND NEW.status IS DISTINCT FROM OLD.status
+        AND v_today > v_deadline THEN
+    RAISE EXCEPTION 'Venció el plazo para aprobar (%); el sistema aprueba automáticamente', v_deadline;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: fr_validate_period_month(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_validate_period_month() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+-- El mes de la solicitud: el actual o hasta 5 más adelante. Se valida solo cuando alguien con
+-- sesión lo elige o lo cambia (el seed y las pruebas cargan meses pasados sin sesión).
+BEGIN
+  IF get_my_staff_id() IS NULL OR is_admin() THEN
+    RETURN NEW;
+  END IF;
+  IF (TG_OP = 'INSERT' OR NEW.expense_period_month IS DISTINCT FROM OLD.expense_period_month)
+     AND NOT public.fund_request_month_is_selectable(NEW.expense_period_month) THEN
+    RAISE EXCEPTION 'El mes de la solicitud (%) debe ser el actual o hasta 5 meses adelante',
+      NEW.expense_period_month;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
 -- Name: fre_log_event(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2361,6 +2448,15 @@ BEGIN
 
   IF NEW.status = 'pendiente_aprobacion' THEN
     v_action := 'expense_submitted';
+  ELSIF NEW.status = 'vencido' THEN
+    v_action := 'expense_expired';
+  ELSIF NEW.status = 'aprobado_gerente' AND NEW.manager_auto_approved AND NOT OLD.manager_auto_approved THEN
+    v_action := 'expense_manager_auto_approved';
+  ELSIF NEW.status = 'revisado_asistente' AND NEW.review_auto_approved THEN
+    v_action := 'expense_review_auto_approved';
+  ELSIF NEW.status = 'rechazado' AND OLD.status = 'aprobado_gerente' THEN
+    v_action := 'expense_rejected_by_accounting';
+    v_notes := NEW.rejection_reason;
   ELSIF NEW.status = 'aprobado_gerente' AND OLD.status = 'observado' AND OLD.returned_by_assistant THEN
     v_action := 'expense_resubmitted_to_accounting';
   ELSIF NEW.status = 'aprobado_gerente' THEN
@@ -2388,7 +2484,11 @@ BEGIN
      actor_staff_id, notes, amount)
   VALUES
     (NEW.fund_request_id, 'expense', NEW.wo_id, NEW.fre_id, v_action,
-     OLD.status::text, NEW.status::text, get_my_staff_id(), v_notes, v_amount);
+     OLD.status::text, NEW.status::text,
+     -- Lo que hace el job de plazos es del sistema aunque la transacción tenga sesión.
+     CASE WHEN COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' THEN NULL
+          ELSE get_my_staff_id() END,
+     v_notes, v_amount);
   RETURN NULL;
 END;
 $$;
@@ -2408,6 +2508,12 @@ DECLARE
   v_is_requester BOOLEAN;
 BEGIN
   IF is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  -- Job de plazos (fund_request_run_deadlines): aprobaciones automáticas y vencimientos. La
+  -- marca la pone solo esa función, dentro de su propia transacción (set_config local).
+  IF COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' THEN
     RETURN NEW;
   END IF;
 
@@ -2469,26 +2575,9 @@ BEGIN
     END IF;
   END IF;
 
-  -- En un gasto devuelto por contabilidad (returned_by_assistant) el solicitante
-  -- SOLO puede re-adjuntar el respaldo; cambiar datos exige reenviar al gerente.
-  -- Aplica AUNQUE no cambie el status: si no, editaría datos con status observado
-  -- y luego reenviaría a aprobado_gerente sin que el guard del reenvío (que
-  -- compara contra la fila ya mutada) detecte la diferencia.
-  IF OLD.returned_by_assistant AND OLD.status = 'observado' THEN
-    IF NEW.amount           IS DISTINCT FROM OLD.amount
-       OR NEW.wo_id            IS DISTINCT FROM OLD.wo_id
-       OR NEW.expense_type_id  IS DISTINCT FROM OLD.expense_type_id
-       OR NEW.expense_date     IS DISTINCT FROM OLD.expense_date
-       OR NEW.expense_date_end IS DISTINCT FROM OLD.expense_date_end
-       OR NEW.days             IS DISTINCT FROM OLD.days
-       OR NEW.description      IS DISTINCT FROM OLD.description
-       OR NEW.document_number  IS DISTINCT FROM OLD.document_number
-       OR NEW.supplier_name    IS DISTINCT FROM OLD.supplier_name
-       OR NEW.supplier_tax_id  IS DISTINCT FROM OLD.supplier_tax_id
-       OR NEW.currency         IS DISTINCT FROM OLD.currency THEN
-      RAISE EXCEPTION 'En un gasto devuelto por contabilidad solo se puede actualizar el respaldo (adjunto); para cambiar datos reenvíe al gerente';
-    END IF;
-  END IF;
+  -- Gasto devuelto por Contabilidad (returned_by_assistant): el solicitante puede corregir
+  -- TODOS los campos y lo reenvía directo a Contabilidad (decisión S3, 2026-10-08). Antes solo
+  -- podía cambiar el respaldo.
 
   -- ── Validación de transiciones de estado ──
   -- En una edición SIN cambio de estado, un no-admin no puede tocar la metadata
@@ -2533,8 +2622,10 @@ BEGIN
   --   revisado_asistente -> factura correcta (useReviewFundRequestExpense)
   --   observado          -> devuelta por falta de respaldo, con returned_by_assistant
   --                         (useReturnFundRequestExpense; el flag lo autoriza P1a)
+  --   rechazado          -> rechazado por Contabilidad en los días 4 y 5 (fund_request_expense_review
+  --                         'reject'; ya no hay plazo para devolverlo al solicitante).
   IF OLD.status = 'aprobado_gerente'
-     AND NEW.status IN ('revisado_asistente', 'observado')
+     AND NEW.status IN ('revisado_asistente', 'observado', 'rechazado')
      AND public.has_permission('expense_settlement.update') THEN
     RETURN NEW;
   END IF;
@@ -2589,6 +2680,73 @@ BEGIN
   NEW.updated_at := now();
   RETURN NEW;
 END;
+$$;
+
+
+--
+--
+-- Name: fund_today(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_today() RETURNS date
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- "Hoy" del calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3): la fecha de
+  -- La Paz, no CURRENT_DATE (la base vive en UTC; de 20:00 a medianoche ya sería mañana).
+  -- Las pruebas fijan el día con el GUC app.fund_today, que SOLO se respeta en una sesión de
+  -- superusuario (el harness, el SQL Editor). Por la API la sesión es `authenticator`, así que
+  -- ningún cliente puede mover la fecha.
+  SELECT CASE
+           WHEN COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)
+                AND NULLIF(current_setting('app.fund_today', true), '') IS NOT NULL
+             THEN current_setting('app.fund_today', true)::date
+           ELSE (now() AT TIME ZONE 'America/La_Paz')::date
+         END;
+$$;
+
+
+--
+--
+-- Name: fund_request_deadline(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_deadline(p_month date) RETURNS date
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  -- Fecha fin de la solicitud: día 3 (calendario) del mes siguiente al mes elegido. Último día
+  -- para registrar/enviar gastos y para que el gerente los apruebe.
+  SELECT (date_trunc('month', p_month) + interval '1 month' + interval '2 days')::date;
+$$;
+
+
+--
+--
+-- Name: fund_request_review_deadline(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_review_deadline(p_month date) RETURNS date
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  -- Último día para que Contabilidad revise: día 5 del mes siguiente (fecha fin + 2).
+  SELECT (date_trunc('month', p_month) + interval '1 month' + interval '4 days')::date;
+$$;
+
+
+--
+--
+-- Name: fund_request_month_is_selectable(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_month_is_selectable(p_month date) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Meses que se pueden elegir: el actual y hasta 5 más adelante (6 opciones, ronda 5 / T1).
+  SELECT p_month IS NOT NULL
+     AND p_month = date_trunc('month', p_month)::date
+     AND p_month >= date_trunc('month', public.fund_today())::date
+     AND p_month <= (date_trunc('month', public.fund_today()) + interval '5 months')::date;
 $$;
 
 
@@ -2683,22 +2841,23 @@ $$;
 
 --
 --
--- Name: fund_request_disburse(uuid, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: fund_request_disburse(uuid, numeric, text, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text DEFAULT NULL::text) RETURNS void
+CREATE FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text DEFAULT NULL::text, p_new_month date DEFAULT NULL::date) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
 DECLARE
   v_status public.fund_request_status;
   v_total NUMERIC;
+  v_month DATE;
 BEGIN
   IF NOT public.has_permission('fund_disbursement.update') THEN
     RAISE EXCEPTION 'No autorizado a desembolsar' USING ERRCODE = '42501';
   END IF;
 
-  SELECT status, total_requested_amount INTO v_status, v_total
+  SELECT status, total_requested_amount, expense_period_month INTO v_status, v_total, v_month
   FROM public.fund_requests
   WHERE fund_request_id = p_fund_request_id
   FOR UPDATE;
@@ -2711,6 +2870,18 @@ BEGIN
     RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
   END IF;
 
+  -- Calendario (U1): con la fecha fin vencida el solicitante no tendría plazo para rendir, así
+  -- que no se desembolsa sin elegir un mes nuevo. El mes nuevo también se acepta sin vencer.
+  IF p_new_month IS NOT NULL THEN
+    IF NOT public.fund_request_month_is_selectable(p_new_month) THEN
+      RAISE EXCEPTION 'El mes elegido (%) no es válido: debe ser el actual o hasta 5 meses adelante', p_new_month;
+    END IF;
+    v_month := p_new_month;
+  ELSIF public.fund_today() > public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'La fecha fin de la solicitud (%) ya venció; elija un mes nuevo para desembolsar',
+      public.fund_request_deadline(v_month);
+  END IF;
+
   IF p_amount IS NULL OR p_amount <= 0 OR round(p_amount, 2) > round(v_total, 2) THEN
     RAISE EXCEPTION 'El monto a desembolsar debe ser mayor a 0 y no superar lo solicitado (%)', v_total;
   END IF;
@@ -2718,6 +2889,7 @@ BEGIN
   -- El actor sale de la sesión, nunca del cliente.
   UPDATE public.fund_requests
   SET status = 'fondos_entregados',
+      expense_period_month = v_month,
       total_disbursed_amount = round(p_amount, 2),
       disbursed_at = now(),
       disbursed_by_staff_id = get_my_staff_id(),
@@ -2740,13 +2912,16 @@ DECLARE
   v_status public.fund_request_expense_status;
   v_amount NUMERIC;
   v_fr_status public.fund_request_status;
+  v_month DATE;
+  v_today DATE := public.fund_today();
   v_notes TEXT := NULLIF(btrim(p_notes), '');
 BEGIN
   IF NOT public.has_permission('expense_settlement.update') THEN
     RAISE EXCEPTION 'No autorizado a revisar gastos' USING ERRCODE = '42501';
   END IF;
 
-  SELECT fre.status, fre.amount, fr.status INTO v_status, v_amount, v_fr_status
+  SELECT fre.status, fre.amount, fr.status, fr.expense_period_month
+    INTO v_status, v_amount, v_fr_status, v_month
   FROM public.fund_request_expenses fre
   JOIN public.fund_requests fr ON fr.fund_request_id = fre.fund_request_id
   WHERE fre.fre_id = p_fre_id
@@ -2764,8 +2939,24 @@ BEGIN
     RAISE EXCEPTION 'El gasto no está esperando revisión de contabilidad (estado %)', v_status;
   END IF;
 
-  IF p_decision IN ('incorrect', 'return') AND v_notes IS NULL THEN
+  IF p_decision IN ('incorrect', 'return', 'reject') AND v_notes IS NULL THEN
     RAISE EXCEPTION 'La observación es obligatoria';
+  END IF;
+
+  -- Calendario (Fase 3): Contabilidad revisa hasta el día 5. Hasta la fecha fin (día 3) puede
+  -- devolver para que el solicitante corrija; en los días 4 y 5 ya nadie podría corregirlo, así
+  -- que en lugar de devolver, rechaza.
+  IF v_today > public.fund_request_review_deadline(v_month) THEN
+    RAISE EXCEPTION 'Venció el plazo de revisión (%); el sistema ya aprobó los gastos pendientes',
+      public.fund_request_review_deadline(v_month);
+  END IF;
+  IF p_decision = 'return' AND v_today > public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'Pasada la fecha fin (%) ya no se puede devolver el gasto; corresponde aprobarlo o rechazarlo',
+      public.fund_request_deadline(v_month);
+  END IF;
+  IF p_decision = 'reject' AND v_today <= public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'Hasta la fecha fin (%) el gasto se devuelve al solicitante para que lo corrija',
+      public.fund_request_deadline(v_month);
   END IF;
 
   IF p_decision = 'correct' THEN
@@ -2796,11 +2987,145 @@ BEGIN
         invoice_observation_notes = v_notes,
         iva_penalty_amount = 0
     WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'reject' THEN
+    -- Días 4 y 5: el gasto no se acepta y no cuenta como gastado.
+    UPDATE public.fund_request_expenses
+    SET status = 'rechazado',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        rejection_reason = v_notes,
+        has_invoice_observation = false,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
   ELSE
     RAISE EXCEPTION 'Decisión de revisión no válida: %', p_decision;
   END IF;
 END;
 $$;
+
+
+--
+--
+-- Name: fund_request_run_deadlines(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_run_deadlines(p_today date DEFAULT NULL::date) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Job diario de plazos (Fase 3.8). Corre a las 00:05 de La Paz, o sea cuando el día anterior
+-- ya terminó. Sobre solicitudes con fondos entregados:
+--   · fecha fin (día 3) pasada: lo que el gerente no aprobó se aprueba solo; borradores y
+--     gastos observados/devueltos sin reenviar quedan vencidos.
+--   · fin de revisión (día 5) pasado: lo que Contabilidad no revisó se aprueba solo, como
+--     factura correcta y sin penalidad (U4). La solicitud queda lista para liquidar.
+-- Es idempotente: cada UPDATE filtra por el estado de origen. La bitácora registra todo con
+-- actor NULL (= Sistema). `p_today` solo existe para las pruebas.
+DECLARE
+  v_today DATE := COALESCE(p_today, public.fund_today());
+  v_mgr INT := 0;
+  v_exp INT := 0;
+  v_rev INT := 0;
+  v_rows JSONB;
+  v_item JSONB;
+BEGIN
+  PERFORM set_config('app.fund_deadlines', 'on', true);
+
+  -- Cada paso junta lo que cambió por solicitud (y los gerentes de las OT afectadas) para
+  -- mandar UN aviso por solicitud y audiencia (notificaciones_03, Fase 3.9).
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'aprobado_gerente',
+           manager_decided_at = now(),
+           manager_auto_approved = true
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status = 'pendiente_aprobacion'
+       AND v_today > public.fund_request_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id, fre.wo_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n, 'mgrs', g.mgrs)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT u.fund_request_id, count(*) AS n,
+                 array_remove(array_agg(DISTINCT frw.manager_staff_id), NULL) AS mgrs
+            FROM upd u
+            LEFT JOIN public.fund_request_work_orders frw
+              ON frw.fund_request_id = u.fund_request_id AND frw.wo_id = u.wo_id
+           GROUP BY u.fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_mgr := v_mgr + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_auto_approval('fund.expense.manager_auto_approved',
+              (v_item->>'fr')::uuid, (v_item->>'n')::int,
+              ARRAY(SELECT jsonb_array_elements_text(v_item->'mgrs'))::uuid[]);
+  END LOOP;
+
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'vencido'
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status IN ('borrador', 'observado')
+       AND v_today > public.fund_request_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT fund_request_id, count(*) AS n FROM upd GROUP BY fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_exp := v_exp + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_expired((v_item->>'fr')::uuid, (v_item->>'n')::int);
+  END LOOP;
+
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'revisado_asistente',
+           reviewed_at = now(),
+           reviewed_by_staff_id = NULL,
+           has_invoice_observation = false,
+           invoice_observation_notes = NULL,
+           iva_penalty_amount = 0,
+           review_auto_approved = true
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status = 'aprobado_gerente'
+       AND v_today > public.fund_request_review_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT fund_request_id, count(*) AS n FROM upd GROUP BY fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_rev := v_rev + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_auto_approval('fund.expense.review_auto_approved',
+              (v_item->>'fr')::uuid, (v_item->>'n')::int,
+              ARRAY(SELECT staff_id FROM public.notif_fund_request_managers((v_item->>'fr')::uuid)));
+  END LOOP;
+
+  PERFORM set_config('app.fund_deadlines', '', true);
+
+  RETURN jsonb_build_object('manager_auto_approved', v_mgr, 'expired', v_exp,
+                            'review_auto_approved', v_rev);
+END;
+$$;
+
+-- Trabajo programado: diario 04:05 UTC = 00:05 America/La_Paz. Mismo guard defensivo que
+-- finalize-engagements (sin pg_cron, como en el harness, no se agenda).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'fund-request-deadlines') THEN
+      PERFORM cron.unschedule('fund-request-deadlines');
+    END IF;
+    PERFORM cron.schedule(
+      'fund-request-deadlines',
+      '5 4 * * *',
+      $cron$SELECT public.fund_request_run_deadlines();$cron$
+    );
+  END IF;
+END $$;
 
 
 --
@@ -2828,10 +3153,10 @@ BEGIN
         CASE WHEN p_fields ? 'purpose'
              THEN p_fields->>'purpose'
              ELSE purpose END,
-      due_back_date =
-        CASE WHEN p_fields ? 'due_back_date'
-             THEN NULLIF(p_fields->>'due_back_date', '')::DATE
-             ELSE due_back_date END
+      expense_period_month =
+        CASE WHEN p_fields ? 'expense_period_month'
+             THEN (p_fields->>'expense_period_month')::DATE
+             ELSE expense_period_month END
     WHERE fund_request_id = p_fund_request_id;
   END IF;
 
@@ -2888,10 +3213,14 @@ BEGIN
   END IF;
 
   -- Gastos a medio camino impiden liquidar (mismo criterio que unfinishedExpenses en la UI).
+  -- `vencido` es final. `rechazado` solo bloquea hasta la fecha fin: después ya nadie lo corrige.
   IF EXISTS (
-    SELECT 1 FROM public.fund_request_expenses
-    WHERE fund_request_id = p_fund_request_id
-      AND status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado', 'rechazado')
+    SELECT 1 FROM public.fund_request_expenses fre
+    JOIN public.fund_requests fr ON fr.fund_request_id = fre.fund_request_id
+    WHERE fre.fund_request_id = p_fund_request_id
+      AND (fre.status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado')
+           OR (fre.status = 'rechazado'
+               AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month)))
   ) THEN
     RAISE EXCEPTION 'Hay gastos sin finalizar; no se puede liquidar';
   END IF;
@@ -6464,6 +6793,8 @@ CREATE TABLE public.fund_request_expenses (
     expense_date_end date,
     days integer,
     returned_by_assistant boolean DEFAULT false NOT NULL,
+    manager_auto_approved boolean DEFAULT false NOT NULL,
+    review_auto_approved boolean DEFAULT false NOT NULL,
     CONSTRAINT fund_request_expenses_amount_check CHECK ((amount > (0)::numeric)),
     CONSTRAINT fund_request_expenses_currency_check CHECK (currency IN ('BOB', 'USD'))
 );
@@ -6578,7 +6909,7 @@ CREATE TABLE public.fund_requests (
     currency character varying NOT NULL,
     status public.fund_request_status DEFAULT 'borrador'::public.fund_request_status NOT NULL,
     purpose text,
-    due_back_date date,
+    expense_period_month date DEFAULT (date_trunc('month'::text, (now() AT TIME ZONE 'America/La_Paz'::text)))::date NOT NULL,
     submitted_at timestamp with time zone,
     manager_decided_at timestamp with time zone,
     manager_notes text,
@@ -6603,6 +6934,7 @@ CREATE TABLE public.fund_requests (
     cancelled_by_staff_id uuid,
     cancelled_from_status public.fund_request_status,
     CONSTRAINT fund_requests_currency_check CHECK (currency IN ('BOB', 'USD')),
+    CONSTRAINT fund_requests_expense_period_month_check CHECK ((expense_period_month = (date_trunc('month'::text, (expense_period_month)::timestamp without time zone))::date)),
     CONSTRAINT fund_requests_disbursed_nonneg CHECK ((total_disbursed_amount >= (0)::numeric)),
     CONSTRAINT fund_requests_settlement_resolution_check CHECK (((settlement_resolution IS NULL) OR (settlement_resolution = ANY (ARRAY['sin_saldo'::text, 'devolucion'::text, 'descuento_planilla'::text, 'pago_solicitante'::text])))),
     CONSTRAINT fund_requests_total_requested_amount_check CHECK ((total_requested_amount > (0)::numeric))

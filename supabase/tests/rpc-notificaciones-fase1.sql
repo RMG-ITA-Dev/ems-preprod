@@ -237,8 +237,10 @@ BEGIN
   -- de asignacion a los gerentes especialistas (D-43) + los 3 de BUG 0923-209
   -- (approval.reversal_requested/executed/rejected, fuera del seed generado a proposito -- ver
   -- la cabecera de 20260929160000_0923-209_timesheet_reversal_requests.sql).
-  IF v_types <> 79 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 79 (¿corriste el parser?)', v_types;
+  -- + 7 del calendario de gastos (Fase 3 plan-contabilidad-gastos, 2026-10-09): recordatorios de
+  -- plazo, aprobaciones automáticas, vencidos y rechazo de Contabilidad.
+  IF v_types <> 86 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 86 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
@@ -246,13 +248,14 @@ BEGIN
   -- sólo a los 7 que reportan horas de base. + 3 de la paridad contable (2026-10-08): el
   -- Analista de Contabilidad recibe fund.disbursement/settlement/closure pending, igual que el
   -- Gerente (docs/matriz-notificaciones.md).
-  IF v_grants <> 495 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 495', v_grants;
+  -- + 58 de los 7 tipos del calendario de gastos.
+  IF v_grants <> 553 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 553', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 79 tipos, 495 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 86 tipos, 553 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

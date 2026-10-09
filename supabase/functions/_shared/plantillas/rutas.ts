@@ -52,6 +52,12 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   const recordatorio = RUTAS_RECORDATORIO[typeKey];
   if (recordatorio) return recordatorio;
 
+  // El recordatorio de revisión resume TODAS las solicitudes en revisión: va a la bandeja de
+  // Contabilidad, no a una solicitud (calendario de gastos, Fase 3.9).
+  if (typeKey === "fund.expense.review_reminder") {
+    return "/fund-requests/disbursements?tab=expenses_review";
+  }
+
   // Los eventos de GASTO llevan fre_id en entity_id, que no es parámetro de ninguna ruta: el
   // destino es la pantalla de gastos de su solicitud, cuyo id viaja en el payload.
   if (typeKey.startsWith("fund.expense.")) {

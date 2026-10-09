@@ -71,6 +71,14 @@ describe("expensePhase", () => {
     expect(expensePhase({ total: 2, revisado_asistente: 1, rechazado: 1 })).toBe("delivered");
   });
 
+  it("is 'ready' once the end date passed: a rejected expense can no longer be corrected", () => {
+    expect(expensePhase({ total: 2, revisado_asistente: 1, rechazado: 1 }, true)).toBe("ready");
+  });
+
+  it("treats expired expenses as final (they never block settlement)", () => {
+    expect(expensePhase({ total: 3, revisado_asistente: 1, vencido: 2 })).toBe("ready");
+  });
+
   it("is 'delivered' when there are no expenses yet", () => {
     expect(expensePhase({ total: 0 })).toBe("delivered");
     expect(expensePhase(undefined)).toBe("delivered");

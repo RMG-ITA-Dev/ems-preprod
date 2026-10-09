@@ -42,6 +42,12 @@ import {
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import {
+  formatDateDMY,
+  fundRequestDeadline,
+  isDeadlinePassed,
+  laPazToday,
+} from "@/lib/fundRequestCalendar";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -112,24 +118,22 @@ const FundRequestExpenses = () => {
     Math.abs(myAllocatedTotal - Number(fr?.total_requested_amount ?? 0)) < 0.01;
   const isManagerScoped =
     isManagerOfThisFr && !isRequester && !canSettleExpenses && !seesWholeRequest;
-  // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
-  // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
-  // registrar/enviar nuevos gastos.
-  const hasLockedExpenses = (expenses ?? []).some((e) =>
-    ["pendiente_aprobacion", "aprobado_gerente", "revisado_asistente"].includes(e.status),
-  );
-  // Gastos devueltos por contabilidad (solo falta adjuntar respaldo): se
-  // reenvían UNO POR UNO desde su modal, no en lote. Mientras exista alguno,
-  // tampoco se agregan nuevos gastos (irían al gerente y aquí toca resolver
-  // primero lo de contabilidad).
+  // Calendario (Fase 3): el solicitante registra y envía gastos desde el desembolso hasta la
+  // fecha fin (día 3 del mes siguiente al mes de la solicitud). Puede enviar VARIOS lotes:
+  // ya no hay bloqueo mientras otro lote esté en proceso. El servidor valida lo mismo.
+  const today = laPazToday();
+  const deadline = fr ? fundRequestDeadline(fr.expense_period_month) : null;
+  const windowOpen =
+    !!fr &&
+    fr.status === "fondos_entregados" &&
+    !!fr.disbursed_at &&
+    !isDeadlinePassed(fr.expense_period_month, today);
+  // Gastos devueltos por contabilidad: se corrigen y reenvían UNO POR UNO desde su modal
+  // (vuelven directo a contabilidad, no al gerente).
   const hasReturnedByAssistant = (expenses ?? []).some(
     (e) => e.status === "observado" && e.returned_by_assistant,
   );
-  const canAddExpenses =
-    isRequester &&
-    fr?.status === "fondos_entregados" &&
-    !hasLockedExpenses &&
-    !hasReturnedByAssistant;
+  const canAddExpenses = isRequester && windowOpen;
 
   // Gastos que se pueden enviar en lote al gerente (excluye los devueltos por
   // contabilidad, que se reenvían individualmente).
@@ -142,15 +146,8 @@ const FundRequestExpenses = () => {
       ),
     [expenses],
   );
-  // Reenviar correcciones (observado/rechazado) NO depende de poder agregar
-  // gastos nuevos: aunque haya un gasto ya revisado (bloqueado), el solicitante
-  // debe poder reenviar lo corregido. Solo se respeta el gate de los devueltos
-  // por contabilidad (que se reenvían uno por uno).
-  const canSubmitAll =
-    isRequester &&
-    fr?.status === "fondos_entregados" &&
-    !hasReturnedByAssistant &&
-    submittable.length > 0;
+  // Enviar el lote (borradores y correcciones para el gerente) mientras la ventana esté abierta.
+  const canSubmitAll = isRequester && windowOpen && submittable.length > 0;
 
   const handleSubmitAll = async () => {
     if (!id) return;
@@ -452,24 +449,32 @@ const FundRequestExpenses = () => {
           </CardContent>
         </Card>
 
-        {/* Banner: contabilidad devolvió gastos por falta de respaldo */}
-        {isRequester && fr.status === "fondos_entregados" && hasReturnedByAssistant && (
+        {/* Banner: plazo para registrar y enviar gastos (Fase 3) */}
+        {fr.status === "fondos_entregados" && deadline && (
+          windowOpen ? (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                {t("fundRequestExpense.window.open", { date: formatDateDMY(deadline) })}
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert className="border-warning/30 bg-warning/5 text-warning [&>svg]:text-warning">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t("fundRequestExpense.window.closed", { date: formatDateDMY(deadline) })}
+              </AlertDescription>
+            </Alert>
+          )
+        )}
+
+        {/* Banner: contabilidad devolvió gastos; se corrigen y reenvían uno por uno */}
+        {isRequester && windowOpen && hasReturnedByAssistant && (
           <Alert className="border-warning/30 bg-warning/5 text-warning [&>svg]:text-warning">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>{t("fundRequestExpense.returnedLockHint")}</AlertDescription>
           </Alert>
         )}
-
-        {/* Banner: hay gastos en proceso, no se pueden registrar nuevos */}
-        {isRequester &&
-          fr.status === "fondos_entregados" &&
-          hasLockedExpenses &&
-          !hasReturnedByAssistant && (
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertDescription>{t("fundRequestExpense.pendingLockHint")}</AlertDescription>
-            </Alert>
-          )}
 
         <DataTable
           data={expenses ?? []}

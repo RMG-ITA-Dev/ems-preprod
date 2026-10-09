@@ -207,6 +207,11 @@ DECLARE
   -- La bandeja de revision contable. Los dos eventos de abajo deben repartirse SIEMPRE al
   -- mismo conjunto; tenerlos como constante evita que vuelvan a separarse.
   c_contabilidad constant text[] := ARRAY['accounting_analyst', 'accounting_manager'];
+  -- Job de plazos (fund_request_run_deadlines): aprueba y vence en lote y manda UN resumen por
+  -- solicitud (notif_emit_fund_auto_approval / notif_emit_fund_expired). Los avisos de a un
+  -- gasto de abajo se callan mientras corre, para no repetir lo mismo gasto por gasto.
+  -- COALESCE: sin el GUC puesto current_setting(..., true) da NULL, y NOT NULL callaba todo.
+  v_job       constant boolean := COALESCE(current_setting('app.fund_deadlines', true), '') = 'on';
 BEGIN
   SELECT fr.requester_staff_id, COALESCE(fr.request_number, '')
     INTO v_requester, v_number
@@ -237,14 +242,15 @@ BEGIN
 
   -- Decision del gerente sobre el gasto: al solicitante.
   IF OLD.status = 'pendiente_aprobacion'
-     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado') THEN
+     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado')
+     AND NOT v_job THEN
     PERFORM public.notify_staff('fund.expense.decided',
               v_requester, NEW.fre_id::text,
               v_payload || jsonb_build_object('decision', NEW.status::text));
   END IF;
 
   -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
-  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' THEN
+  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' AND NOT v_job THEN
     FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
     LOOP
       PERFORM public.notify_staff('fund.expense.sent_to_support_review',
@@ -276,19 +282,23 @@ BEGIN
   -- Contabilidad aprobo ESTE gasto: solo al solicitante (uno por gasto).
   IF NEW.status = 'revisado_asistente'
      AND OLD.status IS DISTINCT FROM 'revisado_asistente' THEN
-    PERFORM public.notify_staff('fund.expense.reviewed',
-              v_requester, NEW.fre_id::text, v_payload);
+    IF NOT v_job THEN
+      PERFORM public.notify_staff('fund.expense.reviewed',
+                v_requester, NEW.fre_id::text, v_payload);
+    END IF;
 
     -- Y si con este quedaron TODOS revisados, el consolidado al gerente.
     --
-    -- 'rechazado' SI cuenta como pendiente, alineado con expensePhase() (src/lib/fundRequest.ts):
-    -- "rechazado sigue siendo corregible/reenviable -> no esta finalizado". Excluirlo
-    -- disparaba el hito "todos aprobados" mientras quedaba un gasto que el solicitante
-    -- todavia puede corregir, y la solicitud no aparecia como lista para liquidar.
+    -- Alineado con expensePhase() (src/lib/fundRequest.ts) y fund_request_settle: 'rechazado'
+    -- cuenta como pendiente mientras el solicitante todavia puede corregirlo (hasta la fecha fin);
+    -- despues es final, igual que 'vencido' (calendario, plan-contabilidad-gastos Fase 3).
     SELECT COUNT(*) INTO v_faltan
       FROM public.fund_request_expenses e
+      JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
      WHERE e.fund_request_id = NEW.fund_request_id
-       AND e.status <> 'revisado_asistente';
+       AND e.status NOT IN ('revisado_asistente', 'vencido')
+       AND NOT (e.status = 'rechazado'
+                AND public.fund_today() > public.fund_request_deadline(fr.expense_period_month));
 
     IF v_faltan = 0 THEN
       FOR v_rec IN SELECT staff_id
@@ -300,6 +310,14 @@ BEGIN
                                      'fund_request_id', NEW.fund_request_id));
       END LOOP;
     END IF;
+  END IF;
+
+  -- Contabilidad rechaza un gasto en los días 4 y 5 (calendario, Fase 3): al solicitante. Ya
+  -- no puede corregirlo, así que el aviso le explica que no cuenta como gastado.
+  IF OLD.status = 'aprobado_gerente' AND NEW.status = 'rechazado' THEN
+    PERFORM public.notify_staff('fund.expense.rejected_by_accounting',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object('reason', COALESCE(NEW.rejection_reason, '')));
   END IF;
 
   -- Multa IVA: al solicitante.
@@ -2954,8 +2972,224 @@ BEGIN
     END IF;
     PERFORM cron.schedule('notif-reminder-installment-weekly', '30 13 * * 1',
       $cron$SELECT public.notif_emit_wo_installment_reminder_weekly();$cron$);
+
+    -- Calendario de gastos (Fase 3.9): todos los días 12:00 UTC = 08:00 La Paz. Los días que
+    -- cuentan son calendario, así que también corre el fin de semana.
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-fund-deadline-reminders') THEN
+      PERFORM cron.unschedule('notif-fund-deadline-reminders');
+    END IF;
+    PERFORM cron.schedule('notif-fund-deadline-reminders', '0 12 * * *',
+      $cron$SELECT public.notif_emit_fund_deadline_reminders();$cron$);
   END IF;
 END $$;
+
+-- =====================================================================
+-- Calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3.9)
+-- =====================================================================
+--
+-- Todos estos tipos salen por la campana Y por correo (decisión de Neil, 2026-10-09). Fechas:
+-- fecha fin = día 3 del mes siguiente al mes de la solicitud; fin de revisión = día 5.
+
+DROP FUNCTION IF EXISTS public.notif_fund_sent_today(text, uuid, text);
+
+CREATE FUNCTION public.notif_fund_sent_today(p_type_key text, p_staff_id uuid, p_entity_id text)
+    RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- ¿Ya se le mandó hoy (día de La Paz) este aviso por esta entidad? Los recordatorios corren
+  -- una vez por día; esto evita repetirlos si el job se vuelve a correr a mano.
+  SELECT EXISTS (
+    SELECT 1 FROM public.notifications n
+     WHERE n.type_key = p_type_key
+       AND n.recipient_staff_id = p_staff_id
+       AND n.entity_id IS NOT DISTINCT FROM p_entity_id
+       AND (n.created_at AT TIME ZONE 'America/La_Paz')::date = (now() AT TIME ZONE 'America/La_Paz')::date
+  );
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_deadline_reminders(date);
+
+CREATE FUNCTION public.notif_emit_fund_deadline_reminders(p_today date DEFAULT NULL)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Recordatorios diarios de plazo:
+--   · días 1 a 3 (hasta la fecha fin): al solicitante, si tiene borradores sin enviar o gastos
+--     observados/rechazados/devueltos por corregir; y a cada gerente de OT con gastos por aprobar.
+--   · días 3 a 5 (hasta el fin de revisión): a los dos roles de Contabilidad, un solo aviso con
+--     el total de gastos por revisar. El día 5 dice que hoy vence (context = 'last_day').
+DECLARE
+  v_today   date := COALESCE(p_today, public.fund_today());
+  v_sent    integer := 0;
+  v_rec     record;
+  v_mgr     record;
+  v_payload jsonb;
+  v_count   integer;
+  v_reqs    integer;
+  v_review  date;
+BEGIN
+  FOR v_rec IN
+    SELECT fr.fund_request_id, fr.requester_staff_id, COALESCE(fr.request_number, '') AS request_number,
+           public.fund_request_deadline(fr.expense_period_month) AS deadline
+      FROM public.fund_requests fr
+     WHERE fr.status = 'fondos_entregados'
+       AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month) - 2
+                       AND public.fund_request_deadline(fr.expense_period_month)
+  LOOP
+    v_payload := jsonb_build_object(
+      'fund_request_id', v_rec.fund_request_id,
+      'request_number',  v_rec.request_number,
+      'deadline',        v_rec.deadline,
+      'deadline_label',  to_char(v_rec.deadline, 'DD/MM/YYYY'));
+
+    SELECT count(*) INTO v_count
+      FROM public.fund_request_expenses e
+     WHERE e.fund_request_id = v_rec.fund_request_id
+       AND e.status IN ('borrador', 'observado', 'rechazado');
+    IF v_count > 0 AND NOT public.notif_fund_sent_today(
+         'fund.expense.deadline_reminder', v_rec.requester_staff_id, v_rec.fund_request_id::text) THEN
+      PERFORM public.notify_staff('fund.expense.deadline_reminder', v_rec.requester_staff_id,
+                v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_count));
+      v_sent := v_sent + 1;
+    END IF;
+
+    FOR v_mgr IN
+      SELECT frw.manager_staff_id AS staff_id, count(*) AS n
+        FROM public.fund_request_expenses e
+        JOIN public.fund_request_work_orders frw
+          ON frw.fund_request_id = e.fund_request_id AND frw.wo_id = e.wo_id
+       WHERE e.fund_request_id = v_rec.fund_request_id
+         AND e.status = 'pendiente_aprobacion'
+         AND frw.manager_staff_id IS NOT NULL
+       GROUP BY frw.manager_staff_id
+    LOOP
+      IF NOT public.notif_fund_sent_today(
+           'fund.expense.approval_reminder', v_mgr.staff_id, v_rec.fund_request_id::text) THEN
+        PERFORM public.notify_staff('fund.expense.approval_reminder', v_mgr.staff_id,
+                  v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_mgr.n));
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- Contabilidad: en un día dado, todas las solicitudes en revisión comparten el mismo fin de
+  -- revisión (día 5 del mes en curso), así que un solo aviso con el total alcanza.
+  SELECT count(*), count(DISTINCT e.fund_request_id),
+         min(public.fund_request_review_deadline(fr.expense_period_month))
+    INTO v_count, v_reqs, v_review
+    FROM public.fund_request_expenses e
+    JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
+   WHERE fr.status = 'fondos_entregados'
+     AND e.status = 'aprobado_gerente'
+     AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
+                     AND public.fund_request_review_deadline(fr.expense_period_month);
+
+  IF v_count > 0 THEN
+    v_payload := jsonb_build_object(
+      'expense_count',  v_count,
+      'request_count',  v_reqs,
+      'deadline',       v_review,
+      'deadline_label', to_char(v_review, 'DD/MM/YYYY'));
+    IF v_today = v_review THEN
+      v_payload := v_payload || jsonb_build_object('context', 'last_day');
+    END IF;
+    FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+    LOOP
+      IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
+        PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN v_sent;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_auto_approval(text, uuid, integer, uuid[]);
+
+CREATE FUNCTION public.notif_emit_fund_auto_approval(
+    p_type_key text, p_fund_request_id uuid, p_count integer, p_managers uuid[])
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Resumen de una aprobación automática (job de plazos) para UNA solicitud, a sus tres
+-- audiencias: el solicitante, los gerentes (los de las OT afectadas en la etapa del gerente;
+-- todos los de la solicitud en la de Contabilidad) y los dos roles de Contabilidad. Cada uno
+-- con su redacción (payload.context).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+  v_rec       record;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count)
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NULL THEN
+    RETURN;
+  END IF;
+
+  PERFORM public.notify_staff(p_type_key, v_requester, p_fund_request_id::text,
+            v_payload || jsonb_build_object('context', 'requester'));
+
+  FOR v_rec IN
+    SELECT DISTINCT m AS staff_id
+      FROM unnest(COALESCE(p_managers, ARRAY[]::uuid[])) AS m
+     WHERE m IS NOT NULL AND m IS DISTINCT FROM v_requester
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'manager'));
+  END LOOP;
+
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'accounting'));
+  END LOOP;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_expired(uuid, integer);
+
+CREATE FUNCTION public.notif_emit_fund_expired(p_fund_request_id uuid, p_count integer)
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Al solicitante: cuántos gastos quedaron vencidos al pasar la fecha fin (no cuentan como gastado).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count,
+                            'deadline',        public.fund_request_deadline(fr.expense_period_month),
+                            'deadline_label',  to_char(public.fund_request_deadline(fr.expense_period_month), 'DD/MM/YYYY'))
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.expense.expired', v_requester, p_fund_request_id::text, v_payload);
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.notif_fund_sent_today(text, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_deadline_reminders(date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_auto_approval(text, uuid, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_expired(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.notif_emit_fund_deadline_reminders(date) TO service_role;
 
 
 -- =====================================================================

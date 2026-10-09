@@ -2250,7 +2250,21 @@
           "sent_to_support_review": "Gasto a revisión de respaldo",
           "resubmitted": "Gasto corregido reenviado",
           "reviewed": "Contabilidad aprobó tu gasto de {{currency}} {{amount}}",
-          "review_pending": "Gastos por revisar"
+          "review_pending": "Gastos por revisar",
+          "deadline_reminder": "{{expense_count}} gastos sin enviar o por corregir · plazo {{deadline_label}}",
+          "approval_reminder": "{{expense_count}} gastos por aprobar · plazo {{deadline_label}}",
+          "review_reminder": "{{expense_count}} gastos por revisar · plazo {{deadline_label}}",
+          "review_reminder_last_day": "Hoy vence la revisión de {{expense_count}} gastos",
+          "manager_auto_approved": "El sistema aprobó {{expense_count}} gastos",
+          "manager_auto_approved_requester": "El sistema aprobó {{expense_count}} de tus gastos (el gerente no decidió)",
+          "manager_auto_approved_manager": "No aprobaste a tiempo: el sistema aprobó {{expense_count}} gastos",
+          "manager_auto_approved_accounting": "El sistema aprobó {{expense_count}} gastos porque el gerente no lo hizo",
+          "review_auto_approved": "El sistema revisó {{expense_count}} gastos",
+          "review_auto_approved_requester": "El sistema revisó {{expense_count}} de tus gastos (Contabilidad no revisó)",
+          "review_auto_approved_manager": "El sistema revisó {{expense_count}} gastos de la solicitud",
+          "review_auto_approved_accounting": "No revisaste a tiempo: el sistema aprobó {{expense_count}} gastos sin penalidad",
+          "expired": "{{expense_count}} gastos vencidos: no se enviaron hasta el {{deadline_label}}",
+          "rejected_by_accounting": "Contabilidad rechazó tu gasto de {{currency}} {{amount}}"
         },
         "disbursement": {
           "done": "Desembolso de {{currency}} {{disbursed}} realizado",
@@ -2482,7 +2496,6 @@
     "totalRequested": "Monto Solicitado",
     "amount": "Monto",
     "currency": "Moneda",
-    "dueBackDate": "Fecha límite de devolución",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "selectWorkOrder": "Seleccionar OT",
@@ -2565,7 +2578,9 @@
       "cancelTitle": "Cancelar solicitud",
       "cancelBody": "La solicitud quedará cancelada y no podrá retomarse. Indique la razón.",
       "notesPlaceholderRequired": "Detalle el motivo (obligatorio)...",
-      "notesPlaceholderOptional": "Nota opcional para el solicitante..."
+      "notesPlaceholderOptional": "Nota opcional para el solicitante...",
+      "disburseExpired": "La fecha fin de esta solicitud ({{date}}) ya venció. Elige un mes nuevo para que el solicitante tenga plazo para rendir.",
+      "newMonth": "Mes nuevo"
     },
     "confirmDelete": {
       "title": "¿Eliminar solicitud?",
@@ -2623,8 +2638,12 @@
       "staffNotLinked": "Su cuenta no está vinculada a un registro de personal. Contacte al administrador.",
       "notesRequired": "Debe indicar el motivo",
       "disbursedAmountInvalid": "El monto entregado debe ser mayor a cero",
-      "disbursedAmountExceedsRequested": "El monto entregado no puede ser mayor al solicitado"
-    }
+      "disbursedAmountExceedsRequested": "El monto entregado no puede ser mayor al solicitado",
+      "newMonthRequired": "Elige un mes nuevo para desembolsar"
+    },
+    "periodMonth": "Mes de la solicitud",
+    "periodMonthPlaceholder": "Elige el mes",
+    "periodMonthHelp": "Gastos hasta el {{date}}"
   },
   "fundRequestEvent": {
     "title": "Historial",
@@ -2661,7 +2680,11 @@
       "expense_returned_by_accounting": "Devuelto por Contabilidad",
       "expense_resubmitted_to_accounting": "Reenviado a Contabilidad",
       "expense_reviewed": "Revisado por Contabilidad",
-      "expense_status_changed": "Cambio de estado del gasto"
+      "expense_status_changed": "Cambio de estado del gasto",
+      "expense_expired": "Vencido: no se envió hasta la fecha fin",
+      "expense_manager_auto_approved": "Aprobado automáticamente (el gerente no decidió)",
+      "expense_review_auto_approved": "Revisado automáticamente (Contabilidad no revisó)",
+      "expense_rejected_by_accounting": "Rechazado por Contabilidad"
     }
   },
   "fundRequestExpense": {
@@ -2716,8 +2739,7 @@
     "attachmentUrl": "Respaldo",
     "fileTooLarge": "El archivo debe pesar menos de 5MB",
     "fileTypes": "JPG, PNG, WebP o PDF (máx 5MB)",
-    "pendingLockHint": "Ya hay gastos enviados o aprobados en esta solicitud, por lo que no puedes registrar nuevos. El saldo no utilizado se resolverá en la liquidación.",
-    "returnedLockHint": "Contabilidad devolvió uno o más gastos por falta de respaldo. Ábrelos, sube el adjunto / factura y reenvíalos a Contabilidad.",
+    "returnedLockHint": "Contabilidad devolvió uno o más gastos. Ábrelos, corrige lo observado y reenvíalos a Contabilidad.",
     "totalSpent": "Total Gastado",
     "balance": "Saldo",
     "totalIvaPenalty": "Devoluciones (13%)",
@@ -2729,7 +2751,8 @@
       "aprobado_gerente": "Aprobado Gerente",
       "observado": "Observado",
       "rechazado": "Rechazado",
-      "revisado_asistente": "Revisado"
+      "revisado_asistente": "Revisado",
+      "vencido": "Vencido"
     },
     "actions": {
       "saveDraft": "Guardar",
@@ -2741,7 +2764,8 @@
       "review": "Revisar Factura",
       "validate": "Validar",
       "returnToRequester": "Devolver al solicitante",
-      "resendToAccounting": "Reenviar a Contabilidad"
+      "resendToAccounting": "Reenviar a Contabilidad",
+      "reject": "Rechazar"
     },
     "confirmSubmitAll": {
       "title": "¿Enviar todos los gastos a aprobación?",
@@ -2764,8 +2788,19 @@
       "invoiceCorrect": "Correcta",
       "invoiceIncorrect": "Incorrecta",
       "observationPlaceholder": "Describe el problema de la factura (dañada, nombre/NIT incorrecto)...",
-      "ivaWarning": "Se aplicará una devolución del 13% (IVA):",
-      "ivaOf": "13% de {{amount}} {{currency}}"
+      "ivaWarning": "Se aplicará una penalidad del 13% (IVA):",
+      "ivaOf": "13% de {{amount}} {{currency}}",
+      "reviewQuestion": "¿Qué hacer con este gasto?",
+      "reviewActions": {
+        "approve": "Aprobar",
+        "penalty": "Aprobar con penalidad 13%",
+        "return": "Devolver para corregir",
+        "reject": "Rechazar"
+      },
+      "reviewBeforeDeadlineHint": "Hasta la fecha fin ({{date}}) puedes devolverlo para que el solicitante lo corrija.",
+      "reviewAfterDeadlineHint": "La fecha fin ({{date}}) ya pasó: el solicitante no puede corregirlo, así que solo se aprueba o se rechaza.",
+      "returnWarning": "El solicitante podrá corregir todos los datos y reenviártelo hasta el {{date}}.",
+      "rejectWarning": "El gasto no se acepta y no cuenta como gastado."
     },
     "confirmDelete": {
       "title": "¿Eliminar gasto?",
@@ -2786,7 +2821,8 @@
       "rejectedSuccess": "Gasto rechazado",
       "reviewedSuccess": "Factura revisada",
       "returnedSuccess": "Gasto devuelto al solicitante para adjuntar el respaldo",
-      "resentToAccountingSuccess": "Gasto reenviado a Contabilidad"
+      "resentToAccountingSuccess": "Gasto reenviado a Contabilidad",
+      "rejectedByAccountingSuccess": "Gasto rechazado"
     },
     "errors": {
       "workOrderRequired": "Debe seleccionar una OT",
@@ -2796,7 +2832,17 @@
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
       "attachmentRequired": "Adjunte el respaldo antes de reenviar",
-      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado"
+      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado",
+      "dateOutOfRange": "La fecha del gasto debe estar entre el {{min}} y el {{max}}.",
+      "reviewNotesRequired": "Escribe el motivo."
+    },
+    "window": {
+      "open": "Tienes hasta el {{date}} para registrar y enviar tus gastos.",
+      "closed": "El plazo para registrar y enviar gastos venció el {{date}}."
+    },
+    "autoApproved": {
+      "manager": "Aprobado por: Sistema. El gerente no lo aprobó hasta la fecha fin.",
+      "review": "Revisado por: Sistema. Contabilidad no lo revisó hasta el día 5 (factura correcta, sin penalidad)."
     }
   },
   "scheduler": {
