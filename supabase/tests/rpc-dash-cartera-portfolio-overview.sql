@@ -13,9 +13,25 @@
 -- ('Harness Test Society' / 'Harness Test Practice', code=1) -- no las vuelve a crear.
 --
 -- Fechas relativas a "hoy" ((now() AT TIME ZONE 'America/La_Paz')::date, vía pg_temp.today()):
--- el fixture asume que "hoy" cae dentro del ejercicio fiscal 2026 (2025-10-01..2026-09-30),
--- igual que el resto del tablero -- si se re-ejecuta esta suite fuera de esa ventana, las
--- aserciones de KPI 1-4 (ancladas a p_fiscal_year=2026) dejarían de reflejar el fixture.
+-- las horas y los periodos del fixture viven alrededor de hoy (hasta today-36 y today-182), y
+-- las RPC usan por dentro el mismo reloj real, así que "hoy" NO se congela. El ejercicio fiscal
+-- (FY: 1 oct..30 sep, se nombra por el año en que termina) tampoco se fija: sale de hoy con
+-- pg_temp.fy(), pg_temp.fy_start() y pg_temp.fy_end(). La RPC no exige que (p_fy_start,
+-- p_fy_end) sea un FY calendario -- solo p_fy_start <= p_fy_end e año en 2000..2100 --, así
+-- que la ventana que el fixture necesita se arma así:
+--   * fy_end()   = fin real del FY de hoy (30 sep). Ninguna hora del fixture es futura.
+--   * fy_start() = LEAST(inicio real del FY, today-60). Pasados los primeros ~60 días del FY
+--     es el FY real; antes, se extiende hacia el FY anterior para que sigan adentro las horas
+--     de today-36 (te9) y una hora "dentro de la ventana pero fuera del periodo visible" (te3,
+--     que SIEMPRE queda antes de today-15). Con un FY estricto eso es imposible los primeros
+--     ~15 días de octubre. p_fiscal_year (fy()) solo se compara con engagements.anio_fiscal,
+--     que el fixture siembra con la misma función: las dos mitades siempre coinciden.
+-- Para probar el borde sin esperar fechas (solo local; sin estas variables, como en CI, rige
+-- el calendario real) el FY real se puede sustituir con variables de sesión (fechas ISO):
+--   inicio de FY:  PGOPTIONS="-c ems.test_fy_start=<hoy-3> -c ems.test_fy_end=<hoy+362>"
+--   mitad de FY:   PGOPTIONS="-c ems.test_fy_start=<hoy-150> -c ems.test_fy_end=<hoy+215>"
+--   fin de FY:     PGOPTIONS="-c ems.test_fy_start=<hoy-363> -c ems.test_fy_end=<hoy+2>"
+-- Solo mueven el borde del FY; "hoy" y el reloj de las RPC siguen siendo los reales.
 --
 -- Los triggers de freeze de TC (0722-156b) y de protección de líneas aprobadas (protect_
 -- approved_time_entries) se respetan cargando primero los datos (entries/cuotas) y recién
@@ -26,6 +42,36 @@ BEGIN;
 
 CREATE FUNCTION pg_temp.today() RETURNS date LANGUAGE sql STABLE AS $$
   SELECT (now() AT TIME ZONE 'America/La_Paz')::date
+$$;
+
+-- Inicio/fin del FY real que contiene hoy; ems.test_fy_start / ems.test_fy_end (opcionales,
+-- solo para simular los bordes en local, ver cabecera) lo sustituyen. Sin ellas, es el
+-- calendario real -- mismo corte (octubre) y misma zona horaria que getCurrentFiscalPeriod().
+CREATE FUNCTION pg_temp.real_fy_start() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    NULLIF(current_setting('ems.test_fy_start', true), '')::date,
+    make_date(EXTRACT(YEAR FROM pg_temp.today())::int
+              - CASE WHEN EXTRACT(MONTH FROM pg_temp.today()) >= 10 THEN 0 ELSE 1 END, 10, 1))
+$$;
+
+CREATE FUNCTION pg_temp.real_fy_end() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT COALESCE(
+    NULLIF(current_setting('ems.test_fy_end', true), '')::date,
+    make_date(EXTRACT(YEAR FROM pg_temp.today())::int
+              + CASE WHEN EXTRACT(MONTH FROM pg_temp.today()) >= 10 THEN 1 ELSE 0 END, 9, 30))
+$$;
+
+-- Año fiscal de hoy (nombrado por el año en que termina: 1 oct 2025..30 sep 2026 = 2026).
+CREATE FUNCTION pg_temp.fy() RETURNS integer LANGUAGE sql STABLE AS $$
+  SELECT EXTRACT(YEAR FROM pg_temp.real_fy_end())::int
+$$;
+
+CREATE FUNCTION pg_temp.fy_start() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT LEAST(pg_temp.real_fy_start(), pg_temp.today() - 60)
+$$;
+
+CREATE FUNCTION pg_temp.fy_end() RETURNS date LANGUAGE sql STABLE AS $$
+  SELECT pg_temp.real_fy_end()
 $$;
 
 DO $$
@@ -182,9 +228,9 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Encargos ───────────────────────────────────────────────────────────────────────────────
--- E1 Norte: OT Approved BOB, partner=u3, manager=u4, anio_fiscal=2026, funcion=1, cierra en
+-- E1 Norte: OT Approved BOB, partner=u3, manager=u4, anio_fiscal=fy(), funcion=1, cierra en
 --           "el mes que viene" (hito closing). E2: OT Approved BOB, partner=u3,
---           anio_fiscal=2025 (KPI2 previous_*), fecha_cierre hace 3 meses (NO debe aparecer en
+--           anio_fiscal=fy()-1 (KPI2 previous_*), fecha_cierre hace 3 meses (NO debe aparecer en
 --           Hitos). E3: OT Pending_Approval, manager=u4, risk_status='Approved' (para no
 --           duplicar pending_risk con E6). E4: funcion=0 (Administrativo), manager=u5, sin OT
 --           -> excluido de TODO el tablero pese a estado derivado 4. E5: override=7
@@ -212,17 +258,17 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    -- practica=1 (código de la práctica sembrada por el harness): E1 es el único encargo con
    -- matriz de trabajo (activity_worksheets), y enforce_worksheet_cell_practice_scope()
    -- (0825-183) exige engagements.practica resuelto para aceptar cualquier celda.
-   true, 2026, NULL, 1, '9aca27e0-0000-4000-8000-000000000001', 1),
+   true, pg_temp.fy(), NULL, 1, '9aca27e0-0000-4000-8000-000000000001', 1),
   ('70ca27e0-0000-4000-8000-000000000002', '60ca27e0-0000-4000-8000-000000000002',
    'CA27E0 E2', 'CA27E0-E2', 'active', pg_temp.today() - 90,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000003', NULL,
-   true, 2025, NULL, 1, '9aca27e0-0000-4000-8000-000000000001', NULL),
+   true, pg_temp.fy() - 1, NULL, 1, '9aca27e0-0000-4000-8000-000000000001', NULL),
   ('70ca27e0-0000-4000-8000-000000000003', '60ca27e0-0000-4000-8000-000000000003',
    'CA27E0 E3', 'CA27E0-E3', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    NULL, '50ca27e0-0000-4000-8000-000000000004',
-   true, 2026, NULL, 1, NULL, NULL),
+   true, pg_temp.fy(), NULL, 1, NULL, NULL),
   ('70ca27e0-0000-4000-8000-000000000004', '60ca27e0-0000-4000-8000-000000000003',
    'CA27E0 E4 no-cliente', 'CA27E0-E4', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
@@ -237,17 +283,17 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'CA27E0 E6 override', 'CA27E0-E6', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000003', NULL,
-   true, 2026, 4, 1, NULL, NULL),
+   true, pg_temp.fy(), 4, 1, NULL, NULL),
   ('70ca27e0-0000-4000-8000-000000000007', '60ca27e0-0000-4000-8000-000000000003',
    'CA27E0 E7 ajeno', 'CA27E0-E7', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000007', NULL,
-   true, 2026, NULL, 1, NULL, NULL),
+   true, pg_temp.fy(), NULL, 1, NULL, NULL),
   ('70ca27e0-0000-4000-8000-000000000009', '60ca27e0-0000-4000-8000-000000000003',
    'CA27E0 E9 borrador', 'CA27E0-E9', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000003', NULL,
-   true, 2026, NULL, 1, NULL, NULL),
+   true, pg_temp.fy(), NULL, 1, NULL, NULL),
   -- E8: solo para el Top 3 de Gastos sobregirado -- partner=u6 (senior, sin el permiso del
   -- RPC y sin protagonismo en ningún otro alcance probado) para no alterar los conteos ya
   -- fijados de u3/u4/u5/u7; SÍ suma al unfiltered_scope_count firm-wide de admin/
@@ -256,7 +302,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'CA27E0 E8 gastos', 'CA27E0-E8', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000006', '50ca27e0-0000-4000-8000-000000000009',
-   true, 2026, NULL, 1, NULL, NULL),
+   true, pg_temp.fy(), NULL, 1, NULL, NULL),
   -- E10 (SF-02, review.md iteración 1): finalizado CON datos reales -- partner=u3, OT
   -- Approved, presupuesto, horas en los tres estados y gastos en dos estados. Complementa a
   -- E5 (finalizado SIN OT, que cubre el camino de los ceros). manager=u9 de utilería:
@@ -271,7 +317,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'CA27E0 E10 finalizado con OT', 'CA27E0-E10', 'active', pg_temp.today() + 300,
    (SELECT society_id FROM public.society WHERE name = 'Harness Test Society'),
    '50ca27e0-0000-4000-8000-000000000003', '50ca27e0-0000-4000-8000-000000000009',
-   true, 2026, NULL, 1, NULL, NULL)
+   true, pg_temp.fy(), NULL, 1, NULL, NULL)
 ON CONFLICT (engagement_id) DO NOTHING;
 ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
 
@@ -434,7 +480,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ── Periodos semanales (staff, week_start_date) ───────────────────────────────────────────
 INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year) VALUES
   ('15ca27e0-0000-4000-8000-000000000001', '50ca27e0-0000-4000-8000-000000000004', pg_temp.today() - 7, 1, 2026),   -- P1 u4
-  ('15ca27e0-0000-4000-8000-000000000002', '50ca27e0-0000-4000-8000-000000000004', '2025-10-06', 2, 2025),          -- P2 u4 (dentro del FY, fuera del periodo visible)
+  ('15ca27e0-0000-4000-8000-000000000002', '50ca27e0-0000-4000-8000-000000000004', pg_temp.fy_start() + 1, 2, 2025),   -- P2 u4 (dentro de la ventana FY, fuera del periodo visible; label `year` inerte)
   ('15ca27e0-0000-4000-8000-000000000003', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 7, 1, 2026),   -- P3 u8
   ('15ca27e0-0000-4000-8000-000000000004', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 14, 2, 2026),  -- P4 u8 (rechazada)
   ('15ca27e0-0000-4000-8000-000000000006', '50ca27e0-0000-4000-8000-000000000008', pg_temp.today() - 35, 3, 2026),  -- P6 u8 (Cola: antigua, alert)
@@ -469,7 +515,7 @@ INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, e
    NULL, false),
   -- te3: u4, ACT1, P2, dentro del FY pero FUERA del periodo visible -> 4h aprobadas
   -- (aserción 11: "la hora fuera del periodo pero dentro del FY sí cuenta" para KPI 3)
-  ('16ca27e0-0000-4000-8000-000000000003', '2025-10-05', 4, '50ca27e0-0000-4000-8000-000000000004',
+  ('16ca27e0-0000-4000-8000-000000000003', pg_temp.fy_start(), 4, '50ca27e0-0000-4000-8000-000000000004',
    '70ca27e0-0000-4000-8000-000000000001', 'acca27e0-0000-4000-8000-000000000001',
    '15ca27e0-0000-4000-8000-000000000002', false),
   -- te4: u8, ACT1, P3 (aprobada) -> 5h aprobadas, dentro del periodo
@@ -661,7 +707,7 @@ BEGIN
   PERFORM set_config('request.jwt.claims', '', true);
   BEGIN
     PERFORM public.portfolio_overview(
-      pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+      pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
     RAISE EXCEPTION 'FAIL: sin sesión debía lanzar FORBIDDEN: no session';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'FORBIDDEN: no session%' THEN
@@ -677,7 +723,7 @@ BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(6));
   BEGIN
     PERFORM public.portfolio_overview(
-      pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+      pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
     RAISE EXCEPTION 'FAIL: senior (sin dashboard.portfolio.read) debía lanzar FORBIDDEN';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'FORBIDDEN: dashboard.portfolio.read%' THEN
@@ -692,9 +738,9 @@ DO $$
 DECLARE v_admin jsonb; v_sp jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v_admin := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_admin := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   PERFORM pg_temp.impersonate(pg_temp.u(2));
-  v_sp := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_sp := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
 
   IF v_admin->'meta'->>'scope_kind' <> 'firm' OR v_sp->'meta'->>'scope_kind' <> 'firm' THEN
     RAISE EXCEPTION 'FAIL: admin/senior_partner deben ver scope_kind=firm';
@@ -715,7 +761,7 @@ DO $$
 DECLARE v_partner jsonb; v_risk jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v_partner := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_partner := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF v_partner->'meta'->>'scope_kind' <> 'own' THEN
     RAISE EXCEPTION 'FAIL: partner scope_kind esperado own, obtuvo %', v_partner->'meta'->>'scope_kind';
   END IF;
@@ -737,7 +783,7 @@ BEGIN
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(7));
-  v_risk := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_risk := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF v_risk->'meta'->>'scope_kind' <> 'own' THEN
     RAISE EXCEPTION 'FAIL: risk_partner scope_kind esperado own, obtuvo %', v_risk->'meta'->>'scope_kind';
   END IF;
@@ -759,7 +805,7 @@ DO $$
 DECLARE v_mgr jsonb; v_ita jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v_mgr := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_mgr := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v_mgr->'meta'->>'unfiltered_scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: manager unfiltered_scope_count esperado 1 (solo E1), obtuvo %', v_mgr->'meta'->>'unfiltered_scope_count';
   END IF;
@@ -768,7 +814,7 @@ BEGIN
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(5));
-  v_ita := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_ita := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v_ita->'meta'->>'scope_count')::int <> 0 OR (v_ita->'meta'->>'unfiltered_scope_count')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: ita_manager (manager solo de E4, funcion 0) debía tener scope_count=0, obtuvo %', v_ita->'meta'->>'scope_count';
   END IF;
@@ -781,8 +827,8 @@ DO $$
 DECLARE v_unfiltered jsonb; v_filtered jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v_unfiltered := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date, NULL);
-  v_filtered := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date, pg_temp.c(1));
+  v_unfiltered := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end(), NULL);
+  v_filtered := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end(), pg_temp.c(1));
 
   IF (v_filtered->'meta'->>'scope_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: filtrando por el cliente de E1, scope_count esperado 1, obtuvo %', v_filtered->'meta'->>'scope_count';
@@ -804,7 +850,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date, '00000000-0000-4000-8000-000000000000'::uuid);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end(), '00000000-0000-4000-8000-000000000000'::uuid);
   IF (v->'meta'->>'scope_count')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: cliente inexistente debía dar scope_count=0, obtuvo %', v->'meta'->>'scope_count';
   END IF;
@@ -819,19 +865,19 @@ DO $$
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
   BEGIN
-    PERFORM public.portfolio_overview(pg_temp.today() + 1, pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date);
+    PERFORM public.portfolio_overview(pg_temp.today() + 1, pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
     RAISE EXCEPTION 'FAIL: p_start > p_end debía lanzar INVALID_RANGE';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'INVALID_RANGE%' THEN RAISE EXCEPTION 'FAIL: excepción inesperada: %', SQLERRM; END IF;
   END;
   BEGIN
-    PERFORM public.portfolio_overview(pg_temp.today() - 1, pg_temp.today(), 2026, '2026-09-30'::date, '2025-10-01'::date);
+    PERFORM public.portfolio_overview(pg_temp.today() - 1, pg_temp.today(), pg_temp.fy(), pg_temp.fy_end(), pg_temp.fy_start());
     RAISE EXCEPTION 'FAIL: p_fy_start > p_fy_end debía lanzar INVALID_FISCAL_RANGE';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'INVALID_FISCAL_RANGE%' THEN RAISE EXCEPTION 'FAIL: excepción inesperada: %', SQLERRM; END IF;
   END;
   BEGIN
-    PERFORM public.portfolio_overview(pg_temp.today() - 1, pg_temp.today(), 1900, '2025-10-01'::date, '2026-09-30'::date);
+    PERFORM public.portfolio_overview(pg_temp.today() - 1, pg_temp.today(), 1900, pg_temp.fy_start(), pg_temp.fy_end());
     RAISE EXCEPTION 'FAIL: p_fiscal_year fuera de rango debía lanzar INVALID_FISCAL_YEAR';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM NOT LIKE 'INVALID_FISCAL_YEAR%' THEN RAISE EXCEPTION 'FAIL: excepción inesperada: %', SQLERRM; END IF;
@@ -839,27 +885,27 @@ BEGIN
   RAISE NOTICE 'OK 8: p_start>p_end -> INVALID_RANGE; p_fy_start>p_fy_end -> INVALID_FISCAL_RANGE; p_fiscal_year fuera de rango -> INVALID_FISCAL_YEAR';
 END $$;
 
--- ── 9. KPI 1 (u3, FY2026): cuenta E1 y E6, no E2 (anio_fiscal 2025) ───────────────────────
+-- ── 9. KPI 1 (u3, FY actual): cuenta E1 y E6, no E2 (anio_fiscal fy()-1) ───────────────────────
 DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'kpis'->'engagements'->>'total')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: KPI1 total esperado 2 (E1,E6), obtuvo %', v->'kpis'->'engagements'->>'total';
   END IF;
   IF (v->'kpis'->'engagements'->>'approved')::int <> 2 OR (v->'kpis'->'engagements'->>'emergency')::int <> 0 THEN
     RAISE EXCEPTION 'FAIL: KPI1 approved/emergency inesperados: %', v->'kpis'->'engagements';
   END IF;
-  RAISE NOTICE 'OK 9: KPI1 con p_fiscal_year=2026 cuenta E1 y E6 (total=2, approved=2), no E2 (anio_fiscal 2025)';
+  RAISE NOTICE 'OK 9: KPI1 con p_fiscal_year=fy() cuenta E1 y E6 (total=2, approved=2), no E2 (anio_fiscal fy()-1)';
 END $$;
 
--- ── 10. KPI 2: clientes/servicios de FY2026 vs FY2025 ────────────────────────────────────
+-- ── 10. KPI 2: clientes/servicios del FY actual vs el anterior ────────────────────────────────────
 DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'kpis'->'clients_services'->>'clients')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: KPI2 clients esperado 2 (C1,C3 via E1/E6), obtuvo %', v->'kpis'->'clients_services'->>'clients';
   END IF;
@@ -867,9 +913,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL: KPI2 services esperado 1 (solo E1 tiene taxonomy_id), obtuvo %', v->'kpis'->'clients_services'->>'services';
   END IF;
   IF (v->'kpis'->'clients_services'->>'previous_clients')::int <> 1 OR (v->'kpis'->'clients_services'->>'previous_services')::int <> 1 THEN
-    RAISE EXCEPTION 'FAIL: KPI2 previous_* esperado 1/1 (E2, FY2025), obtuvo %', v->'kpis'->'clients_services';
+    RAISE EXCEPTION 'FAIL: KPI2 previous_* esperado 1/1 (E2, FY anterior), obtuvo %', v->'kpis'->'clients_services';
   END IF;
-  RAISE NOTICE 'OK 10: KPI2 clients=2/services=1 (FY2026); previous_clients=1/previous_services=1 (FY2025, E2)';
+  RAISE NOTICE 'OK 10: KPI2 clients=2/services=1 (FY actual); previous_clients=1/previous_services=1 (FY anterior, E2)';
 END $$;
 
 -- ── 11. KPI 3 (u4, categoría 'Gerente' con default_role_key='manager'): budget=12
@@ -881,7 +927,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF v->'kpis'->'my_role_hours'->>'role_label' <> 'Gerente'
      OR v->'kpis'->'my_role_hours'->>'role_key' <> 'manager' THEN
     RAISE EXCEPTION 'FAIL: KPI3(u4) debía identificarse como Gerente/manager, obtuvo %', v->'kpis'->'my_role_hours';
@@ -908,7 +954,7 @@ DO $$
 DECLARE v jsonb; v_k jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   v_k := v->'kpis'->'my_role_hours';
 
   IF v_k->>'role_label' <> 'Socio' OR v_k->'role_key' <> 'null'::jsonb THEN
@@ -937,7 +983,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'kpis'->'portfolio_progress'->>'budget')::numeric <> 53 THEN
     RAISE EXCEPTION 'FAIL: KPI4(u3) budget esperado 53 (E1 completo; E6 sin OT aprobada aporta 0), obtuvo %', v->'kpis'->'portfolio_progress'->>'budget';
   END IF;
@@ -959,7 +1005,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v := public.portfolio_overview('2025-10-01'::date, '2026-09-30'::date, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.fy_start(), pg_temp.fy_end(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'kpis'->'portfolio_progress'->>'budget')::numeric <> (v->'activities'->>'total_budget_hours')::numeric THEN
     RAISE EXCEPTION 'FAIL: portfolio_progress.budget (%) debía igualar activities.total_budget_hours (%) para u4 con periodo=FY completo',
       v->'kpis'->'portfolio_progress'->>'budget', v->'activities'->>'total_budget_hours';
@@ -976,7 +1022,7 @@ DO $$
 DECLARE v_u3 jsonb; v_u4 jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v_u3 := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_u3 := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v_u3->'kpis'->'review'->>'over_budget_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: over_budget_count(u3) esperado 1 (E6: 5h sobre 0h de presupuesto), obtuvo %', v_u3->'kpis'->'review'->>'over_budget_count';
   END IF;
@@ -988,7 +1034,7 @@ BEGIN
   END IF;
 
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v_u4 := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v_u4 := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v_u4->'kpis'->'review'->>'pending_wo_count')::int <> 1 THEN
     RAISE EXCEPTION 'FAIL: pending_wo_count(u4) esperado 1 (E3), obtuvo %', v_u4->'kpis'->'review'->>'pending_wo_count';
   END IF;
@@ -1004,7 +1050,7 @@ DO $$
 DECLARE v jsonb; v_act1 jsonb; v_act2 jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'activities'->>'total_budget_hours')::numeric <> 53 THEN
     RAISE EXCEPTION 'FAIL: total_budget_hours esperado 53 (v2, sin duplicar v1=10), obtuvo %', v->'activities'->>'total_budget_hours';
   END IF;
@@ -1027,7 +1073,7 @@ DO $$
 DECLARE v jsonb; v_ger jsonb; v_sen jsonb; v_sin jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   SELECT e INTO v_ger FROM jsonb_array_elements(v->'categories'->'items') e WHERE e->>'category_name' = 'Gerente';
   SELECT e INTO v_sen FROM jsonb_array_elements(v->'categories'->'items') e WHERE e->>'category_name' = 'Senior';
   SELECT e INTO v_sin FROM jsonb_array_elements(v->'categories'->'items') e WHERE e->>'category_name' = 'Sin Categoria Presupuestada';
@@ -1053,7 +1099,7 @@ DO $$
 DECLARE v jsonb; v_ger jsonb; v_sen jsonb; v_sin jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   SELECT e INTO v_ger FROM jsonb_array_elements(v->'staffing') e WHERE e->>'category_name' = 'Gerente';
   SELECT e INTO v_sen FROM jsonb_array_elements(v->'staffing') e WHERE e->>'category_name' = 'Senior';
   SELECT e INTO v_sin FROM jsonb_array_elements(v->'staffing') e WHERE e->>'category_name' = 'Sin Categoria Presupuestada';
@@ -1076,7 +1122,7 @@ DO $$
 DECLARE v jsonb; v_next7 jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
 
   IF (v->'collections'->'by_status'->'collected'->>'count')::int <> 1
      OR (v->'collections'->'by_status'->'collected'->>'amount_bob')::numeric <> 300 THEN
@@ -1117,7 +1163,7 @@ DO $$
 DECLARE v jsonb; v_top3 jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
 
   IF (v->'expenses'->>'executed_bob')::numeric <> 550 THEN
     RAISE EXCEPTION 'FAIL: expenses.executed_bob esperado 550 (E1: 400 revisado_asistente + E8: 150 revisado_asistente -- aprobado_gerente de E1 NO cuenta), obtuvo %', v->'expenses'->>'executed_bob';
@@ -1150,7 +1196,7 @@ DO $$
 DECLARE v jsonb; v_old jsonb; v_recent jsonb; v_bulk jsonb; v_items jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   v_items := v->'approval_queue'->'items';
 
   IF (v->'approval_queue'->>'total_hours')::numeric <> 8.5 THEN
@@ -1201,7 +1247,7 @@ BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
   -- Periodo deliberadamente angosto (no cubre ninguna de las fechas de hitos) para probar
   -- que Hitos IGNORA el selector de periodo (decisiones.md §7.2/§7.4).
-  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   v_milestones := v->'milestones';
 
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_milestones) e
@@ -1222,7 +1268,7 @@ BEGIN
   END IF;
 
   -- Filtro de Cliente: el cliente de E2/E3/... (C2) no debe traer el cierre de E1 (cliente C1)
-  v_filtered := (public.portfolio_overview(pg_temp.today(), pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date, pg_temp.c(2)))->'milestones';
+  v_filtered := (public.portfolio_overview(pg_temp.today(), pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end(), pg_temp.c(2)))->'milestones';
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_filtered) e
              WHERE e->>'kind' = 'closing' AND (e->>'engagement_id')::uuid = pg_temp.e(1)) THEN
     RAISE EXCEPTION 'FAIL: Hitos con p_client_id=C2 NO debía traer el cierre de E1 (cliente C1) -- Hitos respeta el filtro de Cliente';
@@ -1236,7 +1282,7 @@ DO $$
 DECLARE v jsonb; v_e1 jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   SELECT e INTO v_e1 FROM jsonb_array_elements(v->'engagement_rows') e WHERE (e->>'engagement_id')::uuid = pg_temp.e(1);
   IF v_e1 IS NULL THEN RAISE EXCEPTION 'FAIL: engagement_rows debía incluir E1'; END IF;
   IF (v_e1->>'budget_hours')::numeric <> 53 THEN
@@ -1262,7 +1308,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF v::text ILIKE '%"email"%' OR v::text ILIKE '%"id_number"%'
      OR v::text ILIKE '%"aud_reg_number"%' OR v::text ILIKE '%"auth_user_id"%' THEN
     RAISE EXCEPTION 'FAIL: el payload expone una clave PII cruda: %', v;
@@ -1287,7 +1333,7 @@ BEGIN
     NULL; -- esperado
   END;
 
-  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(v->'milestones') e
     WHERE e->>'kind' = 'assignment' AND (e->>'engagement_id')::uuid = pg_temp.e(2)
@@ -1307,7 +1353,7 @@ DO $$
 DECLARE v jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(3));
-  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
   IF (v->'finalized_summary'->>'count')::int <> 2 THEN
     RAISE EXCEPTION 'FAIL: finalized_summary.count esperado 2 (E5 sin OT + E10 con OT, ambos end_date=hoy), obtuvo %', v->'finalized_summary'->>'count';
   END IF;
@@ -1339,7 +1385,7 @@ BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(1));
   SELECT practica_id INTO v_practica_id FROM public.practicas WHERE code = 1;
 
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date, NULL, v_practica_id);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end(), NULL, v_practica_id);
   IF NOT pg_temp.has_eng(v->'engagement_rows', pg_temp.e(1)) THEN
     RAISE EXCEPTION 'FAIL: con p_practica_id=code1, E1 (practica=1) debía seguir visible';
   END IF;
@@ -1365,7 +1411,7 @@ BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(4));
   SELECT practica_id INTO v_aud FROM public.practicas WHERE code = 1;
   SELECT practica_id INTO v_p2  FROM public.practicas WHERE code = 2;
-  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, 2026, '2025-10-01'::date, '2026-09-30'::date);
+  v := public.portfolio_overview(pg_temp.today() - 15, pg_temp.today() + 10, pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
 
   SELECT count(*) INTO v_cnt
     FROM jsonb_array_elements(v->'categories'->'items') e WHERE e->>'category_name' = 'Socio';

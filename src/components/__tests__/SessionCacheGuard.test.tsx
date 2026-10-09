@@ -111,4 +111,42 @@ describe("SessionCacheGuard (Fase 7, plan v2 §A.4)", () => {
     await waitFor(() => expect(client.getQueryData(["probe"])).toBe("data-for-hydrating"));
     expect(clearSpy).not.toHaveBeenCalled();
   });
+
+  // A.5b (barrido de seguridad, bugs/seguridad/barrido_report.md §3): con RLS encendida en
+  // global_settings la política de `anon` entrega 3 claves y la de `authenticated` las 27. La
+  // queryKey es la misma antes y después del login y el staleTime real es de 60 s, así que sin la
+  // invalidación dirigida el login hereda la vista recortada y TAX_RATE cae a su default 0.13.
+  // Este test reproduce esa cadena con el staleTime de producción: sin el fix, falla.
+  it("(6) first login (null -> a) refetches global_settings instead of inheriting the anon view", async () => {
+    const CLAVES_ANON = ["LANGUAGE", "COMPACT_FONT", "ALLOWED_EMAIL_DOMAIN"];
+    const CLAVES_CON_SESION = [...CLAVES_ANON, "TAX_RATE", "REALIZATION_LIMIT"];
+
+    function Settings() {
+      useQuery({
+        queryKey: ["global_settings"],
+        queryFn: async () => (auth.user ? CLAVES_CON_SESION : CLAVES_ANON),
+        staleTime: 60_000, // el de App.tsx: es lo que impide el refetch espontáneo
+      });
+      return null;
+    }
+    const tree = () => (
+      <QueryClientProvider client={client}>
+        <SessionCacheGuard />
+        <Settings />
+      </QueryClientProvider>
+    );
+
+    const clearSpy = vi.spyOn(client, "clear");
+    const utils = render(tree());
+    await waitFor(() => expect(client.getQueryData(["global_settings"])).toEqual(CLAVES_ANON));
+
+    auth.user = { id: "user-a" };
+    utils.rerender(tree());
+
+    await waitFor(() =>
+      expect(client.getQueryData(["global_settings"])).toEqual(CLAVES_CON_SESION),
+    );
+    // La invalidación es dirigida: el resto de la caché de la sesión inicial sobrevive (caso 5).
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
 });

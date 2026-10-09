@@ -87,15 +87,14 @@ For destructive or irreversible operations, prepend:
 
 ## EMS 2.0 — Project-Specific Reference
 
-### Edge Functions (5 total)
+### Edge Functions (4 total)
 
 | Function | Purpose | JWT Config | Deploy Prompt |
 |----------|---------|-----------|---------------|
 | `manage-auth-user` | Admin-only user deletion with audit log | `verify_jwt = true` | `"Deploy the manage-auth-user edge function"` |
 | `assign-user-role` | Atomic first-user → admin role assignment (race-condition safe) | `verify_jwt = true` | `"Deploy the assign-user-role edge function"` |
 | `dashboard-data` | 8 analytics actions: time-value, engagement-kpis, staff-utilization, portfolio-risk, partner-leaderboard, my-week, timesheet-status, practice-pulse | Custom JWT validation (`verify_jwt = false`) | `"Deploy the dashboard-data edge function"` |
-| `test-minmax-settings` | Validates timesheet min/max hour constraints via RPC | — | `"Deploy the test-minmax-settings edge function"` |
-| `test-resubmission-state` | 10-scenario integration test suite for timesheet state machine | — | `"Deploy the test-resubmission-state edge function"` |
+| `test-resubmission-state` | Escenarios S1–S15 contra `submit_timesheet_safe` real | — | **No desplegar** — `service_role` sin comprobación de llamador (barrido de seguridad 02/10/2026) |
 
 ### Critical RPC Functions (PostgreSQL)
 

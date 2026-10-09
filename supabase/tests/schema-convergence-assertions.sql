@@ -28,6 +28,12 @@
 --                                            fixtures to invoke it end to end
 --                                            — that path is exercised for real
 --                                            in Rutas A/B/C against Docker).
+--
+-- Incidente RLS 2026-09-28 (bugs/seguridad/barrido_plan.md §5, Carril A):
+--   Sin escritura de roles por la Data API -> part 1, check 11
+--   Compuerta relrowsecurity (A.3)         -> part 1, check 12 (lista de
+--                                            excepciones = pendiente del Carril B)
+--   Sin escritura anónima (A.4)            -> part 1, check 13 (16 tablas + 5 vistas)
 
 BEGIN;
 
@@ -200,6 +206,301 @@ BEGIN
     RAISE EXCEPTION 'CONVERGENCE FAIL — falta (o no está validado) chk_engagements_manager_not_specialist en engagements (BUG 0828-185)';
   END IF;
   RAISE NOTICE 'PASS — engagements.society_id es NOT NULL y chk_engagements_manager_not_specialist está presente y validado (BUG 0828-185)';
+
+  -- 11. Carril A del incidente RLS 2026-09-28 (bugs/seguridad/barrido_plan.md §5, BAR-001/004/007):
+  --     ningún rol de API escribe user_roles, ni toca su respaldo, ni ejecuta assign_user_role_atomic;
+  --     service_role conserva todo. El SELECT de user_roles se mantiene a propósito (lo usa el frontend).
+  DECLARE
+    r    text;
+    priv text;
+  BEGIN
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+      IF to_regrole(r) IS NULL THEN CONTINUE; END IF;
+      FOREACH priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+        IF has_table_privilege(r, 'public.user_roles', priv) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — % retains % on public.user_roles (escalada de rol por la Data API, BAR-001)', r, priv;
+        END IF;
+      END LOOP;
+      IF has_any_column_privilege(r, 'public.user_roles', 'INSERT, UPDATE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains a column-level INSERT/UPDATE on public.user_roles (BAR-001)', r;
+      END IF;
+      -- A.5a acotó esto a authenticated: useAuth/useUserRole/StaffForm leen user_roles, pero todos
+      -- después del login. No existe consumidor anónimo (useUserRole tiene `enabled: !!user?.id` y la
+      -- lectura de useAuth ocurre tras setSession), así que anon pierde SELECT y el check 14 lo exige.
+      IF r = 'authenticated' AND NOT has_table_privilege(r, 'public.user_roles', 'SELECT') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % lost SELECT on public.user_roles (useAuth/useUserRole/StaffForm lo leen)', r;
+      END IF;
+      IF has_table_privilege(r, 'public.user_roles_backup_0220_56_20260224',
+                             'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+         OR has_any_column_privilege(r, 'public.user_roles_backup_0220_56_20260224', 'SELECT, INSERT, UPDATE, REFERENCES') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains a privilege on public.user_roles_backup_0220_56_20260224 (BAR-004)', r;
+      END IF;
+      IF has_function_privilege(r, 'public.assign_user_role_atomic(uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — % retains EXECUTE on public.assign_user_role_atomic(uuid) (BAR-007)', r;
+      END IF;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+       WHERE p.oid = 'public.assign_user_role_atomic(uuid)'::regprocedure
+         AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — PUBLIC retains EXECUTE on public.assign_user_role_atomic(uuid) (BAR-007)';
+    END IF;
+    IF to_regrole('service_role') IS NOT NULL AND NOT (
+         has_table_privilege('service_role', 'public.user_roles', 'SELECT')
+         AND has_table_privilege('service_role', 'public.user_roles', 'INSERT')
+         AND has_table_privilege('service_role', 'public.user_roles', 'UPDATE')
+         AND has_table_privilege('service_role', 'public.user_roles', 'DELETE')
+         AND has_table_privilege('service_role', 'public.user_roles_backup_0220_56_20260224', 'SELECT')
+         AND has_function_privilege('service_role', 'public.assign_user_role_atomic(uuid)', 'EXECUTE')) THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — service_role lost a privilege on user_roles / its backup / assign_user_role_atomic (Edge Functions dependen de él)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — Carril A: anon/authenticated sin escritura en user_roles (SELECT intacto), sin acceso al respaldo ni EXECUTE en assign_user_role_atomic; service_role intacto';
+
+  -- 12. Compuerta de RLS (barrido_plan.md §5 A.3): toda tabla de `public` (el esquema que publica la
+  --     Data API) tiene relrowsecurity, salvo las de esta lista. La causa raíz del incidente es que
+  --     nada verificaba pg_class.relrowsecurity: 177 políticas escritas, 16 tablas con política y RLS
+  --     apagado. La lista es el pendiente vivo del Carril B y solo puede encoger: falla también si
+  --     una excepción ya tiene RLS (hay que retirarla de acá) o si la tabla dejó de existir.
+  --     Responsable de cada entrada: por asignar (barrido_report.md §10).
+  DECLARE
+    v_exceptions text[] := ARRAY[
+      -- Grupo A — identidad y logs (P0)
+      'user_roles',                          -- BAR-001: escritura cerrada en el Carril A; falta RLS para la lectura
+      'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
+      'migration_run_log',                   -- sin políticas; log interno
+      -- Grupo B — núcleo de negocio (P0)
+      'staff',                               -- BAR-002/003: PII; hardening por columna anulado por anon
+      'clients',                             -- BAR-002
+      'engagements',                         -- BAR-002
+      'time_entries',                        -- BAR-002
+      'timer_entries',                       -- BAR-002
+      'timesheet_line_approvals',            -- BAR-002
+      'timesheet_periods',                   -- BAR-002
+      -- Grupo C — presupuestos y gastos
+      'activity_worksheet_cells',            -- BAR-002
+      'wo_budget_lines',                     -- BAR-002
+      'wo_expense_budget',                   -- BAR-002
+      -- Grupo D — configuración y catálogos (P1/P2)
+      -- global_settings salió de esta lista con A.5b: ya tiene RLS y su política de `anon` acota la
+      -- lectura sin sesión a las tres claves del login (check 15).
+      'activity_codes',                      -- BAR-002
+      'categories',                          -- BAR-002
+      'expense_types',                       -- BAR-002
+      'industries'                           -- BAR-002
+    ];
+    v_list text;
+  BEGIN
+    SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_list
+      FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity
+       AND c.relname <> ALL (v_exceptions);
+    IF v_list IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — public tables without RLS and not in the exception list: % (habilitar RLS con sus políticas, o registrar la excepción con justificación)', v_list;
+    END IF;
+
+    SELECT string_agg(e, ', ' ORDER BY e) INTO v_list
+      FROM unnest(v_exceptions) e
+     WHERE NOT EXISTS (
+       SELECT 1 FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+        WHERE ns.nspname = 'public' AND c.relname = e AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity);
+    IF v_list IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — stale RLS exception(s), the table now has RLS or no longer exists: % (retirarla de la lista)', v_list;
+    END IF;
+    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity except the % listed exceptions (Carril B pendiente)',
+      array_length(v_exceptions, 1);
+  END;
+
+  -- 13. A.4 (BAR-002/BAR-010): anon no escribe las tablas sin RLS ni las vistas con grant a anon.
+  --     Las vistas importan aparte: son simples, de postgres y sin security_invoker, así que la
+  --     escritura a través de ellas se autoriza contra el dueño y rodea el REVOKE de la tabla base.
+  --     SELECT de global_settings se conserva (la pantalla de login lo lee sin sesión).
+  IF to_regrole('anon') IS NOT NULL THEN
+    DECLARE
+      obj  text;
+      priv text;
+    BEGIN
+      FOREACH obj IN ARRAY ARRAY[
+        'activity_codes', 'activity_worksheet_cells', 'categories', 'clients', 'engagements',
+        'expense_types', 'global_settings', 'industries', 'migration_run_log', 'staff',
+        'time_entries', 'timer_entries', 'timesheet_line_approvals', 'timesheet_periods',
+        'wo_budget_lines', 'wo_expense_budget',
+        'clients_directory', 'engagement_wo_state', 'fund_request_selectable_work_orders',
+        'staff_directory', 'work_order_summary'
+      ] LOOP
+        IF to_regclass('public.' || obj) IS NULL THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — public.% not found (A.4 lista desactualizada)', obj;
+        END IF;
+        FOREACH priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+          IF has_table_privilege('anon', 'public.' || obj, priv) THEN
+            RAISE EXCEPTION 'CONVERGENCE FAIL — anon retains % on public.% (escritura anónima, BAR-002/010)', priv, obj;
+          END IF;
+        END LOOP;
+        IF has_any_column_privilege('anon', 'public.' || obj, 'INSERT, UPDATE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon retains a column-level INSERT/UPDATE on public.% (BAR-002/010)', obj;
+        END IF;
+      END LOOP;
+      IF NOT has_table_privilege('anon', 'public.global_settings', 'SELECT') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon lost SELECT on public.global_settings (la pantalla de login lo lee sin sesión)';
+      END IF;
+    END;
+    RAISE NOTICE 'PASS — A.4: anon sin escritura en las 16 tablas sin RLS ni en las 5 vistas; SELECT de global_settings intacto';
+  END IF;
+
+  -- 14. A.5a (lectura de BAR-001/002/003/010; escritura por RPC de BAR-008/009 y las dos halladas en
+  --     el triage de definidoras): anon no lee las 16 tablas sin RLS ni las 5 vistas, y no ejecuta las
+  --     cuatro SECURITY DEFINER que escriben sin validar al llamador. global_settings queda FUERA de
+  --     esta lista a propósito: la pantalla de login la lee sin sesión, así que su lectura anónima se
+  --     acota con RLS + política en cero_05 y el check 13 exige que el grant siga en pie.
+  IF to_regrole('anon') IS NOT NULL THEN
+    DECLARE
+      obj text;
+    BEGIN
+      FOREACH obj IN ARRAY ARRAY[
+        'activity_codes', 'activity_worksheet_cells', 'categories', 'clients', 'engagements',
+        'expense_types', 'industries', 'migration_run_log', 'staff', 'time_entries',
+        'timer_entries', 'timesheet_line_approvals', 'timesheet_periods', 'user_roles',
+        'wo_budget_lines', 'wo_expense_budget',
+        'clients_directory', 'engagement_wo_state', 'fund_request_selectable_work_orders',
+        'staff_directory', 'work_order_summary'
+      ] LOOP
+        IF to_regclass('public.' || obj) IS NULL THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — public.% not found (A.5a lista desactualizada)', obj;
+        END IF;
+        IF has_table_privilege('anon', 'public.' || obj, 'SELECT') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon recupera SELECT en public.% (lectura anónima, A.5a)', obj;
+        END IF;
+        -- has_table_privilege NO ve un GRANT SELECT(columna): es la vía por la que el hardening de
+        -- staff sobrevive, y sería también la de una regresión silenciosa de este check.
+        IF has_any_column_privilege('anon', 'public.' || obj, 'SELECT') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon recupera un SELECT por columna en public.% (A.5a)', obj;
+        END IF;
+      END LOOP;
+    END;
+
+    DECLARE
+      fn text;
+    BEGIN
+      FOREACH fn IN ARRAY ARRAY[
+        'public.update_timesheet_minmax_settings(numeric, numeric, numeric, numeric, integer)',
+        'public.submit_timesheet_safe(uuid, uuid, uuid[], uuid[], boolean)',
+        'public.sync_worksheet_to_wo_budget(uuid, uuid)',
+        'public.finalize_due_engagements()'
+      ] LOOP
+        IF has_function_privilege('anon', fn, 'EXECUTE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon recupera EXECUTE en % (escritura anónima por RPC, A.5a)', fn;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+           WHERE p.oid = fn::regprocedure AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+        ) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — PUBLIC recupera EXECUTE en % (A.5a)', fn;
+        END IF;
+      END LOOP;
+
+      -- Las tres con consumidor con sesión conservan authenticated (Settings.tsx,
+      -- useTimesheetMutations, useWorksheetMutations); que no validen al llamador es BAR-009/BAR-013 y
+      -- se corrige con validación interna en el Carril B, no retirándoles el grant acá.
+      IF to_regrole('authenticated') IS NOT NULL THEN
+        FOREACH fn IN ARRAY ARRAY[
+          'public.update_timesheet_minmax_settings(numeric, numeric, numeric, numeric, integer)',
+          'public.submit_timesheet_safe(uuid, uuid, uuid[], uuid[], boolean)',
+          'public.sync_worksheet_to_wo_budget(uuid, uuid)'
+        ] LOOP
+          IF NOT has_function_privilege('authenticated', fn, 'EXECUTE') THEN
+            RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated perdió EXECUTE en % (tiene consumidor con sesión)', fn;
+          END IF;
+        END LOOP;
+        -- finalize_due_engagements no tiene consumidor alguno: el job diario corre como postgres, su
+        -- dueño. Perder EXECUTE acá es lo que cierra BAR-008.
+        IF has_function_privilege('authenticated', 'public.finalize_due_engagements()', 'EXECUTE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated retiene EXECUTE en public.finalize_due_engagements() (BAR-008)';
+        END IF;
+      END IF;
+    END;
+    RAISE NOTICE 'PASS — A.5a: anon sin SELECT en las 16 tablas y 5 vistas, y sin EXECUTE en las 4 RPC que escriben sin validar al llamador';
+  END IF;
+
+  -- 15. A.5b: global_settings es la excepción de A.5a — la pantalla de login la lee sin sesión, así
+  --     que en vez de revocar se enciende RLS y se acota por política a las tres claves del login.
+  --     El check 12 ya cubre que la RLS esté encendida (la tabla salió de su lista de excepciones).
+  DECLARE
+    v_tenia_language boolean;
+    v_anon_ve        integer;
+    v_anon_no_ve     integer;
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+                WHERE ns.nspname = 'public' AND c.relname = 'global_settings'
+                  AND c.relforcerowsecurity) THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — global_settings con FORCE RLS: el dueño dejaría de estar exento y rompería las 14 funciones SECURITY DEFINER que la leen, el trigger guard_auth_lockout_settings y los jobs de pg_cron (A.5b)';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policy
+                    WHERE polrelid = 'public.global_settings'::regclass
+                      AND polname = 'Authenticated users can read settings') THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — falta la política de lectura de authenticated en global_settings: con RLS encendida la app entera se queda sin ajustes';
+    END IF;
+
+    -- Comprobación de COMPORTAMIENTO, no de texto: comparar el USING de la política sería frágil
+    -- (reordenar el IN o castear distinto no cambia el efecto). Se siembran las dos clases de fila,
+    -- se lee como anon y se limpia lo sembrado antes de cualquier RAISE.
+    IF to_regrole('anon') IS NOT NULL THEN
+      SELECT EXISTS (SELECT 1 FROM public.global_settings WHERE setting_key = 'LANGUAGE')
+        INTO v_tenia_language;
+      IF NOT v_tenia_language THEN
+        INSERT INTO public.global_settings (setting_key, setting_value, description)
+             VALUES ('LANGUAGE', 'es', 'sonda del check 15');
+      END IF;
+      INSERT INTO public.global_settings (setting_key, setting_value, description)
+           VALUES ('A5B_PROBE_NO_LOGIN', 'x', 'sonda del check 15');
+
+      PERFORM set_config('role', 'anon', true);
+      SELECT count(*) INTO v_anon_ve
+        FROM public.global_settings WHERE setting_key = 'LANGUAGE';
+      SELECT count(*) INTO v_anon_no_ve
+        FROM public.global_settings WHERE setting_key = 'A5B_PROBE_NO_LOGIN';
+      PERFORM set_config('role', 'none', true);
+
+      DELETE FROM public.global_settings WHERE setting_key = 'A5B_PROBE_NO_LOGIN';
+      IF NOT v_tenia_language THEN
+        DELETE FROM public.global_settings WHERE setting_key = 'LANGUAGE';
+      END IF;
+
+      IF v_anon_ve <> 1 THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon NO ve LANGUAGE en global_settings: la pantalla de login se quedaría sin idioma y sin validación de dominio de correo (A.5b)';
+      END IF;
+      IF v_anon_no_ve <> 0 THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon ve claves de global_settings fuera de las tres del login (A.5b)';
+      END IF;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — A.5b: global_settings con RLS sin FORCE; anon ve LANGUAGE y no ve el resto; authenticated conserva su política de lectura';
+
+  -- 16. BAR-016: una política sin cláusula TO rige para PUBLIC, que incluye a anon. Si además su
+  --     USING es `true`, la RLS de esa tabla no sirve de nada para un visitante sin cuenta. Es lo que
+  --     pasaba con "Authenticated users can read holidays", cuyo propio nombre decía la intención.
+  --     Las demás políticas sin TO del esquema filtran por auth.uid(), que es NULL sin sesión.
+  --     La política de anon de A.5b no cae acá: su USING filtra por setting_key.
+  DECLARE
+    v_list text;
+  BEGIN
+    IF to_regrole('anon') IS NOT NULL THEN
+      SELECT string_agg(c.relname || '.' || quote_ident(p.polname), ', ' ORDER BY c.relname, p.polname)
+        INTO v_list
+        FROM pg_policy p
+        JOIN pg_class c      ON c.oid = p.polrelid
+        JOIN pg_namespace ns ON ns.oid = c.relnamespace
+       WHERE ns.nspname = 'public'
+         AND p.polpermissive
+         AND p.polcmd IN ('r', '*')
+         AND (0 = ANY (p.polroles) OR to_regrole('anon')::oid = ANY (p.polroles))
+         AND pg_get_expr(p.polqual, p.polrelid) = 'true';
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — política(s) permisivas de lectura que alcanzan a anon con USING (true): % (agregarles TO authenticated, o justificar la lectura anónima)', v_list;
+      END IF;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — BAR-016: ninguna política de lectura abierta (USING true) alcanza a anon';
 END $$;
 
 -- =====================================================================

@@ -3,6 +3,12 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from "vites
 import { render, screen, waitFor } from "@/test/utils";
 import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { addDays, addYears, format } from "date-fns";
+
+// Computed at run time (not hardcoded) so the non-admin "no backdating" guard in
+// EngagementForm (start_date >= today) never trips as the test suite ages.
+const ENGAGEMENT_START_DATE = format(addDays(new Date(), 1), "yyyy-MM-dd");
+const ENGAGEMENT_END_DATE = format(addYears(addDays(new Date(), 1), 1), "yyyy-MM-dd");
 
 /**
  * 0625-149: EngagementForm — catalog-driven practica select.
@@ -491,8 +497,8 @@ describe("0625-148 — role-based service restriction", () => {
 
     // Set start and end dates via the mocked Calendar inputs (always visible via Popover mock)
     const calendars = screen.getAllByTestId("calendar-mock");
-    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
-    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+    fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
+    fireEvent.change(calendars[1], { target: { value: ENGAGEMENT_END_DATE } });
 
     // BUG 0817-180 / cambio suelto 2026-08-26: oficina, sociedad y función ya no son de
     // elección libre para un no-admin — vienen pre-llenadas/fijas desde la ficha y el rol
@@ -573,8 +579,8 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByRole("option", { name: "Ana Manager" }));
 
     const calendars = screen.getAllByTestId("calendar-mock");
-    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
-    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+    fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
+    fireEvent.change(calendars[1], { target: { value: ENGAGEMENT_END_DATE } });
 
     // BUG 0817-180 / cambio suelto 2026-08-26: oficina, sociedad y función ya no son de
     // elección libre para un no-admin — función queda fija en Cliente (1), que es justo lo
@@ -639,8 +645,8 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByRole("option", { name: "Ana Manager" }));
 
     const calendars = screen.getAllByTestId("calendar-mock");
-    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
-    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+    fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
+    fireEvent.change(calendars[1], { target: { value: ENGAGEMENT_END_DATE } });
 
     // admin: sociedad/oficina/práctica siguen siendo de elección libre.
     const oficina = screen.getByLabelText(/engagement\.oficina/);
@@ -723,8 +729,8 @@ describe("0625-148 — role-based service restriction", () => {
     await user.click(screen.getByRole("option", { name: "Ana Manager" }));
 
     const calendars = screen.getAllByTestId("calendar-mock");
-    fireEvent.change(calendars[0], { target: { value: "2026-10-01" } });
-    fireEvent.change(calendars[1], { target: { value: "2027-09-30" } });
+    fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
+    fireEvent.change(calendars[1], { target: { value: ENGAGEMENT_END_DATE } });
 
     const oficina = screen.getByLabelText(/engagement\.oficina/);
     await user.click(oficina);
