@@ -147,30 +147,53 @@ BEGIN
 
   PERFORM pg_temp.expect_err('gasto anterior al desembolso',
     pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f1', '2026-11-09'),
-    '%debe estar entre el 2026-11-10 y el 2026-11-15%');
-  PERFORM pg_temp.expect_err('gasto con fecha futura',
-    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f2', '2026-11-16'),
-    '%debe estar entre%');
-  PERFORM pg_temp.expect_err('rango que termina en el futuro',
-    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f3', '2026-11-10', '2026-11-16'),
-    '%debe estar entre%');
+    '%no puede ser anterior al 2026-11-10%');
+  -- "Del" no tiene tope: un gasto con fecha futura (incluso después de la fecha fin) vale.
+  PERFORM pg_temp.expect_ok('gasto con fecha futura',
+    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f2', '2026-12-20'));
+  DELETE FROM public.fund_request_expenses WHERE fre_id = 'b7d00000-0000-4000-8000-0000000000f2';
+  PERFORM pg_temp.expect_err('rango que termina antes de empezar',
+    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f3', '2026-11-12', '2026-11-11'),
+    '%no puede ser anterior%');
+  -- "Al" es libre hacia adelante: un hospedaje que sigue después de hoy (y de la fecha fin) vale.
+  PERFORM pg_temp.expect_ok('rango que termina en el futuro',
+    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f3', '2026-11-10', '2026-12-20'));
+  DELETE FROM public.fund_request_expenses WHERE fre_id = 'b7d00000-0000-4000-8000-0000000000f3';
   PERFORM pg_temp.expect_ok('gasto del día del desembolso',
     pg_temp.add_expense('b7d00000-0000-4000-8000-000000000001', '2026-11-10'));
-  RAISE NOTICE 'PASS — la fecha del gasto va del día del desembolso a hoy';
+  RAISE NOTICE 'PASS — la fecha del gasto va del día del desembolso en adelante';
 
-  -- Varios lotes: e1 enviado, e2 registrado y enviado mientras e1 sigue pendiente.
-  UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion', submitted_at = now()
-   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000001';
-  PERFORM pg_temp.expect_ok('segundo lote',
+  -- Varios lotes, uno a la vez: e2 queda en borrador y e1 sale solo (lote 1). Mientras el
+  -- gerente no decide el lote 1, no se envía e2 ni se registra otro gasto.
+  PERFORM pg_temp.expect_ok('borrador antes del primer envío',
     pg_temp.add_expense('b7d00000-0000-4000-8000-000000000002', '2026-11-12'));
   UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion', submitted_at = now()
-   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000002';
-  RAISE NOTICE 'PASS — se pueden enviar varios lotes';
+   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000001';
+  -- Cada envío por la API es su propia transacción: el lote 1 salió antes que esta.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.fund_request_expenses SET submitted_at = now() - interval '1 hour'
+   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000001';
+  PERFORM set_config('session_replication_role', 'origin', true);
+  PERFORM pg_temp.expect_err('enviar otro lote con uno pendiente',
+    $q$UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion'
+        WHERE fre_id = 'b7d00000-0000-4000-8000-000000000002'$q$,
+    '%esperando la decisión del gerente%');
+  PERFORM pg_temp.expect_err('registrar un gasto con un lote pendiente',
+    pg_temp.add_expense('b7d00000-0000-4000-8000-0000000000f5', '2026-11-12'),
+    '%esperando la decisión del gerente%');
+  PERFORM pg_temp.as_user(2);
+  UPDATE public.fund_request_expenses SET status = 'aprobado_gerente', manager_decided_at = now()
+   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000001';
+  PERFORM pg_temp.as_user(1);
+  PERFORM pg_temp.expect_ok('segundo lote cuando el gerente decidió el primero',
+    $q$UPDATE public.fund_request_expenses SET status = 'pendiente_aprobacion'
+        WHERE fre_id = 'b7d00000-0000-4000-8000-000000000002'$q$);
+  RAISE NOTICE 'PASS — varios lotes, uno a la vez: el siguiente sale cuando el gerente decide el anterior';
 
   -- ── 2. Gerente aprueba; Contabilidad devuelve; el solicitante corrige TODO ──
   PERFORM pg_temp.as_user(2);
   UPDATE public.fund_request_expenses SET status = 'aprobado_gerente', manager_decided_at = now()
-   WHERE fre_id IN ('b7d00000-0000-4000-8000-000000000001', 'b7d00000-0000-4000-8000-000000000002');
+   WHERE fre_id = 'b7d00000-0000-4000-8000-000000000002';
 
   PERFORM pg_temp.as_user(3);
   PERFORM pg_temp.expect_err('rechazar antes de la fecha fin',
@@ -404,6 +427,16 @@ BEGIN
     RAISE EXCEPTION 'CALENDAR FAIL — el desembolso no guardó el mes nuevo';
   END IF;
   RAISE NOTICE 'PASS — con la fecha fin vencida solo se desembolsa eligiendo un mes válido';
+
+  -- Recién desembolsada y sin gastos no se liquida hasta la fecha fin; al vencer, sí (devolución total).
+  PERFORM pg_temp.expect_err('liquidar sin gastos antes de la fecha fin',
+    $q$SELECT public.fund_request_settle('f7d00000-0000-4000-8000-000000000002', 'devolucion', 300, NULL)$q$,
+    '%todavía no tiene gastos%');
+  PERFORM pg_temp.on_day('2027-01-04');
+  PERFORM pg_temp.expect_ok('liquidar sin gastos al vencer la fecha fin',
+    $q$SELECT public.fund_request_settle('f7d00000-0000-4000-8000-000000000002', 'devolucion', 300, NULL)$q$);
+  PERFORM pg_temp.on_day('2026-12-04');
+  RAISE NOTICE 'PASS — sin gastos se liquida recién al vencer la fecha fin';
 
   PERFORM pg_temp.as_user(1);
   PERFORM pg_temp.expect_err('mes de la solicitud 6 meses adelante',

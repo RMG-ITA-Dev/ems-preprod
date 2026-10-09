@@ -102,7 +102,9 @@ export function FundRequestTimeline({ events, workOrderLabel, className }: Props
               <p className="text-sm font-medium">
                 {t(`fundRequestEvent.actions.${ev.action}`, { defaultValue: ev.action })}
                 {woCode && (
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">{woCode}</span>
+                  <span className="ml-2 font-mono text-xs text-muted-foreground">
+                    {t("fundRequestEvent.workOrder", { code: woCode })}
+                  </span>
                 )}
                 {ev.amount != null && (
                   <span className="ml-2 font-mono text-xs">{formatAmount(ev.amount)} BOB</span>

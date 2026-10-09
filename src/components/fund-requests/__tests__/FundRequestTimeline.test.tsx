@@ -5,7 +5,8 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (k: string, opts?: { name?: string }) => (opts?.name ? `${k}:${opts.name}` : k),
+    t: (k: string, opts?: { name?: string; code?: string }) =>
+      opts?.name ? `${k}:${opts.name}` : opts?.code ? `${k}:${opts.code}` : k,
     i18n: { language: "es" },
   }),
 }));
@@ -55,7 +56,7 @@ describe("FundRequestTimeline", () => {
         workOrderLabel={(id) => (id === "wo-1" ? "12-06" : undefined)}
       />,
     );
-    expect(screen.getByText("12-06")).toBeInTheDocument();
+    expect(screen.getByText("fundRequestEvent.workOrder:12-06")).toBeInTheDocument();
   });
 
   it("renders events in the order received and an empty state", () => {

@@ -2618,6 +2618,7 @@
       "payRequesterHelp": "The requester overspent: the request stays pending until the reimbursement is confirmed.",
       "firmQuestion": "Money was left over. How was it resolved?",
       "blockedHint": "There are {{count}} unfinished expense(s). You can't start settlement until all are reviewed or rejected.",
+      "awaitingExpensesHint": "There are no expenses yet. Settlement opens once the requester submits them and they are reviewed, or when the deadline ({{date}}) passes.",
       "resolution": {
         "sin_saldo": "No balance",
         "devolucion": "Employee return",
@@ -2730,6 +2731,7 @@
     "empty": "No activity recorded",
     "system": "System",
     "by": "by {{name}}",
+    "workOrder": "WO {{code}}",
     "report": {
       "dateTime": "Date and time",
       "action": "Action",
@@ -2741,7 +2743,7 @@
     "actions": {
       "created": "Request created",
       "submitted": "Submitted for approval",
-      "approved": "Approved (all work orders)",
+      "approved": "Request approved",
       "observed": "Observed",
       "rejected": "Rejected",
       "disbursed": "Funds disbursed",
@@ -2749,9 +2751,9 @@
       "closed": "Closed",
       "cancelled": "Cancelled",
       "status_changed": "Status changed",
-      "wo_approved": "Work order approved",
-      "wo_observed": "Work order observed",
-      "wo_rejected": "Work order rejected",
+      "wo_approved": "Approved by the work order manager",
+      "wo_observed": "Observed by the work order manager",
+      "wo_rejected": "Rejected by the work order manager",
       "wo_status_changed": "Work order status changed",
       "expense_submitted": "Sent to the manager",
       "expense_manager_approved": "Approved by the manager",
@@ -2822,6 +2824,7 @@
     "fileTooLarge": "The file must be smaller than 5MB",
     "fileTypes": "JPG, PNG, WebP or PDF (max 5MB)",
     "returnedLockHint": "Accounting returned one or more expenses. Open them, fix what was observed and resend them to Accounting.",
+    "pendingBatchHint": "Your batch of expenses is waiting for the manager's decision. Once it is approved, observed or rejected, you can record and send another batch.",
     "totalSpent": "Total Spent",
     "balance": "Balance",
     "totalIvaPenalty": "Returns (13%)",
@@ -2915,7 +2918,7 @@
       "noInvoiceNotesRequired": "Indicate which receipt is missing before returning",
       "attachmentRequired": "Attach the receipt before resending",
       "notPermittedOrChanged": "Change not applied: you lack permission or the expense already changed state",
-      "dateOutOfRange": "The expense date must be between {{min}} and {{max}}.",
+      "dateOutOfRange": "The expense date can't be before {{min}} (the disbursement day).",
       "reviewNotesRequired": "Write the reason."
     },
     "window": {

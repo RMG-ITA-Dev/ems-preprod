@@ -119,8 +119,9 @@ const FundRequestExpenses = () => {
   const isManagerScoped =
     isManagerOfThisFr && !isRequester && !canSettleExpenses && !seesWholeRequest;
   // Calendario (Fase 3): el solicitante registra y envía gastos desde el desembolso hasta la
-  // fecha fin (día 3 del mes siguiente al mes de la solicitud). Puede enviar VARIOS lotes:
-  // ya no hay bloqueo mientras otro lote esté en proceso. El servidor valida lo mismo.
+  // fecha fin (día 3 del mes siguiente al mes de la solicitud). Puede enviar VARIOS lotes, pero
+  // uno a la vez: mientras el gerente no decida el lote enviado, no registra ni envía otro. El
+  // servidor valida lo mismo (fre_enforce_window).
   const today = laPazToday();
   const deadline = fr ? fundRequestDeadline(fr.expense_period_month) : null;
   const windowOpen =
@@ -133,7 +134,8 @@ const FundRequestExpenses = () => {
   const hasReturnedByAssistant = (expenses ?? []).some(
     (e) => e.status === "observado" && e.returned_by_assistant,
   );
-  const canAddExpenses = isRequester && windowOpen;
+  const hasPendingBatch = (expenses ?? []).some((e) => e.status === "pendiente_aprobacion");
+  const canAddExpenses = isRequester && windowOpen && !hasPendingBatch;
 
   // Gastos que se pueden enviar en lote al gerente (excluye los devueltos por
   // contabilidad, que se reenvían individualmente).
@@ -147,7 +149,7 @@ const FundRequestExpenses = () => {
     [expenses],
   );
   // Enviar el lote (borradores y correcciones para el gerente) mientras la ventana esté abierta.
-  const canSubmitAll = isRequester && windowOpen && submittable.length > 0;
+  const canSubmitAll = isRequester && windowOpen && !hasPendingBatch && submittable.length > 0;
 
   const handleSubmitAll = async () => {
     if (!id) return;
@@ -466,6 +468,14 @@ const FundRequestExpenses = () => {
               </AlertDescription>
             </Alert>
           )
+        )}
+
+        {/* Banner: un lote a la vez; el gerente todavía no decidió el enviado */}
+        {isRequester && windowOpen && hasPendingBatch && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t("fundRequestExpense.pendingBatchHint")}</AlertDescription>
+          </Alert>
         )}
 
         {/* Banner: contabilidad devolvió gastos; se corrigen y reenvían uno por uno */}

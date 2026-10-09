@@ -2618,6 +2618,7 @@
       "payRequesterHelp": "El solicitante gastó de más: la solicitud queda pendiente hasta confirmar el reembolso.",
       "firmQuestion": "Sobró dinero. ¿Cómo se resolvió?",
       "blockedHint": "Hay {{count}} gasto(s) sin finalizar. No puedes marcar en liquidación hasta que todos estén revisados o rechazados.",
+      "awaitingExpensesHint": "Todavía no hay gastos. Se podrá liquidar cuando el solicitante los envíe y estén revisados, o al vencer la fecha fin ({{date}}).",
       "resolution": {
         "sin_saldo": "Sin saldo",
         "devolucion": "Devolución del empleado",
@@ -2730,6 +2731,7 @@
     "empty": "Sin movimientos registrados",
     "system": "Sistema",
     "by": "por {{name}}",
+    "workOrder": "OT {{code}}",
     "report": {
       "dateTime": "Fecha y hora",
       "action": "Acción",
@@ -2741,7 +2743,7 @@
     "actions": {
       "created": "Solicitud creada",
       "submitted": "Enviada a aprobación",
-      "approved": "Aprobada (todas las OT)",
+      "approved": "Solicitud aprobada",
       "observed": "Observada",
       "rejected": "Rechazada",
       "disbursed": "Fondos desembolsados",
@@ -2749,9 +2751,9 @@
       "closed": "Cerrada",
       "cancelled": "Cancelada",
       "status_changed": "Cambio de estado",
-      "wo_approved": "OT aprobada",
-      "wo_observed": "OT observada",
-      "wo_rejected": "OT rechazada",
+      "wo_approved": "Aprobada por el gerente de la OT",
+      "wo_observed": "Observada por el gerente de la OT",
+      "wo_rejected": "Rechazada por el gerente de la OT",
       "wo_status_changed": "Cambio de estado de la OT",
       "expense_submitted": "Enviado al gerente",
       "expense_manager_approved": "Aprobado por el gerente",
@@ -2822,6 +2824,7 @@
     "fileTooLarge": "El archivo debe pesar menos de 5MB",
     "fileTypes": "JPG, PNG, WebP o PDF (máx 5MB)",
     "returnedLockHint": "Contabilidad devolvió uno o más gastos. Ábrelos, corrige lo observado y reenvíalos a Contabilidad.",
+    "pendingBatchHint": "Tu lote de gastos está esperando la decisión del gerente. Cuando lo apruebe, observe o rechace, podrás registrar y enviar otro lote.",
     "totalSpent": "Total Gastado",
     "balance": "Saldo",
     "totalIvaPenalty": "Devoluciones (13%)",
@@ -2915,7 +2918,7 @@
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
       "attachmentRequired": "Adjunte el respaldo antes de reenviar",
       "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado",
-      "dateOutOfRange": "La fecha del gasto debe estar entre el {{min}} y el {{max}}.",
+      "dateOutOfRange": "La fecha del gasto no puede ser anterior al {{min}} (día del desembolso).",
       "reviewNotesRequired": "Escribe el motivo."
     },
     "window": {

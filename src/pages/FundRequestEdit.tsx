@@ -36,7 +36,12 @@ import { Info, Receipt } from "lucide-react";
 import { useFundRequestById } from "@/hooks/useFundRequests";
 import { useFundRequestExpenses } from "@/hooks/useFundRequestExpenses";
 import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
-import { isDeadlinePassed, laPazToday } from "@/lib/fundRequestCalendar";
+import {
+  formatDateDMY,
+  fundRequestDeadline,
+  isDeadlinePassed,
+  laPazToday,
+} from "@/lib/fundRequestCalendar";
 import {
   useUpdateFundRequest,
   useSubmitFundRequest,
@@ -61,10 +66,15 @@ const FundRequestEdit = () => {
   const { data: fr, isLoading } = useFundRequestById(id);
   const { data: expenses } = useFundRequestExpenses(id);
   const { data: events } = useFundRequestEvents(id);
-  // Historial de la solicitud y sus OTs; los eventos de cada gasto van en su diálogo.
+  // Historial de la solicitud y sus OTs; los eventos de cada gasto van en su diálogo. Con una
+  // sola OT, la aprobación de esa OT ES la aprobación de la solicitud: se muestra una sola línea.
+  const singleWorkOrder = (fr?.fund_request_work_orders ?? []).length <= 1;
   const requestEvents = useMemo(
-    () => (events ?? []).filter((e) => e.entity !== "expense"),
-    [events],
+    () =>
+      (events ?? []).filter(
+        (e) => e.entity !== "expense" && !(singleWorkOrder && e.action === "wo_approved"),
+      ),
+    [events, singleWorkOrder],
   );
   const workOrderLabel = (woId: string) =>
     (fr?.fund_request_work_orders ?? []).find((o) => o.wo_id === woId)?.work_order?.engagement
@@ -152,8 +162,15 @@ const FundRequestEdit = () => {
   const settlementBlocked = unfinishedExpenses.length > 0;
   // Asistente liquida (calcula + resuelve) cuando hay fondos entregados y no
   // quedan gastos a medio camino → envía al encargado (en_liquidacion).
+  // Sin gastos todavía no se liquida: hasta la fecha fin el solicitante puede registrarlos. Mismo
+  // criterio que expensePhase (pestaña "Listas para liquidar") y que fund_request_settle.
+  const awaitingExpenses = expensesLoaded && (expenses ?? []).length === 0 && !deadlinePassed;
   const canLiquidate =
-    can("expense_settlement.update") && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
+    can("expense_settlement.update") &&
+    fr?.status === "fondos_entregados" &&
+    expensesLoaded &&
+    !settlementBlocked &&
+    !awaitingExpenses;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
   // Fase 4: ya no hay "Cerrar" manual. Con saldo, la solicitud espera en en_liquidacion hasta que
   // Contabilidad confirma el movimiento de dinero; confirmarlo la cierra.
@@ -168,12 +185,21 @@ const FundRequestEdit = () => {
       ? !["borrador", "cerrado", "cancelado"].includes(fr.status)
       : can("fund_disbursement.update") &&
         ["aprobado_gerente", "fondos_entregados", "en_liquidacion"].includes(fr.status));
-  // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante),
-  // para solicitante, gerente de la FR, Contabilidad o admin.
+  // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante) para el solicitante,
+  // el gerente de la FR y admin. Contabilidad entra cuando algún gasto ya le llegó (aprobado por
+  // el gerente o revisado por ella), al vencer la fecha fin o con la solicitud ya liquidada: recién
+  // desembolsada no tiene nada que hacer ahí. Es una decisión de pantalla; la RLS no cambia.
+  const expensesReachedAccounting = (expenses ?? []).some(
+    (e) => ["aprobado_gerente", "revisado_asistente"].includes(e.status) || !!e.reviewed_at,
+  );
   const canViewExpenses =
     !!fr &&
     ["fondos_entregados", "en_liquidacion", "cerrado"].includes(fr.status) &&
-    (isRequester || isManagerOfThisFr || isAdmin || can("expense_settlement.read"));
+    (isRequester ||
+      isManagerOfThisFr ||
+      isAdmin ||
+      (can("expense_settlement.read") &&
+        (fr.status !== "fondos_entregados" || deadlinePassed || expensesReachedAccounting)));
 
   const isDirty = useMemo(() => {
     if (!values || !original) return false;
@@ -445,6 +471,16 @@ const FundRequestEdit = () => {
             <Info className="h-4 w-4" />
             <AlertDescription>
               {t("fundRequest.settlement.blockedHint", { count: unfinishedExpenses.length })}
+            </AlertDescription>
+          </Alert>
+        )}
+        {can("expense_settlement.update") && fr.status === "fondos_entregados" && awaitingExpenses && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {t("fundRequest.settlement.awaitingExpensesHint", {
+                date: formatDateDMY(fundRequestDeadline(fr.expense_period_month)),
+              })}
             </AlertDescription>
           </Alert>
         )}

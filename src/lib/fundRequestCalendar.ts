@@ -64,21 +64,18 @@ export function laPazDate(isoTimestamp: string): string {
 }
 
 /**
- * Rango válido para la fecha de un gasto: desde el día del desembolso hasta el menor entre hoy y
- * la fecha fin. null si todavía no hay desembolso o la ventana ya cerró.
+ * Rango válido para la fecha de un gasto: desde el día del desembolso en adelante (la fecha "Al"
+ * va desde la fecha "Del" en adelante). null si todavía no hay desembolso o la ventana para
+ * registrar ya cerró (pasó la fecha fin).
  */
 export function expenseDateRange(
   disbursedAt: string | null,
   month: string,
   today: string,
-): { min: string; max: string } | null {
+): { min: string } | null {
   if (!disbursedAt) return null;
-  const deadline = fundRequestDeadline(month);
-  if (today > deadline) return null;
-  const min = laPazDate(disbursedAt);
-  const max = today < deadline ? today : deadline;
-  if (max < min) return null;
-  return { min, max };
+  if (today > fundRequestDeadline(month)) return null;
+  return { min: laPazDate(disbursedAt) };
 }
 
 /** 'YYYY-MM-DD' → 'DD/MM/YYYY'. */

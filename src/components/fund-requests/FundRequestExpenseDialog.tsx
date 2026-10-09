@@ -188,15 +188,10 @@ export function FundRequestExpenseDialog({
     ) {
       return t("fundRequestExpense.errors.invalidDateRange");
     }
-    // Calendario: misma regla que el trigger fre_enforce_window.
-    if (dateRange) {
-      const outside = (d: string) => d < dateRange.min || d > dateRange.max;
-      if (outside(values.expense_date) || (values.expense_date_end && outside(values.expense_date_end))) {
-        return t("fundRequestExpense.errors.dateOutOfRange", {
-          min: formatDateDMY(dateRange.min),
-          max: formatDateDMY(dateRange.max),
-        });
-      }
+    // Calendario: misma regla que el trigger fre_enforce_window. "Del" va desde el día del
+    // desembolso en adelante; "Al", desde "Del" en adelante (validado arriba).
+    if (dateRange && values.expense_date < dateRange.min) {
+      return t("fundRequestExpense.errors.dateOutOfRange", { min: formatDateDMY(dateRange.min) });
     }
     return null;
   };
@@ -505,7 +500,6 @@ export function FundRequestExpenseDialog({
               currency={currency}
               disabled={!isEditable}
               minDate={dateRange?.min}
-              maxDate={dateRange?.max}
             />
 
             {/* Historial del gasto (P5): quién lo envió, aprobó, devolvió o revisó. */}

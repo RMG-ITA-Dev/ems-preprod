@@ -49,17 +49,11 @@ describe("fundRequestCalendar", () => {
     expect(isReviewDeadlinePassed("2026-11-01", "2026-12-06")).toBe(true);
   });
 
-  it("expense dates go from the disbursement day (La Paz) to min(today, end date)", () => {
+  it("expense dates start on the disbursement day (La Paz), with no upper limit", () => {
     // 10/11 15:20 en La Paz = 10/11 19:20 UTC.
     const disbursed = "2026-11-10T19:20:00Z";
-    expect(expenseDateRange(disbursed, "2026-11-01", "2026-11-15")).toEqual({
-      min: "2026-11-10",
-      max: "2026-11-15",
-    });
-    expect(expenseDateRange(disbursed, "2026-11-01", "2026-12-03")).toEqual({
-      min: "2026-11-10",
-      max: "2026-12-03",
-    });
+    expect(expenseDateRange(disbursed, "2026-11-01", "2026-11-15")).toEqual({ min: "2026-11-10" });
+    expect(expenseDateRange(disbursed, "2026-11-01", "2026-12-03")).toEqual({ min: "2026-11-10" });
   });
 
   it("has no range before disbursement or after the end date", () => {

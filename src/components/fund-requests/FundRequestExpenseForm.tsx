@@ -48,7 +48,6 @@ interface Props {
   onlyAttachment?: boolean;
   /** Calendario (Fase 3): primer y último día válidos para la fecha del gasto ('YYYY-MM-DD'). */
   minDate?: string;
-  maxDate?: string;
 }
 
 export function FundRequestExpenseForm({
@@ -60,7 +59,6 @@ export function FundRequestExpenseForm({
   bare = false,
   onlyAttachment = false,
   minDate,
-  maxDate,
 }: Props) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
@@ -199,7 +197,6 @@ export function FundRequestExpenseForm({
               type="date"
               value={values.expense_date || ""}
               min={minDate}
-              max={maxDate}
               onChange={(e) => onChange({ expense_date: e.target.value })}
               disabled={fieldsDisabled}
             />
@@ -213,7 +210,6 @@ export function FundRequestExpenseForm({
               type="date"
               value={values.expense_date_end || ""}
               min={values.expense_date || minDate}
-              max={maxDate}
               onChange={(e) => onChange({ expense_date_end: e.target.value })}
               disabled={fieldsDisabled}
             />

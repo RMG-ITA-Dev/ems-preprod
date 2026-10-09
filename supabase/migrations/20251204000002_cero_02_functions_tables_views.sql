@@ -2371,8 +2371,10 @@ CREATE FUNCTION public.fre_enforce_window() RETURNS trigger
     AS $$
 -- Calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3). Ventana del SOLICITANTE: desde
 -- el día del desembolso hasta la fecha fin (día 3 del mes siguiente al mes elegido). Fuera de
--- ella no registra, no edita, no envía ni reenvía; y la fecha del gasto debe caer entre el día
--- del desembolso y el menor entre hoy y la fecha fin. El GERENTE decide hasta la fecha fin.
+-- ella no registra, no edita, no envía ni reenvía. La fecha del gasto ("Del") va desde el día del
+-- desembolso en adelante, y la fecha "Al" de un gasto de varios días, desde "Del" en adelante.
+-- Un lote a la vez: mientras el gerente no decida el lote enviado, el solicitante no registra ni
+-- envía otro. El GERENTE decide hasta la fecha fin.
 -- Contabilidad tiene sus propias reglas en fund_request_expense_review. Exentos: admin, el job
 -- de plazos y los procesos sin sesión (seed).
 DECLARE
@@ -2383,7 +2385,7 @@ DECLARE
   v_today DATE := public.fund_today();
   v_deadline DATE;
   v_min DATE;
-  v_max DATE;
+  v_new_batch BOOLEAN := false;
 BEGIN
   IF COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' OR v_me IS NULL OR is_admin() THEN
     RETURN NEW;
@@ -2404,11 +2406,30 @@ BEGIN
       RAISE EXCEPTION 'La solicitud todavía no tiene fondos desembolsados';
     END IF;
     v_min := (v_disbursed AT TIME ZONE 'America/La_Paz')::date;
-    v_max := LEAST(v_today, v_deadline);
-    IF NEW.expense_date < v_min OR NEW.expense_date > v_max
-       OR (NEW.expense_date_end IS NOT NULL
-           AND (NEW.expense_date_end < v_min OR NEW.expense_date_end > v_max)) THEN
-      RAISE EXCEPTION 'La fecha del gasto debe estar entre el % y el %', v_min, v_max;
+    IF NEW.expense_date < v_min THEN
+      RAISE EXCEPTION 'La fecha del gasto no puede ser anterior al % (día del desembolso)', v_min;
+    END IF;
+    IF NEW.expense_date_end IS NOT NULL AND NEW.expense_date_end < NEW.expense_date THEN
+      RAISE EXCEPTION 'La fecha "Al" (%) no puede ser anterior a la fecha "Del" (%)',
+        NEW.expense_date_end, NEW.expense_date;
+    END IF;
+    -- Un lote a la vez: registrar un gasto o enviar uno al gerente solo si no hay otro lote
+    -- esperando su decisión. Los gastos de un mismo envío salen con submitted_at = now() (la hora
+    -- de la transacción, la fija este trigger), así que no se bloquean entre sí.
+    IF TG_OP = 'INSERT' THEN
+      v_new_batch := true;
+    ELSIF NEW.status = 'pendiente_aprobacion' AND OLD.status IS DISTINCT FROM 'pendiente_aprobacion' THEN
+      v_new_batch := true;
+      NEW.submitted_at := now();
+    END IF;
+    IF v_new_batch AND EXISTS (
+      SELECT 1 FROM public.fund_request_expenses x
+       WHERE x.fund_request_id = NEW.fund_request_id
+         AND x.fre_id <> NEW.fre_id
+         AND x.status = 'pendiente_aprobacion'
+         AND x.submitted_at IS DISTINCT FROM now()
+    ) THEN
+      RAISE EXCEPTION 'Hay un lote de gastos esperando la decisión del gerente; podrás registrar o enviar más cuando lo decida';
     END IF;
   ELSIF TG_OP = 'UPDATE'
         AND OLD.status = 'pendiente_aprobacion'
@@ -3257,6 +3278,14 @@ DECLARE
   v_rows JSONB;
   v_item JSONB;
 BEGIN
+  -- p_today mueve el calendario: aprobaría y vencería todo con una fecha futura. Solo se acepta en
+  -- una sesión de superusuario (el harness de pruebas), la misma regla que fund_today(). El job
+  -- diario la llama sin argumento. Además, ningún rol de API la ejecuta (cero_06).
+  IF p_today IS NOT NULL
+     AND NOT COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false) THEN
+    RAISE EXCEPTION 'p_today solo se admite en pruebas' USING ERRCODE = '42501';
+  END IF;
+
   PERFORM set_config('app.fund_deadlines', 'on', true);
 
   -- Cada paso junta lo que cambió por solicitud (y los gerentes de las OT afectadas) para
@@ -3451,6 +3480,15 @@ BEGIN
                AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month)))
   ) THEN
     RAISE EXCEPTION 'Hay gastos sin finalizar; no se puede liquidar';
+  END IF;
+
+  -- Sin gastos todavía no se liquida: hasta la fecha fin el solicitante puede registrarlos. Al
+  -- vencer, se liquida igual (devolución total). Mismo criterio que expensePhase en la UI.
+  IF NOT EXISTS (SELECT 1 FROM public.fund_request_expenses WHERE fund_request_id = p_fund_request_id)
+     AND public.fund_today() <= (SELECT public.fund_request_deadline(expense_period_month)
+                                   FROM public.fund_requests
+                                  WHERE fund_request_id = p_fund_request_id) THEN
+    RAISE EXCEPTION 'La solicitud todavía no tiene gastos; se liquida cuando estén revisados o al vencer la fecha fin';
   END IF;
 
   -- El snapshot se calcula AQUÍ, no lo manda el cliente: solo lo validado cuenta como gastado.

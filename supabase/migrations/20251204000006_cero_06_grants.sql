@@ -2065,3 +2065,45 @@ REVOKE EXECUTE ON FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uui
 --     frontend ni en las Edge Functions, y el job diario que la ejecuta corre como postgres, que es su
 --     dueño. Esto cierra BAR-008 por completo.
 REVOKE EXECUTE ON FUNCTION public.finalize_due_engagements() FROM PUBLIC, anon, authenticated;
+
+-- Plan de contabilidad de gastos (docs/plan-contabilidad-gastos.md, Fases 1-5): objetos nuevos que
+-- nacieron después del Carril A. Mismo mecanismo: la plataforma les concede privilegios a anon y
+-- authenticated al crearlos, y una función nace ejecutable por PUBLIC, así que el estado final se
+-- fija con REVOKE explícitos. Los verifica el check 17 de schema-convergence-assertions.sql.
+--
+-- Bitácora: solo la escriben triggers SECURITY DEFINER; authenticated solo lee (RLS fr_events_select).
+REVOKE ALL ON TABLE public.fund_request_events FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.fund_request_events FROM authenticated;
+-- RPC contables y de gastos por OT: validan has_permission() adentro; sin sesión fallan igual, pero
+-- anon no debe poder ejecutarlas.
+REVOKE EXECUTE ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_work_order_expense_summary() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) FROM PUBLIC, anon;
+-- Job de plazos: SECURITY DEFINER que aprueba y vence en lote. Ningún rol de API la ejecuta: corre
+-- como postgres desde pg_cron (y service_role conserva su grant).
+REVOKE EXECUTE ON FUNCTION public.fund_request_run_deadlines(p_today date) FROM PUBLIC, anon, authenticated;
+-- Auxiliares de solo lectura. authenticated las necesita: las políticas RLS llaman a
+-- fr_accounting_sees, y fr_validate_period_month (SECURITY INVOKER) llama a
+-- fund_request_month_is_selectable y fund_today con los permisos de quien escribe.
+REVOKE EXECUTE ON FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_today() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_deadline(p_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_review_deadline(p_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_month_is_selectable(p_month date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_today() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_deadline(p_month date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_review_deadline(p_month date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_month_is_selectable(p_month date) TO authenticated, service_role;
+-- Funciones de trigger: PostgREST no las expone y disparar un trigger no exige EXECUTE, pero nacen
+-- ejecutables por PUBLIC y se cierran igual.
+REVOKE EXECUTE ON FUNCTION public.fr_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fr_wo_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fre_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fre_enforce_window() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fr_validate_period_month() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.validate_expense_type_active() FROM PUBLIC, anon;
