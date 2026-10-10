@@ -1,8 +1,9 @@
 # Registro de seguridad de EMS 2.0 — acceso a la API de Supabase (RLS)
 
-**Última actualización:** 08/10/2026
-**Estado:** en curso. La exposición a visitantes sin cuenta está cerrada; la exposición entre empleados con
-sesión sigue abierta (Carril B).
+**Última actualización:** 09/10/2026
+**Estado:** en curso. La exposición a visitantes sin cuenta está cerrada (Carril A). El Carril B, que
+restringe lo que hace cada empleado con sesión, avanzó en B0 (medición por rol) y B1 (validación en tres
+funciones y permisos de riesgos); sigue abierta la lectura de más por la API (B2 a B6).
 **Responsable de la remediación:** Marcelo Ovando (operador), con asistencia de Claude Code y Codex.
 **Alcance:** base de datos y API de Supabase de EMS 2.0 en los ambientes Test (`slkqdcwwvmjtcbakajib`),
 Dev 2.0 (`oapgycqovzqsucliwbpu`) y producción (`xcdcxtduotwgwmhxvsiz`, vacía). Lovable
@@ -29,8 +30,13 @@ porque contiene inventarios de un ambiente vivo. Los identificadores `BAR-0xx` s
 - **Qué está arreglado (01–08/10/2026).** El visitante sin cuenta ya no lee, no escribe ni ejecuta nada
   más que tres claves de configuración del login. Está en las migraciones, protegido por CI y aplicado y
   verificado en Test y Dev 2.0. Producción nacerá así.
-- **Qué falta.** Restringir lo que cada rol con sesión puede ver y hacer (Carril B). Hasta entonces, un
-  empleado cualquiera sigue pudiendo leer y escribir de más por la API.
+- **Qué está arreglado en el Carril B (09/10/2026).** Un empleado ya no puede aprobarse su propia hoja,
+  enviar la de otro, cambiar la configuración de horas de la firma ni reescribir el presupuesto de una OT
+  ajena (BAR-009, 014 y 015). Los dos roles de riesgo ven todas las OT y pueden aprobar o rechazar riesgos.
+  Probado en Dev 2.0; falta la compuerta de CI y registrarlo con `db push`.
+- **Qué falta.** Restringir lo que cada rol con sesión puede **leer** y escribir directo en las tablas (B2 a
+  B6). Hasta entonces, un empleado cualquiera sigue pudiendo ver de más por la API: tarifas, clientes,
+  encargos, horas ajenas y el mapa de roles.
 
 ---
 
@@ -78,6 +84,7 @@ comprobaron BAR-013, BAR-015 y BAR-009 (ver Parte I).
 | 07/10/2026 | Security Advisor de Test: las 34 alertas críticas coinciden con la lista conocida. BAR-018. |
 | 08/10/2026 | Dev 2.0: bloque único de A.5 aplicado y verificado. Arneses retirados de Dev 2.0. BAR-015 y BAR-009 reproducidos con una cuenta de asistente. |
 | 09/10/2026 | Dev 2.0: se detecta que faltaban los bloques del Carril A y de A.4; se aplican y verifican. Dev 2.0 al día con las 44 migraciones y su ledger reparado. Foto «antes» del Carril B con la regresión por rol. |
+| 09/10/2026 | **Carril B, B1** en Dev 2.0: validación del llamador en tres funciones, `timesheet.self_approve` sembrado y permisos de los roles de riesgo. Los ataques de BAR-015 y BAR-009 repetidos con la misma cuenta de asistente: rechazados. Flujos normales probados en la app. |
 
 ---
 
@@ -96,7 +103,7 @@ Se califica por consecuencia, no por quién ataca (plan de barrido, §7):
 
 ### Tabla resumen
 
-| ID | Fecha | Falla | Severidad | Estado al 08/10/2026 |
+| ID | Fecha | Falla | Severidad | Estado al 09/10/2026 |
 |---|---|---|---|---|
 | BAR-001 | 30/09 | `user_roles` sin RLS y escribible: cualquier sesión podía cambiar su propio rol | Crítica | Escritura cerrada para todos; lectura de `anon` cerrada; empleados aún leen el mapa completo |
 | BAR-002 | 30/09 | 16 tablas de negocio sin RLS con escritura anónima | Crítica | Cerrado para `anon`; abierto para empleados |
@@ -106,13 +113,13 @@ Se califica por consecuencia, no por quién ataca (plan de barrido, §7):
 | BAR-006 | 30/09 | Catálogo final distinto de los recuentos del plan | Baja | Documental |
 | BAR-007 | 30/09 | `assign_user_role_atomic` sin validar al llamador (admin si el mapa está vacío) | Crítica | **Cerrado** |
 | BAR-008 | 30/09 | `finalize_due_engagements` ejecutable por cualquiera | Media | **Cerrado** |
-| BAR-009 | 30/09 | `sync_worksheet_to_wo_budget` reescribe el presupuesto de cualquier OT | Crítica | Cerrado para `anon`; **abierto y reproducido** para empleados |
+| BAR-009 | 30/09 | `sync_worksheet_to_wo_budget` reescribe el presupuesto de cualquier OT | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
 | BAR-010 | 30/09 | Vistas `SECURITY DEFINER` que esquivan los permisos de la tabla | Crítica | Cerrado para `anon`; abierto para empleados |
 | BAR-011 | 30/09 | El entorno de pruebas local no replica todos los privilegios de Supabase | Baja | Limitación conocida |
 | BAR-012 | 30/09 | El bootstrap del harness omite Auth, Storage y seeds | Baja | Limitación conocida |
 | BAR-013 | 02/10 | Cualquier empleado lee los datos de toda la firma por la API | Alta | Abierto (la escritura de `global_settings` sí se cerró) |
-| BAR-014 | 02/10 | `update_timesheet_minmax_settings` cambia la configuración de horas sin validar | Crítica | Cerrado para `anon`; abierto para empleados |
-| BAR-015 | 02/10 | `submit_timesheet_safe` deja que el llamador se autoapruebe la hoja | Crítica | Cerrado para `anon`; **abierto y reproducido** para empleados |
+| BAR-014 | 02/10 | `update_timesheet_minmax_settings` cambia la configuración de horas sin validar | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
+| BAR-015 | 02/10 | `submit_timesheet_safe` deja que el llamador se autoapruebe la hoja | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
 | BAR-016 | 02/10 | Política de `holidays` sin `TO`: regía también para `anon` | Baja | **Cerrado** |
 | BAR-017 | 02/10 | `anon` conserva `TRUNCATE` en ~24 tablas con RLS | Media | Abierto; decisión pendiente |
 | BAR-018 | 07/10 | 12 funciones sin `search_path` fijo | Baja | Abierto |
@@ -162,7 +169,10 @@ sean del mismo encargo.
 *Cómo se comprobó (08/10, Dev 2.0, datos de prueba):* con una cuenta de asistente sin asignación al encargo,
 una sola llamada por la API reescribió el presupuesto de una OT **aprobada**: cambiaron las categorías y el
 subtotal pasó de 17.200 a 20.250 BOB. Además, una hoja de otro encargo quedó vinculada a esa OT. Respuesta:
-`204`, sin rastro.
+`204`, sin rastro. Se revirtió y se verificó el 09/10.
+*Arreglo (09/10, B1):* la hoja y la OT tienen que ser del mismo encargo, y quien llama necesita
+`work_order.create` o `work_order.update` con su alcance (o ser admin). La misma llamada responde ahora
+`400 WORKSHEET_WO_ENGAGEMENT_MISMATCH` y la OT queda intacta; el gerente sigue pudiendo resincronizar.
 
 **BAR-010 — vistas que esquivan permisos (Crítica).** `clients_directory`, `staff_directory`,
 `engagement_wo_state` y `fund_request_selectable_work_orders` son vistas `SECURITY DEFINER`, propiedad de
@@ -182,8 +192,9 @@ seguir. Las tarifas de `categories` no se resuelven solo con RLS (filtra filas, 
 
 **BAR-014 — configuración de horas sin control (Crítica).** `update_timesheet_minmax_settings` cambia para
 toda la firma los mínimos y máximos de horas y los días laborables, sin comprobar al llamador. Corre como
-`postgres`, así que ni los permisos de tabla ni la RLS la alcanzan. Debe quedar solo para quien tiene
-`global_settings.update` (hoy, solo admin).
+`postgres`, así que ni los permisos de tabla ni la RLS la alcanzan.
+*Arreglo (09/10, B1):* exige `global_settings.update` (hoy, solo admin), la misma regla que la escritura de
+la tabla. El admin sigue guardando la configuración desde la app.
 
 **BAR-015 — autoaprobación de la hoja de horas (Crítica, abierta para empleados).**
 *Mecanismo:* la función recibe el `staff_id` como parámetro y no lo compara con el usuario de la sesión, y
@@ -193,6 +204,11 @@ toda autoaprobación es por esta vía.
 *Cómo se comprobó (08/10, Dev 2.0):* un asistente envió su propia hoja pidiendo la autoaprobación y obtuvo
 `200`. La mayor parte del tiempo se fue en configurar Postman (cabecera `apikey`, URL, arreglos
 alineados), no en el ataque.
+*Arreglo (09/10, B1):* con sesión, solo se envía la hoja propia, y la autoaprobación la decide el servidor
+con `timesheet.self_approve`, ahora sembrado para admin, senior_partner, director, partner y risk_partner.
+El resto pasa por Aprobaciones, gerentes incluidos. El parámetro del llamador se acepta por compatibilidad
+y se ignora. Repetida la misma petición: `200` pero las líneas quedan pendientes; con la hoja de otra
+persona: `400 NOT_OWNER`.
 
 **BAR-016 — `holidays` legible sin cuenta (Baja).** La política se creó sin `TO`, así que regía para
 `PUBLIC`, que incluye a `anon`. El dato es público; lo que fallaba era el control.
@@ -214,6 +230,9 @@ en el mismo caso.
 | 07/10 | *Leaked Password Protection* del Advisor desactivada; requiere el plan Pro | En el checklist del cutover a producción |
 | 07/10 | Alertas de rendimiento del Advisor (evaluación de `auth.uid()` por fila, políticas permisivas múltiples, índice duplicado) | Fuera del alcance de seguridad; se miden en las pruebas de carga |
 | — | Hipótesis: el bloqueo de cuentas de `secure-signin` podría esquivarse llamando directo al endpoint de tokens de Auth | **No verificada**; pendiente antes del cutover |
+| 09/10 | Dev 2.0 no tenía aplicada la migración `0923-209` (reversión de hojas): «Revertir» fallaba en la app porque el frontend llamaba a una función que la base no tenía. Su ledger solo registraba las 14 migraciones cero | Aplicada y verificada; ledger reparado (44 de 44). Desde ahora, migraciones a Dev 2.0 con `db push` |
+| 09/10 | Los dos roles de riesgo (`risk_supervisor`, `risk_partner`) tenían permiso para aprobar riesgos pero no podían ver ninguna OT (fallo del seed de permisos, no del Carril A) | Resuelto en B1: `work_order.read` con alcance de departamento (en la práctica, todas las OT) |
+| 09/10 | El socio de riesgos ve el botón «Retirar de Aprobación» en una OT donde no es el socio del encargo; su permiso para eso es solo en encargos asignados | **Por verificar** si la base lo rechaza; si no, la validación de alcance falta en el servidor |
 
 ---
 
@@ -241,6 +260,28 @@ flag de RLS se editan en sitio en `cero_05`. Rama `fix/rls-carril-a`, PR #362 ha
 Producción (`xcdcxtduotwgwmhxvsiz`) está vacía y recibirá las migraciones ya corregidas, así que nace con
 todo lo anterior.
 
+### Carril B — empleados con sesión (desde el 09/10/2026)
+
+Rama `fix/rls-carril-b`, desde `development` (que ya tiene el Carril A). Se prueba en Dev 2.0; Test está
+congelado por las pruebas de carga.
+
+**Cambio de mecanismo.** El Carril A editó las migraciones cero en sitio, y por eso cada ambiente ya migrado
+necesitó «bloques únicos» aplicados a mano, que es justo donde falló Dev 2.0. Con el ledger de Dev 2.0
+reparado, el Carril B va en **un solo archivo de migración nuevo**, idempotente
+(`supabase/migrations/20261009120000_rls_carril_b.sql`): cualquier ambiente lo recibe con `db push`, y cada
+etapa se suma al mismo archivo. Primero se aplica a mano en Dev 2.0 para probar; cuando pasa, se registra
+con `db push`.
+
+| Fecha | Etapa | Qué se hizo | Cierra |
+|---|---|---|---|
+| 09/10 | **B0. Medición** | Script de regresión de lectura por rol (`scripts/rls-regresion-por-rol.mjs`): inicia sesión con una cuenta por rol (11 roles más `anon`) y mide, por la API real y solo leyendo, qué recibe cada uno en las 17 tablas sin RLS, `global_settings` y las 5 vistas. La diferencia entre la corrida «antes» y «después» de cada etapa muestra su efecto, incluidos los fallos silenciosos (una lectura que pasa de N filas a 0 sin error). Su primera corrida detectó los bloques del Carril A que le faltaban a Dev 2.0 | Medir sin depender de la pantalla |
+| 09/10 | **B1. Funciones y permisos** | `submit_timesheet_safe`: solo la hoja propia y la autoaprobación según el permiso. `sync_worksheet_to_wo_budget`: misma OT y hoja del mismo encargo, y permiso de OT con alcance. `update_timesheet_minmax_settings`: solo `global_settings.update`. Las llamadas sin sesión (migraciones, servidor) siguen funcionando; `anon` queda bloqueado aunque recupere el permiso de ejecución. Permisos: `timesheet.self_approve` creado y asignado; `risk_partner` recibe lo que le faltaba de `partner` y deja de crear y editar hojas; `risk_supervisor` puede ver OT y encargos | BAR-009, BAR-014, BAR-015 (empleados); roles de riesgo sin acceso a las OT |
+
+**Decisiones del operador para el Carril B (08 y 09/10).** Cada uno envía solo su hoja, sin delegación por
+ahora. Se autoaprueban admin, senior_partner, director, partner y risk_partner; los demás, gerentes
+incluidos, pasan por Aprobaciones. En la matriz de permisos solo cambian los dos roles de riesgo. Los
+roles de riesgo ven todas las OT porque son quienes aprueban los riesgos.
+
 ### Cómo se verificó
 
 - **CI:** suites RLS (`npm run test:rls`), tests unitarios (`npm test`) y el replay del esquema consolidado.
@@ -248,7 +289,13 @@ todo lo anterior.
   `401`/`42501`; el `PATCH` del incidente es rechazado.
 - **Con sesión (operador, Test y Dev 2.0):** checklist A/B/C, login, cambio de rol por el flujo de
   administración (que sigue escribiendo la bitácora) y la escalera de intentos de escalar el propio rol.
-  La regresión completa por rol sigue pendiente.
+- **Regresión por rol (Carril B, B0):** foto «antes» en Dev 2.0 con 11 roles: los 11 reciben exactamente lo
+  mismo en las 17 tablas sin RLS (BAR-013 reproducido) y los dos roles de riesgo no veían ninguna OT.
+- **B1 en Dev 2.0 (09/10):** por catálogo (las 3 funciones con la validación, permisos de ejecución sin
+  cambios, permisos nuevos asignados); repitiendo con Postman los ataques de BAR-015 y BAR-009, ahora
+  rechazados; y en la app: el asistente envía y queda pendiente, el socio se autoaprueba, el gerente
+  resincroniza su OT, el admin guarda la configuración y los dos roles de riesgo abren las OT y aprueban o
+  rechazan riesgos.
 - **Security Advisor de Test (07/10):** las 34 alertas críticas son exactamente las 17 tablas de la lista
   de excepciones del CI y las 4 vistas de BAR-010. No apareció nada desconocido.
 
@@ -275,7 +322,8 @@ No se registraron horas por persona: las cifras son de calendario, de commits y 
 | Incidente, plan y barrido | 28/09 – 30/09 (3 días) | Informe, plan en 3 revisiones, base local reconstruida, 11 consultas de catálogo |
 | Carril A, A.4 y A.5 en el repositorio | 01/10 – 02/10 (2 días) | 9 commits; 6 checks de CI; 3 re-aceptaciones de fixtures |
 | Aplicación y verificación en ambientes | 05/10 – 08/10 | Reset de Test con restauración de datos; Advisor; bloques únicos en Dev 2.0; reproducciones |
-| **Total hasta hoy** | **28/09 – 08/10 (11 días de calendario)** | La exposición anónima está cerrada |
+| Carril B, B0 y B1 | 09/10 (1 día) | Dev 2.0 puesto al día (migración faltante, ledger, bloques del Carril A); script de regresión; migración del Carril B; pruebas de ataque y de flujo |
+| **Total hasta hoy** | **28/09 – 09/10 (12 días de calendario)** | Exposición anónima cerrada; en el Carril B, cerradas las escrituras por función |
 
 Estimación del plan para lo que falta (Carril B): **3 a 8 días** de implementación y pruebas, más 1 a 2
 días para la matriz de acceso por rol. Es un piso: no incluye el ajuste de pantallas que hoy dependen de
@@ -285,17 +333,20 @@ leer todo, que probablemente domine el cronograma.
 
 ## Pendiente
 
-1. **Carril B (lo importante).** Matriz de qué ve y hace cada rol; políticas por rol en las 15 tablas con
-   políticas nunca aplicadas; tarifas de `categories` por columna, vista o RPC; vistas con
-   `security_invoker`; validación interna en las funciones de BAR-009, BAR-014 y BAR-015 (incluido sembrar
-   `timesheet.self_approve` para admin, senior_partner, director, partner y risk_partner); RLS de lectura de
-   `user_roles`. Se trabaja en Dev 2.0, con regresión por rol antes y después.
-2. **BAR-017:** retirar el `TRUNCATE` residual de `anon`; propuesto dentro del Carril B.
-3. **BAR-018:** inventario completo de funciones sin `search_path`.
-4. **Antes del cutover a producción:** activar *Leaked Password Protection*; verificar la hipótesis de
+1. **Carril B (lo importante).**
+   - **B1, cierre:** tests de la etapa en el harness de CI, re-aceptar los fixtures del replay y registrar la
+     migración en Dev 2.0 con `db push`. Regresión «después» de B1.
+   - **B2:** RLS de lectura de `user_roles` (cada uno ve su rol; el admin, todos).
+   - **B3:** políticas por rol en las 15 tablas con políticas nunca aplicadas, grupo por grupo; tarifas de
+     `categories` por columna, vista o RPC; necesita el borrador de la matriz de visibilidad por rol.
+   - **B4:** las 4 vistas `SECURITY DEFINER`.
+   - **B5:** `TRUNCATE` residual de `anon` (BAR-017) e inventario de `search_path` (BAR-018).
+   - **B6:** cierre: reconstrucción de un ambiente desde cero, regresión final y Security Advisor.
+   - **Por verificar:** si la base rechaza «Retirar de Aprobación» del socio de riesgos fuera de sus encargos.
+2. **Antes del cutover a producción:** activar *Leaked Password Protection*; verificar la hipótesis de
    `secure-signin`; decidir sobre el documento de identidad en `cero_14`; consulta de paridad tras el
    primer `db push`.
-5. **Operación:** rotar la contraseña de la base de Test, que se compartió por un canal no seguro durante
+3. **Operación:** rotar la contraseña de la base de Test, que se compartió por un canal no seguro durante
    el procedimiento (datos ficticios).
 
 ---
@@ -318,3 +369,5 @@ leer todo, que probablemente domine el cronograma.
 - `supabase/tests/schema-convergence-assertions.sql` (checks 11 a 16)
 - `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` §6.3 a §6.5 (bloques únicos, verificación y reversión)
 - `docs/operations.md` (estado de las Edge Functions por proyecto)
+- `supabase/migrations/20261009120000_rls_carril_b.sql` (Carril B; cada etapa se agrega a este archivo)
+- `scripts/rls-regresion-por-rol.mjs` (regresión de lectura por rol; solo Dev 2.0, solo lectura)
