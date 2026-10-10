@@ -338,6 +338,16 @@ run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
 # rpc-0923-209-timesheet-reversal.sql.
 run supabase/migrations/20260929160000_0923-209_timesheet_reversal_requests.sql
 
+# Carril B del barrido RLS (B1): valida al llamador en submit_timesheet_safe /
+# sync_worksheet_to_wo_budget / update_timesheet_minmax_settings y ajusta la matriz de permisos
+# (timesheet.self_approve, lectura de OT para risk_partner/risk_supervisor). Va DESPUES de todas las
+# migraciones que recrean funciones o siembran permisos porque reemplaza cuerpos completos con
+# CREATE OR REPLACE. Se aplica DOS veces a proposito: el archivo declara ser idempotente (se corre
+# a mano en Dev 2.0 y luego otra vez con db push) y esta es la unica prueba de que lo es.
+# Ejercitado por rls-carril-b-b1-callers.sql.
+run supabase/migrations/20261009120000_rls_carril_b.sql
+run supabase/migrations/20261009120000_rls_carril_b.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -392,5 +402,6 @@ assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RP
 assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0923-209-timesheet-reversal.sql '0923-209 REVERSAL: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b1-callers.sql 'B1 CALLERS: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"
