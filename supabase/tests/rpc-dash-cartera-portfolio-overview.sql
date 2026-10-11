@@ -1450,6 +1450,60 @@ BEGIN
   RAISE NOTICE 'OK 29: horas de otra práctica se atribuyen al "Socio" de la práctica DEL ENCARGO -- una sola fila (budget=10/pending=7), sin descartar las horas cruzadas, con practica_abbr para desambiguar';
 END $$;
 
+-- ── 30. Hitos fechados en La Paz, no en la zona de la sesión (20260917160000_dash_cartera_
+-- portfolio_overview.sql, hitos new_engagement/wo_approved/risk_approved/assignment). Supabase corre en UTC y entre las 20:00 y las 24:00 de Bolivia la fecha UTC ya es
+-- mañana: con `col::date` el hito caía fuera de `BETWEEN hoy-1 mes AND hoy` (o salía con la fecha del
+-- día equivocado). El resto de la suite usa now() y solo falla en esa franja horaria; este chequeo
+-- fabrica las horas (23:30 de La Paz) y fija timezone = UTC, así que falla con el bug a CUALQUIER
+-- hora. Los cuatro hitos con fecha de timestamptz sobre E1 (en alcance de u3, ver OK 20) ──────────
+DO $$
+DECLARE
+  v        jsonb;
+  v_prev   text := current_setting('timezone');
+  v_ayer   timestamptz := ((pg_temp.today() - 1) + time '23:30') AT TIME ZONE 'America/La_Paz';
+  v_hoy    timestamptz := (pg_temp.today() + time '23:30')       AT TIME ZONE 'America/La_Paz';
+  k        text;
+BEGIN
+  -- La suite quedó como `authenticated` (SET LOCAL ROLE más arriba): las fixtures se escriben como
+  -- owner. session_replication_role = replica salta wo_guard_risk_approval, que frena reescribir
+  -- risk_approved_at de una OT ya aprobada; solo afecta a este UPDATE de fixture.
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET created_at = v_ayer WHERE engagement_id = pg_temp.e(1);
+  UPDATE public.work_orders SET approved_at = v_ayer, risk_approved_at = v_ayer WHERE engagement_id = pg_temp.e(1);
+  PERFORM set_config('session_replication_role', 'origin', true);
+  INSERT INTO public.portfolio_events (engagement_id, event_type, subject_staff_id, occurred_at) VALUES
+    (pg_temp.e(1), 'manager_assigned', pg_temp.s(3), v_ayer),
+    (pg_temp.e(1), 'manager_assigned', pg_temp.s(3), v_hoy);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+
+  PERFORM pg_temp.impersonate(pg_temp.u(3));
+  PERFORM set_config('timezone', 'UTC', true);
+  v := public.portfolio_overview(pg_temp.today(), pg_temp.today(), pg_temp.fy(), pg_temp.fy_start(), pg_temp.fy_end());
+  PERFORM set_config('timezone', v_prev, true);
+
+  -- 23:30 de ayer en La Paz es 03:30 de HOY en UTC: el hito debe llevar la fecha de ayer.
+  FOREACH k IN ARRAY ARRAY['new_engagement', 'wo_approved', 'risk_approved', 'assignment'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v->'milestones') e
+       WHERE e->>'kind' = k AND (e->>'engagement_id')::uuid = pg_temp.e(1)
+         AND e->>'date' = (pg_temp.today() - 1)::text
+    ) THEN
+      RAISE EXCEPTION 'FAIL: el hito "%" de E1 a las 23:30 de ayer (La Paz) debía fecharse ayer con la sesión en UTC (¿usa col::date en vez de AT TIME ZONE?)', k;
+    END IF;
+  END LOOP;
+
+  -- 23:30 de hoy en La Paz es 03:30 de MAÑANA en UTC: tiene que seguir dentro de `... AND hoy`.
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v->'milestones') e
+     WHERE e->>'kind' = 'assignment' AND (e->>'engagement_id')::uuid = pg_temp.e(1)
+       AND e->>'date' = pg_temp.today()::text
+  ) THEN
+    RAISE EXCEPTION 'FAIL: el hito "assignment" de E1 a las 23:30 de hoy (La Paz) desapareció con la sesión en UTC (cae "mañana" y queda fuera de la ventana)';
+  END IF;
+  RAISE NOTICE 'OK 30: los 4 hitos de timestamptz (new_engagement/wo_approved/risk_approved/assignment) se fechan en La Paz con la sesión en UTC, y el de las 23:30 de hoy no se cae de la ventana';
+END $$;
+
 DO $$
 BEGIN
   RAISE NOTICE 'CARTERA OVERVIEW RPC: ALL CHECKS PASSED (rolled back)';

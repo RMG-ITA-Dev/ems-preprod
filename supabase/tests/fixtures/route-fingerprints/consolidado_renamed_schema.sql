@@ -11985,28 +11985,28 @@ BEGIN
     WHERE s.fecha_cierre BETWEEN mw.win_start AND mw.win_end
   ),
   milestones_new_engagement AS (
-    SELECT 'new_engagement'::text, s.created_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'new_engagement'::text, (s.created_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.created_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE (s.created_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_wo_approved AS (
-    SELECT 'wo_approved'::text, s.approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'wo_approved'::text, (s.approved_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.approved_at IS NOT NULL AND s.approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE s.approved_at IS NOT NULL AND (s.approved_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_risk_approved AS (
-    SELECT 'risk_approved'::text, s.risk_approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'risk_approved'::text, (s.risk_approved_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.risk_approved_at IS NOT NULL AND s.risk_approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE s.risk_approved_at IS NOT NULL AND (s.risk_approved_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_assignment AS (
-    SELECT 'assignment'::text, pe.occurred_at::date, pe.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'assignment'::text, (pe.occurred_at AT TIME ZONE 'America/La_Paz')::date, pe.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM public.portfolio_events pe
     JOIN scope s ON s.engagement_id = pe.engagement_id
     CROSS JOIN caller c
     CROSS JOIN now_ctx nc
     WHERE pe.subject_staff_id = c.staff_id
-      AND pe.occurred_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+      AND (pe.occurred_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_lock_deadline AS (
     SELECT 'lock_deadline'::text,
@@ -14035,7 +14035,25 @@ DECLARE
   -- BUG 0526-122: Holiday engagement dynamic approval
   v_holiday_engagement_id     uuid;
   v_staff_city                text;
+
+  -- Carril B (BAR-015): la autoaprobación la decide el servidor, no el llamador.
+  v_auto_requested            boolean;
 BEGIN
+  -- Carril B (BAR-015). Con sesión: solo la hoja propia, y la autoaprobación sale del permiso
+  -- timesheet.self_approve (is_auto_approved_category), no de p_is_auto_approved, que se acepta
+  -- por compatibilidad de firma y se ignora. Sin sesión (migraciones, service_role, SQL Editor)
+  -- se respeta el parámetro. anon, nunca, aunque algún día recupere EXECUTE.
+  IF auth.uid() IS NOT NULL THEN
+    IF public.get_my_staff_id() IS DISTINCT FROM p_staff_id THEN
+      RAISE EXCEPTION 'NOT_OWNER: solo se puede enviar la hoja propia';
+    END IF;
+    v_auto_requested := public.is_auto_approved_category(p_staff_id);
+  ELSIF COALESCE(auth.jwt() ->> 'role', '') = 'anon' THEN
+    RAISE EXCEPTION 'NOT_AUTHORIZED';
+  ELSE
+    v_auto_requested := COALESCE(p_is_auto_approved, false);
+  END IF;
+
   -- 1. VALIDATE: Arrays must be same length and non-empty
   v_pair_count := array_length(p_engagement_ids, 1);
   IF v_pair_count IS NULL OR v_pair_count = 0 THEN
@@ -14183,7 +14201,7 @@ BEGIN
       INTO v_skip_approval
       FROM engagements e WHERE e.engagement_id = v_eng_id;
 
-      v_effective_auto := p_is_auto_approved OR COALESCE(v_skip_approval, false);
+      v_effective_auto := v_auto_requested OR COALESCE(v_skip_approval, false);
     END IF;
 
     -- 4. Fetch existing line approval for this (period, engagement, activity)
@@ -14559,14 +14577,48 @@ CREATE FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uuid, p_wo_id 
     AS $$
 DECLARE
     v_wo RECORD;
+    v_ws_engagement uuid;
 BEGIN
     -- Get work order details for rate calculation
-    SELECT wo_id, currency, season_mode INTO v_wo
+    SELECT wo_id, engagement_id, currency, season_mode INTO v_wo
     FROM work_orders
     WHERE wo_id = p_wo_id;
 
     IF v_wo IS NULL THEN
         RAISE EXCEPTION 'Work order not found: %', p_wo_id;
+    END IF;
+
+    -- Carril B (BAR-009). La hoja y la OT tienen que ser del mismo encargo, para todo llamador:
+    -- sin esto, una hoja de otro encargo reescribía el presupuesto de cualquier OT.
+    SELECT engagement_id INTO v_ws_engagement
+    FROM activity_worksheets
+    WHERE id = p_worksheet_id;
+
+    IF v_ws_engagement IS NULL THEN
+        RAISE EXCEPTION 'Worksheet not found: %', p_worksheet_id;
+    END IF;
+
+    IF v_ws_engagement IS DISTINCT FROM v_wo.engagement_id THEN
+        RAISE EXCEPTION 'WORKSHEET_WO_ENGAGEMENT_MISMATCH';
+    END IF;
+
+    -- Con sesión: admin, o work_order.create / work_order.update con su alcance (con
+    -- assigned_engagements, asignado al encargo; mismo criterio que wo_create_by_permission).
+    -- Sin sesión (migraciones como 0825-183, service_role): permitido. anon, nunca.
+    IF auth.uid() IS NOT NULL THEN
+        IF NOT (
+            public.is_admin()
+            OR (public.has_permission('work_order.update')
+                AND (public.permission_scope('work_order.update') IS DISTINCT FROM 'assigned_engagements'
+                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+            OR (public.has_permission('work_order.create')
+                AND (public.permission_scope('work_order.create') IS DISTINCT FROM 'assigned_engagements'
+                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+        ) THEN
+            RAISE EXCEPTION 'NOT_AUTHORIZED';
+        END IF;
+    ELSIF COALESCE(auth.jwt() ->> 'role', '') = 'anon' THEN
+        RAISE EXCEPTION 'NOT_AUTHORIZED';
     END IF;
 
     -- Link worksheet to work order
@@ -14776,6 +14828,17 @@ CREATE FUNCTION public.update_timesheet_minmax_settings(p_daily_min numeric, p_d
     SET search_path TO 'public'
     AS $$
 BEGIN
+  -- Carril B (BAR-014): solo quien tiene global_settings.update (hoy, admin), la misma regla que la
+  -- política de escritura de global_settings; sin esto la función la rodeaba como dueño. Sin sesión
+  -- (migraciones, service_role): permitido. anon, nunca.
+  IF auth.uid() IS NOT NULL THEN
+    IF NOT public.has_permission('global_settings.update') THEN
+      RAISE EXCEPTION 'NOT_AUTHORIZED';
+    END IF;
+  ELSIF COALESCE(auth.jwt() ->> 'role', '') = 'anon' THEN
+    RAISE EXCEPTION 'NOT_AUTHORIZED';
+  END IF;
+
   IF p_daily_min > p_daily_max THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'DAILY_MIN_EXCEEDS_MAX');
   END IF;

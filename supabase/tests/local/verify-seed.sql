@@ -54,8 +54,10 @@ BEGIN
   SELECT count(*) INTO n FROM public.authorization_roles;
   IF n <> 23 THEN RAISE EXCEPTION 'FAIL — authorization_roles: esperado 23, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_permissions;
-  -- +1 de 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read).
-  IF n <> 85 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 85, encontrado %', n; END IF;
+  -- +1 de 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read) + 1 de
+  -- 20261009120000_rls_carril_b.sql (timesheet.self_approve, que is_auto_approved_category()
+  -- consultaba sin que existiera en el catálogo).
+  IF n <> 86 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 86, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_role_permissions;
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
@@ -69,9 +71,13 @@ BEGIN
   -- corregidos a incluidos el 2026-09-16; risk_partner con scope 'assigned_engagements'
   -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7) + 1 de
   -- 20260918120000_dash_encargo_engagement_overview.sql (dashboard.engagement.read para
-  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/).
-  IF n <> 758 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 758, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 85 permisos / 758 concesiones';
+  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/) + 10 de
+  -- 20261009120000_rls_carril_b.sql (Carril B / B1.2: +12 — 5 de timesheet.self_approve, 5 de
+  -- risk_partner (activity_code.read, work_order.read/submit/payment_plan.approve, client.create)
+  -- y 2 de risk_supervisor (work_order.read, engagement.read) — y -2: worksheet.create/update
+  -- de risk_partner).
+  IF n <> 768 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 768, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 768 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

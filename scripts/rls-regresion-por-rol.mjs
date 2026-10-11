@@ -74,14 +74,21 @@ function leerConfig() {
   const anonKey = process.env.RLS_REG_ANON_KEY ?? "";
   if (!url || !anonKey) fallar("faltan RLS_REG_URL o RLS_REG_ANON_KEY");
 
-  let ref;
+  // Se compara el ORIGEN completo (esquema + host + puerto), no solo la primera etiqueta del host:
+  // https://<ref>.otro-dominio.com o http://<ref>.supabase.co pasarían esa comprobación, y el script
+  // les enviaría el correo y la contraseña de todas las cuentas configuradas.
+  let origen;
   try {
-    ref = new URL(url).hostname.split(".")[0];
+    origen = new URL(url).origin;
   } catch {
     fallar("RLS_REG_URL no es una URL válida");
   }
-  if (!REFS_PERMITIDOS.includes(ref)) {
-    fallar(`la URL apunta a '${ref}', que no está en la lista permitida (${REFS_PERMITIDOS.join(", ")})`);
+  const ref = REFS_PERMITIDOS.find((r) => origen === `https://${r}.supabase.co`);
+  if (!ref) {
+    fallar(
+      `RLS_REG_URL (${origen}) no es ninguno de los orígenes permitidos: ` +
+        REFS_PERMITIDOS.map((r) => `https://${r}.supabase.co`).join(", "),
+    );
   }
 
   const etiquetas = (process.env.RLS_REG_CUENTAS ?? "")

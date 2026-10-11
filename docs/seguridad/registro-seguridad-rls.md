@@ -267,10 +267,14 @@ congelado por las pruebas de carga.
 
 **Cambio de mecanismo.** El Carril A editó las migraciones cero en sitio, y por eso cada ambiente ya migrado
 necesitó «bloques únicos» aplicados a mano, que es justo donde falló Dev 2.0. Con el ledger de Dev 2.0
-reparado, el Carril B va en **un solo archivo de migración nuevo**, idempotente
-(`supabase/migrations/20261009120000_rls_carril_b.sql`): cualquier ambiente lo recibe con `db push`, y cada
-etapa se suma al mismo archivo. Primero se aplica a mano en Dev 2.0 para probar; cuando pasa, se registra
-con `db push`.
+reparado, el Carril B va en **migraciones nuevas e idempotentes**, que cualquier ambiente recibe con
+`db push`. B1 es `supabase/migrations/20261009120000_rls_carril_b.sql`. Primero se aplica a mano en Dev 2.0
+para probar; cuando pasa, se registra con `db push`.
+
+**Regla: cada etapa siguiente (B2 a B6) va en su propio archivo, con una versión nueva.** `db push` registra
+la versión de cada archivo en el ledger y no vuelve a correr una versión ya registrada, así que lo que se
+agregue a un archivo después de su `db push` nunca llega a ese ambiente (observación de review del PR, 09/10).
+Solo se puede sumar a un archivo mientras ningún ambiente lo haya registrado todavía.
 
 | Fecha | Etapa | Qué se hizo | Cierra |
 |---|---|---|---|
@@ -369,5 +373,5 @@ leer todo, que probablemente domine el cronograma.
 - `supabase/tests/schema-convergence-assertions.sql` (checks 11 a 16)
 - `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` §6.3 a §6.5 (bloques únicos, verificación y reversión)
 - `docs/operations.md` (estado de las Edge Functions por proyecto)
-- `supabase/migrations/20261009120000_rls_carril_b.sql` (Carril B; cada etapa se agrega a este archivo)
+- `supabase/migrations/20261009120000_rls_carril_b.sql` (Carril B, etapa B1; las siguientes van en archivos nuevos)
 - `scripts/rls-regresion-por-rol.mjs` (regresión de lectura por rol; solo Dev 2.0, solo lectura)
