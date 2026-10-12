@@ -19,7 +19,7 @@ vi.mock("react-router-dom", async () => {
 // redirect in-page en ClientNew.
 let mockCan: (perm: string) => boolean = () => false;
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: mockCan, roleKey: null }),
+  useAuthorization: () => ({ can: mockCan, scope: () => null, roleKey: null }),
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({

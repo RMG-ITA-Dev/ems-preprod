@@ -58,6 +58,7 @@ import { Switch } from "@/components/ui/switch";
 import { useTimerEntries, useUpdateTimerEntry, useDeleteTimerEntry } from "@/hooks/useTimerEntries";
 import { useEngagements, useActivityCodes } from "@/hooks/useEmsData";
 import { useApprovedEngagements } from "@/hooks/useApprovedEngagements";
+import type { LoggableEngagement } from "@/hooks/useLoggableEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { useLanguage } from "@/hooks/useLanguage";
 // toast imported at top of file
@@ -205,9 +206,28 @@ const TrackerEdit = () => {
       const currentEng = engagements?.find(
         e => e.engagement_id === entry.engagement_id
       );
-      return currentEng
-        ? [currentEng, ...approvedEngagements]
-        : approvedEngagements;
+      if (currentEng) return [currentEng, ...approvedEngagements];
+      // B3c: quien no lee el encargo (senior, semisenior, o un encargo ya cerrado/bloqueado) no lo recibe de
+      // useEngagements(). useTimerEntries() ya resolvió su etiqueta por pertenencia del registro
+      // (list_own_timer_engagement_labels): se muestra el encargo actual solo con esa etiqueta. Sin funcion ni
+      // practica falla cerrado (actividad requerida y bloqueada), y no se puede guardar: no está aprobado.
+      if (entry.engagement) {
+        const labelOnly: LoggableEngagement = {
+          engagement_id: entry.engagement_id,
+          engagement_code: entry.engagement.engagement_code ?? null,
+          engagement_name: entry.engagement.engagement_name,
+          activity_required: true,
+          work_order_required: true,
+          is_internal: false,
+          practica: null,
+          funcion: null,
+          start_date: null,
+          end_date: null,
+          client: null,
+        };
+        return [labelOnly, ...approvedEngagements];
+      }
+      return approvedEngagements;
     }
     return approvedEngagements;
   }, [approvedEngagements, entry?.engagement_id, engagements]);
