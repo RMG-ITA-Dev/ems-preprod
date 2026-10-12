@@ -37,6 +37,26 @@ async function fetchAllPages<T>(
   return rows;
 }
 
+// B3c-2: quien no tiene engagement.read (asistente, senior, semisenior) recibe null en el embed `engagement` de sus
+// solicitudes de alcance ENCARGO (la RLS de engagements no se lo deja ver). list_own_engagement_labels() devuelve
+// código y nombre solo de los encargos donde el llamador tiene registros propios (horas, timers o solicitudes), así
+// que no abre el catálogo. Si la RPC falla se devuelven las filas tal cual: la pantalla pinta «Encargo» por `scope`.
+async function fillMissingEngagementLabels(rows: ReversalRequest[]): Promise<ReversalRequest[]> {
+  const missingIds = Array.from(
+    new Set(rows.filter((r) => r.engagement_id && !r.engagement).map((r) => r.engagement_id as string)),
+  );
+  if (missingIds.length === 0) return rows;
+
+  const { data, error } = await supabase.rpc("list_own_engagement_labels" as never, {
+    p_engagement_ids: missingIds,
+  } as never);
+  if (error || !data) return rows;
+
+  const byId = new Map<string, NonNullable<ReversalRequest["engagement"]>>();
+  for (const l of data as NonNullable<ReversalRequest["engagement"]>[]) byId.set(l.engagement_id, l);
+  return rows.map((r) => (r.engagement || !r.engagement_id ? r : { ...r, engagement: byId.get(r.engagement_id) }));
+}
+
 export type ReversalScope = "engagement" | "week";
 export type ReversalStatus = "pending" | "executed" | "rejected";
 
@@ -286,7 +306,7 @@ export function useReversalRequests(
     queryFn: async (): Promise<ReversalRequest[]> => {
       // Paginado (review iteración 3, hallazgo #9): sin esto, una cola con más de 1000 filas
       // se corta en silencio -- el badge "(N)" de la tab quedaría subcontando.
-      return fetchAllPages<ReversalRequest>((cursor) => {
+      const rows = await fetchAllPages<ReversalRequest>((cursor) => {
         let query = supabase
           .from("timesheet_reversal_requests" as never)
           .select(`
@@ -321,6 +341,7 @@ export function useReversalRequests(
 
         return query as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>;
       });
+      return fillMissingEngagementLabels(rows);
     },
   });
 }
@@ -342,7 +363,7 @@ export function useMyReversalRequests() {
       // historial (pending+executed+rejected) de un solicitante activo -- sin paginar, un
       // solicitante frecuente puede perder en silencio sus solicitudes más viejas al superar
       // las 1000 filas de PostgREST. Keyset, no `.range()` (review iteración 4, hallazgo #3).
-      return fetchAllPages<ReversalRequest>((cursor) => {
+      const rows = await fetchAllPages<ReversalRequest>((cursor) => {
         let query = supabase
           .from("timesheet_reversal_requests" as never)
           .select(`
@@ -375,6 +396,7 @@ export function useMyReversalRequests() {
 
         return query as unknown as PromiseLike<{ data: ReversalRequest[] | null; error: unknown }>;
       });
+      return fillMissingEngagementLabels(rows);
     },
   });
 }

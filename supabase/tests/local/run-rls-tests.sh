@@ -385,6 +385,13 @@ run supabase/migrations/20261012150000_rls_carril_b3b_presupuestos.sql
 run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
 run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
 
+# Carril B del barrido RLS (B3c-2): list_own_engagement_labels(uuid[]), la etiqueta (código y nombre) de un encargo
+# para quien tiene registros propios sobre él pero no puede leerlo desde que B3c activó RLS en engagements
+# (asistente, senior, semisenior). Va DESPUES de B3c. Tambien se aplica DOS veces (idempotencia: DROP + CREATE).
+# Ejercitado por rls-carril-b-b3c2-etiquetas-encargo.sql.
+run supabase/migrations/20261012170000_rls_carril_b3c2_etiquetas_encargo.sql
+run supabase/migrations/20261012170000_rls_carril_b3c2_etiquetas_encargo.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -445,5 +452,6 @@ assert_suite supabase/tests/rls-carril-b-b3a-catalogos.sql 'B3a CATALOGOS: ALL C
 assert_suite supabase/tests/rls-carril-b-b3p-permisos.sql 'B3p PERMISOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3b-presupuestos.sql 'B3b PRESUPUESTOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3c-clientes-encargos.sql 'B3c CLIENTES ENCARGOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3c2-etiquetas-encargo.sql 'B3c-2 ETIQUETAS DE ENCARGO: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"
