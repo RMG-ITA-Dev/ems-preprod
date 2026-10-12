@@ -23,12 +23,9 @@ const {
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
+    // B3c: el código del encargo sale de la RPC list_own_engagement_labels, no de un SELECT a `engagements` (RLS).
+    rpc: (fn: string, args: unknown) => mockInEngagements(fn, args),
     from: (table: string) => {
-      if (table === "engagements") {
-        return {
-          select: () => ({ in: mockInEngagements }),
-        };
-      }
       if (table === "timesheet_periods") {
         return {
           select: () => ({

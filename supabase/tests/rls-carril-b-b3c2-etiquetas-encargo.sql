@@ -39,6 +39,9 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
   ('e0b3c200-0000-4000-8000-000000000005', 'c1b3c200-0000-4000-8000-000000000001', 'B3c2 EN', 'B3C2-N', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('e0b3c200-0000-4000-8000-000000000006', 'c1b3c200-0000-4000-8000-000000000001', 'B3c2 EB', 'B3C2-B', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
+-- Fechas de EH: «Copiar a la semana actual» las lee por la RPC para saltarse los encargos que no cubren la semana destino.
+UPDATE public.engagements SET start_date = '2026-01-05', end_date = '2026-06-30' WHERE engagement_code = 'B3C2-H';
+
 -- Mismo patrón que rls-0828-186-own-timer-engagement-labels.sql: una actividad de sistema mínima.
 INSERT INTO public.activity_codes (activity_code, description, is_system, practica_id)
 VALUES ('B3C2-ACT', 'Harness Activity B3c2', true, NULL)
@@ -101,6 +104,25 @@ BEGIN
     RAISE EXCEPTION 'B3c2 FAIL — A debía recibir H,O,R,T y recibe [%]', v;
   END IF;
   RAISE NOTICE 'PASS — hora propia, timer propio, reversión pedida y reversión sobre la boleta propia dan la etiqueta; el resto no';
+
+  -- 1b. Fechas: A (sin permiso sobre el encargo) recibe start_date y end_date de EH, que es lo que necesita «Copiar a la
+  --     semana actual»; un encargo sin fechas las devuelve null (no inventa).
+  SELECT array_agg(engagement_id) INTO v_all FROM public.engagements WHERE engagement_code LIKE 'B3C2-%';
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  SELECT l.engagement_id::text || '|' || coalesce(l.start_date::text, 'null') || '|' || coalesce(l.end_date::text, 'null')
+    INTO v FROM public.list_own_engagement_labels(v_all) l WHERE l.engagement_code = 'B3C2-H';
+  EXECUTE 'RESET ROLE';
+  IF v IS DISTINCT FROM 'e0b3c200-0000-4000-8000-000000000001|2026-01-05|2026-06-30' THEN
+    RAISE EXCEPTION 'B3c2 FAIL — A debía recibir las fechas de EH (2026-01-05 a 2026-06-30) y recibe [%]', v;
+  END IF;
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  SELECT count(*) INTO v_n FROM public.list_own_engagement_labels(v_all) l
+   WHERE l.engagement_code = 'B3C2-T' AND l.start_date IS NULL AND l.end_date IS NULL;
+  EXECUTE 'RESET ROLE';
+  IF v_n <> 1 THEN RAISE EXCEPTION 'B3c2 FAIL — un encargo sin fechas debía devolver start_date y end_date null'; END IF;
+  RAISE NOTICE 'PASS — las fechas del encargo con horas propias llegan a quien no lo lee (null si no tiene)';
 
   -- 2. Aislamiento: B recibe EB (hora propia) y EO (la pidió él), nunca lo de A.
   v := pg_temp.labels_as(ub);
