@@ -1,9 +1,10 @@
 # Registro de seguridad de EMS 2.0 — acceso a la API de Supabase (RLS)
 
-**Última actualización:** 09/10/2026
+**Última actualización:** 12/10/2026
 **Estado:** en curso. La exposición a visitantes sin cuenta está cerrada (Carril A). El Carril B, que
-restringe lo que hace cada empleado con sesión, avanzó en B0 (medición por rol) y B1 (validación en tres
-funciones y permisos de riesgos); sigue abierta la lectura de más por la API (B2 a B6).
+restringe lo que hace cada empleado con sesión, cerró B0 (medición por rol) y B1 (validación en tres
+funciones y permisos de riesgos), ambas en `development` y registradas en Dev 2.0; sigue abierta la
+lectura de más por la API (B2 a B6).
 **Responsable de la remediación:** Marcelo Ovando (operador), con asistencia de Claude Code y Codex.
 **Alcance:** base de datos y API de Supabase de EMS 2.0 en los ambientes Test (`slkqdcwwvmjtcbakajib`),
 Dev 2.0 (`oapgycqovzqsucliwbpu`) y producción (`xcdcxtduotwgwmhxvsiz`, vacía). Lovable
@@ -33,10 +34,12 @@ porque contiene inventarios de un ambiente vivo. Los identificadores `BAR-0xx` s
 - **Qué está arreglado en el Carril B (09/10/2026).** Un empleado ya no puede aprobarse su propia hoja,
   enviar la de otro, cambiar la configuración de horas de la firma ni reescribir el presupuesto de una OT
   ajena (BAR-009, 014 y 015). Los dos roles de riesgo ven todas las OT y pueden aprobar o rechazar riesgos.
-  Probado en Dev 2.0; falta la compuerta de CI y registrarlo con `db push`.
-- **Qué falta.** Restringir lo que cada rol con sesión puede **leer** y escribir directo en las tablas (B2 a
+  Probado en Dev 2.0, con compuerta de CI en `development` (#366) y registrado en el ledger de Dev 2.0 el
+  12/10/2026.
+- **Qué falta.** Restringir lo que cada rol con sesión puede **leer** y escribir directo en las tablas (B3 a
   B6). Hasta entonces, un empleado cualquiera sigue pudiendo ver de más por la API: tarifas, clientes,
-  encargos, horas ajenas y el mapa de roles.
+  encargos y horas ajenas. El mapa de roles ya solo lo ven el propio usuario, el admin y quien tenga
+  `user_role.read` (B2, probado en Dev 2.0).
 
 ---
 
@@ -85,6 +88,11 @@ comprobaron BAR-013, BAR-015 y BAR-009 (ver Parte I).
 | 08/10/2026 | Dev 2.0: bloque único de A.5 aplicado y verificado. Arneses retirados de Dev 2.0. BAR-015 y BAR-009 reproducidos con una cuenta de asistente. |
 | 09/10/2026 | Dev 2.0: se detecta que faltaban los bloques del Carril A y de A.4; se aplican y verifican. Dev 2.0 al día con las 44 migraciones y su ledger reparado. Foto «antes» del Carril B con la regresión por rol. |
 | 09/10/2026 | **Carril B, B1** en Dev 2.0: validación del llamador en tres funciones, `timesheet.self_approve` sembrado y permisos de los roles de riesgo. Los ataques de BAR-015 y BAR-009 repetidos con la misma cuenta de asistente: rechazados. Flujos normales probados en la app. |
+| 12/10/2026 | **Carril B, B1, cierre.** B0 y B1 en `development` (#366). B1 registrada en el ledger de Dev 2.0 con `db push` (44 → 45): el catálogo queda igual que tras la aplicación manual y la regresión por rol no cambia (0 de 276 celdas). Comprobado que la base rechaza «Retirar de Aprobación» del socio de riesgos fuera de sus encargos. |
+| 12/10/2026 | **Carril B, B2** en Dev 2.0: RLS de lectura de `user_roles` (cada uno ve su fila; admin y `user_role.read`, todas). Regresión por rol: los 10 roles sin permiso pasan de 32 filas a 1, `ADMIN` conserva 32 y las otras 266 celdas no cambian. Flujos de login, rol propio, `StaffForm` y alertas probados con sesiones reales. |
+| 12/10/2026 | **Carril B, B3a** en Dev 2.0: RLS en los cuatro catálogos de configuración. Se descubre que el RLS de estas tablas lo apagó el bot de Lovable el 15/01/2026 «for beta testing» y nunca se revirtió. Foto «antes»: los 11 roles, hasta el asistente, podían insertar y modificar los catálogos (incluidas las 61 categorías con sus tarifas). Después: la lectura no cambia (0 de 276 celdas distintas) y solo escribe quien tiene el permiso. |
+| 12/10/2026 | **Carril B, B3p** en Dev 2.0: por decisión del operador, cobranza y contabilidad ven las OT (y cobranza también encargos y clientes). Se descubre que ya podían leer todos los planes de pago sin poder ver la OT a la que pertenecen. Cobranza pasa de 0 a las 10 OT y contabilidad de 6 a 10; el resto de la matriz no cambia (3 de 276 celdas). |
+| 12/10/2026 | **Carril B, B3b** en Dev 2.0: RLS en los presupuestos de OT. Antes, los 11 roles podían modificar las 66 líneas de presupuesto, los 4 gastos presupuestados y las 157 celdas de las hojas de actividad. Después, solo admin y el gerente o socio de cada encargo escriben; leen presupuesto admin, socios, riesgos, cobranza y contabilidad; el asistente, el senior y el semisenior dejan de ver presupuestos. Regresión por rol: 16 de 276 celdas, todas las previstas. |
 
 ---
 
@@ -105,7 +113,7 @@ Se califica por consecuencia, no por quién ataca (plan de barrido, §7):
 
 | ID | Fecha | Falla | Severidad | Estado al 09/10/2026 |
 |---|---|---|---|---|
-| BAR-001 | 30/09 | `user_roles` sin RLS y escribible: cualquier sesión podía cambiar su propio rol | Crítica | Escritura cerrada para todos; lectura de `anon` cerrada; empleados aún leen el mapa completo |
+| BAR-001 | 30/09 | `user_roles` sin RLS y escribible: cualquier sesión podía cambiar su propio rol | Crítica | Escritura cerrada para todos; lectura de `anon` cerrada; lectura de empleados cerrada en B2 (probado en Dev 2.0 el 12/10; pendiente CI y `db push`) |
 | BAR-002 | 30/09 | 16 tablas de negocio sin RLS con escritura anónima | Crítica | Cerrado para `anon`; abierto para empleados |
 | BAR-003 | 30/09 | `anon` leía `staff` entero, incluido el documento de identidad | Crítica | **Cerrado** |
 | BAR-004 | 30/09 | Copia histórica del mapa de roles expuesta | Alta | **Cerrado** (falta decidir si se borra) |
@@ -113,13 +121,13 @@ Se califica por consecuencia, no por quién ataca (plan de barrido, §7):
 | BAR-006 | 30/09 | Catálogo final distinto de los recuentos del plan | Baja | Documental |
 | BAR-007 | 30/09 | `assign_user_role_atomic` sin validar al llamador (admin si el mapa está vacío) | Crítica | **Cerrado** |
 | BAR-008 | 30/09 | `finalize_due_engagements` ejecutable por cualquiera | Media | **Cerrado** |
-| BAR-009 | 30/09 | `sync_worksheet_to_wo_budget` reescribe el presupuesto de cualquier OT | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
+| BAR-009 | 30/09 | `sync_worksheet_to_wo_budget` reescribe el presupuesto de cualquier OT | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; CI (#366) y `db push` hechos el 12/10 |
 | BAR-010 | 30/09 | Vistas `SECURITY DEFINER` que esquivan los permisos de la tabla | Crítica | Cerrado para `anon`; abierto para empleados |
 | BAR-011 | 30/09 | El entorno de pruebas local no replica todos los privilegios de Supabase | Baja | Limitación conocida |
 | BAR-012 | 30/09 | El bootstrap del harness omite Auth, Storage y seeds | Baja | Limitación conocida |
 | BAR-013 | 02/10 | Cualquier empleado lee los datos de toda la firma por la API | Alta | Abierto (la escritura de `global_settings` sí se cerró) |
-| BAR-014 | 02/10 | `update_timesheet_minmax_settings` cambia la configuración de horas sin validar | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
-| BAR-015 | 02/10 | `submit_timesheet_safe` deja que el llamador se autoapruebe la hoja | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; pendiente CI y `db push` |
+| BAR-014 | 02/10 | `update_timesheet_minmax_settings` cambia la configuración de horas sin validar | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; CI (#366) y `db push` hechos el 12/10 |
+| BAR-015 | 02/10 | `submit_timesheet_safe` deja que el llamador se autoapruebe la hoja | Crítica | Cerrado para `anon` (Carril A) y para empleados (Carril B, B1): probado en Dev 2.0; CI (#366) y `db push` hechos el 12/10 |
 | BAR-016 | 02/10 | Política de `holidays` sin `TO`: regía también para `anon` | Baja | **Cerrado** |
 | BAR-017 | 02/10 | `anon` conserva `TRUNCATE` en ~24 tablas con RLS | Media | Abierto; decisión pendiente |
 | BAR-018 | 07/10 | 12 funciones sin `search_path` fijo | Baja | Abierto |
@@ -280,6 +288,11 @@ Solo se puede sumar a un archivo mientras ningún ambiente lo haya registrado to
 |---|---|---|---|
 | 09/10 | **B0. Medición** | Script de regresión de lectura por rol (`scripts/rls-regresion-por-rol.mjs`): inicia sesión con una cuenta por rol (11 roles más `anon`) y mide, por la API real y solo leyendo, qué recibe cada uno en las 17 tablas sin RLS, `global_settings` y las 5 vistas. La diferencia entre la corrida «antes» y «después» de cada etapa muestra su efecto, incluidos los fallos silenciosos (una lectura que pasa de N filas a 0 sin error). Su primera corrida detectó los bloques del Carril A que le faltaban a Dev 2.0 | Medir sin depender de la pantalla |
 | 09/10 | **B1. Funciones y permisos** | `submit_timesheet_safe`: solo la hoja propia y la autoaprobación según el permiso. `sync_worksheet_to_wo_budget`: misma OT y hoja del mismo encargo, y permiso de OT con alcance. `update_timesheet_minmax_settings`: solo `global_settings.update`. Las llamadas sin sesión (migraciones, servidor) siguen funcionando; `anon` queda bloqueado aunque recupere el permiso de ejecución. Permisos: `timesheet.self_approve` creado y asignado; `risk_partner` recibe lo que le faltaba de `partner` y deja de crear y editar hojas; `risk_supervisor` puede ver OT y encargos | BAR-009, BAR-014, BAR-015 (empleados); roles de riesgo sin acceso a las OT |
+| 12/10 | **B2. `user_roles`** | RLS activo con una sola política de lectura, `user_roles_select` (`TO authenticated`): el propio usuario, el admin (`is_admin()`) y quien tenga `user_role.read`. Reemplaza las dos políticas de `cero_05`, que nunca habían regido (la de admin era `FOR ALL` sin privilegio de escritura que la usara). La escritura sigue cerrada por el Carril A. Las 33 funciones que leen la tabla son `SECURITY DEFINER` con el dueño de la tabla y no se ven afectadas; una suite nueva del harness lo comprueba y falla si aparece una función `INVOKER` que la lea. Sale de la lista de excepciones del check 12 | BAR-001 (lectura) |
+| 12/10 | **B3a. Catálogos** | RLS activo en `activity_codes`, `categories`, `expense_types` e `industries`, con las políticas que ya estaban escritas en `cero_05`. La lectura era `USING (true)` y no cambia para nadie; la escritura pasa de «cualquier empleado» a `has_permission('<tabla>.create|update|delete')` (admin; en `expense_types` también contabilidad y cobranza). La migración aborta si alguna tabla no tiene política de lectura. Las escrituras por procedimiento (`create_category_for_practice`, `move_category`…) son `SECURITY DEFINER` y siguen igual; una suite del harness falla si aparece una función `INVOKER` que las escriba. Las tarifas de `categories` siguen legibles por todos: es una etapa aparte. Sale de la lista del check 12 (quedan 12) | BAR-002 (escritura de catálogos) |
+| 12/10 | **B3p. Permisos de cobranza y contabilidad** | Siete filas de lectura con alcance `department`: `collections_analyst` recibe `work_order.read`, `engagement.read` y `client.read`; `accounting_manager` y `accounting_analyst`, `work_order.read` y `engagement.read`. Contabilidad no recibe `client.read` (solo necesita el nombre del cliente, que dará el directorio de B4). No se agrega ningún permiso de crear, editar ni enviar. Cambia la nota del 09/10 de que solo cambiaban los roles de riesgo. **Efecto en cadena para B3b:** las políticas de presupuestos usan `work_order.read`, así que estos roles verán los presupuestos de OT cuando se active RLS allí | Plan de pagos sin OT visible |
+| 12/10 | **B3b. Presupuestos de OT** | RLS activo en `wo_budget_lines`, `wo_expense_budget` y `activity_worksheet_cells`, con las políticas ya escritas. Lectura: líneas y gastos para quien tiene `work_order.read` de alcance firma o departamento (admin, socios, riesgos y, por B3p, cobranza y contabilidad) y para el gerente de cada encargo, solo el suyo; celdas de hoja para `worksheet.read`. Escritura: admin y gerente o socio del encargo. Decisión del operador: cobranza y contabilidad sí ven los presupuestos. Las escrituras por procedimiento (`batch_upsert_worksheet_cells`, `sync_worksheet_to_wo_budget`) y los triggers son `SECURITY DEFINER` y siguen igual; una suite del harness falla si aparece una función `INVOKER` que las escriba. Efecto en vistas `security_invoker`: `work_order_summary` oculta los honorarios al asistente (que ve 4 OT por solicitudes de fondos) y `vw_wo_budget_hours_by_category*` solo tienen datos para quien lee las celdas; ninguno de los roles afectados ve la pestaña Práctica. Sale de la lista del check 12 (quedan 9) | BAR-002 (presupuestos) |
+| 12/10 | **B3c. Clientes y encargos** (preparada, **sin aplicar**) | Activa RLS en `clients` y `engagements` con las 12 políticas que ya estaban escritas, que no cambian: ninguna política, vista, función `INVOKER` ni trigger de otras tablas cambia de resultado, porque los ayudantes son `SECURITY DEFINER` de `postgres` (`BYPASSRLS`). **Hallazgo bloqueante:** la vista `clients_directory` (del dueño, con `GRANT ALL` a `authenticated` y 10 columnas con contacto) anula la RLS: con RLS activa en `clients`, el asistente seguía leyendo el contacto de 7 de los 9 clientes y un `UPDATE` por la vista alcanzaba los 9. Se redefine con solo `client_id`, `client_legal_name` e `is_active`, y solo `SELECT`. En la misma migración se retira la escritura de `authenticated` en las otras cuatro vistas (un `UPDATE` a `engagement_wo_state` alcanzaba las 10 OT con los 11 roles). **Orden obligatorio:** primero el frontend (embed `client:clients_directory(...)`, selector de cliente del alta de encargo y filtro del Scheduler por el directorio, aviso de NIT duplicado sin variables), después la migración. Pendientes fuera de B3c: Scheduler L2 y etiquetas de reversión para quien no lee encargos | BAR-002, BAR-010 (escritura), BAR-013 |
 
 **Decisiones del operador para el Carril B (08 y 09/10).** Cada uno envía solo su hoja, sin delegación por
 ahora. Se autoaprueban admin, senior_partner, director, partner y risk_partner; los demás, gerentes
@@ -300,6 +313,47 @@ roles de riesgo ven todas las OT porque son quienes aprueban los riesgos.
   rechazados; y en la app: el asistente envía y queda pendiente, el socio se autoaprueba, el gerente
   resincroniza su OT, el admin guarda la configuración y los dos roles de riesgo abren las OT y aprueban o
   rechazan riesgos.
+- **Cierre de B1 (12/10):** `db push --db-url` de Dev 2.0 con `--dry-run` previo (solo `20261009120000`
+  pendiente, 44 de 44 registradas antes); después, ledger de 45 y las cuatro consultas de catálogo
+  repetidas con el mismo resultado. Regresión por rol `despues-b1-push` idéntica a `despues-b1` (0 de 276
+  celdas distintas): reaplicar la migración no cambia nada. Frente a la foto «antes», el único efecto de B1
+  es `work_order_summary` para los dos roles de riesgo (de 0 a todas las OT); el resto de las diferencias
+  (82 celdas) son iguales en los 11 roles y corresponden a datos cargados entre corridas, no a una política
+  (inferido por esa uniformidad, no contrastado con fechas de creación).
+- **«Retirar de Aprobación» del socio de riesgos (12/10):** el botón hace un `UPDATE` directo de
+  `work_orders` (`approval_status = 'Draft'`), sin RPC. Con la sesión del socio de riesgos, que no es
+  gerente, socio ni SQR de ningún encargo, sobre la única OT en `Pending_Approval` y dentro de una
+  transacción revertida: `UPDATE 0` (RLS lo rechaza; la pantalla muestra un error). Control positivo con
+  el socio del encargo: `UPDATE 1`. Sin cambios persistentes, comprobado desde una conexión nueva. Lo que
+  decide es pertenecer al encargo (gerente, socio, SQR o admin), no el permiso `work_order.submit`.
+- **B2 en Dev 2.0 (12/10):** consumidores revisados antes de escribir la migración (frontend, Edge Functions,
+  33 funciones, políticas de otras tablas, vista `vw_staffing_alerts`, ausencia de hook de login). Por
+  catálogo y con suplantación de cada rol dentro de la transacción, antes y después: los 11 roles veían 32
+  filas; después, 1, salvo `admin` (32), y `anon` rechazado. Regresión por rol por la API real: 10 de 276
+  celdas cambian (`user_roles` de los no-admin, 32 → 1). Flujos con sesiones reales de asistente, gerente,
+  socio de riesgos y admin: rol propio, comprobación de admin, `current_role_key`,
+  `get_my_authorization_context` y alertas de personal; el admin sigue viendo las 8 alertas de usuarios
+  nuevos (contrastado con el cálculo como dueño) y los no-admin no ven el rol ajeno que consulta `StaffForm`.
+- **B3a en Dev 2.0 (12/10):** ensayo con `ROLLBACK` (RLS activado y revertido en las 15 tablas) para medir la
+  matriz que dan las políticas ya escritas. Foto «antes» y «después» de los catálogos con las 11 cuentas, por
+  suplantación dentro de una transacción revertida: antes, los 11 roles insertaban y modificaban las cuatro
+  tablas; después, solo `admin` (y, en `expense_types`, contabilidad y cobranza) inserta, y los demás alcanzan
+  0 filas con un `UPDATE`. Regresión por la API real: 0 de 276 celdas distintas respecto de B2. Intentos reales
+  de asistente, gerente, socio y socio de riesgos: `INSERT` rechazado con 42501 y `UPDATE` de una fila real de
+  `categories` con 0 filas; el admin sí alcanza la fila (control). Sin filas de prueba residuales.
+- **B3p en Dev 2.0 (12/10):** foto «antes» y «después» con suplantación por rol: `work_orders` de cobranza 0 → 10 y de
+  los dos roles de contabilidad 6 → 10; `wo_payment_plan` sin cambio (9 para cobranza y gerente de contabilidad, 0
+  para el analista, que no tiene `payment_plan.approve`). Regresión por rol por la API real: 3 de 276 celdas
+  respecto de `despues-b3a`, exactamente `work_order_summary` de los tres roles. Lectura directa con sesión real:
+  cobranza y gerente de contabilidad ven 10 OT y 9 planes de pago; el analista de contabilidad, 10 OT y 0 planes.
+- **B3b en Dev 2.0 (12/10):** ensayo con `ROLLBACK` (RLS activada y revertida en las 3 tablas) midiendo tablas, vistas
+  `security_invoker` y honorarios de `work_order_summary`; después, foto «antes» y «después» con suplantación por rol,
+  incluyendo cuántas filas alcanza un `UPDATE`. Antes: los 11 roles leían y modificaban todo. Después: lectura y
+  escritura como en la tabla anterior. Regresión por la API real: 16 de 276 celdas respecto de `despues-b3p`
+  (8 de celdas de hoja, 4 de líneas y 4 de gastos). Sesiones reales: el gerente ve sus 4 OT con sus 24 líneas y ninguna
+  OT queda sin líneas; cobranza y contabilidad ven 66 líneas y 4 gastos, 0 celdas; `UPDATE` de una línea real: 0 filas
+  para cobranza, contabilidad y socio de riesgos, 1 fila para el admin. Revisados antes: Aprobaciones solo las usan
+  admin y gerente o socio del encargo (`can_approve_timesheet_line`), que ven esas líneas.
 - **Security Advisor de Test (07/10):** las 34 alertas críticas son exactamente las 17 tablas de la lista
   de excepciones del CI y las 4 vistas de BAR-010. No apareció nada desconocido.
 
@@ -338,15 +392,22 @@ leer todo, que probablemente domine el cronograma.
 ## Pendiente
 
 1. **Carril B (lo importante).**
-   - **B1, cierre:** tests de la etapa en el harness de CI, re-aceptar los fixtures del replay y registrar la
-     migración en Dev 2.0 con `db push`. Regresión «después» de B1.
-   - **B2:** RLS de lectura de `user_roles` (cada uno ve su rol; el admin, todos).
-   - **B3:** políticas por rol en las 15 tablas con políticas nunca aplicadas, grupo por grupo; tarifas de
-     `categories` por columna, vista o RPC; necesita el borrador de la matriz de visibilidad por rol.
+   - **B1:** cerrada el 12/10/2026 (CI, `db push` en Dev 2.0 y regresión «después»).
+   - **B2:** RLS de lectura de `user_roles`. Aplicada y probada en Dev 2.0 (12/10); falta suite en CI, PR y
+     `db push`.
+   - **B3:** políticas por rol en las 15 tablas, grupo por grupo (plan y matriz medida en
+     `bugs/seguridad/carril-b/b3_plan.md`). **B3a (catálogos), B3p (permisos) y B3b (presupuestos) aplicadas y
+     probadas en Dev 2.0**; falta sus suites en CI, PR y `db push`. B3c clientes y encargos **preparada** (frontend, migración,
+     suite y verificación escritos; falta desplegar el frontend, aplicarla en Dev 2.0 y la corrida del harness).
+     Pendientes: B3d horas y
+     aprobaciones, B3e `staff` y B3f tarifas (tabla aparte con RLS, pendiente de decisión del operador).
    - **B4:** las 4 vistas `SECURITY DEFINER`.
    - **B5:** `TRUNCATE` residual de `anon` (BAR-017) e inventario de `search_path` (BAR-018).
    - **B6:** cierre: reconstrucción de un ambiente desde cero, regresión final y Security Advisor.
-   - **Por verificar:** si la base rechaza «Retirar de Aprobación» del socio de riesgos fuera de sus encargos.
+   - **Por decidir en B3:** las políticas de UPDATE de `work_orders` dan acceso a cualquier gerente, socio o
+     SQR del encargo sobre **todas** las columnas, sin mirar `work_order.submit`; el único trigger de
+     protección cubre las firmas de Riesgos. Falta verificar si un gerente puede fijar por esa vía la firma
+     del socio (`approval_status`/`approved_by`), que la regla de negocio reserva al socio del encargo.
 2. **Antes del cutover a producción:** activar *Leaked Password Protection*; verificar la hipótesis de
    `secure-signin`; decidir sobre el documento de identidad en `cero_14`; consulta de paridad tras el
    primer `db push`.

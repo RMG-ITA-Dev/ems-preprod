@@ -348,6 +348,43 @@ run supabase/migrations/20260929160000_0923-209_timesheet_reversal_requests.sql
 run supabase/migrations/20261009120000_rls_carril_b.sql
 run supabase/migrations/20261009120000_rls_carril_b.sql
 
+# Carril B del barrido RLS (B2): RLS de lectura de public.user_roles (cada uno ve su fila; admin y
+# user_role.read ven todas). Va despues de B1 y de todas las migraciones que recrean funciones que
+# leen user_roles: la suite comprueba que ninguna quede como INVOKER. Tambien se aplica DOS veces
+# (idempotencia: se corre a mano en Dev 2.0 y luego con db push).
+# Ejercitado por rls-carril-b-b2-user-roles.sql.
+run supabase/migrations/20261012120000_rls_carril_b2_user_roles.sql
+run supabase/migrations/20261012120000_rls_carril_b2_user_roles.sql
+
+# Carril B del barrido RLS (B3a): RLS en los cuatro catalogos de configuracion (activity_codes,
+# categories, expense_types, industries). La lectura no cambia (USING true); la escritura pasa a exigir
+# el permiso. Tambien se aplica DOS veces (idempotencia: a mano en Dev 2.0 y luego con db push).
+# Ejercitado por rls-carril-b-b3a-catalogos.sql.
+run supabase/migrations/20261012130000_rls_carril_b3a_catalogos.sql
+run supabase/migrations/20261012130000_rls_carril_b3a_catalogos.sql
+
+# Carril B del barrido RLS (B3p): permisos de lectura de OT, encargo y cliente para cobranza y
+# contabilidad (decision del operador, 12/10/2026). Solo siembra filas de authorization_role_permissions.
+# Tambien se aplica DOS veces (idempotencia). Ejercitado por rls-carril-b-b3p-permisos.sql.
+run supabase/migrations/20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+run supabase/migrations/20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+
+# Carril B del barrido RLS (B3b): RLS en los presupuestos de OT (wo_budget_lines, wo_expense_budget,
+# activity_worksheet_cells). Va DESPUES de B3p porque la visibilidad de cobranza y contabilidad sobre las
+# lineas de presupuesto sale de work_order.read, que B3p les concede. Tambien se aplica DOS veces
+# (idempotencia). Ejercitado por rls-carril-b-b3b-presupuestos.sql.
+run supabase/migrations/20261012150000_rls_carril_b3b_presupuestos.sql
+run supabase/migrations/20261012150000_rls_carril_b3b_presupuestos.sql
+
+# Carril B del barrido RLS (B3c): RLS en clients y engagements, directorio de clientes (solo nombre y estado)
+# y fin de la escritura por las vistas del dueño. Va DESPUES de B3p (client.read/engagement.read de cobranza y
+# contabilidad) y de las migraciones que crean engagement_wo_state y fund_request_selectable_work_orders.
+# Tambien se aplica DOS veces (idempotencia: DROP VIEW + CREATE VIEW, REVOKE y ENABLE RLS repetibles).
+# ATENCION: activa RLS en engagements para TODAS las suites que siguen. Ejercitado por
+# rls-carril-b-b3c-clientes-encargos.sql y por el check 17 de schema-convergence-assertions.sql.
+run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
+run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -403,5 +440,10 @@ assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINIS
 assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0923-209-timesheet-reversal.sql '0923-209 REVERSAL: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b1-callers.sql 'B1 CALLERS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b2-user-roles.sql 'B2 USER_ROLES: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3a-catalogos.sql 'B3a CATALOGOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3p-permisos.sql 'B3p PERMISOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3b-presupuestos.sql 'B3b PRESUPUESTOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3c-clientes-encargos.sql 'B3c CLIENTES ENCARGOS: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"

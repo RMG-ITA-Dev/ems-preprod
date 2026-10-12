@@ -303,7 +303,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
             engagement_id,
             engagement_code,
             engagement_name,
-            client:clients!client_id(client_id, client_legal_name)
+            client:clients_directory(client_id, client_legal_name)
           ),
           activity:activity_codes(
             activity_id,

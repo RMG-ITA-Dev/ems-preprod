@@ -953,6 +953,7 @@
   },
   "errors": {
     "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
+    "duplicateNitExists": "Ya existe un cliente con ese NIT. Si no lo ves en tu lista de clientes, solicita acceso a un administrador.",
     "duplicateClientName": "El nombre de cliente ya existe.",
     "duplicateClientNameWithNit": "El nombre de cliente ya existe (NIT: {{nit}}).",
     "duplicateCheckFailed": "No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente.",

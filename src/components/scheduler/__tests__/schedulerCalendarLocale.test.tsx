@@ -22,7 +22,7 @@ vi.mock("@/hooks/useEmsData", async () => {
   const actual = await vi.importActual<object>("@/hooks/useEmsData");
   return {
     ...actual,
-    useClients: () => ({ data: [] }),
+    useClientDirectory: () => ({ data: [] }),
   };
 });
 

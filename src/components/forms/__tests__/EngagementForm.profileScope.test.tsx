@@ -95,7 +95,7 @@ const stableAssignments: never[] = [];
 const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
-// BUG 0922-195: mutable on purpose — the initialClientId suite below drives useClients() from
+// BUG 0922-195: mutable on purpose — the initialClientId suite below drives useClientDirectory() from
 // undefined (pending) to resolved on the same mounted instance, same convention as `clientsData`
 // in EngagementForm.hydration-race.test.tsx. Reset to `stableClients` in every beforeEach so the
 // pre-existing tests in this file (synchronous by assumption) are unaffected.
@@ -110,7 +110,7 @@ let societiesIsError = false;
 // background refresh). Defaults to mockSocieties so existing tests are unaffected.
 let societiesDataForMock: typeof mockSocieties | undefined = mockSocieties;
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: clientsData }),
+  useClientDirectory: () => ({ data: clientsData }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
   useSocieties: () => ({
@@ -453,7 +453,7 @@ describe("EngagementForm — initialClientId deep-link hydration (BUG 0922-195, 
     clientsData = stableClients;
   });
 
-  it("Cliente queda preseleccionado una vez que useClients() resuelve ese client_id, si resuelve tarde", async () => {
+  it("Cliente queda preseleccionado una vez que useClientDirectory() resuelve ese client_id, si resuelve tarde", async () => {
     clientsData = undefined;
     const { rerender } = render(<EngagementForm initialClientId="client-1" />);
 

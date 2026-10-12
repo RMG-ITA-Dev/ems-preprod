@@ -953,6 +953,7 @@
   },
   "errors": {
     "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
+    "duplicateNitExists": "A client with this NIT already exists. If you can't see it in your client list, ask an administrator for access.",
     "duplicateClientName": "A client with this name already exists.",
     "duplicateClientNameWithNit": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
     "duplicateCheckFailed": "We couldn't check for duplicate client names (connection issue). Please try again.",

@@ -267,28 +267,24 @@ BEGIN
   DECLARE
     v_exceptions text[] := ARRAY[
       -- Grupo A — identidad y logs (P0)
-      'user_roles',                          -- BAR-001: escritura cerrada en el Carril A; falta RLS para la lectura
+      -- user_roles salió de esta lista con B2 (Carril B): ya tiene RLS (cada uno ve su fila; admin y
+      -- user_role.read ven todas) y la escritura sigue cerrada por el Carril A (check 11).
       'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
       'migration_run_log',                   -- sin políticas; log interno
       -- Grupo B — núcleo de negocio (P0)
       'staff',                               -- BAR-002/003: PII; hardening por columna anulado por anon
-      'clients',                             -- BAR-002
-      'engagements',                         -- BAR-002
+      -- clients y engagements salieron con B3c (RLS con las 12 políticas de cero_05, directorio de solo
+      -- nombre y fin de la escritura por vistas; ver el check 17).
       'time_entries',                        -- BAR-002
       'timer_entries',                       -- BAR-002
       'timesheet_line_approvals',            -- BAR-002
-      'timesheet_periods',                   -- BAR-002
-      -- Grupo C — presupuestos y gastos
-      'activity_worksheet_cells',            -- BAR-002
-      'wo_budget_lines',                     -- BAR-002
-      'wo_expense_budget',                   -- BAR-002
-      -- Grupo D — configuración y catálogos (P1/P2)
-      -- global_settings salió de esta lista con A.5b: ya tiene RLS y su política de `anon` acota la
-      -- lectura sin sesión a las tres claves del login (check 15).
-      'activity_codes',                      -- BAR-002
-      'categories',                          -- BAR-002
-      'expense_types',                       -- BAR-002
-      'industries'                           -- BAR-002
+      'timesheet_periods'                    -- BAR-002
+      -- Grupo C — presupuestos y gastos: vacío. activity_worksheet_cells, wo_budget_lines y
+      -- wo_expense_budget salieron con B3b (lectura por permiso y por encargo, escritura solo admin y
+      -- gerente/socio del encargo).
+      -- Grupo D — configuración y catálogos: vacío. global_settings salió con A.5b (su política de
+      -- `anon` acota la lectura sin sesión a las tres claves del login, check 15); activity_codes,
+      -- categories, expense_types e industries salieron con B3a (lectura intacta, escritura por permiso).
     ];
     v_list text;
   BEGIN
@@ -618,6 +614,43 @@ BEGIN
     END IF;
   END;
   RAISE NOTICE 'PASS — is_engagement_responsible() covers all 6 responsible-personnel columns (manager_id/partner_id/sqr_id/encargado_id/specialist_it_id/specialist_tax_id, G7) and denies a bystander';
+
+  -- 17. B3c (BAR-010, escritura por vistas del dueño; clients_directory): las cinco vistas del barrido son de
+  --     `postgres` (BYPASSRLS) y una vista simple autoriza la escritura contra su dueño, así que un GRANT de
+  --     escritura a `authenticated` rodea la RLS de la tabla base (verificado el 12/10/2026: un UPDATE a
+  --     engagement_wo_state alcanzaba las 10 OT con los 11 roles y uno a clients_directory, los 9 clientes).
+  --     Ninguna de las cinco admite escritura a authenticated ni a anon, y clients_directory se queda con
+  --     EXACTAMENTE client_id, client_legal_name e is_active (sin contacto, NIT ni industria) y como vista del
+  --     dueño: si pasara a security_invoker mostraría solo los clientes visibles y rompería el nombre de
+  --     cliente de quien no tiene client.read.
+  DECLARE
+    v_view text;
+    v_cols text;
+    v_opts text;
+  BEGIN
+    FOREACH v_view IN ARRAY ARRAY['clients_directory', 'engagement_wo_state', 'staff_directory',
+                                  'fund_request_selectable_work_orders', 'work_order_summary'] LOOP
+      IF has_table_privilege('authenticated', format('public.%I', v_view), 'INSERT')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'UPDATE')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'DELETE')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'TRUNCATE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated conserva escritura sobre la vista % (rodea la RLS de la tabla base, BAR-010)', v_view;
+      END IF;
+    END LOOP;
+    IF has_table_privilege('anon', 'public.clients_directory', 'SELECT') THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — anon puede leer clients_directory';
+    END IF;
+    SELECT string_agg(column_name, ',' ORDER BY ordinal_position) INTO v_cols
+      FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
+    IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory debe exponer solo client_id, client_legal_name e is_active y expone: %', v_cols;
+    END IF;
+    SELECT coalesce(reloptions::text, '') INTO v_opts FROM pg_class WHERE oid = 'public.clients_directory'::regclass;
+    IF v_opts ~ 'security_invoker=(true|on)' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory no debe ser security_invoker (mostraría solo los clientes visibles al usuario)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — B3c: 5 vistas del dueño sin escritura para authenticated; clients_directory con solo nombre y estado, sin lectura anónima';
 
   RAISE NOTICE 'SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)';
 END $$;

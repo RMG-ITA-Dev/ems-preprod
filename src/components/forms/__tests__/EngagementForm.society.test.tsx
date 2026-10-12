@@ -70,7 +70,7 @@ const mockServices = [
   { practica_id: "s1", name: "Auditoría", code: 1, allows_rates_activities: true, is_active: true, created_at: "" },
 ];
 
-// REVIEW FIX: useSocieties() filters is_active=true server-side (unlike useClients/
+// REVIEW FIX: useSocieties() filters is_active=true server-side (unlike useClientDirectory/
 // useTaxonomies, which fetch every row and filter client-side) — mocking it with an
 // inactive row here would mask the real production shape and let a broken fallback
 // pass. Only active societies come from the catalog; the inactive historical one below
@@ -98,7 +98,7 @@ const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: stableClients }),
+  useClientDirectory: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
   useSocieties: () => ({

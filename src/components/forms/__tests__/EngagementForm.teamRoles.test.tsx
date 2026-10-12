@@ -78,7 +78,7 @@ let mockServicesData: typeof mockServices | undefined = mockServices;
 const mockSocieties = [{ society_id: "soc-1", name: "Sociedad Uno", is_active: true, created_at: "" }];
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: stableClients }),
+  useClientDirectory: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServicesData }),
   useTaxonomies: () => ({ data: stableEmpty }),
   useSocieties: () => ({ data: mockSocieties }),
