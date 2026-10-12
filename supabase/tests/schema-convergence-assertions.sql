@@ -272,13 +272,11 @@ BEGIN
       'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
       'migration_run_log',                   -- sin políticas; log interno
       -- Grupo B — núcleo de negocio (P0)
-      'staff',                               -- BAR-002/003: PII; hardening por columna anulado por anon
+      'staff'                                -- BAR-002/003: PII; hardening por columna anulado por anon
       -- clients y engagements salieron con B3c (RLS con las 12 políticas de cero_05, directorio de solo
-      -- nombre y fin de la escritura por vistas; ver el check 17).
-      'time_entries',                        -- BAR-002
-      'timer_entries',                       -- BAR-002
-      'timesheet_line_approvals',            -- BAR-002
-      'timesheet_periods'                    -- BAR-002
+      -- nombre y fin de la escritura por vistas; ver el check 17). time_entries, timer_entries,
+      -- timesheet_periods y timesheet_line_approvals salieron con B3d (lectura por dueño, responsable del
+      -- encargo, aprobador asignado y firma; escritura sin cambios; ver rls-carril-b-b3d-horas.sql).
       -- Grupo C — presupuestos y gastos: vacío. activity_worksheet_cells, wo_budget_lines y
       -- wo_expense_budget salieron con B3b (lectura por permiso y por encargo, escritura solo admin y
       -- gerente/socio del encargo).

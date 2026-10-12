@@ -1,7 +1,20 @@
+// Estado de una hora para el desglose del detalle (B3d): «aprobada» y «pendiente» según su línea de aprobación;
+// «guardada» = período sin enviar, sin línea o con la línea rechazada (devuelta al dueño).
+export type HoursStatus = 'approved' | 'pending' | 'saved';
+
+export interface LineStatusRow {
+  period_id: string;
+  activity_id: string;
+  status: string;
+}
+
 export interface RawTimeEntryRow {
   staff_id: string;
   hours_logged: number;
-  period: { year: number; week_number: number; week_start_date: string } | null;
+  activity_id?: string | null;
+  period_id?: string | null;
+  period: { year: number; week_number: number; week_start_date: string; submitted_at?: string | null } | null;
+  hours_status?: HoursStatus;
   staff: {
     first_name: string;
     last_name: string;
@@ -17,12 +30,34 @@ export interface StaffHoursReportRow {
   year: number | null;
   weekNumber: number | null;
   hoursLoaded: number;
+  approvedHours: number;
+  pendingHours: number;
+  savedHours: number;
 }
 
 export interface CategoryGroup {
   categoryName: string;
   rows: StaffHoursReportRow[];
   subtotal: number;
+  approvedSubtotal: number;
+  pendingSubtotal: number;
+  savedSubtotal: number;
+}
+
+// Mapa `period_id:activity_id` → status de la línea de aprobación (las líneas de UN encargo).
+export function buildLineStatusMap(lines: LineStatusRow[]): Map<string, string> {
+  return new Map(lines.map((l) => [`${l.period_id}:${l.activity_id}`, l.status]));
+}
+
+export function classifyHoursStatus(
+  entry: { period_id?: string | null; activity_id?: string | null; period?: { submitted_at?: string | null } | null },
+  lineStatus: Map<string, string>,
+): HoursStatus {
+  if (!entry.period?.submitted_at || !entry.period_id || !entry.activity_id) return 'saved';
+  const status = lineStatus.get(`${entry.period_id}:${entry.activity_id}`);
+  if (status === 'approved') return 'approved';
+  if (status === 'pending') return 'pending';
+  return 'saved';
 }
 
 export function aggregateStaffHours(raw: RawTimeEntryRow[]): StaffHoursReportRow[] {
@@ -44,10 +79,18 @@ export function aggregateStaffHours(raw: RawTimeEntryRow[]): StaffHoursReportRow
         year,
         weekNumber,
         hoursLoaded: 0,
+        approvedHours: 0,
+        pendingHours: 0,
+        savedHours: 0,
       });
     }
 
-    map.get(key)!.hoursLoaded += Number(entry.hours_logged);
+    const row = map.get(key)!;
+    const hours = Number(entry.hours_logged);
+    row.hoursLoaded += hours;
+    if (entry.hours_status === 'approved') row.approvedHours += hours;
+    else if (entry.hours_status === 'pending') row.pendingHours += hours;
+    else row.savedHours += hours;
   }
 
   return Array.from(map.values()).sort((a, b) => {
@@ -83,6 +126,9 @@ export function groupByCategory(rows: StaffHoursReportRow[]): CategoryGroup[] {
     categoryName,
     rows: catRows,
     subtotal: catRows.reduce((s, r) => s + r.hoursLoaded, 0),
+    approvedSubtotal: catRows.reduce((s, r) => s + (r.approvedHours ?? 0), 0),
+    pendingSubtotal: catRows.reduce((s, r) => s + (r.pendingHours ?? 0), 0),
+    savedSubtotal: catRows.reduce((s, r) => s + (r.savedHours ?? 0), 0),
   }));
 }
 
@@ -97,15 +143,24 @@ export async function downloadXlsx(
     subtotal: string;
     grandTotal: string;
     sheetName: string;
+    approvedHours?: string;
+    pendingHours?: string;
+    savedHours?: string;
   },
   filename: string
 ): Promise<void> {
   const XLSX = await import('xlsx');
+  const withBreakdown = !!(headers.approvedHours && headers.pendingHours && headers.savedHours);
+  const num = (n: number | undefined) => Number((n ?? 0).toFixed(1));
   const data: (string | number)[][] = [
-    [headers.staffName, headers.category, headers.year, headers.week, headers.loadedHours],
+    [headers.staffName, headers.category, headers.year, headers.week, headers.loadedHours,
+      ...(withBreakdown ? [headers.approvedHours!, headers.pendingHours!, headers.savedHours!] : [])],
   ];
 
   let grandTotal = 0;
+  let grandApproved = 0;
+  let grandPending = 0;
+  let grandSaved = 0;
   for (const group of groupByCategory(rows)) {
     for (const row of group.rows) {
       data.push([
@@ -114,12 +169,18 @@ export async function downloadXlsx(
         row.year !== null ? row.year : '—',
         row.weekNumber !== null ? row.weekNumber : '—',
         Number(row.hoursLoaded.toFixed(1)),
+        ...(withBreakdown ? [num(row.approvedHours), num(row.pendingHours), num(row.savedHours)] : []),
       ]);
     }
-    data.push(['', `${group.categoryName} — ${headers.subtotal}`, '—', '—', Number(group.subtotal.toFixed(1))]);
+    data.push(['', `${group.categoryName} — ${headers.subtotal}`, '—', '—', Number(group.subtotal.toFixed(1)),
+      ...(withBreakdown ? [num(group.approvedSubtotal), num(group.pendingSubtotal), num(group.savedSubtotal)] : [])]);
     grandTotal += group.subtotal;
+    grandApproved += group.approvedSubtotal;
+    grandPending += group.pendingSubtotal;
+    grandSaved += group.savedSubtotal;
   }
-  data.push(['', headers.grandTotal, '—', '—', Number(grandTotal.toFixed(1))]);
+  data.push(['', headers.grandTotal, '—', '—', Number(grandTotal.toFixed(1)),
+    ...(withBreakdown ? [num(grandApproved), num(grandPending), num(grandSaved)] : [])]);
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();

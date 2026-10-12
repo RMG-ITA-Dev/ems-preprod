@@ -399,6 +399,15 @@ run supabase/migrations/20261012170000_rls_carril_b3c2_etiquetas_encargo.sql
 run supabase/migrations/20261012180000_rls_carril_b3c3_hr_encargos_administrativos.sql
 run supabase/migrations/20261012180000_rls_carril_b3c3_hr_encargos_administrativos.sql
 
+# Carril B del barrido RLS (B3d): RLS en las horas y sus aprobaciones (time_entries, timer_entries, timesheet_periods,
+# timesheet_line_approvals). Tres helpers SECURITY DEFINER (is_firm_hours_reader, is_in_charge_of_engagement,
+# is_in_charge_of_period), cuatro politicas de lectura nuevas o reescritas y ENABLE RLS. Va DESPUES de B3c-3 (usa get_my_staff_id y
+# engagements.encargado_id). Tambien se aplica DOS veces (idempotencia: CREATE OR REPLACE, DROP POLICY IF EXISTS + CREATE, ENABLE RLS
+# repetible). ATENCION: activa RLS en esas 4 tablas para TODAS las suites que siguen; las demas suites las siembran como dueno y
+# solo las leen a traves de funciones SECURITY DEFINER (revisado a mano). Ejercitado por rls-carril-b-b3d-horas.sql y por el check 12.
+run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
+run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -461,5 +470,6 @@ assert_suite supabase/tests/rls-carril-b-b3b-presupuestos.sql 'B3b PRESUPUESTOS:
 assert_suite supabase/tests/rls-carril-b-b3c-clientes-encargos.sql 'B3c CLIENTES ENCARGOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3c2-etiquetas-encargo.sql 'B3c-2 ETIQUETAS DE ENCARGO: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3c3-hr-administrativos.sql 'B3c-3 HR ADMINISTRATIVOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3d-horas.sql 'B3d HORAS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 22 suites de RLS/RPC/schema-convergence/trigger pasaron"
