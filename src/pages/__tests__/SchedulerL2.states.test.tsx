@@ -71,14 +71,24 @@ const ENGAGEMENT = {
   engagement_id: "e-1",
   engagement_code: "A-001",
   engagement_name: "Audit One",
-  client_id: "c-1",
   start_date: "2026-01-01",
   end_date: "2026-12-31",
   practica: null,
   partner_id: "p-1",
   manager_id: "m-1",
-  client: { client_legal_name: "Cliente Uno" },
+  sqr_id: null,
+  encargado_id: null,
+  specialist_it_id: null,
+  specialist_tax_id: null,
+  client_name: "Cliente Uno",
 };
+
+// B3c: el encargo llega dentro del preflight scheduler-staff-load, no de useEngagements().
+const loadState = (engagement: unknown = ENGAGEMENT) => ({
+  ...queryState({ rows: [], engagement }),
+  isSuccess: true,
+  error: null,
+});
 
 const row = (id: string, categoryId: string): EngagementAssignmentRow =>
   ({
@@ -105,20 +115,18 @@ const row = (id: string, categoryId: string): EngagementAssignmentRow =>
 const ROWS = [row("a1", "cat-1"), row("a2", "cat-2")];
 
 const mocks = {
-  engagements: queryState([ENGAGEMENT]),
   assignments: queryState(ROWS),
   requirements: queryState([]),
   staff: queryState([]),
   services: queryState([]),
   categories: queryState([]),
-  load: { ...queryState({ rows: [] }), isSuccess: true, error: null },
+  load: loadState(),
 };
 
 vi.mock("@/hooks/useEmsData", async () => {
   const actual = await vi.importActual<object>("@/hooks/useEmsData");
   return {
     ...actual,
-    useEngagements: () => mocks.engagements,
     useEngagementAssignments: () => mocks.assignments,
     useEngagementAggregatedRequirements: () => mocks.requirements,
     useActiveStaffWithSkills: () => mocks.staff,
@@ -167,13 +175,12 @@ const lastGantt = () => ganttProps[ganttProps.length - 1];
 
 beforeEach(() => {
   ganttProps.length = 0;
-  mocks.engagements = queryState([ENGAGEMENT]);
   mocks.assignments = queryState(ROWS);
   mocks.requirements = queryState([]);
   mocks.staff = queryState([]);
   mocks.services = queryState([]);
   mocks.categories = queryState([]);
-  mocks.load = { ...queryState({ rows: [] }), isSuccess: true, error: null };
+  mocks.load = loadState();
   mockRoleKey = "admin";
   mockStaffRecord = null;
 });
@@ -210,7 +217,6 @@ describe("SchedulerL2 loading gate covers ALL SIX queries", () => {
     ["staff/skills", () => (mocks.staff = { ...queryState(undefined), isError: true })],
     ["services", () => (mocks.services = { ...queryState(undefined), isError: true })],
     ["categories", () => (mocks.categories = { ...queryState(undefined), isError: true })],
-    ["engagements", () => (mocks.engagements = { ...queryState(undefined), isError: true })],
   ])("a failed %s query is a terminal ERROR — never an empty schedule", (_name, arrange) => {
     arrange();
     renderPage();
@@ -218,6 +224,20 @@ describe("SchedulerL2 loading gate covers ALL SIX queries", () => {
     expect(screen.getByText("scheduler.errors.retry")).toBeInTheDocument();
     expect(screen.queryByTestId("l2gantt")).not.toBeInTheDocument();
     expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+  });
+});
+
+describe("B3c: el encargo sale del preflight del servidor, no de useEngagements()", () => {
+  it("muestra el nombre del cliente que trae el preflight (client_name)", () => {
+    renderPage();
+    expect(screen.getByText(/Cliente Uno/)).toBeInTheDocument();
+  });
+
+  it("si el preflight autoriza pero no trae el encargo (función anterior a B3c) es un ERROR terminal, nunca un cronograma vacío", () => {
+    mocks.load = { ...queryState({ rows: [] }), isSuccess: true, error: null }; // sin `engagement`
+    renderPage();
+    expect(screen.getByText("scheduler.errors.loadFailed")).toBeInTheDocument();
+    expect(screen.queryByTestId("l2gantt")).not.toBeInTheDocument();
   });
 });
 

@@ -13,6 +13,10 @@
 -- No se prueba aquí la vía «solicitud de fondos» del asistente (política "Staff can view fund request
 -- engagements"): B3c no la cambia y su fixture es grande; está medida en Dev 2.0 (el asistente ve 4 encargos).
 --
+-- Los totales («ven todos») se calculan como owner al empezar, NO se fijan: el harness ya trae clientes que no son de
+-- esta suite (los 2 clientes internos que siembra 0722-160) y una migración futura puede sembrar más. Solo los
+-- conteos de gerentes, socio, asistente, senior y supervisor dependen únicamente de las fixtures propias.
+--
 -- Fixture world (ids con prefijo b3cc):
 --   U1 admin  U2 manager (gerente de E1)  U3 manager (gerente de E2)  U4 partner (socio de E1 y SQR de E2)
 --   U5 assistant  U6 senior (encargado de E2, sin engagement.read)  U7 accounting_manager
@@ -131,7 +135,12 @@ DECLARE
   e1  constant text := 'e0b3cc00-0000-4000-8000-000000000001';
   e2  constant text := 'e0b3cc00-0000-4000-8000-000000000002';
   v_who text; v_err text; v_n bigint; v_tot bigint; v_cols text; v text;
+  v_cli bigint; v_eng bigint; v_wo bigint;   -- totales como owner: fixtures propias + lo que ya trae el harness
 BEGIN
+  SELECT count(*) INTO v_cli FROM public.clients;
+  SELECT count(*) INTO v_eng FROM public.engagements;
+  SELECT count(*) INTO v_wo  FROM public.work_orders;
+
   -- 1. Estructura ─────────────────────────────────────────────────────────────────────────────────
   FOREACH v IN ARRAY ARRAY['clients', 'engagements'] LOOP
     IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = format('public.%I', v)::regclass) THEN
@@ -141,10 +150,10 @@ BEGIN
   RAISE NOTICE 'PASS — RLS activa en clients y engagements';
 
   -- 2. Clientes: lectura por rol ───────────────────────────────────────────────────────────────────
-  -- Ven todos (2): admin, cobranza y socio de riesgos (client.read de alcance firma/departamento).
+  -- Ven todos: admin, cobranza y socio de riesgos (client.read de alcance firma/departamento).
   FOREACH v_who IN ARRAY ARRAY[u1, u8, u10] LOOP
-    IF pg_temp.count_as(v_who, 'clients') <> 2 THEN
-      RAISE EXCEPTION 'B3c FAIL — % debía ver los 2 clientes y ve %', v_who, pg_temp.count_as(v_who, 'clients');
+    IF pg_temp.count_as(v_who, 'clients') <> v_cli THEN
+      RAISE EXCEPTION 'B3c FAIL — % debía ver los % clientes y ve %', v_who, v_cli, pg_temp.count_as(v_who, 'clients');
     END IF;
   END LOOP;
   -- Cada gerente, el cliente de su encargo; el socio, el de los dos (socio de E1 y SQR de E2).
@@ -184,10 +193,10 @@ BEGIN
   RAISE NOTICE 'PASS — la visibilidad de clientes depende de client.read y de gestionar un encargo del cliente (se quita, se devuelve y se reasigna)';
 
   -- 3. Encargos: lectura por rol ─────────────────────────────────────────────────────────────────
-  -- Ven todos (2): admin, contabilidad, cobranza, supervisor y socio de riesgos (engagement.read firma/departamento).
+  -- Ven todos: admin, contabilidad, cobranza, supervisor y socio de riesgos (engagement.read firma/departamento).
   FOREACH v_who IN ARRAY ARRAY[u1, u7, u8, u9, u10] LOOP
-    IF pg_temp.count_as(v_who, 'engagements') <> 2 THEN
-      RAISE EXCEPTION 'B3c FAIL — % debía ver los 2 encargos y ve %', v_who, pg_temp.count_as(v_who, 'engagements');
+    IF pg_temp.count_as(v_who, 'engagements') <> v_eng THEN
+      RAISE EXCEPTION 'B3c FAIL — % debía ver los % encargos y ve %', v_who, v_eng, pg_temp.count_as(v_who, 'engagements');
     END IF;
   END LOOP;
   IF pg_temp.count_as(u2, 'engagements') <> 1 OR pg_temp.count_as(u3, 'engagements') <> 1 THEN
@@ -221,8 +230,9 @@ BEGIN
     RAISE EXCEPTION 'B3c FAIL — clients_directory debe tener solo client_id, client_legal_name e is_active y tiene %', v_cols;
   END IF;
   -- Asistente y senior (sin client.read) leen el nombre de TODOS los clientes por el directorio...
-  IF pg_temp.count_as(u5, 'clients_directory') <> 2 OR pg_temp.count_as(u6, 'clients_directory') <> 2 THEN
-    RAISE EXCEPTION 'B3c FAIL — el directorio debía dar los 2 nombres a asistente y senior';
+  IF pg_temp.count_as(u5, 'clients_directory') <> v_cli OR pg_temp.count_as(u6, 'clients_directory') <> v_cli THEN
+    RAISE EXCEPTION 'B3c FAIL — el directorio debía dar los % nombres a asistente (ve %) y senior (ve %)', v_cli,
+      pg_temp.count_as(u5, 'clients_directory'), pg_temp.count_as(u6, 'clients_directory');
   END IF;
   -- ...pero no el contacto: la columna no existe.
   v_err := pg_temp.try_as(u5, 'SELECT contact_email FROM public.clients_directory');
@@ -314,8 +324,8 @@ BEGIN
       RAISE EXCEPTION 'B3c FAIL — % no tiene engagement.update y editó encargos', v_who;
     END IF;
   END LOOP;
-  IF pg_temp.rows_as(u1, 'UPDATE public.engagements SET engagement_name = engagement_name') <> 2 THEN
-    RAISE EXCEPTION 'B3c FAIL — el admin debía alcanzar los 2 encargos';
+  IF pg_temp.rows_as(u1, 'UPDATE public.engagements SET engagement_name = engagement_name') <> v_eng THEN
+    RAISE EXCEPTION 'B3c FAIL — el admin debía alcanzar los % encargos', v_eng;
   END IF;
   FOREACH v_who IN ARRAY ARRAY[u2, u5, u4] LOOP
     IF pg_temp.rows_as(v_who, 'DELETE FROM public.engagements') <> 0 OR pg_temp.rows_as(v_who, 'DELETE FROM public.clients') <> 0 THEN
@@ -331,8 +341,9 @@ BEGIN
   IF pg_temp.count_as(u4, 'work_orders') <> 2 THEN
     RAISE EXCEPTION 'B3c FAIL — el socio/SQR debía ver las 2 OT con la RLS de engagements activa';
   END IF;
-  IF pg_temp.count_as(u8, 'work_orders') <> 2 OR pg_temp.count_as(u7, 'work_orders') <> 2 THEN
-    RAISE EXCEPTION 'B3c FAIL — cobranza y contabilidad debían ver las 2 OT (work_order.read department)';
+  IF pg_temp.count_as(u8, 'work_orders') <> v_wo OR pg_temp.count_as(u7, 'work_orders') <> v_wo THEN
+    RAISE EXCEPTION 'B3c FAIL — cobranza y contabilidad debían ver las % OT (work_order.read department) y ven % / %', v_wo,
+      pg_temp.count_as(u8, 'work_orders'), pg_temp.count_as(u7, 'work_orders');
   END IF;
   IF pg_temp.count_as(u5, 'work_orders') <> 0 THEN
     RAISE EXCEPTION 'B3c FAIL — el asistente sin solicitudes de fondos no debía ver OT';

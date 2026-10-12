@@ -57,7 +57,7 @@ const expenseSelect = `
       engagement_id,
       engagement_code,
       engagement_name,
-      client:clients(client_legal_name)
+      client:clients_directory(client_legal_name)
     )
   ),
   expense_type:expense_types(expense_type_id, expense_name),

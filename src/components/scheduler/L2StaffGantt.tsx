@@ -91,7 +91,7 @@ const LOAD_DOT_CLASS = (count: number) =>
         : "bg-muted-foreground/40";
 
 interface L2StaffGanttProps {
-  engagement: Engagement;
+  engagement: Pick<Engagement, "engagement_id" | "start_date" | "end_date">;
   /** Rows to DISPLAY (may be narrowed by the page's category/search filters). */
   assignments: EngagementAssignmentRow[];
   /** Snapshot COMPLETO (no la vista filtrada) — el commit de drag/resize valida overlap contra
