@@ -379,13 +379,7 @@
  public       | service_role  | clients                                        | TRIGGER
  public       | service_role  | clients                                        | TRUNCATE
  public       | service_role  | clients                                        | UPDATE
- public       | authenticated | clients_directory                              | DELETE
- public       | authenticated | clients_directory                              | INSERT
- public       | authenticated | clients_directory                              | REFERENCES
  public       | authenticated | clients_directory                              | SELECT
- public       | authenticated | clients_directory                              | TRIGGER
- public       | authenticated | clients_directory                              | TRUNCATE
- public       | authenticated | clients_directory                              | UPDATE
  public       | postgres      | clients_directory                              | DELETE
  public       | postgres      | clients_directory                              | INSERT
  public       | postgres      | clients_directory                              | REFERENCES
@@ -421,13 +415,7 @@
  public       | service_role  | engagement_assignments                         | TRIGGER
  public       | service_role  | engagement_assignments                         | TRUNCATE
  public       | service_role  | engagement_assignments                         | UPDATE
- public       | authenticated | engagement_wo_state                            | DELETE
- public       | authenticated | engagement_wo_state                            | INSERT
- public       | authenticated | engagement_wo_state                            | REFERENCES
  public       | authenticated | engagement_wo_state                            | SELECT
- public       | authenticated | engagement_wo_state                            | TRIGGER
- public       | authenticated | engagement_wo_state                            | TRUNCATE
- public       | authenticated | engagement_wo_state                            | UPDATE
  public       | postgres      | engagement_wo_state                            | DELETE
  public       | postgres      | engagement_wo_state                            | INSERT
  public       | postgres      | engagement_wo_state                            | REFERENCES
@@ -540,13 +528,7 @@
  public       | service_role  | fund_request_expenses                          | TRIGGER
  public       | service_role  | fund_request_expenses                          | TRUNCATE
  public       | service_role  | fund_request_expenses                          | UPDATE
- public       | authenticated | fund_request_selectable_work_orders            | DELETE
- public       | authenticated | fund_request_selectable_work_orders            | INSERT
- public       | authenticated | fund_request_selectable_work_orders            | REFERENCES
  public       | authenticated | fund_request_selectable_work_orders            | SELECT
- public       | authenticated | fund_request_selectable_work_orders            | TRIGGER
- public       | authenticated | fund_request_selectable_work_orders            | TRUNCATE
- public       | authenticated | fund_request_selectable_work_orders            | UPDATE
  public       | postgres      | fund_request_selectable_work_orders            | DELETE
  public       | postgres      | fund_request_selectable_work_orders            | INSERT
  public       | postgres      | fund_request_selectable_work_orders            | REFERENCES
@@ -1009,13 +991,7 @@
  public       | service_role  | staff_alert_seen                               | TRIGGER
  public       | service_role  | staff_alert_seen                               | TRUNCATE
  public       | service_role  | staff_alert_seen                               | UPDATE
- public       | authenticated | staff_directory                                | DELETE
- public       | authenticated | staff_directory                                | INSERT
- public       | authenticated | staff_directory                                | REFERENCES
  public       | authenticated | staff_directory                                | SELECT
- public       | authenticated | staff_directory                                | TRIGGER
- public       | authenticated | staff_directory                                | TRUNCATE
- public       | authenticated | staff_directory                                | UPDATE
  public       | postgres      | staff_directory                                | DELETE
  public       | postgres      | staff_directory                                | INSERT
  public       | postgres      | staff_directory                                | REFERENCES
@@ -1447,13 +1423,7 @@
  public       | service_role  | wo_staffing_requirements                       | TRIGGER
  public       | service_role  | wo_staffing_requirements                       | TRUNCATE
  public       | service_role  | wo_staffing_requirements                       | UPDATE
- public       | authenticated | work_order_summary                             | DELETE
- public       | authenticated | work_order_summary                             | INSERT
- public       | authenticated | work_order_summary                             | REFERENCES
  public       | authenticated | work_order_summary                             | SELECT
- public       | authenticated | work_order_summary                             | TRIGGER
- public       | authenticated | work_order_summary                             | TRUNCATE
- public       | authenticated | work_order_summary                             | UPDATE
  public       | postgres      | work_order_summary                             | DELETE
  public       | postgres      | work_order_summary                             | INSERT
  public       | postgres      | work_order_summary                             | REFERENCES
@@ -1615,5 +1585,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1615 rows)
+(1585 rows)
 

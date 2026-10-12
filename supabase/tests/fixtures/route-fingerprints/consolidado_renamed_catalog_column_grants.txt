@@ -2017,22 +2017,7 @@
  service_role  | public       | clients                                        | updated_at                   | REFERENCES
  service_role  | public       | clients                                        | updated_at                   | SELECT
  service_role  | public       | clients                                        | updated_at                   | UPDATE
- authenticated | public       | clients_directory                              | address                      | INSERT
- authenticated | public       | clients_directory                              | address                      | REFERENCES
- authenticated | public       | clients_directory                              | address                      | SELECT
- authenticated | public       | clients_directory                              | address                      | UPDATE
- postgres      | public       | clients_directory                              | address                      | INSERT
- postgres      | public       | clients_directory                              | address                      | REFERENCES
- postgres      | public       | clients_directory                              | address                      | SELECT
- postgres      | public       | clients_directory                              | address                      | UPDATE
- service_role  | public       | clients_directory                              | address                      | INSERT
- service_role  | public       | clients_directory                              | address                      | REFERENCES
- service_role  | public       | clients_directory                              | address                      | SELECT
- service_role  | public       | clients_directory                              | address                      | UPDATE
- authenticated | public       | clients_directory                              | client_id                    | INSERT
- authenticated | public       | clients_directory                              | client_id                    | REFERENCES
  authenticated | public       | clients_directory                              | client_id                    | SELECT
- authenticated | public       | clients_directory                              | client_id                    | UPDATE
  postgres      | public       | clients_directory                              | client_id                    | INSERT
  postgres      | public       | clients_directory                              | client_id                    | REFERENCES
  postgres      | public       | clients_directory                              | client_id                    | SELECT
@@ -2041,10 +2026,7 @@
  service_role  | public       | clients_directory                              | client_id                    | REFERENCES
  service_role  | public       | clients_directory                              | client_id                    | SELECT
  service_role  | public       | clients_directory                              | client_id                    | UPDATE
- authenticated | public       | clients_directory                              | client_legal_name            | INSERT
- authenticated | public       | clients_directory                              | client_legal_name            | REFERENCES
  authenticated | public       | clients_directory                              | client_legal_name            | SELECT
- authenticated | public       | clients_directory                              | client_legal_name            | UPDATE
  postgres      | public       | clients_directory                              | client_legal_name            | INSERT
  postgres      | public       | clients_directory                              | client_legal_name            | REFERENCES
  postgres      | public       | clients_directory                              | client_legal_name            | SELECT
@@ -2053,70 +2035,7 @@
  service_role  | public       | clients_directory                              | client_legal_name            | REFERENCES
  service_role  | public       | clients_directory                              | client_legal_name            | SELECT
  service_role  | public       | clients_directory                              | client_legal_name            | UPDATE
- authenticated | public       | clients_directory                              | contact_email                | INSERT
- authenticated | public       | clients_directory                              | contact_email                | REFERENCES
- authenticated | public       | clients_directory                              | contact_email                | SELECT
- authenticated | public       | clients_directory                              | contact_email                | UPDATE
- postgres      | public       | clients_directory                              | contact_email                | INSERT
- postgres      | public       | clients_directory                              | contact_email                | REFERENCES
- postgres      | public       | clients_directory                              | contact_email                | SELECT
- postgres      | public       | clients_directory                              | contact_email                | UPDATE
- service_role  | public       | clients_directory                              | contact_email                | INSERT
- service_role  | public       | clients_directory                              | contact_email                | REFERENCES
- service_role  | public       | clients_directory                              | contact_email                | SELECT
- service_role  | public       | clients_directory                              | contact_email                | UPDATE
- authenticated | public       | clients_directory                              | contact_name                 | INSERT
- authenticated | public       | clients_directory                              | contact_name                 | REFERENCES
- authenticated | public       | clients_directory                              | contact_name                 | SELECT
- authenticated | public       | clients_directory                              | contact_name                 | UPDATE
- postgres      | public       | clients_directory                              | contact_name                 | INSERT
- postgres      | public       | clients_directory                              | contact_name                 | REFERENCES
- postgres      | public       | clients_directory                              | contact_name                 | SELECT
- postgres      | public       | clients_directory                              | contact_name                 | UPDATE
- service_role  | public       | clients_directory                              | contact_name                 | INSERT
- service_role  | public       | clients_directory                              | contact_name                 | REFERENCES
- service_role  | public       | clients_directory                              | contact_name                 | SELECT
- service_role  | public       | clients_directory                              | contact_name                 | UPDATE
- authenticated | public       | clients_directory                              | contact_phone                | INSERT
- authenticated | public       | clients_directory                              | contact_phone                | REFERENCES
- authenticated | public       | clients_directory                              | contact_phone                | SELECT
- authenticated | public       | clients_directory                              | contact_phone                | UPDATE
- postgres      | public       | clients_directory                              | contact_phone                | INSERT
- postgres      | public       | clients_directory                              | contact_phone                | REFERENCES
- postgres      | public       | clients_directory                              | contact_phone                | SELECT
- postgres      | public       | clients_directory                              | contact_phone                | UPDATE
- service_role  | public       | clients_directory                              | contact_phone                | INSERT
- service_role  | public       | clients_directory                              | contact_phone                | REFERENCES
- service_role  | public       | clients_directory                              | contact_phone                | SELECT
- service_role  | public       | clients_directory                              | contact_phone                | UPDATE
- authenticated | public       | clients_directory                              | created_at                   | INSERT
- authenticated | public       | clients_directory                              | created_at                   | REFERENCES
- authenticated | public       | clients_directory                              | created_at                   | SELECT
- authenticated | public       | clients_directory                              | created_at                   | UPDATE
- postgres      | public       | clients_directory                              | created_at                   | INSERT
- postgres      | public       | clients_directory                              | created_at                   | REFERENCES
- postgres      | public       | clients_directory                              | created_at                   | SELECT
- postgres      | public       | clients_directory                              | created_at                   | UPDATE
- service_role  | public       | clients_directory                              | created_at                   | INSERT
- service_role  | public       | clients_directory                              | created_at                   | REFERENCES
- service_role  | public       | clients_directory                              | created_at                   | SELECT
- service_role  | public       | clients_directory                              | created_at                   | UPDATE
- authenticated | public       | clients_directory                              | industry_id                  | INSERT
- authenticated | public       | clients_directory                              | industry_id                  | REFERENCES
- authenticated | public       | clients_directory                              | industry_id                  | SELECT
- authenticated | public       | clients_directory                              | industry_id                  | UPDATE
- postgres      | public       | clients_directory                              | industry_id                  | INSERT
- postgres      | public       | clients_directory                              | industry_id                  | REFERENCES
- postgres      | public       | clients_directory                              | industry_id                  | SELECT
- postgres      | public       | clients_directory                              | industry_id                  | UPDATE
- service_role  | public       | clients_directory                              | industry_id                  | INSERT
- service_role  | public       | clients_directory                              | industry_id                  | REFERENCES
- service_role  | public       | clients_directory                              | industry_id                  | SELECT
- service_role  | public       | clients_directory                              | industry_id                  | UPDATE
- authenticated | public       | clients_directory                              | is_active                    | INSERT
- authenticated | public       | clients_directory                              | is_active                    | REFERENCES
  authenticated | public       | clients_directory                              | is_active                    | SELECT
- authenticated | public       | clients_directory                              | is_active                    | UPDATE
  postgres      | public       | clients_directory                              | is_active                    | INSERT
  postgres      | public       | clients_directory                              | is_active                    | REFERENCES
  postgres      | public       | clients_directory                              | is_active                    | SELECT
@@ -2125,18 +2044,6 @@
  service_role  | public       | clients_directory                              | is_active                    | REFERENCES
  service_role  | public       | clients_directory                              | is_active                    | SELECT
  service_role  | public       | clients_directory                              | is_active                    | UPDATE
- authenticated | public       | clients_directory                              | updated_at                   | INSERT
- authenticated | public       | clients_directory                              | updated_at                   | REFERENCES
- authenticated | public       | clients_directory                              | updated_at                   | SELECT
- authenticated | public       | clients_directory                              | updated_at                   | UPDATE
- postgres      | public       | clients_directory                              | updated_at                   | INSERT
- postgres      | public       | clients_directory                              | updated_at                   | REFERENCES
- postgres      | public       | clients_directory                              | updated_at                   | SELECT
- postgres      | public       | clients_directory                              | updated_at                   | UPDATE
- service_role  | public       | clients_directory                              | updated_at                   | INSERT
- service_role  | public       | clients_directory                              | updated_at                   | REFERENCES
- service_role  | public       | clients_directory                              | updated_at                   | SELECT
- service_role  | public       | clients_directory                              | updated_at                   | UPDATE
  authenticated | public       | engagement_assignments                         | allocation_percent           | INSERT
  authenticated | public       | engagement_assignments                         | allocation_percent           | REFERENCES
  authenticated | public       | engagement_assignments                         | allocation_percent           | SELECT
@@ -2317,10 +2224,7 @@
  service_role  | public       | engagement_assignments                         | updated_at                   | REFERENCES
  service_role  | public       | engagement_assignments                         | updated_at                   | SELECT
  service_role  | public       | engagement_assignments                         | updated_at                   | UPDATE
- authenticated | public       | engagement_wo_state                            | approval_status              | INSERT
- authenticated | public       | engagement_wo_state                            | approval_status              | REFERENCES
  authenticated | public       | engagement_wo_state                            | approval_status              | SELECT
- authenticated | public       | engagement_wo_state                            | approval_status              | UPDATE
  postgres      | public       | engagement_wo_state                            | approval_status              | INSERT
  postgres      | public       | engagement_wo_state                            | approval_status              | REFERENCES
  postgres      | public       | engagement_wo_state                            | approval_status              | SELECT
@@ -2329,10 +2233,7 @@
  service_role  | public       | engagement_wo_state                            | approval_status              | REFERENCES
  service_role  | public       | engagement_wo_state                            | approval_status              | SELECT
  service_role  | public       | engagement_wo_state                            | approval_status              | UPDATE
- authenticated | public       | engagement_wo_state                            | approved_at                  | INSERT
- authenticated | public       | engagement_wo_state                            | approved_at                  | REFERENCES
  authenticated | public       | engagement_wo_state                            | approved_at                  | SELECT
- authenticated | public       | engagement_wo_state                            | approved_at                  | UPDATE
  postgres      | public       | engagement_wo_state                            | approved_at                  | INSERT
  postgres      | public       | engagement_wo_state                            | approved_at                  | REFERENCES
  postgres      | public       | engagement_wo_state                            | approved_at                  | SELECT
@@ -2341,10 +2242,7 @@
  service_role  | public       | engagement_wo_state                            | approved_at                  | REFERENCES
  service_role  | public       | engagement_wo_state                            | approved_at                  | SELECT
  service_role  | public       | engagement_wo_state                            | approved_at                  | UPDATE
- authenticated | public       | engagement_wo_state                            | engagement_id                | INSERT
- authenticated | public       | engagement_wo_state                            | engagement_id                | REFERENCES
  authenticated | public       | engagement_wo_state                            | engagement_id                | SELECT
- authenticated | public       | engagement_wo_state                            | engagement_id                | UPDATE
  postgres      | public       | engagement_wo_state                            | engagement_id                | INSERT
  postgres      | public       | engagement_wo_state                            | engagement_id                | REFERENCES
  postgres      | public       | engagement_wo_state                            | engagement_id                | SELECT
@@ -2353,10 +2251,7 @@
  service_role  | public       | engagement_wo_state                            | engagement_id                | REFERENCES
  service_role  | public       | engagement_wo_state                            | engagement_id                | SELECT
  service_role  | public       | engagement_wo_state                            | engagement_id                | UPDATE
- authenticated | public       | engagement_wo_state                            | risk_status                  | INSERT
- authenticated | public       | engagement_wo_state                            | risk_status                  | REFERENCES
  authenticated | public       | engagement_wo_state                            | risk_status                  | SELECT
- authenticated | public       | engagement_wo_state                            | risk_status                  | UPDATE
  postgres      | public       | engagement_wo_state                            | risk_status                  | INSERT
  postgres      | public       | engagement_wo_state                            | risk_status                  | REFERENCES
  postgres      | public       | engagement_wo_state                            | risk_status                  | SELECT
@@ -3429,10 +3324,7 @@
  service_role  | public       | fund_request_expenses                          | wo_id                        | REFERENCES
  service_role  | public       | fund_request_expenses                          | wo_id                        | SELECT
  service_role  | public       | fund_request_expenses                          | wo_id                        | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | approval_status              | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | approval_status              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | approval_status              | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | approval_status              | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | approval_status              | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
@@ -3441,10 +3333,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | approval_status              | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | currency                     | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | currency                     | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | currency                     | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | currency                     | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | currency                     | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | currency                     | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | currency                     | SELECT
@@ -3453,10 +3342,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | currency                     | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_code              | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | engagement_code              | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | engagement_code              | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
@@ -3465,10 +3351,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_code              | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_id                | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | engagement_id                | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | engagement_id                | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
@@ -3477,10 +3360,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_id                | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | engagement_name              | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | engagement_name              | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | engagement_name              | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
@@ -3489,10 +3369,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | engagement_name              | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | manager_first_name           | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | manager_first_name           | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | manager_first_name           | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
@@ -3501,10 +3378,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_first_name           | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | manager_id                   | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | manager_id                   | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | manager_id                   | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
@@ -3513,10 +3387,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_id                   | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | manager_last_name            | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | manager_last_name            | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | manager_last_name            | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
@@ -3525,10 +3396,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_last_name            | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | manager_short_name           | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | manager_short_name           | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | manager_short_name           | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
@@ -3537,10 +3405,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_short_name           | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | manager_staff_id             | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | manager_staff_id             | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | manager_staff_id             | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
@@ -3549,10 +3414,7 @@
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | REFERENCES
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | SELECT
  service_role  | public       | fund_request_selectable_work_orders            | manager_staff_id             | UPDATE
- authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | INSERT
- authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | REFERENCES
  authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | SELECT
- authenticated | public       | fund_request_selectable_work_orders            | wo_id                        | UPDATE
  postgres      | public       | fund_request_selectable_work_orders            | wo_id                        | INSERT
  postgres      | public       | fund_request_selectable_work_orders            | wo_id                        | REFERENCES
  postgres      | public       | fund_request_selectable_work_orders            | wo_id                        | SELECT
@@ -5867,10 +5729,7 @@
  service_role  | public       | staff_alert_seen                               | staff_id                     | REFERENCES
  service_role  | public       | staff_alert_seen                               | staff_id                     | SELECT
  service_role  | public       | staff_alert_seen                               | staff_id                     | UPDATE
- authenticated | public       | staff_directory                                | category_id                  | INSERT
- authenticated | public       | staff_directory                                | category_id                  | REFERENCES
  authenticated | public       | staff_directory                                | category_id                  | SELECT
- authenticated | public       | staff_directory                                | category_id                  | UPDATE
  postgres      | public       | staff_directory                                | category_id                  | INSERT
  postgres      | public       | staff_directory                                | category_id                  | REFERENCES
  postgres      | public       | staff_directory                                | category_id                  | SELECT
@@ -5879,10 +5738,7 @@
  service_role  | public       | staff_directory                                | category_id                  | REFERENCES
  service_role  | public       | staff_directory                                | category_id                  | SELECT
  service_role  | public       | staff_directory                                | category_id                  | UPDATE
- authenticated | public       | staff_directory                                | city                         | INSERT
- authenticated | public       | staff_directory                                | city                         | REFERENCES
  authenticated | public       | staff_directory                                | city                         | SELECT
- authenticated | public       | staff_directory                                | city                         | UPDATE
  postgres      | public       | staff_directory                                | city                         | INSERT
  postgres      | public       | staff_directory                                | city                         | REFERENCES
  postgres      | public       | staff_directory                                | city                         | SELECT
@@ -5891,10 +5747,7 @@
  service_role  | public       | staff_directory                                | city                         | REFERENCES
  service_role  | public       | staff_directory                                | city                         | SELECT
  service_role  | public       | staff_directory                                | city                         | UPDATE
- authenticated | public       | staff_directory                                | created_at                   | INSERT
- authenticated | public       | staff_directory                                | created_at                   | REFERENCES
  authenticated | public       | staff_directory                                | created_at                   | SELECT
- authenticated | public       | staff_directory                                | created_at                   | UPDATE
  postgres      | public       | staff_directory                                | created_at                   | INSERT
  postgres      | public       | staff_directory                                | created_at                   | REFERENCES
  postgres      | public       | staff_directory                                | created_at                   | SELECT
@@ -5903,10 +5756,7 @@
  service_role  | public       | staff_directory                                | created_at                   | REFERENCES
  service_role  | public       | staff_directory                                | created_at                   | SELECT
  service_role  | public       | staff_directory                                | created_at                   | UPDATE
- authenticated | public       | staff_directory                                | first_name                   | INSERT
- authenticated | public       | staff_directory                                | first_name                   | REFERENCES
  authenticated | public       | staff_directory                                | first_name                   | SELECT
- authenticated | public       | staff_directory                                | first_name                   | UPDATE
  postgres      | public       | staff_directory                                | first_name                   | INSERT
  postgres      | public       | staff_directory                                | first_name                   | REFERENCES
  postgres      | public       | staff_directory                                | first_name                   | SELECT
@@ -5915,10 +5765,7 @@
  service_role  | public       | staff_directory                                | first_name                   | REFERENCES
  service_role  | public       | staff_directory                                | first_name                   | SELECT
  service_role  | public       | staff_directory                                | first_name                   | UPDATE
- authenticated | public       | staff_directory                                | initials                     | INSERT
- authenticated | public       | staff_directory                                | initials                     | REFERENCES
  authenticated | public       | staff_directory                                | initials                     | SELECT
- authenticated | public       | staff_directory                                | initials                     | UPDATE
  postgres      | public       | staff_directory                                | initials                     | INSERT
  postgres      | public       | staff_directory                                | initials                     | REFERENCES
  postgres      | public       | staff_directory                                | initials                     | SELECT
@@ -5927,10 +5774,7 @@
  service_role  | public       | staff_directory                                | initials                     | REFERENCES
  service_role  | public       | staff_directory                                | initials                     | SELECT
  service_role  | public       | staff_directory                                | initials                     | UPDATE
- authenticated | public       | staff_directory                                | is_active                    | INSERT
- authenticated | public       | staff_directory                                | is_active                    | REFERENCES
  authenticated | public       | staff_directory                                | is_active                    | SELECT
- authenticated | public       | staff_directory                                | is_active                    | UPDATE
  postgres      | public       | staff_directory                                | is_active                    | INSERT
  postgres      | public       | staff_directory                                | is_active                    | REFERENCES
  postgres      | public       | staff_directory                                | is_active                    | SELECT
@@ -5939,10 +5783,7 @@
  service_role  | public       | staff_directory                                | is_active                    | REFERENCES
  service_role  | public       | staff_directory                                | is_active                    | SELECT
  service_role  | public       | staff_directory                                | is_active                    | UPDATE
- authenticated | public       | staff_directory                                | last_name                    | INSERT
- authenticated | public       | staff_directory                                | last_name                    | REFERENCES
  authenticated | public       | staff_directory                                | last_name                    | SELECT
- authenticated | public       | staff_directory                                | last_name                    | UPDATE
  postgres      | public       | staff_directory                                | last_name                    | INSERT
  postgres      | public       | staff_directory                                | last_name                    | REFERENCES
  postgres      | public       | staff_directory                                | last_name                    | SELECT
@@ -5951,10 +5792,7 @@
  service_role  | public       | staff_directory                                | last_name                    | REFERENCES
  service_role  | public       | staff_directory                                | last_name                    | SELECT
  service_role  | public       | staff_directory                                | last_name                    | UPDATE
- authenticated | public       | staff_directory                                | short_name                   | INSERT
- authenticated | public       | staff_directory                                | short_name                   | REFERENCES
  authenticated | public       | staff_directory                                | short_name                   | SELECT
- authenticated | public       | staff_directory                                | short_name                   | UPDATE
  postgres      | public       | staff_directory                                | short_name                   | INSERT
  postgres      | public       | staff_directory                                | short_name                   | REFERENCES
  postgres      | public       | staff_directory                                | short_name                   | SELECT
@@ -5963,10 +5801,7 @@
  service_role  | public       | staff_directory                                | short_name                   | REFERENCES
  service_role  | public       | staff_directory                                | short_name                   | SELECT
  service_role  | public       | staff_directory                                | short_name                   | UPDATE
- authenticated | public       | staff_directory                                | staff_id                     | INSERT
- authenticated | public       | staff_directory                                | staff_id                     | REFERENCES
  authenticated | public       | staff_directory                                | staff_id                     | SELECT
- authenticated | public       | staff_directory                                | staff_id                     | UPDATE
  postgres      | public       | staff_directory                                | staff_id                     | INSERT
  postgres      | public       | staff_directory                                | staff_id                     | REFERENCES
  postgres      | public       | staff_directory                                | staff_id                     | SELECT
@@ -5975,10 +5810,7 @@
  service_role  | public       | staff_directory                                | staff_id                     | REFERENCES
  service_role  | public       | staff_directory                                | staff_id                     | SELECT
  service_role  | public       | staff_directory                                | staff_id                     | UPDATE
- authenticated | public       | staff_directory                                | updated_at                   | INSERT
- authenticated | public       | staff_directory                                | updated_at                   | REFERENCES
  authenticated | public       | staff_directory                                | updated_at                   | SELECT
- authenticated | public       | staff_directory                                | updated_at                   | UPDATE
  postgres      | public       | staff_directory                                | updated_at                   | INSERT
  postgres      | public       | staff_directory                                | updated_at                   | REFERENCES
  postgres      | public       | staff_directory                                | updated_at                   | SELECT
@@ -8158,10 +7990,7 @@
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | REFERENCES
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | SELECT
  service_role  | public       | wo_staffing_requirements                       | wo_id                        | UPDATE
- authenticated | public       | work_order_summary                             | adjustment_amount            | INSERT
- authenticated | public       | work_order_summary                             | adjustment_amount            | REFERENCES
  authenticated | public       | work_order_summary                             | adjustment_amount            | SELECT
- authenticated | public       | work_order_summary                             | adjustment_amount            | UPDATE
  postgres      | public       | work_order_summary                             | adjustment_amount            | INSERT
  postgres      | public       | work_order_summary                             | adjustment_amount            | REFERENCES
  postgres      | public       | work_order_summary                             | adjustment_amount            | SELECT
@@ -8170,10 +7999,7 @@
  service_role  | public       | work_order_summary                             | adjustment_amount            | REFERENCES
  service_role  | public       | work_order_summary                             | adjustment_amount            | SELECT
  service_role  | public       | work_order_summary                             | adjustment_amount            | UPDATE
- authenticated | public       | work_order_summary                             | approval_status              | INSERT
- authenticated | public       | work_order_summary                             | approval_status              | REFERENCES
  authenticated | public       | work_order_summary                             | approval_status              | SELECT
- authenticated | public       | work_order_summary                             | approval_status              | UPDATE
  postgres      | public       | work_order_summary                             | approval_status              | INSERT
  postgres      | public       | work_order_summary                             | approval_status              | REFERENCES
  postgres      | public       | work_order_summary                             | approval_status              | SELECT
@@ -8182,10 +8008,7 @@
  service_role  | public       | work_order_summary                             | approval_status              | REFERENCES
  service_role  | public       | work_order_summary                             | approval_status              | SELECT
  service_role  | public       | work_order_summary                             | approval_status              | UPDATE
- authenticated | public       | work_order_summary                             | approved_at                  | INSERT
- authenticated | public       | work_order_summary                             | approved_at                  | REFERENCES
  authenticated | public       | work_order_summary                             | approved_at                  | SELECT
- authenticated | public       | work_order_summary                             | approved_at                  | UPDATE
  postgres      | public       | work_order_summary                             | approved_at                  | INSERT
  postgres      | public       | work_order_summary                             | approved_at                  | REFERENCES
  postgres      | public       | work_order_summary                             | approved_at                  | SELECT
@@ -8194,10 +8017,7 @@
  service_role  | public       | work_order_summary                             | approved_at                  | REFERENCES
  service_role  | public       | work_order_summary                             | approved_at                  | SELECT
  service_role  | public       | work_order_summary                             | approved_at                  | UPDATE
- authenticated | public       | work_order_summary                             | approved_by                  | INSERT
- authenticated | public       | work_order_summary                             | approved_by                  | REFERENCES
  authenticated | public       | work_order_summary                             | approved_by                  | SELECT
- authenticated | public       | work_order_summary                             | approved_by                  | UPDATE
  postgres      | public       | work_order_summary                             | approved_by                  | INSERT
  postgres      | public       | work_order_summary                             | approved_by                  | REFERENCES
  postgres      | public       | work_order_summary                             | approved_by                  | SELECT
@@ -8206,10 +8026,7 @@
  service_role  | public       | work_order_summary                             | approved_by                  | REFERENCES
  service_role  | public       | work_order_summary                             | approved_by                  | SELECT
  service_role  | public       | work_order_summary                             | approved_by                  | UPDATE
- authenticated | public       | work_order_summary                             | created_at                   | INSERT
- authenticated | public       | work_order_summary                             | created_at                   | REFERENCES
  authenticated | public       | work_order_summary                             | created_at                   | SELECT
- authenticated | public       | work_order_summary                             | created_at                   | UPDATE
  postgres      | public       | work_order_summary                             | created_at                   | INSERT
  postgres      | public       | work_order_summary                             | created_at                   | REFERENCES
  postgres      | public       | work_order_summary                             | created_at                   | SELECT
@@ -8218,10 +8035,7 @@
  service_role  | public       | work_order_summary                             | created_at                   | REFERENCES
  service_role  | public       | work_order_summary                             | created_at                   | SELECT
  service_role  | public       | work_order_summary                             | created_at                   | UPDATE
- authenticated | public       | work_order_summary                             | currency                     | INSERT
- authenticated | public       | work_order_summary                             | currency                     | REFERENCES
  authenticated | public       | work_order_summary                             | currency                     | SELECT
- authenticated | public       | work_order_summary                             | currency                     | UPDATE
  postgres      | public       | work_order_summary                             | currency                     | INSERT
  postgres      | public       | work_order_summary                             | currency                     | REFERENCES
  postgres      | public       | work_order_summary                             | currency                     | SELECT
@@ -8230,10 +8044,7 @@
  service_role  | public       | work_order_summary                             | currency                     | REFERENCES
  service_role  | public       | work_order_summary                             | currency                     | SELECT
  service_role  | public       | work_order_summary                             | currency                     | UPDATE
- authenticated | public       | work_order_summary                             | engagement_id                | INSERT
- authenticated | public       | work_order_summary                             | engagement_id                | REFERENCES
  authenticated | public       | work_order_summary                             | engagement_id                | SELECT
- authenticated | public       | work_order_summary                             | engagement_id                | UPDATE
  postgres      | public       | work_order_summary                             | engagement_id                | INSERT
  postgres      | public       | work_order_summary                             | engagement_id                | REFERENCES
  postgres      | public       | work_order_summary                             | engagement_id                | SELECT
@@ -8242,10 +8053,7 @@
  service_role  | public       | work_order_summary                             | engagement_id                | REFERENCES
  service_role  | public       | work_order_summary                             | engagement_id                | SELECT
  service_role  | public       | work_order_summary                             | engagement_id                | UPDATE
- authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | INSERT
- authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | REFERENCES
  authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
- authenticated | public       | work_order_summary                             | fee_with_tax_gross_up        | UPDATE
  postgres      | public       | work_order_summary                             | fee_with_tax_gross_up        | INSERT
  postgres      | public       | work_order_summary                             | fee_with_tax_gross_up        | REFERENCES
  postgres      | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
@@ -8254,10 +8062,7 @@
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | REFERENCES
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | SELECT
  service_role  | public       | work_order_summary                             | fee_with_tax_gross_up        | UPDATE
- authenticated | public       | work_order_summary                             | notes                        | INSERT
- authenticated | public       | work_order_summary                             | notes                        | REFERENCES
  authenticated | public       | work_order_summary                             | notes                        | SELECT
- authenticated | public       | work_order_summary                             | notes                        | UPDATE
  postgres      | public       | work_order_summary                             | notes                        | INSERT
  postgres      | public       | work_order_summary                             | notes                        | REFERENCES
  postgres      | public       | work_order_summary                             | notes                        | SELECT
@@ -8266,10 +8071,7 @@
  service_role  | public       | work_order_summary                             | notes                        | REFERENCES
  service_role  | public       | work_order_summary                             | notes                        | SELECT
  service_role  | public       | work_order_summary                             | notes                        | UPDATE
- authenticated | public       | work_order_summary                             | realization_percent          | INSERT
- authenticated | public       | work_order_summary                             | realization_percent          | REFERENCES
  authenticated | public       | work_order_summary                             | realization_percent          | SELECT
- authenticated | public       | work_order_summary                             | realization_percent          | UPDATE
  postgres      | public       | work_order_summary                             | realization_percent          | INSERT
  postgres      | public       | work_order_summary                             | realization_percent          | REFERENCES
  postgres      | public       | work_order_summary                             | realization_percent          | SELECT
@@ -8278,10 +8080,7 @@
  service_role  | public       | work_order_summary                             | realization_percent          | REFERENCES
  service_role  | public       | work_order_summary                             | realization_percent          | SELECT
  service_role  | public       | work_order_summary                             | realization_percent          | UPDATE
- authenticated | public       | work_order_summary                             | season_mode                  | INSERT
- authenticated | public       | work_order_summary                             | season_mode                  | REFERENCES
  authenticated | public       | work_order_summary                             | season_mode                  | SELECT
- authenticated | public       | work_order_summary                             | season_mode                  | UPDATE
  postgres      | public       | work_order_summary                             | season_mode                  | INSERT
  postgres      | public       | work_order_summary                             | season_mode                  | REFERENCES
  postgres      | public       | work_order_summary                             | season_mode                  | SELECT
@@ -8290,10 +8089,7 @@
  service_role  | public       | work_order_summary                             | season_mode                  | REFERENCES
  service_role  | public       | work_order_summary                             | season_mode                  | SELECT
  service_role  | public       | work_order_summary                             | season_mode                  | UPDATE
- authenticated | public       | work_order_summary                             | tax_rate                     | INSERT
- authenticated | public       | work_order_summary                             | tax_rate                     | REFERENCES
  authenticated | public       | work_order_summary                             | tax_rate                     | SELECT
- authenticated | public       | work_order_summary                             | tax_rate                     | UPDATE
  postgres      | public       | work_order_summary                             | tax_rate                     | INSERT
  postgres      | public       | work_order_summary                             | tax_rate                     | REFERENCES
  postgres      | public       | work_order_summary                             | tax_rate                     | SELECT
@@ -8302,10 +8098,7 @@
  service_role  | public       | work_order_summary                             | tax_rate                     | REFERENCES
  service_role  | public       | work_order_summary                             | tax_rate                     | SELECT
  service_role  | public       | work_order_summary                             | tax_rate                     | UPDATE
- authenticated | public       | work_order_summary                             | total_standard_fee           | INSERT
- authenticated | public       | work_order_summary                             | total_standard_fee           | REFERENCES
  authenticated | public       | work_order_summary                             | total_standard_fee           | SELECT
- authenticated | public       | work_order_summary                             | total_standard_fee           | UPDATE
  postgres      | public       | work_order_summary                             | total_standard_fee           | INSERT
  postgres      | public       | work_order_summary                             | total_standard_fee           | REFERENCES
  postgres      | public       | work_order_summary                             | total_standard_fee           | SELECT
@@ -8314,10 +8107,7 @@
  service_role  | public       | work_order_summary                             | total_standard_fee           | REFERENCES
  service_role  | public       | work_order_summary                             | total_standard_fee           | SELECT
  service_role  | public       | work_order_summary                             | total_standard_fee           | UPDATE
- authenticated | public       | work_order_summary                             | updated_at                   | INSERT
- authenticated | public       | work_order_summary                             | updated_at                   | REFERENCES
  authenticated | public       | work_order_summary                             | updated_at                   | SELECT
- authenticated | public       | work_order_summary                             | updated_at                   | UPDATE
  postgres      | public       | work_order_summary                             | updated_at                   | INSERT
  postgres      | public       | work_order_summary                             | updated_at                   | REFERENCES
  postgres      | public       | work_order_summary                             | updated_at                   | SELECT
@@ -8326,10 +8116,7 @@
  service_role  | public       | work_order_summary                             | updated_at                   | REFERENCES
  service_role  | public       | work_order_summary                             | updated_at                   | SELECT
  service_role  | public       | work_order_summary                             | updated_at                   | UPDATE
- authenticated | public       | work_order_summary                             | wo_id                        | INSERT
- authenticated | public       | work_order_summary                             | wo_id                        | REFERENCES
  authenticated | public       | work_order_summary                             | wo_id                        | SELECT
- authenticated | public       | work_order_summary                             | wo_id                        | UPDATE
  postgres      | public       | work_order_summary                             | wo_id                        | INSERT
  postgres      | public       | work_order_summary                             | wo_id                        | REFERENCES
  postgres      | public       | work_order_summary                             | wo_id                        | SELECT
@@ -9521,5 +9308,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                   | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                   | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                   | SELECT
-(9521 rows)
+(9308 rows)
 
