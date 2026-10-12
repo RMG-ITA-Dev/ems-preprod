@@ -1425,6 +1425,8 @@
         "approvedHours": "Approved",
         "pendingHours": "Pending approval",
         "savedHours": "Saved",
+        "loadError": "Could not load the hours breakdown. Try again.",
+        "retry": "Retry",
         "savedHoursHint": "Saved: not yet submitted for approval, or returned by the approver",
         "filterByCategory": "Filter by category",
         "nCategoriesSelected": "{{count}} categories",

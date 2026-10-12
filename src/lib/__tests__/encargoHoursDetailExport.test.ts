@@ -236,11 +236,17 @@ describe("classifyHoursStatus", () => {
     expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: sent }, lines)).toBe("pending");
   });
 
-  it("guardada: línea rechazada, sin línea, período sin enviar o sin período", () => {
+  it("guardada: línea rechazada, sin línea, o pendiente de un período retirado (sin enviar)", () => {
     expect(classifyHoursStatus({ period_id: "p1", activity_id: "a3", period: sent }, lines)).toBe("saved");
     expect(classifyHoursStatus({ period_id: "p1", activity_id: "zz", period: sent }, lines)).toBe("saved");
-    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: { submitted_at: null } }, lines)).toBe("saved");
-    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: null }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: { submitted_at: null } }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: null }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: null, activity_id: "a1", period: sent }, lines)).toBe("saved");
+  });
+
+  it("una línea aprobada sigue aprobada aunque el período esté sin enviar (semana parcialmente aprobada y retirada)", () => {
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: { submitted_at: null } }, lines)).toBe("approved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: null }, lines)).toBe("approved");
   });
 });
 

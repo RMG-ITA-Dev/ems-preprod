@@ -38,9 +38,9 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
   const [lastWeekOnly, setLastWeekOnly] = useState(true);
   const initialized = useRef(false);
 
-  const { data: rawRows, isLoading } = useQuery({
+  const { data: rawRows, isLoading, isError: hoursError, refetch: refetchHours } = useQuery({
     queryKey: ['encargo-staff-hours-detail', engagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!engagementId) return [];
       const { data, error } = await supabase
         .from('time_entries')
@@ -56,7 +56,8 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
           )
         `)
         .eq('engagement_id', engagementId)
-        .eq('is_forecast', false);
+        .eq('is_forecast', false)
+        .abortSignal(signal);
       if (error) throw error;
       return (data ?? []) as unknown as RawTimeEntryRow[];
     },
@@ -65,19 +66,29 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
 
   // Líneas de aprobación del encargo: dan el estado de cada hora (aprobada / pendiente). La RLS deja leerlas al responsable
   // del encargo; quien solo ve horas propias ve las de sus períodos.
-  const { data: lineRows } = useQuery({
+  const { data: lineRows, isLoading: linesLoading, isError: linesError, refetch: refetchLines } = useQuery({
     queryKey: ['encargo-staff-hours-lines', engagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!engagementId) return [];
       const { data, error } = await supabase
         .from('timesheet_line_approvals')
         .select('period_id, activity_id, status')
-        .eq('engagement_id', engagementId);
+        .eq('engagement_id', engagementId)
+        .abortSignal(signal);
       if (error) throw error;
       return (data ?? []) as LineStatusRow[];
     },
     enabled: open && !!engagementId,
   });
+
+  // El desglose sale de las dos consultas: sin las líneas, todas las horas parecerían «guardadas». Se espera a ambas y,
+  // si una falla, se muestra el error con reintento en vez de un desglose hecho con datos faltantes (ni se exporta).
+  const breakdownLoading = isLoading || linesLoading;
+  const loadFailed = hoursError || linesError;
+  function retryLoad() {
+    if (hoursError) void refetchHours();
+    if (linesError) void refetchLines();
+  }
 
   const aggregated = useMemo(() => {
     const lineStatus = buildLineStatusMap(lineRows ?? []);
@@ -201,6 +212,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
   const filteredSaved = useMemo(() => filtered.reduce((s, r) => s + r.savedHours, 0), [filtered]);
 
   async function handleExport() {
+    if (breakdownLoading || loadFailed) return;
     const headers = {
       staffName: t('dashboard.encargo.hoursDetail.staffName'),
       category: t('dashboard.encargo.hoursDetail.category'),
@@ -320,6 +332,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
             size="sm"
             className="gap-1 shrink-0 sm:ml-auto"
             onClick={handleExport}
+            disabled={breakdownLoading || loadFailed}
           >
             <Download className="h-4 w-4" />
             {t('dashboard.encargo.hoursDetail.exportExcel')}
@@ -344,7 +357,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {breakdownLoading ? (
                 [...Array(5)].map((_, i) => (
                   <TableRow key={i}>
                     {[...Array(8)].map((__, j) => (
@@ -354,6 +367,15 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                     ))}
                   </TableRow>
                 ))
+              ) : loadFailed ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-6">
+                    <p className="text-sm text-destructive mb-2">{t('dashboard.encargo.hoursDetail.loadError')}</p>
+                    <Button variant="outline" size="sm" onClick={retryLoad}>
+                      {t('dashboard.encargo.hoursDetail.retry')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground py-6">

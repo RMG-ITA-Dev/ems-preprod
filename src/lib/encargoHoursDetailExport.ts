@@ -1,5 +1,5 @@
 // Estado de una hora para el desglose del detalle (B3d): «aprobada» y «pendiente» según su línea de aprobación;
-// «guardada» = período sin enviar, sin línea o con la línea rechazada (devuelta al dueño).
+// «guardada» = sin línea, con la línea rechazada (devuelta al dueño) o con la línea pendiente de un período retirado (sin enviar).
 export type HoursStatus = 'approved' | 'pending' | 'saved';
 
 export interface LineStatusRow {
@@ -53,10 +53,13 @@ export function classifyHoursStatus(
   entry: { period_id?: string | null; activity_id?: string | null; period?: { submitted_at?: string | null } | null },
   lineStatus: Map<string, string>,
 ): HoursStatus {
-  if (!entry.period?.submitted_at || !entry.period_id || !entry.activity_id) return 'saved';
+  if (!entry.period_id || !entry.activity_id) return 'saved';
   const status = lineStatus.get(`${entry.period_id}:${entry.activity_id}`);
+  // Una línea aprobada manda sobre submitted_at: unsubmit_timesheet_safe limpia submitted_at de una semana PARCIALMENTE aprobada
+  // y conserva sus líneas aprobadas (solo las borra si todas lo estaban); esas horas siguen aprobadas.
   if (status === 'approved') return 'approved';
-  if (status === 'pending') return 'pending';
+  // Pendiente exige el período enviado: una línea pendiente de una semana retirada es una hora guardada.
+  if (status === 'pending' && entry.period?.submitted_at) return 'pending';
   return 'saved';
 }
 

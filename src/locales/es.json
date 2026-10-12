@@ -1425,6 +1425,8 @@
         "approvedHours": "Aprobadas",
         "pendingHours": "Pend. de aprobación",
         "savedHours": "Guardadas",
+        "loadError": "No se pudo cargar el desglose de horas. Intenta de nuevo.",
+        "retry": "Reintentar",
         "savedHoursHint": "Guardadas: aún sin enviar a aprobación, o devueltas por el aprobador",
         "filterByCategory": "Filtrar por categoría",
         "nCategoriesSelected": "{{count}} categorías",
