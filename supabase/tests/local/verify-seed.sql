@@ -75,9 +75,12 @@ BEGIN
   -- 20261009120000_rls_carril_b.sql (Carril B / B1.2: +12 — 5 de timesheet.self_approve, 5 de
   -- risk_partner (activity_code.read, work_order.read/submit/payment_plan.approve, client.create)
   -- y 2 de risk_supervisor (work_order.read, engagement.read) — y -2: worksheet.create/update
-  -- de risk_partner).
-  IF n <> 768 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 768, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 768 concesiones';
+  -- de risk_partner) + 7 de 20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+  -- (Carril B / B3p, decisión del operador: lectura con alcance department de work_order, engagement
+  -- y client para collections_analyst, y de work_order y engagement para accounting_manager y
+  -- accounting_analyst; contabilidad sin client.read).
+  IF n <> 775 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 775, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 775 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes
