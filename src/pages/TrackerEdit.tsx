@@ -230,7 +230,9 @@ const TrackerEdit = () => {
       return approvedEngagements;
     }
     return approvedEngagements;
-  }, [approvedEngagements, entry?.engagement_id, engagements]);
+    // La etiqueta del fallback llega por una consulta aparte (RPC de pertenencia): si la primera falla y un refresco
+    // posterior funciona, el selector debe actualizarse aunque engagement_id no cambie.
+  }, [approvedEngagements, entry?.engagement_id, entry?.engagement?.engagement_code, entry?.engagement?.engagement_name, engagements]);
 
   // Filter active activities + include current even if inactive
   const activeActivities = useMemo(() => {
