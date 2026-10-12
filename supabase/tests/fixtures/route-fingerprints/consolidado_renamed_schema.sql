@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict bxP2jJq5Y5HShVecwgGfQdZWlme0E2u2NsM2kqNbjmId3nlPfdF3LMpIVlPYgaJ
+\restrict jBKLLKRdebKvR2COfcpe4NJGPl4aagO4iAqegiHDF86Y7R0zr3bFru9fckWI5No
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6559,6 +6559,10 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        OR (caller.role_key IN ('manager', 'ita_manager', 'tax_manager', 'hr_manager')
            AND caller.staff_id IS NOT NULL
            AND e.manager_id = caller.staff_id)
+       -- 3b. hr_administrative (B3c-3): hr_manager y hr_analyst administran TODOS los encargos Administrativa,
+       --     Capacitación y Calidad (funcion <> 1), incluidos los creados por otros. Espejo exacto de las políticas
+       --     "engagements hr administrative read/update": esta lista nunca debe mostrar lo que la RLS no deja leer.
+       OR (caller.role_key IN ('hr_manager', 'hr_analyst') AND e.funcion <> 1)
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
@@ -6569,7 +6573,7 @@ $$;
 -- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos) y own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) -- ver plan_v2 bugs/0828-185. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --
@@ -24361,6 +24365,20 @@ CREATE POLICY "engagements creator update" ON public.engagements FOR UPDATE TO a
 
 
 --
+-- Name: engagements engagements hr administrative read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.read'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
+
+
+--
+-- Name: engagements engagements hr administrative update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "engagements hr administrative update" ON public.engagements FOR UPDATE TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text])))) WITH CHECK (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
+
+
+--
 -- Name: engagements engagements read; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -25392,5 +25410,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict bxP2jJq5Y5HShVecwgGfQdZWlme0E2u2NsM2kqNbjmId3nlPfdF3LMpIVlPYgaJ
+\unrestrict jBKLLKRdebKvR2COfcpe4NJGPl4aagO4iAqegiHDF86Y7R0zr3bFru9fckWI5No
 
