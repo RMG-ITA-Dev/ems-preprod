@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict NrfA7aAGaXniARA6vPobjcwh2L2KV1psjjYkihdN7vpPeKjxpVEMTE9XNmqQcSK
+\restrict bxP2jJq5Y5HShVecwgGfQdZWlme0E2u2NsM2kqNbjmId3nlPfdF3LMpIVlPYgaJ
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6406,11 +6406,11 @@ COMMENT ON FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, 
 -- Name: list_own_engagement_labels(uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying)
+CREATE FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, start_date date, end_date date)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  SELECT e.engagement_id, e.engagement_code, e.engagement_name
+  SELECT e.engagement_id, e.engagement_code, e.engagement_name, e.start_date, e.end_date
     FROM public.engagements e
    WHERE e.engagement_id = ANY (p_engagement_ids)
      AND public.get_my_staff_id() IS NOT NULL
@@ -6431,7 +6431,7 @@ $$;
 -- Name: FUNCTION list_own_engagement_labels(p_engagement_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) IS 'B3c-2: codigo y nombre de los encargos pedidos donde el llamador tiene registros propios (horas, timers o solicitudes de reversion). DEFINER a proposito: engagements tiene RLS y quien no tiene engagement.read (asistente, senior, semisenior) ve null en el embed. NUNCA agregar cliente, equipo ni fechas.';
+COMMENT ON FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) IS 'B3c-2: codigo, nombre y fechas de los encargos pedidos donde el llamador tiene registros propios (horas, timers o solicitudes de reversion). DEFINER a proposito: engagements tiene RLS y quien no tiene engagement.read (asistente, senior, semisenior) ve null en el embed. NUNCA agregar cliente, equipo ni estado.';
 
 
 --
@@ -25392,5 +25392,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict NrfA7aAGaXniARA6vPobjcwh2L2KV1psjjYkihdN7vpPeKjxpVEMTE9XNmqQcSK
+\unrestrict bxP2jJq5Y5HShVecwgGfQdZWlme0E2u2NsM2kqNbjmId3nlPfdF3LMpIVlPYgaJ
 

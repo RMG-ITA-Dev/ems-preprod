@@ -40,7 +40,10 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
   ('e0b3c200-0000-4000-8000-000000000006', 'c1b3c200-0000-4000-8000-000000000001', 'B3c2 EB', 'B3C2-B', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 -- Fechas de EH: «Copiar a la semana actual» las lee por la RPC para saltarse los encargos que no cubren la semana destino.
-UPDATE public.engagements SET start_date = '2026-01-05', end_date = '2026-06-30' WHERE engagement_code = 'B3C2-H';
+-- end_date va en el FUTURO a propósito: con una fecha ya vencida, recompute_engagement_finalization() pasa el encargo a
+-- override 7 (work_order_required = false) y check_wo_approved rechaza las horas del fixture (y la suite fallaría
+-- según el día en que corra).
+UPDATE public.engagements SET start_date = '2026-01-05', end_date = '2099-06-30' WHERE engagement_code = 'B3C2-H';
 
 -- Mismo patrón que rls-0828-186-own-timer-engagement-labels.sql: una actividad de sistema mínima.
 INSERT INTO public.activity_codes (activity_code, description, is_system, practica_id)
@@ -113,8 +116,8 @@ BEGIN
   SELECT l.engagement_id::text || '|' || coalesce(l.start_date::text, 'null') || '|' || coalesce(l.end_date::text, 'null')
     INTO v FROM public.list_own_engagement_labels(v_all) l WHERE l.engagement_code = 'B3C2-H';
   EXECUTE 'RESET ROLE';
-  IF v IS DISTINCT FROM 'e0b3c200-0000-4000-8000-000000000001|2026-01-05|2026-06-30' THEN
-    RAISE EXCEPTION 'B3c2 FAIL — A debía recibir las fechas de EH (2026-01-05 a 2026-06-30) y recibe [%]', v;
+  IF v IS DISTINCT FROM 'e0b3c200-0000-4000-8000-000000000001|2026-01-05|2099-06-30' THEN
+    RAISE EXCEPTION 'B3c2 FAIL — A debía recibir las fechas de EH (2026-01-05 a 2099-06-30) y recibe [%]', v;
   END IF;
   PERFORM set_config('request.jwt.claims', json_build_object('sub', ua, 'role', 'authenticated')::text, true);
   EXECUTE 'SET LOCAL ROLE authenticated';
