@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict aPyFi3YvKCsEwgU3VO046vi3hYs8UAXCECdTpWtNrVCVC8xoLPdEb3KaMLPsrUa
+\restrict ntrzaisoRvkktxbu9QjoAjEJjbOE0KrqbhMfwIWVtw7sTrPlmQofirnnTAOpx15
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -15063,6 +15063,79 @@ COMMENT ON FUNCTION public.validate_timer_entry_duration() IS 'Validates 8h max 
 
 
 --
+-- Name: wo_guard_partner_signature(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_guard_partner_signature() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_old_by     uuid;
+  v_old_at     timestamptz;
+  v_old_status text;
+BEGIN
+  IF auth.uid() IS NULL OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    v_old_by     := OLD.approved_by;
+    v_old_at     := OLD.approved_at;
+    v_old_status := OLD.approval_status;
+  END IF;
+
+  IF NEW.approved_by IS DISTINCT FROM v_old_by OR NEW.approved_at IS DISTINCT FROM v_old_at THEN
+    IF NOT (public.has_permission('work_order.submit'::text)
+            AND public.is_engagement_team_member(NEW.engagement_id)) THEN
+      RAISE EXCEPTION 'Solo quien puede aprobar la OT como socio del encargo puede fijar o retirar la firma'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- La firma va completa (o se retira completa) y a nombre de quien la escribe: sin esto el socio con work_order.submit
+    -- anotaba a otra persona como firmante (la lista de fichas es legible por todos) y se corrompía la auditoría.
+    IF (NEW.approved_by IS NULL) <> (NEW.approved_at IS NULL) THEN
+      RAISE EXCEPTION 'La firma del socio debe fijarse o retirarse completa (approved_by y approved_at juntos)'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF NEW.approved_by IS NOT NULL AND NEW.approved_by IS DISTINCT FROM public.get_my_staff_id() THEN
+      RAISE EXCEPTION 'La firma del socio solo puede registrarse a nombre de quien la escribe'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  IF NEW.approval_status = 'Approved' THEN
+    -- La firma es un invariante de «Aprobada» en TODA escritura, no solo al entrar al estado: si no, un socio autorizado podía
+    -- limpiar approved_by y approved_at dejando la OT Aprobada y utilizable sin su firma (revisión del PR, Codex). Retirar la
+    -- firma baja el estado en la misma sentencia (admin, que queda fuera de la guarda, es quien revierte desde la pantalla).
+    IF NEW.approved_at IS NULL THEN
+      RAISE EXCEPTION 'Una OT Aprobada conserva la firma del socio; para retirarla, baje el estado en la misma sentencia'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- «Aprobada» significa las dos pistas: check_wo_approved, el selector de solicitudes de fondos y otras funciones tratan
+    -- ese estado como utilizable. Las tres rutas de la pantalla que la fijan (useApproveWorkOrder, useApproveRisk y
+    -- useApproveEmergencyPartner) lo hacen con Riesgos ya aprobado. Esto solo rige al ENTRAR al estado: una OT ya Aprobada puede
+    -- tener después la pista de Riesgos rechazada o reenviada (useRejectRisk y la compleción de emergencia dejan approval_status
+    -- intacto a propósito: pistas independientes), y bloquear esas escrituras rompería flujos válidos. Excepción: las OT de
+    -- encargos administrativos (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con
+    -- risk_status = 'Pending' y las cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
+    IF v_old_status IS DISTINCT FROM 'Approved'
+       -- COALESCE: risk_status admite NULL y `NULL NOT IN (...)` es NULL (no verdadero), así que poner risk_status = NULL en la
+       -- misma sentencia saltaba esta exigencia (revisión del PR, Greptile; reproducido). Sin una pista de Riesgos aprobada
+       -- explícita no se cierra.
+       AND COALESCE(NEW.risk_status, '') NOT IN ('Approved', 'Emergency_Approved')
+       AND NOT EXISTS (SELECT 1 FROM public.engagements e
+                        WHERE e.engagement_id = NEW.engagement_id AND e.funcion IS NOT NULL AND e.funcion <> 1) THEN
+      RAISE EXCEPTION 'Una OT de cliente no pasa a Aprobada sin la aprobación de Riesgos'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: wo_guard_risk_approval(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -19302,22 +19375,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_11; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_11 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_12; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -19370,6 +19427,22 @@ CREATE TABLE realtime.messages_2026_10_14 (
 --
 
 CREATE TABLE realtime.messages_2026_10_15 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_16; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_16 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19662,13 +19735,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_11; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_11 FOR VALUES FROM ('2026-10-11 00:00:00') TO ('2026-10-12 00:00:00');
-
-
---
 -- Name: messages_2026_10_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -19694,6 +19760,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_14
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_15 FOR VALUES FROM ('2026-10-15 00:00:00') TO ('2026-10-16 00:00:00');
+
+
+--
+-- Name: messages_2026_10_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_16 FOR VALUES FROM ('2026-10-16 00:00:00') TO ('2026-10-17 00:00:00');
 
 
 --
@@ -20615,14 +20688,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_11 messages_2026_10_11_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_11
-    ADD CONSTRAINT messages_2026_10_11_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_12 messages_2026_10_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -20652,6 +20717,14 @@ ALTER TABLE ONLY realtime.messages_2026_10_14
 
 ALTER TABLE ONLY realtime.messages_2026_10_15
     ADD CONSTRAINT messages_2026_10_15_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_16 messages_2026_10_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_16
+    ADD CONSTRAINT messages_2026_10_16_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -21679,13 +21752,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_11_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_11_inserted_at_topic_idx ON realtime.messages_2026_10_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -21711,6 +21777,13 @@ CREATE INDEX messages_2026_10_14_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_10_15_inserted_at_topic_idx ON realtime.messages_2026_10_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_16_inserted_at_topic_idx ON realtime.messages_2026_10_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -21812,20 +21885,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_11_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_11_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_11_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_11_pkey;
-
-
---
 -- Name: messages_2026_10_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -21879,6 +21938,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_15_pkey;
+
+
+--
+-- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_16_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_16_pkey;
 
 
 --
@@ -22355,6 +22428,13 @@ CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.times
 --
 
 CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.validate_timer_entry_duration();
+
+
+--
+-- Name: work_orders trg_wo_partner_signature_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_partner_signature_guard BEFORE INSERT OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_partner_signature();
 
 
 --
@@ -24147,13 +24227,6 @@ CREATE POLICY "Team can view worksheets" ON public.activity_worksheets FOR SELEC
 
 
 --
--- Name: staff Users can update their linked staff record; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Users can update their linked staff record" ON public.staff FOR UPDATE USING ((auth_user_id = auth.uid())) WITH CHECK ((auth_user_id = auth.uid()));
-
-
---
 -- Name: activity_codes; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -24947,6 +25020,12 @@ CREATE POLICY "skills write update" ON public.skills FOR UPDATE TO authenticated
 ALTER TABLE public.society ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: staff; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: staff staff read personnel; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -25493,5 +25572,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict aPyFi3YvKCsEwgU3VO046vi3hYs8UAXCECdTpWtNrVCVC8xoLPdEb3KaMLPsrUa
+\unrestrict ntrzaisoRvkktxbu9QjoAjEJjbOE0KrqbhMfwIWVtw7sTrPlmQofirnnTAOpx15
 
