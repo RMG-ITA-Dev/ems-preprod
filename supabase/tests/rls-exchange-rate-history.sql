@@ -97,12 +97,18 @@ BEGIN
     EXECUTE 'RESET ROLE';
     EXECUTE 'SET LOCAL ROLE anon';
 
-    SELECT count(*) INTO n FROM public.exchange_rate_history
-     WHERE id IN ('e1000000-0000-4000-8000-0000000000a1', 'e1000000-0000-4000-8000-0000000000a2');
+    -- B5: anon ya no tiene SELECT de tabla (42501); antes de B5 llegaba a la RLS y veía cero filas. Las dos formas de rechazo valen;
+    -- lo que no puede pasar es que lea filas.
+    BEGIN
+      SELECT count(*) INTO n FROM public.exchange_rate_history
+       WHERE id IN ('e1000000-0000-4000-8000-0000000000a1', 'e1000000-0000-4000-8000-0000000000a2');
+    EXCEPTION WHEN insufficient_privilege THEN
+      n := 0;
+    END;
     IF n <> 0 THEN
       RAISE EXCEPTION 'EXCHANGE RATE RLS FAIL — anon can read exchange_rate_history (% rows)', n;
     END IF;
-    RAISE NOTICE 'PASS — anon reads zero rows (SELECT policy scoped to authenticated)';
+    RAISE NOTICE 'PASS — anon reads zero rows or is denied (SELECT policy scoped to authenticated; no table grant since B5)';
 
     EXECUTE 'RESET ROLE';
   END IF;

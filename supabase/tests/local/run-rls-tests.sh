@@ -430,6 +430,21 @@ run supabase/migrations/20261013140000_rls_carril_b4_vistas.sql
 run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
 run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
 
+# Carril B del barrido RLS (B5): privilegios de tablas y funciones de public. anon sin nada (salvo SELECT de global_settings), authenticated sin
+# TRUNCATE/REFERENCES/TRIGGER/MAINTAIN, funciones sin EXECUTE para PUBLIC ni anon (authenticated y service_role conservan EXACTAMENTE lo que ya
+# ejecutaban), search_path fijo en toda funcion y privilegios por defecto del dueño. Se aplica DOS veces (idempotencia). Va DESPUES de B4b y es la
+# ULTIMA migracion: toda funcion o tabla creada despues nace sin esos privilegios (los privilegios por defecto del shim se ajustan aqui).
+# Ejercitado por rls-carril-b-b5-privilegios.sql y por el check 19 de schema-convergence-assertions.sql.
+run supabase/migrations/20261013160000_rls_carril_b5_privilegios.sql
+run supabase/migrations/20261013160000_rls_carril_b5_privilegios.sql
+
+# B5 dejo el privilegio POR DEFECTO de funciones del dueño sin EXECUTE para PUBLIC (lo que cree `postgres` nace cerrado). Se verifica AQUI, con el
+# estado de produccion, y despues se restaura SOLO para lo que creen las suites: ellas definen auxiliares en pg_temp (impersonate, try_as...) como
+# `postgres` y los llaman estando en el rol authenticated o anon; sin EXECUTE para PUBLIC darian "permission denied for function impersonate" (fallo
+# del 13/10/2026 en rls-engagement-assignments-d5.sql). Las migraciones ya corrieron, asi que ninguna se ve afectada, y en produccion no hay pg_temp.
+run supabase/tests/local/assert-b5-default-privileges.sql
+psql -v ON_ERROR_STOP=1 -d "$DB" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC"
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -495,5 +510,6 @@ assert_suite supabase/tests/rls-carril-b-b3c3-hr-administrativos.sql 'B3c-3 HR A
 assert_suite supabase/tests/rls-carril-b-b3d-horas.sql 'B3d HORAS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3e-staff.sql 'B3e STAFF Y FIRMA DE OT: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b4-vistas.sql 'B4 VISTAS Y SUELTAS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b5-privilegios.sql 'B5 PRIVILEGIOS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 24 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 25 suites de RLS/RPC/schema-convergence/trigger pasaron"

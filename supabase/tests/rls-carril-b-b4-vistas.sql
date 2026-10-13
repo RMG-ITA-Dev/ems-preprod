@@ -21,7 +21,7 @@ INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c1b40000-0000-4000-8000-000000000001', 'B4 Cliente', 'B4-TAX-001');
 
 INSERT INTO auth.users (id)
-SELECT ('a0b40000-0000-4000-8000-00000000000' || n)::uuid FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7')) AS v(n);
+SELECT ('a0b40000-0000-4000-8000-00000000000' || n)::uuid FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7'), ('8')) AS v(n);
 
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0b40000-0000-4000-8000-000000000001', 'admin',   'admin'),
@@ -30,7 +30,8 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0b40000-0000-4000-8000-000000000004', 'manager', 'manager'),
   ('a0b40000-0000-4000-8000-000000000005', 'staff',   'hr_manager'),
   ('a0b40000-0000-4000-8000-000000000006', 'staff',   'assistant'),
-  ('a0b40000-0000-4000-8000-000000000007', 'staff',   'collections_analyst')
+  ('a0b40000-0000-4000-8000-000000000007', 'staff',   'collections_analyst'),
+  ('a0b40000-0000-4000-8000-000000000008', 'staff',   'assistant')
 -- handle_new_user puede haber creado ya la fila del usuario (según el ambiente): se pisa con el rol del fixture.
 ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.role_key;
 
@@ -39,7 +40,7 @@ SELECT ('50b40000-0000-4000-8000-00000000000' || n)::uuid, ('a0b40000-0000-4000-
        'U' || n, 'B4',
        (SELECT practica_id FROM public.practicas WHERE code = 1),
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
-FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7')) AS v(n);
+FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7'), ('8')) AS v(n);
 
 SET LOCAL session_replication_role = replica;
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, funcion, practica, fecha_cierre,
@@ -60,10 +61,12 @@ FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5')) AS v(n);
 -- ambas líneas es el admin (A): otro gerente de la OT también vería el encargo, y aquí se aísla al solicitante.
 INSERT INTO public.fund_requests (fund_request_id, request_number, requester_staff_id, total_requested_amount, currency, status) VALUES
   ('f3b40000-0000-4000-8000-000000000001', 'FR-B4-1', '50b40000-0000-4000-8000-000000000006', 100, 'BOB', 'pendiente_aprobacion'),
-  ('f3b40000-0000-4000-8000-000000000002', 'FR-B4-2', '50b40000-0000-4000-8000-000000000003', 100, 'BOB', 'borrador');
+  ('f3b40000-0000-4000-8000-000000000002', 'FR-B4-2', '50b40000-0000-4000-8000-000000000003', 100, 'BOB', 'borrador'),
+  ('f3b40000-0000-4000-8000-000000000003', 'FR-B4-3', '50b40000-0000-4000-8000-000000000001', 100, 'BOB', 'aprobado_gerente');
 INSERT INTO public.fund_request_work_orders (fr_wo_id, fund_request_id, wo_id, allocated_amount, manager_staff_id) VALUES
-  ('f4b40000-0000-4000-8000-000000000001', 'f3b40000-0000-4000-8000-000000000001', '40b40000-0000-4000-8000-000000000004', 100, '50b40000-0000-4000-8000-000000000001'),
-  ('f4b40000-0000-4000-8000-000000000002', 'f3b40000-0000-4000-8000-000000000002', '40b40000-0000-4000-8000-000000000005', 100, '50b40000-0000-4000-8000-000000000001');
+  ('f4b40000-0000-4000-8000-000000000001', 'f3b40000-0000-4000-8000-000000000001', '40b40000-0000-4000-8000-000000000004', 100, '50b40000-0000-4000-8000-000000000008'),
+  ('f4b40000-0000-4000-8000-000000000002', 'f3b40000-0000-4000-8000-000000000002', '40b40000-0000-4000-8000-000000000005', 100, '50b40000-0000-4000-8000-000000000001'),
+  ('f4b40000-0000-4000-8000-000000000003', 'f3b40000-0000-4000-8000-000000000003', '40b40000-0000-4000-8000-000000000005', 100, '50b40000-0000-4000-8000-000000000001');
 SET LOCAL session_replication_role = origin;
 
 -- Intento como `authenticated`: devuelve las filas alcanzadas o 'ERR <sqlstate>'; el claim se limpia siempre.
@@ -131,6 +134,7 @@ DECLARE
   h constant text := 'a0b40000-0000-4000-8000-000000000005';  -- hr_manager
   r constant text := 'a0b40000-0000-4000-8000-000000000006';  -- asistente con solicitud ENVIADA sobre E4
   d constant text := 'a0b40000-0000-4000-8000-000000000007';  -- analista de cobranza (departamento)
+  g constant text := 'a0b40000-0000-4000-8000-000000000008';  -- asistente que es gerente de la OT de E4 en la solicitud de R (nada más)
   e1 constant uuid := 'e0b40000-0000-4000-8000-000000000001';
   e2 constant uuid := 'e0b40000-0000-4000-8000-000000000002';
   e3 constant uuid := 'e0b40000-0000-4000-8000-000000000003';
@@ -150,7 +154,7 @@ BEGIN
   RAISE NOTICE 'PASS — 0. premisas de permisos';
 
   -- 1. my_visible_engagement_ids() = lo que devuelve la RLS REAL de engagements, para los 7 perfiles (TODOS los encargos de la base) ─
-  FOREACH u IN ARRAY ARRAY[a, m, s, x, h, r, d] LOOP
+  FOREACH u IN ARRAY ARRAY[a, m, s, x, h, r, d, g] LOOP
     v_rls := pg_temp.ids_as(u, 'SELECT engagement_id FROM public.engagements');
     v_fn  := pg_temp.ids_fn(u);
     IF v_rls IS DISTINCT FROM v_fn THEN
@@ -164,8 +168,9 @@ BEGIN
     SELECT * FROM (VALUES (m, ARRAY[e1]),            -- a) gerente asignado
                           (x, ARRAY[e3]),            -- b) creador sin asignación
                           (h, ARRAY[e2]),            -- c) hr_manager: solo el administrativo
-                          (r, ARRAY[e4]),            -- d) solicitud ENVIADA
-                          (s, ARRAY[]::uuid[]),      -- el BORRADOR de S sobre E5 NO da visibilidad
+                          (r, ARRAY[e4]),            -- d1) solicitante de una solicitud ENVIADA
+                          (g, ARRAY[e4]),            -- d1) gerente de la OT de una solicitud ENVIADA
+                          (s, ARRAY[]::uuid[]),      -- el BORRADOR de S sobre E5 NO da visibilidad, ni la solicitud contable de otro sin permiso contable
                           (d, ARRAY[e1, e2, e3, e4, e5]),   -- departamento: todos
                           (a, ARRAY[e1, e2, e3, e4, e5])) AS t(u, e)
   LOOP
@@ -174,11 +179,19 @@ BEGIN
       RAISE EXCEPTION 'B4 FAIL — rama del predicado: % esperaba % encargos del fixture y ve %', u, cardinality(v_exp), cardinality(v_rls);
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — 2. ramas a (asignado), b (creador), c (hr administrativo), d (solicitud enviada; el borrador no cuenta), departamento y firma';
+  -- d2) contabilidad (la decide la función real de la política): S, sin ningún permiso contable, NO ve E5 aunque haya una solicitud en estado contable;
+  --     al darle el permiso al rol assistant (dentro de la transacción) la ve, y la función sigue igual a la RLS.
+  INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES ('assistant', 'fund_disbursement.read', 'none');
+  v_rls := pg_temp.ids_as(s, format('SELECT engagement_id FROM public.engagements WHERE engagement_id = ANY(%L::uuid[])', fx));
+  IF v_rls IS DISTINCT FROM ARRAY[e5] OR pg_temp.ids_fn(s) IS DISTINCT FROM pg_temp.ids_as(s, 'SELECT engagement_id FROM public.engagements') THEN
+    RAISE EXCEPTION 'B4 FAIL — rama d2 (contabilidad): con fund_disbursement.read S debía ver E5 por la solicitud en estado contable y la función igualar a la RLS (RLS: %)', cardinality(v_rls);
+  END IF;
+  DELETE FROM public.authorization_role_permissions WHERE role_key = 'assistant' AND permission_key = 'fund_disbursement.read';
+  RAISE NOTICE 'PASS — 2. ramas a (asignado), b (creador), c (hr administrativo), d1 (solicitante y gerente de la OT de una solicitud enviada; el borrador no cuenta), d2 (contabilidad, por la función real), departamento y firma';
 
   -- 3. engagement_wo_state: cada usuario recibe SOLO el estado de los encargos que ve ───────────────────────────────────
   SELECT count(*) INTO v_ot FROM public.work_orders;
-  FOREACH u IN ARRAY ARRAY[a, m, s, x, h, r, d] LOOP
+  FOREACH u IN ARRAY ARRAY[a, m, s, x, h, r, d, g] LOOP
     v_view := pg_temp.ids_as(u, 'SELECT engagement_id FROM public.engagement_wo_state');
     -- work_orders tiene RLS: para comparar con el oráculo se calcula como dueño con el claim (visibles ∩ con OT)
     PERFORM set_config('request.jwt.claims', json_build_object('sub', u, 'role', 'authenticated')::text, true);

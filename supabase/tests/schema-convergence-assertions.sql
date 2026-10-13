@@ -703,6 +703,60 @@ BEGIN
   END;
   RAISE NOTICE 'PASS — B4: vistas de public con authenticated solo SELECT y anon sin nada; solo 3 vistas del dueño (lista cerrada); engagement_wo_state con security_barrier';
 
+  -- 19. B5 (BAR-017, BAR-018 y lo que queda de BAR-008): privilegios de tablas y funciones de public. Cuatro reglas que impiden que reaparezca:
+  --     a) anon no tiene ningún privilegio (de tabla, de columna ni vía PUBLIC) sobre relaciones de public, salvo SELECT de global_settings (la
+  --        pantalla de login lee tres claves sin sesión). Antes de B5 conservaba INSERT/UPDATE/DELETE/TRUNCATE en 22 tablas con RLS: TRUNCATE
+  --        no consulta la RLS (verificado: anon vació holidays en una transacción revertida).
+  --     b) ninguna función de public es ejecutable por anon ni por PUBLIC: 37 respondían a una llamada anónima y doce eran del dueño sin guardia.
+  --     c) authenticated no tiene TRUNCATE, REFERENCES, TRIGGER ni MAINTAIN en tablas (ningún flujo los usa y la RLS no los frena).
+  --     d) toda función de public fija search_path.
+  --     Se lee de relacl/proacl con aclexplode: no depende de la versión de PostgreSQL ni oculta los privilegios por columna.
+  IF to_regrole('anon') IS NOT NULL AND to_regrole('authenticated') IS NOT NULL THEN
+    DECLARE
+      v_list text;
+      v_anon oid := to_regrole('anon')::oid;
+      v_auth oid := to_regrole('authenticated')::oid;
+    BEGIN
+      SELECT string_agg(c.relname || ':' || a.privilege_type, ', ' ORDER BY c.relname) INTO v_list
+        FROM pg_class c, LATERAL aclexplode(c.relacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+         AND (a.grantee = 0 OR a.grantee = v_anon)
+         AND NOT (c.relname = 'global_settings' AND a.privilege_type = 'SELECT' AND a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon o PUBLIC con privilegios sobre relaciones de public (solo SELECT de global_settings): %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(c.relname || '.' || at.attname, ', ') INTO v_list
+        FROM pg_attribute at JOIN pg_class c ON c.oid = at.attrelid, LATERAL aclexplode(at.attacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND at.attacl IS NOT NULL AND (a.grantee = 0 OR a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon o PUBLIC con privilegios por columna en public: %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO v_list
+        FROM pg_proc p, LATERAL aclexplode(p.proacl) a
+       WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p') AND a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — funciones de public ejecutables por anon o PUBLIC (REVOKE ALL ... FROM PUBLIC, anon): %', left(v_list, 400);
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p') AND p.proacl IS NULL) THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — hay funciones de public con ACL implícita (EXECUTE para PUBLIC)';
+      END IF;
+      SELECT string_agg(c.relname || ':' || a.privilege_type, ', ' ORDER BY c.relname) INTO v_list
+        FROM pg_class c, LATERAL aclexplode(c.relacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p') AND a.grantee = v_auth
+         AND a.privilege_type IN ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN');
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated con TRUNCATE/REFERENCES/TRIGGER/MAINTAIN en tablas de public: %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_list FROM pg_proc p
+       WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p')
+         AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c LIKE 'search_path=%');
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — funciones de public sin search_path fijo (BAR-018): %', left(v_list, 400);
+      END IF;
+    END;
+    RAISE NOTICE 'PASS — B5: anon sin privilegios en public salvo SELECT de global_settings; ninguna función ejecutable por anon ni PUBLIC; authenticated sin TRUNCATE/REFERENCES/TRIGGER/MAINTAIN; search_path fijo en toda función';
+  END IF;
+
   RAISE NOTICE 'SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)';
 END $$;
 

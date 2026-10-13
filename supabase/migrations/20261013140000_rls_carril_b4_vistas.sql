@@ -53,7 +53,9 @@ END $$;
 --   a) engagement.read y (alcance distinto de 'assigned_engagements' o el llamador es socio/gerente/SQR/encargado);
 --   b) engagement.read y el llamador creó el encargo;
 --   c) engagement.read, encargo administrativo (funcion <> 1) y rol hr_manager/hr_analyst;
---   d) el encargo figura en una solicitud de fondos YA ENVIADA del llamador (como solicitante, gerente de la OT o contabilidad).
+--   d) el encargo figura en una solicitud de fondos YA ENVIADA del llamador (como solicitante, gerente de la OT o contabilidad):
+--      solicitante y gerente de la OT por conjuntos; contabilidad la decide la propia engagement_in_my_fund_request (la de la
+--      política), no una copia de su cuerpo.
 -- `v_scope IS NOT NULL AND ...` replica la semántica de `permission_scope(...) <> '...'` con NULL (no visible).
 CREATE OR REPLACE FUNCTION public.my_visible_engagement_ids()
 RETURNS SETOF uuid
@@ -67,6 +69,7 @@ DECLARE
   v_read  boolean := public.has_permission('engagement.read');
   v_scope text    := public.permission_scope('engagement.read');
   v_role  text    := public.current_role_key();
+  v_acct  boolean := public.has_permission('fund_disbursement.read') OR public.has_permission('expense_settlement.read');
 BEGIN
   RETURN QUERY
   SELECT e.engagement_id
@@ -75,15 +78,27 @@ BEGIN
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
       OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
+      -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
+      --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
+      --        engagement_in_my_fund_request (la que usa la política).
       OR e.engagement_id IN (
            SELECT wo.engagement_id
              FROM public.fund_request_work_orders frwo
              JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
              JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
             WHERE fr.status <> 'borrador'
-              AND (fr.requester_staff_id = v_me
-                   OR frwo.manager_staff_id = v_me
-                   OR public.fr_accounting_sees(fr.status, fr.cancelled_from_status)));
+              AND (fr.requester_staff_id = v_me OR frwo.manager_staff_id = v_me))
+      --    d2) contabilidad: NO se copia su regla. Cambia con el módulo de solicitudes de fondos (en Dev 2.0 ya depende de
+      --        fr_accounting_sees y de fund_requests.cancelled_from_status, que NO están en las migraciones de este repo; copiarla
+      --        rompió el harness el 13/10/2026). Solo aplica a quien tiene alguno de los dos permisos contables (ambas versiones los
+      --        exigen), y entonces se llama a la función real, solo para los encargos con alguna solicitud enviada.
+      OR (v_acct AND e.engagement_id IN (
+            SELECT wo.engagement_id
+              FROM public.fund_request_work_orders frwo
+              JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+              JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             WHERE fr.status <> 'borrador')
+          AND public.engagement_in_my_fund_request(e.engagement_id));
 END $$;
 COMMENT ON FUNCTION public.my_visible_engagement_ids() IS
   'B4: ids de los encargos que el llamador (auth.uid()) puede ver segun las 4 politicas SELECT de engagements, como conjunto. Solo la usa engagement_wo_state; la suite rls-carril-b-b4-vistas.sql la compara con la RLS real.';
