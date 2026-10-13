@@ -344,6 +344,15 @@ BEGIN
   IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> 'ERR 42501' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente cerró como Aprobada una OT firmada con Riesgos pendiente';
   END IF;
+  -- Revisión del PR (Greptile): risk_status admite NULL y `NULL NOT IN (...)` es NULL, no verdadero: poner risk_status = NULL en la
+  -- misma sentencia saltaba la exigencia de Riesgos (check_wo_approved solo excluye 'Rejected', así que aceptaba la OT). La
+  -- comprobación tiene que ser nula-segura: sin una pista de Riesgos aprobada explícita no se cierra.
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET risk_status = NULL, approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente cerró como Aprobada una OT firmada poniendo risk_status en NULL';
+  END IF;
+  IF (SELECT approval_status FROM public.work_orders WHERE wo_id = '40b3e000-0000-4000-8000-000000000004') = 'Approved' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — la OT con risk_status NULL no debía quedar Aprobada';
+  END IF;
   EXECUTE 'SET LOCAL session_replication_role = replica';
   UPDATE public.work_orders SET risk_status = 'Rejected' WHERE wo_id = '40b3e000-0000-4000-8000-000000000004';
   EXECUTE 'SET LOCAL session_replication_role = origin';

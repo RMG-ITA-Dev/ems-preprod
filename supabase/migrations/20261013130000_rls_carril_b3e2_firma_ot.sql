@@ -91,7 +91,10 @@ BEGIN
     -- encargos administrativos (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con
     -- risk_status = 'Pending' y las cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
     IF v_old_status IS DISTINCT FROM 'Approved'
-       AND NEW.risk_status NOT IN ('Approved', 'Emergency_Approved')
+       -- COALESCE: risk_status admite NULL y `NULL NOT IN (...)` es NULL (no verdadero), así que poner risk_status = NULL en la
+       -- misma sentencia saltaba esta exigencia (revisión del PR, Greptile; reproducido). Sin una pista de Riesgos aprobada
+       -- explícita no se cierra.
+       AND COALESCE(NEW.risk_status, '') NOT IN ('Approved', 'Emergency_Approved')
        AND NOT EXISTS (SELECT 1 FROM public.engagements e
                         WHERE e.engagement_id = NEW.engagement_id AND e.funcion IS NOT NULL AND e.funcion <> 1) THEN
       RAISE EXCEPTION 'Una OT de cliente no pasa a Aprobada sin la aprobación de Riesgos'
