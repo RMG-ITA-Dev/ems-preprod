@@ -266,11 +266,15 @@ BEGIN
   --     Responsable de cada entrada: por asignar (barrido_report.md §10).
   DECLARE
     v_exceptions text[] := ARRAY[
+      -- LISTA VACÍA desde B4b (13/10/2026): toda tabla de public tiene RLS. Una tabla nueva sin RLS falla aquí; si de verdad
+      -- debe quedar así, se registra con justificación y responsable (barrido_report.md §10).
+      --
+      -- Historial de las salidas (para quien busque por qué una tabla ya no figura):
       -- Grupo A — identidad y logs (P0)
       -- user_roles salió de esta lista con B2 (Carril B): ya tiene RLS (cada uno ve su fila; admin y
       -- user_role.read ven todas) y la escritura sigue cerrada por el Carril A (check 11).
-      'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
-      'migration_run_log'                    -- sin políticas; log interno
+      -- user_roles_backup_0220_56_20260224 (BAR-004) y migration_run_log salieron con B4b: RLS activa sin políticas
+      -- (inaccesibles para la API a propósito) y sin privilegios para anon ni authenticated.
       -- Grupo B — núcleo de negocio (P0). staff salió con B3e (Carril B): RLS activo; la lectura sigue abierta
       -- (USING true, el SELECT por columna protege la PII) y la escritura rige por staff.create/update/delete.
       -- clients y engagements salieron con B3c (RLS con las 12 políticas de cero_05, directorio de solo
@@ -283,7 +287,7 @@ BEGIN
       -- Grupo D — configuración y catálogos: vacío. global_settings salió con A.5b (su política de
       -- `anon` acota la lectura sin sesión a las tres claves del login, check 15); activity_codes,
       -- categories, expense_types e industries salieron con B3a (lectura intacta, escritura por permiso).
-    ];
+    ]::text[];
     v_list text;
   BEGIN
     SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_list
@@ -302,8 +306,7 @@ BEGIN
     IF v_list IS NOT NULL THEN
       RAISE EXCEPTION 'CONVERGENCE FAIL — stale RLS exception(s), the table now has RLS or no longer exists: % (retirarla de la lista)', v_list;
     END IF;
-    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity except the % listed exceptions (Carril B pendiente)',
-      array_length(v_exceptions, 1);
+    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity (lista de excepciones vacía desde B4b)';
   END;
 
   -- 13. A.4 (BAR-002/BAR-010): anon no escribe las tablas sin RLS ni las vistas con grant a anon.
@@ -649,6 +652,56 @@ BEGIN
     END IF;
   END;
   RAISE NOTICE 'PASS — B3c: 5 vistas del dueño sin escritura para authenticated; clients_directory con solo nombre y estado, sin lectura anónima';
+
+  -- 18. B4 (BAR-010, lectura por vistas del dueño; B4b): tres reglas que impiden que el problema reaparezca.
+  --     a) Toda vista de public: authenticated solo SELECT y anon ni PUBLIC nada (PostgreSQL 17 concede MAINTAIN por defecto
+  --        a toda relación nueva, y las vw_* de horas llegaron a tener TRUNCATE). Se lee de relacl con aclexplode: no depende
+  --        de la versión de PostgreSQL y ve también los privilegios por columna que has_table_privilege no ve.
+  --     b) Las vistas que corren con permisos del dueño (anulan la RLS de las tablas base) son EXACTAMENTE tres, a propósito y
+  --        documentadas: clients_directory (nombre y estado de todo cliente; decisión del 12/10), engagement_wo_state (filtrada
+  --        por los encargos visibles, con security_barrier) y fund_request_selectable_work_orders (cualquier empleado pide fondos
+  --        contra cualquier OT aprobada). Una vista nueva sin security_invoker falla aquí: o se hace security_invoker o se
+  --        agrega a esta lista con su justificación. La lista solo puede encoger o crecer con una decisión escrita.
+  --     c) engagement_wo_state debe tener security_barrier (su filtro ES el mecanismo de seguridad).
+  DECLARE
+    v_acl     text;
+    v_def     text;
+    v_allowed text[] := ARRAY['clients_directory', 'engagement_wo_state', 'fund_request_selectable_work_orders'];
+    v_one     text;
+  BEGIN
+    SELECT string_agg(c.relname || ':' || a.privilege_type || '->' || coalesce((SELECT rolname FROM pg_roles WHERE oid = a.grantee), 'PUBLIC'), ', ' ORDER BY c.relname)
+      INTO v_acl
+      FROM pg_class c, LATERAL aclexplode(c.relacl) a
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v'
+       AND ((to_regrole('authenticated') IS NOT NULL AND a.grantee = to_regrole('authenticated')::oid AND a.privilege_type <> 'SELECT')
+            OR (to_regrole('anon') IS NOT NULL AND a.grantee = to_regrole('anon')::oid)
+            OR a.grantee = 0);
+    IF v_acl IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — vistas de public con privilegios de más (authenticated solo SELECT; anon y PUBLIC nada): %', v_acl;
+    END IF;
+
+    SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_def
+      FROM pg_class c
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v'
+       AND coalesce(c.reloptions::text, '') !~ 'security_invoker=(true|on)'
+       AND c.relname <> ALL (v_allowed);
+    IF v_def IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — vistas del dueño (sin security_invoker) que no están en la lista de B4: % (hacerlas security_invoker o justificarlas en la lista)', v_def;
+    END IF;
+    FOREACH v_one IN ARRAY v_allowed LOOP
+      IF to_regclass('public.' || v_one) IS NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — la vista % de la lista de B4 ya no existe (retirarla de la lista)', v_one;
+      END IF;
+      IF coalesce((SELECT reloptions::text FROM pg_class WHERE oid = ('public.' || v_one)::regclass), '') ~ 'security_invoker=(true|on)' THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — la vista % ya es security_invoker (retirarla de la lista de B4)', v_one;
+      END IF;
+    END LOOP;
+
+    IF coalesce((SELECT reloptions::text FROM pg_class WHERE oid = 'public.engagement_wo_state'::regclass), '') !~ 'security_barrier=(true|on)' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_wo_state debe tener security_barrier (su filtro de visibilidad es el mecanismo de seguridad)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — B4: vistas de public con authenticated solo SELECT y anon sin nada; solo 3 vistas del dueño (lista cerrada); engagement_wo_state con security_barrier';
 
   RAISE NOTICE 'SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)';
 END $$;

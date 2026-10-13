@@ -419,6 +419,17 @@ run supabase/migrations/20261013120000_rls_carril_b3e_staff.sql
 run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
 run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
 
+# Carril B del barrido RLS (B4 y B4b): lectura de las vistas del dueño y las dos tablas que quedaban sin RLS. B4: my_visible_engagement_ids()
+# (el predicado de las 4 politicas SELECT de engagements como conjunto), engagement_wo_state filtrada por ese conjunto y con security_barrier,
+# staff_directory como security_invoker y privilegios de las vistas (authenticated solo SELECT, anon nada). B4b: ENABLE RLS sin politicas en
+# migration_run_log y en el respaldo de user_roles. Cada archivo se aplica DOS veces (idempotencia: CREATE OR REPLACE, DROP VIEW IF EXISTS +
+# CREATE, ALTER VIEW, REVOKE/GRANT y ENABLE RLS repetibles). Va DESPUES de B3e (usa las politicas de engagements de B3c y B3c-3). Ejercitado por
+# rls-carril-b-b4-vistas.sql y por los checks 12 (lista de excepciones vacia) y 18 de schema-convergence-assertions.sql.
+run supabase/migrations/20261013140000_rls_carril_b4_vistas.sql
+run supabase/migrations/20261013140000_rls_carril_b4_vistas.sql
+run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
+run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -483,5 +494,6 @@ assert_suite supabase/tests/rls-carril-b-b3c2-etiquetas-encargo.sql 'B3c-2 ETIQU
 assert_suite supabase/tests/rls-carril-b-b3c3-hr-administrativos.sql 'B3c-3 HR ADMINISTRATIVOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3d-horas.sql 'B3d HORAS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3e-staff.sql 'B3e STAFF Y FIRMA DE OT: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b4-vistas.sql 'B4 VISTAS Y SUELTAS: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 23 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 24 suites de RLS/RPC/schema-convergence/trigger pasaron"
