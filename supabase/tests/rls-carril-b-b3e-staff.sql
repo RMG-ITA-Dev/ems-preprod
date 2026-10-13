@@ -51,7 +51,8 @@ SELECT ('e0b3e000-0000-4000-8000-00000000000' || n)::uuid, 'c1b3e000-0000-4000-8
        false, false, (SELECT society_id FROM public.society ORDER BY name LIMIT 1),
        '50b3e000-0000-4000-8000-000000000002', '50b3e000-0000-4000-8000-000000000003', sq
 FROM (VALUES ('1', 1, '50b3e000-0000-4000-8000-000000000005'::uuid),   -- E1 (cliente; Q es SQR)
-             ('2', 0, NULL::uuid))                                     -- E2 (administrativo)
+             ('2', 0, NULL::uuid),                                     -- E2 (administrativo)
+             ('3', 1, NULL::uuid))                                     -- E3 (cliente, sin OT: blanco de los INSERT)
      AS v(n, f, sq);
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40b3e000-0000-4000-8000-000000000001', 'e0b3e000-0000-4000-8000-000000000001', 'BOB', 'High', 'Pending_Approval'),
@@ -196,8 +197,18 @@ BEGIN
   RAISE NOTICE 'PASS — admin escribe (control); la escritura sale del permiso staff.update (no-vacuidad)';
 
   -- 6. Trigger de firma: estructura y privilegios ─────────────────────────────────────────────────────────────────
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.work_orders'::regclass AND tgname = 'tr_wo_guard_partner_signature' AND NOT tgisinternal) THEN
-    RAISE EXCEPTION 'B3e-2 FAIL — falta tr_wo_guard_partner_signature en work_orders';
+  -- BEFORE (bit 2), INSERT (bit 4) y UPDATE (bit 16); y DESPUÉS del trigger administrativo en el orden de disparo
+  -- (alfabético, byte a byte): si corriera antes, un UPDATE que solo cambia el estado a Draft borraría la firma sin que la
+  -- guarda lo viera (la limpia enforce_administrative_work_order_rules).
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.work_orders'::regclass AND tgname = 'trg_wo_partner_signature_guard'
+                  AND NOT tgisinternal AND (tgtype & 2) = 2 AND (tgtype & 4) = 4 AND (tgtype & 16) = 16) THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — falta trg_wo_partner_signature_guard (BEFORE INSERT OR UPDATE) en work_orders';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.work_orders'::regclass AND tgname = 'tr_wo_guard_partner_signature') THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — sigue el trigger con el nombre anterior (solo UPDATE)';
+  END IF;
+  IF NOT ('trg_wo_partner_signature_guard' COLLATE "C" > 'trg_enforce_administrative_work_order_rules' COLLATE "C") THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — la guarda de firma debe dispararse después de enforce_administrative_work_order_rules';
   END IF;
   IF has_function_privilege('anon', 'public.wo_guard_partner_signature()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.wo_guard_partner_signature()', 'EXECUTE')
@@ -263,6 +274,46 @@ BEGIN
     RAISE EXCEPTION 'B3e-2 FAIL — la firma del socio debía cerrar la OT administrativa (quedó %)', (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2);
   END IF;
   RAISE NOTICE 'PASS — OT administrativa: la firma del socio la cierra';
+
+  -- 9b. Revisión del PR (Greptile): el gerente no borra la firma de una OT administrativa por el ESTADO. Cambiar solo
+  --     approval_status a Draft no toca approved_by/approved_at, pero enforce_administrative_work_order_rules las limpia
+  --     DESPUÉS: la guarda tiene que mirar la fila ya normalizada (por eso su trigger corre al final).
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente retiró a Draft una OT administrativa firmada (borró la firma del socio)';
+  END IF;
+  IF (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2) IS NULL
+     OR (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2) <> 'Approved' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — la OT administrativa firmada debía conservar su firma y su estado tras el intento del gerente';
+  END IF;
+  -- El socio sí puede retirarla (y eso limpia su firma), y el gerente retira una OT administrativa SIN firma (flujo normal).
+  v_r := pg_temp.try_as(p, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2));
+  IF v_r <> '1' OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2) IS NOT NULL THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el socio debía poder retirar la OT administrativa y limpiar su firma (resultado %, estado %, firma %)',
+      v_r, (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2), (SELECT approved_at IS NOT NULL FROM public.work_orders WHERE wo_id = wo2);
+  END IF;
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = wo2;
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente debía poder retirar una OT administrativa sin firma';
+  END IF;
+  RAISE NOTICE 'PASS — el gerente no borra la firma por el estado; el socio retira; el gerente retira una OT sin firma';
+
+  -- 9c. Revisión del PR (Codex): el INSERT también pasa por la guarda. wo_create_by_permission deja crear la OT al gerente
+  --     asignado y las tres columnas de firma tienen INSERT para authenticated: sin guarda en el INSERT, el gerente creaba
+  --     la OT ya firmada y Aprobada.
+  IF pg_temp.try_as(m, format('INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status, approved_by, approved_at) VALUES (%L, ''BOB'', ''High'', ''Approved'', %L, now())', 'e0b3e000-0000-4000-8000-000000000003', '50b3e000-0000-4000-8000-000000000003')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente creó una OT ya firmada y Aprobada por INSERT';
+  END IF;
+  IF pg_temp.try_as(m, format('INSERT INTO public.work_orders (engagement_id, currency, season_mode, approved_by, approved_at) VALUES (%L, ''BOB'', ''High'', %L, now())', 'e0b3e000-0000-4000-8000-000000000003', '50b3e000-0000-4000-8000-000000000003')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente creó una OT con la firma del socio por INSERT';
+  END IF;
+  IF pg_temp.try_as(m, format('INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status) VALUES (%L, ''BOB'', ''High'', ''Approved'')', 'e0b3e000-0000-4000-8000-000000000003')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente creó una OT Aprobada sin firma por INSERT';
+  END IF;
+  -- La creación normal (Draft, sin firma) sigue funcionando.
+  IF pg_temp.try_as(m, format('INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status) VALUES (%L, ''BOB'', ''High'', ''Draft'')', 'e0b3e000-0000-4000-8000-000000000003')) <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente debía poder crear una OT en Draft sin firma';
+  END IF;
+  RAISE NOTICE 'PASS — INSERT: el gerente no crea una OT firmada ni Aprobada; la creación en Draft sigue funcionando';
 
   -- 10. No-vacuidad y excepciones ────────────────────────────────────────────────────────────────────────────────
   -- (a) el permiso decide: con work_order.submit el gerente del encargo SÍ puede firmar (regla = canApprove de la UI).
