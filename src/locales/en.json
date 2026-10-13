@@ -1771,6 +1771,7 @@
     "selectEngagement": "Select Engagement",
     "selectEngagementFirst": "Please select an engagement first",
     "autoDetected": "auto-detected",
+    "seasonNotDetected": "The season could not be detected from the client's industry. Check that the selected season is correct before creating the work order.",
     "submitForApproval": "Submit for Approval",
     "approve": "Approve",
     "reject": "Reject",

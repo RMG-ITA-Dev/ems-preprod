@@ -14,6 +14,8 @@
 --   · la firma va completa (approved_by y approved_at juntos, o ambos nulos al retirarla) y a nombre de quien la escribe
 --     (approved_by = get_my_staff_id()): el socio no anota a otra persona como firmante (revisión del PR, Codex). admin queda
 --     fuera de estas reglas (puede corregir);
+--   · la firma es un invariante de «Aprobada» en toda escritura: una OT Aprobada no puede quedar con approved_at nulo, así que
+--     retirar la firma baja el estado en la misma sentencia (revisión del PR, Codex);
 --   · pasar a approval_status = 'Approved' exige que la firma ya exista (approved_at no nulo) Y que la pista de Riesgos esté
 --     aprobada (risk_status Approved o Emergency_Approved), salvo admin y salvo los encargos administrativos (funcion <> 1),
 --     que no pasan por Riesgos y se cierran con la firma del socio (revisión del PR, Codex: sin esto el gerente o el SQR
@@ -73,17 +75,23 @@ BEGIN
     END IF;
   END IF;
 
-  IF NEW.approval_status = 'Approved' AND v_old_status IS DISTINCT FROM 'Approved' THEN
+  IF NEW.approval_status = 'Approved' THEN
+    -- La firma es un invariante de «Aprobada» en TODA escritura, no solo al entrar al estado: si no, un socio autorizado podía
+    -- limpiar approved_by y approved_at dejando la OT Aprobada y utilizable sin su firma (revisión del PR, Codex). Retirar la
+    -- firma baja el estado en la misma sentencia (admin, que queda fuera de la guarda, es quien revierte desde la pantalla).
     IF NEW.approved_at IS NULL THEN
-      RAISE EXCEPTION 'Una OT no pasa a Aprobada sin la firma del socio'
+      RAISE EXCEPTION 'Una OT Aprobada conserva la firma del socio; para retirarla, baje el estado en la misma sentencia'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
     -- «Aprobada» significa las dos pistas: check_wo_approved, el selector de solicitudes de fondos y otras funciones tratan
     -- ese estado como utilizable. Las tres rutas de la pantalla que la fijan (useApproveWorkOrder, useApproveRisk y
-    -- useApproveEmergencyPartner) lo hacen con Riesgos ya aprobado. Excepción: las OT de encargos administrativos
-    -- (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con risk_status = 'Pending' y las
-    -- cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
-    IF NEW.risk_status NOT IN ('Approved', 'Emergency_Approved')
+    -- useApproveEmergencyPartner) lo hacen con Riesgos ya aprobado. Esto solo rige al ENTRAR al estado: una OT ya Aprobada puede
+    -- tener después la pista de Riesgos rechazada o reenviada (useRejectRisk y la compleción de emergencia dejan approval_status
+    -- intacto a propósito: pistas independientes), y bloquear esas escrituras rompería flujos válidos. Excepción: las OT de
+    -- encargos administrativos (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con
+    -- risk_status = 'Pending' y las cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
+    IF v_old_status IS DISTINCT FROM 'Approved'
+       AND NEW.risk_status NOT IN ('Approved', 'Emergency_Approved')
        AND NOT EXISTS (SELECT 1 FROM public.engagements e
                         WHERE e.engagement_id = NEW.engagement_id AND e.funcion IS NOT NULL AND e.funcion <> 1) THEN
       RAISE EXCEPTION 'Una OT de cliente no pasa a Aprobada sin la aprobación de Riesgos'

@@ -263,10 +263,24 @@ BEGIN
   IF (SELECT approval_status FROM public.work_orders WHERE wo_id = wo1) <> 'Approved' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — la OT debía quedar Aprobada';
   END IF;
-  -- Retiro de la firma por el socio (useRevertSocioApproval) y reapertura.
-  IF pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = NULL, approved_at = NULL WHERE wo_id = %L', wo1)) <> '1'
-     OR pg_temp.try_as(p, format('UPDATE public.work_orders SET approval_status = ''Pending_Approval'' WHERE wo_id = %L AND approval_status = ''Approved''', wo1)) <> '1' THEN
-    RAISE EXCEPTION 'B3e-2 FAIL — el socio debía poder retirar su firma y reabrir la OT';
+  -- Revisión del PR (Codex): la firma es un invariante de «Aprobada». Limpiar la firma dejando la OT Aprobada (o cambiarla por
+  -- otra firma incompleta) rompe ese estado aunque quien lo haga sea un socio autorizado: el retiro baja el estado en la
+  -- MISMA sentencia (la pantalla lo hace así para el rol admin, que queda fuera de la guarda).
+  v_r := pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = NULL, approved_at = NULL WHERE wo_id = %L', wo1));
+  IF v_r <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el socio dejó la OT Aprobada sin firma (resultado %)', v_r;
+  END IF;
+  IF (SELECT approved_at FROM public.work_orders WHERE wo_id = wo1) IS NULL THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — la OT Aprobada debía conservar su firma tras el intento';
+  END IF;
+  -- Retiro de la firma por el socio y reapertura, atómicos.
+  v_r := pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = NULL, approved_at = NULL, approval_status = ''Pending_Approval'' WHERE wo_id = %L', wo1));
+  IF v_r <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el socio debía poder retirar su firma y reabrir la OT en una sola sentencia (resultado %)', v_r;
+  END IF;
+  IF (SELECT approved_at FROM public.work_orders WHERE wo_id = wo1) IS NOT NULL
+     OR (SELECT approval_status FROM public.work_orders WHERE wo_id = wo1) <> 'Pending_Approval' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el retiro debía dejar la OT en Pending_Approval y sin firma';
   END IF;
   -- Y el gerente no puede retirarla (clear = cambio de la firma).
   PERFORM pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000003', wo1));
@@ -342,7 +356,15 @@ BEGIN
   IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> '1' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — con la firma del socio y Riesgos aprobado la OT debía poder cerrarse';
   END IF;
-  RAISE NOTICE 'PASS — «Aprobada» exige firma y Riesgos aprobado (la OT administrativa, ya probada arriba, queda exceptuada)';
+  -- Una OT ya Aprobada puede tener después la pista de Riesgos rechazada (useRejectRisk deja approval_status intacto a propósito:
+  -- pistas independientes): la exigencia de Riesgos rige solo al ENTRAR a «Aprobada», y editar la OT sigue funcionando.
+  EXECUTE 'SET LOCAL session_replication_role = replica';
+  UPDATE public.work_orders SET risk_status = 'Rejected' WHERE wo_id = '40b3e000-0000-4000-8000-000000000004';
+  EXECUTE 'SET LOCAL session_replication_role = origin';
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET notes = ''corregir'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — una OT ya Aprobada con Riesgos rechazado debía seguir editable (la regla de Riesgos es de transición)';
+  END IF;
+  RAISE NOTICE 'PASS — «Aprobada» exige firma y Riesgos aprobado al entrar; después, Riesgos puede rechazarse sin bloquear la edición (la OT administrativa, ya probada arriba, queda exceptuada)';
 
   -- 9e. Revisión del PR (Codex): quien firma queda registrado como quien es. approved_by debe ser la ficha de quien escribe, y
   --     approved_by y approved_at van juntos (el socio con work_order.submit podía anotar a otra persona como firmante).

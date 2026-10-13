@@ -1771,6 +1771,7 @@
     "selectEngagement": "Seleccionar Encargo",
     "selectEngagementFirst": "Por favor seleccione un encargo primero",
     "autoDetected": "auto-detectado",
+    "seasonNotDetected": "No se pudo detectar la temporada a partir de la industria del cliente. Verifique que la temporada seleccionada sea la correcta antes de crear la OT.",
     "submitForApproval": "Enviar para Aprobación",
     "approve": "Aprobar",
     "reject": "Rechazar",
