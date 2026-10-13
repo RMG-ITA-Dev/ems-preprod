@@ -11,9 +11,15 @@
 -- Regla (decisión del operador, 13/10/2026): la misma que ya aplica la pantalla (canApprove en WorkOrderEdit):
 --   · cambiar approved_by o approved_at (fijar la firma o limpiarla, que es la reversión) exige admin, o el permiso
 --     work_order.submit y ser del equipo del encargo;
---   · pasar a approval_status = 'Approved' exige que la firma ya exista (approved_at no nulo), salvo admin. Así Riesgos
---     sigue cerrando la OT cuando el socio ya firmó (useApproveRisk filtra por approved_at no nulo) y las OT
---     administrativas siguen cerrándose por enforce_administrative_work_order_rules;
+--   · la firma va completa (approved_by y approved_at juntos, o ambos nulos al retirarla) y a nombre de quien la escribe
+--     (approved_by = get_my_staff_id()): el socio no anota a otra persona como firmante (revisión del PR, Codex). admin queda
+--     fuera de estas reglas (puede corregir);
+--   · pasar a approval_status = 'Approved' exige que la firma ya exista (approved_at no nulo) Y que la pista de Riesgos esté
+--     aprobada (risk_status Approved o Emergency_Approved), salvo admin y salvo los encargos administrativos (funcion <> 1),
+--     que no pasan por Riesgos y se cierran con la firma del socio (revisión del PR, Codex: sin esto el gerente o el SQR
+--     cerraban a mano una OT con Riesgos pendiente). Así Riesgos sigue cerrando la OT cuando el socio ya firmó (useApproveRisk
+--     filtra por approved_at no nulo, después de aprobar su pista) y las OT administrativas siguen cerrándose por
+--     enforce_administrative_work_order_rules;
 --   · rige en INSERT y en UPDATE: wo_create_by_permission deja crear la OT al gerente asignado y approval_status,
 --     approved_by y approved_at tienen INSERT para authenticated, así que sin guarda en el INSERT el gerente podía crear
 --     la OT ya firmada y Aprobada (observación de la revisión del PR, Codex). En el INSERT se compara contra «sin firma»;
@@ -49,18 +55,40 @@ BEGIN
     v_old_status := OLD.approval_status;
   END IF;
 
-  IF (NEW.approved_by IS DISTINCT FROM v_old_by OR NEW.approved_at IS DISTINCT FROM v_old_at)
-     AND NOT (public.has_permission('work_order.submit'::text)
-              AND public.is_engagement_team_member(NEW.engagement_id)) THEN
-    RAISE EXCEPTION 'Solo quien puede aprobar la OT como socio del encargo puede fijar o retirar la firma'
-      USING ERRCODE = 'insufficient_privilege';
+  IF NEW.approved_by IS DISTINCT FROM v_old_by OR NEW.approved_at IS DISTINCT FROM v_old_at THEN
+    IF NOT (public.has_permission('work_order.submit'::text)
+            AND public.is_engagement_team_member(NEW.engagement_id)) THEN
+      RAISE EXCEPTION 'Solo quien puede aprobar la OT como socio del encargo puede fijar o retirar la firma'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- La firma va completa (o se retira completa) y a nombre de quien la escribe: sin esto el socio con work_order.submit
+    -- anotaba a otra persona como firmante (la lista de fichas es legible por todos) y se corrompía la auditoría.
+    IF (NEW.approved_by IS NULL) <> (NEW.approved_at IS NULL) THEN
+      RAISE EXCEPTION 'La firma del socio debe fijarse o retirarse completa (approved_by y approved_at juntos)'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF NEW.approved_by IS NOT NULL AND NEW.approved_by IS DISTINCT FROM public.get_my_staff_id() THEN
+      RAISE EXCEPTION 'La firma del socio solo puede registrarse a nombre de quien la escribe'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
   END IF;
 
-  IF NEW.approval_status = 'Approved'
-     AND v_old_status IS DISTINCT FROM 'Approved'
-     AND NEW.approved_at IS NULL THEN
-    RAISE EXCEPTION 'Una OT no pasa a Aprobada sin la firma del socio'
-      USING ERRCODE = 'insufficient_privilege';
+  IF NEW.approval_status = 'Approved' AND v_old_status IS DISTINCT FROM 'Approved' THEN
+    IF NEW.approved_at IS NULL THEN
+      RAISE EXCEPTION 'Una OT no pasa a Aprobada sin la firma del socio'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- «Aprobada» significa las dos pistas: check_wo_approved, el selector de solicitudes de fondos y otras funciones tratan
+    -- ese estado como utilizable. Las tres rutas de la pantalla que la fijan (useApproveWorkOrder, useApproveRisk y
+    -- useApproveEmergencyPartner) lo hacen con Riesgos ya aprobado. Excepción: las OT de encargos administrativos
+    -- (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con risk_status = 'Pending' y las
+    -- cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
+    IF NEW.risk_status NOT IN ('Approved', 'Emergency_Approved')
+       AND NOT EXISTS (SELECT 1 FROM public.engagements e
+                        WHERE e.engagement_id = NEW.engagement_id AND e.funcion IS NOT NULL AND e.funcion <> 1) THEN
+      RAISE EXCEPTION 'Una OT de cliente no pasa a Aprobada sin la aprobación de Riesgos'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
   END IF;
 
   RETURN NEW;

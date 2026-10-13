@@ -52,11 +52,16 @@ SELECT ('e0b3e000-0000-4000-8000-00000000000' || n)::uuid, 'c1b3e000-0000-4000-8
        '50b3e000-0000-4000-8000-000000000002', '50b3e000-0000-4000-8000-000000000003', sq
 FROM (VALUES ('1', 1, '50b3e000-0000-4000-8000-000000000005'::uuid),   -- E1 (cliente; Q es SQR)
              ('2', 0, NULL::uuid),                                     -- E2 (administrativo)
-             ('3', 1, NULL::uuid))                                     -- E3 (cliente, sin OT: blanco de los INSERT)
+             ('3', 1, NULL::uuid),                                     -- E3 (cliente, sin OT: blanco de los INSERT)
+             ('4', 1, NULL::uuid))                                     -- E4 (cliente, OT firmada con Riesgos pendiente)
      AS v(n, f, sq);
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40b3e000-0000-4000-8000-000000000001', 'e0b3e000-0000-4000-8000-000000000001', 'BOB', 'High', 'Pending_Approval'),
   ('40b3e000-0000-4000-8000-000000000002', 'e0b3e000-0000-4000-8000-000000000002', 'BOB', 'High', 'Pending_Approval');
+-- OT4: el socio ya firmó y la pista de Riesgos sigue pendiente (risk_status por defecto): todavía NO puede cerrarse.
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status, approved_by, approved_at) VALUES
+  ('40b3e000-0000-4000-8000-000000000004', 'e0b3e000-0000-4000-8000-000000000004', 'BOB', 'High', 'Pending_Approval',
+   '50b3e000-0000-4000-8000-000000000003', now());
 SET LOCAL session_replication_role = origin;
 
 -- Intento como `authenticated`: devuelve las filas alcanzadas o 'ERR <sqlstate>'. Los cambios que prosperan se conservan
@@ -103,7 +108,7 @@ DECLARE
   wo1 constant uuid := '40b3e000-0000-4000-8000-000000000001';
   wo2 constant uuid := '40b3e000-0000-4000-8000-000000000002';
   u9  constant uuid := '50b3e000-0000-4000-8000-000000000009';
-  v_total bigint; v_who text; v_r text; v_st text; v_me uuid;
+  v_total bigint; v_who text; v_r text; v_st text; v_me uuid; v_wo3 uuid;
 BEGIN
   -- 0. Premisas de los permisos (si cambian, la suite pierde sentido: que falle aquí y no en silencio) ───────────────
   IF NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'admin' AND permission_key = 'staff.update')
@@ -247,7 +252,11 @@ BEGIN
   IF pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now(), notes = NULL WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000003', wo1)) <> '1' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el socio del encargo debía poder firmar';
   END IF;
-  -- useApproveRisk: el aprobador de Riesgos (aquí el SQR) cierra con filtro approved_at no nulo.
+  -- useApproveRisk: primero Riesgos aprueba su pista (se escribe como dueño y con triggers en réplica: lo que se prueba es el
+  -- cierre) y después el aprobador (aquí el SQR) cierra con filtro approved_at no nulo.
+  EXECUTE 'SET LOCAL session_replication_role = replica';
+  UPDATE public.work_orders SET risk_status = 'Approved' WHERE wo_id = wo1;
+  EXECUTE 'SET LOCAL session_replication_role = origin';
   IF pg_temp.try_as(q, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L AND approved_at IS NOT NULL', wo1)) <> '1' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — Riesgos debía poder cerrar la OT ya firmada por el socio';
   END IF;
@@ -314,6 +323,42 @@ BEGIN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente debía poder crear una OT en Draft sin firma';
   END IF;
   RAISE NOTICE 'PASS — INSERT: el gerente no crea una OT firmada ni Aprobada; la creación en Draft sigue funcionando';
+
+  -- 9d. Revisión del PR (Codex): «Aprobada» exige también la pista de Riesgos. Con la firma del socio puesta y Riesgos pendiente
+  --     (o rechazado), cerrar la OT a mano saltaría el visto bueno de Riesgos, y check_wo_approved, el selector de
+  --     solicitudes de fondos y otras funciones tratan «Aprobada» como utilizable. Excepción: las OT administrativas.
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente cerró como Aprobada una OT firmada con Riesgos pendiente';
+  END IF;
+  EXECUTE 'SET LOCAL session_replication_role = replica';
+  UPDATE public.work_orders SET risk_status = 'Rejected' WHERE wo_id = '40b3e000-0000-4000-8000-000000000004';
+  EXECUTE 'SET LOCAL session_replication_role = origin';
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente cerró como Aprobada una OT con Riesgos rechazado';
+  END IF;
+  EXECUTE 'SET LOCAL session_replication_role = replica';
+  UPDATE public.work_orders SET risk_status = 'Approved' WHERE wo_id = '40b3e000-0000-4000-8000-000000000004';
+  EXECUTE 'SET LOCAL session_replication_role = origin';
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', '40b3e000-0000-4000-8000-000000000004')) <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — con la firma del socio y Riesgos aprobado la OT debía poder cerrarse';
+  END IF;
+  RAISE NOTICE 'PASS — «Aprobada» exige firma y Riesgos aprobado (la OT administrativa, ya probada arriba, queda exceptuada)';
+
+  -- 9e. Revisión del PR (Codex): quien firma queda registrado como quien es. approved_by debe ser la ficha de quien escribe, y
+  --     approved_by y approved_at van juntos (el socio con work_order.submit podía anotar a otra persona como firmante).
+  SELECT wo_id INTO v_wo3 FROM public.work_orders WHERE engagement_id = 'e0b3e000-0000-4000-8000-000000000003';
+  IF pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', v_wo3)) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el socio registró a otra persona como firmante';
+  END IF;
+  IF pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = %L WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000003', v_wo3)) <> 'ERR 42501'
+     OR pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_at = now() WHERE wo_id = %L', v_wo3)) <> 'ERR 42501' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — la firma debía fijarse completa (approved_by y approved_at juntos)';
+  END IF;
+  IF pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000003', v_wo3)) <> '1'
+     OR pg_temp.try_as(p, format('UPDATE public.work_orders SET approved_by = NULL, approved_at = NULL WHERE wo_id = %L', v_wo3)) <> '1' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el socio debía poder firmar con su propia ficha y retirar su firma';
+  END IF;
+  RAISE NOTICE 'PASS — el firmante registrado es quien escribe; la firma va completa; el socio firma y retira con su ficha';
 
   -- 10. No-vacuidad y excepciones ────────────────────────────────────────────────────────────────────────────────
   -- (a) el permiso decide: con work_order.submit el gerente del encargo SÍ puede firmar (regla = canApprove de la UI).
