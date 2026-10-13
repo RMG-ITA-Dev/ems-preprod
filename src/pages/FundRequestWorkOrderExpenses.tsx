@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { Download } from "lucide-react";
+import { AlertCircle, Download } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
@@ -60,7 +61,7 @@ const FundRequestWorkOrderExpenses = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { woId } = useParams<{ woId: string }>();
-  const { data: detail, isLoading } = useWorkOrderExpenseDetail(woId);
+  const { data: detail, isLoading, isError, refetch } = useWorkOrderExpenseDetail(woId);
 
   const [filters, setFilters] = useState<WorkOrderExpenseFilters>({});
   const [grouped, setGrouped] = useState(false);
@@ -243,6 +244,27 @@ const FundRequestWorkOrderExpenses = () => {
     return (
       <AppLayout title={t("workOrderExpenses.title")} focusMode>
         <Skeleton className="h-64 w-full" />
+      </AppLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <AppLayout title={t("workOrderExpenses.title")} focusMode>
+        <div className="space-y-2">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("workOrderExpenses.loadError")}</AlertDescription>
+          </Alert>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => refetch()}>
+              {t("workOrderExpenses.retry")}
+            </Button>
+            <Button variant="cancel" onClick={() => navigate("/fund-requests/work-orders")}>
+              {t("common.back")}
+            </Button>
+          </div>
+        </div>
       </AppLayout>
     );
   }

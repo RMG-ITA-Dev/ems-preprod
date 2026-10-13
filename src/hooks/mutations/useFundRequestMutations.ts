@@ -157,11 +157,18 @@ export function useDecideWorkOrder() {
         manager_notes: decision === "rechazado" ? null : notes?.trim() || null,
         rejection_reason: decision === "rechazado" ? notes?.trim() || null : null,
       };
-      const { error } = await sb
+      // .select() + chequeo de filas: sin esto, una decisión que la RLS filtra (p. ej. otro
+      // gerente ya rechazó y la solicitud salió de pendiente_aprobacion) mostraba
+      // "Decisión guardada" sin haber guardado nada.
+      const { data: affected, error } = await sb
         .from("fund_request_work_orders")
         .update(update)
-        .eq("fr_wo_id", frWoId);
+        .eq("fr_wo_id", frWoId)
+        .select("fr_wo_id");
       if (error) throw error;
+      if (!Array.isArray(affected) || affected.length === 0) {
+        throw new Error(i18n.t("fundRequest.errors.otDecisionNotApplied"));
+      }
       return { fundRequestId };
     },
     onSuccess: ({ fundRequestId }) => {

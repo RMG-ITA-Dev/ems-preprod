@@ -2640,6 +2640,9 @@
     },
     "errors": {
       "approverRequired": "Debe seleccionar un gerente aprobador",
+      "otDecisionNotApplied": "No se guardó la decisión: la OT o la solicitud ya cambiaron de estado. Recargue para ver cómo está ahora.",
+      "expenseCountsLoadFailed": "No se pudieron cargar los gastos de cada solicitud, así que las pestañas pueden no estar completas.",
+      "retry": "Reintentar",
       "amountRequired": "El monto solicitado debe ser mayor a cero",
       "allocationsRequired": "Debe agregar al menos una OT",
       "allocationIncomplete": "Complete OT y monto en todas las filas de distribución",
@@ -3089,6 +3092,8 @@
     }
   },
   "workOrderExpenses": {
+    "retry": "Reintentar",
+    "loadError": "No pudimos cargar los gastos por OT. Por favor, intente de nuevo.",
     "title": "Gastos por OT",
     "searchPlaceholder": "Buscar por OT, encargo o cliente...",
     "workOrder": "OT",

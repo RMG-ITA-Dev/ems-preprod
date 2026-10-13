@@ -171,7 +171,7 @@ export interface AlarmSpec {
    * No es paranoia: la matriz de notificaciones y la de permisos son independientes, y hoy
    * se contradicen en dos lugares. `wo.installment.*` va a Contabilidad y Cobranzas, que no
    * tienen `work_order.read`; `fund.*.pending` va también al Analista de Contabilidad, que
-   * no tiene `fund_disbursement.read`. Sin este campo, esas personas hacían click en su
+   * no tenía `fund_disbursement.read` (hoy sí lo tiene). Sin este campo, esas personas hacían click en su
    * propio contador y aterrizaban en la pantalla "Sin acceso" — peor que no poder navegar.
    */
   permission: string;

@@ -139,9 +139,12 @@ export function FundRequestExpenseDialog({
   // (FundRequestExpenses), no por gasto individual: si uno está mal, se rechazan
   // todos juntos. Por eso aquí no hay botones de aprobar/observar/rechazar.
   // Contabilidad revisa hasta el día 5; después el sistema ya aprobó lo pendiente.
+  // La solicitud debe seguir viva: una cancelada desde la fase contable sigue siendo visible
+  // para Contabilidad (fr_accounting_sees), pero el RPC no admite revisar en ese estado.
   const canReview =
     !isCreate &&
     canSettleExpenses &&
+    fundRequest.status === "fondos_entregados" &&
     expense!.status === "aprobado_gerente" &&
     !isReviewDeadlinePassed(month, today);
   // El tercer botón de la revisión depende del calendario.

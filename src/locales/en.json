@@ -2640,6 +2640,9 @@
     },
     "errors": {
       "approverRequired": "You must select an approving manager",
+      "otDecisionNotApplied": "The decision was not saved: the work order or the request already changed state. Reload to see where it stands now.",
+      "expenseCountsLoadFailed": "The expenses of each request could not be loaded, so the tabs may be incomplete.",
+      "retry": "Retry",
       "amountRequired": "The requested amount must be greater than zero",
       "allocationsRequired": "You must add at least one Work Order",
       "allocationIncomplete": "Complete WO and amount on every allocation row",
@@ -3089,6 +3092,8 @@
     }
   },
   "workOrderExpenses": {
+    "retry": "Retry",
+    "loadError": "We could not load the expenses by work order. Please try again.",
     "title": "Expenses by work order",
     "searchPlaceholder": "Search by work order, engagement or client...",
     "workOrder": "WO",

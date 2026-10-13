@@ -80,7 +80,8 @@ const FundRequestExpenses = () => {
   // comentario original decía "admin (contabilidad por ahora)": ahora se decide
   // por el permiso real, así que el Gerente y el Analista de Contabilidad
   // también lo ven, como manda la matriz.
-  const { can } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const canSettleExpenses = can("expense_settlement.read");
 
   const submitAll = useSubmitAllFundRequestExpenses();
@@ -161,10 +162,13 @@ const FundRequestExpenses = () => {
     }
   };
 
-  // Gastos pendientes que ESTE gerente debe decidir (sus OTs). El admin ve todos.
+  // Gastos pendientes que ESTE gerente debe decidir (los de SUS OTs). El admin ve todos.
+  // Contabilidad NO decide gastos: su permiso (expense_settlement.*) sirve para ver y revisar,
+  // y la RLS solo tiene fre_update_admin y fre_update_manager. Antes el permiso contable abría
+  // los tres botones de decisión sobre TODOS los pendientes, y el click moría en la RLS.
   const myPendingExpenses = useMemo(() => {
     const list = (expenses ?? []).filter((e) => e.status === "pendiente_aprobacion");
-    if (canSettleExpenses) return list;
+    if (isAdmin) return list;
     if (!staffRecord || !fr) return [];
     const myWoIds = new Set(
       (fr.fund_request_work_orders ?? [])
@@ -172,9 +176,13 @@ const FundRequestExpenses = () => {
         .map((o) => o.wo_id),
     );
     return list.filter((e) => myWoIds.has(e.wo_id));
-  }, [expenses, fr, staffRecord, canSettleExpenses]);
+  }, [expenses, fr, staffRecord, isAdmin]);
 
-  const canDecideAll = myPendingExpenses.length > 0;
+  // El gerente decide hasta la fecha fin y solo con la solicitud en fondos_entregados: después
+  // el job aprueba solo (fre_enforce_window) y la RLS fre_update_manager exige ese estado.
+  // windowOpen ya exige fondos_entregados y que no haya pasado la fecha fin. El admin queda
+  // exento, igual que en fre_enforce_window y en la policy fre_update_admin.
+  const canDecideAll = myPendingExpenses.length > 0 && (isAdmin || windowOpen);
 
   const handleDecideAll = async (notes: string) => {
     if (!id || !decisionMode) return;
@@ -339,7 +347,10 @@ const FundRequestExpenses = () => {
     },
   ];
 
-  if (frLoading) {
+  // expLoading cuenta igual que frLoading: casi todo lo de esta pantalla (lote pendiente,
+  // totales, botones de decisión) sale de `expenses`, y con la lista a medio cargar se muestra
+  // "Nuevo Gasto" habilitado y Total gastado 0 por un instante.
+  if (frLoading || expLoading) {
     return (
       <AppLayout title={t("fundRequestExpense.title")} focusMode>
         <div className="space-y-4">

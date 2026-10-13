@@ -189,12 +189,16 @@ const FundRequestEdit = () => {
   // el gerente de la FR y admin. Contabilidad entra cuando algún gasto ya le llegó (aprobado por
   // el gerente o revisado por ella), al vencer la fecha fin o con la solicitud ya liquidada: recién
   // desembolsada no tiene nada que hacer ahí. Es una decisión de pantalla; la RLS no cambia.
-  const expensesReachedAccounting = (expenses ?? []).some(
-    (e) => ["aprobado_gerente", "revisado_asistente"].includes(e.status) || !!e.reviewed_at,
-  );
+  // Con la lista a medio cargar esto da false y el acceso a gastos aparecería de golpe: se
+  // espera a que `expenses` llegue (expensesLoaded), igual que la liquidación.
+  const expensesReachedAccounting =
+    expensesLoaded &&
+    (expenses ?? []).some(
+      (e) => ["aprobado_gerente", "revisado_asistente"].includes(e.status) || !!e.reviewed_at,
+    );
   const canViewExpenses =
     !!fr &&
-    ["fondos_entregados", "en_liquidacion", "cerrado"].includes(fr.status) &&
+    ["fondos_entregados", "en_liquidacion", "cerrado", "cancelado"].includes(fr.status) &&
     (isRequester ||
       isManagerOfThisFr ||
       isAdmin ||

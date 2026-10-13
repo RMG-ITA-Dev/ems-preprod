@@ -4,6 +4,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AlertCircle } from "lucide-react";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
@@ -47,8 +50,17 @@ const TABS: readonly Tab[] = [
 const FundRequestDisbursements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data, isLoading } = useFundRequests();
-  const { data: expenseCounts } = useFundRequestExpenseCounts();
+  const { data, isLoading: frLoading } = useFundRequests();
+  // tabOf() reparte las solicitudes con fondos entregados SEGÚN estos contadores: hasta que
+  // cargan, todas caen en "Entregadas" y las pestañas mienten (p. ej. llegar desde la campana a
+  // "Gastos por revisar" y ver la bandeja vacía). Por eso la tabla espera a las dos consultas.
+  const {
+    data: expenseCounts,
+    isLoading: countsLoading,
+    isError: countsError,
+    refetch: refetchCounts,
+  } = useFundRequestExpenseCounts();
+  const isLoading = frLoading || countsLoading;
   // Se decide por permiso, no por el enum legacy. Con `isAdmin` esta pantalla
   // era solo para admin, mientras el sidebar la ofrecía a todo el que tuviera
   // fund_disbursement.read — o sea el Gerente de Contabilidad veía la pestaña y
@@ -251,6 +263,17 @@ const FundRequestDisbursements = () => {
           </TabsList>
         </Tabs>
 
+        {countsError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span>{t("fundRequest.errors.expenseCountsLoadFailed")}</span>
+              <Button variant="outline" size="sm" onClick={() => refetchCounts()}>
+                {t("fundRequest.errors.retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
         <DataTable
           data={filtered}
           columns={columns}

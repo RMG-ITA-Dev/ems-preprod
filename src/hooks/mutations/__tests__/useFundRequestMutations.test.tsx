@@ -134,7 +134,8 @@ describe("useFundRequestMutations", () => {
 
   describe("useDecideWorkOrder", () => {
     it("rejecting stores the reason and clears manager notes", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
+      const select = vi.fn().mockResolvedValue({ data: [{ fr_wo_id: "ot1" }], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
       const update = vi.fn().mockReturnValue({ eq });
       vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
@@ -158,7 +159,8 @@ describe("useFundRequestMutations", () => {
     });
 
     it("approving stores the optional note as manager_notes", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
+      const select = vi.fn().mockResolvedValue({ data: [{ fr_wo_id: "ot1" }], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
       const update = vi.fn().mockReturnValue({ eq });
       vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
@@ -169,6 +171,21 @@ describe("useFundRequestMutations", () => {
       expect(update).toHaveBeenCalledWith(
         expect.objectContaining({ approval_status: "aprobado", rejection_reason: null }),
       );
+    });
+
+    // La RLS filtra la fila (otro gerente ya decidió y la solicitud salió de
+    // pendiente_aprobacion): sin filas afectadas la mutación FALLA en vez de
+    // mostrar "Decisión registrada" sin haber guardado nada.
+    it("fails when RLS filtered the row (no rows affected)", async () => {
+      const select = vi.fn().mockResolvedValue({ data: [], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
+      const update = vi.fn().mockReturnValue({ eq });
+      vi.mocked(supabase.from).mockReturnValue({ update } as never);
+
+      const { result } = renderHook(() => useDecideWorkOrder(), { wrapper: createWrapper() });
+      result.current.mutate({ frWoId: "ot1", fundRequestId: "fr1", decision: "aprobado" });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
     });
   });
 

@@ -2,6 +2,9 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AlertCircle } from "lucide-react";
 import { useWorkOrderExpenseSummary, type WorkOrderExpenseSummary } from "@/hooks/useWorkOrderExpenses";
 import { budgetUsage } from "@/lib/workOrderExpenses";
 import { cn } from "@/lib/utils";
@@ -18,7 +21,7 @@ const money = (n: number) =>
 const FundRequestWorkOrders = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data, isLoading } = useWorkOrderExpenseSummary();
+  const { data, isLoading, isError, refetch } = useWorkOrderExpenseSummary();
 
   const columns: Column<WorkOrderExpenseSummary>[] = [
     {
@@ -100,6 +103,24 @@ const FundRequestWorkOrders = () => {
       },
     },
   ];
+
+  // Sin esto, una RPC caída se ve igual que "No hay resultados" y Contabilidad concluye que
+  // ninguna OT tiene gastos.
+  if (isError) {
+    return (
+      <AppLayout title={t("workOrderExpenses.title")}>
+        <div className="space-y-2">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{t("workOrderExpenses.loadError")}</AlertDescription>
+          </Alert>
+          <Button variant="outline" onClick={() => refetch()}>
+            {t("workOrderExpenses.retry")}
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title={t("workOrderExpenses.title")}>
