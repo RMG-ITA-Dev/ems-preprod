@@ -270,9 +270,9 @@ BEGIN
       -- user_roles salió de esta lista con B2 (Carril B): ya tiene RLS (cada uno ve su fila; admin y
       -- user_role.read ven todas) y la escritura sigue cerrada por el Carril A (check 11).
       'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
-      'migration_run_log',                   -- sin políticas; log interno
-      -- Grupo B — núcleo de negocio (P0)
-      'staff'                                -- BAR-002/003: PII; hardening por columna anulado por anon
+      'migration_run_log'                    -- sin políticas; log interno
+      -- Grupo B — núcleo de negocio (P0). staff salió con B3e (Carril B): RLS activo; la lectura sigue abierta
+      -- (USING true, el SELECT por columna protege la PII) y la escritura rige por staff.create/update/delete.
       -- clients y engagements salieron con B3c (RLS con las 12 políticas de cero_05, directorio de solo
       -- nombre y fin de la escritura por vistas; ver el check 17). time_entries, timer_entries,
       -- timesheet_periods y timesheet_line_approvals salieron con B3d (lectura por dueño, responsable del

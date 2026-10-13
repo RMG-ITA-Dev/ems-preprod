@@ -39,49 +39,11 @@ export function useCurrentStaff() {
         .maybeSingle();
       
       if (error) throw error;
-      if (data) return data as StaffWithHireDate | null;
-
-      // Fallback: try to find and link by email
-      const userEmail = user.email;
-      if (!userEmail) return null;
-
-      const { data: staffByEmail, error: emailError } = await supabase
-        .from('staff')
-        .select(`
-          staff_id,
-          first_name,
-          last_name,
-          short_name,
-          initials,
-          category_id,
-          society_id,
-          practica_id,
-          city,
-          is_active,
-          hire_date,
-          termination_date,
-          category:categories!staff_category_id_fkey(*)
-        `)
-        .eq('email', userEmail)
-        .is('auth_user_id', null)
-        .maybeSingle();
-
-      if (emailError) throw emailError;
-
-      if (staffByEmail) {
-        // Auto-link: set auth_user_id on the matching staff record
-        const { error: linkError } = await supabase
-          .from('staff')
-          .update({ auth_user_id: user.id, updated_at: new Date().toISOString() })
-          .eq('staff_id', staffByEmail.staff_id)
-          .is('auth_user_id', null);
-
-        if (!linkError) {
-          return staffByEmail as StaffWithHireDate;
-        }
-      }
-
-      return null;
+      // El enlace staff <-> usuario lo hace la base (triggers link_auth_user_to_staff al crear el usuario y
+      // trg_link_staff_to_auth_user al crear o cambiar el email de la ficha). Este hook ya no intenta enlazar por
+      // email desde el navegador: con la RLS de staff (B3e) solo admin escribe esa tabla, y antes de B3e cualquier
+      // empleado podía reclamar así la ficha de otra persona.
+      return (data ?? null) as StaffWithHireDate | null;
     },
     enabled: !!user?.id,
   });

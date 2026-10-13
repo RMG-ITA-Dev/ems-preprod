@@ -408,6 +408,17 @@ run supabase/migrations/20261012180000_rls_carril_b3c3_hr_encargos_administrativ
 run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
 run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
 
+# Carril B del barrido RLS (B3e): RLS en staff (se quita la politica de «mi propia fila»; la lectura no cambia) y, en un archivo
+# aparte (B3e-2), el trigger wo_guard_partner_signature que reserva la firma del socio en work_orders a quien puede aprobar.
+# Cada archivo se aplica DOS veces (idempotencia: DROP POLICY IF EXISTS, ENABLE RLS repetible, CREATE OR REPLACE, DROP TRIGGER IF
+# EXISTS + CREATE). Va DESPUES de B3d. ATENCION: activa RLS en staff para TODAS las suites que siguen; las demas suites siembran
+# staff como dueno (antes de suplantar roles) y lo leen con la politica `true` (revisado a mano), y las que actualizan la firma de
+# work_orders lo hacen como admin, sin claim o con triggers en replica. Ejercitado por rls-carril-b-b3e-staff.sql y por el check 12.
+run supabase/migrations/20261013120000_rls_carril_b3e_staff.sql
+run supabase/migrations/20261013120000_rls_carril_b3e_staff.sql
+run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
+run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -471,5 +482,6 @@ assert_suite supabase/tests/rls-carril-b-b3c-clientes-encargos.sql 'B3c CLIENTES
 assert_suite supabase/tests/rls-carril-b-b3c2-etiquetas-encargo.sql 'B3c-2 ETIQUETAS DE ENCARGO: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3c3-hr-administrativos.sql 'B3c-3 HR ADMINISTRATIVOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b3d-horas.sql 'B3d HORAS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3e-staff.sql 'B3e STAFF Y FIRMA DE OT: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 22 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 23 suites de RLS/RPC/schema-convergence/trigger pasaron"
