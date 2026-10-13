@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict jBKLLKRdebKvR2COfcpe4NJGPl4aagO4iAqegiHDF86Y7R0zr3bFru9fckWI5No
+\restrict aPyFi3YvKCsEwgU3VO046vi3hYs8UAXCECdTpWtNrVCVC8xoLPdEb3KaMLPsrUa
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -6037,6 +6037,25 @@ $$;
 
 
 --
+-- Name: is_firm_hours_reader(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_firm_hours_reader() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.is_admin() OR EXISTS (
+    SELECT 1
+      FROM public.user_roles ur
+      JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+     WHERE ur.user_id = auth.uid()
+       AND rp.permission_key = 'timesheet_approval.read'
+       AND rp.scope_key = 'firm'
+  )
+$$;
+
+
+--
 -- Name: latest_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6752,6 +6771,38 @@ BEGIN
      SET display_order = p_new_position
    WHERE category_id = p_category_id;
 END;
+$$;
+
+
+--
+-- Name: my_responsible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_responsible_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id
+    FROM public.engagements e
+   WHERE e.manager_id   = (SELECT public.get_my_staff_id())
+      OR e.partner_id   = (SELECT public.get_my_staff_id())
+      OR e.encargado_id = (SELECT public.get_my_staff_id())
+$$;
+
+
+--
+-- Name: my_responsible_period_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_responsible_period_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT te.period_id FROM public.time_entries te
+   WHERE te.period_id IS NOT NULL AND te.engagement_id IN (SELECT public.my_responsible_engagement_ids())
+  UNION
+  SELECT tla.period_id FROM public.timesheet_line_approvals tla
+   WHERE tla.engagement_id IN (SELECT public.my_responsible_engagement_ids())
 $$;
 
 
@@ -23889,20 +23940,14 @@ CREATE POLICY "Authenticated users can read staff skills" ON public.staff_skills
 -- Name: timesheet_line_approvals Firm-wide read line approvals; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Firm-wide read line approvals" ON public.timesheet_line_approvals FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM (public.user_roles ur
-     JOIN public.authorization_role_permissions rp ON ((rp.role_key = ur.role_key)))
-  WHERE ((ur.user_id = auth.uid()) AND (rp.permission_key = 'timesheet_approval.read'::text) AND (rp.scope_key = 'firm'::text)))));
+CREATE POLICY "Firm-wide read line approvals" ON public.timesheet_line_approvals FOR SELECT USING (( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader));
 
 
 --
 -- Name: timesheet_periods Firm-wide read periods; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Firm-wide read periods" ON public.timesheet_periods FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM (public.user_roles ur
-     JOIN public.authorization_role_permissions rp ON ((rp.role_key = ur.role_key)))
-  WHERE ((ur.user_id = auth.uid()) AND (rp.permission_key = 'timesheet_approval.read'::text) AND (rp.scope_key = 'firm'::text)))));
+CREATE POLICY "Firm-wide read periods" ON public.timesheet_periods FOR SELECT USING (( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader));
 
 
 --
@@ -23931,6 +23976,20 @@ CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO au
    FROM (public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
   WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id())))));
+
+
+--
+-- Name: timesheet_line_approvals Responsible read line approvals; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Responsible read line approvals" ON public.timesheet_line_approvals FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_responsible_engagement_ids() AS my_responsible_engagement_ids)));
+
+
+--
+-- Name: timesheet_periods Responsible read periods; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Responsible read periods" ON public.timesheet_periods FOR SELECT TO authenticated USING ((period_id IN ( SELECT public.my_responsible_period_ids() AS my_responsible_period_ids)));
 
 
 --
@@ -24953,6 +25012,12 @@ CREATE POLICY "staff_skills write" ON public.staff_skills TO authenticated USING
 
 
 --
+-- Name: time_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.time_entries ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: time_entries time_entries delete; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24970,7 +25035,7 @@ CREATE POLICY "time_entries insert" ON public.time_entries FOR INSERT TO authent
 -- Name: time_entries time_entries read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(engagement_id) OR (public.has_permission('time_entry.read'::text) AND (staff_id = public.get_my_staff_id()))));
+CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authenticated USING ((( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader) OR (engagement_id IN ( SELECT public.my_responsible_engagement_ids() AS my_responsible_engagement_ids)) OR (( SELECT public.has_permission('time_entry.read'::text) AS has_permission) AND (staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id)))));
 
 
 --
@@ -24979,6 +25044,12 @@ CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authentic
 
 CREATE POLICY "time_entries update" ON public.time_entries FOR UPDATE TO authenticated USING ((public.is_admin() OR (public.has_permission('time_entry.update'::text) AND (staff_id = public.get_my_staff_id())))) WITH CHECK ((public.is_admin() OR (public.has_permission('time_entry.update'::text) AND (staff_id = public.get_my_staff_id()))));
 
+
+--
+-- Name: timer_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timer_entries ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: timer_entries timer_entries delete; Type: POLICY; Schema: public; Owner: -
@@ -24998,7 +25069,7 @@ CREATE POLICY "timer_entries insert" ON public.timer_entries FOR INSERT TO authe
 -- Name: timer_entries timer_entries read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authenticated USING ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id())));
+CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authenticated USING ((( SELECT public.is_admin() AS is_admin) OR (( SELECT public.has_permission('timer.use'::text) AS has_permission) AND (staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id)))));
 
 
 --
@@ -25007,6 +25078,18 @@ CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authent
 
 CREATE POLICY "timer_entries update" ON public.timer_entries FOR UPDATE TO authenticated USING ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id()))) WITH CHECK ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id())));
 
+
+--
+-- Name: timesheet_line_approvals; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timesheet_line_approvals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timesheet_periods; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timesheet_periods ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: timesheet_reversal_requests; Type: ROW SECURITY; Schema: public; Owner: -
@@ -25410,5 +25493,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict jBKLLKRdebKvR2COfcpe4NJGPl4aagO4iAqegiHDF86Y7R0zr3bFru9fckWI5No
+\unrestrict aPyFi3YvKCsEwgU3VO046vi3hYs8UAXCECdTpWtNrVCVC8xoLPdEb3KaMLPsrUa
 
