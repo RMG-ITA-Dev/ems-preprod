@@ -614,9 +614,14 @@ async function schedulerStaffLoad(
 
   // (1) The caller must be allowed to view THIS engagement under the same
   // rules — no arbitrary staff-UUID lists, no firmwide probing.
+  // B3c: L2 ya no lee el encargo por PostgREST (con la RLS de engagements, el socio/director verían solo
+  // los suyos y el senior ninguno): lo recibe de aquí, ya autorizado con la regla de L1. Solo las columnas
+  // que L2 usa; el nombre del cliente se resuelve aparte, como en L1.
   const { data: engRows, error: engErr } = await ctx.db
     .from("engagements")
-    .select("engagement_id, partner_id, manager_id")
+    .select(
+      "engagement_id, engagement_code, engagement_name, start_date, end_date, practica, client_id, partner_id, manager_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id"
+    )
     .eq("engagement_id", engagementId)
     .then((r) => r);
   if (engErr && !SCHEMA_NOT_READY_CODES.has(engErr.code ?? "")) {
@@ -624,8 +629,18 @@ async function schedulerStaffLoad(
   }
   const engagement = ((engRows ?? []) as {
     engagement_id: string;
+    engagement_code: string | null;
+    engagement_name: string;
+    start_date: string | null;
+    end_date: string | null;
+    practica: number | null;
+    client_id: string | null;
     partner_id: string | null;
     manager_id: string | null;
+    sqr_id: string | null;
+    encargado_id: string | null;
+    specialist_it_id: string | null;
+    specialist_tax_id: string | null;
   }[])[0];
   if (!engagement) return err(404, "not_found", "Engagement not found");
 
@@ -652,6 +667,36 @@ async function schedulerStaffLoad(
     }
   }
 
+  // El encargo que L2 pinta (ya autorizado arriba). El nombre del cliente se lee aparte: PostgREST sin embeds.
+  let clientName: string | null = null;
+  if (engagement.client_id) {
+    const { data: clientRows, error: clientErr } = await ctx.db
+      .from("clients")
+      .select("client_id, client_legal_name")
+      .eq("client_id", engagement.client_id)
+      .then((r) => r);
+    if (clientErr && !SCHEMA_NOT_READY_CODES.has(clientErr.code ?? "")) {
+      return err(500, "query_failed", "Could not load the engagement client");
+    }
+    clientName =
+      ((clientRows ?? []) as { client_legal_name: string }[])[0]?.client_legal_name ?? null;
+  }
+  const engagementPayload = {
+    engagement_id: engagement.engagement_id,
+    engagement_code: engagement.engagement_code ?? null,
+    engagement_name: engagement.engagement_name,
+    start_date: engagement.start_date ?? null,
+    end_date: engagement.end_date ?? null,
+    practica: engagement.practica ?? null,
+    manager_id: engagement.manager_id ?? null,
+    partner_id: engagement.partner_id ?? null,
+    sqr_id: engagement.sqr_id ?? null,
+    encargado_id: engagement.encargado_id ?? null,
+    specialist_it_id: engagement.specialist_it_id ?? null,
+    specialist_tax_id: engagement.specialist_tax_id ?? null,
+    client_name: clientName,
+  };
+
   // (2) Staff list derived from the engagement's own active assignments.
   const { data: assignRows, error: assignErr } = await ctx.db
     .from("engagement_assignments")
@@ -661,7 +706,7 @@ async function schedulerStaffLoad(
     .then((r) => r);
   if (assignErr) {
     if (SCHEMA_NOT_READY_CODES.has(assignErr.code ?? "")) {
-      return { status: 200, payload: { rows: [] } };
+      return { status: 200, payload: { rows: [], engagement: engagementPayload } };
     }
     return err(500, "query_failed", "Could not load assignments");
   }
@@ -691,7 +736,7 @@ async function schedulerStaffLoad(
     active_engagement_count: distinct.get(staff_id)?.size ?? 0,
   }));
 
-  return { status: 200, payload: { rows } };
+  return { status: 200, payload: { rows, engagement: engagementPayload } };
 }
 
 // ── Action: scheduler-staff-timeline ─────────────────

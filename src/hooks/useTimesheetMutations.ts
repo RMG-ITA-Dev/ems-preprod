@@ -696,16 +696,19 @@ export function useCopyToCurrentWeek() {
       }
 
       // Step 9: Fetch engagement metadata for date validation
+      // B3c: `engagements` tiene RLS y senior/semisenior no la leen (el asistente solo ve algunos): con el SELECT
+      // directo el mapa quedaba vacío, no se saltaba ningún encargo terminado y check_time_entry_engagement_dates
+      // rechazaba el lote entero. list_own_engagement_labels() devuelve las fechas de los encargos donde el
+      // usuario ya cargó horas (justo los que se copian), sin abrir el catálogo.
       const uniqueEngIds = [...new Set(sourceEntries.map((e) => e.engagement_id))];
-      const { data: engMetadata, error: engError } = await supabase
-        .from("engagements")
-        .select("engagement_id, start_date, end_date")
-        .in("engagement_id", uniqueEngIds);
+      const { data: engMetadata, error: engError } = await supabase.rpc("list_own_engagement_labels" as never, {
+        p_engagement_ids: uniqueEngIds,
+      } as never);
       if (engError) throw engError;
 
       const engDateMap = new Map<string, { start_date: string | null; end_date: string | null }>();
-      (engMetadata || []).forEach((e) =>
-        engDateMap.set(e.engagement_id, { start_date: e.start_date, end_date: e.end_date })
+      ((engMetadata ?? []) as { engagement_id: string; start_date: string | null; end_date: string | null }[]).forEach(
+        (e) => engDateMap.set(e.engagement_id, { start_date: e.start_date, end_date: e.end_date })
       );
 
       // Step 10: Smart remap

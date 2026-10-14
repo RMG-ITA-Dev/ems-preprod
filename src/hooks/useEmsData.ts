@@ -113,6 +113,20 @@ export interface ClientFull extends Client {
   unique_tax_id: string;
 }
 
+// B3c (RLS de clients): el cliente que viaja embebido en encargos, OT y aprobaciones sale de la vista
+// `clients_directory` (solo nombre), no de la tabla: quien no tiene `client.read` (contabilidad, riesgos,
+// asistente...) igual debe ver el nombre. Por eso solo `client_id` y `client_legal_name` están garantizados;
+// el resto de `Client` es opcional (NIT, contacto e industria solo llegan por `useClients`/`useClientsFull`).
+export type ClientRef = Pick<Client, "client_id" | "client_legal_name"> &
+  Partial<Omit<Client, "client_id" | "client_legal_name">>;
+
+// Fila del directorio de clientes: nombre y si está activo (el selector del alta de encargo oculta inactivos).
+export interface ClientDirectoryEntry {
+  client_id: string;
+  client_legal_name: string;
+  is_active: boolean;
+}
+
 export interface Engagement {
   engagement_id: string;
   client_id: string;
@@ -151,7 +165,7 @@ export interface Engagement {
   // nivel de esquema (sin NOT NULL), pero la migración backfillea el histórico completo y
   // el RPC de creación la exige — en la práctica no quedan filas sin asignar.
   society_id: string | null;
-  client?: Client;
+  client?: ClientRef;
   partner?: Staff;
   manager?: Staff;
   sqr?: Staff;
@@ -716,8 +730,29 @@ export function useClients() {
   });
 }
 
-// useClientsFull returns all client data including tax ID (admin-only)
-// This will fail for non-admin users due to RLS policies
+// useClientDirectory: solo nombre y estado de TODOS los clientes de la firma, para quien necesita
+// elegir o mostrar un cliente sin tener `client.read` (selector del alta de encargo, filtro del
+// Scheduler). Lee la vista `clients_directory`, que no está sujeta a la RLS de `clients` a propósito
+// (B3c) y por eso solo expone estas columnas: NUNCA agregar contacto ni NIT a este select ni a la vista.
+// La clave empieza por 'clients' para que las invalidaciones de ['clients'] de las mutaciones de cliente
+// también refresquen el directorio.
+export function useClientDirectory() {
+  return useQuery({
+    queryKey: ['clients', 'directory'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients_directory')
+        .select('client_id, client_legal_name, is_active')
+        .order('client_legal_name');
+      if (error) throw error;
+      return data as ClientDirectoryEntry[];
+    },
+  });
+}
+
+// useClientsFull returns all client data including tax ID.
+// Solo devuelve los clientes que la RLS de `clients` deja ver al usuario (client.read por alcance):
+// quien no tiene alcance sobre un cliente recibe "no disponible" en la pantalla de edición.
 export function useClientsFull() {
   return useQuery({
     queryKey: ['clients_full'],
@@ -743,7 +778,7 @@ export function useEngagements() {
         .from('engagements')
         .select(`
           *,
-          client:clients(*),
+          client:clients_directory(client_id, client_legal_name),
           partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
           sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
@@ -790,7 +825,7 @@ export function useWorkOrders() {
           *,
           engagement:engagements(
             *,
-            client:clients(*),
+            client:clients_directory(client_id, client_legal_name),
             partner:staff!engagements_partner_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
             manager:staff!engagements_manager_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
             sqr:staff!engagements_sqr_id_fkey(staff_id, first_name, last_name, short_name, initials, category_id, city, is_active),
@@ -824,10 +859,7 @@ export function useWorkOrderById(id: string) {
           *,
           engagement:engagements(
             *,
-            client:clients(
-              *,
-              industry:industries(*)
-            )
+            client:clients_directory(client_id, client_legal_name)
           ),
           budget_lines:wo_budget_lines(
             *,

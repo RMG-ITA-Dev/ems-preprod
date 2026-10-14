@@ -79,7 +79,7 @@ const mockTaxonomies = [
   { taxonomy_id: "tax-1", code: "T1", name: "Test Taxonomy", practica_id: null, is_active: true, created_at: "" },
 ];
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients:  () => ({ data: stableClientList }),
+  useClientDirectory:  () => ({ data: stableClientList }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: mockTaxonomies }),
   useSocieties: () => ({ data: mockSocieties }),

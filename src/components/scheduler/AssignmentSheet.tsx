@@ -95,7 +95,7 @@ const staffDisplayName = (s: { first_name: string; last_name: string }) =>
   `${s.first_name} ${s.last_name}`;
 
 export interface AssignmentSheetProps {
-  engagement: Engagement;
+  engagement: Pick<Engagement, "engagement_id" | "start_date" | "end_date">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Fila persistida -> modo edición; null -> "+ Agregar staff" (I-6). */
@@ -124,7 +124,7 @@ interface SheetDraftState {
   notes: string;
 }
 
-function seedDraft(row: EngagementAssignmentRow | null, engagement: Engagement): SheetDraftState {
+function seedDraft(row: EngagementAssignmentRow | null, engagement: Pick<Engagement, "engagement_id" | "start_date" | "end_date">): SheetDraftState {
   if (row) {
     return {
       key: row.assignment_id,

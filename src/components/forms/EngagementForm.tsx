@@ -46,7 +46,7 @@ import { EngagementCreatedDialog } from "@/components/forms/EngagementCreatedDia
 import { StaffAssignmentsCard } from "@/components/engagements/StaffAssignmentsCard";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
-import { Engagement, useClients, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
+import { Engagement, useClientDirectory, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
 import { useAdministrativeInternalClients } from "@/hooks/useAdministrativeEngagements";
 import {
@@ -359,9 +359,13 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     (savedEffectiveState === EngagementState.Cancelado ||
       savedEffectiveState === EngagementState.Finalizado);
 
-  const { data: clients, isError: clientsError } = useClients();
+  // B3c (RLS de clients): el selector de cliente usa el directorio (nombre y estado de todos los
+  // clientes), no la tabla. Con la RLS activa, un gerente solo ve en `clients` los de sus encargos y
+  // no podría crear un encargo para otro cliente existente; hr_manager/hr_analyst (sin client.read)
+  // no verían ninguno.
+  const { data: clients, isError: clientsError } = useClientDirectory();
   // Review fix (Codex): hr_manager/hr_analyst have engagement.create but not client.read, so
-  // useClients() above returns nothing for them. This narrow RPC exposes only the two controlled
+  // `clients` (tabla) devolvía nada para ellos. This narrow RPC exposes only the two controlled
   // internal clients regardless of client.read — see administrativeClientOptions below.
   const { data: administrativeInternalClients } = useAdministrativeInternalClients();
   const { data: allServices, isLoading: servicesLoading, isFetching: servicesFetching, isError: servicesError } = useServices();
@@ -668,10 +672,19 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     () => new Set((administrativeInternalClients ?? []).map((client) => client.client_id)),
     [administrativeInternalClients]
   );
-  const administrativeSocietyIdByClientId = useMemo(
-    () => new Map(administrativeClientOptions.map((client) => [client.client_id, administrativeSocietyIdByNit[client.unique_tax_id]])),
-    [administrativeClientOptions, administrativeSocietyIdByNit]
-  );
+  // El NIT sale de la RPC de clientes internos por client_id, no del elemento de la lista: con la
+  // RLS de clients (B3c) el cliente histórico que `clientOptions` agrega en edición viene del directorio
+  // (sin NIT). Para un cliente interno filtrado por sociedad el resultado es el mismo que antes
+  // (su NIT está en la RPC); para uno no interno sigue siendo undefined, como antes.
+  const administrativeSocietyIdByClientId = useMemo(() => {
+    const nitByClientId = new Map((administrativeInternalClients ?? []).map((c) => [c.client_id, c.unique_tax_id]));
+    return new Map(
+      administrativeClientOptions.map((client) => [
+        client.client_id,
+        administrativeSocietyIdByNit[nitByClientId.get(client.client_id) ?? ""],
+      ]),
+    );
+  }, [administrativeClientOptions, administrativeInternalClients, administrativeSocietyIdByNit]);
   // La sociedad se deriva del cliente administrativo elegido. No se filtra la
   // lista por la sociedad actual: hacerlo deja visible solamente el cliente ya
   // seleccionado e impide cambiar a la otra sociedad.

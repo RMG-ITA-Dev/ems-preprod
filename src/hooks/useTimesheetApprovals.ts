@@ -283,9 +283,12 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           )
         `)
         .eq("period_id", periodId)
-        .single();
+        .maybeSingle();
 
       if (periodError) throw periodError;
+      // B3d: con RLS activa el período puede no ser visible (p. ej. enlace viejo o período de otro alcance); la página
+      // ya tiene el estado «no encontrado» para null. `.single()` lo convertía en un error 406.
+      if (!period) return null;
 
       // Fetch all time entries for this period.
       // Fase 6 (§9): excluir forecast — es el único lector de time_entries del app que aún no
@@ -303,7 +306,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
             engagement_id,
             engagement_code,
             engagement_name,
-            client:clients!client_id(client_id, client_legal_name)
+            client:clients_directory(client_id, client_legal_name)
           ),
           activity:activity_codes(
             activity_id,
@@ -360,15 +363,27 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
         );
       }
 
+      // B3d (decisión 3 del operador): un aprobador ve SOLO las líneas de sus encargos, aunque la RLS deje leer más
+      // horas de la boleta (por ejemplo, las del encargado o del socio en otros encargos). Quien no aprueba nada (socio
+      // o director de solo lectura) conserva lo que la RLS le deja leer.
+      const scopeToApprovable = approvableEngagementIds.length > 0;
+      const shownEntries = scopeToApprovable
+        ? (timeEntries || []).filter((te) => approvableEngagementIds.includes(te.engagement_id))
+        : (timeEntries || []);
+      const shownLineApprovals = scopeToApprovable
+        ? (lineApprovals || []).filter((la) => approvableEngagementIds.includes(la.engagement_id))
+        : (lineApprovals || []);
+      const shownEngagementIds = [...new Set(shownEntries.map((te) => te.engagement_id))];
+
       // Budget query: fetch budgeted hours per engagement
       const budgetT0 = performance.now();
       const engagementBudgets: Record<string, { budgetedHours: number | null }> = {};
 
-      if (engagementIds.length > 0) {
+      if (shownEngagementIds.length > 0) {
         const { data: woData } = await supabase
           .from("work_orders")
           .select("wo_id, engagement_id")
-          .in("engagement_id", engagementIds);
+          .in("engagement_id", shownEngagementIds);
 
         if (woData && woData.length > 0) {
           const woIds = woData.map((w) => w.wo_id);
@@ -402,7 +417,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           staff_id: period.staff_id,
         },
         staff: period.staff,
-        timeEntries: ((timeEntries || []) as TimeEntryWithRelations[]).map((te) => ({
+        timeEntries: (shownEntries as TimeEntryWithRelations[]).map((te) => ({
           time_id: te.time_id,
           date_worked: te.date_worked,
           hours_logged: te.hours_logged,
@@ -412,7 +427,7 @@ export function useStaffTimesheetForApproval(periodId: string | null) {
           engagement: te.engagement,
           activity: te.activity,
         })),
-        lineApprovals: (lineApprovals || []) as LineApproval[],
+        lineApprovals: shownLineApprovals as LineApproval[],
         approvableEngagementIds,
         engagementBudgets,
         budgetQueryMs,

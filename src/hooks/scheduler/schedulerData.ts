@@ -68,6 +68,30 @@ export interface StaffLoadRow {
   active_engagement_count: number;
 }
 
+/** Encargo que pinta Scheduler L2, ya autorizado por el servidor con la regla de L1 (B3c: L2 no lo lee por
+ *  PostgREST porque engagements tiene RLS y el socio/director/senior no lo verían). */
+export interface SchedulerL2Engagement {
+  engagement_id: string;
+  engagement_code: string | null;
+  engagement_name: string;
+  start_date: string | null;
+  end_date: string | null;
+  practica: number | null;
+  manager_id: string | null;
+  partner_id: string | null;
+  sqr_id: string | null;
+  encargado_id: string | null;
+  specialist_it_id: string | null;
+  specialist_tax_id: string | null;
+  client_name: string | null;
+}
+
+export interface StaffLoadResult {
+  rows: StaffLoadRow[];
+  /** Ausente si la función desplegada es anterior a B3c: L2 lo trata como «no cargó». */
+  engagement?: SchedulerL2Engagement;
+}
+
 // scheduler-staff-timeline: the viewer-scoped cross-engagement timeline
 // for one staff member. Hidden engagements arrive as a COUNT only —
 // identities never reach the client.

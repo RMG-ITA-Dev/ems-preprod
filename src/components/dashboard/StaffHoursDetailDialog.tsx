@@ -16,6 +16,9 @@ import {
   aggregateStaffHours,
   groupByCategory,
   downloadXlsx,
+  buildLineStatusMap,
+  classifyHoursStatus,
+  type LineStatusRow,
   type RawTimeEntryRow,
 } from "@/lib/encargoHoursDetailExport";
 
@@ -35,30 +38,64 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
   const [lastWeekOnly, setLastWeekOnly] = useState(true);
   const initialized = useRef(false);
 
-  const { data: rawRows, isLoading } = useQuery({
+  const { data: rawRows, isLoading, isError: hoursError, refetch: refetchHours } = useQuery({
     queryKey: ['encargo-staff-hours-detail', engagementId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       if (!engagementId) return [];
       const { data, error } = await supabase
         .from('time_entries')
         .select(`
           hours_logged,
           staff_id,
-          period:timesheet_periods(year, week_number, week_start_date),
+          activity_id,
+          period_id,
+          period:timesheet_periods(year, week_number, week_start_date, submitted_at),
           staff:staff(
             first_name, last_name,
             category:categories!staff_category_id_fkey(category_name, display_order)
           )
         `)
         .eq('engagement_id', engagementId)
-        .eq('is_forecast', false);
+        .eq('is_forecast', false)
+        .abortSignal(signal);
       if (error) throw error;
       return (data ?? []) as unknown as RawTimeEntryRow[];
     },
     enabled: open && !!engagementId,
   });
 
-  const aggregated = useMemo(() => aggregateStaffHours(rawRows ?? []), [rawRows]);
+  // Líneas de aprobación del encargo: dan el estado de cada hora (aprobada / pendiente). La RLS deja leerlas al responsable
+  // del encargo; quien solo ve horas propias ve las de sus períodos.
+  const { data: lineRows, isLoading: linesLoading, isError: linesError, refetch: refetchLines } = useQuery({
+    queryKey: ['encargo-staff-hours-lines', engagementId],
+    queryFn: async ({ signal }) => {
+      if (!engagementId) return [];
+      const { data, error } = await supabase
+        .from('timesheet_line_approvals')
+        .select('period_id, activity_id, status')
+        .eq('engagement_id', engagementId)
+        .abortSignal(signal);
+      if (error) throw error;
+      return (data ?? []) as LineStatusRow[];
+    },
+    enabled: open && !!engagementId,
+  });
+
+  // El desglose sale de las dos consultas: sin las líneas, todas las horas parecerían «guardadas». Se espera a ambas y,
+  // si una falla, se muestra el error con reintento en vez de un desglose hecho con datos faltantes (ni se exporta).
+  const breakdownLoading = isLoading || linesLoading;
+  const loadFailed = hoursError || linesError;
+  function retryLoad() {
+    if (hoursError) void refetchHours();
+    if (linesError) void refetchLines();
+  }
+
+  const aggregated = useMemo(() => {
+    const lineStatus = buildLineStatusMap(lineRows ?? []);
+    return aggregateStaffHours(
+      (rawRows ?? []).map((r) => ({ ...r, hours_status: classifyHoursStatus(r, lineStatus) })),
+    );
+  }, [rawRows, lineRows]);
 
   const { maxYear, maxWeek } = useMemo(() => {
     const years = aggregated.filter(r => r.year !== null).map(r => r.year as number);
@@ -170,8 +207,12 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
     () => filtered.reduce((s, r) => s + r.hoursLoaded, 0),
     [filtered]
   );
+  const filteredApproved = useMemo(() => filtered.reduce((s, r) => s + r.approvedHours, 0), [filtered]);
+  const filteredPending = useMemo(() => filtered.reduce((s, r) => s + r.pendingHours, 0), [filtered]);
+  const filteredSaved = useMemo(() => filtered.reduce((s, r) => s + r.savedHours, 0), [filtered]);
 
   async function handleExport() {
+    if (breakdownLoading || loadFailed) return;
     const headers = {
       staffName: t('dashboard.encargo.hoursDetail.staffName'),
       category: t('dashboard.encargo.hoursDetail.category'),
@@ -181,6 +222,9 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
       subtotal: t('dashboard.encargo.hoursDetail.subtotal'),
       grandTotal: t('dashboard.encargo.hoursDetail.grandTotal'),
       sheetName: t('dashboard.encargo.hoursDetail.sheetName'),
+      approvedHours: t('dashboard.encargo.hoursDetail.approvedHours'),
+      pendingHours: t('dashboard.encargo.hoursDetail.pendingHours'),
+      savedHours: t('dashboard.encargo.hoursDetail.savedHours'),
     };
     try {
       await downloadXlsx(filtered, headers, `horas_${engagementCode}_detalle.xlsx`);
@@ -288,6 +332,7 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
             size="sm"
             className="gap-1 shrink-0 sm:ml-auto"
             onClick={handleExport}
+            disabled={breakdownLoading || loadFailed}
           >
             <Download className="h-4 w-4" />
             {t('dashboard.encargo.hoursDetail.exportExcel')}
@@ -304,28 +349,42 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                 <TableHead className="text-right">{t('dashboard.encargo.hoursDetail.year')}</TableHead>
                 <TableHead className="text-right">{t('dashboard.encargo.hoursDetail.week')}</TableHead>
                 <TableHead className="text-right">{t('dashboard.encargo.hoursDetail.loadedHours')}</TableHead>
+                <TableHead className="text-right">{t('dashboard.encargo.hoursDetail.approvedHours')}</TableHead>
+                <TableHead className="text-right">{t('dashboard.encargo.hoursDetail.pendingHours')}</TableHead>
+                <TableHead className="text-right" title={t('dashboard.encargo.hoursDetail.savedHoursHint')}>
+                  {t('dashboard.encargo.hoursDetail.savedHours')}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {breakdownLoading ? (
                 [...Array(5)].map((_, i) => (
                   <TableRow key={i}>
-                    {[...Array(5)].map((__, j) => (
+                    {[...Array(8)].map((__, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                     ))}
                   </TableRow>
                 ))
+              ) : loadFailed ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-6">
+                    <p className="text-sm text-destructive mb-2">{t('dashboard.encargo.hoursDetail.loadError')}</p>
+                    <Button variant="outline" size="sm" onClick={retryLoad}>
+                      {t('dashboard.encargo.hoursDetail.retry')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
               ) : filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
                     {t('dashboard.encargo.hoursDetail.noData')}
                   </TableCell>
                 </TableRow>
               ) : (
                 <>
-                  {groupByCategory(filtered).flatMap(({ categoryName, rows, subtotal }) => [
+                  {groupByCategory(filtered).flatMap(({ categoryName, rows, subtotal, approvedSubtotal, pendingSubtotal, savedSubtotal }) => [
                     ...rows.map((row, idx) => (
                       <TableRow key={`${row.staffId}_${row.year}_${row.weekNumber}_${idx}`} className="text-sm">
                         <TableCell className="py-2">{row.staffName}</TableCell>
@@ -339,6 +398,9 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                         <TableCell className="py-2 text-right font-mono">
                           {row.hoursLoaded.toFixed(1)}
                         </TableCell>
+                        <TableCell className="py-2 text-right font-mono">{row.approvedHours.toFixed(1)}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{row.pendingHours.toFixed(1)}</TableCell>
+                        <TableCell className="py-2 text-right font-mono">{row.savedHours.toFixed(1)}</TableCell>
                       </TableRow>
                     )),
                     <TableRow key={`subtotal-${categoryName}`} className="bg-muted/40 font-semibold text-sm">
@@ -349,6 +411,9 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                       <TableCell className="py-2 text-right font-mono">—</TableCell>
                       <TableCell className="py-2 text-right font-mono">—</TableCell>
                       <TableCell className="py-2 text-right font-mono">{subtotal.toFixed(1)}</TableCell>
+                      <TableCell className="py-2 text-right font-mono">{approvedSubtotal.toFixed(1)}</TableCell>
+                      <TableCell className="py-2 text-right font-mono">{pendingSubtotal.toFixed(1)}</TableCell>
+                      <TableCell className="py-2 text-right font-mono">{savedSubtotal.toFixed(1)}</TableCell>
                     </TableRow>,
                   ])}
                   <TableRow className="bg-muted/70 font-bold text-sm border-t-4 border-border">
@@ -361,6 +426,9 @@ export function StaffHoursDetailDialog({ open, onOpenChange, engagementId, engag
                     <TableCell className="py-2 text-right font-mono">
                       {filteredGrandTotal.toFixed(1)}
                     </TableCell>
+                    <TableCell className="py-2 text-right font-mono">{filteredApproved.toFixed(1)}</TableCell>
+                    <TableCell className="py-2 text-right font-mono">{filteredPending.toFixed(1)}</TableCell>
+                    <TableCell className="py-2 text-right font-mono">{filteredSaved.toFixed(1)}</TableCell>
                   </TableRow>
                 </>
               )}

@@ -97,7 +97,7 @@ const fundRequestSelect = `
         engagement_code,
         engagement_name,
         manager_id,
-        client:clients(client_legal_name)
+        client:clients_directory(client_legal_name)
       )
     )
   )

@@ -3,6 +3,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useStaffFull, useEngagements, useCategories, StaffFull } from "@/hooks/useEmsData";
+import { useCanSeeAllEngagements } from "@/hooks/useCanSeeAllEngagements";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { Check, Lock } from "lucide-react";
@@ -24,6 +25,9 @@ const Staff = () => {
   const canEditStaff = can("staff.update");
   const { data: staff, isLoading } = useStaffFull();
   const { data: engagements } = useEngagements();
+  // B3c: useEngagements() devuelve solo los encargos que la RLS deja ver; el conteo por persona solo es real si el
+  // usuario los lee todos. Si no (hr_*, gerente, socio...), se muestra «-» en vez de un número parcial.
+  const canSeeAllEngagements = useCanSeeAllEngagements();
   const { data: categories } = useCategories();
 
   const getInitials = (row: StaffFull) => {
@@ -143,7 +147,12 @@ const Staff = () => {
       label: t("staff.engagements"),
       className: "text-center w-28",
       mobilePriority: 'secondary',
-      render: (row) => <Badge variant="secondary">{getEngagementCount(row.staff_id)}</Badge>,
+      render: (row) =>
+        canSeeAllEngagements ? (
+          <Badge variant="secondary">{getEngagementCount(row.staff_id)}</Badge>
+        ) : (
+          <span className="text-muted-foreground" title={t("staff.engagementsHidden")}>-</span>
+        ),
     },
   ];
 

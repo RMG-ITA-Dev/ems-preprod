@@ -22,7 +22,10 @@ function handleClientError(error: Error, operation: string) {
       return;
     }
     if (constraintName.includes("clients_unique_tax_id_key")) {
-      toast.error(i18n.t("errors.duplicateNit"));
+      // Sin {nit, name}: con la RLS de clients (B3c) el chequeo previo de ClientForm no ve un cliente
+      // ajeno, así que el NIT duplicado llega acá como 23505 y no hay nombre que mostrar.
+      // `errors.duplicateNit` (con variables) sigue siendo el del chequeo previo.
+      toast.error(i18n.t("errors.duplicateNitExists"));
       return;
     }
   }

@@ -266,30 +266,28 @@ BEGIN
   --     Responsable de cada entrada: por asignar (barrido_report.md §10).
   DECLARE
     v_exceptions text[] := ARRAY[
+      -- LISTA VACÍA desde B4b (13/10/2026): toda tabla de public tiene RLS. Una tabla nueva sin RLS falla aquí; si de verdad
+      -- debe quedar así, se registra con justificación y responsable (barrido_report.md §10).
+      --
+      -- Historial de las salidas (para quien busque por qué una tabla ya no figura):
       -- Grupo A — identidad y logs (P0)
-      'user_roles',                          -- BAR-001: escritura cerrada en el Carril A; falta RLS para la lectura
-      'user_roles_backup_0220_56_20260224',  -- BAR-004: sin acceso para roles de API; decidir conservar/retirar
-      'migration_run_log',                   -- sin políticas; log interno
-      -- Grupo B — núcleo de negocio (P0)
-      'staff',                               -- BAR-002/003: PII; hardening por columna anulado por anon
-      'clients',                             -- BAR-002
-      'engagements',                         -- BAR-002
-      'time_entries',                        -- BAR-002
-      'timer_entries',                       -- BAR-002
-      'timesheet_line_approvals',            -- BAR-002
-      'timesheet_periods',                   -- BAR-002
-      -- Grupo C — presupuestos y gastos
-      'activity_worksheet_cells',            -- BAR-002
-      'wo_budget_lines',                     -- BAR-002
-      'wo_expense_budget',                   -- BAR-002
-      -- Grupo D — configuración y catálogos (P1/P2)
-      -- global_settings salió de esta lista con A.5b: ya tiene RLS y su política de `anon` acota la
-      -- lectura sin sesión a las tres claves del login (check 15).
-      'activity_codes',                      -- BAR-002
-      'categories',                          -- BAR-002
-      'expense_types',                       -- BAR-002
-      'industries'                           -- BAR-002
-    ];
+      -- user_roles salió de esta lista con B2 (Carril B): ya tiene RLS (cada uno ve su fila; admin y
+      -- user_role.read ven todas) y la escritura sigue cerrada por el Carril A (check 11).
+      -- user_roles_backup_0220_56_20260224 (BAR-004) y migration_run_log salieron con B4b: RLS activa sin políticas
+      -- (inaccesibles para la API a propósito) y sin privilegios para anon ni authenticated.
+      -- Grupo B — núcleo de negocio (P0). staff salió con B3e (Carril B): RLS activo; la lectura sigue abierta
+      -- (USING true, el SELECT por columna protege la PII) y la escritura rige por staff.create/update/delete.
+      -- clients y engagements salieron con B3c (RLS con las 12 políticas de cero_05, directorio de solo
+      -- nombre y fin de la escritura por vistas; ver el check 17). time_entries, timer_entries,
+      -- timesheet_periods y timesheet_line_approvals salieron con B3d (lectura por dueño, responsable del
+      -- encargo, aprobador asignado y firma; escritura sin cambios; ver rls-carril-b-b3d-horas.sql).
+      -- Grupo C — presupuestos y gastos: vacío. activity_worksheet_cells, wo_budget_lines y
+      -- wo_expense_budget salieron con B3b (lectura por permiso y por encargo, escritura solo admin y
+      -- gerente/socio del encargo).
+      -- Grupo D — configuración y catálogos: vacío. global_settings salió con A.5b (su política de
+      -- `anon` acota la lectura sin sesión a las tres claves del login, check 15); activity_codes,
+      -- categories, expense_types e industries salieron con B3a (lectura intacta, escritura por permiso).
+    ]::text[];
     v_list text;
   BEGIN
     SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_list
@@ -308,8 +306,7 @@ BEGIN
     IF v_list IS NOT NULL THEN
       RAISE EXCEPTION 'CONVERGENCE FAIL — stale RLS exception(s), the table now has RLS or no longer exists: % (retirarla de la lista)', v_list;
     END IF;
-    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity except the % listed exceptions (Carril B pendiente)',
-      array_length(v_exceptions, 1);
+    RAISE NOTICE 'PASS — RLS gate: every public table has relrowsecurity (lista de excepciones vacía desde B4b)';
   END;
 
   -- 13. A.4 (BAR-002/BAR-010): anon no escribe las tablas sin RLS ni las vistas con grant a anon.
@@ -618,6 +615,165 @@ BEGIN
     END IF;
   END;
   RAISE NOTICE 'PASS — is_engagement_responsible() covers all 6 responsible-personnel columns (manager_id/partner_id/sqr_id/encargado_id/specialist_it_id/specialist_tax_id, G7) and denies a bystander';
+
+  -- 17. B3c (BAR-010, escritura por vistas del dueño; clients_directory): las cinco vistas del barrido son de
+  --     `postgres` (BYPASSRLS) y una vista simple autoriza la escritura contra su dueño, así que un GRANT de
+  --     escritura a `authenticated` rodea la RLS de la tabla base (verificado el 12/10/2026: un UPDATE a
+  --     engagement_wo_state alcanzaba las 10 OT con los 11 roles y uno a clients_directory, los 9 clientes).
+  --     Ninguna de las cinco admite escritura a authenticated ni a anon, y clients_directory se queda con
+  --     EXACTAMENTE client_id, client_legal_name e is_active (sin contacto, NIT ni industria) y como vista del
+  --     dueño: si pasara a security_invoker mostraría solo los clientes visibles y rompería el nombre de
+  --     cliente de quien no tiene client.read.
+  DECLARE
+    v_view text;
+    v_cols text;
+    v_opts text;
+  BEGIN
+    FOREACH v_view IN ARRAY ARRAY['clients_directory', 'engagement_wo_state', 'staff_directory',
+                                  'fund_request_selectable_work_orders', 'work_order_summary'] LOOP
+      IF has_table_privilege('authenticated', format('public.%I', v_view), 'INSERT')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'UPDATE')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'DELETE')
+         OR has_table_privilege('authenticated', format('public.%I', v_view), 'TRUNCATE') THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated conserva escritura sobre la vista % (rodea la RLS de la tabla base, BAR-010)', v_view;
+      END IF;
+    END LOOP;
+    IF has_table_privilege('anon', 'public.clients_directory', 'SELECT') THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — anon puede leer clients_directory';
+    END IF;
+    SELECT string_agg(column_name, ',' ORDER BY ordinal_position) INTO v_cols
+      FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
+    IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory debe exponer solo client_id, client_legal_name e is_active y expone: %', v_cols;
+    END IF;
+    SELECT coalesce(reloptions::text, '') INTO v_opts FROM pg_class WHERE oid = 'public.clients_directory'::regclass;
+    IF v_opts ~ 'security_invoker=(true|on)' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory no debe ser security_invoker (mostraría solo los clientes visibles al usuario)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — B3c: 5 vistas del dueño sin escritura para authenticated; clients_directory con solo nombre y estado, sin lectura anónima';
+
+  -- 18. B4 (BAR-010, lectura por vistas del dueño; B4b): tres reglas que impiden que el problema reaparezca.
+  --     a) Toda vista de public: authenticated solo SELECT y anon ni PUBLIC nada (PostgreSQL 17 concede MAINTAIN por defecto
+  --        a toda relación nueva, y las vw_* de horas llegaron a tener TRUNCATE). Se lee de relacl con aclexplode: no depende
+  --        de la versión de PostgreSQL y ve también los privilegios por columna que has_table_privilege no ve.
+  --     b) Las vistas que corren con permisos del dueño (anulan la RLS de las tablas base) son EXACTAMENTE tres, a propósito y
+  --        documentadas: clients_directory (nombre y estado de todo cliente; decisión del 12/10), engagement_wo_state (filtrada
+  --        por los encargos visibles, con security_barrier) y fund_request_selectable_work_orders (cualquier empleado pide fondos
+  --        contra cualquier OT aprobada). Una vista nueva sin security_invoker falla aquí: o se hace security_invoker o se
+  --        agrega a esta lista con su justificación. La lista solo puede encoger o crecer con una decisión escrita.
+  --     c) engagement_wo_state debe tener security_barrier (su filtro ES el mecanismo de seguridad).
+  DECLARE
+    v_acl     text;
+    v_def     text;
+    v_allowed text[] := ARRAY['clients_directory', 'engagement_wo_state', 'fund_request_selectable_work_orders'];
+    v_one     text;
+  BEGIN
+    SELECT string_agg(c.relname || ':' || a.privilege_type || '->' || coalesce((SELECT rolname FROM pg_roles WHERE oid = a.grantee), 'PUBLIC'), ', ' ORDER BY c.relname)
+      INTO v_acl
+      FROM pg_class c, LATERAL aclexplode(c.relacl) a
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v'
+       AND ((to_regrole('authenticated') IS NOT NULL AND a.grantee = to_regrole('authenticated')::oid AND a.privilege_type <> 'SELECT')
+            OR (to_regrole('anon') IS NOT NULL AND a.grantee = to_regrole('anon')::oid)
+            OR a.grantee = 0);
+    IF v_acl IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — vistas de public con privilegios de más (authenticated solo SELECT; anon y PUBLIC nada): %', v_acl;
+    END IF;
+
+    SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_def
+      FROM pg_class c
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'v'
+       AND coalesce(c.reloptions::text, '') !~ 'security_invoker=(true|on)'
+       AND c.relname <> ALL (v_allowed);
+    IF v_def IS NOT NULL THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — vistas del dueño (sin security_invoker) que no están en la lista de B4: % (hacerlas security_invoker o justificarlas en la lista)', v_def;
+    END IF;
+    FOREACH v_one IN ARRAY v_allowed LOOP
+      IF to_regclass('public.' || v_one) IS NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — la vista % de la lista de B4 ya no existe (retirarla de la lista)', v_one;
+      END IF;
+      IF coalesce((SELECT reloptions::text FROM pg_class WHERE oid = ('public.' || v_one)::regclass), '') ~ 'security_invoker=(true|on)' THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — la vista % ya es security_invoker (retirarla de la lista de B4)', v_one;
+      END IF;
+    END LOOP;
+
+    IF coalesce((SELECT reloptions::text FROM pg_class WHERE oid = 'public.engagement_wo_state'::regclass), '') !~ 'security_barrier=(true|on)' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — engagement_wo_state debe tener security_barrier (su filtro de visibilidad es el mecanismo de seguridad)';
+    END IF;
+  END;
+  RAISE NOTICE 'PASS — B4: vistas de public con authenticated solo SELECT y anon sin nada; solo 3 vistas del dueño (lista cerrada); engagement_wo_state con security_barrier';
+
+  -- 19. B5 (BAR-017, BAR-018 y lo que queda de BAR-008): privilegios de tablas y funciones de public. Cuatro reglas que impiden que reaparezca:
+  --     a) anon no tiene ningún privilegio (de tabla, de columna ni vía PUBLIC) sobre relaciones de public, salvo SELECT de global_settings (la
+  --        pantalla de login lee tres claves sin sesión). Antes de B5 conservaba INSERT/UPDATE/DELETE/TRUNCATE en 22 tablas con RLS: TRUNCATE
+  --        no consulta la RLS (verificado: anon vació holidays en una transacción revertida).
+  --     b) ninguna función de public es ejecutable por anon ni por PUBLIC: 37 respondían a una llamada anónima y doce eran del dueño sin guardia.
+  --     c) authenticated no tiene TRUNCATE, REFERENCES, TRIGGER ni MAINTAIN en tablas (ningún flujo los usa y la RLS no los frena).
+  --     d) toda función de public fija search_path.
+  --     Se lee de relacl/proacl con aclexplode: no depende de la versión de PostgreSQL ni oculta los privilegios por columna.
+  IF to_regrole('anon') IS NOT NULL AND to_regrole('authenticated') IS NOT NULL THEN
+    DECLARE
+      v_list text;
+      v_anon oid := to_regrole('anon')::oid;
+      v_auth oid := to_regrole('authenticated')::oid;
+    BEGIN
+      SELECT string_agg(c.relname || ':' || a.privilege_type, ', ' ORDER BY c.relname) INTO v_list
+        FROM pg_class c, LATERAL aclexplode(c.relacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+         AND (a.grantee = 0 OR a.grantee = v_anon)
+         AND NOT (c.relname = 'global_settings' AND a.privilege_type = 'SELECT' AND a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon o PUBLIC con privilegios sobre relaciones de public (solo SELECT de global_settings): %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(c.relname || '.' || at.attname, ', ') INTO v_list
+        FROM pg_attribute at JOIN pg_class c ON c.oid = at.attrelid, LATERAL aclexplode(at.attacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND at.attacl IS NOT NULL AND (a.grantee = 0 OR a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — anon o PUBLIC con privilegios por columna en public: %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO v_list
+        FROM pg_proc p, LATERAL aclexplode(p.proacl) a
+       WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p') AND a.privilege_type = 'EXECUTE' AND (a.grantee = 0 OR a.grantee = v_anon);
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — funciones de public ejecutables por anon o PUBLIC (REVOKE ALL ... FROM PUBLIC, anon): %', left(v_list, 400);
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p') AND p.proacl IS NULL) THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — hay funciones de public con ACL implícita (EXECUTE para PUBLIC)';
+      END IF;
+      SELECT string_agg(c.relname || ':' || a.privilege_type, ', ' ORDER BY c.relname) INTO v_list
+        FROM pg_class c, LATERAL aclexplode(c.relacl) a
+       WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p') AND a.grantee = v_auth
+         AND a.privilege_type IN ('TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN');
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated con TRUNCATE/REFERENCES/TRIGGER/MAINTAIN en tablas de public: %', left(v_list, 400);
+      END IF;
+      SELECT string_agg(p.oid::regprocedure::text, ', ') INTO v_list FROM pg_proc p
+       WHERE p.pronamespace = 'public'::regnamespace AND p.prokind IN ('f', 'p')
+         AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c LIKE 'search_path=%');
+      IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'CONVERGENCE FAIL — funciones de public sin search_path fijo (BAR-018): %', left(v_list, 400);
+      END IF;
+    END;
+    RAISE NOTICE 'PASS — B5: anon sin privilegios en public salvo SELECT de global_settings; ninguna función ejecutable por anon ni PUBLIC; authenticated sin TRUNCATE/REFERENCES/TRIGGER/MAINTAIN; search_path fijo en toda función';
+  END IF;
+
+  -- 20. B6: un auth_user_id no puede estar en dos fichas de staff (borradas o no) y la baja suelta el usuario. Indice UNIQUE sobre auth_user_id
+  --     (auth_user_id IS NOT NULL) SIN excluir borradas, mas el trigger BEFORE UPDATE que suelta el usuario al dar de baja. Sin el trigger, el
+  --     reingreso dejaba dos fichas con el mismo usuario y get_my_staff_id() (y otras 20 piezas, que no miran deleted_at) devolvia la BORRADA;
+  --     un indice que excluyera a las borradas habria dado ese estado por bueno (revision del PR, Codex P1).
+  IF NOT EXISTS (
+       SELECT 1 FROM pg_index i
+        WHERE i.indexrelid = to_regclass('public.idx_staff_auth_user_id_unique') AND i.indisunique
+          AND pg_get_indexdef(i.indexrelid) LIKE '%(auth_user_id)%'
+          AND pg_get_indexdef(i.indexrelid) LIKE '%auth_user_id IS NOT NULL%'
+          AND pg_get_indexdef(i.indexrelid) NOT LIKE '%deleted_at%') THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — falta idx_staff_auth_user_id_unique (UNIQUE sobre staff.auth_user_id sin excluir borradas) o cambio de forma (B6)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.staff'::regclass AND tgname = 'trg_staff_release_auth_user_on_delete'
+                    AND tgenabled = 'O' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — falta el trigger trg_staff_release_auth_user_on_delete (la baja de staff debe soltar auth_user_id) o esta deshabilitado (B6)';
+  END IF;
+  RAISE NOTICE 'PASS — B6: idx_staff_auth_user_id_unique es UNIQUE sobre auth_user_id (borradas incluidas) y la baja suelta el usuario (trigger habilitado)';
 
   RAISE NOTICE 'SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)';
 END $$;

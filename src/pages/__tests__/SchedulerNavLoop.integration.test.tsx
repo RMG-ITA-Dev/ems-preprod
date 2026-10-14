@@ -72,17 +72,21 @@ const queryState = (data: unknown) => ({
   refetch: vi.fn(),
 });
 
+// B3c: L2 recibe el encargo dentro del preflight scheduler-staff-load (no de useEngagements()).
 const engagement = (id: string, code: string, name: string) => ({
   engagement_id: id,
   engagement_code: code,
   engagement_name: name,
-  client_id: "c-1",
   start_date: "2026-01-01",
   end_date: "2026-12-31",
   practica: null,
   partner_id: "p-1",
   manager_id: "m-1",
-  client: { client_legal_name: "Cliente Uno" },
+  sqr_id: null,
+  encargado_id: null,
+  specialist_it_id: null,
+  specialist_tax_id: null,
+  client_name: "Cliente Uno",
 });
 const E0 = engagement("e-0", "Z-000", "Audit Zero");
 const E1 = engagement("e-1", "A-001", "Audit One");
@@ -113,7 +117,6 @@ vi.mock("@/hooks/useEmsData", async () => {
   const actual = await vi.importActual<object>("@/hooks/useEmsData");
   return {
     ...actual,
-    useEngagements: () => queryState([E0, E1]),
     useEngagementAssignments: (id: string | undefined) =>
       queryState(id ? [l2Row(id)] : []),
     useEngagementAggregatedRequirements: () => queryState([]),
@@ -123,8 +126,13 @@ vi.mock("@/hooks/useEmsData", async () => {
   };
 });
 vi.mock("@/hooks/scheduler/useStaffFirmwideAssignmentCounts", () => ({
-  useStaffFirmwideAssignmentCounts: () => ({
-    ...{ data: { rows: [] }, isLoading: false, isError: false, refetch: vi.fn() },
+  useStaffFirmwideAssignmentCounts: (id: string | undefined) => ({
+    ...{
+      data: { rows: [], engagement: [E0, E1].find((e) => e.engagement_id === id) },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    },
     isSuccess: true,
     error: null,
   }),

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict w4uXMruUdDQEs1GJbZ5gXP58DIdGNteN2CzBStn7HNDAeX0nXoTgJsg8GBM9OLb
+\restrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -2458,6 +2458,7 @@ COMMENT ON FUNCTION public.dismiss_notifications(p_ids uuid[]) IS 'Descarta noti
 
 CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone) RETURNS smallint
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   SELECT CASE
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
@@ -4668,6 +4669,7 @@ $$;
 
 CREATE FUNCTION public.fre_validate_wo_in_request() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 DECLARE
   v_fr_currency text;
@@ -4700,6 +4702,7 @@ $$;
 
 CREATE FUNCTION public.fund_request_expenses_touch_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   NEW.updated_at := now();
@@ -4865,6 +4868,7 @@ $$;
 
 CREATE FUNCTION public.fund_requests_enforce_bob() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -4888,6 +4892,7 @@ $$;
 
 CREATE FUNCTION public.fund_requests_touch_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   NEW.updated_at := now();
@@ -6037,6 +6042,25 @@ $$;
 
 
 --
+-- Name: is_firm_hours_reader(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_firm_hours_reader() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.is_admin() OR EXISTS (
+    SELECT 1
+      FROM public.user_roles ur
+      JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+     WHERE ur.user_id = auth.uid()
+       AND rp.permission_key = 'timesheet_approval.read'
+       AND rp.scope_key = 'firm'
+  )
+$$;
+
+
+--
 -- Name: latest_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6403,6 +6427,38 @@ COMMENT ON FUNCTION public.list_my_assignments(p_toggle text, p_date_from date, 
 
 
 --
+-- Name: list_own_engagement_labels(uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, start_date date, end_date date)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id, e.engagement_code, e.engagement_name, e.start_date, e.end_date
+    FROM public.engagements e
+   WHERE e.engagement_id = ANY (p_engagement_ids)
+     AND public.get_my_staff_id() IS NOT NULL
+     AND (
+       EXISTS (SELECT 1 FROM public.time_entries te
+                WHERE te.engagement_id = e.engagement_id AND te.staff_id = public.get_my_staff_id())
+       OR EXISTS (SELECT 1 FROM public.timer_entries ti
+                   WHERE ti.engagement_id = e.engagement_id AND ti.staff_id = public.get_my_staff_id())
+       OR EXISTS (SELECT 1 FROM public.timesheet_reversal_requests r
+                    JOIN public.timesheet_periods p ON p.period_id = r.period_id
+                   WHERE r.engagement_id = e.engagement_id
+                     AND (r.requested_by = public.get_my_staff_id() OR p.staff_id = public.get_my_staff_id()))
+     )
+$$;
+
+
+--
+-- Name: FUNCTION list_own_engagement_labels(p_engagement_ids uuid[]); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_own_engagement_labels(p_engagement_ids uuid[]) IS 'B3c-2: codigo, nombre y fechas de los encargos pedidos donde el llamador tiene registros propios (horas, timers o solicitudes de reversion). DEFINER a proposito: engagements tiene RLS y quien no tiene engagement.read (asistente, senior, semisenior) ve null en el embed. NUNCA agregar cliente, equipo ni estado.';
+
+
+--
 -- Name: list_own_timer_engagement_labels(uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6527,6 +6583,10 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        OR (caller.role_key IN ('manager', 'ita_manager', 'tax_manager', 'hr_manager')
            AND caller.staff_id IS NOT NULL
            AND e.manager_id = caller.staff_id)
+       -- 3b. hr_administrative (B3c-3): hr_manager y hr_analyst administran TODOS los encargos Administrativa,
+       --     Capacitación y Calidad (funcion <> 1), incluidos los creados por otros. Espejo exacto de las políticas
+       --     "engagements hr administrative read/update": esta lista nunca debe mostrar lo que la RLS no deja leer.
+       OR (caller.role_key IN ('hr_manager', 'hr_analyst') AND e.funcion <> 1)
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
@@ -6537,7 +6597,7 @@ $$;
 -- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos) y own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) -- ver plan_v2 bugs/0828-185. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --
@@ -6717,6 +6777,91 @@ BEGIN
    WHERE category_id = p_category_id;
 END;
 $$;
+
+
+--
+-- Name: my_responsible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_responsible_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id
+    FROM public.engagements e
+   WHERE e.manager_id   = (SELECT public.get_my_staff_id())
+      OR e.partner_id   = (SELECT public.get_my_staff_id())
+      OR e.encargado_id = (SELECT public.get_my_staff_id())
+$$;
+
+
+--
+-- Name: my_responsible_period_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_responsible_period_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT te.period_id FROM public.time_entries te
+   WHERE te.period_id IS NOT NULL AND te.engagement_id IN (SELECT public.my_responsible_engagement_ids())
+  UNION
+  SELECT tla.period_id FROM public.timesheet_line_approvals tla
+   WHERE tla.engagement_id IN (SELECT public.my_responsible_engagement_ids())
+$$;
+
+
+--
+-- Name: my_visible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_visible_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me    uuid    := public.get_my_staff_id();
+  v_read  boolean := public.has_permission('engagement.read');
+  v_scope text    := public.permission_scope('engagement.read');
+  v_role  text    := public.current_role_key();
+  v_acct  boolean := public.has_permission('fund_disbursement.read') OR public.has_permission('expense_settlement.read');
+BEGIN
+  RETURN QUERY
+  SELECT e.engagement_id
+    FROM public.engagements e
+   WHERE (v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
+                      OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
+      OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
+      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
+      -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
+      --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
+      --        engagement_in_my_fund_request (la que usa la política).
+      OR e.engagement_id IN (
+           SELECT wo.engagement_id
+             FROM public.fund_request_work_orders frwo
+             JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+            WHERE fr.status <> 'borrador'
+              AND (fr.requester_staff_id = v_me OR frwo.manager_staff_id = v_me))
+      --    d2) contabilidad: NO se copia su regla. Cambia con el módulo de solicitudes de fondos (en Dev 2.0 ya depende de
+      --        fr_accounting_sees y de fund_requests.cancelled_from_status, que NO están en las migraciones de este repo; copiarla
+      --        rompió el harness el 13/10/2026). Solo aplica a quien tiene alguno de los dos permisos contables (ambas versiones los
+      --        exigen), y entonces se llama a la función real, solo para los encargos con alguna solicitud enviada.
+      OR (v_acct AND e.engagement_id IN (
+            SELECT wo.engagement_id
+              FROM public.fund_request_work_orders frwo
+              JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+              JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             WHERE fr.status <> 'borrador')
+          AND public.engagement_in_my_fund_request(e.engagement_id));
+END $$;
+
+
+--
+-- Name: FUNCTION my_visible_engagement_ids(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.my_visible_engagement_ids() IS 'B4: ids de los encargos que el llamador (auth.uid()) puede ver segun las 4 politicas SELECT de engagements, como conjunto. Solo la usa engagement_wo_state; la suite rls-carril-b-b4-vistas.sql la compara con la RLS real.';
 
 
 --
@@ -7109,6 +7254,7 @@ COMMENT ON FUNCTION public.notif_client_assigned(p_client_id uuid) IS 'Staff asi
 
 CREATE FUNCTION public.notif_contador(p_payload jsonb, p_clave text) RETURNS integer
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   -- Espejo de `conteoDeConcepto` en
   -- supabase/functions/_shared/plantillas/constants/recordatorios.ts: un bucket es
@@ -7632,6 +7778,7 @@ COMMENT ON FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid) I
 
 CREATE FUNCTION public.notif_origen_cambio_rol() RETURNS text
     LANGUAGE sql STABLE
+    SET search_path TO 'public'
     AS $$
   SELECT COALESCE(NULLIF(current_setting('ems.role_change_source', true), ''), 'direct');
 $$;
@@ -7650,6 +7797,7 @@ COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS 'De donde vino el cambio
 
 CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb) RETURNS text
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   SELECT CASE
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
@@ -11259,6 +11407,7 @@ COMMENT ON FUNCTION public.personal_overview(p_history_start date, p_history_end
 
 CREATE FUNCTION public.portfolio_events_append_only() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   RAISE EXCEPTION 'portfolio_events es append-only';
@@ -13790,6 +13939,7 @@ $$;
 
 CREATE FUNCTION public.set_authz_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 begin
   new.updated_at := now();
@@ -13842,6 +13992,7 @@ $$;
 
 CREATE FUNCTION public.set_fund_request_number() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 DECLARE
   v_seq bigint;
@@ -13901,6 +14052,28 @@ begin
   return jsonb_build_object('conflict', true, 'first_name', v_first, 'last_name', v_last);
 end;
 $$;
+
+
+--
+-- Name: staff_release_auth_user_on_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.staff_release_auth_user_on_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- WHEN del trigger: OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+  NEW.auth_user_id := NULL;
+  RETURN NEW;
+END $$;
+
+
+--
+-- Name: FUNCTION staff_release_auth_user_on_delete(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.staff_release_auth_user_on_delete() IS 'B6: al dar de baja (deleted_at NULL -> valor) la ficha suelta su auth_user_id. Evita dos fichas con el mismo usuario tras un reingreso, que get_my_staff_id() y otras 20 piezas resolverian a la ficha borrada.';
 
 
 --
@@ -14953,6 +15126,7 @@ $$;
 
 CREATE FUNCTION public.validate_timer_entry_duration() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   IF NEW.ended_at IS NOT NULL THEN
@@ -14973,6 +15147,79 @@ $$;
 --
 
 COMMENT ON FUNCTION public.validate_timer_entry_duration() IS 'Validates 8h max on timer_entries. Legacy data cleaned by migration (Bug 0213-31).';
+
+
+--
+-- Name: wo_guard_partner_signature(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_guard_partner_signature() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_old_by     uuid;
+  v_old_at     timestamptz;
+  v_old_status text;
+BEGIN
+  IF auth.uid() IS NULL OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
+    v_old_by     := OLD.approved_by;
+    v_old_at     := OLD.approved_at;
+    v_old_status := OLD.approval_status;
+  END IF;
+
+  IF NEW.approved_by IS DISTINCT FROM v_old_by OR NEW.approved_at IS DISTINCT FROM v_old_at THEN
+    IF NOT (public.has_permission('work_order.submit'::text)
+            AND public.is_engagement_team_member(NEW.engagement_id)) THEN
+      RAISE EXCEPTION 'Solo quien puede aprobar la OT como socio del encargo puede fijar o retirar la firma'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- La firma va completa (o se retira completa) y a nombre de quien la escribe: sin esto el socio con work_order.submit
+    -- anotaba a otra persona como firmante (la lista de fichas es legible por todos) y se corrompía la auditoría.
+    IF (NEW.approved_by IS NULL) <> (NEW.approved_at IS NULL) THEN
+      RAISE EXCEPTION 'La firma del socio debe fijarse o retirarse completa (approved_by y approved_at juntos)'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF NEW.approved_by IS NOT NULL AND NEW.approved_by IS DISTINCT FROM public.get_my_staff_id() THEN
+      RAISE EXCEPTION 'La firma del socio solo puede registrarse a nombre de quien la escribe'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  IF NEW.approval_status = 'Approved' THEN
+    -- La firma es un invariante de «Aprobada» en TODA escritura, no solo al entrar al estado: si no, un socio autorizado podía
+    -- limpiar approved_by y approved_at dejando la OT Aprobada y utilizable sin su firma (revisión del PR, Codex). Retirar la
+    -- firma baja el estado en la misma sentencia (admin, que queda fuera de la guarda, es quien revierte desde la pantalla).
+    IF NEW.approved_at IS NULL THEN
+      RAISE EXCEPTION 'Una OT Aprobada conserva la firma del socio; para retirarla, baje el estado en la misma sentencia'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    -- «Aprobada» significa las dos pistas: check_wo_approved, el selector de solicitudes de fondos y otras funciones tratan
+    -- ese estado como utilizable. Las tres rutas de la pantalla que la fijan (useApproveWorkOrder, useApproveRisk y
+    -- useApproveEmergencyPartner) lo hacen con Riesgos ya aprobado. Esto solo rige al ENTRAR al estado: una OT ya Aprobada puede
+    -- tener después la pista de Riesgos rechazada o reenviada (useRejectRisk y la compleción de emergencia dejan approval_status
+    -- intacto a propósito: pistas independientes), y bloquear esas escrituras rompería flujos válidos. Excepción: las OT de
+    -- encargos administrativos (funcion <> 1) no pasan por Riesgos: enforce_administrative_work_order_rules las deja con
+    -- risk_status = 'Pending' y las cierra con la firma del socio (misma excepción que wo_guard_risk_approval).
+    IF v_old_status IS DISTINCT FROM 'Approved'
+       -- COALESCE: risk_status admite NULL y `NULL NOT IN (...)` es NULL (no verdadero), así que poner risk_status = NULL en la
+       -- misma sentencia saltaba esta exigencia (revisión del PR, Greptile; reproducido). Sin una pista de Riesgos aprobada
+       -- explícita no se cierra.
+       AND COALESCE(NEW.risk_status, '') NOT IN ('Approved', 'Emergency_Approved')
+       AND NOT EXISTS (SELECT 1 FROM public.engagements e
+                        WHERE e.engagement_id = NEW.engagement_id AND e.funcion IS NOT NULL AND e.funcion <> 1) THEN
+      RAISE EXCEPTION 'Una OT de cliente no pasa a Aprobada sin la aprobación de Riesgos'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
 
 
 --
@@ -18033,18 +18280,19 @@ COMMENT ON COLUMN public.clients.created_by_staff_id IS 'Staff que creó el clie
 -- Name: clients_directory; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.clients_directory AS
+CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
  SELECT client_id,
     client_legal_name,
-    industry_id,
-    contact_name,
-    contact_email,
-    contact_phone,
-    address,
-    is_active,
-    created_at,
-    updated_at
-   FROM public.clients;
+    is_active
+   FROM public.clients c
+  WHERE (public.get_my_staff_id() IS NOT NULL);
+
+
+--
+-- Name: VIEW clients_directory; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.clients_directory IS 'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated.';
 
 
 --
@@ -18120,12 +18368,20 @@ CREATE TABLE public.work_orders (
 -- Name: engagement_wo_state; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
+CREATE VIEW public.engagement_wo_state WITH (security_invoker='false', security_barrier='true') AS
  SELECT engagement_id,
     approval_status,
     approved_at,
     risk_status
-   FROM public.work_orders;
+   FROM public.work_orders wo
+  WHERE (((( SELECT auth.uid() AS uid) IS NULL) AND (COALESCE((( SELECT auth.jwt() AS jwt) ->> 'role'::text), ''::text) <> 'anon'::text)) OR (engagement_id IN ( SELECT public.my_visible_engagement_ids() AS my_visible_engagement_ids)));
+
+
+--
+-- Name: VIEW engagement_wo_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.engagement_wo_state IS 'B4: estado de aprobacion y de riesgo de la OT de cada encargo que el llamador puede ver. SECURITY DEFINER a proposito (work_orders solo lo lee el equipo) con security_barrier; la visibilidad sale de my_visible_engagement_ids(). Sin sesion (service_role, migraciones) ve todo. NUNCA agregar columnas de la OT.';
 
 
 --
@@ -18282,6 +18538,13 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
   WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
+
+
+--
+-- Name: VIEW fund_request_selectable_work_orders; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.fund_request_selectable_work_orders IS 'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada (fr_wo_insert no mira alcance; el gerente de la OT aprueba), asi que debe verlas todas. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
 
 
 --
@@ -18675,7 +18938,7 @@ CREATE TABLE public.staff_alert_seen (
 -- Name: staff_directory; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.staff_directory AS
+CREATE VIEW public.staff_directory WITH (security_invoker='true') AS
  SELECT staff_id,
     first_name,
     last_name,
@@ -19214,10 +19477,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_01; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_01 (
+CREATE TABLE realtime.messages_2026_10_13 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19230,10 +19493,10 @@ CREATE TABLE realtime.messages_2026_10_01 (
 
 
 --
--- Name: messages_2026_10_02; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_02 (
+CREATE TABLE realtime.messages_2026_10_14 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19246,10 +19509,10 @@ CREATE TABLE realtime.messages_2026_10_02 (
 
 
 --
--- Name: messages_2026_10_03; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_03 (
+CREATE TABLE realtime.messages_2026_10_15 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19262,10 +19525,10 @@ CREATE TABLE realtime.messages_2026_10_03 (
 
 
 --
--- Name: messages_2026_10_04; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_16; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_04 (
+CREATE TABLE realtime.messages_2026_10_16 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19278,10 +19541,10 @@ CREATE TABLE realtime.messages_2026_10_04 (
 
 
 --
--- Name: messages_2026_10_05; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_17; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_05 (
+CREATE TABLE realtime.messages_2026_10_17 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19574,38 +19837,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_01; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_01 FOR VALUES FROM ('2026-10-01 00:00:00') TO ('2026-10-02 00:00:00');
-
-
---
--- Name: messages_2026_10_02; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_02 FOR VALUES FROM ('2026-10-02 00:00:00') TO ('2026-10-03 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_13 FOR VALUES FROM ('2026-10-13 00:00:00') TO ('2026-10-14 00:00:00');
 
 
 --
--- Name: messages_2026_10_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_03 FOR VALUES FROM ('2026-10-03 00:00:00') TO ('2026-10-04 00:00:00');
-
-
---
--- Name: messages_2026_10_04; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_04 FOR VALUES FROM ('2026-10-04 00:00:00') TO ('2026-10-05 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_14 FOR VALUES FROM ('2026-10-14 00:00:00') TO ('2026-10-15 00:00:00');
 
 
 --
--- Name: messages_2026_10_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_05 FOR VALUES FROM ('2026-10-05 00:00:00') TO ('2026-10-06 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_15 FOR VALUES FROM ('2026-10-15 00:00:00') TO ('2026-10-16 00:00:00');
+
+
+--
+-- Name: messages_2026_10_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_16 FOR VALUES FROM ('2026-10-16 00:00:00') TO ('2026-10-17 00:00:00');
+
+
+--
+-- Name: messages_2026_10_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_17 FOR VALUES FROM ('2026-10-17 00:00:00') TO ('2026-10-18 00:00:00');
 
 
 --
@@ -20527,43 +20790,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_01 messages_2026_10_01_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13 messages_2026_10_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_01
-    ADD CONSTRAINT messages_2026_10_01_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_02 messages_2026_10_02_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_02
-    ADD CONSTRAINT messages_2026_10_02_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_13
+    ADD CONSTRAINT messages_2026_10_13_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_10_03 messages_2026_10_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14 messages_2026_10_14_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_03
-    ADD CONSTRAINT messages_2026_10_03_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_04 messages_2026_10_04_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_04
-    ADD CONSTRAINT messages_2026_10_04_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_14
+    ADD CONSTRAINT messages_2026_10_14_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_10_05 messages_2026_10_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15 messages_2026_10_15_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_05
-    ADD CONSTRAINT messages_2026_10_05_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_15
+    ADD CONSTRAINT messages_2026_10_15_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_16 messages_2026_10_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_16
+    ADD CONSTRAINT messages_2026_10_16_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_17 messages_2026_10_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_17
+    ADD CONSTRAINT messages_2026_10_17_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -21367,6 +21630,20 @@ CREATE UNIQUE INDEX idx_skills_name_unique ON public.skills USING btree (lower(T
 
 
 --
+-- Name: idx_staff_auth_user_id_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_staff_auth_user_id_unique ON public.staff USING btree (auth_user_id) WHERE (auth_user_id IS NOT NULL);
+
+
+--
+-- Name: INDEX idx_staff_auth_user_id_unique; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.idx_staff_auth_user_id_unique IS 'B6: un usuario de auth, una ficha de staff (borrada o no). La baja suelta el enlace (trg_staff_release_auth_user_on_delete), asi que el reingreso con ficha nueva no choca.';
+
+
+--
 -- Name: idx_staff_email_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21591,38 +21868,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_01_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_01_inserted_at_topic_idx ON realtime.messages_2026_10_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_02_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_02_inserted_at_topic_idx ON realtime.messages_2026_10_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_13_inserted_at_topic_idx ON realtime.messages_2026_10_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_10_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_03_inserted_at_topic_idx ON realtime.messages_2026_10_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_04_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_04_inserted_at_topic_idx ON realtime.messages_2026_10_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_14_inserted_at_topic_idx ON realtime.messages_2026_10_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_10_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_05_inserted_at_topic_idx ON realtime.messages_2026_10_05 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_15_inserted_at_topic_idx ON realtime.messages_2026_10_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_16_inserted_at_topic_idx ON realtime.messages_2026_10_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_17_inserted_at_topic_idx ON realtime.messages_2026_10_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -21724,73 +22001,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_01_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_01_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_01_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_01_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_13_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_02_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_13_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_02_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_02_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_02_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_13_pkey;
 
 
 --
--- Name: messages_2026_10_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_03_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_03_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_03_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_14_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_04_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_14_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_04_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_04_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_04_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_14_pkey;
 
 
 --
--- Name: messages_2026_10_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_05_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_15_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_05_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_15_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_05_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_15_pkey;
+
+
+--
+-- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_16_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_16_pkey;
+
+
+--
+-- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_17_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_17_pkey;
 
 
 --
@@ -22256,6 +22533,13 @@ CREATE TRIGGER trg_reset_timer_import_on_unlink BEFORE UPDATE ON public.timer_en
 
 
 --
+-- Name: staff trg_staff_release_auth_user_on_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_staff_release_auth_user_on_delete BEFORE UPDATE OF deleted_at ON public.staff FOR EACH ROW WHEN (((old.deleted_at IS NULL) AND (new.deleted_at IS NOT NULL))) EXECUTE FUNCTION public.staff_release_auth_user_on_delete();
+
+
+--
 -- Name: timesheet_periods trg_validate_submission_has_entries; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -22267,6 +22551,13 @@ CREATE TRIGGER trg_validate_submission_has_entries BEFORE UPDATE ON public.times
 --
 
 CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.validate_timer_entry_duration();
+
+
+--
+-- Name: work_orders trg_wo_partner_signature_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_partner_signature_guard BEFORE INSERT OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_partner_signature();
 
 
 --
@@ -23549,13 +23840,6 @@ CREATE POLICY "Admins can insert servicios" ON public.servicios FOR INSERT TO au
 
 
 --
--- Name: user_roles Admins can manage all roles; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Admins can manage all roles" ON public.user_roles USING (public.has_role(auth.uid(), 'admin'::public.app_role)) WITH CHECK (public.has_role(auth.uid(), 'admin'::public.app_role));
-
-
---
 -- Name: wo_budget_lines Admins can manage budget lines; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -23859,20 +24143,14 @@ CREATE POLICY "Authenticated users can read staff skills" ON public.staff_skills
 -- Name: timesheet_line_approvals Firm-wide read line approvals; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Firm-wide read line approvals" ON public.timesheet_line_approvals FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM (public.user_roles ur
-     JOIN public.authorization_role_permissions rp ON ((rp.role_key = ur.role_key)))
-  WHERE ((ur.user_id = auth.uid()) AND (rp.permission_key = 'timesheet_approval.read'::text) AND (rp.scope_key = 'firm'::text)))));
+CREATE POLICY "Firm-wide read line approvals" ON public.timesheet_line_approvals FOR SELECT USING (( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader));
 
 
 --
 -- Name: timesheet_periods Firm-wide read periods; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Firm-wide read periods" ON public.timesheet_periods FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM (public.user_roles ur
-     JOIN public.authorization_role_permissions rp ON ((rp.role_key = ur.role_key)))
-  WHERE ((ur.user_id = auth.uid()) AND (rp.permission_key = 'timesheet_approval.read'::text) AND (rp.scope_key = 'firm'::text)))));
+CREATE POLICY "Firm-wide read periods" ON public.timesheet_periods FOR SELECT USING (( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader));
 
 
 --
@@ -23901,6 +24179,20 @@ CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO au
    FROM (public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
   WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id())))));
+
+
+--
+-- Name: timesheet_line_approvals Responsible read line approvals; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Responsible read line approvals" ON public.timesheet_line_approvals FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_responsible_engagement_ids() AS my_responsible_engagement_ids)));
+
+
+--
+-- Name: timesheet_periods Responsible read periods; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "Responsible read periods" ON public.timesheet_periods FOR SELECT TO authenticated USING ((period_id IN ( SELECT public.my_responsible_period_ids() AS my_responsible_period_ids)));
 
 
 --
@@ -24058,18 +24350,10 @@ CREATE POLICY "Team can view worksheets" ON public.activity_worksheets FOR SELEC
 
 
 --
--- Name: staff Users can update their linked staff record; Type: POLICY; Schema: public; Owner: -
+-- Name: activity_codes; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Users can update their linked staff record" ON public.staff FOR UPDATE USING ((auth_user_id = auth.uid())) WITH CHECK ((auth_user_id = auth.uid()));
-
-
---
--- Name: user_roles Users can view their own roles; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Users can view their own roles" ON public.user_roles FOR SELECT USING ((auth.uid() = user_id));
-
+ALTER TABLE public.activity_codes ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: activity_codes activity_codes write delete; Type: POLICY; Schema: public; Owner: -
@@ -24091,6 +24375,12 @@ CREATE POLICY "activity_codes write insert" ON public.activity_codes FOR INSERT 
 
 CREATE POLICY "activity_codes write update" ON public.activity_codes FOR UPDATE TO authenticated USING (public.has_permission('activity_code.update'::text)) WITH CHECK (public.has_permission('activity_code.update'::text));
 
+
+--
+-- Name: activity_worksheet_cells; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.activity_worksheet_cells ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: activity_worksheets; Type: ROW SECURITY; Schema: public; Owner: -
@@ -24173,6 +24463,12 @@ CREATE POLICY "budget_lines firm read" ON public.wo_budget_lines FOR SELECT TO a
 
 
 --
+-- Name: categories; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: categories categories write delete; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24192,6 +24488,12 @@ CREATE POLICY "categories write insert" ON public.categories FOR INSERT TO authe
 
 CREATE POLICY "categories write update" ON public.categories FOR UPDATE TO authenticated USING (public.has_permission('category_rate.update'::text)) WITH CHECK (public.has_permission('category_rate.update'::text));
 
+
+--
+-- Name: clients; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: clients clients creator read; Type: POLICY; Schema: public; Owner: -
@@ -24298,6 +24600,12 @@ CREATE POLICY ea_team_update ON public.engagement_assignments FOR UPDATE TO auth
 ALTER TABLE public.engagement_assignments ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: engagements; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.engagements ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: engagements engagements creator read; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24309,6 +24617,20 @@ CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO aut
 --
 
 CREATE POLICY "engagements creator update" ON public.engagements FOR UPDATE TO authenticated USING ((public.has_permission('engagement.update'::text) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = public.get_my_staff_id()))) WITH CHECK ((public.has_permission('engagement.update'::text) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = public.get_my_staff_id())));
+
+
+--
+-- Name: engagements engagements hr administrative read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.read'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
+
+
+--
+-- Name: engagements engagements hr administrative update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "engagements hr administrative update" ON public.engagements FOR UPDATE TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text])))) WITH CHECK (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
 
 
 --
@@ -24360,6 +24682,12 @@ CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SEL
 
 CREATE POLICY "expense_budget firm read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
+
+--
+-- Name: expense_types; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.expense_types ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: expense_types expense_types write delete; Type: POLICY; Schema: public; Owner: -
@@ -24665,6 +24993,12 @@ CREATE POLICY "holidays write update" ON public.holidays FOR UPDATE TO authentic
 
 
 --
+-- Name: industries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.industries ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: industries industries write delete; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24684,6 +25018,12 @@ CREATE POLICY "industries write insert" ON public.industries FOR INSERT TO authe
 
 CREATE POLICY "industries write update" ON public.industries FOR UPDATE TO authenticated USING (public.has_permission('industry.update'::text)) WITH CHECK (public.has_permission('industry.update'::text));
 
+
+--
+-- Name: migration_run_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.migration_run_log ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: notification_emails; Type: ROW SECURITY; Schema: public; Owner: -
@@ -24809,6 +25149,12 @@ CREATE POLICY "skills write update" ON public.skills FOR UPDATE TO authenticated
 ALTER TABLE public.society ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: staff; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: staff staff read personnel; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24874,6 +25220,12 @@ CREATE POLICY "staff_skills write" ON public.staff_skills TO authenticated USING
 
 
 --
+-- Name: time_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.time_entries ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: time_entries time_entries delete; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24891,7 +25243,7 @@ CREATE POLICY "time_entries insert" ON public.time_entries FOR INSERT TO authent
 -- Name: time_entries time_entries read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authenticated USING ((public.is_admin() OR public.is_engagement_team_member(engagement_id) OR (public.has_permission('time_entry.read'::text) AND (staff_id = public.get_my_staff_id()))));
+CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authenticated USING ((( SELECT public.is_firm_hours_reader() AS is_firm_hours_reader) OR (engagement_id IN ( SELECT public.my_responsible_engagement_ids() AS my_responsible_engagement_ids)) OR (( SELECT public.has_permission('time_entry.read'::text) AS has_permission) AND (staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id)))));
 
 
 --
@@ -24900,6 +25252,12 @@ CREATE POLICY "time_entries read" ON public.time_entries FOR SELECT TO authentic
 
 CREATE POLICY "time_entries update" ON public.time_entries FOR UPDATE TO authenticated USING ((public.is_admin() OR (public.has_permission('time_entry.update'::text) AND (staff_id = public.get_my_staff_id())))) WITH CHECK ((public.is_admin() OR (public.has_permission('time_entry.update'::text) AND (staff_id = public.get_my_staff_id()))));
 
+
+--
+-- Name: timer_entries; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timer_entries ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: timer_entries timer_entries delete; Type: POLICY; Schema: public; Owner: -
@@ -24919,7 +25277,7 @@ CREATE POLICY "timer_entries insert" ON public.timer_entries FOR INSERT TO authe
 -- Name: timer_entries timer_entries read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authenticated USING ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id())));
+CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authenticated USING ((( SELECT public.is_admin() AS is_admin) OR (( SELECT public.has_permission('timer.use'::text) AS has_permission) AND (staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id)))));
 
 
 --
@@ -24928,6 +25286,18 @@ CREATE POLICY "timer_entries read" ON public.timer_entries FOR SELECT TO authent
 
 CREATE POLICY "timer_entries update" ON public.timer_entries FOR UPDATE TO authenticated USING ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id()))) WITH CHECK ((public.has_permission('timer.use'::text) AND (staff_id = public.get_my_staff_id())));
 
+
+--
+-- Name: timesheet_line_approvals; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timesheet_line_approvals ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timesheet_periods; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.timesheet_periods ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: timesheet_reversal_requests; Type: ROW SECURITY; Schema: public; Owner: -
@@ -24951,11 +25321,42 @@ CREATE POLICY trr_select_visible ON public.timesheet_reversal_requests FOR SELEC
 ALTER TABLE public.user_lifecycle_audit_log ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: user_roles; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_roles_backup_0220_56_20260224; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_roles_backup_0220_56_20260224 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_roles user_roles_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY user_roles_select ON public.user_roles FOR SELECT TO authenticated USING (((user_id = ( SELECT auth.uid() AS uid)) OR ( SELECT public.is_admin() AS is_admin) OR ( SELECT public.has_permission('user_role.read'::text) AS has_permission)));
+
+
+--
+-- Name: wo_budget_lines; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_budget_lines ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: work_orders wo_create_by_permission; Type: POLICY; Schema: public; Owner: -
 --
 
 CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND ((public.permission_scope('work_order.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
 
+
+--
+-- Name: wo_expense_budget; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_expense_budget ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: wo_payment_installments; Type: ROW SECURITY; Schema: public; Owner: -
@@ -25306,5 +25707,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict w4uXMruUdDQEs1GJbZ5gXP58DIdGNteN2CzBStn7HNDAeX0nXoTgJsg8GBM9OLb
+\unrestrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
 

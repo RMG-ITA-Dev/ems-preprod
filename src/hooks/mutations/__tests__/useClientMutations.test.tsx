@@ -141,7 +141,7 @@ describe("useClientMutations", () => {
       expect(toast.error).toHaveBeenCalledWith("errors.duplicateClientName");
     });
 
-    it("shows duplicateNit toast on 23505 with clients_unique_tax_id_key", async () => {
+    it("shows duplicateNitExists toast (sin variables) on 23505 with clients_unique_tax_id_key", async () => {
       const error = {
         code: "23505",
         message: "duplicate key value violates unique constraint",
@@ -162,7 +162,11 @@ describe("useClientMutations", () => {
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
-      expect(toast.error).toHaveBeenCalledWith("errors.duplicateNit");
+      // B3c: con la RLS de clients el chequeo previo no ve un cliente ajeno y el NIT duplicado llega
+      // aquí como 23505, sin {nit, name}. El mensaje con variables (errors.duplicateNit) sacaría los
+      // marcadores sin reemplazar.
+      expect(toast.error).toHaveBeenCalledWith("errors.duplicateNitExists");
+      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
     });
 
     it("falls back to generic error handler for non-23505 errors", async () => {

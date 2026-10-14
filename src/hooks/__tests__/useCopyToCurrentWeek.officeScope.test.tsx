@@ -114,19 +114,13 @@ function mockSupabaseFrom() {
       } as any;
     }
 
-    if (table === "engagements") {
-      return {
-        select: vi.fn().mockReturnValue({
-          in: vi.fn().mockResolvedValue({
-            data: [{ engagement_id: "eng-1", start_date: null, end_date: null }],
-            error: null,
-          }),
-        }),
-      } as any;
-    }
-
+    // B3c: las fechas de los encargos NO se leen de `engagements` (RLS): cualquier lectura directa cae aquí.
     throw new Error(`Unexpected table: ${table}`);
   });
+  vi.mocked(supabase.rpc).mockResolvedValue({
+    data: [{ engagement_id: "eng-1", engagement_code: "E-1", engagement_name: "Eng 1", start_date: null, end_date: null }],
+    error: null,
+  } as any);
 }
 
 describe("useCopyToCurrentWeek — office scope (BUG 0526-122)", () => {
@@ -188,5 +182,55 @@ describe("useCopyToCurrentWeek — office scope (BUG 0526-122)", () => {
     expect(result.current.data?.copiedCount).toBe(0);
     expect(result.current.data?.holidaySkippedCount).toBe(1);
     expect(result.current.data?.holidayAutoCount).toBe(0);
+  });
+});
+
+// B3c: engagements tiene RLS; senior/semisenior no la leen. Las fechas de los encargos que se copian llegan por
+// list_own_engagement_labels() (encargos con horas propias), nunca por un SELECT a `engagements`.
+describe("useCopyToCurrentWeek — fechas de encargo por RPC (B3c)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-05T12:00:00"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const copyAsLaPaz = async () => {
+    const { result } = renderHook(() => useCopyToCurrentWeek(), { wrapper: createWrapper() });
+    result.current.mutate({ staffId: "staff-lp", staffCity: "La Paz", sourceWeekStart: SOURCE_WEEK_START, workDays: 5 });
+    return result;
+  };
+
+  it("pide las fechas por RPC con los ids de las horas a copiar y no lee la tabla engagements", async () => {
+    mockSupabaseFrom(); // lanza «Unexpected table» ante cualquier from("engagements")
+    const result = await copyAsLaPaz();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(supabase.rpc).toHaveBeenCalledWith("list_own_engagement_labels", { p_engagement_ids: ["eng-1"] });
+    expect(result.current.data?.copiedCount).toBe(1);
+  });
+
+  it("salta las horas de un encargo que ya terminó antes de la semana destino, sin mandarlas al INSERT (que el trigger rechazaría)", async () => {
+    mockSupabaseFrom();
+    vi.mocked(supabase.rpc).mockResolvedValue({
+      data: [{ engagement_id: "eng-1", engagement_code: "E-1", engagement_name: "Eng 1", start_date: "2026-01-01", end_date: "2026-09-30" }],
+      error: null,
+    } as any);
+    const result = await copyAsLaPaz();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.engagementSkippedCount).toBe(1);
+    expect(result.current.data?.copiedCount).toBe(0);
+  });
+
+  it("si la RPC falla, la copia falla entera: no sigue sin fechas (copiaría horas que el servidor rechazaría)", async () => {
+    mockSupabaseFrom();
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: "boom", code: "XX000" } } as any);
+    const result = await copyAsLaPaz();
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });

@@ -47,10 +47,21 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Local mock overrides the global setup.ts mock for this file
+// mockEqForecast resuelve el resultado de la consulta de horas (los tests le dan mockResolvedValue); la cadena real termina en
+// `.abortSignal(signal)` (regla de AGENTS.md para las consultas del dashboard), así que el resultado también la expone.
 const mockEqForecast = vi.fn();
-const mockEqEngagement = vi.fn(() => ({ eq: mockEqForecast }));
+const mockEqEngagement = vi.fn(() => ({
+  eq: (...args: unknown[]) => {
+    const p = mockEqForecast(...args);
+    return Object.assign(p, { abortSignal: () => p });
+  },
+}));
 const mockSelect = vi.fn(() => ({ eq: mockEqEngagement }));
-const mockFrom = vi.fn(() => ({ select: mockSelect }));
+// Consulta de líneas de aprobación del encargo: select → eq → abortSignal.
+const mockLinesResult = vi.fn();
+const linesBuilder = { select: () => ({ eq: () => ({ abortSignal: () => mockLinesResult() }) }) };
+const defaultFrom = (table: unknown) => (table === "timesheet_line_approvals" ? linesBuilder : { select: mockSelect });
+const mockFrom = vi.fn(defaultFrom);
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -124,6 +135,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: return empty data
   mockEqForecast.mockResolvedValue({ data: [], error: null });
+  mockLinesResult.mockResolvedValue({ data: [], error: null });
+  mockFrom.mockImplementation(defaultFrom);
   // Re-apply suppressor after clearAllMocks wipes the spy's call history
   // (mockImplementation is NOT cleared by clearAllMocks, only call history is)
 });
@@ -651,6 +664,64 @@ describe("StaffHoursDetailDialog", () => {
     await vi.waitFor(() => {
       const checkbox = screen.getByRole("checkbox", { name: /lastWeekOnly/i });
       expect(checkbox).toHaveAttribute("aria-checked", "false");
+    });
+  });
+
+  // B3d — desglose de horas por estado de aprobación
+  it("muestra las horas aprobadas, pendientes y guardadas según la línea de aprobación del encargo", async () => {
+    const sent = "2026-03-06T00:00:00Z";
+    const base = { year: 2026, week_number: 10, week_start_date: "2026-03-02" };
+    const raw = [
+      { ...makeRaw({ staff_id: "s1", hours_logged: 5, period: { ...base, submitted_at: sent } as never }), period_id: "p1", activity_id: "a1" },
+      { ...makeRaw({ staff_id: "s1", hours_logged: 3, period: { ...base, submitted_at: sent } as never }), period_id: "p1", activity_id: "a2" },
+      { ...makeRaw({ staff_id: "s1", hours_logged: 2, period: { ...base, submitted_at: null } as never }), period_id: "p1", activity_id: "a3" },
+      // semana parcialmente aprobada y retirada: submitted_at null pero la línea sigue aprobada
+      { ...makeRaw({ staff_id: "s1", hours_logged: 4, period: { ...base, submitted_at: null } as never }), period_id: "p1", activity_id: "a4" },
+    ];
+    mockEqForecast.mockResolvedValue({ data: raw, error: null });
+    mockLinesResult.mockResolvedValue({
+      data: [
+        { period_id: "p1", activity_id: "a1", status: "approved" },
+        { period_id: "p1", activity_id: "a2", status: "pending" },
+        { period_id: "p1", activity_id: "a4", status: "approved" },
+      ],
+      error: null,
+    });
+
+    render(<StaffHoursDetailDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+    await vi.waitFor(() => {
+      const totalRow = screen.getByText("dashboard.encargo.hoursDetail.grandTotal").closest("tr")!;
+      const cells = Array.from(totalRow.querySelectorAll("td")).map((c) => c.textContent);
+      // total, aprobadas (5 + 4), pendientes (3), guardadas (2)
+      expect(cells.slice(4)).toEqual(["14.0", "9.0", "3.0", "2.0"]);
+    });
+  });
+
+  // B3d — sin las líneas no hay desglose confiable: error con reintento y sin exportar
+  it("si falla la consulta de líneas muestra el error con reintento, no un desglose de «todo guardado», y no exporta", async () => {
+    const base = { year: 2026, week_number: 10, week_start_date: "2026-03-02", submitted_at: "2026-03-06T00:00:00Z" };
+    mockEqForecast.mockResolvedValue({
+      data: [{ ...makeRaw({ staff_id: "s1", hours_logged: 5, period: base as never }), period_id: "p1", activity_id: "a1" }],
+      error: null,
+    });
+    mockLinesResult.mockResolvedValue({ data: null, error: { message: "boom" } });
+
+    render(<StaffHoursDetailDialog {...defaultProps} />, { wrapper: createWrapper() });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText("dashboard.encargo.hoursDetail.loadError")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("dashboard.encargo.hoursDetail.grandTotal")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /dashboard\.encargo\.hoursDetail\.exportExcel/i })).toBeDisabled();
+
+    // el reintento vuelve a pedir las líneas y, si ya responden, aparece el desglose
+    mockLinesResult.mockResolvedValue({ data: [{ period_id: "p1", activity_id: "a1", status: "approved" }], error: null });
+    await userEvent.click(screen.getByRole("button", { name: "dashboard.encargo.hoursDetail.retry" }));
+    await vi.waitFor(() => {
+      const totalRow = screen.getByText("dashboard.encargo.hoursDetail.grandTotal").closest("tr")!;
+      const cells = Array.from(totalRow.querySelectorAll("td")).map((c) => c.textContent);
+      expect(cells.slice(4)).toEqual(["5.0", "5.0", "0.0", "0.0"]);
     });
   });
 });

@@ -1,3 +1,9 @@
+// OJO (B3c, RLS de `engagements`): esta pestaña está OCULTA (useDashboardAccess.ts TAB_ORDER: su lugar lo tomó la pestaña
+// Socio, que usa las RPC DEFINER partner_overview*) y ningún camino la activa. Si se reactiva, sus lecturas directas
+// de `engagements`, `work_order_summary` y `time_entries` quedarían acotadas a lo que el usuario puede ver: el socio
+// (dashboard.practice_financials.read de alcance firma, pero engagement.read por asignación) recibiría totales y
+// ranking subestimados sin ningún error. Antes de reactivarla hay que pasar estos agregados a una RPC con alcance
+// de firma, no a una política más amplia sobre `engagements`.
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
