@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5xSCgSQu8CYGTADLfTZz0M2r8M4cS5s6oASgA1mS0emOWk1CHtlLgLkaSOPqnda
+\restrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -14055,6 +14055,28 @@ $$;
 
 
 --
+-- Name: staff_release_auth_user_on_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.staff_release_auth_user_on_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- WHEN del trigger: OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+  NEW.auth_user_id := NULL;
+  RETURN NEW;
+END $$;
+
+
+--
+-- Name: FUNCTION staff_release_auth_user_on_delete(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.staff_release_auth_user_on_delete() IS 'B6: al dar de baja (deleted_at NULL -> valor) la ficha suelta su auth_user_id. Evita dos fichas con el mismo usuario tras un reingreso, que get_my_staff_id() y otras 20 piezas resolverian a la ficha borrada.';
+
+
+--
 -- Name: start_timer_entry(uuid, uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -21611,14 +21633,14 @@ CREATE UNIQUE INDEX idx_skills_name_unique ON public.skills USING btree (lower(T
 -- Name: idx_staff_auth_user_id_unique; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_staff_auth_user_id_unique ON public.staff USING btree (auth_user_id) WHERE ((auth_user_id IS NOT NULL) AND (deleted_at IS NULL));
+CREATE UNIQUE INDEX idx_staff_auth_user_id_unique ON public.staff USING btree (auth_user_id) WHERE (auth_user_id IS NOT NULL);
 
 
 --
 -- Name: INDEX idx_staff_auth_user_id_unique; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON INDEX public.idx_staff_auth_user_id_unique IS 'B6: una ficha de staff activa por usuario de auth. Parcial: excluye fichas borradas, que conservan su auth_user_id (reingreso con ficha nueva).';
+COMMENT ON INDEX public.idx_staff_auth_user_id_unique IS 'B6: un usuario de auth, una ficha de staff (borrada o no). La baja suelta el enlace (trg_staff_release_auth_user_on_delete), asi que el reingreso con ficha nueva no choca.';
 
 
 --
@@ -22508,6 +22530,13 @@ CREATE TRIGGER trg_recompute_engagement_finalization BEFORE INSERT OR UPDATE ON 
 --
 
 CREATE TRIGGER trg_reset_timer_import_on_unlink BEFORE UPDATE ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.reset_timer_import_on_unlink();
+
+
+--
+-- Name: staff trg_staff_release_auth_user_on_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_staff_release_auth_user_on_delete BEFORE UPDATE OF deleted_at ON public.staff FOR EACH ROW WHEN (((old.deleted_at IS NULL) AND (new.deleted_at IS NOT NULL))) EXECUTE FUNCTION public.staff_release_auth_user_on_delete();
 
 
 --
@@ -25678,5 +25707,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5xSCgSQu8CYGTADLfTZz0M2r8M4cS5s6oASgA1mS0emOWk1CHtlLgLkaSOPqnda
+\unrestrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
 
