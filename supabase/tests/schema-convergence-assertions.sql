@@ -757,6 +757,20 @@ BEGIN
     RAISE NOTICE 'PASS — B5: anon sin privilegios en public salvo SELECT de global_settings; ninguna función ejecutable por anon ni PUBLIC; authenticated sin TRUNCATE/REFERENCES/TRIGGER/MAINTAIN; search_path fijo en toda función';
   END IF;
 
+  -- 20. B6: un auth_user_id no puede estar en dos fichas de staff ACTIVAS. Indice UNIQUE parcial (auth_user_id IS NOT NULL AND deleted_at IS NULL).
+  --     Sin `deleted_at IS NULL` el reingreso tras una baja fallaria con 23505: el borrado logico conserva auth_user_id y los triggers de enlace
+  --     ignoran a las fichas borradas al decidir si un usuario esta libre. Sin el indice, get_my_staff_id() y las politicas que lo usan pierden
+  --     la garantia de una ficha por usuario (la identidad compartida no daria error).
+  IF NOT EXISTS (
+       SELECT 1 FROM pg_index i
+        WHERE i.indexrelid = to_regclass('public.idx_staff_auth_user_id_unique') AND i.indisunique
+          AND pg_get_indexdef(i.indexrelid) LIKE '%(auth_user_id)%'
+          AND pg_get_indexdef(i.indexrelid) LIKE '%auth_user_id IS NOT NULL%'
+          AND pg_get_indexdef(i.indexrelid) LIKE '%deleted_at IS NULL%') THEN
+    RAISE EXCEPTION 'CONVERGENCE FAIL — falta idx_staff_auth_user_id_unique (UNIQUE parcial sobre staff.auth_user_id, fichas activas) o cambio de forma (B6)';
+  END IF;
+  RAISE NOTICE 'PASS — B6: idx_staff_auth_user_id_unique es UNIQUE parcial (auth_user_id IS NOT NULL AND deleted_at IS NULL)';
+
   RAISE NOTICE 'SCHEMA CONVERGENCE: ALL CHECKS PASSED (rolled back)';
 END $$;
 
