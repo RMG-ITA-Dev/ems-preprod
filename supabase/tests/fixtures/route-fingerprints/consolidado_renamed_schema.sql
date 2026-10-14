@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ntrzaisoRvkktxbu9QjoAjEJjbOE0KrqbhMfwIWVtw7sTrPlmQofirnnTAOpx15
+\restrict 5xSCgSQu8CYGTADLfTZz0M2r8M4cS5s6oASgA1mS0emOWk1CHtlLgLkaSOPqnda
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -2458,6 +2458,7 @@ COMMENT ON FUNCTION public.dismiss_notifications(p_ids uuid[]) IS 'Descarta noti
 
 CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone) RETURNS smallint
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   SELECT CASE
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
@@ -4668,6 +4669,7 @@ $$;
 
 CREATE FUNCTION public.fre_validate_wo_in_request() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 DECLARE
   v_fr_currency text;
@@ -4700,6 +4702,7 @@ $$;
 
 CREATE FUNCTION public.fund_request_expenses_touch_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   NEW.updated_at := now();
@@ -4865,6 +4868,7 @@ $$;
 
 CREATE FUNCTION public.fund_requests_enforce_bob() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
@@ -4888,6 +4892,7 @@ $$;
 
 CREATE FUNCTION public.fund_requests_touch_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   NEW.updated_at := now();
@@ -6807,6 +6812,59 @@ $$;
 
 
 --
+-- Name: my_visible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_visible_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me    uuid    := public.get_my_staff_id();
+  v_read  boolean := public.has_permission('engagement.read');
+  v_scope text    := public.permission_scope('engagement.read');
+  v_role  text    := public.current_role_key();
+  v_acct  boolean := public.has_permission('fund_disbursement.read') OR public.has_permission('expense_settlement.read');
+BEGIN
+  RETURN QUERY
+  SELECT e.engagement_id
+    FROM public.engagements e
+   WHERE (v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
+                      OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
+      OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
+      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
+      -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
+      --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
+      --        engagement_in_my_fund_request (la que usa la política).
+      OR e.engagement_id IN (
+           SELECT wo.engagement_id
+             FROM public.fund_request_work_orders frwo
+             JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+            WHERE fr.status <> 'borrador'
+              AND (fr.requester_staff_id = v_me OR frwo.manager_staff_id = v_me))
+      --    d2) contabilidad: NO se copia su regla. Cambia con el módulo de solicitudes de fondos (en Dev 2.0 ya depende de
+      --        fr_accounting_sees y de fund_requests.cancelled_from_status, que NO están en las migraciones de este repo; copiarla
+      --        rompió el harness el 13/10/2026). Solo aplica a quien tiene alguno de los dos permisos contables (ambas versiones los
+      --        exigen), y entonces se llama a la función real, solo para los encargos con alguna solicitud enviada.
+      OR (v_acct AND e.engagement_id IN (
+            SELECT wo.engagement_id
+              FROM public.fund_request_work_orders frwo
+              JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+              JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             WHERE fr.status <> 'borrador')
+          AND public.engagement_in_my_fund_request(e.engagement_id));
+END $$;
+
+
+--
+-- Name: FUNCTION my_visible_engagement_ids(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.my_visible_engagement_ids() IS 'B4: ids de los encargos que el llamador (auth.uid()) puede ver segun las 4 politicas SELECT de engagements, como conjunto. Solo la usa engagement_wo_state; la suite rls-carril-b-b4-vistas.sql la compara con la RLS real.';
+
+
+--
 -- Name: notif_agg_approval_training_pending(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -7196,6 +7254,7 @@ COMMENT ON FUNCTION public.notif_client_assigned(p_client_id uuid) IS 'Staff asi
 
 CREATE FUNCTION public.notif_contador(p_payload jsonb, p_clave text) RETURNS integer
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   -- Espejo de `conteoDeConcepto` en
   -- supabase/functions/_shared/plantillas/constants/recordatorios.ts: un bucket es
@@ -7719,6 +7778,7 @@ COMMENT ON FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid) I
 
 CREATE FUNCTION public.notif_origen_cambio_rol() RETURNS text
     LANGUAGE sql STABLE
+    SET search_path TO 'public'
     AS $$
   SELECT COALESCE(NULLIF(current_setting('ems.role_change_source', true), ''), 'direct');
 $$;
@@ -7737,6 +7797,7 @@ COMMENT ON FUNCTION public.notif_origen_cambio_rol() IS 'De donde vino el cambio
 
 CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text, p_payload jsonb) RETURNS text
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   SELECT CASE
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
@@ -11346,6 +11407,7 @@ COMMENT ON FUNCTION public.personal_overview(p_history_start date, p_history_end
 
 CREATE FUNCTION public.portfolio_events_append_only() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   RAISE EXCEPTION 'portfolio_events es append-only';
@@ -13877,6 +13939,7 @@ $$;
 
 CREATE FUNCTION public.set_authz_updated_at() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 begin
   new.updated_at := now();
@@ -13929,6 +13992,7 @@ $$;
 
 CREATE FUNCTION public.set_fund_request_number() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 DECLARE
   v_seq bigint;
@@ -15040,6 +15104,7 @@ $$;
 
 CREATE FUNCTION public.validate_timer_entry_duration() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public'
     AS $$
 BEGIN
   IF NEW.ended_at IS NOT NULL THEN
@@ -18281,12 +18346,20 @@ CREATE TABLE public.work_orders (
 -- Name: engagement_wo_state; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.engagement_wo_state WITH (security_invoker='false') AS
+CREATE VIEW public.engagement_wo_state WITH (security_invoker='false', security_barrier='true') AS
  SELECT engagement_id,
     approval_status,
     approved_at,
     risk_status
-   FROM public.work_orders;
+   FROM public.work_orders wo
+  WHERE (((( SELECT auth.uid() AS uid) IS NULL) AND (COALESCE((( SELECT auth.jwt() AS jwt) ->> 'role'::text), ''::text) <> 'anon'::text)) OR (engagement_id IN ( SELECT public.my_visible_engagement_ids() AS my_visible_engagement_ids)));
+
+
+--
+-- Name: VIEW engagement_wo_state; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.engagement_wo_state IS 'B4: estado de aprobacion y de riesgo de la OT de cada encargo que el llamador puede ver. SECURITY DEFINER a proposito (work_orders solo lo lee el equipo) con security_barrier; la visibilidad sale de my_visible_engagement_ids(). Sin sesion (service_role, migraciones) ve todo. NUNCA agregar columnas de la OT.';
 
 
 --
@@ -18443,6 +18516,13 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
   WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
+
+
+--
+-- Name: VIEW fund_request_selectable_work_orders; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON VIEW public.fund_request_selectable_work_orders IS 'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada (fr_wo_insert no mira alcance; el gerente de la OT aprueba), asi que debe verlas todas. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
 
 
 --
@@ -18836,7 +18916,7 @@ CREATE TABLE public.staff_alert_seen (
 -- Name: staff_directory; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.staff_directory AS
+CREATE VIEW public.staff_directory WITH (security_invoker='true') AS
  SELECT staff_id,
     first_name,
     last_name,
@@ -19375,22 +19455,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_12; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_12 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_13; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -19443,6 +19507,22 @@ CREATE TABLE realtime.messages_2026_10_15 (
 --
 
 CREATE TABLE realtime.messages_2026_10_16 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_17; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_17 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19735,13 +19815,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_12 FOR VALUES FROM ('2026-10-12 00:00:00') TO ('2026-10-13 00:00:00');
-
-
---
 -- Name: messages_2026_10_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -19767,6 +19840,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_15
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_16 FOR VALUES FROM ('2026-10-16 00:00:00') TO ('2026-10-17 00:00:00');
+
+
+--
+-- Name: messages_2026_10_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_17 FOR VALUES FROM ('2026-10-17 00:00:00') TO ('2026-10-18 00:00:00');
 
 
 --
@@ -20688,14 +20768,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_12 messages_2026_10_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_12
-    ADD CONSTRAINT messages_2026_10_12_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_13 messages_2026_10_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -20725,6 +20797,14 @@ ALTER TABLE ONLY realtime.messages_2026_10_15
 
 ALTER TABLE ONLY realtime.messages_2026_10_16
     ADD CONSTRAINT messages_2026_10_16_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_17 messages_2026_10_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_17
+    ADD CONSTRAINT messages_2026_10_17_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -21528,6 +21608,20 @@ CREATE UNIQUE INDEX idx_skills_name_unique ON public.skills USING btree (lower(T
 
 
 --
+-- Name: idx_staff_auth_user_id_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX idx_staff_auth_user_id_unique ON public.staff USING btree (auth_user_id) WHERE ((auth_user_id IS NOT NULL) AND (deleted_at IS NULL));
+
+
+--
+-- Name: INDEX idx_staff_auth_user_id_unique; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON INDEX public.idx_staff_auth_user_id_unique IS 'B6: una ficha de staff activa por usuario de auth. Parcial: excluye fichas borradas, que conservan su auth_user_id (reingreso con ficha nueva).';
+
+
+--
 -- Name: idx_staff_email_unique; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21752,13 +21846,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_12_inserted_at_topic_idx ON realtime.messages_2026_10_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -21784,6 +21871,13 @@ CREATE INDEX messages_2026_10_15_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_10_16_inserted_at_topic_idx ON realtime.messages_2026_10_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_17_inserted_at_topic_idx ON realtime.messages_2026_10_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -21885,20 +21979,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_12_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_12_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_12_pkey;
-
-
---
 -- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -21952,6 +22032,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_16_pkey;
+
+
+--
+-- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_17_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_17_pkey;
 
 
 --
@@ -24897,6 +24991,12 @@ CREATE POLICY "industries write update" ON public.industries FOR UPDATE TO authe
 
 
 --
+-- Name: migration_run_log; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.migration_run_log ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: notification_emails; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -25196,6 +25296,12 @@ ALTER TABLE public.user_lifecycle_audit_log ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_roles_backup_0220_56_20260224; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.user_roles_backup_0220_56_20260224 ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: user_roles user_roles_select; Type: POLICY; Schema: public; Owner: -
@@ -25572,5 +25678,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ntrzaisoRvkktxbu9QjoAjEJjbOE0KrqbhMfwIWVtw7sTrPlmQofirnnTAOpx15
+\unrestrict 5xSCgSQu8CYGTADLfTZz0M2r8M4cS5s6oASgA1mS0emOWk1CHtlLgLkaSOPqnda
 

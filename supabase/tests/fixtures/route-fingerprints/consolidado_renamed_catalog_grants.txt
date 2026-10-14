@@ -157,10 +157,7 @@
  auth         | postgres      | webauthn_credentials                           | UPDATE
  public       | authenticated | activity_codes                                 | DELETE
  public       | authenticated | activity_codes                                 | INSERT
- public       | authenticated | activity_codes                                 | REFERENCES
  public       | authenticated | activity_codes                                 | SELECT
- public       | authenticated | activity_codes                                 | TRIGGER
- public       | authenticated | activity_codes                                 | TRUNCATE
  public       | authenticated | activity_codes                                 | UPDATE
  public       | postgres      | activity_codes                                 | DELETE
  public       | postgres      | activity_codes                                 | INSERT
@@ -178,10 +175,7 @@
  public       | service_role  | activity_codes                                 | UPDATE
  public       | authenticated | activity_worksheet_cells                       | DELETE
  public       | authenticated | activity_worksheet_cells                       | INSERT
- public       | authenticated | activity_worksheet_cells                       | REFERENCES
  public       | authenticated | activity_worksheet_cells                       | SELECT
- public       | authenticated | activity_worksheet_cells                       | TRIGGER
- public       | authenticated | activity_worksheet_cells                       | TRUNCATE
  public       | authenticated | activity_worksheet_cells                       | UPDATE
  public       | postgres      | activity_worksheet_cells                       | DELETE
  public       | postgres      | activity_worksheet_cells                       | INSERT
@@ -197,19 +191,9 @@
  public       | service_role  | activity_worksheet_cells                       | TRIGGER
  public       | service_role  | activity_worksheet_cells                       | TRUNCATE
  public       | service_role  | activity_worksheet_cells                       | UPDATE
- public       | anon          | activity_worksheets                            | DELETE
- public       | anon          | activity_worksheets                            | INSERT
- public       | anon          | activity_worksheets                            | REFERENCES
- public       | anon          | activity_worksheets                            | SELECT
- public       | anon          | activity_worksheets                            | TRIGGER
- public       | anon          | activity_worksheets                            | TRUNCATE
- public       | anon          | activity_worksheets                            | UPDATE
  public       | authenticated | activity_worksheets                            | DELETE
  public       | authenticated | activity_worksheets                            | INSERT
- public       | authenticated | activity_worksheets                            | REFERENCES
  public       | authenticated | activity_worksheets                            | SELECT
- public       | authenticated | activity_worksheets                            | TRIGGER
- public       | authenticated | activity_worksheets                            | TRUNCATE
  public       | authenticated | activity_worksheets                            | UPDATE
  public       | postgres      | activity_worksheets                            | DELETE
  public       | postgres      | activity_worksheets                            | INSERT
@@ -253,19 +237,9 @@
  public       | service_role  | auth_login_attempts                            | TRIGGER
  public       | service_role  | auth_login_attempts                            | TRUNCATE
  public       | service_role  | auth_login_attempts                            | UPDATE
- public       | anon          | authorization_permissions                      | DELETE
- public       | anon          | authorization_permissions                      | INSERT
- public       | anon          | authorization_permissions                      | REFERENCES
- public       | anon          | authorization_permissions                      | SELECT
- public       | anon          | authorization_permissions                      | TRIGGER
- public       | anon          | authorization_permissions                      | TRUNCATE
- public       | anon          | authorization_permissions                      | UPDATE
  public       | authenticated | authorization_permissions                      | DELETE
  public       | authenticated | authorization_permissions                      | INSERT
- public       | authenticated | authorization_permissions                      | REFERENCES
  public       | authenticated | authorization_permissions                      | SELECT
- public       | authenticated | authorization_permissions                      | TRIGGER
- public       | authenticated | authorization_permissions                      | TRUNCATE
  public       | authenticated | authorization_permissions                      | UPDATE
  public       | postgres      | authorization_permissions                      | DELETE
  public       | postgres      | authorization_permissions                      | INSERT
@@ -281,19 +255,9 @@
  public       | service_role  | authorization_permissions                      | TRIGGER
  public       | service_role  | authorization_permissions                      | TRUNCATE
  public       | service_role  | authorization_permissions                      | UPDATE
- public       | anon          | authorization_role_permissions                 | DELETE
- public       | anon          | authorization_role_permissions                 | INSERT
- public       | anon          | authorization_role_permissions                 | REFERENCES
- public       | anon          | authorization_role_permissions                 | SELECT
- public       | anon          | authorization_role_permissions                 | TRIGGER
- public       | anon          | authorization_role_permissions                 | TRUNCATE
- public       | anon          | authorization_role_permissions                 | UPDATE
  public       | authenticated | authorization_role_permissions                 | DELETE
  public       | authenticated | authorization_role_permissions                 | INSERT
- public       | authenticated | authorization_role_permissions                 | REFERENCES
  public       | authenticated | authorization_role_permissions                 | SELECT
- public       | authenticated | authorization_role_permissions                 | TRIGGER
- public       | authenticated | authorization_role_permissions                 | TRUNCATE
  public       | authenticated | authorization_role_permissions                 | UPDATE
  public       | postgres      | authorization_role_permissions                 | DELETE
  public       | postgres      | authorization_role_permissions                 | INSERT
@@ -309,19 +273,9 @@
  public       | service_role  | authorization_role_permissions                 | TRIGGER
  public       | service_role  | authorization_role_permissions                 | TRUNCATE
  public       | service_role  | authorization_role_permissions                 | UPDATE
- public       | anon          | authorization_roles                            | DELETE
- public       | anon          | authorization_roles                            | INSERT
- public       | anon          | authorization_roles                            | REFERENCES
- public       | anon          | authorization_roles                            | SELECT
- public       | anon          | authorization_roles                            | TRIGGER
- public       | anon          | authorization_roles                            | TRUNCATE
- public       | anon          | authorization_roles                            | UPDATE
  public       | authenticated | authorization_roles                            | DELETE
  public       | authenticated | authorization_roles                            | INSERT
- public       | authenticated | authorization_roles                            | REFERENCES
  public       | authenticated | authorization_roles                            | SELECT
- public       | authenticated | authorization_roles                            | TRIGGER
- public       | authenticated | authorization_roles                            | TRUNCATE
  public       | authenticated | authorization_roles                            | UPDATE
  public       | postgres      | authorization_roles                            | DELETE
  public       | postgres      | authorization_roles                            | INSERT
@@ -339,10 +293,7 @@
  public       | service_role  | authorization_roles                            | UPDATE
  public       | authenticated | categories                                     | DELETE
  public       | authenticated | categories                                     | INSERT
- public       | authenticated | categories                                     | REFERENCES
  public       | authenticated | categories                                     | SELECT
- public       | authenticated | categories                                     | TRIGGER
- public       | authenticated | categories                                     | TRUNCATE
  public       | authenticated | categories                                     | UPDATE
  public       | postgres      | categories                                     | DELETE
  public       | postgres      | categories                                     | INSERT
@@ -360,10 +311,7 @@
  public       | service_role  | categories                                     | UPDATE
  public       | authenticated | clients                                        | DELETE
  public       | authenticated | clients                                        | INSERT
- public       | authenticated | clients                                        | REFERENCES
  public       | authenticated | clients                                        | SELECT
- public       | authenticated | clients                                        | TRIGGER
- public       | authenticated | clients                                        | TRUNCATE
  public       | authenticated | clients                                        | UPDATE
  public       | postgres      | clients                                        | DELETE
  public       | postgres      | clients                                        | INSERT
@@ -396,10 +344,7 @@
  public       | service_role  | clients_directory                              | UPDATE
  public       | authenticated | engagement_assignments                         | DELETE
  public       | authenticated | engagement_assignments                         | INSERT
- public       | authenticated | engagement_assignments                         | REFERENCES
  public       | authenticated | engagement_assignments                         | SELECT
- public       | authenticated | engagement_assignments                         | TRIGGER
- public       | authenticated | engagement_assignments                         | TRUNCATE
  public       | authenticated | engagement_assignments                         | UPDATE
  public       | postgres      | engagement_assignments                         | DELETE
  public       | postgres      | engagement_assignments                         | INSERT
@@ -432,10 +377,7 @@
  public       | service_role  | engagement_wo_state                            | UPDATE
  public       | authenticated | engagements                                    | DELETE
  public       | authenticated | engagements                                    | INSERT
- public       | authenticated | engagements                                    | REFERENCES
  public       | authenticated | engagements                                    | SELECT
- public       | authenticated | engagements                                    | TRIGGER
- public       | authenticated | engagements                                    | TRUNCATE
  public       | authenticated | engagements                                    | UPDATE
  public       | postgres      | engagements                                    | DELETE
  public       | postgres      | engagements                                    | INSERT
@@ -451,19 +393,9 @@
  public       | service_role  | engagements                                    | TRIGGER
  public       | service_role  | engagements                                    | TRUNCATE
  public       | service_role  | engagements                                    | UPDATE
- public       | anon          | exchange_rate_history                          | DELETE
- public       | anon          | exchange_rate_history                          | INSERT
- public       | anon          | exchange_rate_history                          | REFERENCES
- public       | anon          | exchange_rate_history                          | SELECT
- public       | anon          | exchange_rate_history                          | TRIGGER
- public       | anon          | exchange_rate_history                          | TRUNCATE
- public       | anon          | exchange_rate_history                          | UPDATE
  public       | authenticated | exchange_rate_history                          | DELETE
  public       | authenticated | exchange_rate_history                          | INSERT
- public       | authenticated | exchange_rate_history                          | REFERENCES
  public       | authenticated | exchange_rate_history                          | SELECT
- public       | authenticated | exchange_rate_history                          | TRIGGER
- public       | authenticated | exchange_rate_history                          | TRUNCATE
  public       | authenticated | exchange_rate_history                          | UPDATE
  public       | postgres      | exchange_rate_history                          | DELETE
  public       | postgres      | exchange_rate_history                          | INSERT
@@ -481,10 +413,7 @@
  public       | service_role  | exchange_rate_history                          | UPDATE
  public       | authenticated | expense_types                                  | DELETE
  public       | authenticated | expense_types                                  | INSERT
- public       | authenticated | expense_types                                  | REFERENCES
  public       | authenticated | expense_types                                  | SELECT
- public       | authenticated | expense_types                                  | TRIGGER
- public       | authenticated | expense_types                                  | TRUNCATE
  public       | authenticated | expense_types                                  | UPDATE
  public       | postgres      | expense_types                                  | DELETE
  public       | postgres      | expense_types                                  | INSERT
@@ -500,19 +429,9 @@
  public       | service_role  | expense_types                                  | TRIGGER
  public       | service_role  | expense_types                                  | TRUNCATE
  public       | service_role  | expense_types                                  | UPDATE
- public       | anon          | fund_request_expenses                          | DELETE
- public       | anon          | fund_request_expenses                          | INSERT
- public       | anon          | fund_request_expenses                          | REFERENCES
- public       | anon          | fund_request_expenses                          | SELECT
- public       | anon          | fund_request_expenses                          | TRIGGER
- public       | anon          | fund_request_expenses                          | TRUNCATE
- public       | anon          | fund_request_expenses                          | UPDATE
  public       | authenticated | fund_request_expenses                          | DELETE
  public       | authenticated | fund_request_expenses                          | INSERT
- public       | authenticated | fund_request_expenses                          | REFERENCES
  public       | authenticated | fund_request_expenses                          | SELECT
- public       | authenticated | fund_request_expenses                          | TRIGGER
- public       | authenticated | fund_request_expenses                          | TRUNCATE
  public       | authenticated | fund_request_expenses                          | UPDATE
  public       | postgres      | fund_request_expenses                          | DELETE
  public       | postgres      | fund_request_expenses                          | INSERT
@@ -543,19 +462,9 @@
  public       | service_role  | fund_request_selectable_work_orders            | TRIGGER
  public       | service_role  | fund_request_selectable_work_orders            | TRUNCATE
  public       | service_role  | fund_request_selectable_work_orders            | UPDATE
- public       | anon          | fund_request_work_orders                       | DELETE
- public       | anon          | fund_request_work_orders                       | INSERT
- public       | anon          | fund_request_work_orders                       | REFERENCES
- public       | anon          | fund_request_work_orders                       | SELECT
- public       | anon          | fund_request_work_orders                       | TRIGGER
- public       | anon          | fund_request_work_orders                       | TRUNCATE
- public       | anon          | fund_request_work_orders                       | UPDATE
  public       | authenticated | fund_request_work_orders                       | DELETE
  public       | authenticated | fund_request_work_orders                       | INSERT
- public       | authenticated | fund_request_work_orders                       | REFERENCES
  public       | authenticated | fund_request_work_orders                       | SELECT
- public       | authenticated | fund_request_work_orders                       | TRIGGER
- public       | authenticated | fund_request_work_orders                       | TRUNCATE
  public       | authenticated | fund_request_work_orders                       | UPDATE
  public       | postgres      | fund_request_work_orders                       | DELETE
  public       | postgres      | fund_request_work_orders                       | INSERT
@@ -571,19 +480,9 @@
  public       | service_role  | fund_request_work_orders                       | TRIGGER
  public       | service_role  | fund_request_work_orders                       | TRUNCATE
  public       | service_role  | fund_request_work_orders                       | UPDATE
- public       | anon          | fund_requests                                  | DELETE
- public       | anon          | fund_requests                                  | INSERT
- public       | anon          | fund_requests                                  | REFERENCES
- public       | anon          | fund_requests                                  | SELECT
- public       | anon          | fund_requests                                  | TRIGGER
- public       | anon          | fund_requests                                  | TRUNCATE
- public       | anon          | fund_requests                                  | UPDATE
  public       | authenticated | fund_requests                                  | DELETE
  public       | authenticated | fund_requests                                  | INSERT
- public       | authenticated | fund_requests                                  | REFERENCES
  public       | authenticated | fund_requests                                  | SELECT
- public       | authenticated | fund_requests                                  | TRIGGER
- public       | authenticated | fund_requests                                  | TRUNCATE
  public       | authenticated | fund_requests                                  | UPDATE
  public       | postgres      | fund_requests                                  | DELETE
  public       | postgres      | fund_requests                                  | INSERT
@@ -602,10 +501,7 @@
  public       | anon          | global_settings                                | SELECT
  public       | authenticated | global_settings                                | DELETE
  public       | authenticated | global_settings                                | INSERT
- public       | authenticated | global_settings                                | REFERENCES
  public       | authenticated | global_settings                                | SELECT
- public       | authenticated | global_settings                                | TRIGGER
- public       | authenticated | global_settings                                | TRUNCATE
  public       | authenticated | global_settings                                | UPDATE
  public       | postgres      | global_settings                                | DELETE
  public       | postgres      | global_settings                                | INSERT
@@ -621,19 +517,9 @@
  public       | service_role  | global_settings                                | TRIGGER
  public       | service_role  | global_settings                                | TRUNCATE
  public       | service_role  | global_settings                                | UPDATE
- public       | anon          | holidays                                       | DELETE
- public       | anon          | holidays                                       | INSERT
- public       | anon          | holidays                                       | REFERENCES
- public       | anon          | holidays                                       | SELECT
- public       | anon          | holidays                                       | TRIGGER
- public       | anon          | holidays                                       | TRUNCATE
- public       | anon          | holidays                                       | UPDATE
  public       | authenticated | holidays                                       | DELETE
  public       | authenticated | holidays                                       | INSERT
- public       | authenticated | holidays                                       | REFERENCES
  public       | authenticated | holidays                                       | SELECT
- public       | authenticated | holidays                                       | TRIGGER
- public       | authenticated | holidays                                       | TRUNCATE
  public       | authenticated | holidays                                       | UPDATE
  public       | postgres      | holidays                                       | DELETE
  public       | postgres      | holidays                                       | INSERT
@@ -651,10 +537,7 @@
  public       | service_role  | holidays                                       | UPDATE
  public       | authenticated | industries                                     | DELETE
  public       | authenticated | industries                                     | INSERT
- public       | authenticated | industries                                     | REFERENCES
  public       | authenticated | industries                                     | SELECT
- public       | authenticated | industries                                     | TRIGGER
- public       | authenticated | industries                                     | TRUNCATE
  public       | authenticated | industries                                     | UPDATE
  public       | postgres      | industries                                     | DELETE
  public       | postgres      | industries                                     | INSERT
@@ -670,13 +553,6 @@
  public       | service_role  | industries                                     | TRIGGER
  public       | service_role  | industries                                     | TRUNCATE
  public       | service_role  | industries                                     | UPDATE
- public       | authenticated | migration_run_log                              | DELETE
- public       | authenticated | migration_run_log                              | INSERT
- public       | authenticated | migration_run_log                              | REFERENCES
- public       | authenticated | migration_run_log                              | SELECT
- public       | authenticated | migration_run_log                              | TRIGGER
- public       | authenticated | migration_run_log                              | TRUNCATE
- public       | authenticated | migration_run_log                              | UPDATE
  public       | postgres      | migration_run_log                              | DELETE
  public       | postgres      | migration_run_log                              | INSERT
  public       | postgres      | migration_run_log                              | REFERENCES
@@ -705,19 +581,9 @@
  public       | service_role  | notification_emails                            | TRIGGER
  public       | service_role  | notification_emails                            | TRUNCATE
  public       | service_role  | notification_emails                            | UPDATE
- public       | anon          | notification_role_types                        | DELETE
- public       | anon          | notification_role_types                        | INSERT
- public       | anon          | notification_role_types                        | REFERENCES
- public       | anon          | notification_role_types                        | SELECT
- public       | anon          | notification_role_types                        | TRIGGER
- public       | anon          | notification_role_types                        | TRUNCATE
- public       | anon          | notification_role_types                        | UPDATE
  public       | authenticated | notification_role_types                        | DELETE
  public       | authenticated | notification_role_types                        | INSERT
- public       | authenticated | notification_role_types                        | REFERENCES
  public       | authenticated | notification_role_types                        | SELECT
- public       | authenticated | notification_role_types                        | TRIGGER
- public       | authenticated | notification_role_types                        | TRUNCATE
  public       | authenticated | notification_role_types                        | UPDATE
  public       | postgres      | notification_role_types                        | DELETE
  public       | postgres      | notification_role_types                        | INSERT
@@ -733,19 +599,9 @@
  public       | service_role  | notification_role_types                        | TRIGGER
  public       | service_role  | notification_role_types                        | TRUNCATE
  public       | service_role  | notification_role_types                        | UPDATE
- public       | anon          | notification_types                             | DELETE
- public       | anon          | notification_types                             | INSERT
- public       | anon          | notification_types                             | REFERENCES
- public       | anon          | notification_types                             | SELECT
- public       | anon          | notification_types                             | TRIGGER
- public       | anon          | notification_types                             | TRUNCATE
- public       | anon          | notification_types                             | UPDATE
  public       | authenticated | notification_types                             | DELETE
  public       | authenticated | notification_types                             | INSERT
- public       | authenticated | notification_types                             | REFERENCES
  public       | authenticated | notification_types                             | SELECT
- public       | authenticated | notification_types                             | TRIGGER
- public       | authenticated | notification_types                             | TRUNCATE
  public       | authenticated | notification_types                             | UPDATE
  public       | postgres      | notification_types                             | DELETE
  public       | postgres      | notification_types                             | INSERT
@@ -761,19 +617,9 @@
  public       | service_role  | notification_types                             | TRIGGER
  public       | service_role  | notification_types                             | TRUNCATE
  public       | service_role  | notification_types                             | UPDATE
- public       | anon          | notifications                                  | DELETE
- public       | anon          | notifications                                  | INSERT
- public       | anon          | notifications                                  | REFERENCES
- public       | anon          | notifications                                  | SELECT
- public       | anon          | notifications                                  | TRIGGER
- public       | anon          | notifications                                  | TRUNCATE
- public       | anon          | notifications                                  | UPDATE
  public       | authenticated | notifications                                  | DELETE
  public       | authenticated | notifications                                  | INSERT
- public       | authenticated | notifications                                  | REFERENCES
  public       | authenticated | notifications                                  | SELECT
- public       | authenticated | notifications                                  | TRIGGER
- public       | authenticated | notifications                                  | TRUNCATE
  public       | authenticated | notifications                                  | UPDATE
  public       | postgres      | notifications                                  | DELETE
  public       | postgres      | notifications                                  | INSERT
@@ -789,19 +635,9 @@
  public       | service_role  | notifications                                  | TRIGGER
  public       | service_role  | notifications                                  | TRUNCATE
  public       | service_role  | notifications                                  | UPDATE
- public       | anon          | parametro                                      | DELETE
- public       | anon          | parametro                                      | INSERT
- public       | anon          | parametro                                      | REFERENCES
- public       | anon          | parametro                                      | SELECT
- public       | anon          | parametro                                      | TRIGGER
- public       | anon          | parametro                                      | TRUNCATE
- public       | anon          | parametro                                      | UPDATE
  public       | authenticated | parametro                                      | DELETE
  public       | authenticated | parametro                                      | INSERT
- public       | authenticated | parametro                                      | REFERENCES
  public       | authenticated | parametro                                      | SELECT
- public       | authenticated | parametro                                      | TRIGGER
- public       | authenticated | parametro                                      | TRUNCATE
  public       | authenticated | parametro                                      | UPDATE
  public       | postgres      | parametro                                      | DELETE
  public       | postgres      | parametro                                      | INSERT
@@ -831,19 +667,9 @@
  public       | service_role  | portfolio_events                               | TRIGGER
  public       | service_role  | portfolio_events                               | TRUNCATE
  public       | service_role  | portfolio_events                               | UPDATE
- public       | anon          | practicas                                      | DELETE
- public       | anon          | practicas                                      | INSERT
- public       | anon          | practicas                                      | REFERENCES
- public       | anon          | practicas                                      | SELECT
- public       | anon          | practicas                                      | TRIGGER
- public       | anon          | practicas                                      | TRUNCATE
- public       | anon          | practicas                                      | UPDATE
  public       | authenticated | practicas                                      | DELETE
  public       | authenticated | practicas                                      | INSERT
- public       | authenticated | practicas                                      | REFERENCES
  public       | authenticated | practicas                                      | SELECT
- public       | authenticated | practicas                                      | TRIGGER
- public       | authenticated | practicas                                      | TRUNCATE
  public       | authenticated | practicas                                      | UPDATE
  public       | postgres      | practicas                                      | DELETE
  public       | postgres      | practicas                                      | INSERT
@@ -859,19 +685,9 @@
  public       | service_role  | practicas                                      | TRIGGER
  public       | service_role  | practicas                                      | TRUNCATE
  public       | service_role  | practicas                                      | UPDATE
- public       | anon          | servicios                                      | DELETE
- public       | anon          | servicios                                      | INSERT
- public       | anon          | servicios                                      | REFERENCES
- public       | anon          | servicios                                      | SELECT
- public       | anon          | servicios                                      | TRIGGER
- public       | anon          | servicios                                      | TRUNCATE
- public       | anon          | servicios                                      | UPDATE
  public       | authenticated | servicios                                      | DELETE
  public       | authenticated | servicios                                      | INSERT
- public       | authenticated | servicios                                      | REFERENCES
  public       | authenticated | servicios                                      | SELECT
- public       | authenticated | servicios                                      | TRIGGER
- public       | authenticated | servicios                                      | TRUNCATE
  public       | authenticated | servicios                                      | UPDATE
  public       | postgres      | servicios                                      | DELETE
  public       | postgres      | servicios                                      | INSERT
@@ -887,19 +703,9 @@
  public       | service_role  | servicios                                      | TRIGGER
  public       | service_role  | servicios                                      | TRUNCATE
  public       | service_role  | servicios                                      | UPDATE
- public       | anon          | skills                                         | DELETE
- public       | anon          | skills                                         | INSERT
- public       | anon          | skills                                         | REFERENCES
- public       | anon          | skills                                         | SELECT
- public       | anon          | skills                                         | TRIGGER
- public       | anon          | skills                                         | TRUNCATE
- public       | anon          | skills                                         | UPDATE
  public       | authenticated | skills                                         | DELETE
  public       | authenticated | skills                                         | INSERT
- public       | authenticated | skills                                         | REFERENCES
  public       | authenticated | skills                                         | SELECT
- public       | authenticated | skills                                         | TRIGGER
- public       | authenticated | skills                                         | TRUNCATE
  public       | authenticated | skills                                         | UPDATE
  public       | postgres      | skills                                         | DELETE
  public       | postgres      | skills                                         | INSERT
@@ -915,19 +721,9 @@
  public       | service_role  | skills                                         | TRIGGER
  public       | service_role  | skills                                         | TRUNCATE
  public       | service_role  | skills                                         | UPDATE
- public       | anon          | society                                        | DELETE
- public       | anon          | society                                        | INSERT
- public       | anon          | society                                        | REFERENCES
- public       | anon          | society                                        | SELECT
- public       | anon          | society                                        | TRIGGER
- public       | anon          | society                                        | TRUNCATE
- public       | anon          | society                                        | UPDATE
  public       | authenticated | society                                        | DELETE
  public       | authenticated | society                                        | INSERT
- public       | authenticated | society                                        | REFERENCES
  public       | authenticated | society                                        | SELECT
- public       | authenticated | society                                        | TRIGGER
- public       | authenticated | society                                        | TRUNCATE
  public       | authenticated | society                                        | UPDATE
  public       | postgres      | society                                        | DELETE
  public       | postgres      | society                                        | INSERT
@@ -945,9 +741,6 @@
  public       | service_role  | society                                        | UPDATE
  public       | authenticated | staff                                          | DELETE
  public       | authenticated | staff                                          | INSERT
- public       | authenticated | staff                                          | REFERENCES
- public       | authenticated | staff                                          | TRIGGER
- public       | authenticated | staff                                          | TRUNCATE
  public       | authenticated | staff                                          | UPDATE
  public       | postgres      | staff                                          | DELETE
  public       | postgres      | staff                                          | INSERT
@@ -963,19 +756,9 @@
  public       | service_role  | staff                                          | TRIGGER
  public       | service_role  | staff                                          | TRUNCATE
  public       | service_role  | staff                                          | UPDATE
- public       | anon          | staff_alert_seen                               | DELETE
- public       | anon          | staff_alert_seen                               | INSERT
- public       | anon          | staff_alert_seen                               | REFERENCES
- public       | anon          | staff_alert_seen                               | SELECT
- public       | anon          | staff_alert_seen                               | TRIGGER
- public       | anon          | staff_alert_seen                               | TRUNCATE
- public       | anon          | staff_alert_seen                               | UPDATE
  public       | authenticated | staff_alert_seen                               | DELETE
  public       | authenticated | staff_alert_seen                               | INSERT
- public       | authenticated | staff_alert_seen                               | REFERENCES
  public       | authenticated | staff_alert_seen                               | SELECT
- public       | authenticated | staff_alert_seen                               | TRIGGER
- public       | authenticated | staff_alert_seen                               | TRUNCATE
  public       | authenticated | staff_alert_seen                               | UPDATE
  public       | postgres      | staff_alert_seen                               | DELETE
  public       | postgres      | staff_alert_seen                               | INSERT
@@ -1006,19 +789,9 @@
  public       | service_role  | staff_directory                                | TRIGGER
  public       | service_role  | staff_directory                                | TRUNCATE
  public       | service_role  | staff_directory                                | UPDATE
- public       | anon          | staff_skills                                   | DELETE
- public       | anon          | staff_skills                                   | INSERT
- public       | anon          | staff_skills                                   | REFERENCES
- public       | anon          | staff_skills                                   | SELECT
- public       | anon          | staff_skills                                   | TRIGGER
- public       | anon          | staff_skills                                   | TRUNCATE
- public       | anon          | staff_skills                                   | UPDATE
  public       | authenticated | staff_skills                                   | DELETE
  public       | authenticated | staff_skills                                   | INSERT
- public       | authenticated | staff_skills                                   | REFERENCES
  public       | authenticated | staff_skills                                   | SELECT
- public       | authenticated | staff_skills                                   | TRIGGER
- public       | authenticated | staff_skills                                   | TRUNCATE
  public       | authenticated | staff_skills                                   | UPDATE
  public       | postgres      | staff_skills                                   | DELETE
  public       | postgres      | staff_skills                                   | INSERT
@@ -1036,10 +809,7 @@
  public       | service_role  | staff_skills                                   | UPDATE
  public       | authenticated | time_entries                                   | DELETE
  public       | authenticated | time_entries                                   | INSERT
- public       | authenticated | time_entries                                   | REFERENCES
  public       | authenticated | time_entries                                   | SELECT
- public       | authenticated | time_entries                                   | TRIGGER
- public       | authenticated | time_entries                                   | TRUNCATE
  public       | authenticated | time_entries                                   | UPDATE
  public       | postgres      | time_entries                                   | DELETE
  public       | postgres      | time_entries                                   | INSERT
@@ -1057,10 +827,7 @@
  public       | service_role  | time_entries                                   | UPDATE
  public       | authenticated | timer_entries                                  | DELETE
  public       | authenticated | timer_entries                                  | INSERT
- public       | authenticated | timer_entries                                  | REFERENCES
  public       | authenticated | timer_entries                                  | SELECT
- public       | authenticated | timer_entries                                  | TRIGGER
- public       | authenticated | timer_entries                                  | TRUNCATE
  public       | authenticated | timer_entries                                  | UPDATE
  public       | postgres      | timer_entries                                  | DELETE
  public       | postgres      | timer_entries                                  | INSERT
@@ -1078,10 +845,7 @@
  public       | service_role  | timer_entries                                  | UPDATE
  public       | authenticated | timesheet_line_approvals                       | DELETE
  public       | authenticated | timesheet_line_approvals                       | INSERT
- public       | authenticated | timesheet_line_approvals                       | REFERENCES
  public       | authenticated | timesheet_line_approvals                       | SELECT
- public       | authenticated | timesheet_line_approvals                       | TRIGGER
- public       | authenticated | timesheet_line_approvals                       | TRUNCATE
  public       | authenticated | timesheet_line_approvals                       | UPDATE
  public       | postgres      | timesheet_line_approvals                       | DELETE
  public       | postgres      | timesheet_line_approvals                       | INSERT
@@ -1099,10 +863,7 @@
  public       | service_role  | timesheet_line_approvals                       | UPDATE
  public       | authenticated | timesheet_periods                              | DELETE
  public       | authenticated | timesheet_periods                              | INSERT
- public       | authenticated | timesheet_periods                              | REFERENCES
  public       | authenticated | timesheet_periods                              | SELECT
- public       | authenticated | timesheet_periods                              | TRIGGER
- public       | authenticated | timesheet_periods                              | TRUNCATE
  public       | authenticated | timesheet_periods                              | UPDATE
  public       | postgres      | timesheet_periods                              | DELETE
  public       | postgres      | timesheet_periods                              | INSERT
@@ -1133,14 +894,7 @@
  public       | service_role  | timesheet_reversal_requests                    | TRIGGER
  public       | service_role  | timesheet_reversal_requests                    | TRUNCATE
  public       | service_role  | timesheet_reversal_requests                    | UPDATE
- public       | anon          | user_lifecycle_audit_log                       | REFERENCES
- public       | anon          | user_lifecycle_audit_log                       | SELECT
- public       | anon          | user_lifecycle_audit_log                       | TRIGGER
- public       | anon          | user_lifecycle_audit_log                       | TRUNCATE
- public       | authenticated | user_lifecycle_audit_log                       | REFERENCES
  public       | authenticated | user_lifecycle_audit_log                       | SELECT
- public       | authenticated | user_lifecycle_audit_log                       | TRIGGER
- public       | authenticated | user_lifecycle_audit_log                       | TRUNCATE
  public       | postgres      | user_lifecycle_audit_log                       | DELETE
  public       | postgres      | user_lifecycle_audit_log                       | INSERT
  public       | postgres      | user_lifecycle_audit_log                       | REFERENCES
@@ -1184,13 +938,7 @@
  public       | service_role  | user_roles_backup_0220_56_20260224             | TRIGGER
  public       | service_role  | user_roles_backup_0220_56_20260224             | TRUNCATE
  public       | service_role  | user_roles_backup_0220_56_20260224             | UPDATE
- public       | authenticated | vw_actual_hours_by_category_activity           | DELETE
- public       | authenticated | vw_actual_hours_by_category_activity           | INSERT
- public       | authenticated | vw_actual_hours_by_category_activity           | REFERENCES
  public       | authenticated | vw_actual_hours_by_category_activity           | SELECT
- public       | authenticated | vw_actual_hours_by_category_activity           | TRIGGER
- public       | authenticated | vw_actual_hours_by_category_activity           | TRUNCATE
- public       | authenticated | vw_actual_hours_by_category_activity           | UPDATE
  public       | postgres      | vw_actual_hours_by_category_activity           | DELETE
  public       | postgres      | vw_actual_hours_by_category_activity           | INSERT
  public       | postgres      | vw_actual_hours_by_category_activity           | REFERENCES
@@ -1205,13 +953,7 @@
  public       | service_role  | vw_actual_hours_by_category_activity           | TRIGGER
  public       | service_role  | vw_actual_hours_by_category_activity           | TRUNCATE
  public       | service_role  | vw_actual_hours_by_category_activity           | UPDATE
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | DELETE
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | INSERT
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | REFERENCES
  public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | SELECT
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | TRIGGER
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | TRUNCATE
- public       | authenticated | vw_budget_vs_actual_hours_by_category_activity | UPDATE
  public       | postgres      | vw_budget_vs_actual_hours_by_category_activity | DELETE
  public       | postgres      | vw_budget_vs_actual_hours_by_category_activity | INSERT
  public       | postgres      | vw_budget_vs_actual_hours_by_category_activity | REFERENCES
@@ -1241,13 +983,7 @@
  public       | service_role  | vw_staffing_alerts                             | TRIGGER
  public       | service_role  | vw_staffing_alerts                             | TRUNCATE
  public       | service_role  | vw_staffing_alerts                             | UPDATE
- public       | authenticated | vw_wo_budget_hours_by_category                 | DELETE
- public       | authenticated | vw_wo_budget_hours_by_category                 | INSERT
- public       | authenticated | vw_wo_budget_hours_by_category                 | REFERENCES
  public       | authenticated | vw_wo_budget_hours_by_category                 | SELECT
- public       | authenticated | vw_wo_budget_hours_by_category                 | TRIGGER
- public       | authenticated | vw_wo_budget_hours_by_category                 | TRUNCATE
- public       | authenticated | vw_wo_budget_hours_by_category                 | UPDATE
  public       | postgres      | vw_wo_budget_hours_by_category                 | DELETE
  public       | postgres      | vw_wo_budget_hours_by_category                 | INSERT
  public       | postgres      | vw_wo_budget_hours_by_category                 | REFERENCES
@@ -1262,13 +998,7 @@
  public       | service_role  | vw_wo_budget_hours_by_category                 | TRIGGER
  public       | service_role  | vw_wo_budget_hours_by_category                 | TRUNCATE
  public       | service_role  | vw_wo_budget_hours_by_category                 | UPDATE
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | DELETE
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | INSERT
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | REFERENCES
  public       | authenticated | vw_wo_budget_hours_by_category_activity        | SELECT
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | TRIGGER
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | TRUNCATE
- public       | authenticated | vw_wo_budget_hours_by_category_activity        | UPDATE
  public       | postgres      | vw_wo_budget_hours_by_category_activity        | DELETE
  public       | postgres      | vw_wo_budget_hours_by_category_activity        | INSERT
  public       | postgres      | vw_wo_budget_hours_by_category_activity        | REFERENCES
@@ -1285,10 +1015,7 @@
  public       | service_role  | vw_wo_budget_hours_by_category_activity        | UPDATE
  public       | authenticated | wo_budget_lines                                | DELETE
  public       | authenticated | wo_budget_lines                                | INSERT
- public       | authenticated | wo_budget_lines                                | REFERENCES
  public       | authenticated | wo_budget_lines                                | SELECT
- public       | authenticated | wo_budget_lines                                | TRIGGER
- public       | authenticated | wo_budget_lines                                | TRUNCATE
  public       | authenticated | wo_budget_lines                                | UPDATE
  public       | postgres      | wo_budget_lines                                | DELETE
  public       | postgres      | wo_budget_lines                                | INSERT
@@ -1306,10 +1033,7 @@
  public       | service_role  | wo_budget_lines                                | UPDATE
  public       | authenticated | wo_expense_budget                              | DELETE
  public       | authenticated | wo_expense_budget                              | INSERT
- public       | authenticated | wo_expense_budget                              | REFERENCES
  public       | authenticated | wo_expense_budget                              | SELECT
- public       | authenticated | wo_expense_budget                              | TRIGGER
- public       | authenticated | wo_expense_budget                              | TRUNCATE
  public       | authenticated | wo_expense_budget                              | UPDATE
  public       | postgres      | wo_expense_budget                              | DELETE
  public       | postgres      | wo_expense_budget                              | INSERT
@@ -1325,19 +1049,9 @@
  public       | service_role  | wo_expense_budget                              | TRIGGER
  public       | service_role  | wo_expense_budget                              | TRUNCATE
  public       | service_role  | wo_expense_budget                              | UPDATE
- public       | anon          | wo_payment_installments                        | DELETE
- public       | anon          | wo_payment_installments                        | INSERT
- public       | anon          | wo_payment_installments                        | REFERENCES
- public       | anon          | wo_payment_installments                        | SELECT
- public       | anon          | wo_payment_installments                        | TRIGGER
- public       | anon          | wo_payment_installments                        | TRUNCATE
- public       | anon          | wo_payment_installments                        | UPDATE
  public       | authenticated | wo_payment_installments                        | DELETE
  public       | authenticated | wo_payment_installments                        | INSERT
- public       | authenticated | wo_payment_installments                        | REFERENCES
  public       | authenticated | wo_payment_installments                        | SELECT
- public       | authenticated | wo_payment_installments                        | TRIGGER
- public       | authenticated | wo_payment_installments                        | TRUNCATE
  public       | authenticated | wo_payment_installments                        | UPDATE
  public       | postgres      | wo_payment_installments                        | DELETE
  public       | postgres      | wo_payment_installments                        | INSERT
@@ -1353,19 +1067,9 @@
  public       | service_role  | wo_payment_installments                        | TRIGGER
  public       | service_role  | wo_payment_installments                        | TRUNCATE
  public       | service_role  | wo_payment_installments                        | UPDATE
- public       | anon          | wo_payment_plan                                | DELETE
- public       | anon          | wo_payment_plan                                | INSERT
- public       | anon          | wo_payment_plan                                | REFERENCES
- public       | anon          | wo_payment_plan                                | SELECT
- public       | anon          | wo_payment_plan                                | TRIGGER
- public       | anon          | wo_payment_plan                                | TRUNCATE
- public       | anon          | wo_payment_plan                                | UPDATE
  public       | authenticated | wo_payment_plan                                | DELETE
  public       | authenticated | wo_payment_plan                                | INSERT
- public       | authenticated | wo_payment_plan                                | REFERENCES
  public       | authenticated | wo_payment_plan                                | SELECT
- public       | authenticated | wo_payment_plan                                | TRIGGER
- public       | authenticated | wo_payment_plan                                | TRUNCATE
  public       | authenticated | wo_payment_plan                                | UPDATE
  public       | postgres      | wo_payment_plan                                | DELETE
  public       | postgres      | wo_payment_plan                                | INSERT
@@ -1383,10 +1087,7 @@
  public       | service_role  | wo_payment_plan                                | UPDATE
  public       | authenticated | wo_staffing_requirement_skills                 | DELETE
  public       | authenticated | wo_staffing_requirement_skills                 | INSERT
- public       | authenticated | wo_staffing_requirement_skills                 | REFERENCES
  public       | authenticated | wo_staffing_requirement_skills                 | SELECT
- public       | authenticated | wo_staffing_requirement_skills                 | TRIGGER
- public       | authenticated | wo_staffing_requirement_skills                 | TRUNCATE
  public       | authenticated | wo_staffing_requirement_skills                 | UPDATE
  public       | postgres      | wo_staffing_requirement_skills                 | DELETE
  public       | postgres      | wo_staffing_requirement_skills                 | INSERT
@@ -1404,10 +1105,7 @@
  public       | service_role  | wo_staffing_requirement_skills                 | UPDATE
  public       | authenticated | wo_staffing_requirements                       | DELETE
  public       | authenticated | wo_staffing_requirements                       | INSERT
- public       | authenticated | wo_staffing_requirements                       | REFERENCES
  public       | authenticated | wo_staffing_requirements                       | SELECT
- public       | authenticated | wo_staffing_requirements                       | TRIGGER
- public       | authenticated | wo_staffing_requirements                       | TRUNCATE
  public       | authenticated | wo_staffing_requirements                       | UPDATE
  public       | postgres      | wo_staffing_requirements                       | DELETE
  public       | postgres      | wo_staffing_requirements                       | INSERT
@@ -1438,19 +1136,9 @@
  public       | service_role  | work_order_summary                             | TRIGGER
  public       | service_role  | work_order_summary                             | TRUNCATE
  public       | service_role  | work_order_summary                             | UPDATE
- public       | anon          | work_orders                                    | DELETE
- public       | anon          | work_orders                                    | INSERT
- public       | anon          | work_orders                                    | REFERENCES
- public       | anon          | work_orders                                    | SELECT
- public       | anon          | work_orders                                    | TRIGGER
- public       | anon          | work_orders                                    | TRUNCATE
- public       | anon          | work_orders                                    | UPDATE
  public       | authenticated | work_orders                                    | DELETE
  public       | authenticated | work_orders                                    | INSERT
- public       | authenticated | work_orders                                    | REFERENCES
  public       | authenticated | work_orders                                    | SELECT
- public       | authenticated | work_orders                                    | TRIGGER
- public       | authenticated | work_orders                                    | TRUNCATE
  public       | authenticated | work_orders                                    | UPDATE
  public       | postgres      | work_orders                                    | DELETE
  public       | postgres      | work_orders                                    | INSERT
@@ -1585,5 +1273,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1585 rows)
+(1273 rows)
 
