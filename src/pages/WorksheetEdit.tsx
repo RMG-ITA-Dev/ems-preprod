@@ -644,9 +644,15 @@ const WorksheetEdit = () => {
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                {worksheet?.engagement?.client?.industry && (
+                {worksheet?.engagement?.client?.industry ? (
                   <p className="text-xs text-muted-foreground">
                     {t("workOrders.autoDetected")} - {worksheet.engagement.client.industry.fiscal_year_end}
+                  </p>
+                ) : (
+                  // Sin industria (cliente sin industria, o rol sin client.read: la RLS de clients devuelve el embed nulo) la
+                  // temporada queda en su valor por defecto y define las tarifas de la OT: se avisa para que se confirme.
+                  <p className="text-xs text-warning" role="status" data-testid="season-not-detected">
+                    {t("workOrders.seasonNotDetected")}
                   </p>
                 )}
               </div>

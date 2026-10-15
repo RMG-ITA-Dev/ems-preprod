@@ -7,6 +7,7 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useCanSeeAllEngagements } from "@/hooks/useCanSeeAllEngagements";
 
 const Clients = () => {
   const { t, i18n } = useTranslation();
@@ -15,6 +16,9 @@ const Clients = () => {
   const canCreate = can("client.create");
   const { data: clients, isLoading } = useClients();
   const { data: engagements } = useEngagements();
+  // B3c: useEngagements() devuelve solo los encargos que la RLS deja ver; el conteo por cliente solo es real si el
+  // usuario los lee todos (un gerente ve únicamente los suyos y subcontaría los demás del mismo cliente).
+  const canSeeAllEngagements = useCanSeeAllEngagements();
   const { data: industries } = useIndustries();
 
   const getEngagementCount = (clientId: string) => {
@@ -90,7 +94,12 @@ const Clients = () => {
       label: t("client.engagements"),
       className: "text-center w-28",
       mobilePriority: 'secondary',
-      render: (row) => <Badge variant="secondary">{getEngagementCount(row.client_id)}</Badge>,
+      render: (row) =>
+        canSeeAllEngagements ? (
+          <Badge variant="secondary">{getEngagementCount(row.client_id)}</Badge>
+        ) : (
+          <span className="text-muted-foreground" title={t("client.engagementsHidden")}>-</span>
+        ),
     },
   ];
 

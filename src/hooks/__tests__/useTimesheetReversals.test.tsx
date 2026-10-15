@@ -407,4 +407,53 @@ describe("useTimesheetReversals (BUG 0923-209)", () => {
       expect(builder.or).not.toHaveBeenCalled();
     });
   });
+
+  // B3c-2: quien no tiene engagement.read recibe `engagement: null` en una solicitud de alcance ENCARGO.
+  describe("etiquetas de encargo por RPC (list_own_engagement_labels)", () => {
+    const row = (id: string, engagementId: string | null, engagement: unknown) => ({
+      request_id: id,
+      scope: engagementId ? "engagement" : "week",
+      engagement_id: engagementId,
+      engagement,
+    });
+
+    it("rellena el encargo que llegó null con la etiqueta de la RPC, pide solo los ids faltantes y no toca los demás", async () => {
+      const visible = { engagement_id: "e-1", engagement_code: "A-1", engagement_name: "Visible" };
+      mockSupabaseFromPages([{ data: [row("r1", "e-1", visible), row("r2", "e-2", null), row("r3", null, null)], error: null }]);
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: [{ engagement_id: "e-2", engagement_code: "B-2", engagement_name: "Oculto por RLS" }],
+        error: null,
+      } as any);
+
+      const { result } = renderHook(() => useMyReversalRequests(), { wrapper: createWrapper().Wrapper });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("list_own_engagement_labels", { p_engagement_ids: ["e-2"] });
+      const byId = Object.fromEntries((result.current.data ?? []).map((r) => [r.request_id, r.engagement]));
+      expect(byId.r1).toEqual(visible);
+      expect(byId.r2).toEqual({ engagement_id: "e-2", engagement_code: "B-2", engagement_name: "Oculto por RLS" });
+      expect(byId.r3).toBeNull(); // alcance semana: no lleva encargo
+    });
+
+    it("no llama a la RPC si todas las solicitudes ya traen su encargo", async () => {
+      const visible = { engagement_id: "e-1", engagement_code: "A-1", engagement_name: "Visible" };
+      mockSupabaseFromPages([{ data: [row("r1", "e-1", visible)], error: null }]);
+
+      const { result } = renderHook(() => useReversalRequests(), { wrapper: createWrapper().Wrapper });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).not.toHaveBeenCalled();
+    });
+
+    it("si la RPC falla devuelve las filas tal cual (la pantalla muestra «Encargo» por scope), sin romper la lista", async () => {
+      mockSupabaseFromPages([{ data: [row("r2", "e-2", null)], error: null }]);
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: { message: "boom" } } as any);
+
+      const { result } = renderHook(() => useReversalRequests(), { wrapper: createWrapper().Wrapper });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data).toHaveLength(1);
+      expect(result.current.data?.[0].engagement).toBeNull();
+    });
+  });
 });

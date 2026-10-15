@@ -58,10 +58,13 @@ function useFilteredRequests(requests: ReversalRequest[] | undefined, filters: R
   });
 }
 
-function engagementLabel(r: ReversalRequest, weekScopeLabel: string) {
-  return r.engagement
-    ? `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`
-    : weekScopeLabel;
+// B3c-2: se decide por `scope`, no por `engagement` nulo: quien no lee encargos recibe null en una solicitud de alcance
+// ENCARGO (y el hook intenta rellenarlo por RPC); mostrar «Semana completa» ahí sería falso.
+function engagementLabel(r: ReversalRequest, weekScopeLabel: string, engagementScopeLabel: string) {
+  if (r.engagement) {
+    return `${r.engagement.engagement_code ? r.engagement.engagement_code + " - " : ""}${r.engagement.engagement_name}`;
+  }
+  return r.scope === "engagement" ? engagementScopeLabel : weekScopeLabel;
 }
 
 // "Mis solicitudes" (review iteración 3, hallazgo #6 + iteración 4, hallazgo #4): mientras
@@ -153,7 +156,7 @@ function MyRequestsView() {
                       {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
                     </TableCell>
                     <TableCell className="text-left border-r border-border">
-                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                      {engagementLabel(r, t("approval.reversalScope.week"), t("approval.reversalScope.engagement"))}
                     </TableCell>
                     <TableCell className="text-left border-r border-border">
                       <RequestNote request={r} />
@@ -179,7 +182,7 @@ function MyRequestsView() {
                       {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                      {engagementLabel(r, t("approval.reversalScope.week"), t("approval.reversalScope.engagement"))}
                     </p>
                   </div>
                   <Badge variant={statusBadgeVariant(r.status)} className="shrink-0">
@@ -340,7 +343,7 @@ function QueueView() {
                       {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
                     </TableCell>
                     <TableCell className="text-left border-r border-border">
-                      {engagementLabel(r, t("approval.reversalScope.week"))}
+                      {engagementLabel(r, t("approval.reversalScope.week"), t("approval.reversalScope.engagement"))}
                     </TableCell>
                     <TableCell className="text-left border-r border-border">{r.reason}</TableCell>
                     <TableCell className="text-center">{actions(r, "row")}</TableCell>
@@ -362,7 +365,7 @@ function QueueView() {
                 <p className="truncate text-xs text-muted-foreground">
                   {r.period ? formatReversalWeekRange(r.period.week_start_date) : "—"}
                   {" · "}
-                  {engagementLabel(r, t("approval.reversalScope.week"))}
+                  {engagementLabel(r, t("approval.reversalScope.week"), t("approval.reversalScope.engagement"))}
                 </p>
                 {/* Sin truncar (review iteración 4, hallazgo #1): el admin decide ejecutar o
                     rechazar leyendo este motivo, y en 768px un `truncate` podía esconder la

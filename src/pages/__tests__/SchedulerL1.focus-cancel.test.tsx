@@ -49,7 +49,7 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: [] }),
+  useClientDirectory: () => ({ data: [] }),
 }));
 
 const query: {

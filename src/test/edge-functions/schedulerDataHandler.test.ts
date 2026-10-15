@@ -614,6 +614,46 @@ describe("scheduler-staff-load output (counts only, never identities)", () => {
   });
 });
 
+// B3c: L2 ya no lee el encargo por PostgREST (RLS en engagements): lo recibe del preflight, autorizado.
+describe("scheduler-staff-load devuelve el encargo autorizado (B3c)", () => {
+  const body = (engagementId: string) => ({ action: "scheduler-staff-load", engagementId });
+  type LoadPayload = { rows: unknown[]; engagement?: Record<string, unknown> };
+
+  it("incluye solo los campos que L2 pinta, con el nombre del cliente resuelto aparte", async () => {
+    const res = await handleAction(ctx("partner", PART), body(E1));
+    expect(res.status).toBe(200);
+    const eng = (res.payload as LoadPayload).engagement!;
+    expect(Object.keys(eng).sort()).toEqual([
+      "client_name", "encargado_id", "end_date", "engagement_code", "engagement_id", "engagement_name",
+      "manager_id", "partner_id", "practica", "specialist_it_id", "specialist_tax_id", "sqr_id", "start_date",
+    ]);
+    expect(eng).toMatchObject({
+      engagement_id: E1, engagement_code: "A-001", engagement_name: "Audit One",
+      start_date: "2026-02-01", end_date: "2026-11-30", manager_id: MGR, partner_id: PART, client_name: "Cliente Uno S.A.",
+    });
+  });
+
+  it("un encargo sin cliente da client_name null", async () => {
+    const res = await handleAction(ctx("admin", null), body(E3));
+    expect((res.payload as LoadPayload).engagement?.client_name).toBeNull();
+  });
+
+  it("el senior asignado lo recibe (la RLS de engagements ya no se lo daría); el no asignado, 403 sin encargo", async () => {
+    const ok = await handleAction(ctx("senior", SEN), body(E3));
+    expect(ok.status).toBe(200);
+    expect((ok.payload as LoadPayload).engagement?.engagement_id).toBe(E3);
+    const denied = await handleAction(ctx("senior", SEN), body(E1));
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(denied.payload)).not.toContain("Audit One");
+  });
+
+  it("el gerente que no lidera el encargo recibe 403 sin datos del encargo", async () => {
+    const denied = await handleAction(ctx("manager", MGR), body(E3));
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(denied.payload)).not.toContain("Consulting");
+  });
+});
+
 // ── scheduler-staff-timeline ──────────────────────────────
 
 interface TimelinePayload {

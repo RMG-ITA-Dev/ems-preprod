@@ -117,10 +117,11 @@ export function useTimesheetImport({ staffId }: { staffId: string }) {
       const uniqueEngagementIds = Array.from(new Set(Array.from(grouped.values()).map(g => g.engagement_id)));
       const engagementCodeMap = new Map<string, string>();
       if (uniqueEngagementIds.length > 0) {
-        const { data: engagements } = await supabase
-          .from("engagements")
-          .select("engagement_id, engagement_code")
-          .in("engagement_id", uniqueEngagementIds);
+        // B3c: `engagements` tiene RLS y quien no tiene engagement.read (senior, semisenior) no la lee;
+        // list_own_engagement_labels() resuelve el código de los encargos con timers propios (lo que se importa).
+        const { data: engagements } = (await supabase.rpc("list_own_engagement_labels" as never, {
+          p_engagement_ids: uniqueEngagementIds,
+        } as never)) as { data: { engagement_id: string; engagement_code: string | null }[] | null };
         if (engagements) {
           for (const eng of engagements) {
             if (eng.engagement_code) {

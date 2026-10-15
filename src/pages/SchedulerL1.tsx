@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/popover";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
-import { useClients } from "@/hooks/useEmsData";
+import { useClientDirectory } from "@/hooks/useEmsData";
 import { useSchedulerL1Rows, type SchedulerL1StatusFilter } from "@/hooks/scheduler/useSchedulerL1";
 import { SchedulerUnavailableError } from "@/hooks/scheduler/schedulerData";
 import { canSeePlanning } from "@/lib/schedulerAccess";
@@ -250,7 +250,9 @@ const SchedulerL1 = () => {
   const hasFilters = status !== "all" || !!partner || !!manager || !!client;
 
   const { partnerOptions, managerOptions } = useCategoryStaff();
-  const { data: clients } = useClients();
+  // Directorio (solo nombre) y no la tabla: con la RLS de `clients` (B3c) el senior, que no tiene
+  // `client.read`, vería cero clientes en el filtro aunque L1 le muestre sus encargos.
+  const { data: clients } = useClientDirectory();
   const clientOptions = useMemo(
     () =>
       (clients ?? []).map((c) => ({

@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 /**
  * BUG #0819-181: EngagementForm — hydration race in edit mode.
  *
- * On a cold cache, useClients() resolves AFTER the form mounts. The fiscal-year
+ * On a cold cache, useClientDirectory() resolves AFTER the form mounts. The fiscal-year
  * derivation effect used to fire immediately on mount against the still-empty
  * placeholder defaults, overwriting anio_fiscal (suggestFiscalYear() → undefined).
  * Despite `shouldDirty: false`, react-hook-form recomputes the global `isDirty`
@@ -117,7 +117,7 @@ let societiesIsError = false;
 let clientsIsError = false;
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: clientsData, isError: clientsIsError }),
+  useClientDirectory: () => ({ data: clientsData, isError: clientsIsError }),
   useServices: () => ({ data: servicesData, isLoading: servicesData === undefined && !servicesIsError, isFetching: false, isError: servicesIsError }),
   useTaxonomies: () => ({ data: stableTaxonomies }),
   useSocieties: () => ({ data: societiesData, isLoading: societiesData === undefined && !societiesIsError, isFetching: false, isError: societiesIsError }),
@@ -351,7 +351,7 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
   });
 
   // BUG 0922-195 (review H4, chatgpt-codex-connector): Test 5's fix only covered
-  // services/societies — useClients() is the same kind of populate-effect prerequisite, and a
+  // services/societies — useClientDirectory() is the same kind of populate-effect prerequisite, and a
   // genuine failure there left the exact same silent freeze uncovered.
   it("Test 6 (BUG #0922-195): a clients load failure in edit mode also shows an explicit error", async () => {
     clientsData = undefined;

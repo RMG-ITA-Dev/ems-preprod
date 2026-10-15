@@ -41,7 +41,6 @@ import {
   useCategories,
   useEngagementAggregatedRequirements,
   useEngagementAssignments,
-  useEngagements,
   useServices,
   type EngagementAssignmentRow,
 } from "@/hooks/useEmsData";
@@ -118,12 +117,9 @@ const SchedulerL2 = () => {
   // anything else must SURFACE — an ignored assignment failure would
   // render as "no assignments" and an ignored requirements failure as
   // fake-neutral match dots.
-  const engagementsQuery = useEngagements();
-  const engagements = engagementsQuery.data;
-  const engagement = useMemo(
-    () => (engagements ?? []).find((e) => e.engagement_id === engagementId),
-    [engagements, engagementId]
-  );
+  // B3c: el encargo llega del mismo preflight (autorizado con la regla de L1), no de useEngagements():
+  // con la RLS de engagements el socio/director verían solo sus encargos y el senior ninguno.
+  const engagement = loadQuery.data?.engagement;
   const assignmentsQuery = useEngagementAssignments(authorizedEngagementId);
   const assignments = assignmentsQuery.data;
   const requirementsQuery = useEngagementAggregatedRequirements(authorizedEngagementId);
@@ -148,7 +144,6 @@ const SchedulerL2 = () => {
   const categories = engagementServiceId !== undefined ? categoriesQuery.data : undefined;
 
   const dataQueries = [
-    engagementsQuery,
     assignmentsQuery,
     requirementsQuery,
     staffQuery,
@@ -165,7 +160,7 @@ const SchedulerL2 = () => {
   const retryDataQueries = useCallback(() => {
     for (const q of dataQueries) if (q.isError) void q.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engagementsQuery, assignmentsQuery, requirementsQuery, staffQuery, servicesQuery, categoriesQuery]);
+  }, [assignmentsQuery, requirementsQuery, staffQuery, servicesQuery, categoriesQuery]);
 
   const loadByStaff = useMemo(
     () =>
@@ -349,8 +344,7 @@ const SchedulerL2 = () => {
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {t("scheduler.l2.title")}
-                  {engagement.client?.client_legal_name &&
-                    ` · ${engagement.client.client_legal_name}`}
+                  {engagement.client_name && ` · ${engagement.client_name}`}
                   {engagement.start_date &&
                     engagement.end_date &&
                     // dd/MM/yyyy per the repository-wide rule.

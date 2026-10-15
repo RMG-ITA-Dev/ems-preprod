@@ -338,6 +338,119 @@ run supabase/migrations/20260924120000_0922-190_ea_select_own_policy.sql
 # rpc-0923-209-timesheet-reversal.sql.
 run supabase/migrations/20260929160000_0923-209_timesheet_reversal_requests.sql
 
+# Carril B del barrido RLS (B1): valida al llamador en submit_timesheet_safe /
+# sync_worksheet_to_wo_budget / update_timesheet_minmax_settings y ajusta la matriz de permisos
+# (timesheet.self_approve, lectura de OT para risk_partner/risk_supervisor). Va DESPUES de todas las
+# migraciones que recrean funciones o siembran permisos porque reemplaza cuerpos completos con
+# CREATE OR REPLACE. Se aplica DOS veces a proposito: el archivo declara ser idempotente (se corre
+# a mano en Dev 2.0 y luego otra vez con db push) y esta es la unica prueba de que lo es.
+# Ejercitado por rls-carril-b-b1-callers.sql.
+run supabase/migrations/20261009120000_rls_carril_b.sql
+run supabase/migrations/20261009120000_rls_carril_b.sql
+
+# Carril B del barrido RLS (B2): RLS de lectura de public.user_roles (cada uno ve su fila; admin y
+# user_role.read ven todas). Va despues de B1 y de todas las migraciones que recrean funciones que
+# leen user_roles: la suite comprueba que ninguna quede como INVOKER. Tambien se aplica DOS veces
+# (idempotencia: se corre a mano en Dev 2.0 y luego con db push).
+# Ejercitado por rls-carril-b-b2-user-roles.sql.
+run supabase/migrations/20261012120000_rls_carril_b2_user_roles.sql
+run supabase/migrations/20261012120000_rls_carril_b2_user_roles.sql
+
+# Carril B del barrido RLS (B3a): RLS en los cuatro catalogos de configuracion (activity_codes,
+# categories, expense_types, industries). La lectura no cambia (USING true); la escritura pasa a exigir
+# el permiso. Tambien se aplica DOS veces (idempotencia: a mano en Dev 2.0 y luego con db push).
+# Ejercitado por rls-carril-b-b3a-catalogos.sql.
+run supabase/migrations/20261012130000_rls_carril_b3a_catalogos.sql
+run supabase/migrations/20261012130000_rls_carril_b3a_catalogos.sql
+
+# Carril B del barrido RLS (B3p): permisos de lectura de OT, encargo y cliente para cobranza y
+# contabilidad (decision del operador, 12/10/2026). Solo siembra filas de authorization_role_permissions.
+# Tambien se aplica DOS veces (idempotencia). Ejercitado por rls-carril-b-b3p-permisos.sql.
+run supabase/migrations/20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+run supabase/migrations/20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+
+# Carril B del barrido RLS (B3b): RLS en los presupuestos de OT (wo_budget_lines, wo_expense_budget,
+# activity_worksheet_cells). Va DESPUES de B3p porque la visibilidad de cobranza y contabilidad sobre las
+# lineas de presupuesto sale de work_order.read, que B3p les concede. Tambien se aplica DOS veces
+# (idempotencia). Ejercitado por rls-carril-b-b3b-presupuestos.sql.
+run supabase/migrations/20261012150000_rls_carril_b3b_presupuestos.sql
+run supabase/migrations/20261012150000_rls_carril_b3b_presupuestos.sql
+
+# Carril B del barrido RLS (B3c): RLS en clients y engagements, directorio de clientes (solo nombre y estado)
+# y fin de la escritura por las vistas del dueño. Va DESPUES de B3p (client.read/engagement.read de cobranza y
+# contabilidad) y de las migraciones que crean engagement_wo_state y fund_request_selectable_work_orders.
+# Tambien se aplica DOS veces (idempotencia: DROP VIEW + CREATE VIEW, REVOKE y ENABLE RLS repetibles).
+# ATENCION: activa RLS en engagements para TODAS las suites que siguen. Ejercitado por
+# rls-carril-b-b3c-clientes-encargos.sql y por el check 17 de schema-convergence-assertions.sql.
+run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
+run supabase/migrations/20261012160000_rls_carril_b3c_clientes_encargos.sql
+
+# Carril B del barrido RLS (B3c-2): list_own_engagement_labels(uuid[]), la etiqueta (código y nombre) de un encargo
+# para quien tiene registros propios sobre él pero no puede leerlo desde que B3c activó RLS en engagements
+# (asistente, senior, semisenior). Va DESPUES de B3c. Tambien se aplica DOS veces (idempotencia: DROP + CREATE).
+# Ejercitado por rls-carril-b-b3c2-etiquetas-encargo.sql.
+run supabase/migrations/20261012170000_rls_carril_b3c2_etiquetas_encargo.sql
+run supabase/migrations/20261012170000_rls_carril_b3c2_etiquetas_encargo.sql
+
+# Carril B del barrido RLS (B3c-3): hr_manager y hr_analyst ven y administran TODOS los encargos Administrativa,
+# Capacitacion y Calidad (funcion <> 1): dos politicas nuevas en engagements y un bucket en list_portfolio_engagements
+# (DROP + CREATE de la funcion, copiada verbatim de 20260902163000). Va DESPUES de B3c. Tambien se aplica DOS veces
+# (idempotencia). Ejercitado por rls-carril-b-b3c3-hr-administrativos.sql y por rpc-0828-185-engagement-portfolio.sql.
+run supabase/migrations/20261012180000_rls_carril_b3c3_hr_encargos_administrativos.sql
+run supabase/migrations/20261012180000_rls_carril_b3c3_hr_encargos_administrativos.sql
+
+# Carril B del barrido RLS (B3d): RLS en las horas y sus aprobaciones (time_entries, timer_entries, timesheet_periods,
+# timesheet_line_approvals). Tres helpers SECURITY DEFINER (is_firm_hours_reader, is_in_charge_of_engagement,
+# is_in_charge_of_period), cuatro politicas de lectura nuevas o reescritas y ENABLE RLS. Va DESPUES de B3c-3 (usa get_my_staff_id y
+# engagements.encargado_id). Tambien se aplica DOS veces (idempotencia: CREATE OR REPLACE, DROP POLICY IF EXISTS + CREATE, ENABLE RLS
+# repetible). ATENCION: activa RLS en esas 4 tablas para TODAS las suites que siguen; las demas suites las siembran como dueno y
+# solo las leen a traves de funciones SECURITY DEFINER (revisado a mano). Ejercitado por rls-carril-b-b3d-horas.sql y por el check 12.
+run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
+run supabase/migrations/20261012190000_rls_carril_b3d_horas.sql
+
+# Carril B del barrido RLS (B3e): RLS en staff (se quita la politica de «mi propia fila»; la lectura no cambia) y, en un archivo
+# aparte (B3e-2), el trigger wo_guard_partner_signature que reserva la firma del socio en work_orders a quien puede aprobar.
+# Cada archivo se aplica DOS veces (idempotencia: DROP POLICY IF EXISTS, ENABLE RLS repetible, CREATE OR REPLACE, DROP TRIGGER IF
+# EXISTS + CREATE). Va DESPUES de B3d. ATENCION: activa RLS en staff para TODAS las suites que siguen; las demas suites siembran
+# staff como dueno (antes de suplantar roles) y lo leen con la politica `true` (revisado a mano), y las que actualizan la firma de
+# work_orders lo hacen como admin, sin claim o con triggers en replica. Ejercitado por rls-carril-b-b3e-staff.sql y por el check 12.
+run supabase/migrations/20261013120000_rls_carril_b3e_staff.sql
+run supabase/migrations/20261013120000_rls_carril_b3e_staff.sql
+run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
+run supabase/migrations/20261013130000_rls_carril_b3e2_firma_ot.sql
+
+# Carril B del barrido RLS (B4 y B4b): lectura de las vistas del dueño y las dos tablas que quedaban sin RLS. B4: my_visible_engagement_ids()
+# (el predicado de las 4 politicas SELECT de engagements como conjunto), engagement_wo_state filtrada por ese conjunto y con security_barrier,
+# staff_directory como security_invoker y privilegios de las vistas (authenticated solo SELECT, anon nada). B4b: ENABLE RLS sin politicas en
+# migration_run_log y en el respaldo de user_roles. Cada archivo se aplica DOS veces (idempotencia: CREATE OR REPLACE, DROP VIEW IF EXISTS +
+# CREATE, ALTER VIEW, REVOKE/GRANT y ENABLE RLS repetibles). Va DESPUES de B3e (usa las politicas de engagements de B3c y B3c-3). Ejercitado por
+# rls-carril-b-b4-vistas.sql y por los checks 12 (lista de excepciones vacia) y 18 de schema-convergence-assertions.sql.
+run supabase/migrations/20261013140000_rls_carril_b4_vistas.sql
+run supabase/migrations/20261013140000_rls_carril_b4_vistas.sql
+run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
+run supabase/migrations/20261013150000_rls_carril_b4b_sueltas.sql
+
+# Carril B del barrido RLS (B5): privilegios de tablas y funciones de public. anon sin nada (salvo SELECT de global_settings), authenticated sin
+# TRUNCATE/REFERENCES/TRIGGER/MAINTAIN, funciones sin EXECUTE para PUBLIC ni anon (authenticated y service_role conservan EXACTAMENTE lo que ya
+# ejecutaban), search_path fijo en toda funcion y privilegios por defecto del dueño. Se aplica DOS veces (idempotencia). Va DESPUES de B4b y es la
+# ULTIMA migracion: toda funcion o tabla creada despues nace sin esos privilegios (los privilegios por defecto del shim se ajustan aqui).
+# Ejercitado por rls-carril-b-b5-privilegios.sql y por el check 19 de schema-convergence-assertions.sql.
+run supabase/migrations/20261013160000_rls_carril_b5_privilegios.sql
+run supabase/migrations/20261013160000_rls_carril_b5_privilegios.sql
+
+# Carril B del barrido RLS (B6): indice UNIQUE parcial sobre staff.auth_user_id (una ficha ACTIVA por usuario de auth). Se aplica DOS veces
+# (idempotencia). Solo crea un indice: no depende de los privilegios por defecto de B5. Ejercitado por rls-carril-b-b6-staff-unique.sql y por el
+# check 20 de schema-convergence-assertions.sql.
+run supabase/migrations/20261013170000_rls_carril_b6_staff_auth_user_unique.sql
+run supabase/migrations/20261013170000_rls_carril_b6_staff_auth_user_unique.sql
+
+# B5 dejo el privilegio POR DEFECTO de funciones del dueño sin EXECUTE para PUBLIC (lo que cree `postgres` nace cerrado). Se verifica AQUI, con el
+# estado de produccion, y despues se restaura SOLO para lo que creen las suites: ellas definen auxiliares en pg_temp (impersonate, try_as...) como
+# `postgres` y los llaman estando en el rol authenticated o anon; sin EXECUTE para PUBLIC darian "permission denied for function impersonate" (fallo
+# del 13/10/2026 en rls-engagement-assignments-d5.sql). Las migraciones ya corrieron, asi que ninguna se ve afectada, y en produccion no hay pg_temp.
+run supabase/tests/local/assert-b5-default-privileges.sql
+psql -v ON_ERROR_STOP=1 -d "$DB" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres GRANT EXECUTE ON FUNCTIONS TO PUBLIC"
+
 # society/practicas(code=1): staff.society_id/practica_id y categories.practica_id son NOT NULL
 # reales; varias suites (rpc-engagement-team-candidates.sql explícitamente lo exige con su
 # propio guard) asumen que el catálogo mínimo de práctica/sociedad ya existe, como pasaría en
@@ -392,9 +505,22 @@ assert_suite supabase/tests/rpc-dash-personal-overview.sql 'PERSONAL OVERVIEW RP
 assert_suite supabase/tests/rpc-0722-160-administrative-engagements.sql 'ADMINISTRATIVE ENGAGEMENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0922-190-my-assignments-visibility.sql '0922-190 MY ASSIGNMENTS VISIBILITY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-0923-209-timesheet-reversal.sql '0923-209 REVERSAL: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b1-callers.sql 'B1 CALLERS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b2-user-roles.sql 'B2 USER_ROLES: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3a-catalogos.sql 'B3a CATALOGOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3p-permisos.sql 'B3p PERMISOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3b-presupuestos.sql 'B3b PRESUPUESTOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3c-clientes-encargos.sql 'B3c CLIENTES ENCARGOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3c2-etiquetas-encargo.sql 'B3c-2 ETIQUETAS DE ENCARGO: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3c3-hr-administrativos.sql 'B3c-3 HR ADMINISTRATIVOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3d-horas.sql 'B3d HORAS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b3e-staff.sql 'B3e STAFF Y FIRMA DE OT: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b4-vistas.sql 'B4 VISTAS Y SUELTAS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b5-privilegios.sql 'B5 PRIVILEGIOS: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-carril-b-b6-staff-unique.sql 'B6 STAFF UNIQUE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-accounting-parity.sql 'FUND ACCOUNTING PARITY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-request-events.sql 'FUND REQUEST EVENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expense-calendar.sql 'FUND EXPENSE CALENDAR: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 21 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 26 suites de RLS/RPC/schema-convergence/trigger pasaron"

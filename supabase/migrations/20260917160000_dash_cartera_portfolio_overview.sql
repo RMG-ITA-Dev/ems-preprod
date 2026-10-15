@@ -23,6 +23,16 @@
 --
 -- Nada de esto se aplica aquí a ningún Supabase real (ni Lovable, ni Dev 2.0, ni Test) --
 -- solo se crea el archivo, per instrucción explícita del operador.
+--
+-- FECHAS DE LOS HITOS (corrección 2026-10-11, mismo archivo porque todo se aplica sobre un
+-- Supabase vacío): los hitos new_engagement / wo_approved / risk_approved / assignment fechan un
+-- timestamptz contra el "hoy" de La Paz (now_ctx). Convertir con `col::date` usa la zona de la
+-- SESIÓN, que en Supabase es UTC: entre las 20:00 y las 24:00 de Bolivia la fecha UTC ya es
+-- mañana, el hito caía fuera de `BETWEEN hoy-1 mes AND hoy` o salía con el día equivocado. Por
+-- eso las ocho expresiones usan `(col AT TIME ZONE 'America/La_Paz')::date`. Misma clase de bug
+-- que 20260911100600_fecha_local_current_date.sql. Lo destapó el CI (UTC) a las 20:55 de
+-- Bolivia, cuando localmente (UTC-4) pasaba. Ejercitado por OK 30 de
+-- rpc-dash-cartera-portfolio-overview.sql, que fija timezone = UTC y fabrica horas de las 23:30.
 
 -- ═══════════════════════════════════════════════════════════════════════════════════════
 -- 1. portfolio_events -- bitácora append-only de partner_id/manager_id (decisiones.md §7.2)
@@ -863,28 +873,28 @@ BEGIN
     WHERE s.fecha_cierre BETWEEN mw.win_start AND mw.win_end
   ),
   milestones_new_engagement AS (
-    SELECT 'new_engagement'::text, s.created_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'new_engagement'::text, (s.created_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.created_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE (s.created_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_wo_approved AS (
-    SELECT 'wo_approved'::text, s.approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'wo_approved'::text, (s.approved_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.approved_at IS NOT NULL AND s.approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE s.approved_at IS NOT NULL AND (s.approved_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_risk_approved AS (
-    SELECT 'risk_approved'::text, s.risk_approved_at::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'risk_approved'::text, (s.risk_approved_at AT TIME ZONE 'America/La_Paz')::date, s.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM scope s CROSS JOIN now_ctx nc
-    WHERE s.risk_approved_at IS NOT NULL AND s.risk_approved_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+    WHERE s.risk_approved_at IS NOT NULL AND (s.risk_approved_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_assignment AS (
-    SELECT 'assignment'::text, pe.occurred_at::date, pe.engagement_id, s.engagement_code, s.engagement_name, NULL::int
+    SELECT 'assignment'::text, (pe.occurred_at AT TIME ZONE 'America/La_Paz')::date, pe.engagement_id, s.engagement_code, s.engagement_name, NULL::int
     FROM public.portfolio_events pe
     JOIN scope s ON s.engagement_id = pe.engagement_id
     CROSS JOIN caller c
     CROSS JOIN now_ctx nc
     WHERE pe.subject_staff_id = c.staff_id
-      AND pe.occurred_at::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
+      AND (pe.occurred_at AT TIME ZONE 'America/La_Paz')::date BETWEEN (nc.today - interval '1 month')::date AND nc.today
   ),
   milestones_lock_deadline AS (
     SELECT 'lock_deadline'::text,

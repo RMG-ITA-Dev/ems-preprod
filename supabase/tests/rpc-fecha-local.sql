@@ -107,6 +107,19 @@ BEGIN
     SELECT COUNT(*) INTO v_cuantas
       FROM jsonb_array_elements(v_semanas) w
      WHERE (w->>'is_current_week')::boolean;
+
+    -- La funcion arma semanas lun-vie (week_end = lunes + 4): sabado y domingo en La Paz NO hay
+    -- semana actual, ninguna. Antes esta asercion exigia siempre exactamente una y fallaba todos los
+    -- fines de semana. Con huso adelantado el bug original marcaba como actual la semana del lunes
+    -- siguiente, asi que "ninguna" sigue discriminando.
+    IF EXTRACT(ISODOW FROM v_hoy)::int >= 6 THEN
+      IF v_cuantas <> 0 THEN
+        RAISE EXCEPTION 'TEST FAIL - con la sesion en % hubo % semanas marcadas como actual en fin de semana (hoy en La Paz es %), se esperaba 0',
+          v_zona, v_cuantas, v_hoy;
+      END IF;
+      CONTINUE;
+    END IF;
+
     IF v_cuantas <> 1 THEN
       RAISE EXCEPTION 'TEST FAIL - con la sesion en % hubo % semanas marcadas como actual, se esperaba 1',
         v_zona, v_cuantas;
@@ -116,8 +129,8 @@ BEGIN
       FROM jsonb_array_elements(v_semanas) w
      WHERE (w->>'is_current_week')::boolean;
 
-    -- La semana corre de lunes a domingo; `week_start` es el lunes.
-    IF v_hoy < v_actual OR v_hoy > v_actual + 6 THEN
+    -- La semana arranca el lunes (`week_start`) y llega hasta el viernes.
+    IF v_hoy < v_actual OR v_hoy > v_actual + 4 THEN
       RAISE EXCEPTION 'TEST FAIL - con la sesion en % la semana actual arranca el % y hoy en La Paz es %',
         v_zona, v_actual, v_hoy;
     END IF;

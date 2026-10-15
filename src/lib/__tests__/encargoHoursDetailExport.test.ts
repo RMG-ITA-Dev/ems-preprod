@@ -4,6 +4,8 @@ import {
   aggregateStaffHours,
   groupByCategory,
   downloadXlsx,
+  buildLineStatusMap,
+  classifyHoursStatus,
   type RawTimeEntryRow,
 } from "@/lib/encargoHoursDetailExport";
 
@@ -48,6 +50,9 @@ const sampleRow = {
   year: 2026,
   weekNumber: 10,
   hoursLoaded: 3,
+  approvedHours: 0,
+  pendingHours: 0,
+  savedHours: 3,
 };
 
 // ─── aggregateStaffHours ───────────────────────────────────────────────────
@@ -213,5 +218,73 @@ describe("downloadXlsx", () => {
     const lastRow = data[data.length - 1];
     expect(lastRow[1]).toBe("Total General");
     expect(lastRow[4]).toBeCloseTo(8);
+  });
+});
+
+// ─── B3d: desglose aprobadas / pendientes / guardadas ──────────────────────────────────────────────
+
+describe("classifyHoursStatus", () => {
+  const lines = buildLineStatusMap([
+    { period_id: "p1", activity_id: "a1", status: "approved" },
+    { period_id: "p1", activity_id: "a2", status: "pending" },
+    { period_id: "p1", activity_id: "a3", status: "rejected" },
+  ]);
+  const sent = { submitted_at: "2026-03-06T00:00:00Z" };
+
+  it("aprobada y pendiente según la línea del período enviado", () => {
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: sent }, lines)).toBe("approved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: sent }, lines)).toBe("pending");
+  });
+
+  it("guardada: línea rechazada, sin línea, o pendiente de un período retirado (sin enviar)", () => {
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a3", period: sent }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "zz", period: sent }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: { submitted_at: null } }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a2", period: null }, lines)).toBe("saved");
+    expect(classifyHoursStatus({ period_id: null, activity_id: "a1", period: sent }, lines)).toBe("saved");
+  });
+
+  it("una línea aprobada sigue aprobada aunque el período esté sin enviar (semana parcialmente aprobada y retirada)", () => {
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: { submitted_at: null } }, lines)).toBe("approved");
+    expect(classifyHoursStatus({ period_id: "p1", activity_id: "a1", period: null }, lines)).toBe("approved");
+  });
+});
+
+describe("aggregateStaffHours — desglose por estado", () => {
+  it("separa las horas por estado y su suma es el total", () => {
+    const result = aggregateStaffHours([
+      { ...makeRow({ staff_id: "s1", hours_logged: 3 }), hours_status: "approved" },
+      { ...makeRow({ staff_id: "s1", hours_logged: 2 }), hours_status: "pending" },
+      { ...makeRow({ staff_id: "s1", hours_logged: 1.5 }), hours_status: "saved" },
+      makeRow({ staff_id: "s1", hours_logged: 0.5 }),
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].approvedHours).toBeCloseTo(3);
+    expect(result[0].pendingHours).toBeCloseTo(2);
+    expect(result[0].savedHours).toBeCloseTo(2);
+    expect(result[0].hoursLoaded).toBeCloseTo(7);
+  });
+
+  it("groupByCategory suma el desglose por categoría", () => {
+    const groups = groupByCategory([
+      { ...sampleRow, staffId: "s1", hoursLoaded: 5, approvedHours: 3, pendingHours: 1, savedHours: 1 },
+      { ...sampleRow, staffId: "s2", hoursLoaded: 4, approvedHours: 0, pendingHours: 2, savedHours: 2 },
+    ]);
+    expect(groups[0].approvedSubtotal).toBeCloseTo(3);
+    expect(groups[0].pendingSubtotal).toBeCloseTo(3);
+    expect(groups[0].savedSubtotal).toBeCloseTo(3);
+  });
+});
+
+describe("downloadXlsx — desglose", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("agrega las 3 columnas solo si el llamador manda sus encabezados", async () => {
+    const row = { ...sampleRow, hoursLoaded: 6, approvedHours: 3, pendingHours: 2, savedHours: 1 };
+    await downloadXlsx([row], { ...defaultHeaders, approvedHours: "Aprobadas", pendingHours: "Pendientes", savedHours: "Guardadas" }, "t.xlsx");
+    const data = vi.mocked(XLSX.utils.aoa_to_sheet).mock.calls[0][0] as (string | number)[][];
+    expect(data[0]).toEqual(["Nombre", "Categoría", "Año", "Semana", "Horas cargadas", "Aprobadas", "Pendientes", "Guardadas"]);
+    expect(data[1].slice(4)).toEqual([6, 3, 2, 1]);
+    expect(data[data.length - 1].slice(4)).toEqual([6, 3, 2, 1]);
   });
 });

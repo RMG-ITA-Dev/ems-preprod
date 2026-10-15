@@ -148,3 +148,73 @@ describe("useStaffTimesheetForApproval — Fase 6 (is_forecast filter + abortSig
     expect(result.current.data?.approvableEngagementIds).toEqual(["eng-1"]);
   });
 });
+
+describe("useStaffTimesheetForApproval — B3d (RLS de horas y aprobaciones)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const period = {
+    period_id: "p1",
+    week_start_date: "2026-02-16",
+    week_number: 8,
+    year: 2026,
+    staff_id: "staff-2",
+    staff: { staff_id: "staff-2", first_name: "A", last_name: "B", short_name: null },
+  };
+  const entry = (id: string, eng: string) => ({
+    time_id: id,
+    date_worked: "2026-02-16",
+    hours_logged: 4,
+    description: null,
+    engagement_id: eng,
+    activity_id: "act-1",
+    engagement: { engagement_id: eng, engagement_code: eng, engagement_name: eng, client: null },
+    activity: { activity_id: "act-1", activity_code: "A01", description: "Activity 1" },
+  });
+  const line = (id: string, eng: string) => ({
+    approval_id: id, period_id: "p1", engagement_id: eng, activity_id: "act-1", status: "pending",
+  });
+
+  function mockTables(periodResult: unknown, approvable: string[]) {
+    const periodBuilder = makeBuilder({ data: periodResult, error: null });
+    const entries = makeBuilder({ data: [entry("t1", "eng-1"), entry("t2", "eng-2")], error: null });
+    const lines = makeBuilder({ data: [line("l1", "eng-1"), line("l2", "eng-2")], error: null });
+    const workOrders = makeBuilder({ data: [], error: null });
+    vi.mocked(supabase.from).mockImplementation((table: string) => {
+      if (table === "timesheet_periods") return periodBuilder as never;
+      if (table === "time_entries") return entries as never;
+      if (table === "timesheet_line_approvals") return lines as never;
+      if (table === "work_orders") return workOrders as never;
+      throw new Error(`unexpected table ${table}`);
+    });
+    vi.mocked(supabase.rpc).mockResolvedValue({
+      data: approvable.map((e) => ({ period_id: "p1", engagement_id: e })),
+      error: null,
+    } as never);
+    return { periodBuilder };
+  }
+
+  it("pide el período con maybeSingle y devuelve null (no error) cuando la RLS no lo deja ver", async () => {
+    const { periodBuilder } = mockTables(null, []);
+    const { result } = renderHook(() => useStaffTimesheetForApproval("p1"), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(periodBuilder.__calls.maybeSingle).toHaveLength(1);
+    expect(periodBuilder.__calls.single).toBeUndefined();
+    expect(result.current.data).toBeNull();
+  });
+
+  it("un aprobador ve SOLO las horas y líneas de los encargos que puede aprobar", async () => {
+    mockTables(period, ["eng-1"]);
+    const { result } = renderHook(() => useStaffTimesheetForApproval("p1"), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.timeEntries.map((t) => t.engagement_id)).toEqual(["eng-1"]);
+    expect(result.current.data?.lineApprovals.map((l) => l.engagement_id)).toEqual(["eng-1"]);
+  });
+
+  it("quien no aprueba nada (lectura) conserva todo lo que la RLS le deja leer", async () => {
+    mockTables(period, []);
+    const { result } = renderHook(() => useStaffTimesheetForApproval("p1"), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.timeEntries).toHaveLength(2);
+    expect(result.current.data?.lineApprovals).toHaveLength(2);
+  });
+});

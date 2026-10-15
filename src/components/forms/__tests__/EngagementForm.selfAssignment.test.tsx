@@ -69,7 +69,7 @@ const stableEmpty: never[] = [];
 const mockSocieties = [{ society_id: "soc-1", name: "Sociedad Uno", is_active: true, created_at: "" }];
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useClients: () => ({ data: stableClients }),
+  useClientDirectory: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
   useTaxonomies: () => ({ data: stableEmpty }),
   useSocieties: () => ({ data: mockSocieties }),

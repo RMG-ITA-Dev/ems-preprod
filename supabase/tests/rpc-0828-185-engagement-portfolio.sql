@@ -435,17 +435,32 @@ RESET ROLE;
 -- de las policies "engagements read"/"engagements creator read" ni agregó una nueva policy de
 -- SELECT -- la garantía real de "no amplió la RLS" que plan_v2 §b promete, expresada de forma
 -- que no dependa de un enforcement que hoy no existe.
+-- Carril B / B3c-3 (12/10/2026): a las 3 policies originales se suma UNA policy de SELECT intencional,
+-- "engagements hr administrative read" (hr_manager y hr_analyst leen los encargos con funcion <> 1). En vez de
+-- subir el contador a 4 sin más, la guarda compara el CONJUNTO EXACTO de nombres y fija la forma de la nueva
+-- (limitada a funcion <> 1 y a esos dos roles): cualquier otra policy de SELECT, o un alcance más amplio, sigue
+-- haciendo fallar esta suite. Su espejo en list_portfolio_engagements lo prueba rls-carril-b-b3c3-hr-administrativos.sql.
 DO $$
 DECLARE
-  v_policy_count integer;
+  v_policies     text;
   v_read_qual    text;
   v_creator_qual text;
+  v_hr_qual      text;
 BEGIN
-  SELECT count(*) INTO v_policy_count
+  SELECT string_agg(policyname, ', ' ORDER BY policyname) INTO v_policies
     FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'engagements' AND cmd = 'SELECT';
-  IF v_policy_count <> 3 THEN
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): se esperaban exactamente 3 policies de SELECT sobre engagements (read/creator read/fund request), hay %', v_policy_count;
+  IF v_policies IS DISTINCT FROM 'Staff can view fund request engagements, engagements creator read, engagements hr administrative read, engagements read' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): las policies de SELECT sobre engagements deben ser exactamente (fund request, creator read, hr administrative read, read); hay: %', v_policies;
+  END IF;
+
+  SELECT qual INTO v_hr_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements hr administrative read';
+  IF v_hr_qual IS NULL
+     OR v_hr_qual NOT LIKE '%funcion <> 1%'
+     OR v_hr_qual NOT LIKE '%hr_manager%' OR v_hr_qual NOT LIKE '%hr_analyst%'
+     OR v_hr_qual NOT LIKE '%has_permission(''engagement.read''::text)%' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements hr administrative read" debe limitarse a funcion <> 1, a hr_manager/hr_analyst y exigir engagement.read. qual actual: %', v_hr_qual;
   END IF;
 
   SELECT qual INTO v_read_qual FROM pg_policies

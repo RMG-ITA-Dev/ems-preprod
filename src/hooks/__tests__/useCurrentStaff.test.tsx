@@ -103,63 +103,7 @@ describe("useCurrentStaff", () => {
     expect(result.current.staffRecord?.practica_id).toBe("svc-1");
   });
 
-  it("retains society_id/practica_id in the email fallback lookup (FEAT 0810-173)", async () => {
-    const mockUser = { id: "user-123", email: "test@example.com" };
-    const mockStaffByEmail = {
-      staff_id: "staff-789",
-      first_name: "Jane",
-      last_name: "Smith",
-      auth_user_id: null,
-      society_id: "soc-2",
-      practica_id: "svc-2",
-      category: { category_id: "2", category_name: "Senior" },
-    };
-
-    vi.mocked(useAuth).mockReturnValue({
-      user: mockUser as any,
-      session: null,
-      loading: false,
-      signIn: vi.fn(),
-      signUp: vi.fn(),
-      signOut: vi.fn(),
-      updatePassword: vi.fn(),
-      resetPasswordForEmail: vi.fn(),
-    });
-
-    const primaryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-    const fallbackMaybeSingle = vi.fn().mockResolvedValue({ data: mockStaffByEmail, error: null });
-    const fallbackSelect = vi.fn().mockReturnValue({
-      eq: vi.fn().mockReturnValue({ is: vi.fn().mockReturnValue({ maybeSingle: fallbackMaybeSingle }) }),
-    });
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({
-        select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle: primaryMaybeSingle }) }),
-      } as any)
-      .mockReturnValueOnce({ select: fallbackSelect } as any)
-      // Auto-link update call: .update(...).eq(...).is(...)
-      .mockReturnValueOnce({
-        update: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            is: vi.fn().mockResolvedValue({ error: null }),
-          }),
-        }),
-      } as any);
-
-    const { result } = renderHook(() => useCurrentStaff(), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    const selectArg = fallbackSelect.mock.calls[0][0] as string;
-    expect(selectArg).toContain("society_id");
-    expect(selectArg).toContain("practica_id");
-    expect(result.current.staffRecord?.society_id).toBe("soc-2");
-    expect(result.current.staffRecord?.practica_id).toBe("svc-2");
-  });
-
-  it("returns null when staff record not found", async () => {
+  it("returns null and does not look up by email nor write staff when no row is linked (B3e)", async () => {
     const mockUser = { id: "user-123", email: "test@example.com" };
 
     vi.mocked(useAuth).mockReturnValue({
@@ -173,22 +117,12 @@ describe("useCurrentStaff", () => {
       resetPasswordForEmail: vi.fn(),
     });
 
+    const update = vi.fn();
     const primaryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-    const fallbackMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-
-    vi.mocked(supabase.from)
-      .mockReturnValueOnce({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({ maybeSingle: primaryMaybeSingle }),
-        }),
-      } as any)
-      .mockReturnValueOnce({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            is: vi.fn().mockReturnValue({ maybeSingle: fallbackMaybeSingle }),
-          }),
-        }),
-      } as any);
+    vi.mocked(supabase.from).mockReturnValue({
+      select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle: primaryMaybeSingle }) }),
+      update,
+    } as any);
 
     const { result } = renderHook(() => useCurrentStaff(), {
       wrapper: createWrapper(),
@@ -196,6 +130,9 @@ describe("useCurrentStaff", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
+    // Una sola lectura (por auth_user_id): sin segunda consulta por email y sin auto-enlace por UPDATE.
+    expect(supabase.from).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
     expect(result.current.staffRecord).toBeNull();
   });
 

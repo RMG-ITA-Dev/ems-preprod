@@ -464,6 +464,8 @@ FROM dev2_import.parametro
 ON CONFLICT (id) DO NOTHING;
 
 -- ------------------------------------------------------------
+-- 25. (B6, 14/10/2026: la fórmula original quitaba todo lo no numérico de «FR-2026-0020» y dejaba la secuencia en 20260020;
+--     ahora toma solo el número final, después del último guion.)
 -- 25. Sequences: fund_request_number_seq es la única sequence que participa
 --     (request_number ya viaja con valor, pero el trigger solo lo genera si es
 --     NULL — avanzar la sequence evita choques futuros con un FR-2026-XXXX ya usado)
@@ -471,7 +473,7 @@ ON CONFLICT (id) DO NOTHING;
 SELECT setval(
   'public.fund_request_number_seq',
   GREATEST(
-    (SELECT COALESCE(MAX(NULLIF(regexp_replace(request_number, '\D', '', 'g'), '')::int), 0)
+    (SELECT COALESCE(MAX(NULLIF(regexp_replace(request_number, '^.*-', ''), '')::int), 0)
      FROM public.fund_requests),
     1
   )

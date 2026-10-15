@@ -1,7 +1,8 @@
 // Firmwide active-engagement counts for the staff of ONE engagement
 // (Phase 4 plan §4, narrowed §3.2 contract): the server derives the staff
 // list from the engagement's own assignments and returns counts only —
-// clients can never probe arbitrary staff workloads.
+// clients can never probe arbitrary staff workloads. B3c: también devuelve el
+// encargo autorizado (`engagement`) que Scheduler L2 pinta.
 
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,7 +11,7 @@ import {
   invokeSchedulerData,
   isSchedulerAuthFailure,
   SchedulerUnavailableError,
-  type StaffLoadRow,
+  type StaffLoadResult,
 } from "./schedulerData";
 
 export function useStaffFirmwideAssignmentCounts(
@@ -18,10 +19,10 @@ export function useStaffFirmwideAssignmentCounts(
 ) {
   const { user } = useAuth();
   const viewerId = user?.id;
-  return useQuery<{ rows: StaffLoadRow[] }, Error>({
+  return useQuery<StaffLoadResult, Error>({
     queryKey: [SCHEDULER_STAFF_LOAD_KEY, viewerId, engagementId],
     queryFn: () =>
-      invokeSchedulerData<{ rows: StaffLoadRow[] }>({
+      invokeSchedulerData<StaffLoadResult>({
         action: "scheduler-staff-load",
         engagementId,
       }),
