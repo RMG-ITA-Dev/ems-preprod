@@ -1328,6 +1328,35 @@ ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
 
 --
 --
+-- Name: wo_installment_events wo_installment_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: la bitacora se lee exactamente igual que la cuota a la que pertenece.
+-- El EXISTS no repite el criterio de acceso: al referenciar wo_payment_installments desde
+-- la expresion de la policy, Postgres evalua la RLS de ESA tabla para el mismo usuario, asi
+-- que las tres politicas de lectura de cuotas (admin, equipo del encargo, y firm/department
+-- por work_order.payment_plan.approve) se aplican solas. Si manana cambia quien ve una
+-- cuota, el historial la sigue sin tocar este archivo.
+--
+-- No hay policy de INSERT, UPDATE ni DELETE para NADIE (tampoco admin): la bitacora se
+-- escribe solo desde el trigger y las RPC SECURITY DEFINER. Un historial que el propio
+-- actor puede editar o borrar no sirve como evidencia, que es justo lo que pide el
+-- issue #352.
+CREATE POLICY wo_installment_events_select ON public.wo_installment_events FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_events.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_events ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: wo_payment_installments payment_installments firm read; Type: POLICY; Schema: public; Owner: -
 --
 

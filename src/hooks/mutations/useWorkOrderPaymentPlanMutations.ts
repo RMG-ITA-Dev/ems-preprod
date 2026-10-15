@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { createMutationErrorHandler, handleError } from "@/lib/error-handler";
 import i18n from "@/i18n";
 import type { PaymentPlanInput, PaymentInstallmentInput, PaymentInstallmentStatus } from "@/types/workOrderPaymentPlan";
-import { computePaymentDate } from "@/lib/workOrderPaymentPlan";
+import { computePaymentDate, todayInLaPaz } from "@/lib/workOrderPaymentPlan";
 
 // 0722-156b (Fase 2): trg_wo_payment_plan_guard_exchange_rate / trg_wo_payment_
 // installments_guard_exchange_rate (migración 20260905172820) rechazan un cambio de
@@ -23,6 +23,13 @@ const INSTALLMENT_LOCKED_TOKEN = "INSTALLMENT_LOCKED";
 // cuando quien escribe no tiene el rol correcto — distinto de "LOCKED" (que es sobre
 // el momento/estado), este es sobre quién puede hacerlo.
 const EXCHANGE_RATE_FORBIDDEN_TOKEN = "EXCHANGE_RATE_FORBIDDEN";
+// Cobranzas Fase 1: tokens de las RPC invoice_installment/collect_installment/
+// set_installment_overdue.
+// STALE es el caso de concurrencia — alguien más ya movió la cuota — y necesita su propio
+// mensaje: el genérico ("error al actualizar") hacía pensar en una falla del sistema cuando
+// en realidad hay que recargar para ver el estado real.
+const INSTALLMENT_STALE_TOKEN = "INSTALLMENT_STALE";
+const INSTALLMENT_FORBIDDEN_TOKEN = "INSTALLMENT_FORBIDDEN";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -44,6 +51,14 @@ function isExchangeRateForbiddenError(error: unknown): boolean {
   return errorMessageOf(error).includes(EXCHANGE_RATE_FORBIDDEN_TOKEN);
 }
 
+function isInstallmentStaleError(error: unknown): boolean {
+  return errorMessageOf(error).includes(INSTALLMENT_STALE_TOKEN);
+}
+
+function isInstallmentForbiddenError(error: unknown): boolean {
+  return errorMessageOf(error).includes(INSTALLMENT_FORBIDDEN_TOKEN);
+}
+
 // dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
 // latest_exchange_rate(); si latest_exchange_rate() devuelve NULL (historial BCB
 // vacío y sin default_exchange_rate configurado) y el caller manda un `null`
@@ -56,6 +71,14 @@ function isExchangeRateUnavailableError(error: unknown): boolean {
 }
 
 function handlePaymentPlanError(error: unknown, operation: string): void {
+  if (isInstallmentStaleError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorInstallmentStale"));
+    return;
+  }
+  if (isInstallmentForbiddenError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorInstallmentForbidden"));
+    return;
+  }
   if (isExchangeRateLockedError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateLocked"));
     return;
@@ -178,11 +201,35 @@ export function useBatchUpsertInstallments() {
   });
 }
 
-// Update a single installment's status with side-effects:
-// - Invoiced: set collection_invoice_date = today, collection_payment_date = today + paymentDays
-// - Pending (revert): clear collection_invoice_date + collection_payment_date
-// - Completed: set payment_date_actual = today
-// - Overdue: clear payment_date_actual
+// Cambia el estado de UNA cuota. Cobranzas Fase 1 (issue #352): ya no arma un UPDATE
+// directo sobre wo_payment_installments, sino que llama a la RPC que corresponde a la
+// transición. Lo que gana el flujo:
+//   * el servidor verifica el ROL (Contabilidad o admin) y que la OT esté aprobada, en
+//     vez de confiar en que la pantalla lo haya escondido;
+//   * `prevStatus` pasa a ser obligatorio y viaja como `p_expected_status`: si otra
+//     persona ya aplicó la transición, la segunda llamada falla con INSTALLMENT_STALE en
+//     vez de pisarla en silencio (el UPDATE anterior no encadenaba .select(), así que un
+//     cambio de 0 filas se veía como éxito);
+//   * las fechas las decide la base (fund_today()), no el reloj del navegador;
+//   * el cambio queda registrado en wo_installment_events.
+// El snapshot de TC sigue viajando en la misma llamada porque el guard de freeze evalúa
+// OLD.status: una vez facturada/cobrada la cuota, su TC ya no se puede escribir.
+//
+// `paymentDays` sigue haciendo falta: el vencimiento se calcula con el calendario de días
+// hábiles de TypeScript (src/lib/boliviaHolidays.ts). La tabla public.holidays no sirve
+// como fuente — sólo está sembrada 2026-2027 y además trae 2 feriados "puente" que el
+// generador no produce — así que la RPC lo recibe y lo valida en vez de recalcularlo, para
+// no crear un segundo calendario divergente.
+// src/integrations/supabase/types.ts está desactualizado: no conoce las 3 RPC de cobranza
+// (tampoco exchange_rate_mode, invoice/payment_exchange_rate ni exchange_rate_history, de
+// 0722-156b). No se edita a mano — se regenera con la herramienta oficial contra el proyecto
+// destino, y recién entonces se borra este puente y las llamadas quedan tipadas. Mismo recurso
+// que useExchangeRate.ts usa hoy para exchange_rate_history.
+const rpcUntyped = supabase.rpc as unknown as (
+  fn: string,
+  args: Record<string, unknown>,
+) => Promise<{ error: { message?: string; code?: string } | null }>;
+
 export function useUpdateInstallmentStatus() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -190,55 +237,56 @@ export function useUpdateInstallmentStatus() {
       installmentId,
       newStatus,
       prevStatus,
-      woId,
       paymentDays,
       invoiceExchangeRate,
       paymentExchangeRate,
     }: {
       installmentId: string;
       newStatus: PaymentInstallmentStatus;
-      prevStatus?: PaymentInstallmentStatus;
+      prevStatus: PaymentInstallmentStatus;
       woId: string;
       paymentDays?: number;
-      // 0722-156b: snapshot de TC capturado en el mismo UPDATE que la transición de
-      // estado (escritura atómica) — invoiceExchangeRate al llegar a "Invoiced",
-      // paymentExchangeRate al llegar a "Completed". El trigger de freeze evalúa
-      // OLD.status, así que sigue permitiendo este snapshot en la MISMA transición
-      // que deja la cuota congelada.
       invoiceExchangeRate?: number | null;
       paymentExchangeRate?: number | null;
     }) => {
-      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
-      const updates: Record<string, unknown> = { status: newStatus };
+      if (newStatus === "Invoiced" && prevStatus === "Pending") {
+        const today = todayInLaPaz();
+        const dueDate = computePaymentDate(today, paymentDays ?? 30);
+        const { error } = await rpcUntyped("invoice_installment", {
+          p_installment_id: installmentId,
+          p_expected_status: prevStatus,
+          p_payment_due_date: dueDate,
+          p_invoice_date: today,
+          p_invoice_exchange_rate: invoiceExchangeRate ?? null,
+        });
+        if (error) throw error;
+        return;
+      }
 
-      if (newStatus === "Invoiced") {
-        if (prevStatus !== "Overdue") {
-          // First invoice (Pending/auto-Overdue): set collection dates
-          updates.collection_invoice_date = today;
-          if (paymentDays != null) {
-            updates.collection_payment_date = computePaymentDate(today, paymentDays);
-          }
-          updates.invoice_exchange_rate = invoiceExchangeRate ?? null;
-        }
-        // Manual Overdue→Invoiced revert: keep existing collection dates + invoice TC in DB
-      }
-      if (newStatus === "Pending") {
-        updates.collection_invoice_date = null;
-        updates.collection_payment_date = null;
-      }
       if (newStatus === "Completed") {
-        updates.payment_date_actual = today;
-        updates.payment_exchange_rate = paymentExchangeRate ?? null;
-      }
-      if (newStatus === "Overdue") {
-        updates.payment_date_actual = null;
+        const { error } = await rpcUntyped("collect_installment", {
+          p_installment_id: installmentId,
+          p_expected_status: prevStatus,
+          p_payment_date: todayInLaPaz(),
+          p_payment_exchange_rate: paymentExchangeRate ?? null,
+        });
+        if (error) throw error;
+        return;
       }
 
-      const { error } = await supabase
-        .from("wo_payment_installments")
-        .update(updates)
-        .eq("installment_id", installmentId);
-      if (error) throw error;
+      // Mora manual en los dos sentidos: Invoiced -> Overdue y la vuelta atrás
+      // Overdue -> Invoiced, que conserva las fechas de cobranza ya registradas.
+      if (newStatus === "Overdue" || (newStatus === "Invoiced" && prevStatus === "Overdue")) {
+        const { error } = await rpcUntyped("set_installment_overdue", {
+          p_installment_id: installmentId,
+          p_expected_status: prevStatus,
+          p_overdue: newStatus === "Overdue",
+        });
+        if (error) throw error;
+        return;
+      }
+
+      throw new Error(`INVALID_STATUS_TRANSITION: ${prevStatus} -> ${newStatus}`);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });

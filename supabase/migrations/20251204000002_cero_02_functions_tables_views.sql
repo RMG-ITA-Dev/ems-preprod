@@ -1196,6 +1196,27 @@ $$;
 
 --
 --
+-- Name: is_collections_role(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1 (decision del operador 2026-10-15, Q14/Q58): "Contabilidad" en el
+-- modulo de cobranzas son DOS roles con exactamente los mismos permisos sobre el plan de
+-- pagos -- accounting_manager (Gerente de Contabilidad) y collections_analyst (Analista de
+-- Cobranzas). accounting_analyst (Analista de Contabilidad) queda FUERA: solo trabaja
+-- solicitudes de fondos. Antes de esta fase el unico rol contemplado era
+-- collections_analyst, repetido como literal en 3 chequeos del trigger de cuotas y en la
+-- policy de UPDATE (20260910090000_0722-156b_fixed_mode_rate_guard.sql) -- este helper
+-- centraliza la lista para que agregar o quitar un rol sea un solo cambio.
+CREATE FUNCTION public.is_collections_role() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(public.current_role_key() in ('accounting_manager', 'collections_analyst'), false);
+$$;
+
+
+--
+--
 -- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -7813,6 +7834,14 @@ CREATE TABLE public.wo_expense_budget (
 -- Name: wo_payment_installments; Type: TABLE; Schema: public; Owner: -
 --
 
+-- Cobranzas Fase 1: current_invoice_date/current_payment_date son la fecha VIGENTE de
+-- facturacion y de pago previsto tras una reprogramacion (issue #352 / 0923-206). NULL =
+-- nunca se reprogramo, vale la fecha acordada -- por eso todo consumidor lee
+-- COALESCE(current_*, agreed_*). Las dos columnas agreed_* quedan intactas como el
+-- CONTRATO original: #352 exige no perder la fecha pactada al reprogramar. Quien las
+-- escribe es reschedule_installment() (Fase 3); en Fase 1 solo existen para que el estado
+-- de calendario ya se calcule sobre la fecha vigente y ningun consumidor tenga que
+-- cambiar de criterio despues.
 CREATE TABLE public.wo_payment_installments (
     installment_id uuid DEFAULT gen_random_uuid() NOT NULL,
     plan_id uuid NOT NULL,
@@ -7820,6 +7849,8 @@ CREATE TABLE public.wo_payment_installments (
     installment_number integer NOT NULL,
     agreed_invoice_date date,
     agreed_payment_date date,
+    current_invoice_date date,
+    current_payment_date date,
     collection_invoice_date date,
     collection_payment_date date,
     payment_date_actual date,
@@ -7830,6 +7861,374 @@ CREATE TABLE public.wo_payment_installments (
     updated_at timestamp with time zone DEFAULT now(),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
 );
+
+
+--
+--
+-- Name: wo_installment_events; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1 (issue #352 / 0923-206): bitacora append-only de cada cambio de una
+-- cuota. Hasta ahora el plan de pagos no tenia NINGUN historial -- el unico rastro era
+-- updated_at, y sync_wo_payment_installments borra/reinserta filas, asi que una edicion
+-- sobreescribia el valor anterior sin dejar huella. #352 exige poder distinguir una
+-- reprogramacion autorizada de una cuota vencida "sin perder el historial de cambios".
+-- Modelada sobre fund_request_events (misma convencion: seq IDENTITY para ordenar dentro
+-- de una misma transaccion, from/to_status, actor_staff_id, solo SELECT para
+-- authenticated). Se escribe SOLO desde triggers y RPC SECURITY DEFINER: no hay policy de
+-- INSERT/UPDATE/DELETE para nadie, ni para admin -- una bitacora que el propio actor puede
+-- editar no sirve como evidencia.
+CREATE TABLE public.wo_installment_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    -- Orden real de insercion: created_at es now() y empata dentro de una transaccion
+    -- (p. ej. "no confirma" que ademas reprograma, Fase 3).
+    seq bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+    installment_id uuid NOT NULL,
+    wo_id uuid NOT NULL,
+    action text NOT NULL,
+    from_status text,
+    to_status text,
+    old_date date,
+    new_date date,
+    amount numeric,
+    currency text,
+    reason text,
+    actor_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
+);
+
+
+--
+--
+-- Name: installment_calendar_state(text, date, date, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1 (issue #352 / 0923-206) — REGLA UNICA de la dimension "calendario" de
+-- una cuota. Antes de esta funcion el proyecto tenia CINCO criterios distintos de mora, y
+-- ninguno miraba la fecha de vencimiento real:
+--   1. pantalla      -> getEffectiveInstallmentStatus: Pending + agreed_invoice_date pasada
+--                       se mostraba como "Mora" (en realidad era "no se facturo a tiempo").
+--   2. mora manual   -> Invoiced -> Overdue a mano, sin mirar fechas.
+--   3. indicador tab -> isPaymentDueSoonOrOverdue sobre agreed_payment_date, incluso con la
+--                       cuota todavia Pending.
+--   4. aviso/cron    -> notif_agg_wo_installment_overdue sobre agreed_payment_date.
+--   5. dashboards    -> agreed_payment_date.
+-- Decision del operador (Q4, 2026-10-14): la mora se cuenta desde la fecha de facturacion
+-- REAL mas los dias habiles pactados -- es decir collection_payment_date, que hasta ahora
+-- no usaba ningun consumidor. Antes de facturar NO hay mora: como mucho "facturacion
+-- atrasada". Esta funcion es pura (IMMUTABLE, recibe "hoy") para poder probarse con fechas
+-- fijas; su espejo en TypeScript es getInstallmentCalendarState (src/lib/workOrderPaymentPlan.ts),
+-- con los mismos casos de prueba.
+--
+-- Valores: 'on_track' | 'billing_due_soon' | 'billing_late' | 'payment_due_soon' | 'overdue' | 'closed'.
+CREATE FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer DEFAULT 7) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE
+    WHEN p_status = 'Completed' THEN 'closed'
+    -- La mora MANUAL (Invoiced -> Overdue, decision del operador Q3: se mantiene) es mora
+    -- aunque la fecha de vencimiento no haya pasado. La pantalla muestra un unico chip
+    -- "En mora" para los dos casos y distingue manual/por fecha en el tooltip.
+    WHEN p_status = 'Overdue' THEN 'overdue'
+    WHEN p_status = 'Invoiced' THEN CASE
+      WHEN p_payment_due_date IS NULL THEN 'on_track'
+      WHEN p_today > p_payment_due_date THEN 'overdue'
+      WHEN p_payment_due_date - p_today <= p_window_days THEN 'payment_due_soon'
+      ELSE 'on_track'
+    END
+    ELSE CASE  -- Pending
+      WHEN p_invoice_date IS NULL THEN 'on_track'
+      WHEN p_today > p_invoice_date THEN 'billing_late'
+      WHEN p_invoice_date - p_today <= p_window_days THEN 'billing_due_soon'
+      ELSE 'on_track'
+    END
+  END;
+$$;
+
+
+--
+--
+-- Name: wo_installment_calendar_state(text, date, date, date, date, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Envoltorio de installment_calendar_state() que resuelve las dos fechas VIGENTES, para
+-- que ningun consumidor (dashboards, avisos, cron) repita el criterio:
+--   * facturacion vigente = COALESCE(current_invoice_date, agreed_invoice_date)
+--     -- la reprogramada si la hubo (Fase 3), si no la del contrato.
+--   * vencimiento vigente = COALESCE(collection_payment_date, agreed_payment_date)
+--     -- la fecha de facturacion REAL + dias habiles (Q4). El fallback a la acordada es
+--     defensivo: una cuota Invoiced sin collection_payment_date es una anomalia de datos
+--     (invoice_installment() siempre la exige), y dejarla sin fecha la volveria
+--     permanentemente "en plazo", escondiendo mora real.
+-- p_today NULL usa fund_today() (la fecha de La Paz; el harness la fija con app.fund_today).
+CREATE FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date DEFAULT NULL, p_window_days integer DEFAULT 7) RETURNS text
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.installment_calendar_state(
+    p_status,
+    COALESCE(p_current_invoice_date, p_agreed_invoice_date),
+    COALESCE(p_collection_payment_date, p_agreed_payment_date),
+    COALESCE(p_today, public.fund_today()),
+    p_window_days
+  );
+$$;
+
+
+--
+--
+-- Name: wo_installment_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: escribe la bitacora wo_installment_events. AFTER UPDATE, asi que
+-- registra el cambio venga de donde venga (RPC, UPDATE directo de un admin, backfill):
+-- la bitacora no se puede evitar eligiendo otro camino de escritura. Solo registra lo que
+-- de verdad cambio -- un UPDATE que no toca status ni la fecha vigente no deja fila.
+CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    INSERT INTO public.wo_installment_events (
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+    ) VALUES (
+      NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
+      -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
+      CASE NEW.status
+        WHEN 'Invoiced'  THEN NEW.collection_invoice_date
+        WHEN 'Completed' THEN NEW.payment_date_actual
+        ELSE NULL
+      END,
+      NEW.amount, public.get_my_staff_id()
+    );
+  END IF;
+
+  -- Reprogramacion (Fase 3). El trigger ya la registra aqui para que la bitacora quede
+  -- completa desde el primer dia y Fase 3 solo tenga que aportar el motivo via la RPC.
+  IF NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date THEN
+    INSERT INTO public.wo_installment_events (
+      installment_id, wo_id, action, old_date, new_date, actor_staff_id
+    ) VALUES (
+      NEW.installment_id, NEW.wo_id, 'rescheduled',
+      COALESCE(OLD.current_invoice_date, OLD.agreed_invoice_date),
+      NEW.current_invoice_date,
+      public.get_my_staff_id()
+    );
+  END IF;
+
+  RETURN NULL;  -- AFTER trigger: el valor de retorno se ignora.
+END;
+$$;
+
+
+--
+--
+-- Name: wo_installment_assert_actionable(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Guarda comun de las 3 RPC de cobranza (facturar, cobrar, mora manual). Bloquea la fila
+-- (FOR UPDATE) y verifica, en este orden: rol, existencia, OT aprobada y estado esperado.
+--   * Rol: las acciones de cobranza son de Contabilidad -- accounting_manager o
+--     collections_analyst (is_collections_role(), Q58) -- o de un admin.
+--   * Estado esperado: control de concurrencia. Dos personas con la pantalla abierta no
+--     pueden aplicar dos veces la misma transicion; la segunda recibe INSTALLMENT_STALE y
+--     la UI recarga. Sin esto, el segundo UPDATE pisaba en silencio al primero.
+CREATE FUNCTION public.wo_installment_assert_actionable(p_installment_id uuid, p_expected_status text) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_approval_status text;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'INSTALLMENT_FORBIDDEN: solo contabilidad (o un administrador) puede registrar la cobranza de una cuota';
+  END IF;
+
+  SELECT i.* INTO v_row
+  FROM public.wo_payment_installments i
+  WHERE i.installment_id = p_installment_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  IF NOT public.is_admin() THEN
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = v_row.plan_id;
+
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: la cobranza de una cuota solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
+  END IF;
+
+  IF v_row.status IS DISTINCT FROM p_expected_status THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no esta en estado % (ahora esta en %); recargue la pagina', p_expected_status, v_row.status;
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: invoice_installment(uuid, text, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: Pending -> Invoiced. Reemplaza el UPDATE directo de
+-- useUpdateInstallmentStatus, que escribia status y fechas desde el cliente sin control de
+-- concurrencia ni verificacion de rol en el servidor (la policy RLS dejaba a
+-- collections_analyst hacer UPDATE de la fila entera).
+--
+-- p_invoice_date (fecha de facturacion REAL) acepta hoy o una fecha pasada, nunca futura.
+-- Hoy la UI siempre manda hoy (decision Q13), pero el parametro ya existe por si
+-- Cobranzas pide elegir la fecha: ese cambio seria solo de UI, sin tocar la base.
+--
+-- p_payment_due_date (vencimiento = fecha de facturacion real + los dias habiles del plan)
+-- lo CALCULA EL CLIENTE y esta funcion lo valida, no lo recalcula. Motivo: el calendario de
+-- dias habiles vive en TypeScript (src/lib/boliviaHolidays.ts, que genera los feriados de
+-- cualquier anio); la tabla public.holidays solo esta sembrada 2026-2027 y ademas tiene 2
+-- feriados "puente" que el generador no produce. Recalcularlo en SQL crearia un SEGUNDO
+-- calendario divergente -- justo lo que esta fase viene a eliminar. La validacion acota el
+-- rango a un maximo generoso (dias habiles <= dias calendario * 2 + 14) para que una
+-- llamada directa no pueda inventar un vencimiento arbitrario.
+CREATE FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date DEFAULT NULL, p_invoice_exchange_rate numeric DEFAULT NULL) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+  v_invoice_date date := COALESCE(p_invoice_date, public.fund_today());
+  v_payment_days integer;
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_expected_status IS DISTINCT FROM 'Pending' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota Pendiente de facturacion puede facturarse';
+  END IF;
+
+  IF v_invoice_date > v_today THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_FUTURE: la fecha de facturacion no puede ser futura';
+  END IF;
+
+  IF p_payment_due_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_REQUIRED: falta la fecha de vencimiento de pago';
+  END IF;
+
+  SELECT p.payment_days INTO v_payment_days
+  FROM public.wo_payment_plan p WHERE p.plan_id = v_row.plan_id;
+
+  IF p_payment_due_date < v_invoice_date
+     OR p_payment_due_date > v_invoice_date + (COALESCE(v_payment_days, 30) * 2 + 14) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: el vencimiento no corresponde a la fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
+  -- El TC de facturacion se congela en el MISMO UPDATE que la transicion, no en uno
+  -- posterior: wo_payment_installments_guard_exchange_rate evalua OLD.status, asi que una
+  -- vez que la cuota queda 'Invoiced' cualquier cambio de invoice_exchange_rate se rechaza
+  -- con EXCHANGE_RATE_LOCKED. NULL deja el valor que ya tenia (modo fijo lo sincroniza
+  -- solo desde el plan).
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_invoice_date,
+         collection_payment_date = p_payment_due_date,
+         invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate)
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: collect_installment(uuid, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: Invoiced -> Completed (cobrada). Una cuota en mora se cobra igual --
+-- #352 pide que registrar el cobro no dependa de la condicion de calendario.
+-- p_payment_date es la fecha REAL del pago; igual que al facturar, hoy la UI manda hoy
+-- (Q13) y el parametro queda listo por si piden elegirla.
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL, p_payment_exchange_rate numeric DEFAULT NULL) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+  v_payment_date date := COALESCE(p_payment_date, public.fund_today());
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_expected_status IS DISTINCT FROM 'Invoiced' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota facturada puede marcarse como cobrada';
+  END IF;
+
+  IF v_payment_date > v_today THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_FUTURE: la fecha de pago no puede ser futura';
+  END IF;
+
+  IF v_row.collection_invoice_date IS NOT NULL AND v_payment_date < v_row.collection_invoice_date THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_BEFORE_INVOICE: la fecha de pago no puede ser anterior a la de facturacion';
+  END IF;
+
+  -- Mismo motivo que en invoice_installment: el TC de pago se congela al llegar a
+  -- 'Completed', asi que se escribe en esta misma sentencia.
+  UPDATE public.wo_payment_installments
+     SET status = 'Completed',
+         payment_date_actual = v_payment_date,
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: set_installment_overdue(uuid, text, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: mora MANUAL, que el operador decidio mantener (Q3) ademas de la mora
+-- automatica por fecha de installment_calendar_state(). p_overdue true marca
+-- Invoiced -> Overdue; false revierte Overdue -> Invoiced (la unica transicion reversible
+-- del plan de pagos). Al revertir se conservan las fechas de cobranza ya registradas --
+-- la cuota siguio facturada todo el tiempo, solo se corrige la marca de mora.
+CREATE FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_overdue AND p_expected_status IS DISTINCT FROM 'Invoiced' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota facturada puede marcarse en mora';
+  END IF;
+  IF NOT p_overdue AND p_expected_status IS DISTINCT FROM 'Overdue' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota en mora puede volver a facturada';
+  END IF;
+
+  UPDATE public.wo_payment_installments
+     SET status = CASE WHEN p_overdue THEN 'Overdue' ELSE 'Invoiced' END
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
 
 
 --

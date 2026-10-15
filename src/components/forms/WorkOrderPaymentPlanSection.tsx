@@ -31,7 +31,9 @@ import {
   computeAmount,
   computePaymentDate,
   isAlertDue,
-  getEffectiveInstallmentStatus,
+  getInstallmentDisplay,
+  currentDueDate,
+  currentInvoiceDate,
   isInvoiceRateEditable,
   isPaymentRateEditable,
   isPaymentRateCaptureEditable,
@@ -82,7 +84,12 @@ const STATUS_CHIP_CLASSES: Record<PaymentInstallmentStatus, string> = {
   Overdue:   "bg-destructive/15 text-destructive",
 };
 
-// Options available per effective status (state machine)
+// Transiciones legales, siempre sobre el estado PERSISTIDO. Cobranzas Fase 1: antes se
+// consultaba con el estado "efectivo" (una cuota Pendiente con su fecha de facturación
+// pasada se leía como "Overdue"), que daba la misma lista por casualidad —
+// STATUS_TRANSITIONS.Pending y .Overdue son ambos ["Invoiced"]— pero hacía creer que una
+// cuota sin facturar estaba en mora. La condición de calendario ya no se mezcla con la
+// etapa: va en su propia insignia.
 const STATUS_TRANSITIONS: Record<PaymentInstallmentStatus, PaymentInstallmentStatus[]> = {
   Pending:   ["Invoiced"],
   Overdue:   ["Invoiced"],
@@ -152,7 +159,6 @@ export function WorkOrderPaymentPlanSection({
       maximumFractionDigits: 6,
     });
 
-  const getEffectiveStatus = getEffectiveInstallmentStatus;
 
   const hasAlert = installments.some((inst) => isAlertDue(inst));
 
@@ -811,8 +817,25 @@ export function WorkOrderPaymentPlanSection({
                   // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
                   // QUIEN puede editar el tramo normal (isEditable) del plan.
                   const dateEditable = (isEditable && canEditPaymentPlan) || isAdminDateEditable;
-                  const effectiveStatus = getEffectiveStatus(inst);
-                  const availableOptions = STATUS_TRANSITIONS[effectiveStatus];
+                  // Etapa persistida (lo que decide qué transiciones existen) y condición
+                  // de calendario (lo que decide qué insignia se muestra), por separado.
+                  const display = getInstallmentDisplay(inst);
+                  const stage = display.stage;
+                  const availableOptions = STATUS_TRANSITIONS[stage];
+                  const calendarBadge =
+                    display.isOverdue && stage !== "Overdue"
+                      ? {
+                          label: t("workOrders.paymentPlan.statusOverdue"),
+                          title: t("workOrders.paymentPlan.statusOverduePaymentTooltip", { date: fmtDate(currentDueDate(inst)) }),
+                          className: "bg-destructive/15 text-destructive",
+                        }
+                      : display.calendar === "billing_late"
+                        ? {
+                            label: t("workOrders.paymentPlan.statusBillingLate"),
+                            title: t("workOrders.paymentPlan.statusBillingLateTooltip", { date: fmtDate(currentInvoiceDate(inst)) }),
+                            className: "bg-warning/15 text-warning",
+                          }
+                        : null;
 
                   return (
                     <tr key={inst.installment_id ?? inst.installment_number} className="hover:bg-muted/20 transition-colors">
@@ -1008,9 +1031,10 @@ export function WorkOrderPaymentPlanSection({
                         {fmtDate(inst.collection_payment_date)}
                       </td>
                       <td className="py-3 px-3 border-b border-r border-border/50 bg-muted/10">
+                        <div className="flex flex-wrap items-center gap-1.5">
                         {isStatusEditable && availableOptions.length > 0 ? (
                           <Select
-                            value={effectiveStatus}
+                            value={stage}
                             onValueChange={(val) => {
                               const s = val as PaymentInstallmentStatus;
                               if (isPaymentPlanDirty && inst.installment_id) {
@@ -1024,13 +1048,13 @@ export function WorkOrderPaymentPlanSection({
                               }
                             }}
                           >
-                            <SelectTrigger className={cn("h-8 text-sm", STATUS_COLORS[effectiveStatus])}>
+                            <SelectTrigger className={cn("h-8 text-sm", STATUS_COLORS[stage])}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                               {/* Current state shown as disabled so SelectValue has text to display */}
-                              <SelectItem value={effectiveStatus} disabled className={cn("opacity-50", STATUS_COLORS[effectiveStatus])}>
-                                {t(`workOrders.paymentPlan.status${effectiveStatus}`)}
+                              <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
+                                {t(`workOrders.paymentPlan.status${stage}`)}
                               </SelectItem>
                               {availableOptions.map((val) => (
                                 <SelectItem
@@ -1044,16 +1068,38 @@ export function WorkOrderPaymentPlanSection({
                             </SelectContent>
                           </Select>
                         ) : (
+                          // Solo lectura: UN chip principal (decisión del operador Q2,
+                          // priorizar la claridad). Si hay mora dice "En mora" venga de
+                          // donde venga, y el tooltip aclara si fue a mano o por fecha.
                           <span
-                            title={effectiveStatus === "Overdue" ? t("workOrders.paymentPlan.statusOverdueLong") : undefined}
+                            title={
+                              display.overdueKind === "manual"
+                                ? t("workOrders.paymentPlan.statusOverdueManualTooltip")
+                                : display.overdueKind === "payment"
+                                  ? t("workOrders.paymentPlan.statusOverduePaymentTooltip", { date: fmtDate(currentDueDate(inst)) })
+                                  : undefined
+                            }
                             className={cn(
                               "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                              STATUS_CHIP_CLASSES[effectiveStatus],
+                              display.isOverdue ? STATUS_CHIP_CLASSES.Overdue : STATUS_CHIP_CLASSES[stage],
                             )}
                           >
-                            {t(`workOrders.paymentPlan.status${effectiveStatus}`)}
+                            {display.isOverdue
+                              ? t("workOrders.paymentPlan.statusOverdue")
+                              : t(`workOrders.paymentPlan.status${stage}`)}
                           </span>
                         )}
+                        {/* La condición de calendario que la etapa no muestra: "facturación
+                            atrasada" (todavía sin facturar) o "en mora" junto al selector. */}
+                        {calendarBadge && (!display.isOverdue || isStatusEditable) && (
+                          <span
+                            title={calendarBadge.title}
+                            className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", calendarBadge.className)}
+                          >
+                            {calendarBadge.label}
+                          </span>
+                        )}
+                        </div>
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
                         {isEditable && canEditPaymentPlan && installments.length > 1 && !isLocked(inst) && (

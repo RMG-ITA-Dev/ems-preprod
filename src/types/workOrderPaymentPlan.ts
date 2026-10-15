@@ -1,5 +1,22 @@
 export type PaymentInstallmentStatus = 'Pending' | 'Invoiced' | 'Completed' | 'Overdue';
 
+// Cobranzas Fase 1 (issue #352 / 0923-206). La cuota tiene DOS dimensiones independientes:
+//   * la ETAPA economica, que es el `status` persistido de arriba;
+//   * la CONDICION DE CALENDARIO, que se deriva de las fechas y nunca se guarda.
+// Mezclarlas fue justamente el problema del issue: "Mora" nombraba a la vez una cuota que
+// no se facturo a tiempo y una facturada que el cliente no pago. Ahora:
+//   'billing_late'     -> todavia sin facturar y su fecha de facturacion vigente paso.
+//   'overdue'          -> mora de verdad: facturada y pasada su fecha de vencimiento
+//                         vigente, o marcada en mora a mano.
+// Espejo exacto de public.installment_calendar_state(...) en la base.
+export type InstallmentCalendarState =
+  | 'on_track'
+  | 'billing_due_soon'
+  | 'billing_late'
+  | 'payment_due_soon'
+  | 'overdue'
+  | 'closed';
+
 // 0722-156b (Fase 2): a nivel de PLAN (no por cuota, pese a lo que decia el ticket
 // original) — 'fijo' aplica el TC de creacion tal cual a todas las cuotas; 'variable'
 // captura un TC de facturacion/pago independiente por cuota. Ver bugs/0722-156/plan_v2.md.
@@ -20,6 +37,13 @@ export interface PaymentInstallmentInput {
   installment_number: number;
   agreed_invoice_date: string | null;
   agreed_payment_date: string | null;
+  // Fechas VIGENTES tras una reprogramacion (Fase 3). NULL = nunca se reprogramo y vale la
+  // acordada; por eso todo consumidor lee COALESCE(current_*, agreed_*). Las agreed_* no se
+  // tocan nunca: son el contrato, y #352 pide no perderlo al reprogramar.
+  // Opcionales como installment_id/plan_id: una cuota recién creada en memoria todavía no
+  // las tiene, y `?? agreed_*` trata igual a undefined y a null.
+  current_invoice_date?: string | null;
+  current_payment_date?: string | null;
   collection_invoice_date: string | null;
   collection_payment_date: string | null;
   payment_date_actual: string | null;

@@ -2107,3 +2107,40 @@ REVOKE EXECUTE ON FUNCTION public.fre_log_event() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.fre_enforce_window() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.fr_validate_period_month() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.validate_expense_type_active() FROM PUBLIC, anon;
+
+--
+--
+-- Cobranzas Fase 1 (issue #352 / 0923-206) — privilegios de la bitacora y de las RPC de cobranza.
+--
+
+-- Bitacora: solo lectura para quien pase la RLS, igual que fund_request_events. Se escribe
+-- exclusivamente desde el trigger y las RPC SECURITY DEFINER, que corren como el dueño.
+REVOKE ALL ON TABLE public.wo_installment_events FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_events TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_events TO service_role;
+
+-- Desde el Carril B / etapa B5 (20261013160000_rls_carril_b5_privilegios.sql) los
+-- privilegios por defecto ya no conceden EXECUTE a PUBLIC, pero esa migracion corre DESPUES
+-- de este archivo: estas funciones nacen aqui ejecutables por PUBLIC y por anon, asi que se
+-- cierran explicitamente. REVOKE a PUBLIC no alcanza — Supabase concede aparte a anon.
+REVOKE EXECUTE ON FUNCTION public.is_collections_role() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.is_collections_role() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) TO authenticated, service_role;
+
+-- wo_installment_assert_actionable es la guarda interna de las 3 RPC (rol, OT aprobada,
+-- estado esperado). No la llama el cliente: no se concede a authenticated.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_actionable(p_installment_id uuid, p_expected_status text) FROM PUBLIC, anon, authenticated;
+
+-- Funcion de trigger: PostgREST no la expone y disparar un trigger no exige EXECUTE, pero
+-- nace ejecutable por PUBLIC y se cierra igual.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_log_event() FROM PUBLIC, anon;

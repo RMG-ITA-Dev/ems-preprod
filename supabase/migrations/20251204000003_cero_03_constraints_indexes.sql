@@ -538,6 +538,34 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: wo_installment_events wo_installment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_pkey PRIMARY KEY (event_id);
+
+
+--
+--
+-- Name: idx_wo_installment_events_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: el panel de historial de una cuota lee siempre por installment_id
+-- ordenado por seq (mismo acceso que idx_fund_request_events_fr).
+CREATE INDEX idx_wo_installment_events_installment ON public.wo_installment_events USING btree (installment_id, seq);
+
+
+--
+--
+-- Name: idx_wo_installment_events_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+-- La bitacora de todas las cuotas de una OT (y la RLS, que resuelve el acceso por la OT).
+CREATE INDEX idx_wo_installment_events_wo ON public.wo_installment_events USING btree (wo_id, seq);
+
+
+--
+--
 -- Name: wo_payment_installments wo_payment_installments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 

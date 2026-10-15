@@ -489,6 +489,17 @@ CREATE TRIGGER update_timesheet_periods_updated_at BEFORE UPDATE ON public.times
 
 --
 --
+-- Name: wo_payment_installments tr_wo_installment_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: bitacora de la cuota (issue #352). AFTER UPDATE a proposito -- se
+-- dispara venga el cambio de una RPC, de un UPDATE directo de admin o de un backfill, asi
+-- que el historial no se puede esquivar eligiendo otro camino de escritura.
+CREATE TRIGGER tr_wo_installment_log_event AFTER UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_installment_log_event();
+
+
+--
+--
 -- Name: wo_payment_installments update_wo_payment_installments_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1165,6 +1176,40 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 ALTER TABLE ONLY public.wo_expense_budget
     ADD CONSTRAINT wo_expense_budget_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1. CASCADE igual que fund_request_events: si la cuota desaparece (solo
+-- posible mientras siguio Pending -- wo_payment_installments_guard_delete rechaza borrar
+-- una ya facturada) su bitacora deja de tener sujeto. El historial que #352 pide proteger
+-- es el de una cuota viva.
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- SET NULL: dar de baja a una persona nunca puede borrar la bitacora de lo que hizo, ni
+-- quedar bloqueado por ella. (fund_request_events usa NO ACTION, que bloquearia el borrado;
+-- aqui se prefiere que la bitacora sobreviva al actor.)
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
 
 
 --

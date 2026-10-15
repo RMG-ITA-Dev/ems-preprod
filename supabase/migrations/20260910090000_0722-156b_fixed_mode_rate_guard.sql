@@ -137,9 +137,20 @@ BEGIN
   -- update_wo_payment_installments_updated_at en cada UPDATE), nada impedia que
   -- collections_analyst falsificara la fecha de creacion de una cuota via un UPDATE
   -- directo.
-  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+  -- Cobranzas Fase 1 (2026-10-15): el literal 'collections_analyst' pasa a
+  -- is_collections_role() -- accounting_manager (Gerente de Contabilidad) tiene
+  -- EXACTAMENTE los mismos permisos de cobranza que collections_analyst (decision del
+  -- operador Q58). Sin este cambio el Gerente de Contabilidad quedaba fuera del allowlist
+  -- por columna, es decir SIN restriccion, que es lo contrario de lo que se quiere.
+  --
+  -- current_invoice_date/current_payment_date (la fecha VIGENTE tras una reprogramacion)
+  -- se suman a la lista prohibida: reprogramar es exclusivo del gerente del encargo
+  -- (decision del operador Q42), no de contabilidad.
+  IF NOT public.is_admin() AND public.is_collections_role() THEN
     IF NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
        OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date
+       OR NEW.current_payment_date IS DISTINCT FROM OLD.current_payment_date
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
        OR NEW.amount IS DISTINCT FROM OLD.amount
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
@@ -179,6 +190,26 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
       END IF;
+    END IF;
+
+    -- Cobranzas Fase 1 (issue #352): INVARIANTES de cada etapa. El camino normal son las
+    -- RPC invoice_installment()/collect_installment()/set_installment_overdue(), que
+    -- ademas validan rol, concurrencia y fechas; esto es la red de seguridad para que
+    -- NINGUN camino (UPDATE directo de un admin, script, backfill) pueda dejar una cuota
+    -- en un estado que el calendario no sabe interpretar:
+    --   * 'Invoiced' sin collection_invoice_date/collection_payment_date deja la cuota sin
+    --     fecha de vencimiento real -- y la mora se mide justamente sobre esa fecha
+    --     (decision del operador Q4), asi que la cuota nunca entraria en mora.
+    --   * 'Completed' sin payment_date_actual pierde cuando se cobro de verdad.
+    -- No se exigen al revertir Overdue -> Invoiced: esa cuota ya venia facturada y
+    -- conserva sus fechas.
+    IF NEW.status = 'Invoiced' AND OLD.status <> 'Overdue'
+       AND (NEW.collection_invoice_date IS NULL OR NEW.collection_payment_date IS NULL) THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: facturar una cuota exige registrar la fecha de facturacion y la de vencimiento de pago';
+    END IF;
+
+    IF NEW.status = 'Completed' AND NEW.payment_date_actual IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: marcar una cuota como cobrada exige registrar la fecha de pago';
     END IF;
   END IF;
 
@@ -237,7 +268,7 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
       END IF;
@@ -258,7 +289,7 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
@@ -294,8 +325,15 @@ $$;
 -- prototipo manual previo en Dev 2.0.
 DROP POLICY IF EXISTS "Accounting can update payment installments" ON public.wo_payment_installments;
 
+-- Cobranzas Fase 1 (2026-10-15, decision del operador Q58): la policy se abre a
+-- is_collections_role() -- accounting_manager ademas de collections_analyst. Hasta ahora el
+-- Gerente de Contabilidad veia en pantalla las acciones de cobranza (isStatusEditable las
+-- habilita para su rol) pero su UPDATE no pasaba ninguna policy: fallaba en silencio,
+-- exactamente el mismo desfase que esta policy habia venido a corregir para
+-- collections_analyst. accounting_analyst (Analista de Contabilidad) sigue fuera: solo
+-- trabaja solicitudes de fondos.
 CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments
   FOR UPDATE
   TO authenticated
-  USING (public.current_role_key() = 'collections_analyst')
-  WITH CHECK (public.current_role_key() = 'collections_analyst');
+  USING (public.is_collections_role())
+  WITH CHECK (public.is_collections_role());

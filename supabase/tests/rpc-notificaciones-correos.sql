@@ -621,6 +621,30 @@ BEGIN
   VALUES (v_plan, v_wo, 2, 50, 500, 'Pending', v_hoy,
           date_trunc('week', v_hoy)::date + 6, 6.96, 6.96);
 
+  -- Cobranzas Fase 1 (decision del operador Q4): los dos contadores de este grupo
+  -- ("vencidas" y "por vencer esta semana") dejaron de mirar agreed_payment_date y miran el
+  -- vencimiento REAL, que solo existe una vez FACTURADA la cuota -- una cuota todavia
+  -- Pendiente con su fecha pasada ya no es mora, es facturacion atrasada. Asi que las dos
+  -- cuotas se facturan de verdad, con las fechas de cobranza que corresponden a lo que cada
+  -- una representa. La OT se aprueba primero porque el guard exige OT aprobada para
+  -- transicionar el estado (y el plan ya se inserto arriba, con la OT todavia en Draft,
+  -- que es cuando el otro guard lo permite).
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = v_wo;
+
+  -- La vencida del gerente: facturada hace 37 dias, vencio hace 7.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_hoy - 37,
+         collection_payment_date = v_hoy - 7
+   WHERE plan_id = v_plan AND installment_number = 1;
+
+  -- La que vence esta semana: facturada hace 30 dias, vence el domingo.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_hoy - 30,
+         collection_payment_date = date_trunc('week', v_hoy)::date + 6
+   WHERE plan_id = v_plan AND installment_number = 2;
+
   -- ---- 19.a Fondos: el analista recibe los MISMOS cuatro contadores que el gerente ---------
   -- Paridad contable (2026-10-08, docs/matriz-notificaciones.md): Gerente y Analista de
   -- Contabilidad tienen los mismos permisos en Fondos, así que la matriz les concede los mismos

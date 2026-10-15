@@ -1645,7 +1645,17 @@ BEGIN
   -- sus condiciones mira ese salto (Draft/Pending_Approval -> Approved sin firma).
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = v_wo;
 
-  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst;
+  -- Cobranzas Fase 1: facturar exige registrar la fecha de facturacion REAL y la de
+  -- vencimiento (INSTALLMENT_DATES_REQUIRED), y la mora se mide sobre esa segunda fecha
+  -- (decision del operador Q4), ya no sobre agreed_payment_date. Esta cuota tiene que
+  -- quedar genuinamente vencida para lo que sigue (9.c cuenta 1 cuota en mora), asi que se
+  -- factura CON FECHAS PASADAS: facturada hace 37 dias y vencida hace 7 -- justo el mismo
+  -- dia que ya decia su agreed_payment_date en el fixture.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = (now() AT TIME ZONE 'America/La_Paz')::date - 37,
+         collection_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date - 7
+   WHERE installment_id = v_inst;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'wo.installment.status_changed' AND recipient_staff_id = c_acct
@@ -1709,8 +1719,12 @@ BEGIN
   -- semana porque el contador cuenta de hoy al domingo: con "viernes" fijo, la suite fallaria
   -- los sabados y domingos. Solo se mueve la FECHA: el estado ya es 'Invoiced' y volver a
   -- escribirlo no aportaria nada (y las fechas no las congela el guard).
+  -- Cobranzas Fase 1: lo que mueve de contador es el vencimiento VIGENTE, o sea
+  -- collection_payment_date; agreed_payment_date se mueve junto solo para que el fixture
+  -- no quede contradictorio.
   UPDATE public.wo_payment_installments
-     SET agreed_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date
+     SET agreed_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date,
+         collection_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date
    WHERE installment_id = v_inst;
 
   IF (public.notif_agg_wo_installment_due_this_week()->>'count')::int <> 1 THEN

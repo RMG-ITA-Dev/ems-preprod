@@ -694,6 +694,19 @@ BEGIN
       i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
       i.status, i.agreed_invoice_date, i.agreed_payment_date,
       i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
+      -- Cobranzas Fase 1 (issue #352): fechas VIGENTES y estado de calendario, calculados
+      -- una sola vez aqui para que ningun bloque de abajo repita el criterio.
+      --   * current_invoice_date = la reprogramada si la hubo, si no la del contrato.
+      --   * current_due_date     = el vencimiento REAL (facturacion real + dias habiles);
+      --                            cae a la pactada solo si falta (anomalia de datos).
+      --   * calendar_state       = la regla unica de mora (decision del operador Q4), la
+      --                            misma que usan la pantalla, los avisos y el cron.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS current_invoice_date,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS current_due_date,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date,
+        (SELECT today FROM now_ctx)) AS calendar_state,
       COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
       w.rate_to_bob,
       COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
@@ -713,17 +726,17 @@ BEGIN
           WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
       'in_arrears', jsonb_build_object(
         'count', COUNT(*) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+          WHERE inst.calendar_state = 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+          WHERE inst.calendar_state = 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
       'upcoming', jsonb_build_object(
         'count', COUNT(*) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0))
     ) AS by_status
     FROM installments_full inst
@@ -733,24 +746,27 @@ BEGIN
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
         'client_legal_name', cl.client_legal_name,
         'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
-        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END,
         -- review.md dash_cartera iteración 4, G-01 (2026-09-22): igual que dash_socio --
         -- una cuota ya facturada (Invoiced/Overdue) se valora al TC congelado de su factura
         -- (invoice_rate), NO al TC del plan (rate_to_bob).
         'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
                         THEN inst.amount_native * inst.invoice_rate
                         ELSE inst.amount_native * inst.rate_to_bob END
-      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END
     ), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
     WHERE
+      -- Cobranzas Fase 1 (issue #352): la ventana de 7 dias mira las fechas VIGENTES
+      -- (current_due_date / current_invoice_date del CTE), no las pactadas: una cuota
+      -- reprogramada o facturada tarde aparecia en la semana equivocada.
       (inst.status IN ('Invoiced', 'Overdue')
-        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_due_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
       OR
       (inst.status = 'Pending'
-        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
   ),
   avg_collection_days_agg AS (
     SELECT AVG(COALESCE(inst.payment_date_actual, inst.collection_payment_date) - inst.collection_invoice_date)

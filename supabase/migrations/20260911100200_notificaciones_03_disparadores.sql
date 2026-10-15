@@ -823,11 +823,18 @@ BEGIN
   END LOOP;
 
   -- ── 3. Semana de facturación del cliente (D-22) ──
-  -- Una cuota entra en su semana de facturación cuando `agreed_invoice_date` cae en la semana
-  -- corriente (lunes a domingo) y todavía no se facturó. El dedup lleva installment_id porque
-  -- una OT puede tener dos cuotas facturables en la misma semana y el entity_id es la OT.
+  -- Una cuota entra en su semana de facturación cuando su fecha de facturación VIGENTE cae en
+  -- la semana corriente (lunes a domingo) y todavía no se facturó. El dedup lleva
+  -- installment_id porque una OT puede tener dos cuotas facturables en la misma semana y el
+  -- entity_id es la OT.
+  --
+  -- Cobranzas Fase 1 (issue #352): la fecha vigente es COALESCE(current_invoice_date,
+  -- agreed_invoice_date) — la reprogramada si la hubo, si no la del contrato. Contra
+  -- `agreed_invoice_date` a secas, una cuota reprogramada avisaba en su semana original (que
+  -- ya nadie va a facturar) y callaba en la nueva.
   FOR v_rec IN
-    SELECT i.installment_id, i.installment_number, i.amount, i.agreed_invoice_date,
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS agreed_invoice_date,
            w.wo_id, w.engagement_id, w.currency,
            COALESCE(e.engagement_code, '') AS engagement_code,
            r.staff_id
@@ -838,9 +845,9 @@ BEGIN
         SELECT staff_id FROM public.notif_engagement_managers(w.engagement_id)
       ) r
      WHERE i.status = 'Pending'
-       AND i.agreed_invoice_date IS NOT NULL
-       AND i.agreed_invoice_date >= date_trunc('week', v_today)::date
-       AND i.agreed_invoice_date <= date_trunc('week', v_today)::date + 6
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) IS NOT NULL
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) >= date_trunc('week', v_today)::date
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) <= date_trunc('week', v_today)::date + 6
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM public.notifications n

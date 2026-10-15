@@ -357,8 +357,10 @@ BEGIN
   VALUES (v_plan_approved, '40000000-0000-4000-8000-0000000000c2', 3, 100, 'Pending')
   RETURNING installment_id INTO v_inst_invoiced;
 
+  -- Cobranzas Fase 1: facturar/cobrar exige registrar las fechas (INSTALLMENT_DATES_REQUIRED).
   UPDATE public.wo_payment_installments
-  SET status = 'Invoiced', invoice_exchange_rate = 6.98
+  SET status = 'Invoiced', invoice_exchange_rate = 6.98,
+      collection_invoice_date = CURRENT_DATE, collection_payment_date = CURRENT_DATE + 30
   WHERE installment_id = v_inst_invoiced;
 
   IF (SELECT status FROM public.wo_payment_installments WHERE installment_id = v_inst_invoiced) <> 'Invoiced'
@@ -472,7 +474,7 @@ BEGIN
   -- Re-invoice Overdue -> Invoiced, then complete: status+payment_exchange_rate written atomically.
   UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_overdue;
   UPDATE public.wo_payment_installments
-  SET status = 'Completed', payment_exchange_rate = 7.02
+  SET status = 'Completed', payment_exchange_rate = 7.02, payment_date_actual = CURRENT_DATE
   WHERE installment_id = v_inst_overdue;
   v_inst_completed := v_inst_overdue;
 
@@ -685,7 +687,9 @@ BEGIN
     VALUES (v_plan_draft, '40000000-0000-4000-8000-0000000000c1', 5, 100, 'Pending')
     RETURNING installment_id INTO v_inst_draft_invoiced;
 
-    UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_draft_invoiced;
+    UPDATE public.wo_payment_installments
+    SET status = 'Invoiced', collection_invoice_date = CURRENT_DATE, collection_payment_date = CURRENT_DATE + 30
+    WHERE installment_id = v_inst_draft_invoiced;
 
     denied := false;
     BEGIN
@@ -805,7 +809,9 @@ BEGIN
   RETURNING installment_id INTO v_inst_lost;
 
   -- La marca como Invoiced para que quede "bloqueada" (amount ya no se puede tocar).
-  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst_lost;
+  UPDATE public.wo_payment_installments
+  SET status = 'Invoiced', collection_invoice_date = CURRENT_DATE, collection_payment_date = CURRENT_DATE + 30
+  WHERE installment_id = v_inst_lost;
 
   -- ── #4: sync_wo_payment_installments debe ser atomico ──
   -- Payload: solo v_inst_keep sobrevive (v_inst_lost queda huerfana -> se borraria) Y

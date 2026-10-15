@@ -1045,7 +1045,13 @@ const WorkOrderEdit = () => {
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
           // TC de creacion, modo, dias, cuotas, fecha/porcentaje acordados).
-          isStatusEditable={(isAdmin || roleKey === "collections_analyst") && approvalStatus === "Approved"}
+          // Cobranzas Fase 1 (decision del operador Q58): el Gerente de Contabilidad
+          // (accounting_manager) tiene EXACTAMENTE los mismos permisos de cobranza que el
+          // Analista de Cobranzas (collections_analyst). Hasta ahora quedaba fuera de
+          // esta condicion, asi que no podia facturar ni marcar cobrada ninguna cuota. La
+          // policy RLS y el trigger de la base se abrieron al mismo par de roles via
+          // is_collections_role().
+          isStatusEditable={(isAdmin || roleKey === "collections_analyst" || roleKey === "accounting_manager") && approvalStatus === "Approved"}
           canEditPaymentPlan={canEditPaymentPlan}
           // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
           // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan
