@@ -141,6 +141,10 @@ vi.mock("@/hooks/mutations", () => ({
   // el mock del barrel, el componente revienta al montar.
   useRescheduleInstallment: () => ({ mutate: vi.fn(), isPending: false }),
   useRecordInstallmentConfirmation: () => ({ mutate: vi.fn(), isPending: false }),
+  // Cobranzas Fase 4: el hilo de notas de la sección del plan de pagos.
+  useAddInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
+  useEditInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
   useSaveWorkOrderStaffing:   () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 

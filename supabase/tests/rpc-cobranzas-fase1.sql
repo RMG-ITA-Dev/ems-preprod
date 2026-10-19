@@ -1,4 +1,4 @@
--- Cobranzas Fases 1 a 3 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 1 a 4 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -43,25 +43,28 @@ INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, e
   ('a1c00000-0000-4000-8000-0000000000f2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-manager@test.local',    '', now(), now(), now(), '{}', '{}'),
   ('a1c00000-0000-4000-8000-0000000000f3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-collections@test.local','', now(), now(), now(), '{}', '{}'),
   ('a1c00000-0000-4000-8000-0000000000f4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-acctmgr@test.local',    '', now(), now(), now(), '{}', '{}'),
-  ('a1c00000-0000-4000-8000-0000000000f5', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-acctanalyst@test.local','', now(), now(), now(), '{}', '{}');
+  ('a1c00000-0000-4000-8000-0000000000f5', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-acctanalyst@test.local','', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000f6', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf1-partner@test.local',     '', now(), now(), now(), '{}', '{}');
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, practica_id, society_id) VALUES
   ('51c00000-0000-4000-8000-0000000000f1', 'a1c00000-0000-4000-8000-0000000000f1', 'CF1', 'Admin',       true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1'),
   ('51c00000-0000-4000-8000-0000000000f2', 'a1c00000-0000-4000-8000-0000000000f2', 'CF1', 'Manager',     true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1'),
   ('51c00000-0000-4000-8000-0000000000f3', 'a1c00000-0000-4000-8000-0000000000f3', 'CF1', 'Collections', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1'),
   ('51c00000-0000-4000-8000-0000000000f4', 'a1c00000-0000-4000-8000-0000000000f4', 'CF1', 'AcctMgr',     true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1'),
-  ('51c00000-0000-4000-8000-0000000000f5', 'a1c00000-0000-4000-8000-0000000000f5', 'CF1', 'AcctAnalyst', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1');
+  ('51c00000-0000-4000-8000-0000000000f5', 'a1c00000-0000-4000-8000-0000000000f5', 'CF1', 'AcctAnalyst', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1'),
+  ('51c00000-0000-4000-8000-0000000000f6', 'a1c00000-0000-4000-8000-0000000000f6', 'CF1', 'Partner',     true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000f1');
 
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a1c00000-0000-4000-8000-0000000000f1', 'admin', 'admin'),
   ('a1c00000-0000-4000-8000-0000000000f2', 'staff', 'manager'),
   ('a1c00000-0000-4000-8000-0000000000f3', 'staff', 'collections_analyst'),
   ('a1c00000-0000-4000-8000-0000000000f4', 'staff', 'accounting_manager'),
-  ('a1c00000-0000-4000-8000-0000000000f5', 'staff', 'accounting_analyst');
+  ('a1c00000-0000-4000-8000-0000000000f5', 'staff', 'accounting_analyst'),
+  ('a1c00000-0000-4000-8000-0000000000f6', 'staff', 'partner');
 
-INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id, manager_id) VALUES
-  ('e0000000-0000-4000-8000-0000000000f1', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E1', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2'),
-  ('e0000000-0000-4000-8000-0000000000f2', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E2', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2');
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id, manager_id, partner_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000f1', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E1', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
+  ('e0000000-0000-4000-8000-0000000000f2', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E2', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6');
 
 -- Las OT nacen en Draft: el guard del plan (20260908150000) solo permite CREAR el plan
 -- mientras la OT no este aprobada. Se aprueban despues, como en el flujo real.
@@ -76,6 +79,7 @@ DECLARE
   c_collections uuid := 'a1c00000-0000-4000-8000-0000000000f3';
   c_acctmgr     uuid := 'a1c00000-0000-4000-8000-0000000000f4';
   c_acctanalyst uuid := 'a1c00000-0000-4000-8000-0000000000f5';
+  c_partner     uuid := 'a1c00000-0000-4000-8000-0000000000f6';
   c_wo1         uuid := '40000000-0000-4000-8000-0000000000f1';
   c_wo2         uuid := '40000000-0000-4000-8000-0000000000f2';
   v_today  date := public.fund_today();
@@ -88,6 +92,7 @@ DECLARE
   v_row    public.wo_payment_installments;
   v_n      integer;
   v_txt    text;
+  v_note   uuid;
   denied   boolean;
 BEGIN
   -- ══════════════════════════════════════════════════════════════════
@@ -643,6 +648,158 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - los tres avisos de la Fase 3, con su canal y sus destinatarios';
 
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 10. Fase 4: notas entre el encargo y Contabilidad (issue #352)
+  -- ══════════════════════════════════════════════════════════════════
+  -- Lo que el requisito C2 llamaba "excepcion para revisar gerente y socio" resulto ser esto
+  -- (decision del operador Q6): notas, no un flujo de aprobacion. C2 y C4 son lo mismo.
+
+  -- 10.a El SOCIO escribe notas. Es el punto: sigue sin poder tocar el plan de pagos, y esta
+  -- es la via que tiene para dejar constancia de algo que Contabilidad debe leer al facturar.
+  PERFORM pg_temp.impersonate(c_partner);
+  SELECT note_id INTO v_note FROM public.add_installment_note(c_wo1, v_i2, 'el cliente pidio factura separada por servicio');
+  IF v_note IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el socio no pudo escribir una nota';
+  END IF;
+
+  -- Y lo que NO puede sigue igual: escribir una nota no le abre el plan.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET percentage = 99 WHERE installment_id = v_i2;
+  EXCEPTION WHEN OTHERS THEN denied := true;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el socio escribio el plan de pagos; solo deberia poder notas';
+  END IF;
+  RAISE NOTICE 'PASS - el socio escribe notas pero sigue sin tocar el plan';
+
+  -- 10.b Contabilidad tambien escribe: el hilo tiene dos lados.
+  PERFORM pg_temp.impersonate(c_collections);
+  PERFORM public.add_installment_note(c_wo1, v_i2, 'facturamos con la observacion del socio');
+  RAISE NOTICE 'PASS - Contabilidad responde en el mismo hilo';
+
+  -- 10.c Nota del PLAN entero (installment_id NULL, decision Q33).
+  PERFORM pg_temp.impersonate(c_manager);
+  PERFORM public.add_installment_note(c_wo1, NULL, 'este cliente paga siempre a 60 dias');
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_notes
+   WHERE wo_id = c_wo1 AND installment_id IS NULL AND deleted_at IS NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la nota del plan no quedo registrada';
+  END IF;
+  RAISE NOTICE 'PASS - hay notas de cuota y notas del plan entero';
+
+  -- 10.d Quien no participa del hilo no escribe. El Analista de Contabilidad esta fuera de
+  -- cobranzas (Q14) y no es parte del encargo.
+  PERFORM pg_temp.impersonate(c_acctanalyst);
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_note(c_wo1, v_i2, 'no deberia poder');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'NOTE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad escribio en el hilo';
+  END IF;
+
+  -- Y tampoco lo lee. Se afirma sobre wo_notes_participant(), que es LA MISMA funcion que usa
+  -- la policy de SELECT, y no contando filas: este harness corre como dueno de las tablas, y
+  -- para el dueno la RLS no se evalua (BYPASSRLS implicito). Contar filas aca daria siempre
+  -- todas, pase lo que pase con la policy, o sea un test que no puede fallar.
+  IF public.wo_notes_participant(c_wo1) THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad figura como participante del hilo';
+  END IF;
+  PERFORM pg_temp.impersonate(c_partner);
+  IF NOT public.wo_notes_participant(c_wo1) THEN
+    RAISE EXCEPTION 'TEST FAIL - el socio del encargo no figura como participante del hilo';
+  END IF;
+  PERFORM pg_temp.impersonate(c_collections);
+  IF NOT public.wo_notes_participant(c_wo1) THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Cobranzas no figura como participante del hilo';
+  END IF;
+  PERFORM pg_temp.impersonate(c_acctanalyst);
+  RAISE NOTICE 'PASS - quien no participa del hilo ni escribe ni lee';
+
+  -- 10.e Una nota vacia no es una nota.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_note(c_wo1, v_i2, '   ');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'NOTE_BODY_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto una nota vacia';
+  END IF;
+
+  -- Ni una nota colgada de una cuota de OTRA orden de trabajo.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_note(c_wo1, v_draft, 'cuota de otra OT');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'NOTE_WO_MISMATCH%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto una nota sobre una cuota de otra OT';
+  END IF;
+  RAISE NOTICE 'PASS - la nota exige texto y una cuota de la misma OT';
+
+  -- 10.f Editar: solo el autor. Ni la otra parte del hilo, aunque la lea.
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    PERFORM public.edit_installment_note(v_note, 'reescrita por otro');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'NOTE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad edito una nota del socio';
+  END IF;
+
+  -- El autor si, y la version anterior queda guardada: quien facturo leyendo la vieja tiene
+  -- que poder demostrar que decia.
+  PERFORM pg_temp.impersonate(c_partner);
+  PERFORM public.edit_installment_note(v_note, 'el cliente pidio factura separada por servicio y por mes');
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_note_versions
+   WHERE note_id = v_note AND body = 'el cliente pidio factura separada por servicio';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - no se guardo el texto anterior de la nota editada';
+  END IF;
+
+  -- Reenviar el mismo texto no ensucia el historial.
+  PERFORM public.edit_installment_note(v_note, 'el cliente pidio factura separada por servicio y por mes');
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_note_versions WHERE note_id = v_note;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - una edicion identica genero una version (hay %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - edita solo el autor, y la version anterior se conserva';
+
+  -- 10.g Borrar es logico: la nota deja de verse pero la fila sobrevive, porque alguien pudo
+  -- haber facturado leyendola.
+  PERFORM public.delete_installment_note(v_note);
+  -- Mismo motivo que arriba: la policy filtra por deleted_at, pero el dueno no la evalua. Se
+  -- afirma el hecho que la policy mira -- que la fila quedo marcada como borrada y NO
+  -- desaparecio -- que es lo que hace util al borrado logico.
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_notes
+   WHERE note_id = v_note AND deleted_at IS NOT NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - borrar la nota no la marco como borrada, o la borro de verdad';
+  END IF;
+  RAISE NOTICE 'PASS - borrar una nota la oculta sin perderla';
+
+  -- 10.h El aviso es solo de campana y va a la otra parte (Q35).
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.note_added' AND NOT email_enabled;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso de nota deberia existir y ser solo de campana';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_role_types
+   WHERE type_key = 'wo.installment.note_added'
+     AND role_key IN ('manager', 'partner', 'accounting_manager', 'collections_analyst');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION 'TEST FAIL - las dos partes del hilo no reciben el aviso de nota (hay %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el aviso de nota nueva es de campana y llega a las dos partes';
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASE 1: ALL CHECKS PASSED';
 END $$;

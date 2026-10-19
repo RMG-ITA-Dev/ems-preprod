@@ -7893,6 +7893,65 @@ CREATE TABLE public.wo_payment_installments (
 -- authenticated). Se escribe SOLO desde triggers y RPC SECURITY DEFINER: no hay policy de
 -- INSERT/UPDATE/DELETE para nadie, ni para admin -- una bitacora que el propio actor puede
 -- editar no sirve como evidencia.
+--
+--
+-- Name: wo_installment_notes; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4 (issue #352, decision del operador Q6). La "excepcion para revisar gerente
+-- y socio" que pedia el requisito C2 resulto NO ser un flujo de aprobacion sino NOTAS: el
+-- gerente o el socio dejan por escrito algo que Contabilidad tiene que leer al facturar o al
+-- cobrar, y Contabilidad responde por el mismo canal. Por eso C2 y C4 ("comentarios de
+-- contabilidad") son una sola funcionalidad y viven en esta tabla.
+--
+-- installment_id NULL = nota del PLAN entero (decision Q33: hacen falta las dos). Una nota de
+-- plan habla del encargo ("este cliente paga siempre a 60 dias"), una de cuota habla de esa
+-- cuota ("pidieron factura separada").
+--
+-- Borrado LOGICO (deleted_at) y no fisico: una nota que alguien leyo y uso para decidir no
+-- puede desaparecer sin rastro. La edicion guarda la version anterior en
+-- wo_installment_note_versions (decision Q15: se pueden editar y borrar).
+CREATE TABLE public.wo_installment_notes (
+    note_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    wo_id uuid NOT NULL,
+    -- NULL = la nota es del plan de pagos, no de una cuota concreta.
+    installment_id uuid,
+    author_staff_id uuid,
+    -- Rol del autor AL ESCRIBIR. Se guarda congelado porque decide a quien se avisa ("la otra
+    -- parte") y porque la nota se lee meses despues, cuando esa persona puede tener otro rol.
+    author_role text,
+    body text NOT NULL,
+    deleted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT wo_installment_notes_body_check CHECK ((btrim(body) <> ''::text))
+);
+
+
+--
+--
+-- Name: wo_installment_note_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4: el texto ANTERIOR de una nota editada (decision Q15). Sin esto, editar
+-- una nota reescribiria la historia: quien facturo leyendo la version vieja no podria
+-- demostrar que decia. Solo INSERT, igual que wo_installment_events.
+CREATE TABLE public.wo_installment_note_versions (
+    version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+    note_id uuid NOT NULL,
+    -- El cuerpo que la nota tenia ANTES de esta edicion.
+    body text NOT NULL,
+    edited_by_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+--
+-- Name: wo_installment_events; Type: TABLE; Schema: public; Owner: -
+--
+
 CREATE TABLE public.wo_installment_events (
     event_id uuid DEFAULT gen_random_uuid() NOT NULL,
     -- Orden real de insercion: created_at es now() y empata dentro de una transaccion
@@ -8475,6 +8534,180 @@ BEGIN
   RETURNING * INTO v_row;
 
   RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: wo_notes_participant(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4 (decision del operador Q16): quien participa del hilo de notas de una OT.
+-- Son exactamente los cinco: gerente y socio del encargo (is_engagement_team_member cubre
+-- manager_id y partner_id), el Gerente de Contabilidad, el Analista de Cobranzas y un admin.
+-- Leer y escribir son el MISMO conjunto: una nota es una conversacion entre esas dos partes,
+-- no un aviso de una a la otra.
+--
+-- Importa que el SOCIO escriba notas: sigue sin poder tocar el plan de pagos
+-- (20260908150000:305-312), y esta es justamente la via que la Fase 4 le da para dejar
+-- constancia sin escribir el plan.
+CREATE FUNCTION public.wo_notes_participant(p_wo_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.is_admin()
+      OR public.is_collections_role()
+      OR EXISTS (
+           SELECT 1 FROM public.work_orders w
+            WHERE w.wo_id = p_wo_id
+              AND public.is_engagement_team_member(w.engagement_id)
+         );
+$$;
+
+
+--
+--
+-- Name: add_installment_note(uuid, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4. p_installment_id NULL = nota del plan entero (Q33).
+-- No exige que la OT este aprobada ni que la cuota siga Pendiente: una nota se puede dejar en
+-- cualquier momento, que es justo lo que pidio el operador ("pueden poner notas en cualquier
+-- momento para que lo lea contabilidad"). Tampoco bloquea nada: es informacion, no un gate.
+CREATE FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+  v_inst_wo uuid;
+BEGIN
+  IF NOT public.wo_notes_participant(p_wo_id) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: no participa del hilo de notas de esta orden de trabajo';
+  END IF;
+
+  IF p_body IS NULL OR btrim(p_body) = '' THEN
+    RAISE EXCEPTION 'NOTE_BODY_REQUIRED: la nota no puede estar vacia';
+  END IF;
+
+  -- Una cuota de OTRA orden de trabajo dejaria la nota colgada de un hilo que su autor no
+  -- necesariamente puede leer.
+  IF p_installment_id IS NOT NULL THEN
+    SELECT i.wo_id INTO v_inst_wo
+    FROM public.wo_payment_installments i WHERE i.installment_id = p_installment_id;
+    IF v_inst_wo IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+    END IF;
+    IF v_inst_wo IS DISTINCT FROM p_wo_id THEN
+      RAISE EXCEPTION 'NOTE_WO_MISMATCH: la cuota no pertenece a esa orden de trabajo';
+    END IF;
+  END IF;
+
+  INSERT INTO public.wo_installment_notes (wo_id, installment_id, author_staff_id, author_role, body)
+  VALUES (p_wo_id, p_installment_id, public.get_my_staff_id(), public.current_role_key(), btrim(p_body))
+  RETURNING * INTO v_note;
+
+  -- Aviso de campana a la otra parte (decision Q35). En su propio bloque: que falle el modulo
+  -- de notificaciones no puede hacer perder la nota, que es el hecho que importa.
+  BEGIN
+    PERFORM public.notif_installment_note_added(v_note);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'add_installment_note: fallo el aviso para la nota % : %', v_note.note_id, SQLERRM;
+  END;
+
+  RETURN v_note;
+END;
+$$;
+
+
+--
+--
+-- Name: edit_installment_note(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4 (decision Q15 y Q51): editar una nota puede SOLO su autor, o un admin.
+-- Ni siquiera la otra parte del hilo: una nota es de quien la escribio.
+-- El texto anterior se guarda antes de pisarlo -- quien factur0 leyendo la version vieja tiene
+-- que poder demostrar que decia.
+CREATE FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+BEGIN
+  SELECT n.* INTO v_note FROM public.wo_installment_notes n
+   WHERE n.note_id = p_note_id FOR UPDATE;
+
+  IF NOT FOUND OR v_note.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe o fue borrada';
+  END IF;
+
+  IF NOT (public.is_admin()
+          OR (v_note.author_staff_id IS NOT NULL
+              AND v_note.author_staff_id = public.get_my_staff_id())) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: solo el autor (o un administrador) puede editar una nota';
+  END IF;
+
+  IF p_body IS NULL OR btrim(p_body) = '' THEN
+    RAISE EXCEPTION 'NOTE_BODY_REQUIRED: la nota no puede quedar vacia';
+  END IF;
+
+  IF btrim(p_body) IS NOT DISTINCT FROM v_note.body THEN
+    RETURN v_note;  -- no-op: no ensucia el historial con una version identica
+  END IF;
+
+  INSERT INTO public.wo_installment_note_versions (note_id, body, edited_by_staff_id)
+  VALUES (v_note.note_id, v_note.body, public.get_my_staff_id());
+
+  UPDATE public.wo_installment_notes
+     SET body = btrim(p_body), updated_at = now()
+   WHERE note_id = p_note_id
+  RETURNING * INTO v_note;
+
+  RETURN v_note;
+END;
+$$;
+
+
+--
+--
+-- Name: delete_installment_note(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4: borrado LOGICO. La nota deja de mostrarse, pero la fila y sus versiones
+-- quedan: alguien pudo haber facturado o cobrado leyendola.
+CREATE FUNCTION public.delete_installment_note(p_note_id uuid) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+BEGIN
+  SELECT n.* INTO v_note FROM public.wo_installment_notes n
+   WHERE n.note_id = p_note_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe';
+  END IF;
+
+  IF NOT (public.is_admin()
+          OR (v_note.author_staff_id IS NOT NULL
+              AND v_note.author_staff_id = public.get_my_staff_id())) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: solo el autor (o un administrador) puede borrar una nota';
+  END IF;
+
+  IF v_note.deleted_at IS NOT NULL THEN
+    RETURN v_note;
+  END IF;
+
+  UPDATE public.wo_installment_notes
+     SET deleted_at = now(), updated_at = now()
+   WHERE note_id = p_note_id
+  RETURNING * INTO v_note;
+
+  RETURN v_note;
 END;
 $$;
 

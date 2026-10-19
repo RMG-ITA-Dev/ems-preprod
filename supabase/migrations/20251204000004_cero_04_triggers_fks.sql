@@ -1180,6 +1180,53 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_notes wo_installment_notes_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- SET NULL y no CASCADE: si la cuota desaparece (solo posible mientras siguio Pending), la
+-- nota sigue valiendo para el plan. Lo que se dijo del encargo no se borra porque se haya
+-- reacomodado una cuota.
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: wo_installment_notes wo_installment_notes_author_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_author_staff_id_fkey FOREIGN KEY (author_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.wo_installment_notes(note_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_edited_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_edited_by_staff_id_fkey FOREIGN KEY (edited_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: wo_installment_events wo_installment_events_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

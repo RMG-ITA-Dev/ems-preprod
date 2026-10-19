@@ -494,6 +494,73 @@ BEGIN
 END;
 $BODY$;
 
+-- ── Cobranzas Fase 4 (issue #352): aviso de nota nueva ──────────────────────
+-- Decisión del operador Q35: SOLO campana, y a LA OTRA PARTE. El hilo tiene dos lados —
+-- gerente/socio del encargo por uno, Contabilidad por el otro — y avisarle a todo el mundo
+-- cada vez convertiría la campana en ruido. Quién es "la otra parte" lo decide el rol
+-- congelado del autor (`author_role`), no el rol que esa persona tenga hoy.
+--
+-- La llama add_installment_note(), no un trigger, por el mismo motivo que el aviso de
+-- reprogramación: hay que excluir al autor, y acá ya está resuelto.
+DROP FUNCTION IF EXISTS public.notif_installment_note_added(public.wo_installment_notes);
+
+CREATE FUNCTION public.notif_installment_note_added(p_note public.wo_installment_notes)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_autor_es_contabilidad boolean := COALESCE(p_note.author_role IN ('accounting_manager', 'collections_analyst'), false);
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_note.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM (
+      -- Escribió Contabilidad → se avisa al encargo (gerentes y socios).
+      -- Escribió el encargo → se avisa a Contabilidad.
+      SELECT staff_id FROM public.notif_engagement_managers(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_engagement_partners(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+       WHERE NOT v_autor_es_contabilidad
+    ) q
+  LOOP
+    CONTINUE WHEN p_note.author_staff_id IS NOT NULL AND v_rec.staff_id = p_note.author_staff_id;
+
+    IF public.notify_staff('wo.installment.note_added', v_rec.staff_id,
+         p_note.wo_id::text,
+         jsonb_build_object('engagement_code',  v_code,
+                            'engagement_id',    v_eng,
+                            'currency',         v_curr,
+                            'note_id',          p_note.note_id,
+                            'installment_id',   p_note.installment_id,
+                            -- Un extracto, no la nota entera: la campana no es el lugar para
+                            -- leerla, es el lugar para enterarse de que existe.
+                            'excerpt',          left(p_note.body, 140))) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) IS
+  'Cobranzas Fase 4: avisa por campana a la OTRA parte del hilo (encargo <-> Contabilidad) que hay una nota nueva, excluyendo al autor. La llama add_installment_note().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) FROM PUBLIC, anon, authenticated;
+
 COMMENT ON FUNCTION public.notif_installment_rescheduled(public.wo_payment_installments, date, text) IS
   'Cobranzas Fase 3: avisa por campana al socio del encargo y a Contabilidad que una cuota se reprogramo, excluyendo a quien la reprogramo. La llama reschedule_installment().';
 

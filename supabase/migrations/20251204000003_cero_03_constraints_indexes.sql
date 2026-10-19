@@ -538,6 +538,49 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: wo_installment_notes wo_installment_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_pkey PRIMARY KEY (note_id);
+
+
+--
+--
+-- Name: idx_wo_installment_notes_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4: el hilo se lee siempre entero por OT (el banner del plan y los contadores
+-- por cuota salen de la misma consulta). Parcial: una nota borrada no se muestra nunca.
+CREATE INDEX idx_wo_installment_notes_wo ON public.wo_installment_notes USING btree (wo_id, created_at) WHERE (deleted_at IS NULL);
+
+
+--
+--
+-- Name: idx_wo_installment_notes_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_notes_installment ON public.wo_installment_notes USING btree (installment_id) WHERE (installment_id IS NOT NULL AND deleted_at IS NULL);
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_pkey PRIMARY KEY (version_id);
+
+
+--
+--
+-- Name: idx_wo_installment_note_versions_note; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_note_versions_note ON public.wo_installment_note_versions USING btree (note_id, seq);
+
+
+--
 -- Name: wo_installment_events wo_installment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 

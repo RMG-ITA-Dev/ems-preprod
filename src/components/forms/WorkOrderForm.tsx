@@ -139,6 +139,10 @@ interface WorkOrderFormProps {
    * is_collections_role().
    */
   collectionsOnly?: boolean;
+  /** Cobranzas Fase 4: quién participa del hilo de notas (gerente, socio, Contabilidad, admin). */
+  canWriteNotes?: boolean;
+  currentStaffId?: string | null;
+  isAdminViewer?: boolean;
   canEditPaymentPlan?: boolean;
   isPaymentPlanDirty?: boolean;
   onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
@@ -420,6 +424,9 @@ export function WorkOrderForm({
   isAdminDateEditable = false,
   isStatusEditable = false,
   collectionsOnly = false,
+  canWriteNotes = false,
+  currentStaffId = null,
+  isAdminViewer = false,
   canEditPaymentPlan = false,
   isPaymentPlanDirty = false,
   onPaymentPlanChange,
@@ -1397,6 +1404,9 @@ export function WorkOrderForm({
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
           collectionsApprovalStatus={collectionsOnly ? approvalStatus : null}
+          canWriteNotes={canWriteNotes}
+          currentStaffId={currentStaffId}
+          isAdminViewer={isAdminViewer}
           isAdminDateEditable={isAdminDateEditable}
           canEditPaymentPlan={canEditPaymentPlan}
           isPaymentPlanDirty={isPaymentPlanDirty}

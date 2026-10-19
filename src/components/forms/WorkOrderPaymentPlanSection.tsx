@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +33,8 @@ import {
   useRecordInstallmentConfirmation,
 } from "@/hooks/mutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
+import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
+import { InstallmentNotesThread } from "./InstallmentNotesThread";
 import {
   distributePercentages,
   computeAmount,
@@ -80,6 +82,16 @@ interface WorkOrderPaymentPlanSectionProps {
    * lo cuenta.
    */
   collectionsApprovalStatus?: "Draft" | "Pending_Approval" | "Approved" | "Rejected" | null;
+  /**
+   * Cobranzas Fase 4 (decisión Q16): quién participa del hilo de notas — gerente y socio del
+   * encargo, Contabilidad y admin. Es un conjunto más amplio que `canEditPaymentPlan`: el
+   * SOCIO escribe notas aunque siga sin poder tocar el plan, y esa es justamente la vía que la
+   * Fase 4 le da para dejar constancia.
+   */
+  canWriteNotes?: boolean;
+  /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
+  currentStaffId?: string | null;
+  isAdminViewer?: boolean;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -129,6 +141,9 @@ export function WorkOrderPaymentPlanSection({
   isAdminDateEditable,
   canEditPaymentPlan,
   collectionsApprovalStatus = null,
+  canWriteNotes = false,
+  currentStaffId = null,
+  isAdminViewer = false,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -144,6 +159,11 @@ export function WorkOrderPaymentPlanSection({
   // de la cuota (su fecha pactada), no sobre editar el plan mientras la OT está en Draft —
   // de hecho el caso normal es con la OT ya aprobada.
   const canManageSchedule = canEditPaymentPlan;
+  // Cobranzas Fase 4: el hilo entero de la OT en UNA consulta — el banner del plan, los
+  // contadores por fila y el bloque de los diálogos salen todos de acá (decisión Q6/Q34).
+  const { data: notes } = useInstallmentNotes(woId || undefined);
+  const planNotes = planLevelNotes(notes);
+  const [notesDialog, setNotesDialog] = useState<{ idx: number } | null>(null);
   const rescheduleInstallment = useRescheduleInstallment();
   const recordConfirmation = useRecordInstallmentConfirmation();
   // `notConfirmed` abre el mismo diálogo que `reschedule` pero además registra que el
@@ -843,6 +863,26 @@ export function WorkOrderPaymentPlanSection({
           </div>
         </div>
 
+        {/* Cobranzas Fase 4 (issue #352): notas del PLAN entero. Van arriba y siempre
+            visibles — son las que hablan del encargo, no de una cuota ("este cliente paga
+            siempre a 60 días"), y el operador pidió que fueran notorias (Q34). */}
+        {(planNotes.length > 0 || canWriteNotes) && (
+          <div data-testid="plan-notes" className="rounded-md border border-border/60 bg-muted/10 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              {t("workOrders.paymentPlan.notesPlanTitle")}
+            </div>
+            <InstallmentNotesThread
+              woId={woId}
+              installmentId={null}
+              notes={planNotes}
+              currentStaffId={currentStaffId}
+              canWrite={canWriteNotes}
+              isAdmin={isAdminViewer}
+            />
+          </div>
+        )}
+
         {/* Installments table */}
         {installments.length > 0 && (
           <div className="overflow-x-auto">
@@ -914,6 +954,7 @@ export function WorkOrderPaymentPlanSection({
                   const display = getInstallmentDisplay(inst);
                   const stage = display.stage;
                   const availableOptions = STATUS_TRANSITIONS[stage];
+                  const rowNotes = notesForInstallment(notes, inst.installment_id);
                   const calendarBadge =
                     display.isOverdue && stage !== "Overdue"
                       ? {
@@ -1262,6 +1303,28 @@ export function WorkOrderPaymentPlanSection({
                             {calendarBadge.label}
                           </span>
                         )}
+                        {/* Cobranzas Fase 4: contador de notas de la fila. En color de
+                            advertencia y no neutro porque el operador pidió que fueran
+                            NOTORIAS (Q34): sin acuse de lectura, lo único que empuja a abrirlas
+                            es que se vean. */}
+                        {(rowNotes.length > 0 || canWriteNotes) && inst.installment_id && (
+                          <button
+                            type="button"
+                            onClick={() => setNotesDialog({ idx })}
+                            aria-label={t("workOrders.paymentPlan.notesDialogTitle", { number: idx + 1 })}
+                            className={cn(
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                              rowNotes.length > 0
+                                ? "bg-warning/15 text-warning"
+                                : "bg-muted/60 text-muted-foreground",
+                            )}
+                          >
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            {rowNotes.length > 0
+                              ? t("workOrders.paymentPlan.notesCount", { count: rowNotes.length })
+                              : t("workOrders.paymentPlan.notesAdd")}
+                          </button>
+                        )}
                         </div>
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
@@ -1310,6 +1373,8 @@ export function WorkOrderPaymentPlanSection({
     </Card>
 
     {/* Confirmation dialog for status changes that record a date */}
+    {/* Cobranzas Fase 4: al facturar o al cobrar es cuando las notas pesan (decisión Q6), así
+        que el diálogo las muestra. No se marcan como leídas (Q34): se muestran y ya. */}
     <Dialog open={!!pendingChange} onOpenChange={(open) => { if (!open) setPendingChange(null); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -1331,6 +1396,23 @@ export function WorkOrderPaymentPlanSection({
             )}
           </DialogDescription>
         </DialogHeader>
+        {/* Las notas de la cuota, acá y no en un enlace: es el momento en que pesan. */}
+        {pendingChange && notesForInstallment(notes, installments[pendingChange.idx]?.installment_id).length > 0 && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-warning">
+              <AlertTriangle className="h-4 w-4" />
+              {t("workOrders.paymentPlan.notesOnInvoiceWarning")}
+            </div>
+            <InstallmentNotesThread
+              woId={woId}
+              installmentId={installments[pendingChange.idx]?.installment_id ?? null}
+              notes={notesForInstallment(notes, installments[pendingChange.idx]?.installment_id)}
+              currentStaffId={currentStaffId}
+              canWrite={false}
+              isAdmin={isAdminViewer}
+            />
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setPendingChange(null)}>
             {t("common.cancel")}
@@ -1439,6 +1521,33 @@ export function WorkOrderPaymentPlanSection({
             onClick={handleScheduleSubmit}
           >
             {t("workOrders.paymentPlan.rescheduleAction")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Cobranzas Fase 4: el hilo de UNA cuota. Se abre desde el contador de la fila. */}
+    <Dialog open={!!notesDialog} onOpenChange={(open) => { if (!open) setNotesDialog(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {t("workOrders.paymentPlan.notesDialogTitle", { number: (notesDialog?.idx ?? 0) + 1 })}
+          </DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.notesTitle")}</DialogDescription>
+        </DialogHeader>
+        {notesDialog && (
+          <InstallmentNotesThread
+            woId={woId}
+            installmentId={installments[notesDialog.idx]?.installment_id ?? null}
+            notes={notesForInstallment(notes, installments[notesDialog.idx]?.installment_id)}
+            currentStaffId={currentStaffId}
+            canWrite={canWriteNotes}
+            isAdmin={isAdminViewer}
+          />
+        )}
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setNotesDialog(null)}>
+            {t("common.close")}
           </Button>
         </DialogFooter>
       </DialogContent>

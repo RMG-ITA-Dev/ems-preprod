@@ -2153,3 +2153,22 @@ GRANT EXECUTE ON FUNCTION public.record_installment_confirmation(p_installment_i
 
 -- Guarda interna de las dos anteriores (gerente del encargo o admin): no la llama el cliente.
 REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_manager(p_installment_id uuid) FROM PUBLIC, anon, authenticated;
+
+-- Cobranzas Fase 4: notas entre gerente/socio y Contabilidad (issue #352).
+-- Solo lectura para quien pase la RLS; se escriben por las 3 RPC, que corren como el dueño y
+-- son las que verifican autoría y guardan la versión anterior.
+REVOKE ALL ON TABLE public.wo_installment_notes FROM PUBLIC, anon;
+REVOKE ALL ON TABLE public.wo_installment_note_versions FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_notes TO authenticated;
+GRANT SELECT ON TABLE public.wo_installment_note_versions TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_notes TO service_role;
+GRANT ALL ON TABLE public.wo_installment_note_versions TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.wo_notes_participant(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_installment_note(p_note_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_notes_participant(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_installment_note(p_note_id uuid) TO authenticated, service_role;

@@ -15,6 +15,7 @@ vi.mock("react-i18next", () => ({
 // Prevent Supabase client from being imported in the mutation hook
 // Cobranzas Fase 3: los espías viven fuera para poder afirmar CON QUÉ se llamó a la RPC.
 const mockReschedule = vi.fn();
+const mockAddNote = vi.fn();
 const mockRecordConfirmation = vi.fn();
 
 vi.mock("@/hooks/mutations", () => ({
@@ -23,7 +24,18 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
   useRescheduleInstallment: () => ({ mutate: mockReschedule, isPending: false }),
   useRecordInstallmentConfirmation: () => ({ mutate: mockRecordConfirmation, isPending: false }),
+  useAddInstallmentNote: () => ({ mutate: mockAddNote, isPending: false }),
+  useEditInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+// Cobranzas Fase 4: el hilo de notas se trae con su propia consulta. Se controla desde los
+// tests para poder montar la sección con y sin notas.
+let mockNotes: unknown[] = [];
+vi.mock("@/hooks/useInstallmentNotes", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/hooks/useInstallmentNotes")>();
+  return { ...real, useInstallmentNotes: () => ({ data: mockNotes }) };
+});
 
 // WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
 // unrelated to this suite's Fase-1-and-earlier coverage, so stub it out with no data.
@@ -685,5 +697,91 @@ describe("WorkOrderPaymentPlanSection — confirmación y reprogramación (Fase 
       plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
     });
     expect(screen.queryByText("workOrders.paymentPlan.rescheduleAction")).not.toBeInTheDocument();
+  });
+});
+
+
+// ── Cobranzas Fase 4 (issue #352): notas entre el encargo y Contabilidad ─────────────────
+// Lo que el requisito llamaba "excepción para revisar gerente y socio" resultó ser esto
+// (decisión Q6): notas que Contabilidad lee al facturar, y a las que responde. Se MUESTRAN,
+// no se marcan como leídas (Q34).
+
+function makeNote(over: Record<string, unknown> = {}) {
+  return {
+    note_id: "n1",
+    wo_id: "wo-1",
+    installment_id: null,
+    author_staff_id: "staff-1",
+    author_role: "manager",
+    body: "el cliente pidió factura separada",
+    created_at: "2026-10-01T12:00:00Z",
+    updated_at: "2026-10-01T12:00:00Z",
+    author: { first_name: "Ana", last_name: "Pérez" },
+    ...over,
+  };
+}
+
+describe("WorkOrderPaymentPlanSection — notas (Fase 4)", () => {
+  beforeEach(() => {
+    mockNotes = [];
+    mockAddNote.mockClear();
+  });
+
+  it("PPF4-1: las notas del plan se muestran arriba, siempre visibles", () => {
+    mockNotes = [makeNote({ body: "este cliente paga siempre a 60 días" })];
+    renderSection({ canWriteNotes: true, installments: [makeInstallment()] });
+    expect(screen.getByText("workOrders.paymentPlan.notesPlanTitle")).toBeInTheDocument();
+    expect(screen.getByText("este cliente paga siempre a 60 días")).toBeInTheDocument();
+  });
+
+  it("PPF4-2: quien no participa del hilo no ve el bloque de notas ni puede escribir", () => {
+    mockNotes = [];
+    renderSection({ canWriteNotes: false, installments: [makeInstallment()] });
+    expect(screen.queryByText("workOrders.paymentPlan.notesPlanTitle")).not.toBeInTheDocument();
+  });
+
+  it("PPF4-3: el contador de la fila cuenta sólo las notas de esa cuota", () => {
+    const inst = makeInstallment();
+    mockNotes = [
+      makeNote({ note_id: "n1", installment_id: inst.installment_id }),
+      makeNote({ note_id: "n2", installment_id: inst.installment_id }),
+      makeNote({ note_id: "n3", installment_id: null }), // la del plan no cuenta acá
+    ];
+    renderSection({ canWriteNotes: true, installments: [inst] });
+    expect(screen.getByText("workOrders.paymentPlan.notesCount")).toBeInTheDocument();
+  });
+
+  it("PPF4-4: escribir una nota manda la cuota correcta y el texto", () => {
+    const inst = makeInstallment();
+    mockNotes = [];
+    renderSection({ canWriteNotes: true, installments: [inst] });
+
+    // Se acota al bloque del PLAN: el contador de la fila también ofrece agregar, y sin
+    // acotar la consulta encuentra los dos.
+    const planBlock = within(screen.getByTestId("plan-notes"));
+    const box = planBlock.getByLabelText("workOrders.paymentPlan.notesAdd") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "ojo con este cliente" } });
+    fireEvent.click(planBlock.getByText("workOrders.paymentPlan.notesAdd").closest("button")!);
+
+    expect(mockAddNote).toHaveBeenCalledWith(
+      expect.objectContaining({ installmentId: null, body: "ojo con este cliente" }),
+    );
+  });
+
+  it("PPF4-5: sólo el autor ve editar y borrar; la otra parte del hilo no", () => {
+    mockNotes = [makeNote({ author_staff_id: "staff-OTRO" })];
+    renderSection({ canWriteNotes: true, currentStaffId: "staff-1", installments: [makeInstallment()] });
+    expect(screen.queryByLabelText("workOrders.paymentPlan.notesEdit")).not.toBeInTheDocument();
+
+    mockNotes = [makeNote({ author_staff_id: "staff-1" })];
+    renderSection({ canWriteNotes: true, currentStaffId: "staff-1", installments: [makeInstallment()] });
+    expect(screen.getAllByLabelText("workOrders.paymentPlan.notesEdit").length).toBeGreaterThan(0);
+  });
+
+  it("PPF4-6: una nota editada se marca como tal", () => {
+    mockNotes = [makeNote({ updated_at: "2026-10-05T12:00:00Z" })];
+    renderSection({ canWriteNotes: true, installments: [makeInstallment()] });
+    // El componente la muestra entre paréntesis, así que el texto no queda exacto.
+    expect(screen.getByText(/notesEdited/)).toBeInTheDocument();
   });
 });

@@ -34,6 +34,9 @@ const INSTALLMENT_FORBIDDEN_TOKEN = "INSTALLMENT_FORBIDDEN";
 // La UI ya las exige, pero el servidor es el que manda y su mensaje merece traduccion propia.
 const INSTALLMENT_REASON_REQUIRED_TOKEN = "INSTALLMENT_REASON_REQUIRED";
 const INSTALLMENT_DATE_REQUIRED_TOKEN = "INSTALLMENT_DATE_REQUIRED";
+// Fase 4: autoria de la nota y nota vacia.
+const NOTE_FORBIDDEN_TOKEN = "NOTE_FORBIDDEN";
+const NOTE_BODY_REQUIRED_TOKEN = "NOTE_BODY_REQUIRED";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -71,6 +74,14 @@ function isInstallmentDateRequiredError(error: unknown): boolean {
   return errorMessageOf(error).includes(INSTALLMENT_DATE_REQUIRED_TOKEN);
 }
 
+function isNoteForbiddenError(error: unknown): boolean {
+  return errorMessageOf(error).includes(NOTE_FORBIDDEN_TOKEN);
+}
+
+function isNoteBodyRequiredError(error: unknown): boolean {
+  return errorMessageOf(error).includes(NOTE_BODY_REQUIRED_TOKEN);
+}
+
 // dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
 // latest_exchange_rate(); si latest_exchange_rate() devuelve NULL (historial BCB
 // vacío y sin default_exchange_rate configurado) y el caller manda un `null`
@@ -97,6 +108,14 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isInstallmentDateRequiredError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorNewDateRequired"));
+    return;
+  }
+  if (isNoteForbiddenError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorNoteForbidden"));
+    return;
+  }
+  if (isNoteBodyRequiredError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorNoteBodyRequired"));
     return;
   }
   if (isExchangeRateLockedError(error)) {
@@ -426,6 +445,70 @@ export function useRecordInstallmentConfirmation() {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "recording installment confirmation"),
+  });
+}
+
+// ── Cobranzas Fase 4 (issue #352): notas del hilo ────────────────────────────────────────
+// Escriben y leen los cinco que participan del hilo (decisión Q16): gerente y socio del
+// encargo, Gerente de Contabilidad, Analista de Cobranzas y admin. Editar y borrar, en cambio,
+// sólo el autor o un admin (Q51) — una nota es de quien la escribió. El servidor lo verifica.
+//
+// Las tres invalidan `installment_notes` además de la OT: el banner del plan, los contadores
+// por fila y el bloque de los diálogos de facturar y cobrar salen todos de esa consulta.
+
+function invalidateNotes(queryClient: ReturnType<typeof useQueryClient>, woId: string) {
+  queryClient.invalidateQueries({ queryKey: ["installment_notes", woId] });
+}
+
+export function useAddInstallmentNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      woId,
+      installmentId,
+      body,
+    }: {
+      woId: string;
+      /** null = nota del plan entero, no de una cuota (decisión Q33). */
+      installmentId: string | null;
+      body: string;
+    }) => {
+      const { error } = await rpcUntyped("add_installment_note", {
+        p_wo_id: woId,
+        p_installment_id: installmentId,
+        p_body: body,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => invalidateNotes(queryClient, v.woId),
+    onError: (error: unknown) => handlePaymentPlanError(error, "adding note"),
+  });
+}
+
+export function useEditInstallmentNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ noteId, body }: { noteId: string; body: string; woId: string }) => {
+      const { error } = await rpcUntyped("edit_installment_note", {
+        p_note_id: noteId,
+        p_body: body,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => invalidateNotes(queryClient, v.woId),
+    onError: (error: unknown) => handlePaymentPlanError(error, "editing note"),
+  });
+}
+
+export function useDeleteInstallmentNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ noteId }: { noteId: string; woId: string }) => {
+      const { error } = await rpcUntyped("delete_installment_note", { p_note_id: noteId });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => invalidateNotes(queryClient, v.woId),
+    onError: (error: unknown) => handlePaymentPlanError(error, "deleting note"),
   });
 }
 

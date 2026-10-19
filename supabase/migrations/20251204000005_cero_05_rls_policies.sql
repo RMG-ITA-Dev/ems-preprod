@@ -1328,6 +1328,56 @@ ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
 
 --
 --
+-- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4 (decision del operador Q16): el hilo de notas lo leen los cinco que
+-- participan de el -- gerente y socio del encargo, Gerente de Contabilidad, Analista de
+-- Cobranzas y admin. wo_notes_participant() es la MISMA funcion que usan las RPC de escritura:
+-- leer y escribir son el mismo conjunto, porque una nota es una conversacion entre las dos
+-- partes, no un aviso de una a la otra.
+--
+-- Una nota borrada no se muestra: el borrado es logico justamente para que la fila sobreviva
+-- (alguien pudo facturar leyendola), no para seguir mostrandola.
+--
+-- Sin policy de INSERT/UPDATE/DELETE para nadie: se escribe solo por las RPC
+-- add/edit/delete_installment_note, que son las que verifican autoria y guardan la version
+-- anterior. Una nota editable por UPDATE directo haria inutil el versionado.
+CREATE POLICY wo_installment_notes_select ON public.wo_installment_notes FOR SELECT TO authenticated USING (((deleted_at IS NULL) AND public.wo_notes_participant(wo_id)));
+
+
+--
+--
+-- Name: wo_installment_notes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_notes ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- El historial de ediciones se lee igual que la nota a la que pertenece. El EXISTS no repite
+-- el criterio: al referenciar wo_installment_notes desde la policy, Postgres evalua la RLS de
+-- ESA tabla para el mismo usuario. Se consulta sin filtrar deleted_at a proposito -- el
+-- historial de una nota borrada sigue siendo evidencia para quien participa del hilo.
+CREATE POLICY wo_installment_note_versions_select ON public.wo_installment_note_versions FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_installment_notes n
+  WHERE ((n.note_id = wo_installment_note_versions.note_id) AND public.wo_notes_participant(n.wo_id)))));
+
+
+--
+--
+-- Name: wo_installment_note_versions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_note_versions ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: wo_installment_events wo_installment_events_select; Type: POLICY; Schema: public; Owner: -
 --
 

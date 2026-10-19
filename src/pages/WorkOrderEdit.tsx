@@ -459,6 +459,13 @@ const WorkOrderEdit = () => {
   // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
   const isCollectionsRole = roleKey === "collections_analyst" || roleKey === "accounting_manager";
   const collectionsOnlyView = !isAdmin && isCollectionsRole;
+  // Cobranzas Fase 4 (decisión Q16): el hilo de notas lo escriben los cinco que participan de
+  // él. Es un conjunto más amplio que `canEditPaymentPlan`: incluye al SOCIO del encargo, que
+  // sigue sin poder tocar el plan de pagos y para quien ésta es justamente la vía de dejar
+  // constancia. El servidor aplica el mismo corte en wo_notes_participant().
+  const isEngagementPartner =
+    !!staffRecord && workOrder?.engagement?.partner_id === staffRecord.staff_id;
+  const canWriteNotes = isAdmin || isCollectionsRole || isEngagementManager || isEngagementPartner;
   // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
   // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
   // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
@@ -1059,6 +1066,9 @@ const WorkOrderEdit = () => {
           // is_collections_role().
           isStatusEditable={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
           collectionsOnly={collectionsOnlyView}
+          canWriteNotes={canWriteNotes}
+          currentStaffId={staffRecord?.staff_id ?? null}
+          isAdminViewer={isAdmin}
           canEditPaymentPlan={canEditPaymentPlan}
           // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
           // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan
