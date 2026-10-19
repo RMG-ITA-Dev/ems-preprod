@@ -1,8 +1,12 @@
 import { formSchema } from "@/components/forms/ClientForm";
 
+// Cobranzas Fase 5 (issue #352): el cliente pasó de UN contacto opcional a DOS obligatorios
+// —el del cliente y el de cobranza (finanzas)—, así que una ficha válida ya los incluye.
 const validBase = {
   client_legal_name: "Acme S.A.",
   unique_tax_id: "1020182020",
+  contact_general_name: "Ana Pérez",
+  contact_cobranza_name: "Luis Finanzas",
   is_active: true,
 };
 
@@ -44,9 +48,28 @@ describe("ClientForm — unique_tax_id validation (BUG 0306-76)", () => {
   });
 });
 
-describe("ClientForm — contact_phone validation", () => {
-  const phone = (contact_phone: string) =>
-    formSchema.safeParse({ ...validBase, contact_phone });
+describe("ClientForm — los dos contactos son obligatorios (Cobranzas Fase 5)", () => {
+  it("rechaza una ficha sin contacto del cliente", () => {
+    const r = formSchema.safeParse({ ...validBase, contact_general_name: "" });
+    expect(r.success).toBe(false);
+  });
+
+  // El de cobranza es el que faltaba antes: sin él, Cobranzas no sabe a quién reclamarle.
+  it("rechaza una ficha sin contacto de cobranza", () => {
+    const r = formSchema.safeParse({ ...validBase, contact_cobranza_name: "" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rechaza un nombre que es sólo espacios", () => {
+    const r = formSchema.safeParse({ ...validBase, contact_cobranza_name: "   " });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("ClientForm — contact phone validation", () => {
+  // La misma regla corre para los dos contactos: el schema del teléfono es uno solo.
+  const phone = (contact_general_phone: string) =>
+    formSchema.safeParse({ ...validBase, contact_general_phone });
 
   it("accepts the placeholder format with country code", () => {
     expect(phone("+591 12345678").success).toBe(true);

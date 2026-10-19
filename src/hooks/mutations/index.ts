@@ -14,7 +14,7 @@ export { useCreateExpenseType, useUpdateExpenseType, useDeleteExpenseType } from
 export { useCreateStaff, useUpdateStaff, useDeleteStaff } from "./useStaffMutations";
 
 // Clients
-export { useCreateClient, useUpdateClient, useDeleteClient } from "./useClientMutations";
+export { useCreateClient, useUpdateClient, useDeleteClient, useSaveClientContacts } from "./useClientMutations";
 
 // Engagements
 export { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "./useEngagementMutations";

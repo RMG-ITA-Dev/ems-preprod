@@ -60,11 +60,14 @@ describe("useClientMutations", () => {
         wrapper: createWrapper(),
       });
 
+      // Cobranzas Fase 5: el contacto salió de la ficha (ahora vive en client_contacts y se
+      // guarda con save_client_contacts). El alta en cambio ACEPTA client_id, porque no puede
+      // devolver la fila creada y quien la llama necesita el id para los contactos.
       result.current.mutate({
+        client_id: "11111111-1111-4111-8111-111111111111",
         client_legal_name: "Acme Corp",
         unique_tax_id: "123456789",
-        contact_name: "John Doe",
-        contact_email: "john@acme.com",
+        address: "Av. Siempre Viva 742",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));

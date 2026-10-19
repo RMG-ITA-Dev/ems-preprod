@@ -538,6 +538,23 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: client_contacts client_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_pkey PRIMARY KEY (contact_id);
+
+
+--
+--
+-- Name: idx_client_contacts_client; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: los contactos se leen siempre por cliente y casi siempre solo los activos.
+CREATE INDEX idx_client_contacts_client ON public.client_contacts USING btree (client_id, contact_type) WHERE is_active;
+
+
+--
 -- Name: wo_installment_notes wo_installment_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 

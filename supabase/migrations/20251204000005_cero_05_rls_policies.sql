@@ -1328,6 +1328,33 @@ ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
 
 --
 --
+-- Name: client_contacts client_contacts_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: los contactos se leen con el mismo corte que el cliente al que pertenecen.
+-- El corte vive en client_contacts_visible() y no en un EXISTS inline sobre clients: el
+-- Carril B / etapa B3c prohibe esa forma en policies nuevas (su subconsulta se evaluaria con
+-- la RLS del usuario, encadenando una policy dentro de otra) y su suite lo verifica.
+--
+-- Contabilidad NO entra por aca: `accounting_manager` no tiene `client.read` (Carril B / B3p).
+-- Ve los contactos por get_wo_client_contacts(), acotado a la OT que esta cobrando -- esa fue
+-- la decision del operador Q57, en vez de abrirle la ficha entera del cliente.
+--
+-- Sin policy de escritura para nadie: se escribe por save_client_contacts(), que es la que
+-- valida el minimo de un contacto activo por tipo.
+CREATE POLICY client_contacts_select ON public.client_contacts FOR SELECT TO authenticated USING (public.client_contacts_visible(client_id));
+
+
+--
+--
+-- Name: client_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.client_contacts ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
 --
 

@@ -32,6 +32,12 @@ vi.mock("@/hooks/mutations", () => ({
 // Cobranzas Fase 4: el hilo de notas se trae con su propia consulta. Se controla desde los
 // tests para poder montar la sección con y sin notas.
 let mockNotes: unknown[] = [];
+// Cobranzas Fase 5: los contactos del cliente se traen con su propia RPC.
+vi.mock("@/hooks/useClientContacts", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/hooks/useClientContacts")>();
+  return { ...real, useWorkOrderClientContacts: () => ({ data: [] }) };
+});
+
 vi.mock("@/hooks/useInstallmentNotes", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/hooks/useInstallmentNotes")>();
   return { ...real, useInstallmentNotes: () => ({ data: mockNotes }) };

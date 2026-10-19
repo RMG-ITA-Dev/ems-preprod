@@ -3195,7 +3195,10 @@ BEGIN
 
   -- 14.b Edicion sin encargos: nadie esta asignado todavia, asi que no hay a quien avisar.
   DELETE FROM public.notifications;
-  UPDATE public.clients SET contact_phone = '77712345' WHERE client_id = v_cli;
+  -- Cobranzas Fase 5: los contact_* salieron de `clients` (ahora viven en
+  -- client_contacts). Este caso prueba el disparador de `client.updated`, no esa columna:
+  -- se edita `address`, que sigue en la ficha.
+  UPDATE public.clients SET address = 'Av. Siempre Viva 742' WHERE client_id = v_cli;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
   IF v_n <> 0 THEN
@@ -3215,7 +3218,7 @@ BEGIN
           (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
   DELETE FROM public.notifications;
-  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+  UPDATE public.clients SET address = 'Calle Nueva 100' WHERE client_id = v_cli;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'client.updated' AND recipient_staff_id = c_mgr;
@@ -3232,7 +3235,7 @@ BEGIN
 
   -- 14.c Un UPDATE que no cambia nada no avisa.
   SELECT COUNT(*) INTO v_prev FROM public.notifications WHERE type_key = 'client.updated';
-  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+  UPDATE public.clients SET address = 'Calle Nueva 100' WHERE client_id = v_cli;
   SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
   IF v_n <> v_prev THEN
     RAISE EXCEPTION 'TEST FAIL - guardar sin cambiar nada conto como edicion (% -> %)', v_prev, v_n;

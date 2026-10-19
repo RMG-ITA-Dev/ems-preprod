@@ -56,11 +56,15 @@ const Clients = () => {
       render: (row) => row.industry?.industry_name || "-",
     },
     {
+      // Cobranzas Fase 5: el contacto salió de la ficha y ahora hay dos tipos. La lista
+      // muestra el GENERAL, que es el que tenía antes; el de cobranza se ve en la ficha y en
+      // el plan de pagos, que es donde se usa.
       key: "contact_name",
       label: t("client.contact"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => row.contact_name || "-",
+      render: (row) =>
+        (row.contacts ?? []).find((c) => c.contact_type === "general" && c.is_active)?.full_name || "-",
     },
     {
       key: "industry.fiscal_year_end",
@@ -109,7 +113,7 @@ const Clients = () => {
         data={clients || []}
         columns={columns}
         searchPlaceholder={t("client.searchPlaceholder")}
-        searchKeys={["client_legal_name", "unique_tax_id", "contact_name"]}
+        searchKeys={["client_legal_name", "unique_tax_id"]}
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("client.newClient") : undefined}
         onNewClick={canCreate ? () => navigate("/clients/new") : undefined}

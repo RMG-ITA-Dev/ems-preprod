@@ -34,6 +34,7 @@ import {
 } from "@/hooks/mutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
+import { useWorkOrderClientContacts } from "@/hooks/useClientContacts";
 import { InstallmentNotesThread } from "./InstallmentNotesThread";
 import {
   distributePercentages,
@@ -162,6 +163,10 @@ export function WorkOrderPaymentPlanSection({
   // Cobranzas Fase 4: el hilo entero de la OT en UNA consulta — el banner del plan, los
   // contadores por fila y el bloque de los diálogos salen todos de acá (decisión Q6/Q34).
   const { data: notes } = useInstallmentNotes(woId || undefined);
+  // Cobranzas Fase 5 (decisión Q57): los contactos del cliente se ven DENTRO del plan. Van por
+  // RPC y no por la tabla porque el Gerente de Contabilidad no tiene `client.read`, y la
+  // decisión fue mostrárselos acá en vez de abrirle la ficha entera del cliente.
+  const { data: clientContacts } = useWorkOrderClientContacts(woId || undefined);
   const planNotes = planLevelNotes(notes);
   const [notesDialog, setNotesDialog] = useState<{ idx: number } | null>(null);
   const rescheduleInstallment = useRescheduleInstallment();
@@ -862,6 +867,28 @@ export function WorkOrderPaymentPlanSection({
             </div>
           </div>
         </div>
+
+        {/* Cobranzas Fase 5: a quién se le cobra. Es lo primero que Cobranzas necesita y
+            antes había que salir del plan a buscarlo en la ficha del cliente. */}
+        {clientContacts && clientContacts.length > 0 && (
+          <div className="rounded-md border border-border/60 bg-muted/10 p-3">
+            <div className="mb-2 text-sm font-medium">{t("workOrders.paymentPlan.contactsTitle")}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {clientContacts.map((c) => (
+                <div key={c.contact_id} className="text-sm">
+                  <div className="text-xs text-muted-foreground">
+                    {c.contact_type === "cobranza"
+                      ? t("workOrders.paymentPlan.contactCobranza")
+                      : t("workOrders.paymentPlan.contactGeneral")}
+                  </div>
+                  <div className="font-medium">{c.full_name}</div>
+                  {c.email && <div className="font-mono text-xs">{c.email}</div>}
+                  {c.phone && <div className="font-mono text-xs">{c.phone}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Cobranzas Fase 4 (issue #352): notas del PLAN entero. Van arriba y siempre
             visibles — son las que hablan del encargo, no de una cuota ("este cliente paga

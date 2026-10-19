@@ -6910,9 +6910,10 @@ CREATE TABLE public.clients (
     client_legal_name character varying(255) NOT NULL,
     unique_tax_id character varying(50) NOT NULL,
     industry_id uuid,
-    contact_name character varying(200),
-    contact_email character varying(255),
-    contact_phone character varying(50),
+    -- Cobranzas Fase 5 (issue #352, decisiones del operador Q20/Q52): los tres contact_* que
+    -- vivian aca se retiran. Un solo contacto por cliente no alcanzaba: Cobranzas necesita el
+    -- contacto de FINANZAS, que casi nunca es el mismo que el contacto general del encargo.
+    -- Ahora van en public.client_contacts, con tipo y varios por tipo.
     address text,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
@@ -6931,6 +6932,40 @@ COMMENT ON COLUMN public.clients.created_by_staff_id IS 'Staff que creó el clie
 
 --
 --
+-- Name: client_contacts; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5 (issue #352). El cliente tenia UN contacto (contact_name/email/phone en
+-- public.clients) y Cobranzas necesita otro distinto: el de FINANZAS, que es a quien se le
+-- reclama una factura. Decisiones del operador:
+--   Q20: dos tipos -- 'general' (el del encargo) y 'cobranza' (finanzas, el seguimiento de
+--        Cobranzas y del Gerente de Contabilidad).
+--   Q52: puede haber VARIOS de cada tipo, pero al menos uno de cada uno. El minimo lo valida
+--        save_client_contacts(), no un CHECK: una restriccion por fila no puede expresar
+--        "al menos uno en el conjunto", y al reemplazar el unico contacto la tabla queda un
+--        instante sin ninguno.
+--   Q22: los contactos viven en el CLIENTE, no en el encargo ni en el plan de pagos. El plan
+--        los MUESTRA (y deja completarlos si faltan), pero el dato es uno solo y no se duplica.
+--
+-- is_active permite retirar un contacto sin borrarlo: una nota o una gestion pudo haberlo
+-- nombrado.
+CREATE TABLE public.client_contacts (
+    contact_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    client_id uuid NOT NULL,
+    contact_type text NOT NULL,
+    full_name character varying(200) NOT NULL,
+    email character varying(255),
+    phone character varying(50),
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT client_contacts_type_check CHECK ((contact_type = ANY (ARRAY['general'::text, 'cobranza'::text]))),
+    CONSTRAINT client_contacts_name_check CHECK ((btrim((full_name)::text) <> ''::text))
+);
+
+
+--
+--
 -- Name: clients_directory; Type: VIEW; Schema: public; Owner: -
 --
 
@@ -6938,9 +6973,6 @@ CREATE VIEW public.clients_directory AS
  SELECT client_id,
     client_legal_name,
     industry_id,
-    contact_name,
-    contact_email,
-    contact_phone,
     address,
     is_active,
     created_at,
@@ -8708,6 +8740,199 @@ BEGIN
   RETURNING * INTO v_note;
 
   RETURN v_note;
+END;
+$$;
+
+
+--
+--
+-- Name: client_contacts_visible(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: quien puede ver los contactos de un cliente. Es el MISMO corte que las dos
+-- policies de SELECT de public.clients ("clients read" y "clients creator read"), dicho de
+-- forma explicita en vez de con un EXISTS sobre clients dentro de la policy.
+--
+-- Por que no el EXISTS, que seria automatico: el Carril B / etapa B3c prohibe que una policy
+-- nueva nombre clients o engagements inline, y su suite lo verifica. El motivo es que esa
+-- subconsulta se evalua con la RLS del usuario, lo que encadena una policy dentro de otra y
+-- vuelve dificil razonar (y costoso) el resultado. La contrapartida es que este corte es una
+-- COPIA: si cambian las policies de clients, hay que cambiar esta funcion. Queda dicho aca
+-- para que el proximo que las toque lo vea.
+--
+-- SECURITY DEFINER a proposito: lee created_by_staff_id por encima de la RLS de clients, que
+-- es justamente lo que la hace util.
+CREATE FUNCTION public.client_contacts_visible(p_client_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.has_permission('client.read')
+     AND (
+       public.permission_scope('client.read') <> 'assigned_clients'
+       OR public.is_assigned_to_client(p_client_id)
+       OR EXISTS (SELECT 1 FROM public.clients c
+                   WHERE c.client_id = p_client_id
+                     AND c.created_by_staff_id IS NOT NULL
+                     AND c.created_by_staff_id = public.get_my_staff_id())
+     );
+$$;
+
+
+--
+--
+-- Name: save_client_contacts(uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5 (issue #352). Reemplaza el juego completo de contactos de un cliente y
+-- valida el minimo: al menos un contacto activo de cada tipo (decision del operador Q52).
+--
+-- El minimo NO puede ser un CHECK de tabla: una restriccion por fila no sabe nada del
+-- conjunto, y aunque se pudiera, reemplazar el unico contacto 'cobranza' deja la tabla un
+-- instante sin ninguno. Validar sobre el payload, antes de escribir, resuelve las dos cosas.
+--
+-- Quien puede (decision Q21): el mismo que mantiene al cliente (`client.update`), y ademas el
+-- gerente del encargo o un admin cuando lo completa desde el plan de pagos -- ahi es donde se
+-- descubre que falta el contacto de finanzas, y mandar a la persona a otra pantalla para
+-- volver es la forma mas segura de que no lo cargue nunca.
+--
+-- p_contacts: [{contact_id?, contact_type, full_name, email, phone, is_active}]. Un
+-- contact_id que ya existe se actualiza; los que no vienen en el payload se DESACTIVAN, no se
+-- borran: una nota o una gestion pudo haberlos nombrado.
+CREATE FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) RETURNS SETOF public.client_contacts
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_rows jsonb;
+  v_engagement_manager boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = p_client_id) THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.client_id = p_client_id
+       AND e.manager_id = public.get_my_staff_id()
+  ) INTO v_engagement_manager;
+
+  IF NOT (public.is_admin() OR public.has_permission('client.update') OR v_engagement_manager) THEN
+    RAISE EXCEPTION 'CONTACT_FORBIDDEN: no tiene permiso para editar los contactos de este cliente';
+  END IF;
+
+  v_rows := COALESCE(p_contacts, '[]'::jsonb);
+  IF jsonb_typeof(v_rows) <> 'array' THEN
+    RAISE EXCEPTION 'CONTACT_PAYLOAD_INVALID: se esperaba una lista de contactos';
+  END IF;
+
+  -- Minimo uno ACTIVO de cada tipo. Se mira el payload, no la tabla: es el estado al que se
+  -- quiere llegar.
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+     WHERE c->>'contact_type' = 'general'
+       AND COALESCE((c->>'is_active')::boolean, true)
+       AND btrim(COALESCE(c->>'full_name', '')) <> ''
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_GENERAL_REQUIRED: hace falta al menos un contacto del cliente';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+     WHERE c->>'contact_type' = 'cobranza'
+       AND COALESCE((c->>'is_active')::boolean, true)
+       AND btrim(COALESCE(c->>'full_name', '')) <> ''
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_COBRANZA_REQUIRED: hace falta al menos un contacto de cobranza (finanzas)';
+  END IF;
+
+  -- Lo que no viene en el payload se desactiva.
+  UPDATE public.client_contacts
+     SET is_active = false, updated_at = now()
+   WHERE client_id = p_client_id
+     AND is_active
+     AND contact_id NOT IN (
+       SELECT (c->>'contact_id')::uuid FROM jsonb_array_elements(v_rows) c
+        WHERE c->>'contact_id' IS NOT NULL
+     );
+
+  INSERT INTO public.client_contacts AS t
+    (contact_id, client_id, contact_type, full_name, email, phone, is_active)
+  SELECT COALESCE((c->>'contact_id')::uuid, gen_random_uuid()),
+         p_client_id,
+         c->>'contact_type',
+         btrim(c->>'full_name'),
+         NULLIF(btrim(COALESCE(c->>'email', '')), ''),
+         NULLIF(btrim(COALESCE(c->>'phone', '')), ''),
+         COALESCE((c->>'is_active')::boolean, true)
+    FROM jsonb_array_elements(v_rows) c
+   WHERE btrim(COALESCE(c->>'full_name', '')) <> ''
+  ON CONFLICT (contact_id) DO UPDATE
+     SET contact_type = excluded.contact_type,
+         full_name    = excluded.full_name,
+         email        = excluded.email,
+         phone        = excluded.phone,
+         is_active    = excluded.is_active,
+         updated_at   = now()
+   -- Un contact_id de OTRO cliente no se adopta: se rechaza la fila entera.
+   WHERE t.client_id = p_client_id;
+
+  RETURN QUERY
+  SELECT * FROM public.client_contacts
+   WHERE client_id = p_client_id AND is_active
+   ORDER BY contact_type, full_name;
+END;
+$$;
+
+
+--
+--
+-- Name: client_has_required_contacts(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: true cuando el cliente tiene los dos contactos que el plan de pagos
+-- necesita. Lo usa la pantalla para avisar antes de enviar el plan, y queda disponible para
+-- cualquier otro flujo que los exija.
+CREATE FUNCTION public.client_has_required_contacts(p_client_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (SELECT 1 FROM public.client_contacts
+                  WHERE client_id = p_client_id AND is_active AND contact_type = 'general')
+     AND EXISTS (SELECT 1 FROM public.client_contacts
+                  WHERE client_id = p_client_id AND is_active AND contact_type = 'cobranza');
+$$;
+
+
+--
+--
+-- Name: get_wo_client_contacts(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5 (decision del operador Q57): Contabilidad ve los contactos DENTRO del plan
+-- de pagos, sin abrir la ficha del cliente. Hace falta esta RPC y no basta con la RLS de
+-- client_contacts porque `accounting_manager` NO tiene `client.read` (asi quedo en el Carril B
+-- / etapa B3p: "Contabilidad solo necesita el nombre del cliente"), y darselo le abriria la
+-- ficha entera, que es justo lo que la decision descarta.
+--
+-- El corte de quien puede verlos es el mismo conjunto que participa del hilo de notas de esa
+-- OT (wo_notes_participant): gerente y socio del encargo, los dos roles de cobranza y admin.
+-- Es deliberado que sea la misma funcion -- son las mismas personas que trabajan ese plan.
+CREATE FUNCTION public.get_wo_client_contacts(p_wo_id uuid) RETURNS SETOF public.client_contacts
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.wo_notes_participant(p_wo_id) THEN
+    RAISE EXCEPTION 'CONTACT_FORBIDDEN: no tiene acceso al plan de pagos de esta orden de trabajo';
+  END IF;
+
+  RETURN QUERY
+  SELECT cc.*
+    FROM public.client_contacts cc
+    JOIN public.engagements e ON e.client_id = cc.client_id
+    JOIN public.work_orders w ON w.engagement_id = e.engagement_id
+   WHERE w.wo_id = p_wo_id AND cc.is_active
+   ORDER BY cc.contact_type, cc.full_name;
 END;
 $$;
 

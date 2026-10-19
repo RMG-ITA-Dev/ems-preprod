@@ -100,9 +100,15 @@ export interface Client {
   client_legal_name: string;
   unique_tax_id: string;
   industry_id: string | null;
-  contact_name: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
+  // Cobranzas Fase 5: los contactos viven en client_contacts, con tipo.
+  contacts?: Array<{
+    contact_id: string;
+    contact_type: 'general' | 'cobranza';
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+    is_active: boolean;
+  }>;
   address: string | null;
   is_active: boolean;
   industry?: Industry;
@@ -707,6 +713,8 @@ export function useActiveStaffWithSkills() {
 
 // useClients returns client data including NIT (unique_tax_id is public tax ID, not sensitive)
 // Queries base table with explicit columns to allow embedded joins
+// Cobranzas Fase 5: el contacto dejó de ser una columna de la ficha; viene embebido desde
+// client_contacts, con su tipo. La lista de Clientes muestra el general.
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
@@ -718,16 +726,16 @@ export function useClients() {
           client_legal_name,
           unique_tax_id,
           industry_id,
-          contact_name,
-          contact_email,
-          contact_phone,
           address,
           is_active,
-          industry:industries(*)
+          industry:industries(*),
+          contacts:client_contacts(contact_id, contact_type, full_name, email, phone, is_active)
         `)
         .order('client_legal_name');
       if (error) throw error;
-      return data as Client[];
+      // `as unknown as`: types.ts está desactualizado y no conoce client_contacts, así que el
+      // embed resuelve a SelectQueryError. Se va al regenerar los tipos contra el proyecto.
+      return data as unknown as Client[];
     },
   });
 }

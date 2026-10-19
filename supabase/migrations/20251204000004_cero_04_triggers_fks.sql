@@ -1180,6 +1180,14 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: client_contacts client_contacts_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(client_id) ON DELETE CASCADE;
+
+
+--
 -- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

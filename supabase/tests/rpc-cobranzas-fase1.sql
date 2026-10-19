@@ -1,4 +1,4 @@
--- Cobranzas Fases 1 a 4 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 1 a 5 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -800,6 +800,126 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - las dos partes del hilo no reciben el aviso de nota (hay %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - el aviso de nota nueva es de campana y llega a las dos partes';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 11. Fase 5: contactos del cliente (issue #352)
+  -- ══════════════════════════════════════════════════════════════════
+  -- El cliente tenia UN contacto suelto; Cobranzas necesita ademas el de FINANZAS, que es a
+  -- quien se le reclama una factura (decisiones Q20/Q52).
+
+  -- 11.a El minimo es uno ACTIVO de cada tipo, y se valida sobre el payload: un CHECK de tabla
+  -- no puede expresar "al menos uno en el conjunto", y al reemplazar el unico contacto de un
+  -- tipo la tabla queda un instante sin ninguno.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+      jsonb_build_object('contact_type', 'general', 'full_name', 'Ana Perez')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_COBRANZA_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se guardo un cliente sin contacto de cobranza';
+  END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_GENERAL_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se guardo un cliente sin contacto general';
+  END IF;
+  RAISE NOTICE 'PASS - hacen falta los dos contactos, el del cliente y el de cobranza';
+
+  -- 11.b Camino feliz.
+  PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez',     'email', 'ana@cliente.com'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas', 'email', 'luis@cliente.com')));
+  SELECT COUNT(*) INTO v_n FROM public.client_contacts
+   WHERE client_id = 'c1000000-0000-4000-8000-0000000000f1' AND is_active;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - se esperaban 2 contactos activos, hay %', v_n;
+  END IF;
+  IF NOT public.client_has_required_contacts('c1000000-0000-4000-8000-0000000000f1') THEN
+    RAISE EXCEPTION 'TEST FAIL - el cliente deberia tener los contactos que el plan exige';
+  END IF;
+  RAISE NOTICE 'PASS - se guardan los dos contactos y el cliente queda completo';
+
+  -- 11.c Varios del mismo tipo (Q52), y lo que no viene en el payload se DESACTIVA, no se
+  -- borra: una nota o una gestion pudo haberlo nombrado.
+  PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Marta Tesoreria')));
+  SELECT COUNT(*) INTO v_n FROM public.client_contacts
+   WHERE client_id = 'c1000000-0000-4000-8000-0000000000f1' AND is_active AND contact_type = 'cobranza';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberia haber 2 contactos de cobranza activos, hay %', v_n;
+  END IF;
+
+  -- El juego anterior (los que se cargaron en 11.b, con otros contact_id) quedo desactivado.
+  SELECT COUNT(*) INTO v_n FROM public.client_contacts
+   WHERE client_id = 'c1000000-0000-4000-8000-0000000000f1' AND NOT is_active;
+  IF v_n < 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - los contactos reemplazados se borraron en vez de desactivarse';
+  END IF;
+  RAISE NOTICE 'PASS - varios contactos por tipo, y el reemplazado se desactiva sin perderse';
+
+  -- 11.d Quien no mantiene al cliente no toca sus contactos. El Analista de Cobranzas los LEE
+  -- (los necesita para cobrar) pero no los edita: el dato es del cliente.
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+      jsonb_build_object('contact_type', 'general',  'full_name', 'Intruso'),
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Intruso')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - Cobranzas edito los contactos del cliente';
+  END IF;
+
+  -- El GERENTE del encargo si: es el caso que permite completarlos desde el plan de pagos,
+  -- que es donde se descubre que falta el de finanzas (decision Q21/Q22).
+  PERFORM pg_temp.impersonate(c_manager);
+  PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas')));
+  RAISE NOTICE 'PASS - los edita quien mantiene al cliente o el gerente del encargo, no Cobranzas';
+
+  -- 11.e Contabilidad ve los contactos DESDE el plan, sin tener client.read (decision Q57).
+  PERFORM pg_temp.impersonate(c_acctmgr);
+  SELECT COUNT(*) INTO v_n FROM public.get_wo_client_contacts(c_wo1);
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Gerente de Contabilidad vio % contactos desde el plan', v_n;
+  END IF;
+
+  -- Y es el acceso al PLAN lo que lo habilita, no el cliente: quien no participa del plan no
+  -- los ve ni por esta via.
+  PERFORM pg_temp.impersonate(c_acctanalyst);
+  denied := false;
+  BEGIN
+    PERFORM COUNT(*) FROM public.get_wo_client_contacts(c_wo1);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad leyo los contactos del plan';
+  END IF;
+  RAISE NOTICE 'PASS - Contabilidad ve los contactos desde el plan, sin abrir la ficha del cliente';
+
+  -- 11.f Los contact_* ya no existen en la ficha ni en el directorio.
+  SELECT COUNT(*) INTO v_n FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'clients'
+     AND column_name IN ('contact_name', 'contact_email', 'contact_phone');
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - quedaron % columnas contact_* en clients', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - la ficha del cliente ya no tiene los contactos sueltos';
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASE 1: ALL CHECKS PASSED';
 END $$;

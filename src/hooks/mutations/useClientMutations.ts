@@ -37,12 +37,13 @@ export function useCreateClient() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: {
+      // Cobranzas Fase 5: el alta ACEPTA el client_id que genera el formulario. Hacía falta
+      // porque esta mutación no puede devolver la fila creada (ver el comentario de abajo
+      // sobre el RETURNING) y los contactos, que se guardan aparte, necesitan ese id.
+      client_id?: string;
       client_legal_name: string;
       unique_tax_id: string;
       industry_id?: string;
-      contact_name?: string;
-      contact_email?: string;
-      contact_phone?: string;
       address?: string;
       is_active?: boolean;
     }) => {
@@ -76,9 +77,6 @@ export function useUpdateClient() {
         client_legal_name: string;
         unique_tax_id: string;
         industry_id: string;
-        contact_name: string;
-        contact_email: string;
-        contact_phone: string;
         address: string;
         is_active: boolean;
       }>;
@@ -112,5 +110,48 @@ export function useDeleteClient() {
       toast.success(i18n.t("messages.deleteSuccess", { entity: i18n.t("entities.client") }));
     },
     onError: createMutationErrorHandler("deleting client"),
+  });
+}
+
+// ── Cobranzas Fase 5 (issue #352): contactos del cliente ─────────────────────────────────
+// Reemplaza el juego completo de contactos. La RPC valida el mínimo —al menos un contacto
+// activo de tipo `general` y uno de tipo `cobranza` (decisión Q52)— y decide quién puede
+// escribirlos: quien mantiene al cliente (`client.update`), el gerente de un encargo suyo o un
+// admin. Ese segundo caso es el que permite completarlos DESDE el plan de pagos, que es donde
+// se descubre que falta el de finanzas (decisión Q21/Q22).
+export function useSaveClientContacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      clientId,
+      contacts,
+    }: {
+      clientId: string;
+      contacts: Array<{
+        contact_id?: string;
+        contact_type: "general" | "cobranza";
+        full_name: string;
+        email?: string;
+        phone?: string;
+        is_active?: boolean;
+      }>;
+      /** Presente cuando se guarda desde el plan: invalida también esa consulta. */
+      woId?: string;
+    }) => {
+      const { error } = await (supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ error: { message?: string } | null }>)("save_client_contacts", {
+        p_client_id: clientId,
+        p_contacts: contacts,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      queryClient.invalidateQueries({ queryKey: ["client_contacts", v.clientId] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      if (v.woId) queryClient.invalidateQueries({ queryKey: ["wo_client_contacts", v.woId] });
+    },
+    onError: createMutationErrorHandler("saving client contacts"),
   });
 }

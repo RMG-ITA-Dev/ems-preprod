@@ -2172,3 +2172,17 @@ GRANT EXECUTE ON FUNCTION public.wo_notes_participant(p_wo_id uuid) TO authentic
 GRANT EXECUTE ON FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_installment_note(p_note_id uuid) TO authenticated, service_role;
+
+-- Cobranzas Fase 5: contactos del cliente (issue #352).
+-- Solo lectura para quien pase la RLS; se escriben por save_client_contacts(), que valida el
+-- mínimo de un contacto activo por tipo.
+REVOKE ALL ON TABLE public.client_contacts FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.client_contacts TO authenticated;
+GRANT ALL ON TABLE public.client_contacts TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) TO authenticated, service_role;
