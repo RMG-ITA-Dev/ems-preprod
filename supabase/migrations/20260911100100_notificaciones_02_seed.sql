@@ -42,6 +42,15 @@ insert into public.notification_types
   ('wo.installment.due_this_week', 'work_order', 'notifications.types.wo.installment.due_this_week', 'aggregate', 37, true, false),
   ('wo.installment.overdue', 'work_order', 'notifications.types.wo.installment.overdue', 'aggregate', 38, true, false),
   ('wo.client.billing_week', 'work_order', 'notifications.types.wo.client.billing_week', 'event', 39, true, false),
+  -- Cobranzas Fase 3 (issue #352). Los tres son 'event' y van a la cuota concreta.
+  --   confirmation_pending: campana + correo (decisiones Q12/Q56) -- el gerente todavia no
+  --     gestiono el check y la fecha esta encima.
+  --   billing_late:         campana + correo (Q32) -- paso la fecha y nadie facturo.
+  --   rescheduled:          SOLO campana (Q45) -- es un aviso de que algo se movio, no una
+  --     tarea que alguien tenga que hacer hoy.
+  ('wo.installment.confirmation_pending', 'work_order', 'notifications.types.wo.installment.confirmation_pending', 'event', 85, true, true),
+  ('wo.installment.billing_late', 'work_order', 'notifications.types.wo.installment.billing_late', 'event', 86, true, true),
+  ('wo.installment.rescheduled', 'work_order', 'notifications.types.wo.installment.rescheduled', 'event', 87, true, false),
   ('fund.request.submitted_for_approval', 'fund_request', 'notifications.types.fund.request.submitted_for_approval', 'event', 40, true, true),
   ('fund.expense.submitted_for_approval', 'fund_request', 'notifications.types.fund.expense.submitted_for_approval', 'event', 41, true, false),
   ('fund.request.cancelled', 'fund_request', 'notifications.types.fund.request.cancelled', 'event', 42, true, true),
@@ -293,16 +302,39 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('director', 'wo.payment_plan.pending_approval', 'assigned'),
   ('senior', 'wo.payment_plan.pending_approval', 'assigned'),
   ('collections_analyst', 'wo.payment_plan.pending_approval', 'department'),
+  -- Cobranzas Fase 2 (decision del operador Q14/Q46): los cuatro avisos de CUOTAS son del
+  -- circuito de cobranza, que llevan el Gerente de Contabilidad y el Analista de Cobranzas.
+  -- El Analista de Contabilidad (accounting_analyst) sale de los cuatro: solo trabaja
+  -- solicitudes de fondos y su revision, y recibirlos le llenaba la campana de un flujo que
+  -- no opera. En espejo, collections_analyst ENTRA en los dos que le faltaban
+  -- (status_changed y due_this_week): era el unico de los tres que no se enteraba de que una
+  -- cuota cambiaba de estado, justo el rol que la factura y la cobra.
   ('accounting_manager', 'wo.installment.status_changed', 'department'),
-  ('accounting_analyst', 'wo.installment.status_changed', 'department'),
+  ('collections_analyst', 'wo.installment.status_changed', 'department'),
   ('accounting_manager', 'wo.installment.due_this_week', 'department'),
-  ('accounting_analyst', 'wo.installment.due_this_week', 'department'),
+  ('collections_analyst', 'wo.installment.due_this_week', 'department'),
   ('manager', 'wo.installment.overdue', 'assigned'),
   ('ita_manager', 'wo.installment.overdue', 'assigned'),
   ('tax_manager', 'wo.installment.overdue', 'assigned'),
   ('accounting_manager', 'wo.installment.overdue', 'department'),
-  ('accounting_analyst', 'wo.installment.overdue', 'department'),
   ('collections_analyst', 'wo.installment.overdue', 'department'),
+  -- Cobranzas Fase 3. confirmation_pending llega tambien al GERENTE del encargo, que es
+  -- quien tiene que marcar el check (decision Q56): avisarle solo a Contabilidad dejaba el
+  -- recordatorio en manos de quien no puede resolverlo.
+  ('manager', 'wo.installment.confirmation_pending', 'assigned'),
+  ('ita_manager', 'wo.installment.confirmation_pending', 'assigned'),
+  ('tax_manager', 'wo.installment.confirmation_pending', 'assigned'),
+  ('accounting_manager', 'wo.installment.confirmation_pending', 'department'),
+  ('collections_analyst', 'wo.installment.confirmation_pending', 'department'),
+  ('accounting_manager', 'wo.installment.billing_late', 'department'),
+  ('collections_analyst', 'wo.installment.billing_late', 'department'),
+  -- rescheduled: al socio del encargo y a Contabilidad. Quien reprograma no se avisa a si
+  -- mismo (lo resuelve el disparador, no la matriz).
+  ('senior_partner', 'wo.installment.rescheduled', 'assigned'),
+  ('partner', 'wo.installment.rescheduled', 'assigned'),
+  ('director', 'wo.installment.rescheduled', 'assigned'),
+  ('accounting_manager', 'wo.installment.rescheduled', 'department'),
+  ('collections_analyst', 'wo.installment.rescheduled', 'department'),
   ('manager', 'wo.client.billing_week', 'assigned'),
   ('ita_manager', 'wo.client.billing_week', 'assigned'),
   ('tax_manager', 'wo.client.billing_week', 'assigned'),
@@ -561,7 +593,6 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('ita_manager', 'wo.installment.reminder.weekly', 'assigned'),
   ('tax_manager', 'wo.installment.reminder.weekly', 'assigned'),
   ('accounting_manager', 'wo.installment.reminder.weekly', 'department'),
-  ('accounting_analyst', 'wo.installment.reminder.weekly', 'department'),
   ('collections_analyst', 'wo.installment.reminder.weekly', 'department'),
   ('senior', 'fund.expense.deadline_reminder', 'own'),
   ('semisenior', 'fund.expense.deadline_reminder', 'own'),
@@ -833,15 +864,26 @@ delete from public.notification_role_types
    ('senior', 'wo.payment_plan.pending_approval'),
    ('collections_analyst', 'wo.payment_plan.pending_approval'),
    ('accounting_manager', 'wo.installment.status_changed'),
-   ('accounting_analyst', 'wo.installment.status_changed'),
+   ('collections_analyst', 'wo.installment.status_changed'),
    ('accounting_manager', 'wo.installment.due_this_week'),
-   ('accounting_analyst', 'wo.installment.due_this_week'),
+   ('collections_analyst', 'wo.installment.due_this_week'),
    ('manager', 'wo.installment.overdue'),
    ('ita_manager', 'wo.installment.overdue'),
    ('tax_manager', 'wo.installment.overdue'),
    ('accounting_manager', 'wo.installment.overdue'),
-   ('accounting_analyst', 'wo.installment.overdue'),
    ('collections_analyst', 'wo.installment.overdue'),
+   ('manager', 'wo.installment.confirmation_pending'),
+   ('ita_manager', 'wo.installment.confirmation_pending'),
+   ('tax_manager', 'wo.installment.confirmation_pending'),
+   ('accounting_manager', 'wo.installment.confirmation_pending'),
+   ('collections_analyst', 'wo.installment.confirmation_pending'),
+   ('accounting_manager', 'wo.installment.billing_late'),
+   ('collections_analyst', 'wo.installment.billing_late'),
+   ('senior_partner', 'wo.installment.rescheduled'),
+   ('partner', 'wo.installment.rescheduled'),
+   ('director', 'wo.installment.rescheduled'),
+   ('accounting_manager', 'wo.installment.rescheduled'),
+   ('collections_analyst', 'wo.installment.rescheduled'),
    ('manager', 'wo.client.billing_week'),
    ('ita_manager', 'wo.client.billing_week'),
    ('tax_manager', 'wo.client.billing_week'),
@@ -1100,7 +1142,6 @@ delete from public.notification_role_types
    ('ita_manager', 'wo.installment.reminder.weekly'),
    ('tax_manager', 'wo.installment.reminder.weekly'),
    ('accounting_manager', 'wo.installment.reminder.weekly'),
-   ('accounting_analyst', 'wo.installment.reminder.weekly'),
    ('collections_analyst', 'wo.installment.reminder.weekly'),
    ('senior', 'fund.expense.deadline_reminder'),
    ('semisenior', 'fund.expense.deadline_reminder'),
@@ -1211,6 +1252,9 @@ delete from public.notification_types
    'wo.installment.due_this_week',
    'wo.installment.overdue',
    'wo.client.billing_week',
+   'wo.installment.confirmation_pending',
+   'wo.installment.billing_late',
+   'wo.installment.rescheduled',
    'fund.request.submitted_for_approval',
    'fund.expense.submitted_for_approval',
    'fund.request.cancelled',

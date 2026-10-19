@@ -44,6 +44,12 @@ export interface PaymentInstallmentInput {
   // las tiene, y `?? agreed_*` trata igual a undefined y a null.
   current_invoice_date?: string | null;
   current_payment_date?: string | null;
+  // Cobranzas Fase 3: gestión de la confirmación con el cliente. Es una dimensión aparte del
+  // estado — una cuota puede estar Pendiente y confirmada, o Pendiente y sin gestionar.
+  confirmation_status?: 'sin_gestionar' | 'confirmada' | 'no_confirmada';
+  confirmed_for_date?: string | null;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
   collection_invoice_date: string | null;
   collection_payment_date: string | null;
   payment_date_actual: string | null;

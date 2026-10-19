@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Plus, Minus } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useUpdateInstallmentStatus, useUpdateCollectionDate, useUpdateInstallmentExchangeRate } from "@/hooks/mutations";
+import {
+  useUpdateInstallmentStatus,
+  useUpdateCollectionDate,
+  useUpdateInstallmentExchangeRate,
+  useRescheduleInstallment,
+  useRecordInstallmentConfirmation,
+} from "@/hooks/mutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import {
   distributePercentages,
@@ -65,6 +72,14 @@ interface WorkOrderPaymentPlanSectionProps {
   // tambien en la policy RLS "Manager can manage payment plans/installments"
   // (20260908150000_0722-156b_plan_insert_guard.sql).
   canEditPaymentPlan: boolean;
+  /**
+   * Cobranzas Fase 2 (decisión del operador Q19): Contabilidad SÍ puede abrir una OT que
+   * todavía no está aprobada, pero no puede cobrar sobre ella. En vez de dejar los
+   * controles apagados sin explicación, se avisa por qué. El bloqueo real lo aplica el
+   * servidor (wo_payment_installments_guard_exchange_rate y las RPC de cobranza); esto solo
+   * lo cuenta.
+   */
+  collectionsApprovalStatus?: "Draft" | "Pending_Approval" | "Approved" | "Rejected" | null;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -113,6 +128,7 @@ export function WorkOrderPaymentPlanSection({
   isStatusEditable,
   isAdminDateEditable,
   canEditPaymentPlan,
+  collectionsApprovalStatus = null,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -121,6 +137,22 @@ export function WorkOrderPaymentPlanSection({
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const updateStatus = useUpdateInstallmentStatus();
   const updateCollectionDate = useUpdateCollectionDate();
+  // Cobranzas Fase 3: confirmación con el cliente y reprogramación. Las dos son del gerente
+  // del encargo o un admin (decisiones Q11 y Q42); el servidor lo verifica.
+  // Confirmar y reprogramar las hace el gerente del encargo o un admin: el mismo predicado
+  // que `canEditPaymentPlan`. Se le da nombre propio porque el permiso es sobre el CONTRATO
+  // de la cuota (su fecha pactada), no sobre editar el plan mientras la OT está en Draft —
+  // de hecho el caso normal es con la OT ya aprobada.
+  const canManageSchedule = canEditPaymentPlan;
+  const rescheduleInstallment = useRescheduleInstallment();
+  const recordConfirmation = useRecordInstallmentConfirmation();
+  // `notConfirmed` abre el mismo diálogo que `reschedule` pero además registra que el
+  // cliente dijo que no: es el flujo de un solo paso que pidió el operador (Q11).
+  const [scheduleDialog, setScheduleDialog] = useState<
+    { idx: number; mode: "reschedule" | "notConfirmed" } | null
+  >(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleReason, setScheduleReason] = useState("");
   const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
   const latestRate = useLatestExchangeRate();
   const latestBuyRate = latestRate.data?.compra ?? null;
@@ -572,6 +604,54 @@ export function WorkOrderPaymentPlanSection({
     }
   };
 
+  const openScheduleDialog = (idx: number, mode: "reschedule" | "notConfirmed") => {
+    setScheduleDate("");
+    setScheduleReason("");
+    setScheduleDialog({ idx, mode });
+  };
+
+  const handleScheduleSubmit = () => {
+    if (!scheduleDialog) return;
+    const inst = installments[scheduleDialog.idx];
+    if (!inst?.installment_id) return;
+    // La fecha vigente que la pantalla tenía al abrir: viaja como control de concurrencia.
+    const expected = currentInvoiceDate(inst);
+
+    if (scheduleDialog.mode === "notConfirmed") {
+      recordConfirmation.mutate({
+        installmentId: inst.installment_id,
+        confirmed: false,
+        expectedInvoiceDate: expected,
+        note: scheduleReason,
+        newInvoiceDate: scheduleDate,
+        paymentDays: currentPlan.payment_days,
+        woId,
+      });
+    } else {
+      rescheduleInstallment.mutate({
+        installmentId: inst.installment_id,
+        newInvoiceDate: scheduleDate,
+        reason: scheduleReason,
+        expectedInvoiceDate: expected,
+        paymentDays: currentPlan.payment_days,
+        woId,
+      });
+    }
+    setScheduleDialog(null);
+  };
+
+  const handleConfirmClient = (idx: number) => {
+    const inst = installments[idx];
+    if (!inst?.installment_id) return;
+    recordConfirmation.mutate({
+      installmentId: inst.installment_id,
+      confirmed: true,
+      expectedInvoiceDate: currentInvoiceDate(inst),
+      paymentDays: currentPlan.payment_days,
+      woId,
+    });
+  };
+
   const handleDeleteRow = (idx: number) => {
     // MUST FIX review iteracion 2 #1 (decision del operador): una cuota ya facturada no
     // se puede eliminar de ninguna manera — el trigger BEFORE DELETE de la migracion es
@@ -629,6 +709,18 @@ export function WorkOrderPaymentPlanSection({
               <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
               <AlertDescription className="text-warning text-sm">
                 {t("workOrders.paymentPlan.alertBanner")}
+              </AlertDescription>
+            </Alert>
+          )}
+          {/* Cobranzas Fase 2 (Q19): la OT todavía no está aprobada, así que las acciones de
+              cobranza están apagadas. Se dice por qué en vez de dejar los controles muertos. */}
+          {collectionsApprovalStatus && collectionsApprovalStatus !== "Approved" && (
+            <Alert className="py-2 px-3 w-auto border-info/50 bg-info/10 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-info shrink-0" />
+              <AlertDescription className="text-info text-sm">
+                {t("workOrders.paymentPlan.collectionsNotApprovedBanner", {
+                  status: t(`workOrders.paymentPlan.approvalStatus${collectionsApprovalStatus}`),
+                })}
               </AlertDescription>
             </Alert>
           )}
@@ -842,7 +934,7 @@ export function WorkOrderPaymentPlanSection({
                       <td className="py-3 px-3 text-muted-foreground font-medium border-b border-border/50">
                         {idx + 1}
                       </td>
-                      <td className="py-3 px-3 border-b border-border/50">
+                      <td className="py-3 px-3 border-b border-border/50 align-top">
                         <Input
                           type="date"
                           lang="es-BO"
@@ -851,6 +943,77 @@ export function WorkOrderPaymentPlanSection({
                           disabled={!dateEditable}
                           className="h-8 text-sm"
                         />
+                        {/* Cobranzas Fase 3 (issue #352). La fecha de arriba es la ACORDADA y
+                            no se toca nunca: es el contrato. Lo que se mueve al reprogramar es
+                            la fecha VIGENTE, que se muestra acá debajo junto con la gestión de
+                            la confirmación con el cliente. */}
+                        {inst.current_invoice_date && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            <span className="font-medium">{t("workOrders.paymentPlan.currentInvoiceDateLabel")}</span>{" "}
+                            <span className="font-mono">{fmtDate(inst.current_invoice_date)}</span>
+                          </div>
+                        )}
+                        {canManageSchedule && stage === "Pending" && inst.installment_id && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            {/* El check sólo aparece cuando la fecha está encima (≤7 días) o
+                                ya pasó: antes de eso preguntarle al cliente no tiene sentido. */}
+                            {(display.calendar === "billing_due_soon" || display.calendar === "billing_late") &&
+                              inst.confirmation_status !== "confirmada" && (
+                                <>
+                                  <span className="text-xs text-muted-foreground">
+                                    {t("workOrders.paymentPlan.confirmCheckLabel")}
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => handleConfirmClient(idx)}
+                                  >
+                                    <Check className="h-3 w-3 mr-1" />
+                                    {t("workOrders.paymentPlan.confirmYes")}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => openScheduleDialog(idx, "notConfirmed")}
+                                  >
+                                    <X className="h-3 w-3 mr-1" />
+                                    {t("workOrders.paymentPlan.confirmNo")}
+                                  </Button>
+                                </>
+                              )}
+                            {inst.confirmation_status === "confirmada" && (
+                              <span
+                                title={t("workOrders.paymentPlan.confirmedTooltip", {
+                                  date: fmtDate(inst.confirmed_for_date ?? null),
+                                  by: "",
+                                })}
+                                className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
+                              >
+                                <Check className="h-3 w-3 mr-1" />
+                                {t("workOrders.paymentPlan.confirmationConfirmed")}
+                              </span>
+                            )}
+                            {inst.confirmation_status === "no_confirmada" && (
+                              <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                                {t("workOrders.paymentPlan.confirmationNotConfirmed")}
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => openScheduleDialog(idx, "reschedule")}
+                            >
+                              <CalendarClock className="h-3 w-3 mr-1" />
+                              {t("workOrders.paymentPlan.rescheduleAction")}
+                            </Button>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-muted-foreground font-mono text-xs border-b border-border/50">
                         {fmtDate(inst.agreed_payment_date)}
@@ -1216,6 +1379,66 @@ export function WorkOrderPaymentPlanSection({
             }}
           >
             {t("workOrders.paymentPlan.confirmCollectionDateAction")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Cobranzas Fase 3 (issue #352): reprogramar, y el caso "el cliente no confirma", que es
+        el mismo formulario más el registro de que dijo que no. Un solo diálogo porque el
+        operador pidió que fuera un solo paso (Q11): nota y fecha nueva juntas. */}
+    <Dialog open={!!scheduleDialog} onOpenChange={(open) => { if (!open) setScheduleDialog(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {scheduleDialog?.mode === "notConfirmed"
+              ? t("workOrders.paymentPlan.notConfirmedTitle")
+              : t("workOrders.paymentPlan.rescheduleTitle")}
+          </DialogTitle>
+          <DialogDescription>
+            {scheduleDialog?.mode === "notConfirmed"
+              ? t("workOrders.paymentPlan.notConfirmedDesc")
+              : t("workOrders.paymentPlan.rescheduleDesc", {
+                  agreed: fmtDate(
+                    scheduleDialog ? installments[scheduleDialog.idx]?.agreed_invoice_date ?? null : null,
+                  ),
+                })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="reschedule-date">{t("workOrders.paymentPlan.rescheduleNewDate")}</Label>
+            <Input
+              id="reschedule-date"
+              type="date"
+              lang="es-BO"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="reschedule-reason">{t("workOrders.paymentPlan.rescheduleReason")}</Label>
+            <Textarea
+              id="reschedule-reason"
+              value={scheduleReason}
+              onChange={(e) => setScheduleReason(e.target.value)}
+              placeholder={t("workOrders.paymentPlan.rescheduleReasonPlaceholder")}
+              rows={3}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setScheduleDialog(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            /* Motivo y fecha son obligatorios: sin ellos la cuota quedaría marcada como
+               problemática sin decir qué pasa ni para cuándo, que es justo el vacío que
+               describe el issue. El servidor los exige igual. */
+            disabled={!scheduleDate || !scheduleReason.trim()}
+            onClick={handleScheduleSubmit}
+          >
+            {t("workOrders.paymentPlan.rescheduleAction")}
           </Button>
         </DialogFooter>
       </DialogContent>

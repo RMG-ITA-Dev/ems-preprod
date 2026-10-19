@@ -179,6 +179,40 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(getTabTrigger("staffing")).toHaveAttribute("data-state", "inactive");
   });
 
+  // ── Cobranzas Fase 2 (issue #352): vista de Contabilidad ────────────────────────────
+  // Decisión del operador Q17: el Gerente de Contabilidad y el Analista de Cobranzas abren
+  // la OT solo para cobrar. Ven Plan de pagos y Presupuesto, nunca Riesgos ni Dotación.
+  it("T1b: la vista de Contabilidad muestra solo Presupuesto y Plan de pagos, y arranca en Plan de pagos", () => {
+    renderForm({ collectionsOnly: true });
+    expect(getTabTrigger("payment")).toHaveAttribute("data-state", "active");
+    expect(getTabTrigger("budget")).toHaveAttribute("data-state", "inactive");
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(screen.queryByText("workOrders.tabs.risk")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.staffing")).not.toBeInTheDocument();
+  });
+
+  // Las pestañas usan forceMount: ocultar solo el disparador dejaría Riesgos montado (y sus
+  // consultas corriendo) para alguien que no debe verlo.
+  it("T1c: el contenido de Riesgos tampoco se monta en la vista de Contabilidad", () => {
+    renderForm({ collectionsOnly: true, approvalStatus: "Approved" });
+    expect(screen.queryByText("workOrders.riskAssessment")).not.toBeInTheDocument();
+  });
+
+  // Q19: Contabilidad SÍ puede abrir una OT sin aprobar, pero las acciones de la OT son del
+  // gerente del encargo — sin esto le aparecían Guardar y Enviar para Aprobación, que el
+  // servidor le iba a rechazar igual.
+  it("T1d: con la OT en Borrador, la vista de Contabilidad no ofrece Guardar ni Enviar", () => {
+    renderForm({ collectionsOnly: true, approvalStatus: "Draft" });
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.submitForApproval")).not.toBeInTheDocument();
+  });
+
+  it("T1e: sin la vista de Contabilidad, el gerente conserva las 4 pestañas", () => {
+    renderForm({ collectionsOnly: false });
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
+    expect(getTabTrigger("budget")).toHaveAttribute("data-state", "active");
+  });
+
   it("T2: /work-orders/new (isNew) keeps the vertical layout — no tabs rendered", () => {
     renderForm({ isNew: true });
     expect(screen.queryByText("workOrders.tabs.budget")).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -13,10 +13,16 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Prevent Supabase client from being imported in the mutation hook
+// Cobranzas Fase 3: los espías viven fuera para poder afirmar CON QUÉ se llamó a la RPC.
+const mockReschedule = vi.fn();
+const mockRecordConfirmation = vi.fn();
+
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+  useRescheduleInstallment: () => ({ mutate: mockReschedule, isPending: false }),
+  useRecordInstallmentConfirmation: () => ({ mutate: mockRecordConfirmation, isPending: false }),
 }));
 
 // WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
@@ -57,6 +63,10 @@ vi.mock("@/components/ui/dialog", () => ({
 // Expose controlled number input via testid so we can query disabled state.
 // 0722-161: reenvia decimals/locale/min como atributos para poder afirmar el
 // contrato del campo, y respeta un data-testid propio si el call site lo pasa.
+vi.mock("@/components/ui/textarea", () => ({
+  Textarea: (props: Record<string, unknown>) => <textarea {...(props as object)} />,
+}));
+
 vi.mock("@/components/ui/numeric-input", () => ({
   NumericInput: ({
     value,
@@ -438,13 +448,32 @@ describe("WorkOrderPaymentPlanSection — status display", () => {
     expect(container.querySelector('[data-testid="select"]')).toBeInTheDocument();
   });
 
-  it("PP17: auto-Overdue chip shown when status=Pending and agreed_invoice_date is past", () => {
+  // Cobranzas Fase 1 (issue #352 / 0923-206) — este caso cambió de significado a propósito.
+  // Antes, una cuota todavía SIN FACTURAR con su fecha de facturación pasada se mostraba como
+  // "Mora", mezclando dos cosas distintas: que nosotros no facturamos a tiempo y que el
+  // cliente no pagó. Ahora conserva su etapa ("Pendiente") y la condición de calendario va en
+  // una insignia aparte, "Facturación atrasada". La mora queda reservada a una cuota ya
+  // facturada que pasó su vencimiento (decisión del operador Q4).
+  it("PP17: una cuota sin facturar con la fecha pasada muestra 'facturación atrasada', no mora", () => {
     const yesterday = dayOffset(-1);
     const installments = [makeInstallment({ status: "Pending", agreed_invoice_date: yesterday })];
     renderSection({ installments, isStatusEditable: false });
-    // getEffectiveStatus converts Pending → Overdue; chip shows Overdue key
+    expect(screen.getByText("workOrders.paymentPlan.statusPending")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.paymentPlan.statusBillingLate")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.paymentPlan.statusOverdue")).not.toBeInTheDocument();
+  });
+
+  it("PP17b: una cuota FACTURADA que pasó su vencimiento real sí muestra mora", () => {
+    const installments = [
+      makeInstallment({
+        status: "Invoiced",
+        agreed_invoice_date: dayOffset(-40),
+        collection_invoice_date: dayOffset(-40),
+        collection_payment_date: dayOffset(-1),
+      }),
+    ];
+    renderSection({ installments, isStatusEditable: false });
     expect(screen.getByText("workOrders.paymentPlan.statusOverdue")).toBeInTheDocument();
-    expect(screen.queryByText("workOrders.paymentPlan.statusPending")).not.toBeInTheDocument();
   });
 
   it("PP18: future agreed_invoice_date keeps Pending status (no auto-Overdue)", () => {
@@ -509,5 +538,152 @@ describe("WorkOrderPaymentPlanSection — collection_invoice_date rendering", ()
     const installments = [makeInstallment({ status: "Invoiced", collection_invoice_date: "2026-08-01" })];
     const container = renderSection({ installments, isStatusEditable: true });
     expect(container.querySelectorAll('input[type="date"]')).toHaveLength(2);
+  });
+});
+
+
+// ── Cobranzas Fase 3 (issue #352): confirmación con el cliente y reprogramación ───────────
+// Las dos acciones son del GERENTE del encargo (decisiones del operador Q11 y Q42), que en
+// esta sección es justo el predicado `canEditPaymentPlan`.
+
+describe("WorkOrderPaymentPlanSection — confirmación y reprogramación (Fase 3)", () => {
+  beforeEach(() => {
+    mockReschedule.mockClear();
+    mockRecordConfirmation.mockClear();
+  });
+
+  // El check sólo tiene sentido cuando la fecha está encima: preguntarle al cliente con un
+  // mes de anticipación no sirve, y llenar la fila de botones tampoco.
+  it("PPF3-1: el check de confirmación aparece cuando faltan ≤7 días, no antes", () => {
+    renderSection({
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(3) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.getByText("workOrders.paymentPlan.confirmCheckLabel")).toBeInTheDocument();
+  });
+
+  it("PPF3-2: con la fecha lejana no se ofrece el check, pero sí reprogramar", () => {
+    renderSection({
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(40) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.queryByText("workOrders.paymentPlan.confirmCheckLabel")).not.toBeInTheDocument();
+    expect(screen.getByText("workOrders.paymentPlan.rescheduleAction")).toBeInTheDocument();
+  });
+
+  it("PPF3-3: quien no puede editar el plan no ve ninguna de las dos acciones", () => {
+    renderSection({
+      canEditPaymentPlan: false,
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(3) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.queryByText("workOrders.paymentPlan.confirmCheckLabel")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.paymentPlan.rescheduleAction")).not.toBeInTheDocument();
+  });
+
+  it("PPF3-4: confirmar manda la fecha vigente como control de concurrencia", () => {
+    renderSection({
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(3) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmYes"));
+    expect(mockRecordConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true, expectedInvoiceDate: dayOffset(3) }),
+    );
+  });
+
+  // El botón arranca deshabilitado: sin motivo y sin fecha nueva, la cuota quedaría marcada
+  // como problemática sin decir qué pasa ni para cuándo. El servidor los exige igual.
+  it("PPF3-5: reprogramar exige fecha y motivo, y recién ahí habilita el botón", () => {
+    renderSection({
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(40) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.rescheduleAction"));
+
+    const dialog = screen.getByRole("dialog");
+    const submit = within(dialog).getByText("workOrders.paymentPlan.rescheduleAction").closest("button")!;
+    expect(submit).toBeDisabled();
+
+    // Se teclea de verdad sobre el valor del input, con el estado real del componente detrás.
+    const dateInput = document.getElementById("reschedule-date") as HTMLInputElement;
+    fireEvent.change(dateInput, { target: { value: dayOffset(70) } });
+    expect(submit).toBeDisabled(); // falta el motivo
+
+    const reason = document.getElementById("reschedule-reason") as HTMLTextAreaElement;
+    fireEvent.change(reason, { target: { value: "el cliente pidió correrlo" } });
+    expect(submit).not.toBeDisabled();
+
+    fireEvent.click(submit);
+    expect(mockReschedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        newInvoiceDate: dayOffset(70),
+        reason: "el cliente pidió correrlo",
+        expectedInvoiceDate: dayOffset(40),
+      }),
+    );
+  });
+
+  it("PPF3-6: 'no confirma' usa el mismo formulario y registra que el cliente dijo que no", () => {
+    renderSection({
+      installments: [makeInstallment({ status: "Pending", agreed_invoice_date: dayOffset(2) })],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmNo"));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("workOrders.paymentPlan.notConfirmedTitle")).toBeInTheDocument();
+
+    fireEvent.change(document.getElementById("reschedule-date") as HTMLInputElement, {
+      target: { value: dayOffset(35) },
+    });
+    fireEvent.change(document.getElementById("reschedule-reason") as HTMLTextAreaElement, {
+      target: { value: "sin liquidez este mes" },
+    });
+    fireEvent.click(within(dialog).getByText("workOrders.paymentPlan.rescheduleAction").closest("button")!);
+
+    expect(mockRecordConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmed: false,
+        note: "sin liquidez este mes",
+        newInvoiceDate: dayOffset(35),
+      }),
+    );
+    // No pasa por la RPC de reprogramar: la reprogramación la hace la misma RPC de
+    // confirmación, en una sola transacción (decisión Q11).
+    expect(mockReschedule).not.toHaveBeenCalled();
+  });
+
+  // La fecha ACORDADA es el contrato y no se toca; lo que se mueve es la vigente. Mostrar las
+  // dos es lo que permite distinguir una reprogramación de una cuota vencida (issue #352).
+  it("PPF3-7: una cuota reprogramada muestra su fecha vigente además de la acordada", () => {
+    renderSection({
+      installments: [
+        makeInstallment({
+          status: "Pending",
+          agreed_invoice_date: dayOffset(-10),
+          current_invoice_date: dayOffset(20),
+        }),
+      ],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.getByText("workOrders.paymentPlan.currentInvoiceDateLabel")).toBeInTheDocument();
+    // Y ya no está atrasada: la fecha que manda es la vigente.
+    expect(screen.queryByText("workOrders.paymentPlan.statusBillingLate")).not.toBeInTheDocument();
+  });
+
+  it("PPF3-8: una cuota ya facturada no ofrece reprogramar", () => {
+    renderSection({
+      installments: [
+        makeInstallment({
+          status: "Invoiced",
+          agreed_invoice_date: dayOffset(-10),
+          collection_invoice_date: dayOffset(-10),
+          collection_payment_date: dayOffset(20),
+        }),
+      ],
+      plan: { wo_id: "wo-1", exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.queryByText("workOrders.paymentPlan.rescheduleAction")).not.toBeInTheDocument();
   });
 });

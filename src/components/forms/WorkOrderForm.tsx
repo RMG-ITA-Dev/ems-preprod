@@ -127,6 +127,18 @@ interface WorkOrderFormProps {
   paymentInstallments?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
   isAdminDateEditable?: boolean;
   isStatusEditable?: boolean;
+  /**
+   * Cobranzas Fase 2 (decisión del operador Q17): vista de Contabilidad. El Gerente de
+   * Contabilidad y el Analista de Cobranzas abren la OT solo para cobrar, así que ven
+   * únicamente las pestañas de Plan de pagos y Presupuesto —nunca Riesgos ni Dotación— y
+   * ninguna acción de la OT (enviar, aprobar, rechazar). Arranca en Plan de pagos, que es
+   * a lo que vienen.
+   *
+   * No reemplaza al control del servidor: lo que pueden escribir lo deciden la policy
+   * "Accounting can update payment installments" y el guard de cuotas, ambos por
+   * is_collections_role().
+   */
+  collectionsOnly?: boolean;
   canEditPaymentPlan?: boolean;
   isPaymentPlanDirty?: boolean;
   onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
@@ -407,6 +419,7 @@ export function WorkOrderForm({
   paymentInstallments = [],
   isAdminDateEditable = false,
   isStatusEditable = false,
+  collectionsOnly = false,
   canEditPaymentPlan = false,
   isPaymentPlanDirty = false,
   onPaymentPlanChange,
@@ -440,6 +453,9 @@ export function WorkOrderForm({
   // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
   // rechazado -> pest.3; si no, pest.1 por defecto.
   const [activeTab, setActiveTab] = useState<WorkOrderFormTabId>(() => {
+    // Cobranzas Fase 2: Contabilidad entra a cobrar, así que aterriza en Plan de pagos; las
+    // pistas de rechazo (Socio/Riesgos) no son suyas y además no ve esa pestaña.
+    if (collectionsOnly) return "payment";
     if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
@@ -1380,6 +1396,7 @@ export function WorkOrderForm({
           installments={paymentInstallments}
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
+          collectionsApprovalStatus={collectionsOnly ? approvalStatus : null}
           isAdminDateEditable={isAdminDateEditable}
           canEditPaymentPlan={canEditPaymentPlan}
           isPaymentPlanDirty={isPaymentPlanDirty}
@@ -2108,7 +2125,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {!isAdministrative && (
+            {!isAdministrative && !collectionsOnly && (
               <TabsTrigger value="risk" className="shrink-0">
                 {t("workOrders.tabs.risk")}
                 {renderTabIndicator(
@@ -2117,7 +2134,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {isSchedulerEnabled() && (
+            {isSchedulerEnabled() && !collectionsOnly && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
                 {renderTabIndicator(
@@ -2130,7 +2147,7 @@ export function WorkOrderForm({
           <TabsContent value="budget" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
             {budgetGridCard}
             {expensesSummaryGrid}
-            {socioCanAct && (
+            {socioCanAct && !collectionsOnly && (
               <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
@@ -2167,7 +2184,10 @@ export function WorkOrderForm({
               {paymentPlanSection}
             </TabsContent>
           )}
-          {!isAdministrative && (
+          {/* Cobranzas Fase 2: el contenido también se condiciona, no solo el disparador.
+              Estas pestañas usan forceMount, así que dejar el TabsContent montaría Riesgos y
+              Dotación (y sus consultas) para alguien que no debe verlos. */}
+          {!isAdministrative && !collectionsOnly && (
             <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
               {riskAssessmentCard}
               {showRiskActions && hasRiskAction && (
@@ -2230,7 +2250,7 @@ export function WorkOrderForm({
               )}
             </TabsContent>
           )}
-          {isSchedulerEnabled() && (
+          {isSchedulerEnabled() && !collectionsOnly && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
             </TabsContent>
@@ -2286,7 +2306,11 @@ export function WorkOrderForm({
               {t("common.cancel")}
             </Button>
           )}
-          {isDraft && (
+          {/* Cobranzas Fase 2: Guardar y Enviar para Aprobación son del gerente del encargo.
+              Contabilidad entra a cobrar; sus acciones viven dentro del Plan de pagos y se
+              guardan solas. Sin esto, con la OT en Draft (que sí puede abrir, decisión Q19)
+              le aparecían dos botones que el servidor le iba a rechazar. */}
+          {isDraft && !collectionsOnly && (
             <>
               <LoadingButton
                 onClick={onSubmit}
@@ -2381,7 +2405,7 @@ export function WorkOrderForm({
               riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
               aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
               pendiente => no se muestra: la corrección se hace en sitio. */}
-          {showWithdraw && (
+          {showWithdraw && !collectionsOnly && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}

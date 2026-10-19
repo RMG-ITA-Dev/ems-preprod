@@ -30,6 +30,10 @@ const EXCHANGE_RATE_FORBIDDEN_TOKEN = "EXCHANGE_RATE_FORBIDDEN";
 // en realidad hay que recargar para ver el estado real.
 const INSTALLMENT_STALE_TOKEN = "INSTALLMENT_STALE";
 const INSTALLMENT_FORBIDDEN_TOKEN = "INSTALLMENT_FORBIDDEN";
+// Cobranzas Fase 3: la nota y la fecha nueva son obligatorias cuando el cliente no confirma.
+// La UI ya las exige, pero el servidor es el que manda y su mensaje merece traduccion propia.
+const INSTALLMENT_REASON_REQUIRED_TOKEN = "INSTALLMENT_REASON_REQUIRED";
+const INSTALLMENT_DATE_REQUIRED_TOKEN = "INSTALLMENT_DATE_REQUIRED";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -59,6 +63,14 @@ function isInstallmentForbiddenError(error: unknown): boolean {
   return errorMessageOf(error).includes(INSTALLMENT_FORBIDDEN_TOKEN);
 }
 
+function isInstallmentReasonRequiredError(error: unknown): boolean {
+  return errorMessageOf(error).includes(INSTALLMENT_REASON_REQUIRED_TOKEN);
+}
+
+function isInstallmentDateRequiredError(error: unknown): boolean {
+  return errorMessageOf(error).includes(INSTALLMENT_DATE_REQUIRED_TOKEN);
+}
+
 // dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
 // latest_exchange_rate(); si latest_exchange_rate() devuelve NULL (historial BCB
 // vacío y sin default_exchange_rate configurado) y el caller manda un `null`
@@ -77,6 +89,14 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isInstallmentForbiddenError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorInstallmentForbidden"));
+    return;
+  }
+  if (isInstallmentReasonRequiredError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorReasonRequired"));
+    return;
+  }
+  if (isInstallmentDateRequiredError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorNewDateRequired"));
     return;
   }
   if (isExchangeRateLockedError(error)) {
@@ -321,6 +341,94 @@ export function useDeletePaymentPlan() {
 
 // Correct the collection invoice date for a single installment (admin-only direct save).
 // Also recalculates collection_payment_date from the new date + paymentDays.
+// ── Cobranzas Fase 3 (issue #352) ────────────────────────────────────────────────────────
+// Confirmación con el cliente y reprogramación. Las dos son del GERENTE del encargo (o un
+// admin), no de Contabilidad: mover la fecha pactada es del contrato, no de la cobranza
+// (decisiones del operador Q11 y Q42). El servidor lo verifica; esto solo lo refleja.
+//
+// Las dos mandan `expectedInvoiceDate` (la fecha vigente que la pantalla tenía al abrir el
+// diálogo) como control de concurrencia: si alguien ya reprogramó mientras tanto, la RPC
+// responde INSTALLMENT_STALE en vez de pisar la fecha nueva con una vieja.
+//
+// `paymentDays` hace falta porque la fecha de pago prevista se calcula acá: el calendario de
+// días hábiles vive en TypeScript (src/lib/boliviaHolidays.ts). La RPC la valida, no la
+// recalcula, para no crear un segundo calendario divergente.
+
+export function useRescheduleInstallment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      newInvoiceDate,
+      reason,
+      expectedInvoiceDate,
+      paymentDays,
+    }: {
+      installmentId: string;
+      newInvoiceDate: string;
+      reason: string;
+      expectedInvoiceDate: string | null;
+      paymentDays: number;
+      woId: string;
+    }) => {
+      const { error } = await rpcUntyped("reschedule_installment", {
+        p_installment_id: installmentId,
+        p_new_invoice_date: newInvoiceDate,
+        p_new_payment_due_date: computePaymentDate(newInvoiceDate, paymentDays),
+        p_reason: reason,
+        p_expected_invoice_date: expectedInvoiceDate,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "rescheduling installment"),
+  });
+}
+
+export function useRecordInstallmentConfirmation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      confirmed,
+      expectedInvoiceDate,
+      note,
+      newInvoiceDate,
+      paymentDays,
+    }: {
+      installmentId: string;
+      confirmed: boolean;
+      expectedInvoiceDate: string | null;
+      // Obligatorios cuando el cliente NO confirma: sin motivo y sin fecha nueva, la cuota
+      // quedaría marcada como problemática sin decir qué pasa ni para cuándo.
+      note?: string;
+      newInvoiceDate?: string;
+      paymentDays: number;
+      woId: string;
+    }) => {
+      const { error } = await rpcUntyped("record_installment_confirmation", {
+        p_installment_id: installmentId,
+        p_confirmed: confirmed,
+        p_expected_invoice_date: expectedInvoiceDate,
+        p_note: note ?? null,
+        p_new_invoice_date: newInvoiceDate ?? null,
+        p_new_payment_due_date: newInvoiceDate
+          ? computePaymentDate(newInvoiceDate, paymentDays)
+          : null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "recording installment confirmation"),
+  });
+}
+
 export function useUpdateCollectionDate() {
   const queryClient = useQueryClient();
   return useMutation({

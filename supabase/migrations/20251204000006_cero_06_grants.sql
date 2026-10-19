@@ -2144,3 +2144,12 @@ REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_actionable(p_installment
 -- Funcion de trigger: PostgREST no la expone y disparar un trigger no exige EXECUTE, pero
 -- nace ejecutable por PUBLIC y se cierra igual.
 REVOKE EXECUTE ON FUNCTION public.wo_installment_log_event() FROM PUBLIC, anon;
+
+-- Cobranzas Fase 3: confirmacion con el cliente y reprogramacion (issue #352).
+REVOKE EXECUTE ON FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date, p_note text, p_new_invoice_date date, p_new_payment_due_date date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date, p_note text, p_new_invoice_date date, p_new_payment_due_date date) TO authenticated, service_role;
+
+-- Guarda interna de las dos anteriores (gerente del encargo o admin): no la llama el cliente.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_manager(p_installment_id uuid) FROM PUBLIC, anon, authenticated;

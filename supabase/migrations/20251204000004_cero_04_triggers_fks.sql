@@ -1214,6 +1214,17 @@ ALTER TABLE ONLY public.wo_installment_events
 
 --
 --
+-- Name: wo_payment_installments wo_payment_installments_confirmed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 3. SET NULL por el mismo criterio que la bitacora: dar de baja a una persona
+-- no puede bloquear ni borrar el registro de la gestion. El evento 'confirmation' conserva el
+-- actor historico igual.
+ALTER TABLE ONLY public.wo_payment_installments
+    ADD CONSTRAINT wo_payment_installments_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: wo_payment_installments wo_payment_installments_plan_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

@@ -42,6 +42,11 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   // "Sin acceso" a pantalla completa: risk_partner y risk_supervisor en los avisos de riesgo,
   // senior y collections_analyst en los de plan de pagos. Ver `notif_permiso_de_ruta` en la
   // migración del catálogo.
+  //
+  // Cobranzas Fase 2 (2026-10-15): `collections_analyst` y los dos roles contables ya NO caen
+  // acá en los avisos de plan de pagos — el Carril B / etapa B3p les dio `work_order.read`, que
+  // es justo el permiso que `notif_permiso_de_ruta` exige para el módulo `work_order`, así que
+  // ahora reciben el botón. El caso de `senior` sigue vigente.
   if (payload.sin_ruta === true) return null;
 
   // Un recordatorio que resume contadores de pantallas distintas elige destino según lo que

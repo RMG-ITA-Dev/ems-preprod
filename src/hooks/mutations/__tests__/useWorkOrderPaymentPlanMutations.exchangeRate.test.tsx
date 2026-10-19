@@ -230,10 +230,13 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
   });
 
   describe("useUpdateInstallmentStatus", () => {
-    it("PEX4: transitioning to Invoiced writes status + invoice_exchange_rate in the SAME update call", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+    // Cobranzas Fase 1 (issue #352): la transicion dejo de ser un UPDATE armado en el
+    // cliente y pasa por la RPC invoice_installment, que ademas verifica rol, OT aprobada y
+    // estado esperado en el servidor. El TC sigue viajando en la MISMA llamada: el guard de
+    // freeze mira OLD.status, asi que una vez facturada la cuota ya no se puede escribir.
+    it("PEX4: facturar llama a invoice_installment con el TC en la misma llamada", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as never);
 
       const { result } = renderHook(() => useUpdateInstallmentStatus(), { wrapper: createWrapper() });
       result.current.mutate({
@@ -246,16 +249,24 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-      expect(mockUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "Invoiced", invoice_exchange_rate: 6.97 }),
+      expect(mockRpc).toHaveBeenCalledTimes(1);
+      expect(mockRpc).toHaveBeenCalledWith(
+        "invoice_installment",
+        expect.objectContaining({
+          p_installment_id: "inst-1",
+          // El estado esperado es el control de concurrencia: si otra persona ya facturo,
+          // la RPC responde INSTALLMENT_STALE en vez de pisar el cambio.
+          p_expected_status: "Pending",
+          p_invoice_exchange_rate: 6.97,
+        }),
       );
+      // Y el vencimiento viaja ya calculado: el calendario de dias habiles vive en TypeScript.
+      expect(mockRpc.mock.calls[0][1].p_payment_due_date).toMatch(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
     });
 
-    it("PEX5: transitioning to Completed writes status + payment_exchange_rate in the SAME update call", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+    it("PEX5: cobrar llama a collect_installment con el TC de pago en la misma llamada", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as never);
 
       const { result } = renderHook(() => useUpdateInstallmentStatus(), { wrapper: createWrapper() });
       result.current.mutate({
@@ -267,16 +278,20 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-      expect(mockUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "Completed", payment_exchange_rate: 7.01 }),
+      expect(mockRpc).toHaveBeenCalledTimes(1);
+      expect(mockRpc).toHaveBeenCalledWith(
+        "collect_installment",
+        expect.objectContaining({
+          p_installment_id: "inst-1",
+          p_expected_status: "Invoiced",
+          p_payment_exchange_rate: 7.01,
+        }),
       );
     });
 
-    it("PEX6: a manual Invoiced->Overdue revert does NOT touch invoice_exchange_rate (stays frozen)", async () => {
-      const mockEq = vi.fn().mockResolvedValue({ error: null });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+    it("PEX6: la mora manual no toca ningun tipo de cambio (siguen congelados)", async () => {
+      const mockRpc = vi.fn().mockResolvedValue({ error: null });
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as never);
 
       const { result } = renderHook(() => useUpdateInstallmentStatus(), { wrapper: createWrapper() });
       result.current.mutate({
@@ -287,17 +302,20 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      const updatePayload = mockUpdate.mock.calls[0][0];
-      expect(updatePayload).not.toHaveProperty("invoice_exchange_rate");
-      expect(updatePayload).not.toHaveProperty("payment_exchange_rate");
+      expect(mockRpc).toHaveBeenCalledWith(
+        "set_installment_overdue",
+        expect.objectContaining({ p_expected_status: "Invoiced", p_overdue: true }),
+      );
+      const args = mockRpc.mock.calls[0][1];
+      expect(args).not.toHaveProperty("p_invoice_exchange_rate");
+      expect(args).not.toHaveProperty("p_payment_exchange_rate");
     });
 
     it("PEX7: EXCHANGE_RATE_LOCKED error on a status update shows the specific translated toast", async () => {
-      const mockEq = vi.fn().mockResolvedValue({
+      const mockRpc = vi.fn().mockResolvedValue({
         error: { message: "EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado" },
       });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+      vi.mocked(supabase.rpc).mockImplementation(mockRpc as never);
 
       const { result } = renderHook(() => useUpdateInstallmentStatus(), { wrapper: createWrapper() });
       result.current.mutate({

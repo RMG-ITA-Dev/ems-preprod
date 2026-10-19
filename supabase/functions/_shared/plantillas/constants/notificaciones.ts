@@ -191,6 +191,21 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     boton: "Ver orden",
   },
 
+  // ── Cobranzas Fase 3 (issue #352) ──
+  // Los dos salen por campana Y correo (decisiones Q12/Q56 y Q32) porque los dos son una
+  // tarea pendiente de alguien. El tercer tipo nuevo, `wo.installment.rescheduled`, es solo
+  // campana: avisa que algo se movió, no pide acción, y por eso no tiene plantilla acá.
+  "wo.installment.confirmation_pending": {
+    asunto: "Falta confirmar una cuota con el cliente",
+    intro: "Se acerca la fecha de facturación de una cuota y todavía no se confirmó con el cliente.",
+    boton: "Ver plan de pagos",
+  },
+  "wo.installment.billing_late": {
+    asunto: "Cuota con facturación atrasada",
+    intro: "Pasó la fecha de facturación de una cuota y todavía no se facturó.",
+    boton: "Ver plan de pagos",
+  },
+
   // ── Solicitud de fondos ──
   "fund.request.submitted_for_approval": {
     asunto: "Solicitud de fondos pendiente de su aprobación",

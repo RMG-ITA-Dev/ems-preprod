@@ -7857,9 +7857,24 @@ CREATE TABLE public.wo_payment_installments (
     percentage numeric DEFAULT 0 NOT NULL,
     amount numeric,
     status text DEFAULT 'Pending'::text NOT NULL,
+    -- Cobranzas Fase 3 (issue #352 / 0923-206) — gestion de la confirmacion con el cliente.
+    -- Es una dimension APARTE del estado: una cuota puede estar Pendiente y confirmada, o
+    -- Pendiente y sin gestionar. Mezclarlas fue el problema original del issue.
+    --   * confirmation_status  -> el gerente pregunto y el cliente dijo que si / que no, o
+    --                             todavia nadie pregunto.
+    --   * confirmed_for_date   -> PARA QUE FECHA se comprometio, que puede no ser la vigente
+    --                             si despues se reprograma; por eso se guarda aparte.
+    --   * confirmed_by/_at     -> quien gestiono y cuando, para el historial.
+    -- Al cambiar la fecha vigente la confirmacion vuelve a 'sin_gestionar' (lo hace
+    -- reschedule_installment): lo que el cliente confirmo era la fecha anterior.
+    confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
+    confirmed_for_date date,
+    confirmed_by uuid,
+    confirmed_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
+    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text]))),
+    CONSTRAINT wo_payment_installments_confirmation_status_check CHECK ((confirmation_status = ANY (ARRAY['sin_gestionar'::text, 'confirmada'::text, 'no_confirmada'::text])))
 );
 
 
@@ -8223,6 +8238,239 @@ BEGIN
 
   UPDATE public.wo_payment_installments
      SET status = CASE WHEN p_overdue THEN 'Overdue' ELSE 'Invoiced' END
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: wo_installment_assert_manager(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 3 (issue #352 / 0923-206). Guarda comun de las dos acciones que NO son de
+-- cobranza sino del contrato: gestionar la confirmacion con el cliente y reprogramar.
+-- Decision del operador (Q11, Q42): las hace el GERENTE del encargo, o un admin. No el socio
+-- (sigue vigente "el socio no escribe el plan", 20260908150000:305-312) y no Contabilidad
+-- (ellos facturan y cobran; mover la fecha pactada es del gerente).
+--
+-- A diferencia de wo_installment_assert_actionable, esta NO exige la OT aprobada: confirmar y
+-- reprogramar son justamente lo que se hace ANTES de facturar, y una cuota de una OT recien
+-- aprobada ya puede necesitar su gestion. Lo que si exige es que la cuota siga sin facturar:
+-- despues de emitida la factura la fecha de facturacion ya es un hecho, no una promesa.
+CREATE FUNCTION public.wo_installment_assert_manager(p_installment_id uuid) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_manager uuid;
+BEGIN
+  SELECT i.* INTO v_row
+  FROM public.wo_payment_installments i
+  WHERE i.installment_id = p_installment_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  IF NOT public.is_admin() THEN
+    SELECT e.manager_id INTO v_manager
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    JOIN public.engagements e  ON e.engagement_id = wo.engagement_id
+    WHERE p.plan_id = v_row.plan_id;
+
+    IF v_manager IS NULL OR v_manager IS DISTINCT FROM public.get_my_staff_id() THEN
+      RAISE EXCEPTION 'INSTALLMENT_FORBIDDEN: solo el gerente del encargo (o un administrador) puede gestionar la confirmacion y la reprogramacion de una cuota';
+    END IF;
+  END IF;
+
+  IF v_row.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: la cuota ya fue facturada; su fecha de facturacion ya no es una promesa que se pueda reprogramar';
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: reschedule_installment(uuid, date, date, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 3 — el escenario central del issue #352: "clientes que no pueden pagar en el
+-- mes previsto, pagos reprogramados para el siguiente mes". Mueve la fecha de facturacion
+-- VIGENTE sin tocar la acordada: el contrato queda intacto y la bitacora guarda las dos
+-- fechas, que es justo lo que el issue pide para no confundir una reprogramacion autorizada
+-- con una cuota vencida.
+--
+-- Sin aprobacion de nadie y sin limite de veces (decisiones del operador Q6 y Q9): basta la
+-- nota, que es obligatoria.
+--
+-- p_new_payment_due_date (la fecha de pago prevista sobre la nueva fecha de facturacion) la
+-- calcula el cliente, igual que en invoice_installment y por el mismo motivo: el calendario de
+-- dias habiles vive en TypeScript (src/lib/boliviaHolidays.ts, que genera los feriados de
+-- cualquier anio) mientras que public.holidays solo esta sembrada 2026-2027 y trae 2 feriados
+-- "puente" que el generador no produce. Recalcularlo en SQL crearia un segundo calendario
+-- divergente. Aca se valida el rango, no se recalcula.
+CREATE FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date DEFAULT NULL) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_current date;
+  v_payment_days integer;
+BEGIN
+  v_row := public.wo_installment_assert_manager(p_installment_id);
+  v_current := COALESCE(v_row.current_invoice_date, v_row.agreed_invoice_date);
+
+  -- Control de concurrencia, igual que el expected_status de las RPC de cobranza: si otra
+  -- persona ya reprogramo mientras esta pantalla estaba abierta, la segunda llamada falla en
+  -- vez de pisar la fecha nueva con una vieja.
+  IF p_expected_invoice_date IS DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no vence el % (ahora es %); recargue la pagina', p_expected_invoice_date, v_current;
+  END IF;
+
+  IF p_new_invoice_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: falta la nueva fecha de facturacion';
+  END IF;
+
+  -- La nota es obligatoria: sin motivo, la bitacora no sirve para distinguir una
+  -- reprogramacion acordada con el cliente de una fecha movida por error.
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'INSTALLMENT_REASON_REQUIRED: reprogramar exige registrar el motivo';
+  END IF;
+
+  IF p_new_invoice_date IS NOT DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_UNCHANGED: la fecha nueva es la que ya tenia la cuota';
+  END IF;
+
+  SELECT p.payment_days INTO v_payment_days
+  FROM public.wo_payment_plan p WHERE p.plan_id = v_row.plan_id;
+
+  IF p_new_payment_due_date IS NULL
+     OR p_new_payment_due_date < p_new_invoice_date
+     OR p_new_payment_due_date > p_new_invoice_date + (COALESCE(v_payment_days, 30) * 2 + 14) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: la fecha de pago prevista no corresponde a la nueva fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
+  -- La confirmacion anterior deja de valer: el cliente se comprometio con la fecha vieja.
+  -- Queda en la bitacora (el evento 'confirmation' no se borra), pero la cuota vuelve a
+  -- necesitar gestion.
+  UPDATE public.wo_payment_installments
+     SET current_invoice_date = p_new_invoice_date,
+         current_payment_date = p_new_payment_due_date,
+         confirmation_status  = 'sin_gestionar',
+         confirmed_for_date   = NULL,
+         confirmed_by         = NULL,
+         confirmed_at         = NULL
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  -- El trigger de bitacora ya registro el evento 'rescheduled' con las dos fechas; aca solo
+  -- se le agrega el motivo, que el trigger no puede conocer.
+  UPDATE public.wo_installment_events
+     SET reason = p_reason
+   WHERE event_id = (
+     SELECT event_id FROM public.wo_installment_events
+      WHERE installment_id = p_installment_id AND action = 'rescheduled'
+      ORDER BY seq DESC LIMIT 1
+   );
+
+  -- Aviso de campana al socio del encargo y a Contabilidad (decision Q45). Se emite ACA y no
+  -- en un trigger porque hay que excluir a quien reprogramo: el avisa, no se avisa. Va dentro
+  -- de un bloque propio para que una falla del modulo de notificaciones no revierta la
+  -- reprogramacion, que es el hecho que importa.
+  BEGIN
+    PERFORM public.notif_installment_rescheduled(v_row, v_current, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'reschedule_installment: fallo el aviso de reprogramacion para % : %', p_installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: record_installment_confirmation(uuid, boolean, date, text, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 3 — el check que pidio el operador: cuando se acerca la fecha de facturacion,
+-- el gerente confirma que el cliente va a pagar en esa fecha (decision Q10). Si no confirma,
+-- en el MISMO paso deja una nota y la fecha nueva, y la cuota se reprograma (Q11): no hay un
+-- aviso intermedio ni una segunda persona que tenga que actuar.
+--
+-- p_confirmed true  -> queda 'confirmada' para la fecha vigente; no hace falta nada mas.
+-- p_confirmed false -> exige nota y fecha nueva, y reprograma en la misma transaccion.
+CREATE FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date DEFAULT NULL, p_note text DEFAULT NULL, p_new_invoice_date date DEFAULT NULL, p_new_payment_due_date date DEFAULT NULL) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_current date;
+BEGIN
+  v_row := public.wo_installment_assert_manager(p_installment_id);
+  v_current := COALESCE(v_row.current_invoice_date, v_row.agreed_invoice_date);
+
+  IF p_expected_invoice_date IS DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no vence el % (ahora es %); recargue la pagina', p_expected_invoice_date, v_current;
+  END IF;
+
+  IF p_confirmed THEN
+    IF v_current IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: la cuota no tiene fecha de facturacion que confirmar';
+    END IF;
+
+    UPDATE public.wo_payment_installments
+       SET confirmation_status = 'confirmada',
+           confirmed_for_date  = v_current,
+           confirmed_by        = public.get_my_staff_id(),
+           confirmed_at        = now()
+     WHERE installment_id = p_installment_id
+    RETURNING * INTO v_row;
+
+    INSERT INTO public.wo_installment_events
+      (installment_id, wo_id, action, new_date, reason, actor_staff_id)
+    VALUES (v_row.installment_id, v_row.wo_id, 'confirmation', v_current,
+            COALESCE(NULLIF(btrim(COALESCE(p_note, '')), ''), 'Confirmada'), public.get_my_staff_id());
+
+    RETURN v_row;
+  END IF;
+
+  -- "El cliente no confirma": la nota y la fecha nueva son obligatorias. Sin ellas, la cuota
+  -- quedaria marcada como problematica sin decir que pasa ni para cuando -- que es el vacio
+  -- que el issue #352 describe.
+  IF p_note IS NULL OR btrim(p_note) = '' THEN
+    RAISE EXCEPTION 'INSTALLMENT_REASON_REQUIRED: si el cliente no confirma, hay que registrar el motivo';
+  END IF;
+  IF p_new_invoice_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: si el cliente no confirma, hay que registrar la nueva fecha de facturacion';
+  END IF;
+
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, old_date, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'confirmation', v_current, p_note, public.get_my_staff_id());
+
+  -- Reprograma en la MISMA transaccion. reschedule_installment deja confirmation_status en
+  -- 'sin_gestionar' (la fecha cambio), asi que despues se marca 'no_confirmada': lo que el
+  -- gerente registro es que para la fecha ANTERIOR el cliente dijo que no.
+  v_row := public.reschedule_installment(p_installment_id, p_new_invoice_date, p_new_payment_due_date, p_note, v_current);
+
+  UPDATE public.wo_payment_installments
+     SET confirmation_status = 'no_confirmada',
+         confirmed_for_date  = NULL,
+         confirmed_by        = public.get_my_staff_id(),
+         confirmed_at        = now()
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 

@@ -64,6 +64,8 @@ export {
   useUpdateInstallmentStatus,
   useUpdateCollectionDate,
   useUpdateInstallmentExchangeRate,
+  useRescheduleInstallment,
+  useRecordInstallmentConfirmation,
   useDeletePaymentPlan,
   useDeleteInstallment,
 } from "./useWorkOrderPaymentPlanMutations";

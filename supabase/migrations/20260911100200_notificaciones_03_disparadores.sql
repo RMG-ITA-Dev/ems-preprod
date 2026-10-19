@@ -436,6 +436,70 @@ $BODY$;
 COMMENT ON FUNCTION public.notif_engagement_managers(uuid) IS
   'Alcance `assigned` de la banda gerencial de un encargo: manager_id + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
+-- ── Cobranzas Fase 3 (issue #352): aviso de reprogramación ───────────────────
+-- Lo llama reschedule_installment() en vez de un trigger, por una razón concreta: hay que
+-- EXCLUIR a quien reprogramó (decisión del operador Q45 — «esa persona ya sabe que está
+-- reprogramando»), y un trigger de fila no tiene forma limpia de saber quién fue sin volver
+-- a resolver la sesión. Acá el actor ya está resuelto.
+--
+-- Solo campana (el tipo tiene email_enabled = false): es un aviso de que algo se movió, no
+-- una tarea pendiente de nadie.
+DROP FUNCTION IF EXISTS public.notif_installment_rescheduled(public.wo_payment_installments, date, text);
+
+CREATE FUNCTION public.notif_installment_rescheduled(
+    p_row      public.wo_payment_installments,
+    p_old_date date,
+    p_reason   text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff('wo.installment.rescheduled', v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           v_curr,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'old_date',           p_old_date,
+                            'new_date',           p_row.current_invoice_date,
+                            'reason',             p_reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_rescheduled(public.wo_payment_installments, date, text) IS
+  'Cobranzas Fase 3: avisa por campana al socio del encargo y a Contabilidad que una cuota se reprogramo, excluyendo a quien la reprogramo. La llama reschedule_installment().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_rescheduled(public.wo_payment_installments, date, text) FROM PUBLIC, anon, authenticated;
+
 -- =====================================================================
 -- B) work_orders — 11 eventos de transición
 -- =====================================================================
@@ -678,7 +742,11 @@ DECLARE
   v_code text;
   v_curr text;
   v_rec  record;
-  c_contabilidad constant text[] := ARRAY['accounting_manager', 'accounting_analyst'];
+  -- Cobranzas Fase 2 (Q14/Q46): el aviso de cambio de estado de una CUOTA es del circuito de
+  -- cobranza -- Gerente de Contabilidad y Analista de Cobranzas. El Analista de Contabilidad
+  -- sale (solo hace solicitudes de fondos). OJO: la otra constante con el mismo nombre, en el
+  -- disparador de FONDOS de este mismo archivo, SI sigue siendo gerente + analista contable.
+  c_contabilidad constant text[] := ARRAY['accounting_manager', 'collections_analyst'];
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
     RETURN NULL;
@@ -743,6 +811,8 @@ CREATE FUNCTION public.notif_wo_daily_scheduled() RETURNS integer
 DECLARE
   v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
   v_rec   record;
+  v_dest  record;
+  v_type  text;
   v_sent  integer := 0;
   c_riesgos constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
 BEGIN
@@ -870,12 +940,81 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- ── 4. Cobranzas Fase 3: confirmación pendiente y facturación atrasada ──
+  -- Los dos salen de la MISMA regla de calendario que usa todo lo demás
+  -- (wo_installment_calendar_state), no de una comparación propia: ese fue el problema que
+  -- el issue #352 vino a cerrar.
+  --
+  -- El dedup contra public.notifications lleva installment_id Y la fecha vigente en el
+  -- payload. Que lleve la fecha es lo que hace que el aviso NO se repita una vez gestionada
+  -- la cuota y SÍ vuelva a salir si se reprograma a una fecha nueva: son dos hechos
+  -- distintos, no el mismo repetido.
+  FOR v_rec IN
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date,
+           public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today) AS calendar_state,
+           w.wo_id, w.engagement_id, w.currency,
+           COALESCE(e.engagement_code, '') AS engagement_code
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders w ON w.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+     WHERE i.status = 'Pending'
+       AND public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today)
+           IN ('billing_due_soon', 'billing_late')
+       -- "Confirmación pendiente" es solo mientras nadie gestionó el check. Una cuota ya
+       -- confirmada no necesita recordatorio; una reprogramada vuelve a 'sin_gestionar' y
+       -- por eso vuelve a entrar acá, con su fecha nueva.
+       AND (i.confirmation_status = 'sin_gestionar'
+            OR public.wo_installment_calendar_state(
+                 i.status, i.agreed_invoice_date, i.current_invoice_date,
+                 i.agreed_payment_date, i.collection_payment_date, v_today) = 'billing_late')
+  LOOP
+    -- El gerente del encargo es quien marca el check (decisión Q11/Q56), así que el
+    -- recordatorio de confirmación le llega a él además de a Contabilidad. El de facturación
+    -- atrasada es de Contabilidad: son ellos quienes emiten.
+    FOR v_dest IN
+      SELECT staff_id FROM public.notif_engagement_managers(v_rec.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+    LOOP
+      v_type := CASE WHEN v_rec.calendar_state = 'billing_late'
+                     THEN 'wo.installment.billing_late'
+                     ELSE 'wo.installment.confirmation_pending' END;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM public.notifications n
+         WHERE n.type_key = v_type
+           AND n.entity_id = v_rec.wo_id::text
+           AND n.recipient_staff_id = v_dest.staff_id
+           AND n.payload->>'installment_id' = v_rec.installment_id::text
+           AND n.payload->>'invoice_date' = v_rec.invoice_date::text
+      ) THEN
+        IF public.notify_staff(v_type, v_dest.staff_id,
+             v_rec.wo_id::text,
+             jsonb_build_object('engagement_code',    v_rec.engagement_code,
+                                'engagement_id',      v_rec.engagement_id,
+                                'currency',           v_rec.currency,
+                                'installment_id',     v_rec.installment_id,
+                                'installment_number', v_rec.installment_number,
+                                'amount',             v_rec.amount,
+                                'invoice_date',       v_rec.invoice_date)) IS NOT NULL THEN
+          v_sent := v_sent + 1;
+        END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+
   RETURN v_sent;
 END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS
-  'FASE 3.b: los 3 eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
+  'FASE 3.b + Cobranzas Fase 3: los eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion, confirmacion pendiente y facturacion atrasada). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
 
 -- Sin GRANT a `authenticated`: la dispara el cron, no el cliente.
 REVOKE ALL ON FUNCTION public.notif_wo_daily_scheduled() FROM PUBLIC, anon, authenticated;

@@ -79,8 +79,11 @@ BEGIN
   -- + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9): salen por campana Y correo.
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
   -- + 1 de la Fase 4 (fund.settlement.confirmed).
-  IF v_n <> 40 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 40', v_n;
+  -- + 2 de Cobranzas Fase 3 (decisiones Q12/Q56 y Q32): confirmation_pending y billing_late
+  --   salen por campana Y correo. El tercer tipo nuevo, rescheduled, es solo campana (Q45):
+  --   avisa que algo se movio, no es una tarea que alguien tenga que hacer hoy.
+  IF v_n <> 42 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 42', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types

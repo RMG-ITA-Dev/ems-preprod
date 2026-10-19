@@ -1,4 +1,4 @@
--- Cobranzas Fase 1 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 1 a 3 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -416,6 +416,232 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - la bitacora tiene % policies de escritura; deberia ser inmutable', v_n;
   END IF;
   RAISE NOTICE 'PASS - la bitacora es de solo lectura para todos';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 8. Fase 2: los avisos de CUOTAS son del circuito de cobranza (Q14/Q46)
+  -- ══════════════════════════════════════════════════════════════════
+  -- El Analista de Contabilidad solo hace solicitudes de fondos: no debe recibir ninguno de
+  -- los cuatro avisos de cuotas. El Analista de Cobranzas, que factura y cobra, debe
+  -- recibirlos todos -- antes se perdia justo los dos que avisan movimiento.
+  SELECT COUNT(*) INTO v_n FROM public.notification_role_types
+   WHERE role_key = 'accounting_analyst' AND type_key LIKE 'wo.installment.%';
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad conserva % avisos de cuotas', v_n;
+  END IF;
+  -- El LIKE de arriba alcanza para el, que no debe tener NINGUNO. Para los otros dos roles se
+  -- nombran los cuatro avisos uno por uno: la Fase 3 agrego tres tipos mas con el mismo
+  -- prefijo, y un conteo por LIKE pasaria a medir otra cosa sin avisar.
+
+  SELECT COUNT(*) INTO v_n FROM public.notification_role_types
+   WHERE role_key = 'collections_analyst'
+     AND type_key IN ('wo.installment.status_changed', 'wo.installment.due_this_week',
+                      'wo.installment.overdue', 'wo.installment.reminder.weekly');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Cobranzas recibe % de los 4 avisos de cuotas', v_n;
+  END IF;
+
+  SELECT COUNT(*) INTO v_n FROM public.notification_role_types
+   WHERE role_key = 'accounting_manager'
+     AND type_key IN ('wo.installment.status_changed', 'wo.installment.due_this_week',
+                      'wo.installment.overdue', 'wo.installment.reminder.weekly');
+  IF v_n <> 4 THEN
+    RAISE EXCEPTION 'TEST FAIL - el Gerente de Contabilidad recibe % de los 4 avisos de cuotas', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - los avisos de cuotas quedaron en los dos roles de cobranza';
+
+  -- El correo de esos avisos ya puede llevar boton: B3p le dio work_order.read a los tres
+  -- roles contables, y es justo el permiso que notif_permiso_de_ruta exige para el modulo.
+  SELECT COUNT(*) INTO v_n FROM public.authorization_role_permissions
+   WHERE role_key IN ('collections_analyst', 'accounting_manager')
+     AND permission_key = 'work_order.read';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - sin work_order.read el correo de cobranza sigue sin enlace (% de 2)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - el correo de cobranza ya puede incluir el enlace a la OT';
+
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 9. Fase 3: confirmacion con el cliente y reprogramacion (issue #352)
+  -- ══════════════════════════════════════════════════════════════════
+  -- v_i3 es la cuota 1 de la OT en Draft (c_wo2): confirmar y reprogramar NO exigen la OT
+  -- aprobada -- son justamente lo que se hace antes de facturar.
+  v_i3 := v_draft;
+
+  -- 9.a Solo el gerente del encargo. Contabilidad no reprograma (decision Q42), aunque sea
+  -- quien despues va a facturar esa misma cuota.
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    PERFORM public.reschedule_installment(v_i3, v_today + 60, v_today + 90, 'el cliente pidio mas plazo', v_today);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - contabilidad pudo reprogramar una cuota';
+  END IF;
+
+  -- El socio tampoco: sigue vigente "el socio no escribe el plan".
+  PERFORM pg_temp.impersonate(c_acctmgr);
+  denied := false;
+  BEGIN
+    PERFORM public.record_installment_confirmation(v_i3, true, v_today);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el Gerente de Contabilidad pudo gestionar la confirmacion';
+  END IF;
+  RAISE NOTICE 'PASS - confirmar y reprogramar son del gerente del encargo, no de contabilidad';
+
+  -- 9.b El motivo es obligatorio: sin el, la bitacora no distingue una reprogramacion
+  -- acordada con el cliente de una fecha movida por error.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.reschedule_installment(v_i3, v_today + 60, v_today + 90, '   ', v_today);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_REASON_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se pudo reprogramar sin motivo';
+  END IF;
+
+  -- Y el vencimiento tiene que corresponder a la fecha nueva, no ser un numero cualquiera.
+  denied := false;
+  BEGIN
+    PERFORM public.reschedule_installment(v_i3, v_today + 60, v_today + 500, 'motivo', v_today);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_DUE_DATE_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un vencimiento que no corresponde a la fecha nueva';
+  END IF;
+  RAISE NOTICE 'PASS - reprogramar exige motivo y un vencimiento coherente';
+
+  -- 9.c Camino feliz. La fecha ACORDADA no se toca: es el contrato, y #352 pide no perderla.
+  v_row := public.reschedule_installment(v_i3, v_today + 60, v_today + 85, 'el cliente pidio pasar al mes siguiente', v_today);
+  IF v_row.current_invoice_date <> v_today + 60 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fecha vigente no quedo en la nueva';
+  END IF;
+  IF v_row.agreed_invoice_date <> v_today THEN
+    RAISE EXCEPTION 'TEST FAIL - la reprogramacion piso la fecha ACORDADA (%), que es el contrato', v_row.agreed_invoice_date;
+  END IF;
+
+  -- La bitacora guarda las dos fechas y el motivo: eso es lo que permite distinguir una
+  -- reprogramacion autorizada de una cuota vencida.
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_events
+   WHERE installment_id = v_i3 AND action = 'rescheduled'
+     AND old_date = v_today AND new_date = v_today + 60
+     AND reason = 'el cliente pidio pasar al mes siguiente';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no guardo la reprogramacion con sus dos fechas y el motivo';
+  END IF;
+  RAISE NOTICE 'PASS - reprogramar mueve la fecha vigente, conserva el contrato y deja motivo';
+
+  -- 9.d Concurrencia: quien llego con la pantalla vieja no pisa la fecha nueva.
+  denied := false;
+  BEGIN
+    PERFORM public.reschedule_installment(v_i3, v_today + 70, v_today + 95, 'otro motivo', v_today);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_STALE%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una reprogramacion concurrente no fue rechazada';
+  END IF;
+  RAISE NOTICE 'PASS - la fecha esperada protege de dos reprogramaciones a la vez';
+
+  -- 9.e Confirmar: queda registrado para QUE fecha se comprometio el cliente.
+  v_row := public.record_installment_confirmation(v_i3, true, v_today + 60);
+  IF v_row.confirmation_status <> 'confirmada' OR v_row.confirmed_for_date <> v_today + 60 THEN
+    RAISE EXCEPTION 'TEST FAIL - la confirmacion no quedo registrada: %', v_row;
+  END IF;
+
+  -- Y reprogramar DESPUES invalida esa confirmacion: el cliente se comprometio con la fecha
+  -- vieja, asi que la cuota vuelve a necesitar gestion.
+  v_row := public.reschedule_installment(v_i3, v_today + 90, v_today + 115, 'se volvio a correr', v_today + 60);
+  IF v_row.confirmation_status <> 'sin_gestionar' OR v_row.confirmed_for_date IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - reprogramar dejo viva una confirmacion de la fecha anterior: %', v_row;
+  END IF;
+  RAISE NOTICE 'PASS - confirmar registra la fecha, y reprogramar despues la invalida';
+
+  -- 9.f "El cliente no confirma": un solo paso -- nota, fecha nueva y reprogramacion.
+  denied := false;
+  BEGIN
+    PERFORM public.record_installment_confirmation(v_i3, false, v_today + 90, NULL, v_today + 120, v_today + 145);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_REASON_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - "no confirma" se acepto sin motivo';
+  END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.record_installment_confirmation(v_i3, false, v_today + 90, 'sin liquidez este mes', NULL, NULL);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_DATE_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - "no confirma" se acepto sin fecha nueva';
+  END IF;
+
+  v_row := public.record_installment_confirmation(v_i3, false, v_today + 90, 'sin liquidez este mes', v_today + 120, v_today + 145);
+  IF v_row.confirmation_status <> 'no_confirmada' THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota no quedo marcada como no confirmada: %', v_row;
+  END IF;
+  IF v_row.current_invoice_date <> v_today + 120 THEN
+    RAISE EXCEPTION 'TEST FAIL - "no confirma" no reprogramo a la fecha nueva';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_events
+   WHERE installment_id = v_i3 AND action = 'confirmation' AND reason = 'sin liquidez este mes';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no guardo el motivo de la no confirmacion';
+  END IF;
+  RAISE NOTICE 'PASS - "no confirma" registra motivo, reprograma y marca la cuota, en un paso';
+
+  -- 9.g Una cuota ya facturada no se reprograma: su fecha de facturacion ya es un hecho.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.reschedule_installment(v_i2, v_today + 60, v_today + 85, 'tarde', v_today + 45);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se pudo reprogramar una cuota ya facturada';
+  END IF;
+  RAISE NOTICE 'PASS - una cuota facturada ya no se reprograma';
+
+  -- 9.h La matriz de avisos de la Fase 3.
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key IN ('wo.installment.confirmation_pending', 'wo.installment.billing_late',
+                      'wo.installment.rescheduled');
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - faltan tipos de aviso de la Fase 3 (hay %)', v_n;
+  END IF;
+
+  -- confirmation_pending y billing_late van por campana Y correo (Q12/Q56, Q32);
+  -- rescheduled es solo campana (Q45).
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key IN ('wo.installment.confirmation_pending', 'wo.installment.billing_late')
+     AND email_enabled;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - los recordatorios de la Fase 3 deberian salir tambien por correo';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.rescheduled' AND email_enabled;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el aviso de reprogramacion deberia ser solo de campana';
+  END IF;
+
+  -- El recordatorio de confirmacion le llega TAMBIEN al gerente, que es quien marca el check:
+  -- avisarle solo a Contabilidad dejaba el recordatorio en manos de quien no puede resolverlo.
+  SELECT COUNT(*) INTO v_n FROM public.notification_role_types
+   WHERE type_key = 'wo.installment.confirmation_pending' AND role_key = 'manager';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente no recibe el recordatorio de confirmacion';
+  END IF;
+  RAISE NOTICE 'PASS - los tres avisos de la Fase 3, con su canal y sus destinatarios';
 
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASE 1: ALL CHECKS PASSED';

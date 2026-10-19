@@ -151,6 +151,12 @@ BEGIN
        OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
        OR NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date
        OR NEW.current_payment_date IS DISTINCT FROM OLD.current_payment_date
+       -- Cobranzas Fase 3: la gestion de la confirmacion con el cliente es del gerente del
+       -- encargo (decision del operador Q11), no de contabilidad.
+       OR NEW.confirmation_status IS DISTINCT FROM OLD.confirmation_status
+       OR NEW.confirmed_for_date IS DISTINCT FROM OLD.confirmed_for_date
+       OR NEW.confirmed_by IS DISTINCT FROM OLD.confirmed_by
+       OR NEW.confirmed_at IS DISTINCT FROM OLD.confirmed_at
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
        OR NEW.amount IS DISTINCT FROM OLD.amount
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number

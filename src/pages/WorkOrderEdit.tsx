@@ -453,6 +453,12 @@ const WorkOrderEdit = () => {
   const isEngagementManager =
     !!staffRecord && workOrder?.engagement?.manager_id === staffRecord.staff_id;
   const canEditPaymentPlan = isAdmin || isEngagementManager;
+  // Cobranzas Fase 2 (decisión del operador Q17): el Gerente de Contabilidad y el Analista de
+  // Cobranzas abren la OT solo para cobrar, así que ven únicamente Plan de pagos y
+  // Presupuesto. El merge del Carril B (etapa B3p) ya les dio `work_order.read`, así que la
+  // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
+  const isCollectionsRole = roleKey === "collections_analyst" || roleKey === "accounting_manager";
+  const collectionsOnlyView = !isAdmin && isCollectionsRole;
   // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
   // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
   // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
@@ -1051,7 +1057,8 @@ const WorkOrderEdit = () => {
           // esta condicion, asi que no podia facturar ni marcar cobrada ninguna cuota. La
           // policy RLS y el trigger de la base se abrieron al mismo par de roles via
           // is_collections_role().
-          isStatusEditable={(isAdmin || roleKey === "collections_analyst" || roleKey === "accounting_manager") && approvalStatus === "Approved"}
+          isStatusEditable={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
+          collectionsOnly={collectionsOnlyView}
           canEditPaymentPlan={canEditPaymentPlan}
           // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
           // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan
