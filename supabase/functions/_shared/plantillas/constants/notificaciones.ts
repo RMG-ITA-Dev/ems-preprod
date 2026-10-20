@@ -213,6 +213,14 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     intro: "Contabilidad agregó al plan de pagos los gastos ya aprobados de una orden de trabajo.",
     boton: "Ver plan de pagos",
   },
+  // Fase 9: el alta de un ajuste sale también por correo — cambia lo que el cliente termina
+  // pagando, y el socio es el dueño de la relación comercial. Retirarlo es una corrección y se
+  // queda en la campana, así que no tiene plantilla acá.
+  "wo.installment.adjustment_added": {
+    asunto: "Se registró un ajuste sobre una cuota",
+    intro: "Contabilidad registró un ajuste que cambia lo que se le va a cobrar al cliente.",
+    boton: "Ver plan de pagos",
+  },
 
   // ── Solicitud de fondos ──
   "fund.request.submitted_for_approval": {

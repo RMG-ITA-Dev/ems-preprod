@@ -17,6 +17,8 @@ const headers: CollectionsExportHeaders = {
   installment: "Cuota",
   type: "Tipo",
   amount: "Monto",
+  toCollect: "Por cobrar",
+  exchangeDifference: "Dif. de cambio",
   currency: "Moneda",
   agreedDate: "Fecha acordada",
   currentDate: "Fecha vigente",
@@ -47,6 +49,9 @@ const baseRow: CollectionsRow = {
   manager_id: "m1",
   manager_name: "Ana Gerente",
   amount: 1234.5,
+  adjustments_total: 0,
+  amount_effective: 1234.5,
+  exchange_difference_bob: 0,
   currency: "BOB",
   status: "Invoiced",
   calendar_state: "overdue",
@@ -74,7 +79,8 @@ describe("buildCollectionsSheet", () => {
     const sheet = buildCollectionsSheet([], headers);
     expect(sheet).toHaveLength(1);
     expect(sheet[0]).toEqual([
-      "Cliente", "NIT", "Encargo", "Gerente", "Cuota", "Tipo", "Monto", "Moneda",
+      "Cliente", "NIT", "Encargo", "Gerente", "Cuota", "Tipo",
+      "Monto", "Por cobrar", "Dif. de cambio", "Moneda",
       "Fecha acordada", "Fecha vigente", "Estado", "Días de atraso",
       "Contacto", "Correo", "Teléfono",
     ]);
@@ -86,22 +92,22 @@ describe("buildCollectionsSheet", () => {
     const [, row] = buildCollectionsSheet([baseRow], headers);
     expect(row[6]).toBe(1234.5);
     expect(typeof row[6]).toBe("number");
-    expect(row[11]).toBe(10);
-    expect(typeof row[11]).toBe("number");
+    expect(row[13]).toBe(10);
+    expect(typeof row[13]).toBe("number");
   });
 
   it("lleva la fecha ACORDADA y la VIGENTE por separado", () => {
     // La diferencia entre las dos es justamente lo que hay que explicar al conciliar: si solo
     // fuera una, una cuota reprogramada se vería como si siempre hubiera vencido ese día.
     const [, row] = buildCollectionsSheet([baseRow], headers);
-    expect(row[8]).toBe("2026-06-01");
-    expect(row[9]).toBe("2026-06-05");
+    expect(row[10]).toBe("2026-06-01");
+    expect(row[11]).toBe("2026-06-05");
   });
 
   it("para una cuota sin facturar, la fecha acordada es la de FACTURACIÓN", () => {
     const pending: CollectionsRow = { ...baseRow, status: "Pending", calendar_state: "billing_late", fecha_relevante: "2026-05-01" };
     const [, row] = buildCollectionsSheet([pending], headers);
-    expect(row[8]).toBe("2026-05-01");
+    expect(row[10]).toBe("2026-05-01");
   });
 
   it("distingue la fila de gastos ejecutados de una cuota de honorarios", () => {
@@ -114,15 +120,15 @@ describe("buildCollectionsSheet", () => {
     // Una cuota facturada y vencida se lee "En mora" en la pantalla; el archivo tiene que
     // decir lo mismo, o las dos cosas dejan de poder contrastarse.
     const [, row] = buildCollectionsSheet([baseRow], headers);
-    expect(row[10]).toBe("En mora");
+    expect(row[12]).toBe("En mora");
     const onTrack: CollectionsRow = { ...baseRow, calendar_state: "on_track" };
-    expect(buildCollectionsSheet([onTrack], headers)[1][10]).toBe("Invoiced");
+    expect(buildCollectionsSheet([onTrack], headers)[1][12]).toBe("Invoiced");
   });
 
   it("deja las celdas del contacto vacías cuando el cliente no tiene ninguno", () => {
     const sinContacto: CollectionsRow = { ...baseRow, contact: null };
     const [, row] = buildCollectionsSheet([sinContacto], headers);
-    expect(row.slice(12)).toEqual(["", "", ""]);
+    expect(row.slice(14)).toEqual(["", "", ""]);
   });
 
   it("respeta el orden en que vinieron las filas", () => {
@@ -139,8 +145,27 @@ describe("buildCollectionsSheet", () => {
     expect(buildCollectionsSheet([sinCodigo], headers)[1][2]).toBe("Auditoría 2026");
   });
 
+  it("lleva el monto acordado y lo que queda por cobrar en columnas distintas", () => {
+    // Conciliar contra el banco se hace contra lo que queda por cobrar; discutir con el
+    // cliente, contra lo acordado. Una sola columna obligaría a elegir cuál de las dos cosas
+    // puede hacerse con el archivo.
+    const conDescuento: CollectionsRow = { ...baseRow, adjustments_total: -234.5, amount_effective: 1000 };
+    const [, row] = buildCollectionsSheet([conDescuento], headers);
+    expect(row[6]).toBe(1234.5);
+    expect(row[7]).toBe(1000);
+  });
+
+  it("la diferencia de cambio tiene su propia columna, porque va en Bs", () => {
+    // La cuota puede estar en USD y la diferencia siempre en Bs: sumarlas a la misma columna
+    // daría un número que no significa nada.
+    const conDiferencia: CollectionsRow = { ...baseRow, currency: "USD", exchange_difference_bob: 45 };
+    const [, row] = buildCollectionsSheet([conDiferencia], headers);
+    expect(row[8]).toBe(45);
+    expect(row[9]).toBe("USD");
+  });
+
   it("un monto nulo sale como 0 y no como celda vacía", () => {
-    const sinMonto: CollectionsRow = { ...baseRow, amount: null };
+    const sinMonto: CollectionsRow = { ...baseRow, amount: null, amount_effective: 0 };
     expect(buildCollectionsSheet([sinMonto], headers)[1][6]).toBe(0);
   });
 });

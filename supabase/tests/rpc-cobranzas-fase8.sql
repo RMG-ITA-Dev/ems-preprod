@@ -1,4 +1,4 @@
--- Cobranzas Fase 8 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 8 y 9 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -126,6 +126,11 @@ DECLARE
   v_res    jsonb;
   v_n      integer;
   v_txt    text;
+  v_rate   numeric;
+  v_adj    public.wo_installment_adjustments;
+  v_i_cobrar  uuid;   -- plan 1, cuota 2: facturada y en plazo
+  v_i_cobrada uuid;   -- plan 1, cuota 4: ya cobrada
+  v_i_usd     uuid;   -- plan 2, cuota 1: la unica en USD
   denied   boolean;
 BEGIN
   -- ── Plan 1 (OT BOB, sociedad A, practica 1, gerente Ana) ────────────
@@ -202,6 +207,10 @@ BEGIN
   PERFORM public.invoice_installment(
     (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan2 AND installment_number = 1),
     'Pending', v_today - 10, v_today - 40, 6.96);
+
+  SELECT installment_id INTO v_i_cobrar  FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 2;
+  SELECT installment_id INTO v_i_cobrada FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 4;
+  SELECT installment_id INTO v_i_usd     FROM public.wo_payment_installments WHERE plan_id = v_plan2 AND installment_number = 1;
 
   -- ══════════════════════════════════════════════════════════════════
   -- 1. La puerta de entrada
@@ -487,6 +496,9 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - la mora manual mueve la cuota de pestana, sin contarla dos veces';
 
+  -- Se deshace la mora manual: lo que sigue parte de la cuota facturada y en plazo.
+  PERFORM public.set_installment_overdue(v_txt::uuid, 'Overdue', false);
+
   -- ══════════════════════════════════════════════════════════════════
   -- 9. Las opciones de los selectores
   -- ══════════════════════════════════════════════════════════════════
@@ -520,8 +532,234 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - los selectores ofrecen solo lo que tiene cuotas por cobrar';
 
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 10. Fase 9: ajustes sobre una cuota
+  -- ══════════════════════════════════════════════════════════════════
+  -- Un ajuste NO pisa el monto de la cuota: es una linea aparte. Lo que el cliente debe es el
+  -- monto MAS los ajustes vigentes, y la diferencia entre los dos es lo que despues hay que
+  -- poder explicar.
+  --
+  -- Dos tipos, cada uno con su momento: el descuento se acuerda ANTES de cobrar, y la
+  -- diferencia de cambio recien existe DESPUES, porque hasta entonces no hay un segundo TC.
+
+  -- 10.a Los ajustes son de Contabilidad.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', -100, 'rebaja acordada');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente del encargo cargo un ajuste';
+  END IF;
+
+  PERFORM pg_temp.impersonate(c_acctanalyst);
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', -100, 'rebaja acordada');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad cargo un ajuste';
+  END IF;
+  RAISE NOTICE 'PASS - los ajustes los carga Contabilidad, no el encargo';
+
+  -- 10.b El motivo es obligatorio: un descuento sin motivo no se puede defender despues.
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', -100, '   ');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_REASON_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se cargo un descuento sin motivo';
+  END IF;
+
+  -- El signo lo fija el tipo: un "descuento" positivo seria un recargo disfrazado, y el
+  -- operador confirmo que los recargos no se usan.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', 100, 'recargo encubierto');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_AMOUNT_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - un descuento positivo entro como ajuste';
+  END IF;
+
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'condonacion', -100, 'perdonada');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_TYPE_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un tipo de ajuste que no existe';
+  END IF;
+  RAISE NOTICE 'PASS - motivo obligatorio, signo fijado por el tipo y solo los dos tipos que existen';
+
+  -- 10.c El descuento NO pisa el monto de la cuota.
+  v_adj := public.add_installment_adjustment(v_i_cobrar, 'descuento', -200, 'rebaja acordada con el socio');
+  SELECT amount INTO v_rate FROM public.wo_payment_installments WHERE installment_id = v_i_cobrar;
+  IF v_rate <> 2000 THEN
+    RAISE EXCEPTION 'TEST FAIL - el descuento piso el monto de la cuota (quedo %)', v_rate;
+  END IF;
+  IF public.installment_adjustments_total(v_i_cobrar, 'BOB') <> -200 THEN
+    RAISE EXCEPTION 'TEST FAIL - el total de ajustes deberia ser -200, fue %',
+      public.installment_adjustments_total(v_i_cobrar, 'BOB');
+  END IF;
+  RAISE NOTICE 'PASS - el descuento va aparte: el monto de la cuota sigue siendo el contrato';
+
+  -- 10.d Nunca por debajo de cero: dos descuentos no pueden pasarse del monto entre los dos.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', -1900, 'rebaja imposible');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_EXCEEDS_AMOUNT%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - los descuentos dejaron la cuota en negativo';
+  END IF;
+  -- Pero justo hasta el borde si: 2000 - 200 = 1800 es exactamente lo que queda.
+  PERFORM public.add_installment_adjustment(v_i_cobrar, 'descuento', -1800, 'se condona el resto');
+  IF public.installment_adjustments_total(v_i_cobrar, 'BOB') <> -2000 THEN
+    RAISE EXCEPTION 'TEST FAIL - no se pudo descontar exactamente lo que quedaba';
+  END IF;
+  RAISE NOTICE 'PASS - los descuentos no dejan la cuota en negativo, pero llegan hasta cero';
+
+  -- 10.e La Cobranzas muestra lo que queda por cobrar, no el monto del contrato.
+  v_res := public.list_collections_installments('por_cobrar');
+  IF (v_res->'rows'->0->>'amount')::numeric <> 2000 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberia seguir informando el monto del contrato (2000)';
+  END IF;
+  IF (v_res->'rows'->0->>'amount_effective')::numeric <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - con 2000 de descuentos no queda nada por cobrar, dijo %',
+      v_res->'rows'->0->>'amount_effective';
+  END IF;
+  -- Y los totales de la cabecera siguen al descuento: antes esta cuota aportaba 2000 a
+  -- "facturado sin cobrar". Si el total ignorara los ajustes, la pantalla diria que falta
+  -- cobrar plata que ya se decidio no cobrar.
+  IF (v_res->'totals'->'facturado_sin_cobrar'->>'BOB')::numeric <> 3000 THEN
+    RAISE EXCEPTION 'TEST FAIL - facturado sin cobrar deberia bajar a 3000, fue %',
+      v_res->'totals'->'facturado_sin_cobrar'->>'BOB';
+  END IF;
+  RAISE NOTICE 'PASS - la pantalla y los totales descuentan: informan el contrato Y lo que queda';
+
+  -- 10.f Retirar un ajuste no lo borra, y la plata vuelve.
+  v_adj := public.delete_installment_adjustment(v_adj.adjustment_id);
+  IF v_adj.deleted_at IS NULL OR v_adj.deleted_by_staff_id IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - retirar el ajuste no dejo constancia de quien y cuando';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_adjustments
+   WHERE adjustment_id = v_adj.adjustment_id;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el ajuste retirado se borro de verdad';
+  END IF;
+  IF public.installment_adjustments_total(v_i_cobrar, 'BOB') <> -1800 THEN
+    RAISE EXCEPTION 'TEST FAIL - al retirar el descuento de 200 el total deberia quedar en -1800, fue %',
+      public.installment_adjustments_total(v_i_cobrar, 'BOB');
+  END IF;
+  -- Y no se retira dos veces.
+  denied := false;
+  BEGIN
+    PERFORM public.delete_installment_adjustment(v_adj.adjustment_id);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_ALREADY_DELETED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se retiro dos veces el mismo ajuste';
+  END IF;
+  RAISE NOTICE 'PASS - retirar un ajuste lo marca, no lo borra, y devuelve la plata';
+
+  -- 10.g Cada tipo, en su momento.
+  -- Un descuento sobre una cuota YA COBRADA no: lo que el cliente pago ya esta.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrada, 'descuento', -100, 'tarde');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se descontó una cuota que ya se habia cobrado';
+  END IF;
+
+  -- Y una diferencia de cambio sobre una cuota que todavia no se cobro tampoco: falta el
+  -- segundo TC con el cual compararla.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrar, 'diferencia_cambio', 50, 'temprano');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se cargo una diferencia de cambio antes de cobrar';
+  END IF;
+
+  -- Una cuota en Bs no tiene diferencia de cambio: no hay nada que convertir.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i_cobrada, 'diferencia_cambio', 50, 'sin conversion');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_TYPE_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una cuota en Bs acepto una diferencia de cambio';
+  END IF;
+  RAISE NOTICE 'PASS - el descuento antes de cobrar, la diferencia de cambio despues y solo si hubo conversion';
+
+  -- 10.h La diferencia de cambio: se sugiere, no se asienta sola.
+  -- La cuota en USD se facturo a 6.96 y se cobra a 7.05: 500 * 0.09 = 45 Bs de mas.
+  PERFORM public.collect_installment(v_i_usd, 'Invoiced', v_today, 7.05);
+  v_rate := public.suggest_exchange_difference(v_i_usd);
+  IF v_rate <> 45 THEN
+    RAISE EXCEPTION 'TEST FAIL - la diferencia sugerida deberia ser 45 Bs, fue %', v_rate;
+  END IF;
+  -- Sugerir no es cobrar: hasta que alguien la confirme, no hay ajuste.
+  IF public.installment_adjustments_total(v_i_usd, 'BOB') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la sugerencia se asento sola';
+  END IF;
+
+  v_adj := public.add_installment_adjustment(v_i_usd, 'diferencia_cambio', v_rate, 'TC de cobro mayor al de factura');
+  -- Va en Bs aunque la cuota sea en USD: una diferencia entre dos TC es un monto en bolivianos.
+  IF v_adj.currency <> 'BOB' THEN
+    RAISE EXCEPTION 'TEST FAIL - la diferencia de cambio deberia guardarse en Bs, se guardo en %', v_adj.currency;
+  END IF;
+  -- Y por eso NO se suma al monto en USD de la cuota: viaja aparte.
+  v_res := public.list_collections_installments('cobradas', p_practica := 2);
+  IF (v_res->'rows'->0->>'amount_effective')::numeric <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - la diferencia en Bs se mezclo con el monto en USD (quedo %)',
+      v_res->'rows'->0->>'amount_effective';
+  END IF;
+  IF (v_res->'rows'->0->>'exchange_difference_bob')::numeric <> 45 THEN
+    RAISE EXCEPTION 'TEST FAIL - la diferencia de cambio no viaja aparte (fue %)',
+      v_res->'rows'->0->>'exchange_difference_bob';
+  END IF;
+  RAISE NOTICE 'PASS - la diferencia de cambio se sugiere, se confirma, y va en Bs sin mezclarse con la cuota';
+
+  -- Una cuota en Bs no tiene nada que sugerir.
+  IF public.suggest_exchange_difference(v_i_cobrada) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - una cuota en Bs no deberia sugerir diferencia de cambio';
+  END IF;
+
+  -- 10.i Los dos avisos, con su canal.
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.adjustment_added' AND email_enabled;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta de un ajuste deberia salir tambien por correo';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.adjustment_removed' AND email_enabled;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - retirar un ajuste deberia ser solo de campana';
+  END IF;
+  RAISE NOTICE 'PASS - el alta avisa por campana y correo; retirarlo, solo por campana';
+
   PERFORM set_config('request.jwt.claims', NULL, true);
-  RAISE NOTICE 'COBRANZAS FASE 8: ALL CHECKS PASSED';
+  RAISE NOTICE 'COBRANZAS FASES 8 Y 9: ALL CHECKS PASSED';
 END $$;
 
 ROLLBACK;

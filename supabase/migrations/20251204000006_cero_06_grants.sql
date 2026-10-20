@@ -2209,3 +2209,18 @@ REVOKE EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_so
 GRANT EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_society_id uuid, p_practica integer, p_manager_id uuid, p_client_id uuid, p_date_from date, p_date_to date, p_currency text, p_search text, p_include_expense_rows boolean, p_limit integer, p_offset integer) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.collections_filter_options() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.collections_filter_options() TO authenticated, service_role;
+
+-- Cobranzas Fase 9: ajustes sobre una cuota. La tabla se LEE por RLS; escribir es solo por las
+-- dos RPC, que verifican el rol por dentro.
+REVOKE ALL ON TABLE public.wo_installment_adjustments FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_adjustments TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_adjustments TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) TO authenticated, service_role;

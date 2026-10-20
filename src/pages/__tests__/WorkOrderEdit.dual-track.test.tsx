@@ -141,6 +141,10 @@ vi.mock("@/hooks/mutations", () => ({
   // ya ejecutados.
   useCreateExpenseReimbursementRow: () => ({ mutate: vi.fn(), isPending: false }),
   useSetExpenseReimbursementAmount: () => ({ mutate: vi.fn(), isPending: false }),
+  // Cobranzas Fase 9: ajustes sobre una cuota, y la moneda de la fila de gastos.
+  useAddInstallmentAdjustment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInstallmentAdjustment: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetInstallmentCurrency: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

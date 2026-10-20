@@ -2004,7 +2004,28 @@
       "expenseRowsBilledAmount": "Amount to bill",
       "errorExpenseRowForbidden": "Only Accounting can bill executed expenses.",
       "errorExpenseRowEmpty": "There are no approved expenses pending billing on this work order.",
-      "errorExpenseRowInvalid": "Could not adjust the amount: the row is not an executed-expenses row, or the amount is invalid."
+      "errorExpenseRowInvalid": "Could not adjust the amount: the row is not an executed-expenses row, or the amount is invalid.",
+      "expenseRowsCurrency": "Currency",
+      "adjustedToCollect": "Left to collect: {{amount}}",
+      "adjustmentsCount": "Adjustments ({{count}})",
+      "adjustmentsAdd": "Adjust",
+      "adjustmentsTitle": "Installment adjustments",
+      "adjustmentsDesc": "An adjustment does not change the agreed amount: it is recorded separately and deducted from what is left to collect.",
+      "adjustmentType_descuento": "Discount",
+      "adjustmentType_diferencia_cambio": "Exchange difference",
+      "adjustmentTypeLabel": "Adjustment type",
+      "adjustmentDiscountAmount": "Discount amount",
+      "adjustmentDifferenceAmount": "Difference in Bs",
+      "adjustmentDiscountHint": "Deducted from what is left to collect. Enter the amount as a positive number.",
+      "adjustmentSuggested": "Based on the recorded exchange rates: {{amount}} Bs.",
+      "adjustmentReason": "Reason",
+      "adjustmentReasonPlaceholder": "Why this installment is being adjusted",
+      "adjustmentAdd": "Record adjustment",
+      "adjustmentRemove": "Remove",
+      "errorAdjustmentForbidden": "Only Accounting can record adjustments on an installment.",
+      "errorAdjustmentLocked": "A discount is agreed before collecting, and an exchange difference only exists afterwards.",
+      "errorAdjustmentExceeds": "The discount exceeds what is left to collect on this installment.",
+      "errorAdjustmentReasonRequired": "The adjustment needs a reason."
     },
     "staffingRequirements": {
       "title": "Staffing Requirements",
@@ -2423,7 +2444,9 @@
           "note_added": "New note on installment {{installment_number}} of {{engagement_code}}",
           "expense_row_created": "Executed expenses billed for {{engagement_code}}: {{currency}} {{amount}}",
           "expense_row_amount_changed": "The billed expense amount for {{engagement_code}} changed to {{currency}} {{amount}}",
-          "overdue": "Overdue installments"
+          "overdue": "Overdue installments",
+          "adjustment_added": "Adjustment on installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_removed": "An adjustment was removed from installment {{installment_number}} of {{engagement_code}}"
         },
         "client": {
           "billing_week": "Client billing week — installment {{installment_number}}"
@@ -3259,6 +3282,9 @@
     "colContact": "Contact",
     "colContactName": "Contact",
     "colContactEmail": "Email",
-    "colContactPhone": "Phone"
+    "colContactPhone": "Phone",
+    "colToCollect": "To collect",
+    "colExchangeDifference": "FX difference",
+    "adjustedTooltip": "This installment has recorded adjustments."
   }
 }

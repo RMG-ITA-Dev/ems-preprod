@@ -1205,6 +1205,27 @@ ALTER TABLE ONLY public.wo_installment_expenses
 
 
 --
+-- Name: wo_installment_adjustments; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: el ajuste vive colgado de su cuota. Si la cuota desaparece (solo puede
+-- pasar mientras el plan sigue en borrador), sus ajustes se van con ella.
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+-- Quien lo cargo y quien lo retiro se conservan aunque esa persona deje de estar activa: el
+-- ajuste tiene que poder explicarse despues.
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_created_by_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_deleted_by_fkey FOREIGN KEY (deleted_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

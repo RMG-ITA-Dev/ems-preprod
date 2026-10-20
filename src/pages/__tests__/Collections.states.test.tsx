@@ -219,6 +219,31 @@ describe("Collections — totales", () => {
     expect(screen.queryByText("5,500")).not.toBeInTheDocument();
   });
 
+  it("la fila muestra el monto acordado Y lo que queda por cobrar", () => {
+    // Cobranzas Fase 9: mostrar solo el acordado diria que el cliente debe mas de lo que se le
+    // va a cobrar, justo en la pantalla que existe para saber cuanto falta.
+    result = {
+      ...emptyResult,
+      total_count: 1,
+      rows: [{
+        installment_id: "i1", installment_number: 1, installment_type: "fee",
+        wo_id: "wo1", engagement_id: "e1", engagement_code: "RM-001", engagement_name: "Auditoría",
+        client_id: "c1", client_legal_name: "Cliente Uno", unique_tax_id: "1",
+        society_id: "s1", practica: 1, manager_id: "m1", manager_name: "Ana",
+        amount: 1000, adjustments_total: -200, amount_effective: 800, exchange_difference_bob: 0,
+        currency: "BOB", status: "Invoiced", calendar_state: "on_track",
+        confirmation_status: null, agreed_invoice_date: "2026-06-01", agreed_payment_date: "2026-07-01",
+        invoice_date_vigente: "2026-06-01", due_date_vigente: "2026-07-01",
+        collection_invoice_date: "2026-06-01", payment_date_actual: null,
+        fecha_relevante: "2026-07-01", days_overdue: 0, was_rescheduled: false, has_notes: false,
+        contact: null,
+      }],
+    };
+    renderPage();
+    expect(screen.getByText("1.000")).toBeInTheDocument();
+    expect(screen.getByText(/800/)).toBeInTheDocument();
+  });
+
   it("sin nada que mostrar, el total dice '—' en vez de 0", () => {
     // Un 0 se lee como "no hay deuda"; el guion dice "no hay nada en esta categoría".
     renderPage();

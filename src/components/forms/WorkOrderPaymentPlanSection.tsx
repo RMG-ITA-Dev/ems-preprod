@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare, Percent } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,8 +34,17 @@ import {
   useRecordInstallmentConfirmation,
   useCreateExpenseReimbursementRow,
   useSetExpenseReimbursementAmount,
+  useAddInstallmentAdjustment,
+  useDeleteInstallmentAdjustment,
+  useSetInstallmentCurrency,
 } from "@/hooks/mutations";
 import { useBillableExpenses, totalBillable } from "@/hooks/useBillableExpenses";
+import {
+  useInstallmentAdjustments,
+  adjustmentsForInstallment,
+  adjustmentsTotal,
+} from "@/hooks/useInstallmentAdjustments";
+import { fetchSuggestedExchangeDifference } from "@/hooks/mutations/useWorkOrderPaymentPlanMutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
 import { useWorkOrderClientContacts } from "@/hooks/useClientContacts";
@@ -235,9 +244,24 @@ export function WorkOrderPaymentPlanSection({
   const pendingBillable = totalBillable(billableExpenses);
   const createExpenseRow = useCreateExpenseReimbursementRow();
   const setExpenseAmount = useSetExpenseReimbursementAmount();
+  const setInstallmentCurrency = useSetInstallmentCurrency();
   // El monto se escribe en el input y se manda al salir del campo: mandarlo en cada tecla
   // dispararía un aviso al gerente por cada dígito.
   const [expenseAmountDraft, setExpenseAmountDraft] = useState<{ id: string; value: number } | null>(null);
+
+  // Cobranzas Fase 9: los ajustes de todas las cuotas de la OT, en UNA consulta — el total por
+  // fila y el dialogo salen del mismo arreglo.
+  const { data: adjustments } = useInstallmentAdjustments(woId || undefined);
+  const addAdjustment = useAddInstallmentAdjustment();
+  const deleteAdjustment = useDeleteInstallmentAdjustment();
+  const [adjustmentsDialog, setAdjustmentsDialog] = useState<{ installmentId: string } | null>(null);
+  const [adjustmentType, setAdjustmentType] = useState<"descuento" | "diferencia_cambio">("descuento");
+  const [adjustmentAmount, setAdjustmentAmount] = useState(0);
+  const [adjustmentReason, setAdjustmentReason] = useState("");
+  // El numero que la base propone para una diferencia de cambio; null = no hay cuenta que
+  // hacer (la cuota no esta cobrada, va en Bs, o le falta alguno de los dos TC).
+  const [suggestedDifference, setSuggestedDifference] = useState<number | null>(null);
+  const dialogAdjustments = adjustmentsForInstallment(adjustments, adjustmentsDialog?.installmentId);
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
@@ -1055,6 +1079,13 @@ export function WorkOrderPaymentPlanSection({
                   const stage = display.stage;
                   const availableOptions = STATUS_TRANSITIONS[stage];
                   const rowNotes = notesForInstallment(notes, inst.installment_id);
+                  // Cobranzas Fase 9: los ajustes vigentes de esta fila, en SU moneda. Un
+                  // descuento va en la moneda de la cuota; una diferencia de cambio va en Bs y
+                  // por eso no entra en esta suma.
+                  const rowAdjustmentRows = adjustmentsForInstallment(adjustments, inst.installment_id);
+                  const rowAdjustments = adjustmentsTotal(
+                    adjustments, inst.installment_id, installmentCurrency(inst),
+                  );
                   const calendarBadge =
                     display.isOverdue && stage !== "Overdue"
                       ? {
@@ -1174,6 +1205,30 @@ export function WorkOrderPaymentPlanSection({
                         {formatAmount(instAmount, installmentCurrency(inst))}
                         {inst.currency && inst.currency !== currency && (
                           <span className="ml-1 text-xs text-muted-foreground">{inst.currency}</span>
+                        )}
+                        {/* Cobranzas Fase 9: el monto de arriba es el CONTRATO. Si hay ajustes
+                            vigentes, debajo va lo que queda por cobrar — los dos números, porque
+                            la diferencia entre ellos es justamente lo que hay que explicar. */}
+                        {rowAdjustments !== 0 && (
+                          <div className="text-xs font-normal text-muted-foreground">
+                            {t("workOrders.paymentPlan.adjustedToCollect", {
+                              amount: formatAmount(instAmount + rowAdjustments, installmentCurrency(inst)),
+                            })}
+                          </div>
+                        )}
+                        {(canBillExpenses || rowAdjustmentRows.length > 0) && inst.installment_id && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="mt-0.5 h-6 px-2 text-xs font-normal"
+                            onClick={() => setAdjustmentsDialog({ installmentId: inst.installment_id! })}
+                          >
+                            <Percent className="mr-1 h-3 w-3" />
+                            {rowAdjustmentRows.length > 0
+                              ? t("workOrders.paymentPlan.adjustmentsCount", { count: rowAdjustmentRows.length })
+                              : t("workOrders.paymentPlan.adjustmentsAdd")}
+                          </Button>
                         )}
                       </td>
                       {/* Tipo de Cambio group — only for non-BOB currencies */}
@@ -1543,6 +1598,7 @@ export function WorkOrderPaymentPlanSection({
                     <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsSpent")}</th>
                       <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsCurrency")}</th>
                       <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
                       <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
                       <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.status")}</th>
@@ -1593,8 +1649,40 @@ export function WorkOrderPaymentPlanSection({
                               />
                             ) : (
                               <span className="font-mono text-xs">
-                                {formatAmount(row.amount ?? 0, "BOB")}
+                                {formatAmount(row.amount ?? 0, row.currency ?? "BOB")}
                               </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 border-b border-border/50">
+                            {/* Decisión del operador 2026-10-20: la fila nace en Bs, que es la
+                                moneda en la que los gastos se rinden, pero se puede cobrar en
+                                otra. Al facturarla, el diálogo de la Fase 6 ya deja elegir el TC
+                                por fecha. Después de facturar la moneda queda congelada junto
+                                con el monto. USDT no se mezcla: sólo en una OT en USDT. */}
+                            {amountEditable ? (
+                              <Select
+                                value={row.currency ?? "BOB"}
+                                onValueChange={(v) => {
+                                  if (!row.installment_id || v === (row.currency ?? "BOB")) return;
+                                  setInstallmentCurrency.mutate({
+                                    installmentId: row.installment_id,
+                                    currency: v as "BOB" | "USD" | "USDT",
+                                    woId,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 w-24 text-sm"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="BOB">BOB</SelectItem>
+                                  {currency === "USDT" ? (
+                                    <SelectItem value="USDT">USDT</SelectItem>
+                                  ) : (
+                                    <SelectItem value="USD">USD</SelectItem>
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="font-mono text-xs">{row.currency ?? "BOB"}</span>
                             )}
                           </td>
                           <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
@@ -1888,6 +1976,182 @@ export function WorkOrderPaymentPlanSection({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Cobranzas Fase 9: los ajustes de una cuota.
+        Un ajuste no pisa el monto: se lista aparte, y lo que queda por cobrar es el monto más
+        la suma de los vigentes. Los retirados se muestran tachados, porque un descuento que
+        estuvo vigente explica por qué la cuota cambió de monto a cobrar entre dos momentos. */}
+    <Dialog
+      open={!!adjustmentsDialog}
+      onOpenChange={(open) => {
+        if (!open) {
+          setAdjustmentsDialog(null);
+          setAdjustmentAmount(0);
+          setAdjustmentReason("");
+          setAdjustmentType("descuento");
+          setSuggestedDifference(null);
+        }
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("workOrders.paymentPlan.adjustmentsTitle")}</DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.adjustmentsDesc")}</DialogDescription>
+        </DialogHeader>
+
+        {dialogAdjustments.length > 0 && (
+          <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+            {dialogAdjustments.map((adj) => (
+              <div
+                key={adj.adjustment_id}
+                className={cn(
+                  "flex items-start justify-between gap-2 text-sm",
+                  adj.deleted_at && "text-muted-foreground line-through",
+                )}
+              >
+                <div className="min-w-0">
+                  <span className="font-medium">
+                    {t(`workOrders.paymentPlan.adjustmentType_${adj.adjustment_type}`)}
+                  </span>
+                  <span className="ml-2 font-mono">
+                    {adj.currency} {formatAmount(adj.amount, adj.currency)}
+                  </span>
+                  <p className="truncate text-xs">{adj.reason}</p>
+                </div>
+                {!adj.deleted_at && canBillExpenses && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={() =>
+                      deleteAdjustment.mutate({ adjustmentId: adj.adjustment_id, woId })
+                    }
+                  >
+                    {t("workOrders.paymentPlan.adjustmentRemove")}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canBillExpenses && (
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">{t("workOrders.paymentPlan.adjustmentTypeLabel")}</Label>
+              <Select
+                value={adjustmentType}
+                onValueChange={(v) => {
+                  const next = v as "descuento" | "diferencia_cambio";
+                  setAdjustmentType(next);
+                  // La diferencia de cambio se sugiere sola: el sistema ya guarda los dos TC,
+                  // así que hacer la cuenta a mano sería pedirle a alguien que repita algo que
+                  // la base ya sabe. Confirmarla sigue siendo una decisión.
+                  if (next === "diferencia_cambio" && adjustmentsDialog) {
+                    void fetchSuggestedExchangeDifference(adjustmentsDialog.installmentId).then((value) => {
+                      setSuggestedDifference(value);
+                      if (value !== null) setAdjustmentAmount(value);
+                    });
+                  } else {
+                    setSuggestedDifference(null);
+                    setAdjustmentAmount(0);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="descuento">
+                    {t("workOrders.paymentPlan.adjustmentType_descuento")}
+                  </SelectItem>
+                  <SelectItem value="diferencia_cambio">
+                    {t("workOrders.paymentPlan.adjustmentType_diferencia_cambio")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label className="text-xs">
+                {adjustmentType === "descuento"
+                  ? t("workOrders.paymentPlan.adjustmentDiscountAmount")
+                  : t("workOrders.paymentPlan.adjustmentDifferenceAmount")}
+              </Label>
+              <NumericInput
+                locale={numericLocale}
+                decimals={2}
+                value={adjustmentAmount}
+                onChange={setAdjustmentAmount}
+                className="h-9"
+              />
+              {adjustmentType === "diferencia_cambio" && suggestedDifference !== null && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.adjustmentSuggested", {
+                    amount: formatAmount(suggestedDifference, "BOB"),
+                  })}
+                </p>
+              )}
+              {adjustmentType === "descuento" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.adjustmentDiscountHint")}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs">{t("workOrders.paymentPlan.adjustmentReason")}</Label>
+              <Textarea
+                value={adjustmentReason}
+                onChange={(e) => setAdjustmentReason(e.target.value)}
+                rows={2}
+                placeholder={t("workOrders.paymentPlan.adjustmentReasonPlaceholder")}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setAdjustmentsDialog(null)}>
+            {t("common.close")}
+          </Button>
+          {canBillExpenses && (
+            <Button
+              type="button"
+              disabled={
+                !adjustmentReason.trim() ||
+                adjustmentAmount === 0 ||
+                addAdjustment.isPending
+              }
+              onClick={() => {
+                if (!adjustmentsDialog) return;
+                addAdjustment.mutate(
+                  {
+                    installmentId: adjustmentsDialog.installmentId,
+                    type: adjustmentType,
+                    // Un descuento SIEMPRE resta: el signo lo fija el tipo, no quien carga, así
+                    // que la pantalla pide el monto en positivo y lo manda negativo.
+                    amount: adjustmentType === "descuento"
+                      ? -Math.abs(adjustmentAmount)
+                      : adjustmentAmount,
+                    reason: adjustmentReason.trim(),
+                    woId,
+                  },
+                  {
+                    onSuccess: () => {
+                      setAdjustmentAmount(0);
+                      setAdjustmentReason("");
+                    },
+                  },
+                );
+              }}
+            >
+              {t("workOrders.paymentPlan.adjustmentAdd")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     </>
   );
 }

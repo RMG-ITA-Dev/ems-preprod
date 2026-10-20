@@ -119,6 +119,8 @@ export default function Collections() {
         installment: t("collections.colInstallment"),
         type: t("collections.colType"),
         amount: t("collections.colAmount"),
+        toCollect: t("collections.colToCollect"),
+        exchangeDifference: t("collections.colExchangeDifference"),
         currency: t("collections.colCurrency"),
         agreedDate: t("collections.colAgreedDate"),
         currentDate: t("collections.colCurrentDate"),
@@ -202,6 +204,23 @@ export default function Collections() {
       <TableCell className="text-right font-mono">
         <span className="mr-2 text-xs text-muted-foreground">{row.currency}</span>
         {fmtAmount(row.amount, row.currency)}
+        {/* Cobranzas Fase 9: arriba el monto acordado, debajo lo que queda por cobrar. Mostrar
+            solo el acordado diría que el cliente debe más de lo que se le va a cobrar, justo
+            en la pantalla que existe para saber cuánto falta. */}
+        {row.adjustments_total !== 0 && (
+          <div
+            className="text-xs font-normal text-muted-foreground"
+            title={t("collections.adjustedTooltip")}
+          >
+            {t("collections.colToCollect")}: {fmtAmount(row.amount_effective, row.currency)}
+          </div>
+        )}
+        {row.exchange_difference_bob !== 0 && (
+          <div className="text-xs font-normal text-muted-foreground">
+            {t("collections.colExchangeDifference")}: BOB{" "}
+            {fmtAmount(row.exchange_difference_bob, "BOB")}
+          </div>
+        )}
       </TableCell>
       <TableCell className="font-mono text-xs">
         {fmtDate(row.fecha_relevante)}

@@ -7952,6 +7952,60 @@ CREATE TABLE public.wo_installment_expenses (
 
 --
 --
+-- Name: wo_installment_adjustments; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9 (issue #352) — ajustes sobre una cuota.
+--
+-- Un ajuste NO pisa el monto de la cuota: es una linea aparte. El monto de la cuota es el
+-- contrato con el cliente, y sobreescribirlo borraria la diferencia entre lo pactado y lo
+-- efectivamente cobrado, que es justo lo que despues hay que explicar. Lo que se cobra es
+-- `amount` mas la suma de los ajustes vigentes.
+--
+-- Dos tipos (Anexo A, pregunta 5, respondida por el operador el 2026-10-20):
+--   * `descuento`         -- se le rebaja al cliente parte de la cuota, por acuerdo comercial.
+--                            Siempre negativo. Va en la moneda de la CUOTA.
+--   * `diferencia_cambio` -- la brecha entre el TC con el que se facturo y el TC con el que se
+--                            cobro. Puede sumar o restar, y va SIEMPRE en Bs: es una
+--                            diferencia en bolivianos, no en la moneda de la cuota.
+-- No hay recargo por pago tardio ni condonacion: el operador confirmo que no se usan.
+--
+-- Nada se borra de verdad: `deleted_at` lo saca de las sumas pero deja la fila. Un descuento
+-- que estuvo vigente y despues se quito es parte de la historia de lo que se le dijo al
+-- cliente.
+CREATE TABLE public.wo_installment_adjustments (
+    adjustment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    installment_id uuid NOT NULL,
+    -- Denormalizado igual que en las notas: la policy de lectura y los listados por OT lo
+    -- necesitan sin tener que pasar por la cuota.
+    wo_id uuid NOT NULL,
+    adjustment_type text NOT NULL,
+    amount numeric NOT NULL,
+    currency text NOT NULL,
+    -- Obligatorio: un descuento sin motivo no se puede defender despues, ni ante el cliente ni
+    -- ante el socio del encargo.
+    reason text NOT NULL,
+    created_by_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    deleted_by_staff_id uuid,
+    CONSTRAINT wo_installment_adjustments_type_check
+      CHECK ((adjustment_type = ANY (ARRAY['descuento'::text, 'diferencia_cambio'::text]))),
+    -- El signo lo fija el tipo, no quien carga: un "descuento" positivo seria un recargo
+    -- disfrazado, y el operador confirmo que los recargos no existen.
+    CONSTRAINT wo_installment_adjustments_amount_check
+      CHECK (((adjustment_type = 'descuento' AND amount < (0)::numeric)
+           OR (adjustment_type = 'diferencia_cambio' AND amount <> (0)::numeric))),
+    CONSTRAINT wo_installment_adjustments_currency_check
+      CHECK ((currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text]))),
+    CONSTRAINT wo_installment_adjustments_reason_check
+      CHECK ((btrim(reason) <> ''::text))
+);
+
+
+
+--
+--
 -- Name: wo_installment_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -9058,6 +9112,8 @@ DECLARE
   v_payment_days integer;
   v_number integer;
   v_total numeric;
+  v_tax_rate numeric;
+  v_billed numeric;
   v_row public.wo_payment_installments;
   v_today date := public.fund_today();
 BEGIN
@@ -9067,7 +9123,7 @@ BEGIN
 
   -- Se bloquea la OT para que dos llamadas simultaneas no creen dos filas con los mismos
   -- gastos. El UNIQUE de wo_installment_expenses es la red final; esto evita llegar a ella.
-  PERFORM 1 FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
+  SELECT tax_rate INTO v_tax_rate FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
   END IF;
@@ -9094,13 +9150,27 @@ BEGIN
   SELECT COALESCE(MAX(installment_number), 0) + 1 INTO v_number
   FROM public.wo_payment_installments WHERE plan_id = v_plan_id;
 
+  -- Anexo A, respuesta del operador (2026-10-20): se factura SUBIENDO el monto para cubrir el
+  -- IVA. Con el monto a secas, la firma se quedaba con el 87% de lo que gasto -- una perdida
+  -- del 13% en cada rendicion, escondida dentro de la factura. Subiendolo, la firma recupera
+  -- exactamente lo gastado y el cliente, inscrito en el padron, recupera ese IVA como credito
+  -- fiscal: su costo real sigue siendo el neto.
+  --
+  -- Es la misma formula que ya usan los honorarios (feeWithTax), y `tax_rate` sale de la OT, no
+  -- de un 0.13 escrito aca: si alguna vez cambia la alicuota, cambia en un solo lugar.
+  --
+  -- net_amount guarda lo REALMENTE gastado y amount lo que se factura. Los dos se guardan
+  -- porque la diferencia entre ambos es justamente lo que hay que poder explicar.
+  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.13), 0), 2);
+
   -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
-  -- Los gastos se cobran en BOB, que es la moneda en la que se rinden (fund_requests_enforce_bob).
-  -- net_amount y amount arrancan iguales; si el Anexo A define gross-up, cambia amount.
+  -- Nace en BOB, que es la moneda en la que los gastos se rinden
+  -- (fund_requests_enforce_bob). Contabilidad puede cambiarsela mientras siga Pendiente, con
+  -- la regla de siempre: USDT no se mezcla.
   INSERT INTO public.wo_payment_installments
     (plan_id, wo_id, installment_number, percentage, net_amount, amount,
      installment_type, currency, status, agreed_invoice_date, agreed_payment_date)
-  VALUES (v_plan_id, p_wo_id, v_number, 0, v_total, v_total,
+  VALUES (v_plan_id, p_wo_id, v_number, 0, v_total, v_billed,
           'expense_reimbursement', 'BOB', 'Pending', v_today,
           v_today + COALESCE(v_payment_days, 30))
   RETURNING * INTO v_row;
@@ -9268,6 +9338,15 @@ BEGIN
         i.agreed_payment_date, i.collection_payment_date, v_today
       ) AS calendar_state,
       (i.current_invoice_date IS NOT NULL) AS was_rescheduled,
+      -- Cobranzas Fase 9: los descuentos vigentes, en la moneda de la cuota. Lo que el cliente
+      -- debe es el monto MAS los ajustes; mostrar el monto a secas seria decir que debe mas de
+      -- lo que se le va a cobrar, justo en la pantalla que existe para saber cuanto falta.
+      public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, wo.currency)) AS adjustments_total,
+      -- La diferencia de cambio va en Bs, asi que en una cuota en otra moneda no se puede
+      -- sumar al monto: viaja aparte. Solo existe en cuotas ya cobradas.
+      CASE WHEN COALESCE(i.currency, wo.currency) <> 'BOB'
+           THEN public.installment_adjustments_total(i.installment_id, 'BOB')
+           ELSE 0 END AS exchange_difference_bob,
       m.first_name AS manager_first_name,
       m.last_name AS manager_last_name
     FROM public.wo_payment_installments i
@@ -9295,7 +9374,9 @@ BEGIN
       -- pregunta: antes de facturar importa CUANDO hay que facturar; despues, cuando vence.
       CASE WHEN b.status = 'Pending' THEN b.invoice_date_vigente ELSE b.due_date_vigente END AS fecha_relevante,
       CASE WHEN b.calendar_state = 'overdue' AND b.due_date_vigente IS NOT NULL
-           THEN GREATEST(v_today - b.due_date_vigente, 0) ELSE 0 END AS days_overdue
+           THEN GREATEST(v_today - b.due_date_vigente, 0) ELSE 0 END AS days_overdue,
+      -- Lo que realmente queda por cobrar. Todos los totales de abajo usan ESTE numero.
+      COALESCE(b.amount, 0) + b.adjustments_total AS amount_effective
     FROM base b
   ),
   filtered AS (
@@ -9321,18 +9402,18 @@ BEGIN
   -- Los tres totales de la cabecera, por moneda. Se calculan sobre `filtered`: describen la
   -- cartera que los filtros dejaron a la vista, no la pestana abierta.
   tot_por_facturar AS (
-    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
      WHERE f.status = 'Pending'
        AND f.invoice_date_vigente BETWEEN v_month_start AND v_month_end
      GROUP BY f.row_currency
   ),
   tot_sin_cobrar AS (
-    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
      WHERE f.status IN ('Invoiced', 'Overdue')
      GROUP BY f.row_currency
   ),
   tot_en_mora AS (
-    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
      WHERE f.calendar_state = 'overdue'
      GROUP BY f.row_currency
   )
@@ -9364,6 +9445,11 @@ BEGIN
         'manager_id',         p.manager_id,
         'manager_name',       NULLIF(btrim(COALESCE(p.manager_first_name, '') || ' ' || COALESCE(p.manager_last_name, '')), ''),
         'amount',             p.amount,
+        -- El contrato y lo que queda por cobrar, por separado: la diferencia entre los dos es
+        -- el descuento, y es lo que hay que poder explicar.
+        'adjustments_total',  p.adjustments_total,
+        'amount_effective',   p.amount_effective,
+        'exchange_difference_bob', p.exchange_difference_bob,
         'currency',           p.row_currency,
         'status',             p.status,
         'calendar_state',     p.calendar_state,
@@ -9469,6 +9555,230 @@ BEGIN
   RETURN v_result;
 END;
 $$;
+
+
+--
+--
+-- Name: installment_adjustments_total(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9 — lo que los ajustes vigentes suman o restan a una cuota, EN UNA MONEDA.
+--
+-- La moneda es un parametro y no un detalle: un descuento va en la moneda de la cuota y una
+-- diferencia de cambio va en Bs, asi que sumarlos a ciegas daria un numero que no significa
+-- nada. Todo consumidor pide el total de la moneda que va a mostrar.
+CREATE FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(SUM(a.amount), 0)
+    FROM public.wo_installment_adjustments a
+   WHERE a.installment_id = p_installment_id
+     AND a.currency = p_currency
+     AND a.deleted_at IS NULL;
+$$;
+
+
+--
+--
+-- Name: suggest_exchange_difference(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9 — cuanto daria la diferencia de cambio de una cuota ya cobrada.
+--
+-- Es una SUGERENCIA, no un asiento: el sistema ya guarda los dos TC, asi que puede hacer la
+-- cuenta, pero que esa diferencia se le cobre al cliente (o se le devuelva) lo decide
+-- Contabilidad. Por eso el numero se propone en el dialogo y recien se guarda cuando alguien
+-- lo confirma, en vez de aparecer solo en los totales.
+--
+-- NULL cuando no hay cuenta que hacer: la cuota no esta cobrada, va en Bs (no hay conversion),
+-- o le falta alguno de los dos TC.
+CREATE FUNCTION public.suggest_exchange_difference(p_installment_id uuid) RETURNS numeric
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_wo_currency text;
+  v_currency text;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  SELECT i.* INTO v_row FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_row.wo_id;
+  v_currency := COALESCE(v_row.currency, v_wo_currency);
+
+  IF v_row.status <> 'Completed'
+     OR v_currency = 'BOB'
+     OR v_row.invoice_exchange_rate IS NULL
+     OR v_row.payment_exchange_rate IS NULL
+     OR v_row.amount IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Positiva: se cobro mas Bs de los que se facturo (el TC subio). Negativa: menos.
+  RETURN round(v_row.amount * (v_row.payment_exchange_rate - v_row.invoice_exchange_rate), 2);
+END;
+$$;
+
+
+--
+--
+-- Name: add_installment_adjustment(uuid, text, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9 — registra un ajuste sobre una cuota.
+--
+-- Lo hace Contabilidad (decision del operador 2026-10-20): los mismos que facturan y cobran.
+-- El gerente y el socio del encargo se enteran por el aviso y responden por el hilo de notas,
+-- que es la via que la Fase 4 les dio para dejar constancia.
+--
+-- Cada tipo tiene su momento, y no es una formalidad:
+--   * un `descuento` se acuerda ANTES de cobrar -- una vez cobrada, lo que el cliente pago ya
+--     esta, y rebajarle el monto despues solo descuadraria lo cobrado contra lo facturado;
+--   * una `diferencia_cambio` solo existe DESPUES de cobrar, porque hasta entonces no hay un
+--     segundo TC con el cual compararla.
+CREATE FUNCTION public.add_installment_adjustment(
+  p_installment_id uuid,
+  p_type text,
+  p_amount numeric,
+  p_reason text
+) RETURNS public.wo_installment_adjustments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_inst public.wo_payment_installments;
+  v_wo_currency text;
+  v_currency text;
+  v_adj_currency text;
+  v_vigente numeric;
+  v_row public.wo_installment_adjustments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  IF p_type IS NULL OR p_type NOT IN ('descuento', 'diferencia_cambio') THEN
+    RAISE EXCEPTION 'ADJUSTMENT_TYPE_INVALID: tipo de ajuste desconocido (%)', p_type;
+  END IF;
+
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'ADJUSTMENT_REASON_REQUIRED: el ajuste necesita un motivo';
+  END IF;
+
+  -- Se bloquea la cuota: dos personas cargando descuentos a la vez no pueden pasarse del
+  -- monto entre las dos, porque el chequeo de abajo las ve en orden.
+  SELECT i.* INTO v_inst FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_inst.wo_id;
+  v_currency := COALESCE(v_inst.currency, v_wo_currency);
+
+  IF p_type = 'descuento' THEN
+    IF p_amount IS NULL OR p_amount >= 0 THEN
+      RAISE EXCEPTION 'ADJUSTMENT_AMOUNT_INVALID: un descuento tiene que ser negativo';
+    END IF;
+    IF v_inst.status = 'Completed' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la cuota ya fue cobrada; un descuento se acuerda antes de cobrar';
+    END IF;
+    -- Un descuento va en la moneda de la cuota: es una rebaja de ESE monto.
+    v_adj_currency := v_currency;
+    -- Nunca por debajo de cero: una cuota con descuentos por mas de su monto dejaria al
+    -- cliente debiendo un numero negativo, que no quiere decir nada.
+    v_vigente := COALESCE(v_inst.amount, 0)
+               + public.installment_adjustments_total(p_installment_id, v_adj_currency);
+    IF abs(p_amount) > v_vigente THEN
+      RAISE EXCEPTION 'ADJUSTMENT_EXCEEDS_AMOUNT: el descuento (%) supera lo que queda por cobrar de la cuota (%)',
+        abs(p_amount), v_vigente;
+    END IF;
+  ELSE
+    IF p_amount IS NULL OR p_amount = 0 THEN
+      RAISE EXCEPTION 'ADJUSTMENT_AMOUNT_INVALID: la diferencia de cambio no puede ser cero';
+    END IF;
+    IF v_inst.status <> 'Completed' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la diferencia de cambio recien existe cuando la cuota esta cobrada';
+    END IF;
+    IF v_currency = 'BOB' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_TYPE_INVALID: una cuota en Bs no tiene diferencia de cambio';
+    END IF;
+    -- La diferencia entre dos TC es un monto en bolivianos, no en la moneda de la cuota.
+    v_adj_currency := 'BOB';
+  END IF;
+
+  INSERT INTO public.wo_installment_adjustments
+    (installment_id, wo_id, adjustment_type, amount, currency, reason, created_by_staff_id)
+  VALUES (p_installment_id, v_inst.wo_id, p_type, p_amount, v_adj_currency,
+          btrim(p_reason), public.get_my_staff_id())
+  RETURNING * INTO v_row;
+
+  BEGIN
+    PERFORM public.notif_installment_adjustment(v_row, 'added');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'add_installment_adjustment: fallo el aviso para % : %', v_row.adjustment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: delete_installment_adjustment(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9 — retira un ajuste.
+--
+-- No borra la fila: la marca. Un descuento que estuvo vigente y despues se quito es parte de
+-- lo que se le dijo al cliente, y hace falta para entender por que la cuota cambio de monto a
+-- cobrar entre dos momentos. Tambien avisa: retirar un descuento le sube la deuda al cliente,
+-- y quien acordo ese descuento tiene que enterarse.
+CREATE FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) RETURNS public.wo_installment_adjustments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_installment_adjustments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  SELECT a.* INTO v_row FROM public.wo_installment_adjustments a
+   WHERE a.adjustment_id = p_adjustment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND: el ajuste no existe';
+  END IF;
+  IF v_row.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
+  END IF;
+
+  UPDATE public.wo_installment_adjustments
+     SET deleted_at = now(), deleted_by_staff_id = public.get_my_staff_id()
+   WHERE adjustment_id = p_adjustment_id
+  RETURNING * INTO v_row;
+
+  BEGIN
+    PERFORM public.notif_installment_adjustment(v_row, 'removed');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'delete_installment_adjustment: fallo el aviso para % : %', p_adjustment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
 
 
 

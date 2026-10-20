@@ -19,6 +19,8 @@ export interface CollectionsExportHeaders {
   installment: string;
   type: string;
   amount: string;
+  toCollect: string;
+  exchangeDifference: string;
   currency: string;
   agreedDate: string;
   currentDate: string;
@@ -51,6 +53,8 @@ export function buildCollectionsSheet(
     headers.installment,
     headers.type,
     headers.amount,
+    headers.toCollect,
+    headers.exchangeDifference,
     headers.currency,
     headers.agreedDate,
     headers.currentDate,
@@ -72,6 +76,12 @@ export function buildCollectionsSheet(
       // El monto va como NÚMERO: un texto obliga a reconvertir la columna entera en Excel
       // antes de poder sumarla, que es lo primero que alguien hace con este archivo.
       row.amount ?? 0,
+      // Lo acordado y lo que queda por cobrar, por separado (Fase 9). Conciliar contra el
+      // banco se hace contra lo segundo; discutir con el cliente, contra lo primero.
+      row.amount_effective,
+      // La diferencia de cambio va en Bs aunque la cuota sea en otra moneda, así que tiene su
+      // propia columna en vez de ensuciar la del monto.
+      row.exchange_difference_bob,
       row.currency,
       // La acordada es el contrato; la vigente es lo que rige hoy. Van las dos, porque la
       // diferencia entre ambas es justamente lo que hay que explicar al conciliar.

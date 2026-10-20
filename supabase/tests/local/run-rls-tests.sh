@@ -520,7 +520,7 @@ assert_suite supabase/tests/rls-carril-b-b5-privilegios.sql 'B5 PRIVILEGIOS: ALL
 assert_suite supabase/tests/rls-carril-b-b6-staff-unique.sql 'B6 STAFF UNIQUE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-accounting-parity.sql 'FUND ACCOUNTING PARITY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-cobranzas-fase1.sql 'COBRANZAS FASES 1 A 7: ALL CHECKS PASSED'
-assert_suite supabase/tests/rpc-cobranzas-fase8.sql 'COBRANZAS FASE 8: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-cobranzas-fase8.sql 'COBRANZAS FASES 8 Y 9: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-request-events.sql 'FUND REQUEST EVENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expense-calendar.sql 'FUND EXPENSE CALENDAR: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED'

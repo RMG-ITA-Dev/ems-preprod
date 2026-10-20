@@ -243,8 +243,8 @@ BEGIN
   -- + 3 de Cobranzas Fase 3 (issue #352): confirmation_pending, billing_late y rescheduled.
   -- + 1 de la Fase 4: note_added.
   -- + 2 de la Fase 7: expense_row_created y expense_row_amount_changed.
-  IF v_types <> 93 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 93 (¿corriste el parser?)', v_types;
+  IF v_types <> 95 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 95 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
@@ -261,13 +261,13 @@ BEGIN
   --   billing_late (los 2 de cobranza) y rescheduled (3 socios + los 2 de cobranza).
   -- + 8 de la Fase 4: las dos partes del hilo de notas (3 gerentes + 3 socios + los 2 de cobranza).
   -- + 12 de la Fase 7: los 3 gerentes y los 3 socios, por cada uno de los 2 tipos.
-  IF v_grants <> 592 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 592', v_grants;
+  IF v_grants <> 604 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 604', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 93 tipos, 592 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 604 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

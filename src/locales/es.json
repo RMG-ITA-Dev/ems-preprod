@@ -2004,7 +2004,28 @@
       "expenseRowsBilledAmount": "Monto a facturar",
       "errorExpenseRowForbidden": "Solo Contabilidad puede facturar los gastos ejecutados.",
       "errorExpenseRowEmpty": "No quedan gastos aprobados pendientes de facturar en esta orden de trabajo.",
-      "errorExpenseRowInvalid": "No se pudo corregir el monto: la fila no es de gastos ejecutados o el monto no es válido."
+      "errorExpenseRowInvalid": "No se pudo corregir el monto: la fila no es de gastos ejecutados o el monto no es válido.",
+      "expenseRowsCurrency": "Moneda",
+      "adjustedToCollect": "Queda por cobrar: {{amount}}",
+      "adjustmentsCount": "Ajustes ({{count}})",
+      "adjustmentsAdd": "Ajustar",
+      "adjustmentsTitle": "Ajustes de la cuota",
+      "adjustmentsDesc": "Un ajuste no cambia el monto acordado: se registra aparte y se descuenta de lo que queda por cobrar.",
+      "adjustmentType_descuento": "Descuento",
+      "adjustmentType_diferencia_cambio": "Diferencia de cambio",
+      "adjustmentTypeLabel": "Tipo de ajuste",
+      "adjustmentDiscountAmount": "Monto del descuento",
+      "adjustmentDifferenceAmount": "Diferencia en Bs",
+      "adjustmentDiscountHint": "Se resta de lo que queda por cobrar. Ingrese el monto en positivo.",
+      "adjustmentSuggested": "Según los tipos de cambio registrados: {{amount}} Bs.",
+      "adjustmentReason": "Motivo",
+      "adjustmentReasonPlaceholder": "Por qué se ajusta esta cuota",
+      "adjustmentAdd": "Registrar ajuste",
+      "adjustmentRemove": "Retirar",
+      "errorAdjustmentForbidden": "Solo Contabilidad puede registrar ajustes sobre una cuota.",
+      "errorAdjustmentLocked": "Un descuento se acuerda antes de cobrar, y la diferencia de cambio recién existe después.",
+      "errorAdjustmentExceeds": "El descuento supera lo que queda por cobrar de la cuota.",
+      "errorAdjustmentReasonRequired": "El ajuste necesita un motivo."
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",
@@ -2423,7 +2444,9 @@
           "note_added": "Nota nueva en la cuota {{installment_number}} de {{engagement_code}}",
           "expense_row_created": "Se facturaron gastos ejecutados de {{engagement_code}} por {{currency}} {{amount}}",
           "expense_row_amount_changed": "Cambió el monto de los gastos facturados de {{engagement_code}} a {{currency}} {{amount}}",
-          "overdue": "Cuotas vencidas"
+          "overdue": "Cuotas vencidas",
+          "adjustment_added": "Ajuste en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed": "Se retiró un ajuste de la cuota {{installment_number}} de {{engagement_code}}"
         },
         "client": {
           "billing_week": "Semana de facturación del cliente — cuota {{installment_number}}"
@@ -3259,6 +3282,9 @@
     "colContact": "Contacto",
     "colContactName": "Contacto",
     "colContactEmail": "Correo",
-    "colContactPhone": "Teléfono"
+    "colContactPhone": "Teléfono",
+    "colToCollect": "Por cobrar",
+    "colExchangeDifference": "Dif. de cambio",
+    "adjustedTooltip": "Esta cuota tiene ajustes registrados."
   }
 }

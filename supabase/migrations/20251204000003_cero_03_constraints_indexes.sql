@@ -566,6 +566,28 @@ ALTER TABLE ONLY public.wo_installment_expenses
 
 
 --
+-- Name: wo_installment_adjustments wo_installment_adjustments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_pkey PRIMARY KEY (adjustment_id);
+
+
+--
+-- Name: idx_wo_installment_adjustments_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: los ajustes se leen SIEMPRE por cuota y casi siempre solo los vigentes --
+-- es lo que hace installment_adjustments_total(), que corre una vez por fila de la pantalla.
+CREATE INDEX idx_wo_installment_adjustments_installment
+  ON public.wo_installment_adjustments USING btree (installment_id, currency) WHERE deleted_at IS NULL;
+
+-- Y por OT, para traer de una vez todos los de un plan de pagos.
+CREATE INDEX idx_wo_installment_adjustments_wo
+  ON public.wo_installment_adjustments USING btree (wo_id);
+
+
+--
 --
 -- Name: idx_wo_installment_expenses_installment; Type: INDEX; Schema: public; Owner: -
 --

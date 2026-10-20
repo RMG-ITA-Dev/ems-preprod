@@ -1380,6 +1380,30 @@ ALTER TABLE public.wo_installment_expenses ENABLE ROW LEVEL SECURITY;
 
 --
 --
+-- Name: wo_installment_adjustments wo_installment_adjustments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: un ajuste se lee igual que la cuota a la que pertenece -- hereda el
+-- criterio en vez de repetirlo. Los retirados tambien se ven: la pantalla los muestra tachados,
+-- porque un descuento que estuvo vigente explica por que la cuota cambio de monto a cobrar.
+--
+-- Sin policy de escritura: los crea y los retira add/delete_installment_adjustment(), que son
+-- las que verifican el rol y los momentos en que cada tipo tiene sentido.
+CREATE POLICY wo_installment_adjustments_select ON public.wo_installment_adjustments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_adjustments.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_adjustments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_adjustments ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
 --
 

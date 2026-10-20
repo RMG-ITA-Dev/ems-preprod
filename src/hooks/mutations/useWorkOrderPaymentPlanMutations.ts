@@ -45,6 +45,13 @@ const EXPENSE_ROW_FORBIDDEN_TOKEN = "EXPENSE_ROW_FORBIDDEN";
 const EXPENSE_ROW_EMPTY_TOKEN = "EXPENSE_ROW_EMPTY";
 const EXPENSE_ROW_INVALID_TOKEN = "EXPENSE_ROW_INVALID";
 const EXPENSE_ROW_AMOUNT_INVALID_TOKEN = "EXPENSE_ROW_AMOUNT_INVALID";
+// Fase 9: ajustes sobre una cuota. FORBIDDEN es de rol; LOCKED es de momento (un descuento se
+// acuerda antes de cobrar, una diferencia de cambio recien existe despues); EXCEEDS es el
+// descuento que dejaria la cuota en negativo.
+const ADJUSTMENT_FORBIDDEN_TOKEN = "ADJUSTMENT_FORBIDDEN";
+const ADJUSTMENT_LOCKED_TOKEN = "ADJUSTMENT_LOCKED";
+const ADJUSTMENT_EXCEEDS_TOKEN = "ADJUSTMENT_EXCEEDS_AMOUNT";
+const ADJUSTMENT_REASON_REQUIRED_TOKEN = "ADJUSTMENT_REASON_REQUIRED";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -98,6 +105,22 @@ function isExpenseRowEmptyError(error: unknown): boolean {
   return errorMessageOf(error).includes(EXPENSE_ROW_EMPTY_TOKEN);
 }
 
+function isAdjustmentForbiddenError(error: unknown): boolean {
+  return errorMessageOf(error).includes(ADJUSTMENT_FORBIDDEN_TOKEN);
+}
+
+function isAdjustmentLockedError(error: unknown): boolean {
+  return errorMessageOf(error).includes(ADJUSTMENT_LOCKED_TOKEN);
+}
+
+function isAdjustmentExceedsError(error: unknown): boolean {
+  return errorMessageOf(error).includes(ADJUSTMENT_EXCEEDS_TOKEN);
+}
+
+function isAdjustmentReasonRequiredError(error: unknown): boolean {
+  return errorMessageOf(error).includes(ADJUSTMENT_REASON_REQUIRED_TOKEN);
+}
+
 function isExpenseRowInvalidError(error: unknown): boolean {
   return errorMessageOf(error).includes(EXPENSE_ROW_INVALID_TOKEN)
     || errorMessageOf(error).includes(EXPENSE_ROW_AMOUNT_INVALID_TOKEN);
@@ -137,6 +160,22 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isNoteBodyRequiredError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorNoteBodyRequired"));
+    return;
+  }
+  if (isAdjustmentForbiddenError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentForbidden"));
+    return;
+  }
+  if (isAdjustmentLockedError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentLocked"));
+    return;
+  }
+  if (isAdjustmentExceedsError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentExceeds"));
+    return;
+  }
+  if (isAdjustmentReasonRequiredError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentReasonRequired"));
     return;
   }
   if (isExpenseRowForbiddenError(error)) {
@@ -697,5 +736,125 @@ export function useSetExpenseReimbursementAmount() {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "adjusting billed expenses"),
+  });
+}
+
+// ── Cobranzas Fase 9 (issue #352): ajustes sobre una cuota ───────────────────────────────
+// Los carga y los retira Contabilidad (decisión del operador 2026-10-20). El gerente y el
+// socio del encargo se enteran por el aviso y responden por el hilo de notas de la Fase 4.
+//
+// Las tres invalidan `installment_adjustments` además de la OT: el total por fila, el banner
+// del plan y el monto que queda por cobrar salen todos de esa consulta.
+
+function invalidateAdjustments(queryClient: ReturnType<typeof useQueryClient>, woId: string) {
+  queryClient.invalidateQueries({ queryKey: ["installment_adjustments", woId] });
+}
+
+export function useAddInstallmentAdjustment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      type,
+      amount,
+      reason,
+    }: {
+      installmentId: string;
+      type: "descuento" | "diferencia_cambio";
+      /** Firmado: un descuento es negativo; una diferencia de cambio puede ir en cualquier sentido. */
+      amount: number;
+      reason: string;
+      woId: string;
+    }) => {
+      const { error } = await rpcUntyped("add_installment_adjustment", {
+        p_installment_id: installmentId,
+        p_type: type,
+        p_amount: amount,
+        p_reason: reason,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateAdjustments(queryClient, variables.woId);
+      // La pantalla de Cobranzas muestra lo que queda por cobrar: un ajuste la cambia.
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "adding installment adjustment"),
+  });
+}
+
+export function useDeleteInstallmentAdjustment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ adjustmentId }: { adjustmentId: string; woId: string }) => {
+      const { error } = await rpcUntyped("delete_installment_adjustment", {
+        p_adjustment_id: adjustmentId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateAdjustments(queryClient, variables.woId);
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "removing installment adjustment"),
+  });
+}
+
+/**
+ * Cuánto daría la diferencia de cambio de una cuota ya cobrada. Es una SUGERENCIA: el sistema
+ * guarda los dos TC y puede hacer la cuenta, pero que esa diferencia se le cobre al cliente —o
+ * se le devuelva— lo decide Contabilidad. Por eso el número se propone en el diálogo y recién
+ * se guarda cuando alguien lo confirma.
+ *
+ * Devuelve null cuando no hay cuenta que hacer: la cuota no está cobrada, va en Bs, o le falta
+ * alguno de los dos TC.
+ */
+export async function fetchSuggestedExchangeDifference(installmentId: string): Promise<number | null> {
+  const { data, error } = await (supabase.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: unknown }>)("suggest_exchange_difference", {
+    p_installment_id: installmentId,
+  });
+  if (error) return null;
+  return data == null ? null : Number(data);
+}
+
+/**
+ * Cobranzas Fase 7 (decisión del operador 2026-10-20): la moneda de la fila de gastos
+ * ejecutados. Nace en Bs, que es la moneda en la que los gastos se rinden, pero se puede
+ * cobrar en otra; al facturarla, el diálogo de la Fase 6 ya deja elegir el TC por fecha.
+ *
+ * Va por la tabla y no por una RPC porque el guard de cuotas ya impone las dos reglas que
+ * importan: después de facturar la moneda queda congelada junto con el monto, y USDT no se
+ * mezcla con otras monedas.
+ */
+export function useSetInstallmentCurrency() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      currency,
+    }: {
+      installmentId: string;
+      currency: "BOB" | "USD" | "USDT";
+      woId: string;
+    }) => {
+      const { error } = await supabase
+        .from("wo_payment_installments")
+        .update({ currency } as never)
+        .eq("installment_id", installmentId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "changing installment currency"),
   });
 }

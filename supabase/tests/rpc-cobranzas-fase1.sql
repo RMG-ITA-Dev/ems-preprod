@@ -1120,8 +1120,14 @@ BEGIN
   IF v_row.installment_type <> 'expense_reimbursement' THEN
     RAISE EXCEPTION 'TEST FAIL - la fila no quedo marcada como de gastos (quedo %)', v_row.installment_type;
   END IF;
-  IF v_row.net_amount <> 500 OR v_row.amount <> 500 THEN
-    RAISE EXCEPTION 'TEST FAIL - la fila deberia traer 500 de gastos (neto=% monto=%)', v_row.net_amount, v_row.amount;
+  -- Anexo A: se factura SUBIENDO el monto para cubrir el IVA (574.71 = 500 / 0.87). Asi la
+  -- firma recupera los 500 que gasto; con 500 a secas se quedaba con 435. net_amount guarda lo
+  -- gastado y amount lo que se factura: la diferencia entre los dos ES el impuesto.
+  IF v_row.net_amount <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - net_amount deberia ser lo gastado (500), fue %', v_row.net_amount;
+  END IF;
+  IF v_row.amount <> 574.71 THEN
+    RAISE EXCEPTION 'TEST FAIL - se deberia facturar 574.71 (500/0.87), se facturo %', v_row.amount;
   END IF;
   -- percentage 0: la fila NO participa del reparto del 100% de los honorarios.
   IF v_row.percentage <> 0 THEN
@@ -1160,13 +1166,16 @@ BEGIN
   IF v_row.net_amount <> 999 THEN
     RAISE EXCEPTION 'TEST FAIL - la segunda fila deberia traer solo el gasto nuevo (999), trajo %', v_row.net_amount;
   END IF;
+  IF v_row.amount <> 1148.28 THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda fila deberia facturarse en 1148.28 (999/0.87), fue %', v_row.amount;
+  END IF;
   RAISE NOTICE 'PASS - cada gasto entra en UNA sola fila, y los que se revisan despues van a otra';
 
   -- 13.d Una OT aprobada SIN plan: la RPC crea el encabezado. Sin esto, una OT que solo tuvo
   -- gastos no se podria cobrar nunca, porque el guard del plan no deja crearlo ya aprobada.
   v_row := public.create_expense_reimbursement_row(c_wo6);
-  IF v_row.amount <> 400 THEN
-    RAISE EXCEPTION 'TEST FAIL - la fila de la OT sin plan deberia traer 400, trajo %', v_row.amount;
+  IF v_row.net_amount <> 400 OR v_row.amount <> 459.77 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de la OT sin plan deberia ser 400 gastados / 459.77 facturados (fue % / %)', v_row.net_amount, v_row.amount;
   END IF;
   SELECT COUNT(*) INTO v_n FROM public.wo_payment_plan WHERE wo_id = c_wo6;
   IF v_n <> 1 THEN

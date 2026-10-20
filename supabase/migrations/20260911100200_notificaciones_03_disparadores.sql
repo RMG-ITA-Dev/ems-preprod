@@ -614,6 +614,75 @@ COMMENT ON FUNCTION public.notif_installment_expense_row(public.wo_payment_insta
 
 REVOKE ALL ON FUNCTION public.notif_installment_expense_row(public.wo_payment_installments, text) FROM PUBLIC, anon, authenticated;
 
+
+-- =====================================================================
+-- Cobranzas Fase 9 — ajustes sobre una cuota
+-- =====================================================================
+-- Un ajuste lo carga Contabilidad, pero cambia lo que el cliente termina pagando, asi que el
+-- gerente y el socio del encargo se enteran: es la unica via por la que pueden objetarlo, por
+-- el hilo de notas de la Fase 4.
+DROP FUNCTION IF EXISTS public.notif_installment_adjustment(public.wo_installment_adjustments, text);
+
+CREATE FUNCTION public.notif_installment_adjustment(
+    p_row    public.wo_installment_adjustments,
+    p_evento text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'added'
+                       THEN 'wo.installment.adjustment_added'
+                       ELSE 'wo.installment.adjustment_removed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_num   integer;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  SELECT i.installment_number INTO v_num
+    FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_row.installment_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    -- Quien lo cargo no necesita que le avisen de lo que acaba de hacer.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', v_num,
+                            'adjustment_type',    p_row.adjustment_type,
+                            'currency',           p_row.currency,
+                            'amount',             p_row.amount,
+                            'reason',             p_row.reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_adjustment(public.wo_installment_adjustments, text) IS
+  'Cobranzas Fase 9: avisa al gerente y al socio del encargo que se registro o se retiro un ajuste sobre una cuota. La llaman add_installment_adjustment() y delete_installment_adjustment().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_adjustment(public.wo_installment_adjustments, text) FROM PUBLIC, anon, authenticated;
+
 COMMENT ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) IS
   'Cobranzas Fase 4: avisa por campana a la OTRA parte del hilo (encargo <-> Contabilidad) que hay una nota nueva, excluyendo al autor. La llama add_installment_note().';
 

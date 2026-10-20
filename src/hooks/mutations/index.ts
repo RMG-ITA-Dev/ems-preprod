@@ -73,6 +73,9 @@ export {
   useDeleteInstallment,
   useCreateExpenseReimbursementRow,
   useSetExpenseReimbursementAmount,
+  useAddInstallmentAdjustment,
+  useDeleteInstallmentAdjustment,
+  useSetInstallmentCurrency,
 } from "./useWorkOrderPaymentPlanMutations";
 
 // Services

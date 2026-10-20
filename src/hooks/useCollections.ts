@@ -52,6 +52,18 @@ export interface CollectionsRow {
   manager_id: string | null;
   manager_name: string | null;
   amount: number | null;
+  /**
+   * Cobranzas Fase 9: `amount` es el CONTRATO y `amount_effective` lo que queda por cobrar
+   * después de los descuentos vigentes. Los dos, porque la diferencia entre ellos es
+   * justamente lo que hay que explicar.
+   */
+  adjustments_total: number;
+  amount_effective: number;
+  /**
+   * La diferencia de cambio va SIEMPRE en Bs, así que en una cuota en otra moneda no se puede
+   * sumar al monto: viaja aparte. 0 cuando la cuota ya va en Bs o no tiene ninguna.
+   */
+  exchange_difference_bob: number;
   currency: string;
   status: "Pending" | "Invoiced" | "Completed" | "Overdue";
   /** La regla única de mora, resuelta en el servidor. */
@@ -111,6 +123,9 @@ function normalize(raw: unknown, filters: CollectionsFilters): CollectionsResult
     rows: (r.rows ?? []).map((row) => ({
       ...row,
       amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+      adjustments_total: Number(row.adjustments_total ?? 0),
+      amount_effective: Number(row.amount_effective ?? 0),
+      exchange_difference_bob: Number(row.exchange_difference_bob ?? 0),
       days_overdue: Number(row.days_overdue ?? 0),
     })),
   };
