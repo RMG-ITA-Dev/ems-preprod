@@ -385,7 +385,8 @@ BEGIN
   wo AS (
     SELECT
       w.*,
-      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+      -- Cobranzas Fase 7 (Q41): base de cuotas = solo honorarios. Ver dash_socio.
+      w.fee_net / NULLIF(1 - w.tax_rate, 0) AS installment_base
     FROM wo_rate w
   ),
 

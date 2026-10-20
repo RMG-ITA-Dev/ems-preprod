@@ -381,7 +381,10 @@ BEGIN
   wo AS (
     SELECT
       w.*,
-      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+      -- Cobranzas Fase 7 (decision del operador Q41): la base de las cuotas son SOLO los
+      -- honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se cobran
+      -- por su propia fila, con lo EJECUTADO; sumarlo a la base los cobraria dos veces.
+      w.fee_net / NULLIF(1 - w.tax_rate, 0) AS installment_base
     FROM wo_rate w
   ),
 
@@ -921,7 +924,7 @@ BEGIN
   ),
   finalized_collected AS (
     SELECT COALESCE(SUM(
-      COALESCE(i.amount, i.percentage * ((fw.fee_net + fw.expense_budget) / NULLIF(1 - fw.tax_rate, 0)) / 100)
+      COALESCE(i.amount, i.percentage * (fw.fee_net / NULLIF(1 - fw.tax_rate, 0)) / 100)
       * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
     ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
     FROM finalized_wo fw

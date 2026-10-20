@@ -2190,3 +2190,15 @@ GRANT EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) TO authent
 -- Cobranzas Fase 6: TC de una fecha concreta, para el calendario del diálogo de facturar.
 REVOKE EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) TO authenticated, service_role;
+
+-- Cobranzas Fase 7: gastos ejecutados facturados al cliente (issue #352).
+REVOKE ALL ON TABLE public.wo_installment_expenses FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_expenses TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_expenses TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) TO authenticated, service_role;

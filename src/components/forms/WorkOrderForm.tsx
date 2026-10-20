@@ -125,6 +125,14 @@ interface WorkOrderFormProps {
   woId?: string;
   paymentPlan?: import("@/types/workOrderPaymentPlan").PaymentPlanInput | null;
   paymentInstallments?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
+  /**
+   * Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+   * ejecutados. Llegan aparte de `paymentInstallments` a propósito: no reparten el honorario,
+   * no entran en la validación del 100% y la pantalla del plan nunca las manda al guardar.
+   */
+  paymentExpenseRows?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
+  /** Cobranzas Fase 7 (decisión Q24): sólo Contabilidad factura los gastos ejecutados. */
+  canBillExpenses?: boolean;
   isAdminDateEditable?: boolean;
   isStatusEditable?: boolean;
   /**
@@ -421,6 +429,8 @@ export function WorkOrderForm({
   woId = "",
   paymentPlan = null,
   paymentInstallments = [],
+  paymentExpenseRows = [],
+  canBillExpenses = false,
   isAdminDateEditable = false,
   isStatusEditable = false,
   collectionsOnly = false,
@@ -506,7 +516,11 @@ export function WorkOrderForm({
     return expenseBudget.reduce((sum, exp) => sum + exp.budgeted_amount, 0);
   }, [expenseBudget]);
 
-  const feeWithTax = (totalAdjustedFee + totalExpenses) / (1 - taxRate);
+  // Cobranzas Fase 7 (decision del operador Q41): la base que reparten las cuotas son SOLO
+  // los honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se le
+  // cobran al cliente por su propia fila del plan, con lo que REALMENTE se ejecuto; dejarlo
+  // aca tambien los cobraria dentro de las cuotas, o sea dos veces.
+  const feeWithTax = totalAdjustedFee / (1 - taxRate);
 
   // Average rates for subtotal row
   const avgStandardRate = useMemo(() => {
@@ -741,7 +755,10 @@ export function WorkOrderForm({
   }, [paymentPlan, paymentInstallments]);
   const paymentIndicatorKind: TabIndicatorKind | null = otFullyApproved
     ? ((): TabIndicatorKind => {
-        const billing = computeBillingIndicator(paymentInstallments);
+        // Cobranzas Fase 7: el indicador mira TAMBIÉN las filas de gastos ejecutados. Son
+        // plata que el cliente debe igual que una cuota de honorarios, y una en mora tiene
+        // que encender la pestaña.
+        const billing = computeBillingIndicator([...paymentInstallments, ...paymentExpenseRows]);
         return billing === "red"
           ? "billing-red"
           : billing === "complete"
@@ -1365,9 +1382,7 @@ export function WorkOrderForm({
                   </span>
                   <span className="font-mono">
                     <span className="text-sm mr-2">{currency}</span>
-                    {formatNumber(
-                      feeWithTax - totalAdjustedFee - totalExpenses,
-                    )}
+                    {formatNumber(feeWithTax - totalAdjustedFee)}
                   </span>
                 </div>
               </div>
@@ -1401,6 +1416,8 @@ export function WorkOrderForm({
           feeWithTax={feeWithTax}
           plan={paymentPlan ?? null}
           installments={paymentInstallments}
+          expenseRows={paymentExpenseRows}
+          canBillExpenses={canBillExpenses}
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
           collectionsApprovalStatus={collectionsOnly ? approvalStatus : null}

@@ -203,6 +203,23 @@ export interface WOPaymentInstallment {
   status: string;
   invoice_exchange_rate: number | null;
   payment_exchange_rate: number | null;
+  // Cobranzas Fase 3: fechas VIGENTES tras una reprogramacion. NULL = nunca se reprogramo y
+  // vale la acordada; las agreed_* no se tocan nunca, son el contrato.
+  current_invoice_date: string | null;
+  current_payment_date: string | null;
+  // Fase 3: la gestion de la confirmacion con el cliente, que es una dimension aparte del
+  // estado -- una cuota puede estar Pendiente y confirmada, o Pendiente y sin gestionar.
+  confirmation_status: 'sin_gestionar' | 'confirmada' | 'no_confirmada' | null;
+  confirmed_for_date: string | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  // Fase 6: la cuota puede ir en otra moneda que la OT, y se registra de que fecha salio el TC.
+  currency: 'BOB' | 'USD' | 'USDT' | null;
+  invoice_exchange_rate_date: string | null;
+  // Fase 7: 'fee' reparte honorarios; 'expense_reimbursement' es la fila con la que
+  // Contabilidad le cobra al cliente los gastos ya ejecutados.
+  installment_type: 'fee' | 'expense_reimbursement';
+  net_amount: number | null;
 }
 
 export interface WOPaymentPlan {

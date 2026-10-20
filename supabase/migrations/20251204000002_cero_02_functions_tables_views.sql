@@ -7904,6 +7904,16 @@ CREATE TABLE public.wo_payment_installments (
     -- cuota que se factura y se cobra en Bs, y al reves. NULL = la moneda de la OT, que es el
     -- caso normal; la columna solo se llena cuando la cuota se aparta.
     -- Sin pagos partidos: una cuota tiene UNA moneda (Q30 quedo sin objeto).
+    -- Cobranzas Fase 7 (issue #352, decision del operador Q24/Q38/Q41): una fila del plan es
+    -- de HONORARIOS o de GASTOS EJECUTADOS. Son cosas distintas: las de honorarios reparten un
+    -- porcentaje del fee y suman 100%; la de gastos lleva un monto fijo, el de los gastos que
+    -- Contabilidad ya aprobo, y queda fuera de ese 100%.
+    installment_type text DEFAULT 'fee'::text NOT NULL,
+    -- Solo en las filas de gastos: net_amount es la suma de los gastos; amount es lo que se le
+    -- factura al cliente. Hoy son iguales. Quedan separados porque la formula del total
+    -- (si lleva gross-up de IVA o no) la decide el Analista de Cobranzas -- pregunta abierta
+    -- del Anexo A. Teniendo los dos, fijar esa regla no obliga a recalcular nada hacia atras.
+    net_amount numeric,
     currency text,
     -- De que fecha salio el TC de facturacion: el usuario puede escribirlo a mano o elegir una
     -- fecha en el calendario y traer el TC de ese dia (decision Q49). NULL = se escribio a mano.
@@ -7916,7 +7926,27 @@ CREATE TABLE public.wo_payment_installments (
     updated_at timestamp with time zone DEFAULT now(),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text]))),
     CONSTRAINT wo_payment_installments_confirmation_status_check CHECK ((confirmation_status = ANY (ARRAY['sin_gestionar'::text, 'confirmada'::text, 'no_confirmada'::text]))),
-    CONSTRAINT wo_payment_installments_currency_check CHECK ((currency IS NULL OR currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text])))
+    CONSTRAINT wo_payment_installments_currency_check CHECK ((currency IS NULL OR currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text]))),
+    CONSTRAINT wo_payment_installments_type_check CHECK ((installment_type = ANY (ARRAY['fee'::text, 'expense_reimbursement'::text])))
+);
+
+
+--
+--
+-- Name: wo_installment_expenses; Type: TABLE; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7 (issue #352). Que gastos ya se le facturaron al cliente en que fila.
+-- El UNIQUE sobre fre_id es la pieza central: un gasto entra en UNA sola fila de reembolso,
+-- para siempre. Sin el, dos personas creando la fila a la vez (o un segundo clic) le cobrarian
+-- el mismo gasto dos veces al cliente, y nadie lo notaria hasta la conciliacion.
+CREATE TABLE public.wo_installment_expenses (
+    installment_id uuid NOT NULL,
+    fre_id uuid NOT NULL,
+    -- El monto con el que ese gasto entro en la fila. Se guarda congelado: si despues cambia
+    -- el gasto, lo que ya se facturo no cambia.
+    amount numeric NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -8973,6 +9003,172 @@ BEGIN
     JOIN public.work_orders w ON w.engagement_id = e.engagement_id
    WHERE w.wo_id = p_wo_id AND cc.is_active
    ORDER BY cc.contact_type, cc.full_name;
+END;
+$$;
+
+
+--
+--
+-- Name: wo_billable_expenses(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7 (decision del operador Q37): que gastos de una OT se le pueden facturar
+-- todavia al cliente. Son los que CONCLUYERON todo el proceso -- `revisado_asistente`, el
+-- mismo corte que `spent` en fund_work_order_expense_summary -- y que no entraron ya en otra
+-- fila de reembolso.
+--
+-- La penalidad IVA del 13% no se descuenta: es un castigo al empleado por una factura mal
+-- emitida, no un menor costo para el cliente (Q43).
+CREATE FUNCTION public.wo_billable_expenses(p_wo_id uuid) RETURNS TABLE (fre_id uuid, amount numeric)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.fre_id, e.amount
+    FROM public.fund_request_expenses e
+   WHERE e.wo_id = p_wo_id
+     AND e.status = 'revisado_asistente'
+     AND NOT EXISTS (SELECT 1 FROM public.wo_installment_expenses x WHERE x.fre_id = e.fre_id)
+   ORDER BY e.fre_id;
+$$;
+
+
+--
+--
+-- Name: create_expense_reimbursement_row(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7 — el boton "Facturar gastos ejecutados" de Contabilidad (decision Q39).
+-- Crea UNA fila nueva con los gastos aprobados que todavia no se facturaron. Puede llamarse
+-- varias veces en el tiempo: cada una toma solo los gastos nuevos, y el UNIQUE de
+-- wo_installment_expenses garantiza que ninguno entre dos veces aunque dos personas pulsen el
+-- boton a la vez.
+--
+-- Crea el encabezado del plan si no existe, y funciona con la OT ya APROBADA: ahi esta el
+-- punto. El guard del plan (20260908150000) bloquea crear un plan con la OT aprobada, y el de
+-- cuotas bloquea insertar cuotas nuevas -- las dos reglas son correctas para el plan de
+-- honorarios, que es un contrato cerrado antes de aprobar. Los gastos ejecutados aparecen
+-- DESPUES, por definicion, asi que esta RPC es la excepcion explicita: corre como SECURITY
+-- DEFINER y marca la fila como 'expense_reimbursement' para que los guards la distingan.
+CREATE FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_plan_id uuid;
+  v_payment_days integer;
+  v_number integer;
+  v_total numeric;
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede facturar los gastos ejecutados';
+  END IF;
+
+  -- Se bloquea la OT para que dos llamadas simultaneas no creen dos filas con los mismos
+  -- gastos. El UNIQUE de wo_installment_expenses es la red final; esto evita llegar a ella.
+  PERFORM 1 FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
+  END IF;
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_total FROM public.wo_billable_expenses(p_wo_id);
+  IF v_total <= 0 THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_EMPTY: no hay gastos aprobados pendientes de facturar en esta orden de trabajo';
+  END IF;
+
+  SELECT plan_id, payment_days INTO v_plan_id, v_payment_days
+  FROM public.wo_payment_plan WHERE wo_id = p_wo_id;
+
+  IF v_plan_id IS NULL THEN
+    -- La marca que deja pasar el guard de wo_payment_plan (20260908150000). Es local a esta
+    -- transaccion, lleva el wo_id y el guard ademas exige el rol, asi que no abre la creacion
+    -- del plan a nadie mas ni a otra OT. Se apaga enseguida.
+    PERFORM set_config('app.expense_billing_wo', p_wo_id::text, true);
+    INSERT INTO public.wo_payment_plan (wo_id, payment_days)
+    VALUES (p_wo_id, 30)
+    RETURNING plan_id, payment_days INTO v_plan_id, v_payment_days;
+    PERFORM set_config('app.expense_billing_wo', '', true);
+  END IF;
+
+  SELECT COALESCE(MAX(installment_number), 0) + 1 INTO v_number
+  FROM public.wo_payment_installments WHERE plan_id = v_plan_id;
+
+  -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
+  -- Los gastos se cobran en BOB, que es la moneda en la que se rinden (fund_requests_enforce_bob).
+  -- net_amount y amount arrancan iguales; si el Anexo A define gross-up, cambia amount.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, net_amount, amount,
+     installment_type, currency, status, agreed_invoice_date, agreed_payment_date)
+  VALUES (v_plan_id, p_wo_id, v_number, 0, v_total, v_total,
+          'expense_reimbursement', 'BOB', 'Pending', v_today,
+          v_today + COALESCE(v_payment_days, 30))
+  RETURNING * INTO v_row;
+
+  INSERT INTO public.wo_installment_expenses (installment_id, fre_id, amount)
+  SELECT v_row.installment_id, b.fre_id, b.amount FROM public.wo_billable_expenses(p_wo_id) b;
+
+  BEGIN
+    PERFORM public.notif_installment_expense_row(v_row, 'created');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'create_expense_reimbursement_row: fallo el aviso para % : %', v_row.installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+--
+-- Name: set_expense_reimbursement_amount(uuid, numeric); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7 (decision Q24): el monto de la fila de gastos lo corrige SOLO Contabilidad
+-- -- ni el gerente ni el socio, aunque sean del encargo. Y avisa (Q40), porque cambiar lo que
+-- se le va a cobrar al cliente no puede pasar inadvertido para quien lo acordo.
+--
+-- Solo toca `amount` (lo que se factura). `net_amount` queda como esta: es la suma real de los
+-- gastos vinculados y sirve para ver cuanto se aparto el monto facturado de lo gastado.
+CREATE FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede corregir el monto de los gastos facturados';
+  END IF;
+
+  SELECT i.* INTO v_row FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+  IF v_row.installment_type <> 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: esta cuota no es una fila de gastos ejecutados';
+  END IF;
+  IF v_row.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: la fila ya fue facturada y su monto no se puede corregir';
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_AMOUNT_INVALID: el monto tiene que ser mayor que cero';
+  END IF;
+
+  UPDATE public.wo_payment_installments
+     SET amount = p_amount
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  BEGIN
+    PERFORM public.notif_installment_expense_row(v_row, 'amount_changed');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'set_expense_reimbursement_amount: fallo el aviso para % : %', p_installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
 END;
 $$;
 

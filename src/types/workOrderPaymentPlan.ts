@@ -63,4 +63,12 @@ export interface PaymentInstallmentInput {
   currency?: 'BOB' | 'USD' | 'USDT' | null;
   // De qué fecha salió el TC de facturación; null = se escribió a mano (Q49).
   invoice_exchange_rate_date?: string | null;
+  // Cobranzas Fase 7: 'fee' es una cuota del plan de honorarios, que reparte el 100% del
+  // honorario con IVA. 'expense_reimbursement' es la fila con la que Contabilidad le cobra al
+  // cliente los gastos ya ejecutados: va fuera del reparto (porcentaje 0), la crea y la edita
+  // solo Contabilidad, y la pantalla del plan no la manda al guardar. undefined = 'fee'.
+  installment_type?: 'fee' | 'expense_reimbursement';
+  // Suma de los gastos vinculados a la fila. Queda como referencia de lo realmente gastado
+  // cuando Contabilidad corrige el monto a facturar.
+  net_amount?: number | null;
 }

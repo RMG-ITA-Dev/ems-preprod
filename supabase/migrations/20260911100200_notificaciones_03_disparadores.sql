@@ -555,6 +555,65 @@ BEGIN
 END;
 $BODY$;
 
+-- ── Cobranzas Fase 7 (issue #352): aviso de la fila de gastos ejecutados ────
+-- Decisión del operador Q24/Q40: al crear la fila, y también al corregir su monto, se avisa al
+-- GERENTE del encargo por campana Y correo, y al SOCIO sólo por campana. El reparto desigual es
+-- deliberado: el gerente es quien acordó el alcance con el cliente y tiene que enterarse sí o
+-- sí; el socio necesita estar al tanto, no actuar.
+DROP FUNCTION IF EXISTS public.notif_installment_expense_row(public.wo_payment_installments, text);
+
+CREATE FUNCTION public.notif_installment_expense_row(
+    p_row    public.wo_payment_installments,
+    p_evento text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'created'
+                       THEN 'wo.installment.expense_row_created'
+                       ELSE 'wo.installment.expense_row_amount_changed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           COALESCE(p_row.currency, 'BOB'),
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'net_amount',         p_row.net_amount)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_expense_row(public.wo_payment_installments, text) IS
+  'Cobranzas Fase 7: avisa al gerente (campana + correo) y al socio (campana) que se facturaron gastos ejecutados, o que cambio su monto. La llaman create_expense_reimbursement_row() y set_expense_reimbursement_amount().';
+
+REVOKE ALL ON FUNCTION public.notif_installment_expense_row(public.wo_payment_installments, text) FROM PUBLIC, anon, authenticated;
+
 COMMENT ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) IS
   'Cobranzas Fase 4: avisa por campana a la OTRA parte del hilo (encargo <-> Contabilidad) que hay una nota nueva, excluyendo al autor. La llama add_installment_note().';
 

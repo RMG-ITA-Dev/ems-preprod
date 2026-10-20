@@ -1,4 +1,4 @@
--- Cobranzas Fases 1 a 6 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 1 a 7 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -18,7 +18,7 @@
 --   * wo_installment_events: la bitacora se escribe sola y nadie la puede editar.
 --
 -- Salida de exito: un NOTICE por chequeo y al final
--- "COBRANZAS FASE 1: ALL CHECKS PASSED".
+-- "COBRANZAS FASES 1 A 7: ALL CHECKS PASSED".
 
 BEGIN;
 
@@ -67,7 +67,10 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, pract
   ('e0000000-0000-4000-8000-0000000000f2', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E2', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
   -- Fase 6: dos encargos mas, para el modo fijo y para el resincronizado del plan.
   ('e0000000-0000-4000-8000-0000000000f3', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E3', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
-  ('e0000000-0000-4000-8000-0000000000f4', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E4', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6');
+  ('e0000000-0000-4000-8000-0000000000f4', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E4', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
+  -- Fase 7: uno con plan de honorarios y otro sin plan, para facturar los gastos ejecutados.
+  ('e0000000-0000-4000-8000-0000000000f5', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E5', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
+  ('e0000000-0000-4000-8000-0000000000f6', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E6', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6');
 
 -- Las OT nacen en Draft: el guard del plan (20260908150000) solo permite CREAR el plan
 -- mientras la OT no este aprobada. Se aprueban despues, como en el flujo real.
@@ -75,7 +78,9 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, app
   ('40000000-0000-4000-8000-0000000000f1', 'e0000000-0000-4000-8000-0000000000f1', 'BOB', 'High', 'Draft'),
   ('40000000-0000-4000-8000-0000000000f2', 'e0000000-0000-4000-8000-0000000000f2', 'BOB', 'High', 'Draft'),
   ('40000000-0000-4000-8000-0000000000f3', 'e0000000-0000-4000-8000-0000000000f3', 'BOB', 'High', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000f4', 'e0000000-0000-4000-8000-0000000000f4', 'BOB', 'High', 'Draft');
+  ('40000000-0000-4000-8000-0000000000f4', 'e0000000-0000-4000-8000-0000000000f4', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000f5', 'e0000000-0000-4000-8000-0000000000f5', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000f6', 'e0000000-0000-4000-8000-0000000000f6', 'BOB', 'High', 'Draft');
 
 DO $$
 DECLARE
@@ -89,6 +94,8 @@ DECLARE
   c_wo2         uuid := '40000000-0000-4000-8000-0000000000f2';
   c_wo3         uuid := '40000000-0000-4000-8000-0000000000f3';
   c_wo4         uuid := '40000000-0000-4000-8000-0000000000f4';
+  c_wo5         uuid := '40000000-0000-4000-8000-0000000000f5';
+  c_wo6         uuid := '40000000-0000-4000-8000-0000000000f6';
   v_today  date := public.fund_today();
   v_plan1  uuid;
   v_plan2  uuid;
@@ -105,6 +112,11 @@ DECLARE
   v_plan3  uuid;
   v_plan4  uuid;
   v_rate   numeric;
+  v_plan5  uuid;
+  v_i5     uuid;
+  v_i6     uuid;
+  v_fr1    uuid := 'f4000000-0000-4000-8000-0000000000f1';
+  v_fr2    uuid := 'f4000000-0000-4000-8000-0000000000f2';
   denied   boolean;
 BEGIN
   -- ══════════════════════════════════════════════════════════════════
@@ -1044,8 +1056,200 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - editar el TC del plan dejo de resincronizar las cuotas (quedo %)', v_rate;
   END IF;
   RAISE NOTICE 'PASS - editar el TC del plan sigue resincronizando las cuotas pendientes';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 13. Fase 7: los gastos ejecutados se le facturan al cliente (Q37-Q41)
+  -- ══════════════════════════════════════════════════════════════════
+  -- Las cuotas reparten SOLO honorarios, y los gastos se cobran aparte, por lo EJECUTADO.
+  -- Antes el presupuesto de gastos iba dentro del monto que las cuotas repartian, asi que
+  -- agregar una fila de gastos encima habria cobrado los gastos dos veces.
+  --
+  -- Fixture: wo5 nace con plan de honorarios (el guard solo deja crear el plan en Draft) y se
+  -- aprueba despues; wo6 llega aprobada y SIN plan.
+  PERFORM pg_temp.impersonate(c_manager);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo5, 30, 6.96, 'variable') RETURNING plan_id INTO v_plan5;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan5, c_wo5, 1, 100, 1000, 'Pending', v_today + 10, v_today + 40, 6.96, 6.96)
+  RETURNING installment_id INTO v_i5;
+
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id IN (c_wo5, c_wo6);
+
+  INSERT INTO public.fund_requests (fund_request_id, requester_staff_id, total_requested_amount, currency, status, expense_period_month) VALUES
+    (v_fr1, '51c00000-0000-4000-8000-0000000000f2', 1500, 'BOB', 'fondos_entregados', date_trunc('month', v_today)::date),
+    (v_fr2, '51c00000-0000-4000-8000-0000000000f2',  400, 'BOB', 'fondos_entregados', date_trunc('month', v_today)::date);
+
+  INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount) VALUES
+    (v_fr1, c_wo5, 1500),
+    (v_fr2, c_wo6,  400);
+
+  -- Dos gastos ya revisados por Contabilidad y uno que sigue en revision.
+  INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_date, amount, currency, status) VALUES
+    ('f5000000-0000-4000-8000-00000000000a', v_fr1, c_wo5, v_today, 300, 'BOB', 'revisado_asistente'),
+    ('f5000000-0000-4000-8000-00000000000b', v_fr1, c_wo5, v_today, 200, 'BOB', 'revisado_asistente'),
+    ('f5000000-0000-4000-8000-00000000000c', v_fr1, c_wo5, v_today, 999, 'BOB', 'pendiente_aprobacion'),
+    ('f5000000-0000-4000-8000-00000000000d', v_fr2, c_wo6, v_today, 400, 'BOB', 'revisado_asistente');
+
+  -- 13.a Solo se le facturan al cliente los gastos que terminaron el proceso (Q37). El que
+  -- sigue en revision no entra: todavia puede cambiar de monto o caerse.
+  SELECT COALESCE(SUM(amount), 0) INTO v_rate FROM public.wo_billable_expenses(c_wo5);
+  IF v_rate <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - facturables esperados 500 (300+200), obtuvo %', v_rate;
+  END IF;
+  RAISE NOTICE 'PASS - solo se facturan los gastos que ya reviso Contabilidad';
+
+  -- 13.b La fila la crea Contabilidad, no el gerente del encargo (Q24).
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.create_expense_reimbursement_row(c_wo5);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente del encargo creo la fila de gastos';
+  END IF;
+
+  -- Y se crea con la OT ya APROBADA. Ese es el punto de toda la fase: los gastos ejecutados
+  -- aparecen DESPUES de aprobar, asi que el bloqueo normal de cuotas nuevas los dejaria sin
+  -- facturar para siempre.
+  PERFORM pg_temp.impersonate(c_collections);
+  v_row := public.create_expense_reimbursement_row(c_wo5);
+  IF v_row.installment_type <> 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila no quedo marcada como de gastos (quedo %)', v_row.installment_type;
+  END IF;
+  IF v_row.net_amount <> 500 OR v_row.amount <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila deberia traer 500 de gastos (neto=% monto=%)', v_row.net_amount, v_row.amount;
+  END IF;
+  -- percentage 0: la fila NO participa del reparto del 100% de los honorarios.
+  IF v_row.percentage <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos entro en el reparto de porcentajes';
+  END IF;
+  -- Los gastos se rinden en BOB (fund_requests_enforce_bob), asi que se cobran en BOB.
+  IF v_row.currency <> 'BOB' THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos deberia ir en BOB, fue %', v_row.currency;
+  END IF;
+  v_i6 := v_row.installment_id;
+  RAISE NOTICE 'PASS - la crea Contabilidad, con la OT aprobada, y fuera del reparto de honorarios';
+
+  -- 13.c Un gasto NO se cobra dos veces. Es la garantia central de la fase: el UNIQUE sobre
+  -- fre_id la sostiene aunque dos personas pulsen el boton a la vez.
+  denied := false;
+  BEGIN
+    PERFORM public.create_expense_reimbursement_row(c_wo5);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_EMPTY%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se creo una segunda fila con los mismos gastos';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_expenses WHERE installment_id = v_i6;
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila deberia tener vinculados los 2 gastos, tiene %', v_n;
+  END IF;
+
+  -- Pero un gasto que termina su revision DESPUES si entra en una fila nueva (Q39).
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.fund_request_expenses SET status = 'revisado_asistente'
+   WHERE fre_id = 'f5000000-0000-4000-8000-00000000000c';
+  PERFORM pg_temp.impersonate(c_collections);
+  v_row := public.create_expense_reimbursement_row(c_wo5);
+  IF v_row.net_amount <> 999 THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda fila deberia traer solo el gasto nuevo (999), trajo %', v_row.net_amount;
+  END IF;
+  RAISE NOTICE 'PASS - cada gasto entra en UNA sola fila, y los que se revisan despues van a otra';
+
+  -- 13.d Una OT aprobada SIN plan: la RPC crea el encabezado. Sin esto, una OT que solo tuvo
+  -- gastos no se podria cobrar nunca, porque el guard del plan no deja crearlo ya aprobada.
+  v_row := public.create_expense_reimbursement_row(c_wo6);
+  IF v_row.amount <> 400 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de la OT sin plan deberia traer 400, trajo %', v_row.amount;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.wo_payment_plan WHERE wo_id = c_wo6;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - no se creo el encabezado del plan para la OT sin plan';
+  END IF;
+  RAISE NOTICE 'PASS - una OT aprobada sin plan igual puede facturar sus gastos';
+
+  -- 13.e El monto lo corrige SOLO Contabilidad, y net_amount queda como referencia de lo que
+  -- realmente se gasto.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.set_expense_reimbursement_amount(v_i6, 450);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente corrigio el monto de la fila de gastos';
+  END IF;
+
+  PERFORM pg_temp.impersonate(c_collections);
+  v_row := public.set_expense_reimbursement_amount(v_i6, 450);
+  IF v_row.amount <> 450 OR v_row.net_amount <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - corregir el monto deberia dejar net_amount intacto (monto=% neto=%)', v_row.amount, v_row.net_amount;
+  END IF;
+
+  -- Y una cuota de honorarios no se corrige por esta puerta.
+  denied := false;
+  BEGIN
+    PERFORM public.set_expense_reimbursement_amount(v_i5, 450);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se corrigio una cuota de honorarios como si fuera de gastos';
+  END IF;
+  RAISE NOTICE 'PASS - el monto lo corrige Contabilidad, y lo gastado queda como referencia';
+
+  -- 13.f Las filas de gastos SOBREVIVEN a guardar el plan de honorarios. Sin esto, el gerente
+  -- guardaba el plan y borraba en silencio lo que Contabilidad acababa de facturar.
+  PERFORM pg_temp.impersonate(c_manager);
+  PERFORM public.sync_wo_payment_installments(v_plan5, c_wo5, jsonb_build_array(
+    jsonb_build_object('installment_id', v_i5, 'installment_number', 1, 'percentage', 100,
+                       'amount', 1000, 'status', 'Pending',
+                       'agreed_invoice_date', to_char(v_today + 10, 'YYYY-MM-DD'),
+                       'agreed_payment_date', to_char(v_today + 40, 'YYYY-MM-DD'),
+                       'invoice_exchange_rate', 6.96,
+                       'payment_exchange_rate', 6.96)));
+  SELECT COUNT(*) INTO v_n FROM public.wo_payment_installments
+   WHERE plan_id = v_plan5 AND installment_type = 'expense_reimbursement';
+  IF v_n <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - guardar el plan borro las filas de gastos (quedaron %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - guardar el plan de honorarios no toca las filas de gastos';
+
+  -- 13.g Una fila no cambia de tipo: convertirla descuadraria el plan en cualquier direccion.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET installment_type = 'fee' WHERE installment_id = v_i6;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_TYPE_IMMUTABLE%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una fila de gastos se convirtio en una de honorarios';
+  END IF;
+  RAISE NOTICE 'PASS - el tipo de una fila no se puede cambiar';
+
+  -- 13.h Los dos avisos de la fase, cada uno por su canal (Q40).
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.expense_row_created' AND email_enabled;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta de la fila de gastos deberia salir tambien por correo';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_types
+   WHERE type_key = 'wo.installment.expense_row_amount_changed' AND email_enabled;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la correccion del monto deberia ser solo de campana';
+  END IF;
+  RAISE NOTICE 'PASS - el alta avisa por campana y correo; la correccion, solo por campana';
+
   PERFORM set_config('request.jwt.claims', NULL, true);
-  RAISE NOTICE 'COBRANZAS FASE 1: ALL CHECKS PASSED';
+  RAISE NOTICE 'COBRANZAS FASES 1 A 7: ALL CHECKS PASSED';
 END $$;
 
 ROLLBACK;

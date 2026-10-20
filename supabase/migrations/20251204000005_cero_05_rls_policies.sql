@@ -1355,6 +1355,31 @@ ALTER TABLE public.client_contacts ENABLE ROW LEVEL SECURITY;
 
 --
 --
+-- Name: wo_installment_expenses wo_installment_expenses_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7: que gastos entraron en una fila de reembolso se lee igual que la cuota a
+-- la que pertenecen. El EXISTS referencia wo_payment_installments, cuya RLS se evalua para el
+-- mismo usuario -- no repite el criterio, lo hereda. (Carril B / B3c solo prohibe nombrar
+-- clients o engagements inline; esta tabla no es ninguna de las dos.)
+--
+-- Sin policy de escritura: las filas las crea create_expense_reimbursement_row(), que es la
+-- que garantiza, con el UNIQUE de fre_id, que un gasto no se cobre dos veces.
+CREATE POLICY wo_installment_expenses_select ON public.wo_installment_expenses FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_expenses.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_expenses; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_expenses ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
 -- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
 --
 

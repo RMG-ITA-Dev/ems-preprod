@@ -83,6 +83,22 @@ BEGIN
   END IF;
 
   IF TG_OP = 'INSERT' THEN
+    -- Cobranzas Fase 7: unica excepcion a las dos reglas de abajo. Cuando Contabilidad le
+    -- factura al cliente los gastos ya ejecutados de una OT que nunca tuvo plan, hay que
+    -- crear el encabezado, y para entonces la OT SIEMPRE esta aprobada -- los gastos se
+    -- ejecutan despues de aprobar, por definicion. Sin esto, una OT que solo tuvo gastos no
+    -- se podria cobrar nunca.
+    --
+    -- La excepcion es angosta a proposito: la marca la pone create_expense_reimbursement_row()
+    -- con set_config(..., true), o sea que vive y muere dentro de esa transaccion, y lleva el
+    -- wo_id, asi que no sirve para crear el plan de OTRA OT. Ademas se exige el rol: la marca
+    -- sola no alcanza. El plan nace sin TC propio y con los dias por defecto; el contrato de
+    -- honorarios no se toca aca.
+    IF COALESCE(current_setting('app.expense_billing_wo', true), '') = NEW.wo_id::text
+       AND (public.is_admin() OR public.is_collections_role()) THEN
+      RETURN NEW;
+    END IF;
+
     SELECT approval_status INTO v_approval_status
     FROM public.work_orders
     WHERE wo_id = NEW.wo_id;
@@ -247,12 +263,17 @@ BEGIN
   -- Borra huerfanos PRIMERO, para que una fila renumerada no choque contra el UNIQUE
   -- (plan_id, installment_number) de una fila vieja que todavia no se borro -- mismo
   -- orden que ya usaba useBatchUpsertInstallments, ahora atomico con el paso de abajo.
+  -- Cobranzas Fase 7: el borrado NUNCA alcanza a las filas de gastos ejecutados. Esta RPC
+  -- sincroniza el plan de HONORARIOS contra lo que manda la pantalla, y esa pantalla no las
+  -- conoce: sin este filtro, guardar el plan borraria la fila de gastos que Contabilidad
+  -- acababa de crear, en silencio.
   IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
     DELETE FROM public.wo_payment_installments
-    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
+    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids)
+      AND installment_type = 'fee';
   ELSE
     DELETE FROM public.wo_payment_installments
-    WHERE plan_id = p_plan_id;
+    WHERE plan_id = p_plan_id AND installment_type = 'fee';
   END IF;
 
   RETURN QUERY

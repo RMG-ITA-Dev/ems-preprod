@@ -54,6 +54,11 @@ insert into public.notification_types
   -- Cobranzas Fase 4: nota nueva en el hilo. Solo campana (decision Q35): avisa que hay algo
   -- que leer, y leerlo se hace en el plan de pagos.
   ('wo.installment.note_added', 'work_order', 'notifications.types.wo.installment.note_added', 'event', 88, true, false),
+  -- Cobranzas Fase 7 (decisiones Q24 y Q40): el alta de la fila de gastos va por campana Y
+  -- correo al gerente; la correccion del monto, solo campana. El reparto por rol lo decide el
+  -- disparador (notif_installment_expense_row), que es el unico que sabe quien es el socio.
+  ('wo.installment.expense_row_created', 'work_order', 'notifications.types.wo.installment.expense_row_created', 'event', 89, true, true),
+  ('wo.installment.expense_row_amount_changed', 'work_order', 'notifications.types.wo.installment.expense_row_amount_changed', 'event', 90, true, false),
   ('fund.request.submitted_for_approval', 'fund_request', 'notifications.types.fund.request.submitted_for_approval', 'event', 40, true, true),
   ('fund.expense.submitted_for_approval', 'fund_request', 'notifications.types.fund.expense.submitted_for_approval', 'event', 41, true, false),
   ('fund.request.cancelled', 'fund_request', 'notifications.types.fund.request.cancelled', 'event', 42, true, true),
@@ -340,6 +345,18 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('collections_analyst', 'wo.installment.rescheduled', 'department'),
   -- Fase 4: las dos partes del hilo. A quien escribio NO se le avisa, pero eso lo decide el
   -- disparador (notif_installment_note_added), no la matriz.
+  ('manager', 'wo.installment.expense_row_created', 'assigned'),
+  ('ita_manager', 'wo.installment.expense_row_created', 'assigned'),
+  ('tax_manager', 'wo.installment.expense_row_created', 'assigned'),
+  ('senior_partner', 'wo.installment.expense_row_created', 'assigned'),
+  ('partner', 'wo.installment.expense_row_created', 'assigned'),
+  ('director', 'wo.installment.expense_row_created', 'assigned'),
+  ('manager', 'wo.installment.expense_row_amount_changed', 'assigned'),
+  ('ita_manager', 'wo.installment.expense_row_amount_changed', 'assigned'),
+  ('tax_manager', 'wo.installment.expense_row_amount_changed', 'assigned'),
+  ('senior_partner', 'wo.installment.expense_row_amount_changed', 'assigned'),
+  ('partner', 'wo.installment.expense_row_amount_changed', 'assigned'),
+  ('director', 'wo.installment.expense_row_amount_changed', 'assigned'),
   ('manager', 'wo.installment.note_added', 'assigned'),
   ('ita_manager', 'wo.installment.note_added', 'assigned'),
   ('tax_manager', 'wo.installment.note_added', 'assigned'),
@@ -897,6 +914,18 @@ delete from public.notification_role_types
    ('director', 'wo.installment.rescheduled'),
    ('accounting_manager', 'wo.installment.rescheduled'),
    ('collections_analyst', 'wo.installment.rescheduled'),
+   ('manager', 'wo.installment.expense_row_created'),
+   ('ita_manager', 'wo.installment.expense_row_created'),
+   ('tax_manager', 'wo.installment.expense_row_created'),
+   ('senior_partner', 'wo.installment.expense_row_created'),
+   ('partner', 'wo.installment.expense_row_created'),
+   ('director', 'wo.installment.expense_row_created'),
+   ('manager', 'wo.installment.expense_row_amount_changed'),
+   ('ita_manager', 'wo.installment.expense_row_amount_changed'),
+   ('tax_manager', 'wo.installment.expense_row_amount_changed'),
+   ('senior_partner', 'wo.installment.expense_row_amount_changed'),
+   ('partner', 'wo.installment.expense_row_amount_changed'),
+   ('director', 'wo.installment.expense_row_amount_changed'),
    ('manager', 'wo.installment.note_added'),
    ('ita_manager', 'wo.installment.note_added'),
    ('tax_manager', 'wo.installment.note_added'),
@@ -1277,6 +1306,8 @@ delete from public.notification_types
    'wo.installment.billing_late',
    'wo.installment.rescheduled',
    'wo.installment.note_added',
+   'wo.installment.expense_row_created',
+   'wo.installment.expense_row_amount_changed',
    'fund.request.submitted_for_approval',
    'fund.expense.submitted_for_approval',
    'fund.request.cancelled',

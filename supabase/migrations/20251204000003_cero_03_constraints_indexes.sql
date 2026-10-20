@@ -555,6 +555,25 @@ CREATE INDEX idx_client_contacts_client ON public.client_contacts USING btree (c
 
 
 --
+-- Name: wo_installment_expenses wo_installment_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7: la PK es el GASTO, no el par. Es lo que garantiza que un gasto entre en
+-- UNA sola fila de reembolso: sin esto, dos personas pulsando "Facturar gastos ejecutados" a
+-- la vez le cobrarian el mismo gasto dos veces al cliente.
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_pkey PRIMARY KEY (fre_id);
+
+
+--
+--
+-- Name: idx_wo_installment_expenses_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_expenses_installment ON public.wo_installment_expenses USING btree (installment_id);
+
+
+--
 -- Name: wo_installment_notes wo_installment_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 

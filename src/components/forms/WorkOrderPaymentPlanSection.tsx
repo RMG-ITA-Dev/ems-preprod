@@ -32,7 +32,10 @@ import {
   useUpdateInstallmentExchangeRate,
   useRescheduleInstallment,
   useRecordInstallmentConfirmation,
+  useCreateExpenseReimbursementRow,
+  useSetExpenseReimbursementAmount,
 } from "@/hooks/mutations";
+import { useBillableExpenses, totalBillable } from "@/hooks/useBillableExpenses";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
 import { useWorkOrderClientContacts } from "@/hooks/useClientContacts";
@@ -91,6 +94,14 @@ interface WorkOrderPaymentPlanSectionProps {
    * Fase 4 le da para dejar constancia.
    */
   canWriteNotes?: boolean;
+  /**
+   * Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+   * ejecutados. Llegan aparte de `installments` porque NO reparten el honorario: no entran en
+   * la suma del 100%, no se redistribuyen y la pantalla no las manda al guardar el plan.
+   */
+  expenseRows?: PaymentInstallmentInput[];
+  /** Cobranzas Fase 7 (decisión Q24): sólo Contabilidad factura los gastos ejecutados. */
+  canBillExpenses?: boolean;
   /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
   currentStaffId?: string | null;
   isAdminViewer?: boolean;
@@ -144,6 +155,8 @@ export function WorkOrderPaymentPlanSection({
   canEditPaymentPlan,
   collectionsApprovalStatus = null,
   canWriteNotes = false,
+  expenseRows = [],
+  canBillExpenses = false,
   currentStaffId = null,
   isAdminViewer = false,
   isPaymentPlanDirty = false,
@@ -200,7 +213,7 @@ export function WorkOrderPaymentPlanSection({
     return data == null ? null : Number(data);
   };
   const [pendingChange, setPendingChange] = useState<{
-    idx: number;
+    row: PaymentInstallmentInput;
     newStatus: "Invoiced" | "Completed" | "Overdue";
   } | null>(null);
   const [pendingCollectionDate, setPendingCollectionDate] = useState<{
@@ -215,6 +228,16 @@ export function WorkOrderPaymentPlanSection({
   // si el usuario sale del campo sin terminar de escribir, vuelve a mostrar el
   // valor real (ver onBlur del input).
   const [rateInputBlank, setRateInputBlank] = useState(false);
+
+  // Cobranzas Fase 7: los gastos de la OT que todavía se le pueden facturar al cliente. Sólo
+  // se consulta si quien mira puede facturarlos — para el resto, el bloque es de lectura.
+  const { data: billableExpenses } = useBillableExpenses(woId || undefined, canBillExpenses);
+  const pendingBillable = totalBillable(billableExpenses);
+  const createExpenseRow = useCreateExpenseReimbursementRow();
+  const setExpenseAmount = useSetExpenseReimbursementAmount();
+  // El monto se escribe en el input y se manda al salir del campo: mandarlo en cada tecla
+  // dispararía un aviso al gerente por cada dígito.
+  const [expenseAmountDraft, setExpenseAmountDraft] = useState<{ id: string; value: number } | null>(null);
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
@@ -610,14 +633,17 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
+  // Cobranzas Fase 7: recibe la FILA, no su posición. Las filas de gastos ejecutados viven
+  // fuera de `installments` —no reparten el honorario— pero se facturan y se cobran con este
+  // mismo flujo, que es justamente el punto: para Contabilidad son plata a cobrar como
+  // cualquier cuota.
   const handleStatusChange = (
-    idx: number,
+    inst: PaymentInstallmentInput,
     newStatus: PaymentInstallmentStatus,
     // Cobranzas Fase 6: el TC que la persona confirmó en el diálogo de facturar, y de qué
     // fecha salió (null = lo escribió a mano).
     rateOverride?: { invoiceRate: number | null; invoiceRateDate: string | null },
   ) => {
-    const inst = installments[idx];
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
 
     if (newStatus === "Invoiced") {
@@ -634,8 +660,13 @@ export function WorkOrderPaymentPlanSection({
     }
     // Overdue (manual from Invoiced): keep existing collection dates, just change status
 
-    const updated = installments.map((r, i) => (i === idx ? { ...r, ...updates } : r));
-    onInstallmentsChange(updated);
+    // Sólo el plan de honorarios vive en el estado de la página. Una fila de gastos se
+    // refresca sola cuando la mutación invalida la OT.
+    if (inst.installment_type !== "expense_reimbursement") {
+      onInstallmentsChange(
+        installments.map((r) => (r.installment_id === inst.installment_id ? { ...r, ...updates } : r)),
+      );
+    }
 
     if (inst.installment_id) {
       updateStatus.mutate({
@@ -1328,9 +1359,9 @@ export function WorkOrderPaymentPlanSection({
                                   );
                                   setInvoiceRateDate("");
                                 }
-                                setPendingChange({ idx, newStatus: s });
+                                setPendingChange({ row: inst, newStatus: s });
                               } else {
-                                handleStatusChange(idx, s);
+                                handleStatusChange(inst, s);
                               }
                             }}
                           >
@@ -1466,6 +1497,165 @@ export function WorkOrderPaymentPlanSection({
             </table>
           </div>
         )}
+
+        {/* ── Cobranzas Fase 7: los gastos ejecutados que se le cobran al cliente ──────────
+            Van en su propio bloque, no entre las cuotas, porque no son parte del mismo trato:
+            las cuotas reparten el honorario pactado antes de empezar, y esto es lo que se
+            gastó haciendo el trabajo. Mezclarlos haría que el total de la tabla dejara de
+            cuadrar con el 100% del honorario. */}
+        {(canBillExpenses || expenseRows.length > 0) && (
+          <div className="mt-6 rounded-lg border border-border/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold">
+                  {t("workOrders.paymentPlan.expenseRowsTitle")}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.expenseRowsHelp")}
+                </p>
+              </div>
+              {canBillExpenses && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pendingBillable <= 0 || createExpenseRow.isPending}
+                  onClick={() => createExpenseRow.mutate({ woId })}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {pendingBillable > 0
+                    ? t("workOrders.paymentPlan.expenseRowsBill", {
+                        amount: formatAmount(pendingBillable, "BOB"),
+                      })
+                    : t("workOrders.paymentPlan.expenseRowsNothingToBill")}
+                </Button>
+              )}
+            </div>
+
+            {expenseRows.length === 0 ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {t("workOrders.paymentPlan.expenseRowsEmpty")}
+              </p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsSpent")}</th>
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
+                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenseRows.map((row) => {
+                      const display = getInstallmentDisplay(row);
+                      const stage = display.stage;
+                      const availableOptions = STATUS_TRANSITIONS[stage];
+                      // El monto sólo se corrige mientras la fila no se facturó: después, lo
+                      // que el cliente recibió ya está emitido.
+                      const amountEditable = canBillExpenses && row.status === "Pending";
+                      return (
+                        <tr key={row.installment_id} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
+                            {formatAmount(row.net_amount ?? 0, "BOB")} <span className="text-[10px]">BOB</span>
+                          </td>
+                          <td className="py-2 px-3 border-b border-border/50">
+                            {amountEditable ? (
+                              <NumericInput
+                                locale={numericLocale}
+                                value={
+                                  expenseAmountDraft?.id === row.installment_id
+                                    ? expenseAmountDraft.value
+                                    : row.amount ?? 0
+                                }
+                                decimals={2}
+                                min={0}
+                                className="h-8 w-32 text-sm"
+                                onChange={(v) =>
+                                  setExpenseAmountDraft({ id: row.installment_id!, value: v })
+                                }
+                                onBlur={() => {
+                                  const draft = expenseAmountDraft;
+                                  setExpenseAmountDraft(null);
+                                  // Se manda sólo si de verdad cambió: así salir del campo sin
+                                  // tocar nada no genera un aviso al gerente por un cambio que
+                                  // no hubo.
+                                  if (!draft || draft.id !== row.installment_id) return;
+                                  if (draft.value <= 0 || draft.value === (row.amount ?? 0)) return;
+                                  setExpenseAmount.mutate({
+                                    installmentId: row.installment_id!,
+                                    amount: draft.value,
+                                    woId,
+                                  });
+                                }}
+                              />
+                            ) : (
+                              <span className="font-mono text-xs">
+                                {formatAmount(row.amount ?? 0, "BOB")}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
+                            {fmtDate(row.collection_invoice_date)}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
+                            {fmtDate(row.collection_payment_date)}
+                          </td>
+                          <td className="py-2 px-3 border-b border-border/50">
+                            {isStatusEditable && availableOptions.length > 0 ? (
+                              <Select
+                                value={stage}
+                                onValueChange={(val) => {
+                                  const s = val as PaymentInstallmentStatus;
+                                  if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
+                                    if (s === "Invoiced") {
+                                      // Los gastos se rinden y se cobran en Bs: no hay
+                                      // conversión que confirmar.
+                                      setInvoiceRate(null);
+                                      setInvoiceRateDate("");
+                                    }
+                                    setPendingChange({ row, newStatus: s });
+                                  } else {
+                                    handleStatusChange(row, s);
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className={cn("h-8 w-36 text-sm", STATUS_COLORS[stage])}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
+                                    {t(`workOrders.paymentPlan.status${stage}`)}
+                                  </SelectItem>
+                                  {availableOptions.map((val) => (
+                                    <SelectItem key={val} value={val} className={STATUS_COLORS[val]}>
+                                      {t(`workOrders.paymentPlan.status${val}`)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                                  STATUS_CHIP_CLASSES[stage],
+                                )}
+                              >
+                                {t(`workOrders.paymentPlan.status${stage}`)}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
 
@@ -1494,7 +1684,7 @@ export function WorkOrderPaymentPlanSection({
           </DialogDescription>
         </DialogHeader>
         {/* Las notas de la cuota, acá y no en un enlace: es el momento en que pesan. */}
-        {pendingChange && notesForInstallment(notes, installments[pendingChange.idx]?.installment_id).length > 0 && (
+        {pendingChange && notesForInstallment(notes, pendingChange.row.installment_id).length > 0 && (
           <div className="rounded-md border border-warning/50 bg-warning/10 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-warning">
               <AlertTriangle className="h-4 w-4" />
@@ -1502,8 +1692,8 @@ export function WorkOrderPaymentPlanSection({
             </div>
             <InstallmentNotesThread
               woId={woId}
-              installmentId={installments[pendingChange.idx]?.installment_id ?? null}
-              notes={notesForInstallment(notes, installments[pendingChange.idx]?.installment_id)}
+              installmentId={pendingChange.row.installment_id ?? null}
+              notes={notesForInstallment(notes, pendingChange.row.installment_id)}
               currentStaffId={currentStaffId}
               canWrite={false}
               isAdmin={isAdminViewer}
@@ -1514,7 +1704,7 @@ export function WorkOrderPaymentPlanSection({
             el modo del plan y se puede corregir — a mano, o eligiendo una fecha y trayendo el
             TC de ese día. Sólo aparece cuando hay conversión que hacer. */}
         {pendingChange?.newStatus === "Invoiced" &&
-          installmentCurrency(installments[pendingChange.idx]) !== "BOB" && (
+          installmentCurrency(pendingChange.row) !== "BOB" && (
             <div className="space-y-2 rounded-md border border-border/60 bg-muted/10 p-3">
               <Label className="text-xs">{t("workOrders.paymentPlan.invoiceExchangeRate")}</Label>
               <div className="flex flex-wrap items-end gap-2">
@@ -1564,7 +1754,7 @@ export function WorkOrderPaymentPlanSection({
             variant={pendingChange?.newStatus === "Overdue" ? "destructive" : "default"}
             onClick={() => {
               if (pendingChange) {
-                handleStatusChange(pendingChange.idx, pendingChange.newStatus, {
+                handleStatusChange(pendingChange.row, pendingChange.newStatus, {
                   invoiceRate,
                   invoiceRateDate: invoiceRateDate || null,
                 });

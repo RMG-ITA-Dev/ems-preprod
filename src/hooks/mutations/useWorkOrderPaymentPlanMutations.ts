@@ -37,6 +37,14 @@ const INSTALLMENT_DATE_REQUIRED_TOKEN = "INSTALLMENT_DATE_REQUIRED";
 // Fase 4: autoria de la nota y nota vacia.
 const NOTE_FORBIDDEN_TOKEN = "NOTE_FORBIDDEN";
 const NOTE_BODY_REQUIRED_TOKEN = "NOTE_BODY_REQUIRED";
+// Fase 7: la fila con la que se le cobran al cliente los gastos ya ejecutados.
+// FORBIDDEN es de rol (solo Contabilidad), EMPTY es que no quedan gastos por facturar — el
+// caso normal cuando alguien vuelve a pulsar el boton — e INVALID es haber apuntado a una
+// cuota de honorarios por esta via.
+const EXPENSE_ROW_FORBIDDEN_TOKEN = "EXPENSE_ROW_FORBIDDEN";
+const EXPENSE_ROW_EMPTY_TOKEN = "EXPENSE_ROW_EMPTY";
+const EXPENSE_ROW_INVALID_TOKEN = "EXPENSE_ROW_INVALID";
+const EXPENSE_ROW_AMOUNT_INVALID_TOKEN = "EXPENSE_ROW_AMOUNT_INVALID";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -82,6 +90,19 @@ function isNoteBodyRequiredError(error: unknown): boolean {
   return errorMessageOf(error).includes(NOTE_BODY_REQUIRED_TOKEN);
 }
 
+function isExpenseRowForbiddenError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXPENSE_ROW_FORBIDDEN_TOKEN);
+}
+
+function isExpenseRowEmptyError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXPENSE_ROW_EMPTY_TOKEN);
+}
+
+function isExpenseRowInvalidError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXPENSE_ROW_INVALID_TOKEN)
+    || errorMessageOf(error).includes(EXPENSE_ROW_AMOUNT_INVALID_TOKEN);
+}
+
 // dash_socio: wo_payment_plan.exchange_rate pasa a NOT NULL DEFAULT
 // latest_exchange_rate(); si latest_exchange_rate() devuelve NULL (historial BCB
 // vacío y sin default_exchange_rate configurado) y el caller manda un `null`
@@ -116,6 +137,18 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isNoteBodyRequiredError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorNoteBodyRequired"));
+    return;
+  }
+  if (isExpenseRowForbiddenError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExpenseRowForbidden"));
+    return;
+  }
+  if (isExpenseRowEmptyError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExpenseRowEmpty"));
+    return;
+  }
+  if (isExpenseRowInvalidError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExpenseRowInvalid"));
     return;
   }
   if (isExchangeRateLockedError(error)) {
@@ -613,5 +646,56 @@ export function useDeleteInstallment() {
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "deleting installment"),
+  });
+}
+
+// ── Cobranzas Fase 7 (issue #352): los gastos ejecutados se le cobran al cliente ──────────
+// Las cuotas del plan reparten SOLO honorarios. Los gastos van en su propia fila
+// (`installment_type = 'expense_reimbursement'`), con lo que REALMENTE se ejecutó y ya revisó
+// Contabilidad — no con el presupuesto, que es lo que se estimó antes de empezar.
+//
+// Las dos RPC las ejecuta sólo Contabilidad (decisión Q24). El servidor lo verifica; estos
+// hooks sólo traducen el rechazo.
+
+export function useCreateExpenseReimbursementRow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { error } = await rpcUntyped("create_expense_reimbursement_row", {
+        p_wo_id: woId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["billable_expenses", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "billing executed expenses"),
+  });
+}
+
+export function useSetExpenseReimbursementAmount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      amount,
+    }: {
+      installmentId: string;
+      amount: number;
+      woId: string;
+    }) => {
+      const { error } = await rpcUntyped("set_expense_reimbursement_amount", {
+        p_installment_id: installmentId,
+        p_amount: amount,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error: unknown) => handlePaymentPlanError(error, "adjusting billed expenses"),
   });
 }

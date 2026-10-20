@@ -205,6 +205,14 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     intro: "Pasó la fecha de facturación de una cuota y todavía no se facturó.",
     boton: "Ver plan de pagos",
   },
+  // Fase 7: el alta de la fila de gastos sale por campana Y correo al gerente del encargo
+  // (decisión Q24) — es plata que se le suma a lo que el cliente va a pagar. La corrección del
+  // monto es sólo campana, así que no tiene plantilla acá.
+  "wo.installment.expense_row_created": {
+    asunto: "Se facturaron gastos ejecutados al cliente",
+    intro: "Contabilidad agregó al plan de pagos los gastos ya aprobados de una orden de trabajo.",
+    boton: "Ver plan de pagos",
+  },
 
   // ── Solicitud de fondos ──
   "fund.request.submitted_for_approval": {

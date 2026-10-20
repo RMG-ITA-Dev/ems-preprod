@@ -34,7 +34,7 @@ describe("cobertura contra el seed", () => {
     const marcados = [...bloque.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
     // 32 + 7 del calendario de gastos (Fase 3.9) + 1 de la confirmación del movimiento (Fase 4)
     // + 2 de Cobranzas Fase 3 (confirmación pendiente y facturación atrasada).
-    expect(marcados.length).toBe(42);
+    expect(marcados.length).toBe(43);
 
     const conPlantilla = new Set(tiposConPlantilla());
     const faltantes = marcados.filter((t) => !conPlantilla.has(t));
@@ -57,7 +57,7 @@ describe("cobertura contra el seed", () => {
     );
     const marcados = [...seed.matchAll(/\('([^']+)',[^)]*?,\s*true,\s*true\)/g)].map((m) => m[1]);
     // 32 + 7 del calendario de gastos (Fase 3.9) + 1 de la confirmación del movimiento (Fase 4).
-    expect(marcados.length).toBe(42);
+    expect(marcados.length).toBe(43);
 
     // Un payload con todo lo que las ramas pueden necesitar: los gastos rutean por
     // `fund_request_id` y los eventos de cuenta por `staff_id`, porque su entity_id no es

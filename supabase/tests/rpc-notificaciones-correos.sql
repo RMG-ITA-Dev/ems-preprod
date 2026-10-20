@@ -82,8 +82,9 @@ BEGIN
   -- + 2 de Cobranzas Fase 3 (decisiones Q12/Q56 y Q32): confirmation_pending y billing_late
   --   salen por campana Y correo. El tercer tipo nuevo, rescheduled, es solo campana (Q45):
   --   avisa que algo se movio, no es una tarea que alguien tenga que hacer hoy.
-  IF v_n <> 42 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 42', v_n;
+  -- + 1 de la Fase 7: expense_row_created (el cambio de monto es solo campana).
+  IF v_n <> 43 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 43', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types

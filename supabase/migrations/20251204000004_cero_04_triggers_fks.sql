@@ -1188,6 +1188,23 @@ ALTER TABLE ONLY public.client_contacts
 
 
 --
+-- Name: wo_installment_expenses wo_installment_expenses_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_expenses wo_installment_expenses_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE CASCADE;
+
+
+--
 -- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

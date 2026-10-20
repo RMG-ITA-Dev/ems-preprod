@@ -291,7 +291,10 @@ INSERT INTO public.wo_payment_plan (plan_id, wo_id, exchange_rate, exchange_rate
   ('e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 6.96, 'variable', 30)
 ON CONFLICT (plan_id) DO NOTHING;
 
--- E1 (base con IVA = (1250 + 200) / 0.87 = 1666.666...): 3 cuotas 40/30/30.
+-- E1 (base con IVA = 1250 / 0.87 = 1436.78...): 3 cuotas 40/30/30.
+-- Cobranzas Fase 7 (decision del operador Q41): la base de las cuotas son SOLO los honorarios.
+-- Los 200 de gastos presupuestados salieron de aca porque ahora los gastos se cobran por su
+-- propia fila, con lo EJECUTADO; sumarlos a la base los cobraria dos veces.
 --   i1 Completed  (cobrada, TC pago != TC factura para probar que collected usa payment_exchange_rate)
 --   i2 Invoiced   (facturada hace > 90 dias -> vencido>90d; agreed_payment_date = hoy-2 -> chip vencidas)
 --   i3 Pending    (agreed_invoice_date = hoy-1 -> en mora / Bloque C)
@@ -992,7 +995,7 @@ DECLARE v jsonb; v_base numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: solo E1 tiene installment_base valorizable en USD
   v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
-  v_base := (1250 + 200) / 0.87;  -- installment_base de E1
+  v_base := 1250 / 0.87;  -- installment_base de E1: solo honorarios (Fase 7, Q41)
   IF abs((v->'economic_cycle'->>'to_invoice_bob')::numeric - v_base*6.96) > 0.05 THEN
     RAISE EXCEPTION 'FAIL: to_invoice_bob esperado ~% (base c/IVA * 6.96), obtuvo %', v_base*6.96,
       v->'economic_cycle'->>'to_invoice_bob';

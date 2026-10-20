@@ -1990,7 +1990,17 @@
       "validationSavePlanFirst": "Guarda los cambios del plan de pagos antes de cambiar el estado de la cuota.",
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
-      "confirmCollectionDateAction": "Guardar fecha"
+      "confirmCollectionDateAction": "Guardar fecha",
+      "expenseRowsTitle": "Gastos ejecutados",
+      "expenseRowsHelp": "Los gastos ya revisados por Contabilidad se le cobran al cliente en su propia fila, aparte de las cuotas de honorarios.",
+      "expenseRowsBill": "Facturar gastos ejecutados (Bs {{amount}})",
+      "expenseRowsNothingToBill": "Sin gastos pendientes de facturar",
+      "expenseRowsEmpty": "Todavía no se le facturó ningún gasto al cliente.",
+      "expenseRowsSpent": "Gastado",
+      "expenseRowsBilledAmount": "Monto a facturar",
+      "errorExpenseRowForbidden": "Solo Contabilidad puede facturar los gastos ejecutados.",
+      "errorExpenseRowEmpty": "No quedan gastos aprobados pendientes de facturar en esta orden de trabajo.",
+      "errorExpenseRowInvalid": "No se pudo corregir el monto: la fila no es de gastos ejecutados o el monto no es válido."
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",
@@ -2403,10 +2413,12 @@
         "installment": {
           "status_changed": "Cuota {{installment_number}} cambió de estado",
           "due_this_week": "Cuotas por vencer esta semana",
-            "confirmation_pending": "Cuota {{installment_number}} de {{engagement_code}}: falta confirmar con el cliente",
-            "billing_late": "Cuota {{installment_number}} de {{engagement_code}}: facturación atrasada",
-            "rescheduled": "Cuota {{installment_number}} de {{engagement_code}} se reprogramó al {{new_date}}",
-            "note_added": "Nota nueva en la cuota {{installment_number}} de {{engagement_code}}",
+          "confirmation_pending": "Cuota {{installment_number}} de {{engagement_code}}: falta confirmar con el cliente",
+          "billing_late": "Cuota {{installment_number}} de {{engagement_code}}: facturación atrasada",
+          "rescheduled": "Cuota {{installment_number}} de {{engagement_code}} se reprogramó al {{new_date}}",
+          "note_added": "Nota nueva en la cuota {{installment_number}} de {{engagement_code}}",
+          "expense_row_created": "Se facturaron gastos ejecutados de {{engagement_code}} por {{currency}} {{amount}}",
+          "expense_row_amount_changed": "Cambió el monto de los gastos facturados de {{engagement_code}} a {{currency}} {{amount}}",
           "overdue": "Cuotas vencidas"
         },
         "client": {

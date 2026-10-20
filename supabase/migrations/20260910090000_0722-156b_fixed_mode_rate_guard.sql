@@ -90,11 +90,23 @@ BEGIN
     -- lectura" segun el mismo criterio ya usado en wo_payment_plan_guard_exchange_rate
     -- (que si bloquea INSERT/DELETE del plan en ambos estados), pero el INSERT de
     -- una cuota nueva se colaba igual durante esa ventana.
-    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+    -- Cobranzas Fase 7: la fila de GASTOS EJECUTADOS es la excepcion. El bloqueo de arriba
+    -- protege el plan de HONORARIOS, que es un contrato cerrado antes de aprobar la OT; los
+    -- gastos ejecutados aparecen despues, por definicion, asi que exigir la OT en Draft los
+    -- dejaria sin poder facturarse nunca. La crea create_expense_reimbursement_row(), que ya
+    -- verifica que quien llama sea contabilidad o admin.
+    IF NOT public.is_admin()
+       AND NEW.installment_type <> 'expense_reimbursement'
+       AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
-    IF v_exchange_rate_mode = 'fijo' AND (
+    -- Cobranzas Fase 7: la fila de gastos ejecutados tampoco entra aca. El modo Fijo es una
+    -- garantia sobre el HONORARIO: toda cuota que lo reparte se convierte al mismo TC. Los
+    -- gastos se rinden y se cobran en BOB, asi que no hay nada que convertir, y exigirles el
+    -- TC del plan solo le pondria un numero sin sentido a una fila que no lo usa.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.installment_type <> 'expense_reimbursement' AND (
       NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
       OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
     ) THEN
@@ -116,6 +128,13 @@ BEGIN
   -- via sync_wo_payment_installments).
   IF NEW.plan_id IS DISTINCT FROM OLD.plan_id OR NEW.wo_id IS DISTINCT FROM OLD.wo_id THEN
     RAISE EXCEPTION 'INSTALLMENT_PLAN_IMMUTABLE: una cuota no puede reasignarse a otro plan de pagos ni a otra orden de trabajo';
+  END IF;
+
+  -- Cobranzas Fase 7: una fila de honorarios no se convierte en una de gastos ni al reves.
+  -- Son cosas distintas (una reparte el 100% del fee, la otra lleva monto fijo y gastos
+  -- vinculados) y convertirla dejaria el plan sin cuadrar, sin que nada lo avise.
+  IF NEW.installment_type IS DISTINCT FROM OLD.installment_type THEN
+    RAISE EXCEPTION 'INSTALLMENT_TYPE_IMMUTABLE: el tipo de una cuota no se puede cambiar';
   END IF;
 
   -- MUST FIX review iteracion 16 #1 (greptile + codex): la policy RLS "Accounting can
@@ -159,7 +178,11 @@ BEGIN
        OR NEW.confirmed_by IS DISTINCT FROM OLD.confirmed_by
        OR NEW.confirmed_at IS DISTINCT FROM OLD.confirmed_at
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
-       OR NEW.amount IS DISTINCT FROM OLD.amount
+       -- Cobranzas Fase 7 (decision Q24): el monto SI lo corrige contabilidad, pero solo en
+       -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
+       -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
+       OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
     THEN

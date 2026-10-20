@@ -133,6 +133,10 @@ vi.mock("@/hooks/mutations", () => ({
   useBatchUpsertInstallments: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeletePaymentPlan: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveWorkOrderStaffing: () => ({ mutateAsync: mockSaveStaffingAsync, isPending: false }),
+  // Cobranzas Fase 7: las dos RPC con las que Contabilidad le factura al cliente los gastos
+  // ya ejecutados.
+  useCreateExpenseReimbursementRow: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetExpenseReimbursementAmount: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

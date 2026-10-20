@@ -153,6 +153,9 @@ const WorkOrderEdit = () => {
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlanInput | null>(null);
   const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentInput[]>([]);
+  // Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+  // ejecutados. Viven aparte del plan de honorarios y son de sólo lectura para esta pantalla.
+  const [expenseRows, setExpenseRows] = useState<PaymentInstallmentInput[]>([]);
   const [originalPaymentPlan, setOriginalPaymentPlan] = useState<PaymentPlanInput | null>(null);
   const [originalInstallments, setOriginalInstallments] = useState<PaymentInstallmentInput[]>([]);
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
@@ -269,14 +272,35 @@ const WorkOrderEdit = () => {
             status: i.status as PaymentInstallmentInput["status"],
             invoice_exchange_rate: i.invoice_exchange_rate !== null ? Number(i.invoice_exchange_rate) : null,
             payment_exchange_rate: i.payment_exchange_rate !== null ? Number(i.payment_exchange_rate) : null,
+            // Cobranzas Fases 3 a 7: se arrastran tal cual. Antes se perdían en este map, y
+            // con ellas la fecha reprogramada, la confirmación del cliente y la moneda de la
+            // cuota: la pantalla volvía a mostrar la fecha acordada en cuanto se recargaba.
+            current_invoice_date: i.current_invoice_date,
+            current_payment_date: i.current_payment_date,
+            confirmation_status: i.confirmation_status ?? undefined,
+            confirmed_for_date: i.confirmed_for_date,
+            confirmed_by: i.confirmed_by,
+            confirmed_at: i.confirmed_at,
+            currency: i.currency,
+            invoice_exchange_rate_date: i.invoice_exchange_rate_date,
+            installment_type: i.installment_type ?? "fee",
+            net_amount: i.net_amount !== null && i.net_amount !== undefined ? Number(i.net_amount) : null,
           }));
+        // Cobranzas Fase 7: las filas de gastos ejecutados NO son parte del plan de
+        // honorarios. Se separan acá para que no entren en el reparto del 100%, no se manden
+        // al guardar (sync_wo_payment_installments sólo toca las de honorarios) y no cuenten
+        // como cambio pendiente: las crea y las edita Contabilidad, por sus propias RPC.
+        const feeInstalls = installs.filter((i) => i.installment_type !== "expense_reimbursement");
+        const expenseInstalls = installs.filter((i) => i.installment_type === "expense_reimbursement");
         setPaymentPlan(plan);
-        setPaymentInstallments(installs);
+        setPaymentInstallments(feeInstalls);
+        setExpenseRows(expenseInstalls);
         setOriginalPaymentPlan(plan);
-        setOriginalInstallments(JSON.parse(JSON.stringify(installs)));
+        setOriginalInstallments(JSON.parse(JSON.stringify(feeInstalls)));
       } else {
         setPaymentPlan(null);
         setPaymentInstallments([]);
+        setExpenseRows([]);
         setOriginalPaymentPlan(null);
         setOriginalInstallments([]);
       }
@@ -635,8 +659,11 @@ const WorkOrderEdit = () => {
       setPaymentInstallments(syncedInstallments);
       setOriginalPaymentPlan(updatedPlan);
       setOriginalInstallments(JSON.parse(JSON.stringify(syncedInstallments)));
-    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id) {
-      // All installments removed → delete the plan (cascades to installments)
+    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id && expenseRows.length === 0) {
+      // All installments removed → delete the plan (cascades to installments).
+      // Cobranzas Fase 7: salvo que cuelguen de él las filas de gastos ejecutados. El borrado
+      // en cascada se las llevaría, y son de Contabilidad, no del plan de honorarios: quitar
+      // la última cuota de honorarios no puede borrar lo que ya se le facturó al cliente.
       await deletePaymentPlan.mutateAsync({
         planId: paymentPlan.plan_id,
         woId: workOrder.wo_id,
@@ -1053,6 +1080,11 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
           paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
+          paymentExpenseRows={isAdministrativeEngagement ? [] : expenseRows}
+          // Cobranzas Fase 7 (decisión Q24): facturar los gastos ejecutados es de
+          // Contabilidad, y sólo con la OT aprobada — antes de aprobar no hay nada ejecutado.
+          // El servidor lo verifica igual en create_expense_reimbursement_row().
+          canBillExpenses={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
