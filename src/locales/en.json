@@ -76,7 +76,10 @@
     "status": "Status",
     "back": "Back",
     "none": "None",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "retry": "Retry",
+    "previous": "Previous",
+    "next": "Next"
   },
   "nav": {
     "main": "Main",
@@ -102,7 +105,8 @@
     "planning": "Planning",
     "scheduler": "Scheduler",
     "schedulerGaps": "Gap Reporting",
-    "fundRequestWorkOrders": "Expenses by WO"
+    "fundRequestWorkOrders": "Expenses by WO",
+    "collections": "Collections"
   },
   "tracker": {
     "title": "Time Records",
@@ -3205,5 +3209,56 @@
       "sheetName": "Expenses by WO",
       "filenamePrefix": "WO_Expenses"
     }
+  },
+  "collections": {
+    "title": "Collections",
+    "subtitle": "What to invoice, what is still uncollected and what is overdue.",
+    "forbidden": "This screen belongs to Accounting.",
+    "roleLoadFailed": "Your role could not be verified.",
+    "loadFailed": "Collections could not be loaded.",
+    "empty": "No installments match these filters.",
+    "tab_por_facturar": "To invoice",
+    "tab_por_cobrar": "To collect",
+    "tab_en_mora": "Overdue",
+    "tab_cobradas": "Collected",
+    "totalToBillThisMonth": "To invoice this month",
+    "totalBilledUncollected": "Invoiced, uncollected",
+    "totalOverdue": "Overdue",
+    "search": "Search",
+    "searchPlaceholder": "Client or engagement",
+    "filterAll": "All",
+    "filterSociety": "Society",
+    "filterPractice": "Practice",
+    "filterManager": "Manager",
+    "filterCurrency": "Currency",
+    "filterDateFrom": "From",
+    "filterDateTo": "To",
+    "groupByClient": "Group by client",
+    "includeExpenseRows": "Include executed expenses",
+    "export": "Export",
+    "pageOf": "Page {{page}} of {{pages}} · {{total}} installments",
+    "statusOverdue": "Overdue",
+    "typeFee": "Fees",
+    "typeExpense": "Executed expenses",
+    "typeExpenseShort": "Expenses",
+    "rescheduledTooltip": "This date was rescheduled.",
+    "hasNotesTooltip": "This installment has notes.",
+    "noContact": "No collections contact",
+    "colClient": "Client",
+    "colTaxId": "Tax ID",
+    "colEngagement": "Engagement",
+    "colManager": "Manager",
+    "colInstallment": "Installment",
+    "colType": "Type",
+    "colAmount": "Amount",
+    "colCurrency": "Currency",
+    "colAgreedDate": "Agreed date",
+    "colCurrentDate": "Current date",
+    "colStatus": "Status",
+    "colDaysOverdue": "Days overdue",
+    "colContact": "Contact",
+    "colContactName": "Contact",
+    "colContactEmail": "Email",
+    "colContactPhone": "Phone"
   }
 }

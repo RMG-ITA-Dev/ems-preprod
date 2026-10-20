@@ -9175,6 +9175,306 @@ $$;
 
 --
 --
+-- Name: list_collections_installments(text, uuid, integer, uuid, uuid, date, date, text, text, boolean, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 8 (issue #352) — la pantalla de Cobranzas del dia a dia.
+--
+-- Devuelve TRES cosas en una sola llamada, porque la pantalla las muestra juntas y pedirlas por
+-- separado abriria la puerta a que los totales de arriba no cuadren con la lista de abajo:
+--   * `rows`        -- la pagina pedida de la pestana pedida;
+--   * `total_count` -- cuantas filas tiene esa pestana con esos filtros (paginador);
+--   * `totals`      -- los tres totales de la cabecera, POR MONEDA, sobre el universo filtrado
+--                      SIN la pestana: la cabecera describe la cartera, no la pestana abierta.
+--
+-- Las cuatro pestanas salen de la REGLA UNICA de mora (wo_installment_calendar_state), nunca de
+-- un criterio propio, y son disjuntas: una cuota facturada y vencida esta en "en_mora" y no en
+-- "por_cobrar", asi que nada se cuenta dos veces.
+--
+-- Nunca se suman montos de monedas distintas: cada total es un objeto {moneda: importe}. Es la
+-- misma regla de la Fase 6, y el motivo es el mismo -- un numero que mezcla Bs y USD no
+-- significa nada.
+--
+-- Encargos ADMINISTRATIVOS fuera (decision del operador 2026-10-20). En rigor ya no pueden
+-- llegar: enforce_administrative_no_payment_plan (0722-160) le prohibe el plan de pagos a una
+-- OT administrativa, asi que no tiene cuotas. El filtro por `funcion` es la segunda cerradura,
+-- por una linea, por si una fila heredada de antes de ese trigger se saltó la primera.
+CREATE FUNCTION public.list_collections_installments(
+  p_tab text DEFAULT 'por_facturar',
+  p_society_id uuid DEFAULT NULL,
+  p_practica integer DEFAULT NULL,
+  p_manager_id uuid DEFAULT NULL,
+  p_client_id uuid DEFAULT NULL,
+  p_date_from date DEFAULT NULL,
+  p_date_to date DEFAULT NULL,
+  p_currency text DEFAULT NULL,
+  p_search text DEFAULT NULL,
+  p_include_expense_rows boolean DEFAULT true,
+  p_limit integer DEFAULT 50,
+  p_offset integer DEFAULT 0
+) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_today date := public.fund_today();
+  v_month_start date := date_trunc('month', v_today)::date;
+  v_month_end date := (date_trunc('month', v_today) + interval '1 month - 1 day')::date;
+  v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
+  v_search text := NULLIF(btrim(COALESCE(p_search, '')), '');
+  v_result jsonb;
+BEGIN
+  -- Misma puerta que el resto de cobranzas (decision Q58): Gerente de Contabilidad y Analista
+  -- de Cobranzas, mas admin. El Analista de Contabilidad queda fuera: solo trabaja fondos.
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'COLLECTIONS_FORBIDDEN: esta vista es de contabilidad (o de un administrador)';
+  END IF;
+
+  IF p_tab IS NULL OR p_tab NOT IN ('por_facturar', 'por_cobrar', 'en_mora', 'cobradas') THEN
+    RAISE EXCEPTION 'COLLECTIONS_TAB_INVALID: pestana desconocida (%)', p_tab;
+  END IF;
+
+  WITH base AS (
+    SELECT
+      i.installment_id,
+      i.installment_number,
+      i.installment_type,
+      i.amount,
+      i.status,
+      i.confirmation_status,
+      i.agreed_invoice_date,
+      i.agreed_payment_date,
+      i.current_invoice_date,
+      i.collection_invoice_date,
+      i.collection_payment_date,
+      i.payment_date_actual,
+      wo.wo_id,
+      e.engagement_id,
+      e.engagement_code,
+      e.engagement_name,
+      e.society_id,
+      e.practica,
+      e.manager_id,
+      c.client_id,
+      c.client_legal_name,
+      c.unique_tax_id,
+      COALESCE(i.currency, wo.currency) AS row_currency,
+      -- La fecha que la pantalla llama "vigente": la reprogramada si la hubo.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date_vigente,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS due_date_vigente,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date, v_today
+      ) AS calendar_state,
+      (i.current_invoice_date IS NOT NULL) AS was_rescheduled,
+      m.first_name AS manager_first_name,
+      m.last_name AS manager_last_name
+    FROM public.wo_payment_installments i
+    JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff m ON m.staff_id = e.manager_id
+    WHERE wo.approval_status = 'Approved'
+      -- Encargos administrativos fuera (ver la nota de arriba).
+      AND (e.funcion IS NULL OR e.funcion = 1)
+      AND (p_include_expense_rows OR i.installment_type = 'fee')
+      AND (p_society_id IS NULL OR e.society_id = p_society_id)
+      AND (p_practica IS NULL OR e.practica = p_practica)
+      AND (p_manager_id IS NULL OR e.manager_id = p_manager_id)
+      AND (p_client_id IS NULL OR c.client_id = p_client_id)
+      AND (p_currency IS NULL OR COALESCE(i.currency, wo.currency) = p_currency)
+      AND (v_search IS NULL
+           OR c.client_legal_name ILIKE '%' || v_search || '%'
+           OR e.engagement_code ILIKE '%' || v_search || '%'
+           OR e.engagement_name ILIKE '%' || v_search || '%')
+  ),
+  dated AS (
+    SELECT b.*,
+      -- La fecha por la que se filtra y se ordena cambia con la etapa, porque cambia la
+      -- pregunta: antes de facturar importa CUANDO hay que facturar; despues, cuando vence.
+      CASE WHEN b.status = 'Pending' THEN b.invoice_date_vigente ELSE b.due_date_vigente END AS fecha_relevante,
+      CASE WHEN b.calendar_state = 'overdue' AND b.due_date_vigente IS NOT NULL
+           THEN GREATEST(v_today - b.due_date_vigente, 0) ELSE 0 END AS days_overdue
+    FROM base b
+  ),
+  filtered AS (
+    SELECT d.* FROM dated d
+    WHERE (p_date_from IS NULL OR d.fecha_relevante >= p_date_from)
+      AND (p_date_to IS NULL OR d.fecha_relevante <= p_date_to)
+  ),
+  -- Las cuatro pestanas, disjuntas por construccion.
+  tabbed AS (
+    SELECT f.* FROM filtered f
+    WHERE CASE p_tab
+      WHEN 'por_facturar' THEN f.status = 'Pending'
+      WHEN 'por_cobrar'   THEN f.status = 'Invoiced' AND f.calendar_state <> 'overdue'
+      WHEN 'en_mora'      THEN f.calendar_state = 'overdue'
+      WHEN 'cobradas'     THEN f.status = 'Completed'
+    END
+  ),
+  page AS (
+    SELECT t.* FROM tabbed t
+    ORDER BY t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number
+    LIMIT v_limit OFFSET v_offset
+  ),
+  -- Los tres totales de la cabecera, por moneda. Se calculan sobre `filtered`: describen la
+  -- cartera que los filtros dejaron a la vista, no la pestana abierta.
+  tot_por_facturar AS (
+    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+     WHERE f.status = 'Pending'
+       AND f.invoice_date_vigente BETWEEN v_month_start AND v_month_end
+     GROUP BY f.row_currency
+  ),
+  tot_sin_cobrar AS (
+    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+     WHERE f.status IN ('Invoiced', 'Overdue')
+     GROUP BY f.row_currency
+  ),
+  tot_en_mora AS (
+    SELECT f.row_currency, SUM(f.amount) AS total FROM filtered f
+     WHERE f.calendar_state = 'overdue'
+     GROUP BY f.row_currency
+  )
+  SELECT jsonb_build_object(
+    'today', v_today,
+    'tab', p_tab,
+    'limit', v_limit,
+    'offset', v_offset,
+    'total_count', (SELECT COUNT(*) FROM tabbed),
+    'totals', jsonb_build_object(
+      'por_facturar_mes',     COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_por_facturar), '{}'::jsonb),
+      'facturado_sin_cobrar', COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_sin_cobrar), '{}'::jsonb),
+      'en_mora',              COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_en_mora), '{}'::jsonb)
+    ),
+    'rows', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'installment_id',     p.installment_id,
+        'installment_number', p.installment_number,
+        'installment_type',   p.installment_type,
+        'wo_id',              p.wo_id,
+        'engagement_id',      p.engagement_id,
+        'engagement_code',    p.engagement_code,
+        'engagement_name',    p.engagement_name,
+        'client_id',          p.client_id,
+        'client_legal_name',  p.client_legal_name,
+        'unique_tax_id',      p.unique_tax_id,
+        'society_id',         p.society_id,
+        'practica',           p.practica,
+        'manager_id',         p.manager_id,
+        'manager_name',       NULLIF(btrim(COALESCE(p.manager_first_name, '') || ' ' || COALESCE(p.manager_last_name, '')), ''),
+        'amount',             p.amount,
+        'currency',           p.row_currency,
+        'status',             p.status,
+        'calendar_state',     p.calendar_state,
+        'confirmation_status', p.confirmation_status,
+        'agreed_invoice_date', p.agreed_invoice_date,
+        'agreed_payment_date', p.agreed_payment_date,
+        'invoice_date_vigente', p.invoice_date_vigente,
+        'due_date_vigente',   p.due_date_vigente,
+        'collection_invoice_date', p.collection_invoice_date,
+        'payment_date_actual', p.payment_date_actual,
+        'fecha_relevante',    p.fecha_relevante,
+        'days_overdue',       p.days_overdue,
+        'was_rescheduled',    p.was_rescheduled,
+        -- Si la cuota tiene notas, para el icono de la fila. Las notas en si se leen al abrir
+        -- la OT: traerlas todas aca hincharia la respuesta sin que la lista las muestre.
+        'has_notes', EXISTS (
+          SELECT 1 FROM public.wo_installment_notes n
+           WHERE n.installment_id = p.installment_id AND n.deleted_at IS NULL
+        ),
+        -- El contacto con el que hay que cobrar, a mano en la fila (decision 2026-10-20): el de
+        -- cobranza, y si el cliente no tiene, el general. Sin esto habria que abrir la ficha
+        -- del cliente para cada llamada.
+        'contact', (
+          SELECT jsonb_build_object(
+            'full_name', cc.full_name, 'email', cc.email, 'phone', cc.phone, 'contact_type', cc.contact_type
+          )
+          FROM public.client_contacts cc
+          WHERE cc.client_id = p.client_id AND cc.is_active
+          ORDER BY (cc.contact_type = 'cobranza') DESC, cc.created_at
+          LIMIT 1
+        )
+      ) ORDER BY p.fecha_relevante NULLS LAST, p.client_legal_name, p.installment_number)
+      FROM page p
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+
+--
+--
+-- Name: collections_filter_options(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 8 — las opciones de los selectores de la pantalla de Cobranzas.
+--
+-- Va por RPC propia, y no leyendo society/practicas/staff desde el cliente, por dos motivos:
+--   * los roles de contabilidad no tienen `client.read` ni `staff.read` (por eso la Fase 5 ya
+--     tuvo que traer los contactos por RPC), asi que esas tablas no les responden;
+--   * las listas salen de lo que REALMENTE hay para cobrar. Un selector con las 20 sociedades
+--     de la firma cuando solo 3 tienen cuotas pendientes hace perder tiempo: se elige una y la
+--     tabla queda vacia.
+CREATE FUNCTION public.collections_filter_options() RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'COLLECTIONS_FORBIDDEN: esta vista es de contabilidad (o de un administrador)';
+  END IF;
+
+  WITH cobrables AS (
+    SELECT DISTINCT e.society_id, e.practica, e.manager_id
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+     WHERE wo.approval_status = 'Approved'
+       AND (e.funcion IS NULL OR e.funcion = 1)
+  )
+  SELECT jsonb_build_object(
+    'societies', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('society_id', s.society_id, 'name', s.name) ORDER BY s.name)
+        FROM public.society s
+       WHERE s.society_id IN (SELECT society_id FROM cobrables WHERE society_id IS NOT NULL)
+    ), '[]'::jsonb),
+    'practicas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('code', p.code, 'name', p.name, 'abbreviation', p.abbreviation) ORDER BY p.code)
+        FROM public.practicas p
+       WHERE p.code IN (SELECT practica FROM cobrables WHERE practica IS NOT NULL)
+    ), '[]'::jsonb),
+    'managers', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'staff_id', st.staff_id,
+               'name', NULLIF(btrim(COALESCE(st.first_name, '') || ' ' || COALESCE(st.last_name, '')), '')
+             ) ORDER BY st.first_name, st.last_name)
+        FROM public.staff st
+       WHERE st.staff_id IN (SELECT manager_id FROM cobrables WHERE manager_id IS NOT NULL)
+    ), '[]'::jsonb),
+    'currencies', COALESCE((
+      SELECT jsonb_agg(DISTINCT COALESCE(i.currency, wo.currency))
+        FROM public.wo_payment_installments i
+        JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+        JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+       WHERE wo.approval_status = 'Approved'
+         AND (e.funcion IS NULL OR e.funcion = 1)
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+
+
+
+--
+--
 -- Name: wo_payment_plan; Type: TABLE; Schema: public; Owner: -
 --
 

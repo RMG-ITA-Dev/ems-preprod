@@ -1,0 +1,527 @@
+-- Cobranzas Fase 8 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
+-- Una sola transaccion, SIEMPRE hace ROLLBACK.
+--
+-- Bajo prueba: list_collections_installments(), la RPC detras de la pantalla de Cobranzas.
+--   * El rol: Gerente de Contabilidad y Analista de Cobranzas, mas admin. El Analista de
+--     Contabilidad queda FUERA (decision Q58 / Q14).
+--   * Las cuatro pestanas son DISJUNTAS y salen de la regla unica de mora: una cuota
+--     facturada y vencida esta en "en_mora" y no en "por_cobrar". Si no fueran disjuntas, la
+--     misma plata se contaria dos veces en la pantalla.
+--   * Los totales de la cabecera van POR MONEDA y se calculan sobre el universo FILTRADO,
+--     ignorando la pestana abierta: la cabecera describe la cartera, no la pestana.
+--   * Los encargos administrativos no entran.
+--   * Filtros, busqueda, paginacion y el interruptor de las filas de gastos (Fase 7).
+--
+-- Salida de exito: un NOTICE por chequeo y al final "COBRANZAS FASE 8: ALL CHECKS PASSED".
+
+BEGIN;
+
+-- La fecha se fija para que las pestanas no dependan del dia en que se corra la prueba.
+SELECT set_config('app.fund_today', '2026-06-15', true);
+
+-- ── Fixtures ──────────────────────────────────────────────────────────
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-0000000000c1', 'CF8 Practice', 1, 'AUD')
+ON CONFLICT (code) DO NOTHING;
+INSERT INTO public.practicas (practica_id, name, code, abbreviation)
+VALUES ('5e000000-0000-4000-8000-0000000000c2', 'CF8 Practice 2', 2, 'TAX')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO public.society (society_id, name) VALUES
+  ('50c00000-0000-4000-8000-0000000000c1', 'CF8 Society A'),
+  ('50c00000-0000-4000-8000-0000000000c2', 'CF8 Society B');
+
+-- Un encargo administrativo solo se puede crear contra el cliente interno de SU sociedad
+-- (enforce_administrative_engagement_rules, 0722-160), y ese par es dato real: la sociedad y el
+-- NIT ya vienen sembrados. Se reusan en vez de inventar otros, que el trigger rechazaria.
+INSERT INTO public.society (society_id, name)
+VALUES ('50c00000-0000-4000-8000-0000000000c3', 'Ruizmier Pelaez S.R.L.')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+  ('c1000000-0000-4000-8000-0000000000c1', 'CF8 Cliente Uno', 'CF8-TAX-001'),
+  ('c1000000-0000-4000-8000-0000000000c2', 'CF8 Cliente Dos', 'CF8-TAX-002');
+
+INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+VALUES ('c1000000-0000-4000-8000-0000000000c3', 'Ruizmier Pelaez S.R.L.', '1006979026')
+ON CONFLICT (unique_tax_id) DO NOTHING;
+
+CREATE FUNCTION pg_temp.impersonate(p_sub uuid) RETURNS void
+LANGUAGE sql AS $$
+  SELECT set_config('request.jwt.claims', json_build_object('sub', p_sub, 'role', 'authenticated')::text, true)
+$$;
+
+INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at, raw_app_meta_data, raw_user_meta_data) VALUES
+  ('a1c00000-0000-4000-8000-0000000000c1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-admin@test.local',      '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000c2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-manager@test.local',    '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000c3', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-collections@test.local','', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000c4', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-acctmgr@test.local',    '', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000c5', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-acctanalyst@test.local','', now(), now(), now(), '{}', '{}'),
+  ('a1c00000-0000-4000-8000-0000000000c6', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cf8-manager2@test.local',   '', now(), now(), now(), '{}', '{}');
+
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, practica_id, society_id) VALUES
+  ('51c00000-0000-4000-8000-0000000000c1', 'a1c00000-0000-4000-8000-0000000000c1', 'CF8', 'Admin',       true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000c2', 'a1c00000-0000-4000-8000-0000000000c2', 'Ana',  'Gerente',    true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000c3', 'a1c00000-0000-4000-8000-0000000000c3', 'CF8', 'Collections', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000c4', 'a1c00000-0000-4000-8000-0000000000c4', 'CF8', 'AcctMgr',     true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000c5', 'a1c00000-0000-4000-8000-0000000000c5', 'CF8', 'AcctAnalyst', true, (SELECT practica_id FROM public.practicas WHERE code = 1), '50c00000-0000-4000-8000-0000000000c1'),
+  ('51c00000-0000-4000-8000-0000000000c6', 'a1c00000-0000-4000-8000-0000000000c6', 'Beto', 'Gerente2',   true, (SELECT practica_id FROM public.practicas WHERE code = 2), '50c00000-0000-4000-8000-0000000000c2');
+
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a1c00000-0000-4000-8000-0000000000c1', 'admin', 'admin'),
+  ('a1c00000-0000-4000-8000-0000000000c2', 'staff', 'manager'),
+  ('a1c00000-0000-4000-8000-0000000000c3', 'staff', 'collections_analyst'),
+  ('a1c00000-0000-4000-8000-0000000000c4', 'staff', 'accounting_manager'),
+  ('a1c00000-0000-4000-8000-0000000000c5', 'staff', 'accounting_analyst'),
+  ('a1c00000-0000-4000-8000-0000000000c6', 'staff', 'manager');
+
+-- E1/E2: encargos normales de dos sociedades y practicas distintas, para los filtros.
+-- E3: ADMINISTRATIVO (funcion <> 1). No deberia aparecer nunca, ni aunque le colguemos
+-- cuotas a mano, que es justamente lo que hace esta prueba.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, practica, funcion, fecha_cierre, society_id, manager_id) VALUES
+  ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'CF8 Auditoria Uno', 'CF8-E1', 1, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c2'),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c2', 'CF8 Impuestos Dos', 'CF8-E2', 2, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c2', '51c00000-0000-4000-8000-0000000000c6'),
+  ('e0000000-0000-4000-8000-0000000000c3',
+   (SELECT client_id FROM public.clients WHERE unique_tax_id = '1006979026'),
+   'CF8 Administrativo', 'CF8-E3', 1, 2, '2026-12-31',
+   (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+   '51c00000-0000-4000-8000-0000000000c2'),
+  -- E4 existe solo para colgarle la OT que se queda en Draft: cada encargo lleva UNA OT.
+  ('e0000000-0000-4000-8000-0000000000c4', 'c1000000-0000-4000-8000-0000000000c1', 'CF8 Sin Aprobar', 'CF8-E4', 1, 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c2');
+
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
+  ('40000000-0000-4000-8000-0000000000c1', 'e0000000-0000-4000-8000-0000000000c1', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000c2', 'e0000000-0000-4000-8000-0000000000c2', 'USD', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000c3', 'e0000000-0000-4000-8000-0000000000c3', 'BOB', 'High', 'Draft'),
+  -- Esta queda en Draft a proposito: una OT sin aprobar no se cobra, asi que no se lista.
+  ('40000000-0000-4000-8000-0000000000c4', 'e0000000-0000-4000-8000-0000000000c4', 'BOB', 'High', 'Draft');
+
+INSERT INTO public.client_contacts (client_id, contact_type, full_name, email, phone) VALUES
+  ('c1000000-0000-4000-8000-0000000000c1', 'general',  'Contacto General Uno', 'general1@test.local', '111'),
+  ('c1000000-0000-4000-8000-0000000000c1', 'cobranza', 'Contacto Cobranza Uno', 'cobranza1@test.local', '222'),
+  -- El cliente dos SOLO tiene general: la RPC debe caer a ese.
+  ('c1000000-0000-4000-8000-0000000000c2', 'general',  'Contacto General Dos', 'general2@test.local', '333');
+
+DO $$
+DECLARE
+  c_admin       uuid := 'a1c00000-0000-4000-8000-0000000000c1';
+  c_manager     uuid := 'a1c00000-0000-4000-8000-0000000000c2';
+  c_collections uuid := 'a1c00000-0000-4000-8000-0000000000c3';
+  c_acctmgr     uuid := 'a1c00000-0000-4000-8000-0000000000c4';
+  c_acctanalyst uuid := 'a1c00000-0000-4000-8000-0000000000c5';
+  c_wo1         uuid := '40000000-0000-4000-8000-0000000000c1';
+  c_wo2         uuid := '40000000-0000-4000-8000-0000000000c2';
+  c_wo3         uuid := '40000000-0000-4000-8000-0000000000c3';
+  c_wo4         uuid := '40000000-0000-4000-8000-0000000000c4';
+  c_soc_a       uuid := '50c00000-0000-4000-8000-0000000000c1';
+  c_mgr2        uuid := '51c00000-0000-4000-8000-0000000000c6';
+  c_cli1        uuid := 'c1000000-0000-4000-8000-0000000000c1';
+  v_today  date := public.fund_today();
+  v_plan1  uuid;
+  v_plan2  uuid;
+  v_plan3  uuid;
+  v_plan4  uuid;
+  v_exp    uuid;
+  v_res    jsonb;
+  v_n      integer;
+  v_txt    text;
+  denied   boolean;
+BEGIN
+  -- ── Plan 1 (OT BOB, sociedad A, practica 1, gerente Ana) ────────────
+  -- Cuatro cuotas, una por pestana, para que cada chequeo tenga su caso:
+  --   1. Pending con fecha de facturacion dentro del mes  -> por_facturar (y total del mes)
+  --   2. Invoiced con vencimiento futuro                  -> por_cobrar
+  --   3. Invoiced con vencimiento pasado                  -> en_mora (por fecha)
+  --   4. Completed                                        -> cobradas
+  PERFORM pg_temp.impersonate(c_manager);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo1, 30, 6.96, 'variable') RETURNING plan_id INTO v_plan1;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES
+    (v_plan1, c_wo1, 1, 25, 1000, 'Pending', v_today + 5,  v_today + 35, 6.96, 6.96),
+    (v_plan1, c_wo1, 2, 25, 2000, 'Pending', v_today - 20, v_today + 10, 6.96, 6.96),
+    (v_plan1, c_wo1, 3, 25, 3000, 'Pending', v_today - 40, v_today - 10, 6.96, 6.96),
+    (v_plan1, c_wo1, 4, 25, 4000, 'Pending', v_today - 60, v_today - 30, 6.96, 6.96);
+
+  -- Plan 2 (OT USD, sociedad B, practica 2, gerente Beto): una sola cuota en mora, para
+  -- probar que los totales NO mezclan monedas.
+  -- El plan lo crea el gerente DE ESE encargo, y el de E2 es Beto.
+  PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-0000000000c6');
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo2, 30, 6.96, 'variable') RETURNING plan_id INTO v_plan2;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan2, c_wo2, 1, 100, 500, 'Pending', v_today - 40, v_today - 10, 6.96, 6.96);
+
+  PERFORM pg_temp.impersonate(c_manager);
+
+  -- El encargo ADMINISTRATIVO ni siquiera puede tener plan de pagos: la base lo prohibe
+  -- (enforce_administrative_no_payment_plan, 0722-160). O sea que no hay por donde entrar a
+  -- cobranzas. Se verifica aca, porque es la garantia real; el filtro por `funcion` de la RPC
+  -- es la segunda cerradura, por si alguna fila heredada se saltó esta.
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+    VALUES (c_wo3, 30, 6.96, 'variable') RETURNING plan_id INTO v_plan3;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE '%no admiten plan de pagos%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - un encargo administrativo acepto un plan de pagos';
+  END IF;
+  RAISE NOTICE 'PASS - un encargo administrativo no llega a tener cuotas que cobrar';
+
+  -- Plan 4: OT que se queda en Draft.
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo4, 30, 6.96, 'variable') RETURNING plan_id INTO v_plan4;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan4, c_wo4, 1, 100, 7777, 'Pending', v_today + 5, v_today + 35, 6.96, 6.96);
+
+  -- Se aprueban las tres primeras; la cuarta queda en Draft.
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved'
+   WHERE wo_id IN (c_wo1, c_wo2);
+
+  -- Ahora Contabilidad mueve las cuotas a su estado final, por las RPC reales.
+  PERFORM pg_temp.impersonate(c_collections);
+  PERFORM public.invoice_installment(
+    (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 2),
+    'Pending', v_today + 10, v_today, 6.96);
+  PERFORM public.invoice_installment(
+    (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 3),
+    'Pending', v_today - 10, v_today - 40, 6.96);
+  PERFORM public.invoice_installment(
+    (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 4),
+    'Pending', v_today - 30, v_today - 60, 6.96);
+  PERFORM public.collect_installment(
+    (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan1 AND installment_number = 4),
+    'Invoiced', v_today - 25, 6.96);
+  PERFORM public.invoice_installment(
+    (SELECT installment_id FROM public.wo_payment_installments WHERE plan_id = v_plan2 AND installment_number = 1),
+    'Pending', v_today - 10, v_today - 40, 6.96);
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 1. La puerta de entrada
+  -- ══════════════════════════════════════════════════════════════════
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.list_collections_installments('por_facturar');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'COLLECTIONS_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente del encargo entro a la vista de Cobranzas';
+  END IF;
+
+  -- El Analista de Contabilidad tampoco: solo trabaja solicitudes de fondos (Q14).
+  PERFORM pg_temp.impersonate(c_acctanalyst);
+  denied := false;
+  BEGIN
+    PERFORM public.list_collections_installments('por_facturar');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'COLLECTIONS_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el Analista de Contabilidad entro a la vista de Cobranzas';
+  END IF;
+
+  -- Y los dos roles de cobranza ven exactamente lo mismo (Q58).
+  PERFORM pg_temp.impersonate(c_collections);
+  v_res := public.list_collections_installments('en_mora');
+  PERFORM pg_temp.impersonate(c_acctmgr);
+  IF public.list_collections_installments('en_mora') IS DISTINCT FROM v_res THEN
+    RAISE EXCEPTION 'TEST FAIL - el Gerente de Contabilidad y el Analista de Cobranzas ven cosas distintas';
+  END IF;
+  RAISE NOTICE 'PASS - entran los dos roles de cobranza y nadie mas, y ven lo mismo';
+
+  -- Una pestana inventada se rechaza en vez de devolver una lista vacia enganosa.
+  denied := false;
+  BEGIN
+    PERFORM public.list_collections_installments('todas');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'COLLECTIONS_TAB_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una pestana desconocida devolvio resultados';
+  END IF;
+  RAISE NOTICE 'PASS - una pestana desconocida se rechaza';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 2. Las cuatro pestanas, y que sean disjuntas
+  -- ══════════════════════════════════════════════════════════════════
+  PERFORM pg_temp.impersonate(c_collections);
+
+  -- por_facturar: solo la cuota 1 del plan 1. La de la OT que se quedo en Draft tambien esta
+  -- Pending, y tiene que quedar fuera: una OT sin aprobar no se cobra.
+  v_res := public.list_collections_installments('por_facturar');
+  IF (v_res->>'total_count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - por_facturar deberia traer 1 cuota, trajo %', v_res->>'total_count';
+  END IF;
+  IF (v_res->'rows'->0->>'amount')::numeric <> 1000 THEN
+    RAISE EXCEPTION 'TEST FAIL - por_facturar trajo la cuota equivocada (monto %)', v_res->'rows'->0->>'amount';
+  END IF;
+  RAISE NOTICE 'PASS - por_facturar: la OT que no esta aprobada no se cuela';
+
+  -- por_cobrar: facturada y todavia en plazo. La facturada y vencida NO esta aca.
+  v_res := public.list_collections_installments('por_cobrar');
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'amount')::numeric <> 2000 THEN
+    RAISE EXCEPTION 'TEST FAIL - por_cobrar deberia traer solo la cuota de 2000, trajo % filas', v_res->>'total_count';
+  END IF;
+
+  -- en_mora: las dos vencidas, una en Bs y otra en USD.
+  v_res := public.list_collections_installments('en_mora');
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - en_mora deberia traer 2 cuotas, trajo %', v_res->>'total_count';
+  END IF;
+
+  -- cobradas: la que ya se cobro.
+  v_res := public.list_collections_installments('cobradas');
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'amount')::numeric <> 4000 THEN
+    RAISE EXCEPTION 'TEST FAIL - cobradas deberia traer solo la cuota de 4000';
+  END IF;
+  RAISE NOTICE 'PASS - las cuatro pestanas son disjuntas: una cuota vencida esta en en_mora y no en por_cobrar';
+
+  -- Los dias de atraso salen de la fecha de vencimiento VIGENTE, no de la del contrato.
+  v_res := public.list_collections_installments('en_mora', p_currency := 'BOB');
+  IF (v_res->'rows'->0->>'days_overdue')::int <> 10 THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota vencio hace 10 dias, la RPC dice %', v_res->'rows'->0->>'days_overdue';
+  END IF;
+  RAISE NOTICE 'PASS - los dias de atraso se cuentan desde el vencimiento vigente';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 3. Totales: por moneda, y sobre la cartera, no sobre la pestana
+  -- ══════════════════════════════════════════════════════════════════
+  v_res := public.list_collections_installments('cobradas');
+  -- Aunque la pestana abierta sea "cobradas" (1 fila), los totales siguen describiendo todo.
+  IF (v_res->'totals'->'por_facturar_mes'->>'BOB')::numeric <> 1000 THEN
+    RAISE EXCEPTION 'TEST FAIL - por facturar este mes (BOB) deberia ser 1000, fue %', v_res->'totals'->'por_facturar_mes'->>'BOB';
+  END IF;
+  -- Facturado sin cobrar: 2000 (en plazo) + 3000 (vencida) en Bs; 500 en USD.
+  IF (v_res->'totals'->'facturado_sin_cobrar'->>'BOB')::numeric <> 5000 THEN
+    RAISE EXCEPTION 'TEST FAIL - facturado sin cobrar (BOB) deberia ser 5000, fue %', v_res->'totals'->'facturado_sin_cobrar'->>'BOB';
+  END IF;
+  IF (v_res->'totals'->'facturado_sin_cobrar'->>'USD')::numeric <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - facturado sin cobrar (USD) deberia ser 500, fue %', v_res->'totals'->'facturado_sin_cobrar'->>'USD';
+  END IF;
+  -- En mora: 3000 en Bs y 500 en USD, CADA UNO EN LO SUYO. Si en algun momento alguien los
+  -- suma, este chequeo es el que lo caza.
+  IF (v_res->'totals'->'en_mora'->>'BOB')::numeric <> 3000
+     OR (v_res->'totals'->'en_mora'->>'USD')::numeric <> 500 THEN
+    RAISE EXCEPTION 'TEST FAIL - los totales en mora se mezclaron entre monedas';
+  END IF;
+  RAISE NOTICE 'PASS - los totales van por moneda y describen la cartera, no la pestana abierta';
+
+  -- La cuota 1 vence dentro del mes en curso; una del mes que viene no entra en ese total.
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.wo_payment_installments
+     SET agreed_invoice_date = (date_trunc('month', v_today) + interval '2 months')::date
+   WHERE plan_id = v_plan1 AND installment_number = 1;
+  PERFORM pg_temp.impersonate(c_collections);
+  v_res := public.list_collections_installments('por_facturar');
+  IF v_res->'totals'->'por_facturar_mes'->>'BOB' IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - una cuota de otro mes entro en "por facturar este mes"';
+  END IF;
+  -- Pero sigue estando en la pestana: lo que cambia es el total del mes, no la lista.
+  IF (v_res->>'total_count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota salio de la pestana por_facturar al mover su fecha';
+  END IF;
+  RAISE NOTICE 'PASS - "por facturar este mes" mira el mes en curso, y no vacia la pestana';
+
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.wo_payment_installments
+     SET agreed_invoice_date = v_today + 5
+   WHERE plan_id = v_plan1 AND installment_number = 1;
+  PERFORM pg_temp.impersonate(c_collections);
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 4. Filtros y busqueda
+  -- ══════════════════════════════════════════════════════════════════
+  -- Sociedad: la OT en USD es de la sociedad B.
+  v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'BOB' THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por sociedad no dejo solo la cuota de la sociedad A';
+  END IF;
+  -- Y el total de la cabecera sigue al filtro: ya no hay USD a la vista.
+  IF v_res->'totals'->'en_mora'->>'USD' IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - los totales no siguieron al filtro por sociedad';
+  END IF;
+
+  v_res := public.list_collections_installments('en_mora', p_practica := 2);
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'USD' THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por practica no funciono';
+  END IF;
+
+  v_res := public.list_collections_installments('en_mora', p_manager_id := c_mgr2);
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'USD' THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por gerente no funciono';
+  END IF;
+
+  v_res := public.list_collections_installments('en_mora', p_client_id := c_cli1);
+  IF (v_res->>'total_count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por cliente no funciono';
+  END IF;
+
+  -- El buscador mira cliente, codigo y nombre del encargo, sin importar mayusculas.
+  v_res := public.list_collections_installments('en_mora', p_search := 'cliente dos');
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'USD' THEN
+    RAISE EXCEPTION 'TEST FAIL - el buscador por nombre de cliente no funciono';
+  END IF;
+  v_res := public.list_collections_installments('en_mora', p_search := 'cf8-e1');
+  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'BOB' THEN
+    RAISE EXCEPTION 'TEST FAIL - el buscador por codigo de encargo no funciono';
+  END IF;
+  RAISE NOTICE 'PASS - filtros por sociedad, practica, gerente y cliente, y buscador';
+
+  -- Rango de fechas: se aplica sobre la fecha relevante de cada etapa (facturacion antes de
+  -- facturar, vencimiento despues).
+  v_res := public.list_collections_installments('en_mora', p_date_from := v_today - 11, p_date_to := v_today - 9);
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el rango de fechas deberia dejar las 2 cuotas vencidas el mismo dia, dejo %', v_res->>'total_count';
+  END IF;
+  v_res := public.list_collections_installments('en_mora', p_date_from := v_today + 1);
+  IF (v_res->>'total_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el rango de fechas no excluyo nada';
+  END IF;
+  RAISE NOTICE 'PASS - el rango de fechas mira la fecha que importa en cada etapa';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 5. Contacto de cobranza en la fila
+  -- ══════════════════════════════════════════════════════════════════
+  v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
+  IF v_res->'rows'->0->'contact'->>'full_name' <> 'Contacto Cobranza Uno' THEN
+    RAISE EXCEPTION 'TEST FAIL - deberia venir el contacto de COBRANZA, vino %', v_res->'rows'->0->'contact'->>'full_name';
+  END IF;
+  -- El cliente dos no tiene contacto de cobranza: cae al general en vez de quedar sin nada.
+  v_res := public.list_collections_installments('en_mora', p_practica := 2);
+  IF v_res->'rows'->0->'contact'->>'full_name' <> 'Contacto General Dos' THEN
+    RAISE EXCEPTION 'TEST FAIL - sin contacto de cobranza deberia caer al general, vino %', v_res->'rows'->0->'contact'->>'full_name';
+  END IF;
+  RAISE NOTICE 'PASS - la fila trae el contacto de cobranza, o el general como respaldo';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 6. Las filas de gastos ejecutados (Fase 7)
+  -- ══════════════════════════════════════════════════════════════════
+  PERFORM pg_temp.impersonate(c_admin);
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, net_amount, status,
+     installment_type, currency, agreed_invoice_date, agreed_payment_date)
+  VALUES (v_plan1, c_wo1, 5, 0, 750, 750, 'Pending', 'expense_reimbursement', 'BOB',
+          v_today + 3, v_today + 33)
+  RETURNING installment_id INTO v_exp;
+
+  PERFORM pg_temp.impersonate(c_collections);
+  v_res := public.list_collections_installments('por_facturar');
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos deberia aparecer en por_facturar, hay % filas', v_res->>'total_count';
+  END IF;
+  -- Ordenan por fecha: la de gastos (hoy+3) va antes que la cuota (hoy+5).
+  IF v_res->'rows'->0->>'installment_type' <> 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos no viene marcada con su tipo';
+  END IF;
+  -- Y suma en el total del mes como cualquier otra: 1000 + 750.
+  IF (v_res->'totals'->'por_facturar_mes'->>'BOB')::numeric <> 1750 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos no sumo en el total del mes (fue %)', v_res->'totals'->'por_facturar_mes'->>'BOB';
+  END IF;
+
+  -- Con el interruptor apagado, desaparece de la lista Y de los totales.
+  v_res := public.list_collections_installments('por_facturar', p_include_expense_rows := false);
+  IF (v_res->>'total_count')::int <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el interruptor no saco la fila de gastos de la lista';
+  END IF;
+  IF (v_res->'totals'->'por_facturar_mes'->>'BOB')::numeric <> 1000 THEN
+    RAISE EXCEPTION 'TEST FAIL - el interruptor no saco la fila de gastos de los totales';
+  END IF;
+  RAISE NOTICE 'PASS - las filas de gastos entran marcadas, y el interruptor las saca de la lista y de los totales';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 7. Paginacion
+  -- ══════════════════════════════════════════════════════════════════
+  v_res := public.list_collections_installments('por_facturar', p_limit := 1, p_offset := 0);
+  IF jsonb_array_length(v_res->'rows') <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la pagina deberia traer 1 fila, trajo %', jsonb_array_length(v_res->'rows');
+  END IF;
+  -- total_count es el total de la pestana, NO el de la pagina: es lo que necesita el paginador.
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - total_count deberia contar toda la pestana, dijo %', v_res->>'total_count';
+  END IF;
+  v_txt := v_res->'rows'->0->>'installment_id';
+  v_res := public.list_collections_installments('por_facturar', p_limit := 1, p_offset := 1);
+  IF v_res->'rows'->0->>'installment_id' = v_txt THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda pagina repitio la fila de la primera';
+  END IF;
+  IF jsonb_array_length(v_res->'rows') <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda pagina no trajo su fila';
+  END IF;
+  -- Mas alla del final: lista vacia, no error.
+  v_res := public.list_collections_installments('por_facturar', p_limit := 1, p_offset := 99);
+  IF jsonb_array_length(v_res->'rows') <> 0 OR (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - pasada la ultima pagina deberia venir una lista vacia con el total intacto';
+  END IF;
+  RAISE NOTICE 'PASS - la paginacion corta la lista y total_count sigue contando la pestana entera';
+
+  -- Un limite absurdo se acota en vez de tumbar la base.
+  v_res := public.list_collections_installments('por_facturar', p_limit := 100000);
+  IF (v_res->>'limit')::int <> 200 THEN
+    RAISE EXCEPTION 'TEST FAIL - el limite deberia acotarse a 200, quedo %', v_res->>'limit';
+  END IF;
+  RAISE NOTICE 'PASS - el limite se acota';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 8. Mora manual y reprogramacion, como las ve la lista
+  -- ══════════════════════════════════════════════════════════════════
+  -- Mora MANUAL sobre una cuota en plazo (Q3): la lista la muestra en mora igual.
+  v_res := public.list_collections_installments('por_cobrar');
+  v_txt := v_res->'rows'->0->>'installment_id';
+  PERFORM public.set_installment_overdue(v_txt::uuid, 'Invoiced', true);
+  v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - la mora manual no aparecio en la pestana en_mora';
+  END IF;
+  v_res := public.list_collections_installments('por_cobrar');
+  IF (v_res->>'total_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota en mora manual sigue contada en por_cobrar';
+  END IF;
+  RAISE NOTICE 'PASS - la mora manual mueve la cuota de pestana, sin contarla dos veces';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 9. Las opciones de los selectores
+  -- ══════════════════════════════════════════════════════════════════
+  -- Salen de lo que REALMENTE hay para cobrar, no del catalogo entero: un selector con las
+  -- sociedades de toda la firma hace elegir una y encontrar la tabla vacia.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.collections_filter_options();
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'COLLECTIONS_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente del encargo leyo las opciones de Cobranzas';
+  END IF;
+
+  PERFORM pg_temp.impersonate(c_collections);
+  v_res := public.collections_filter_options();
+  -- Las dos sociedades con cuotas; la del encargo administrativo no tiene ninguna.
+  IF jsonb_array_length(v_res->'societies') <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberian venir 2 sociedades con cuotas, vinieron %', jsonb_array_length(v_res->'societies');
+  END IF;
+  IF jsonb_array_length(v_res->'practicas') <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberian venir 2 practicas, vinieron %', jsonb_array_length(v_res->'practicas');
+  END IF;
+  IF jsonb_array_length(v_res->'managers') <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberian venir 2 gerentes, vinieron %', jsonb_array_length(v_res->'managers');
+  END IF;
+  IF NOT (v_res->'currencies' @> '["BOB"]'::jsonb AND v_res->'currencies' @> '["USD"]'::jsonb) THEN
+    RAISE EXCEPTION 'TEST FAIL - faltan monedas en las opciones (%)', v_res->'currencies';
+  END IF;
+  RAISE NOTICE 'PASS - los selectores ofrecen solo lo que tiene cuotas por cobrar';
+
+  PERFORM set_config('request.jwt.claims', NULL, true);
+  RAISE NOTICE 'COBRANZAS FASE 8: ALL CHECKS PASSED';
+END $$;
+
+ROLLBACK;

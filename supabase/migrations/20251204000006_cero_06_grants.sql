@@ -2202,3 +2202,10 @@ REVOKE EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment
 GRANT EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) TO authenticated, service_role;
+
+-- Cobranzas Fase 8: la vista de Cobranzas. La funcion verifica el rol por dentro
+-- (is_admin() o is_collections_role()); el GRANT solo la hace alcanzable.
+REVOKE EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_society_id uuid, p_practica integer, p_manager_id uuid, p_client_id uuid, p_date_from date, p_date_to date, p_currency text, p_search text, p_include_expense_rows boolean, p_limit integer, p_offset integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_society_id uuid, p_practica integer, p_manager_id uuid, p_client_id uuid, p_date_from date, p_date_to date, p_currency text, p_search text, p_include_expense_rows boolean, p_limit integer, p_offset integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.collections_filter_options() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.collections_filter_options() TO authenticated, service_role;

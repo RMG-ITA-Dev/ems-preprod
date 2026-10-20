@@ -76,7 +76,10 @@
     "status": "Estado",
     "back": "Volver",
     "none": "Ninguno",
-    "confirm": "Confirmar"
+    "confirm": "Confirmar",
+    "retry": "Reintentar",
+    "previous": "Anterior",
+    "next": "Siguiente"
   },
   "nav": {
     "main": "Principal",
@@ -102,7 +105,8 @@
     "planning": "Planificación",
     "scheduler": "Planificador GANTT",
     "schedulerGaps": "Brechas",
-    "fundRequestWorkOrders": "Gastos por OT"
+    "fundRequestWorkOrders": "Gastos por OT",
+    "collections": "Cobranzas"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -3205,5 +3209,56 @@
       "sheetName": "Gastos por OT",
       "filenamePrefix": "Gastos_OT"
     }
+  },
+  "collections": {
+    "title": "Cobranzas",
+    "subtitle": "Qué hay que facturar, qué falta cobrar y qué está atrasado.",
+    "forbidden": "Esta pantalla es de Contabilidad.",
+    "roleLoadFailed": "No se pudo verificar su rol.",
+    "loadFailed": "No se pudieron cargar las cobranzas.",
+    "empty": "No hay cuotas que mostrar con estos filtros.",
+    "tab_por_facturar": "Por facturar",
+    "tab_por_cobrar": "Por cobrar",
+    "tab_en_mora": "En mora",
+    "tab_cobradas": "Cobradas",
+    "totalToBillThisMonth": "Por facturar este mes",
+    "totalBilledUncollected": "Facturado sin cobrar",
+    "totalOverdue": "En mora",
+    "search": "Buscar",
+    "searchPlaceholder": "Cliente o encargo",
+    "filterAll": "Todos",
+    "filterSociety": "Sociedad",
+    "filterPractice": "Práctica",
+    "filterManager": "Gerente",
+    "filterCurrency": "Moneda",
+    "filterDateFrom": "Desde",
+    "filterDateTo": "Hasta",
+    "groupByClient": "Agrupar por cliente",
+    "includeExpenseRows": "Incluir gastos ejecutados",
+    "export": "Exportar",
+    "pageOf": "Página {{page}} de {{pages}} · {{total}} cuotas",
+    "statusOverdue": "En mora",
+    "typeFee": "Honorarios",
+    "typeExpense": "Gastos ejecutados",
+    "typeExpenseShort": "Gastos",
+    "rescheduledTooltip": "La fecha se reprogramó.",
+    "hasNotesTooltip": "Esta cuota tiene notas.",
+    "noContact": "Sin contacto de cobranza",
+    "colClient": "Cliente",
+    "colTaxId": "NIT",
+    "colEngagement": "Encargo",
+    "colManager": "Gerente",
+    "colInstallment": "Cuota",
+    "colType": "Tipo",
+    "colAmount": "Monto",
+    "colCurrency": "Moneda",
+    "colAgreedDate": "Fecha acordada",
+    "colCurrentDate": "Fecha vigente",
+    "colStatus": "Estado",
+    "colDaysOverdue": "Días de atraso",
+    "colContact": "Contacto",
+    "colContactName": "Contacto",
+    "colContactEmail": "Correo",
+    "colContactPhone": "Teléfono"
   }
 }

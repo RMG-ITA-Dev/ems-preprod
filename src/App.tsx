@@ -30,6 +30,7 @@ const AdministrativeEngagements = lazy(() => import("./pages/AdministrativeEngag
 const EngagementNew = lazy(() => import("./pages/EngagementNew"));
 const EngagementEdit = lazy(() => import("./pages/EngagementEdit"));
 const WorkOrders = lazy(() => import("./pages/WorkOrders"));
+const Collections = lazy(() => import("./pages/Collections"));
 const WorkOrderNew = lazy(() => import("./pages/WorkOrderNew"));
 const WorkOrderEdit = lazy(() => import("./pages/WorkOrderEdit"));
 const TimeSheet = lazy(() => import("./pages/TimeSheet"));
@@ -129,6 +130,10 @@ const router = createBrowserRouter([
       { path: "/work-orders", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrders /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders/new", element: <ProtectedRoute><PermissionRoute permission="work_order.create"><WorkOrderNew /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders/:id", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrderEdit /></PermissionRoute></ProtectedRoute> },
+      // Cobranzas Fase 8: la puerta es por ROL (Contabilidad), no por permiso de la matriz, asi
+      // que el gate vive dentro de la pagina -- mismo patron que las pantallas del Scheduler.
+      // La autoridad real es la RPC, que rechaza a cualquier otro rol.
+      { path: "/collections", element: <ProtectedRoute><Collections /></ProtectedRoute> },
       { path: "/tracker", element: <ProtectedRoute><PermissionRoute permission="time_entry.read"><TrackerList /></PermissionRoute></ProtectedRoute> },
       { path: "/tracker/new", element: <ProtectedRoute><PermissionRoute permission="time_entry.create"><TrackerRecord /></PermissionRoute></ProtectedRoute> },
       { path: "/tracker/:id", element: <ProtectedRoute><PermissionRoute permission="time_entry.read"><TrackerEdit /></PermissionRoute></ProtectedRoute> },

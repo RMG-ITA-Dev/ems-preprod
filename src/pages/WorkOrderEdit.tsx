@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isCollectionsRole as isCollectionsRoleKey } from "@/lib/collectionsAccess";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -481,7 +482,7 @@ const WorkOrderEdit = () => {
   // Cobranzas abren la OT solo para cobrar, así que ven únicamente Plan de pagos y
   // Presupuesto. El merge del Carril B (etapa B3p) ya les dio `work_order.read`, así que la
   // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
-  const isCollectionsRole = roleKey === "collections_analyst" || roleKey === "accounting_manager";
+  const isCollectionsRole = isCollectionsRoleKey(roleKey);
   const collectionsOnlyView = !isAdmin && isCollectionsRole;
   // Cobranzas Fase 4 (decisión Q16): el hilo de notas lo escriben los cinco que participan de
   // él. Es un conjunto más amplio que `canEditPaymentPlan`: incluye al SOCIO del encargo, que

@@ -15,6 +15,7 @@ import {
   Receipt,
   CalendarRange,
   ChartColumnDecreasing,
+  HandCoins,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
@@ -22,6 +23,7 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
+import { canDoCollections } from "@/lib/collectionsAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import {
   Sidebar,
@@ -142,6 +144,15 @@ export function AppSidebar() {
       url: "/fund-requests/work-orders",
       icon: Receipt,
       show: can("expense_settlement.read"),
+    },
+    {
+      // Cobranzas (Fase 8): Gerente de Contabilidad y Analista de Cobranzas. Va por ROL y no
+      // por un permiso de la matriz porque cobranzas todavia no tiene uno: el mismo criterio
+      // que usa is_collections_role() en la base, dicho una sola vez en collectionsAccess.
+      title: t("nav.collections"),
+      url: "/collections",
+      icon: HandCoins,
+      show: canDoCollections(roleKey),
     },
   ].filter((i) => i.show);
 

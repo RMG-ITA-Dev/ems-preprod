@@ -520,8 +520,9 @@ assert_suite supabase/tests/rls-carril-b-b5-privilegios.sql 'B5 PRIVILEGIOS: ALL
 assert_suite supabase/tests/rls-carril-b-b6-staff-unique.sql 'B6 STAFF UNIQUE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-accounting-parity.sql 'FUND ACCOUNTING PARITY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-cobranzas-fase1.sql 'COBRANZAS FASES 1 A 7: ALL CHECKS PASSED'
+assert_suite supabase/tests/rpc-cobranzas-fase8.sql 'COBRANZAS FASE 8: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-request-events.sql 'FUND REQUEST EVENTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expense-calendar.sql 'FUND EXPENSE CALENDAR: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 26 suites de RLS/RPC/schema-convergence/trigger pasaron"
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 27 suites de RLS/RPC/schema-convergence/trigger pasaron"
