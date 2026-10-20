@@ -47,6 +47,7 @@ DECLARE
   v_plan_wo_id uuid;
   v_legal_transition boolean;
   v_is_accounting_or_admin boolean;
+  v_wo_currency text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
@@ -166,6 +167,32 @@ BEGIN
     END IF;
   END IF;
 
+  -- Cobranzas Fase 6 (decision del operador Q29): una cuota puede ir en otra moneda que la OT
+  -- ("tipo de cambio MIX" = cuotas en monedas distintas). NULL = la moneda de la OT, que es el
+  -- caso normal. Las dos restricciones que SI aplican:
+  --   * USDT no se mezcla: el proyecto no lo convierte en ningun lado (los dashboards le dan
+  --     rate_to_bob NULL y lo cuentan como no convertible), asi que una OT en USDT lleva todas
+  --     sus cuotas en USDT y una cuota USDT solo existe en una OT USDT.
+  --   * Una vez facturada, la moneda queda congelada junto con el monto y el TC: cambiarla
+  --     despues reescribiria lo que ya se le facturo al cliente.
+  IF NEW.currency IS DISTINCT FROM OLD.currency THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: la moneda de una cuota ya facturada no se puede cambiar';
+    END IF;
+
+    SELECT wo.currency INTO v_wo_currency
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+
+    IF v_wo_currency = 'USDT' AND COALESCE(NEW.currency, 'USDT') <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: una orden de trabajo en USDT no admite cuotas en otra moneda';
+    END IF;
+    IF NEW.currency = 'USDT' AND v_wo_currency <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: solo una orden de trabajo en USDT puede tener cuotas en USDT';
+    END IF;
+  END IF;
+
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     v_legal_transition := CASE OLD.status
       WHEN 'Pending'   THEN NEW.status = 'Invoiced'
@@ -270,7 +297,23 @@ BEGIN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_exchange_rate_mode = 'variable' THEN
+    -- Cobranzas Fase 6 (decision del operador Q49): el modo del plan ya no decide SI se puede
+    -- tocar el TC, solo con que valor se autocompleta. En los dos modos, quien factura puede
+    -- corregirlo -- escribirlo a mano o traerlo de una fecha del calendario.
+    --
+    -- v_capturando_al_facturar es la ventana donde eso vale: la MISMA sentencia que pasa la
+    -- cuota de Pendiente a Facturada. Fuera de esa ventana, el modo fijo sigue exigiendo que
+    -- el TC coincida con el del plan, porque mientras la cuota sigue Pendiente el trigger
+    -- trg_wo_payment_plan_sync_fixed_installments le copia el TC del plan: dejar otro valor
+    -- ahi solo duraria hasta la proxima edicion del plan.
+    -- En modo fijo, que el valor nuevo COINCIDA con el del plan no es una captura: es el
+    -- resincronizado automatico de trg_wo_payment_plan_sync_fixed_installments, que corre
+    -- cuando el gerente edita el TC del plan, con la OT todavia en Draft y sin rol de
+    -- cobranza. Ese camino no pasa por los chequeos de abajo -- si pasara, editar el plan
+    -- quedaria roto.
+    IF NOT (v_exchange_rate_mode = 'fijo'
+            AND NEW.invoice_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate) THEN
+
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
@@ -278,9 +321,13 @@ BEGIN
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
       END IF;
-    END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
+
+      -- Y en modo fijo, apartarse del TC del plan solo vale en la MISMA sentencia que factura
+      -- la cuota: mientras sigue Pendiente, el resincronizado se lo volveria a pisar.
+      IF v_exchange_rate_mode = 'fijo'
+         AND NOT (OLD.status = 'Pending' AND NEW.status = 'Invoiced') THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion solo se puede apartar del TC del plan al facturar la cuota';
+      END IF;
     END IF;
   END IF;
 

@@ -1,4 +1,4 @@
--- Cobranzas Fases 1 a 5 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
+-- Cobranzas Fases 1 a 6 — issue #352 / packet 0923-206. Plan: docs/plan-cobranzas-consolidado.md §3.
 -- Se corre con supabase/tests/local/run-rls-tests.sh contra la base scratch desechable.
 -- Una sola transaccion, SIEMPRE hace ROLLBACK.
 --
@@ -64,13 +64,18 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
 
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, practica, fecha_cierre, society_id, manager_id, partner_id) VALUES
   ('e0000000-0000-4000-8000-0000000000f1', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E1', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
-  ('e0000000-0000-4000-8000-0000000000f2', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E2', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6');
+  ('e0000000-0000-4000-8000-0000000000f2', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E2', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
+  -- Fase 6: dos encargos mas, para el modo fijo y para el resincronizado del plan.
+  ('e0000000-0000-4000-8000-0000000000f3', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E3', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6'),
+  ('e0000000-0000-4000-8000-0000000000f4', 'c1000000-0000-4000-8000-0000000000f1', 'CF1 E4', 1, '2026-12-31', '50c00000-0000-4000-8000-0000000000f1', '51c00000-0000-4000-8000-0000000000f2', '51c00000-0000-4000-8000-0000000000f6');
 
 -- Las OT nacen en Draft: el guard del plan (20260908150000) solo permite CREAR el plan
 -- mientras la OT no este aprobada. Se aprueban despues, como en el flujo real.
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status) VALUES
   ('40000000-0000-4000-8000-0000000000f1', 'e0000000-0000-4000-8000-0000000000f1', 'BOB', 'High', 'Draft'),
-  ('40000000-0000-4000-8000-0000000000f2', 'e0000000-0000-4000-8000-0000000000f2', 'BOB', 'High', 'Draft');
+  ('40000000-0000-4000-8000-0000000000f2', 'e0000000-0000-4000-8000-0000000000f2', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000f3', 'e0000000-0000-4000-8000-0000000000f3', 'BOB', 'High', 'Draft'),
+  ('40000000-0000-4000-8000-0000000000f4', 'e0000000-0000-4000-8000-0000000000f4', 'BOB', 'High', 'Draft');
 
 DO $$
 DECLARE
@@ -82,6 +87,8 @@ DECLARE
   c_partner     uuid := 'a1c00000-0000-4000-8000-0000000000f6';
   c_wo1         uuid := '40000000-0000-4000-8000-0000000000f1';
   c_wo2         uuid := '40000000-0000-4000-8000-0000000000f2';
+  c_wo3         uuid := '40000000-0000-4000-8000-0000000000f3';
+  c_wo4         uuid := '40000000-0000-4000-8000-0000000000f4';
   v_today  date := public.fund_today();
   v_plan1  uuid;
   v_plan2  uuid;
@@ -93,6 +100,11 @@ DECLARE
   v_n      integer;
   v_txt    text;
   v_note   uuid;
+  v_i3x    uuid;
+  v_i4     uuid;
+  v_plan3  uuid;
+  v_plan4  uuid;
+  v_rate   numeric;
   denied   boolean;
 BEGIN
   -- ══════════════════════════════════════════════════════════════════
@@ -193,6 +205,12 @@ BEGIN
   -- firma del socio como invariante de "Aprobada", y deja pasar solo a admin. Aca interesa
   -- el estado de la OT, no el circuito de firma.
   PERFORM pg_temp.impersonate(c_admin);
+  -- Fase 6: una cuota mas de c_wo1 que queda Pendiente a proposito, para probar la moneda.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan1, c_wo1, 3, 0, 0, 'Pending', v_today + 90, v_today + 120, 6.96, 6.96)
+  RETURNING installment_id INTO v_i3x;
+
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo1;
 
   -- ══════════════════════════════════════════════════════════════════
@@ -920,6 +938,112 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - quedaron % columnas contact_* en clients', v_n;
   END IF;
   RAISE NOTICE 'PASS - la ficha del cliente ya no tiene los contactos sueltos';
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 12. Fase 6: moneda por cuota y TC al facturar (issue #352)
+  -- ══════════════════════════════════════════════════════════════════
+  -- "Tipo de cambio MIX" resulto ser cuotas en MONEDAS DISTINTAS dentro del mismo plan
+  -- (decision Q29). Y el modo del plan dejo de decidir SI se puede tocar el TC: solo decide con
+  -- que valor se autocompleta (decision Q49).
+
+  -- 12.a exchange_rate_on(): el TC de una fecha. Si esa fecha no tiene cotizacion vale la
+  -- ultima anterior -- un viernes es la cotizacion vigente el sabado.
+  INSERT INTO public.exchange_rate_history (fecha_vigencia, compra, venta, fuente, canal, actualizado_en, estado)
+  VALUES ('2026-10-02', 6.80, 6.86, 'test', 'bcb-web', now(), 'vigente'),
+         ('2026-10-09', 6.90, 6.96, 'test', 'bcb-web', now(), 'vigente')
+  ON CONFLICT (fecha_vigencia) DO NOTHING;
+
+  IF public.exchange_rate_on('2026-10-09') <> 6.90 THEN
+    RAISE EXCEPTION 'TEST FAIL - el TC de una fecha con cotizacion deberia ser el de ese dia';
+  END IF;
+  IF public.exchange_rate_on('2026-10-11') <> 6.90 THEN
+    RAISE EXCEPTION 'TEST FAIL - una fecha sin cotizacion deberia caer a la ultima anterior';
+  END IF;
+  IF public.exchange_rate_on('2020-01-01') IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - sin ninguna cotizacion anterior deberia devolver NULL';
+  END IF;
+  RAISE NOTICE 'PASS - el TC por fecha cae a la ultima cotizacion anterior, y avisa cuando no hay';
+
+  -- 12.b Una cuota puede ir en otra moneda que la OT (c_wo1 esta en BOB).
+  PERFORM pg_temp.impersonate(c_manager);
+  UPDATE public.wo_payment_installments SET currency = 'USD' WHERE installment_id = v_i3x;
+  IF (SELECT currency FROM public.wo_payment_installments WHERE installment_id = v_i3x) <> 'USD' THEN
+    RAISE EXCEPTION 'TEST FAIL - no se pudo poner la cuota en otra moneda';
+  END IF;
+
+  -- USDT no se mezcla: el proyecto no lo convierte en ningun lado.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET currency = 'USDT' WHERE installment_id = v_i3x;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_CURRENCY_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una OT en BOB acepto una cuota en USDT';
+  END IF;
+  RAISE NOTICE 'PASS - la cuota puede ir en otra moneda, pero USDT no se mezcla';
+
+  -- 12.c Una vez facturada, la moneda queda congelada con el monto y el TC.
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET currency = 'USD' WHERE installment_id = v_i1;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se cambio la moneda de una cuota ya facturada';
+  END IF;
+  RAISE NOTICE 'PASS - la moneda de una cuota facturada ya no se cambia';
+
+  -- 12.d En modo FIJO, el TC se puede apartar del TC del plan AL FACTURAR (decision Q49), que
+  -- antes estaba prohibido siempre.
+  PERFORM pg_temp.impersonate(c_admin);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo3, 30, 6.96, 'fijo') RETURNING plan_id INTO v_plan3;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan3, c_wo3, 1, 100, 700, 'Pending', v_today, v_today + 30, 6.96, 6.96)
+  RETURNING installment_id INTO v_i4;
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo3;
+
+  -- Mientras sigue Pendiente NO: el resincronizado del plan se lo volveria a pisar.
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate = 7.10 WHERE installment_id = v_i4;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - en modo fijo se cambio el TC de una cuota que sigue Pendiente';
+  END IF;
+
+  -- Al facturar SI, y queda registrado de que fecha salio.
+  v_row := public.invoice_installment(v_i4, 'Pending', v_today + 30, v_today, 7.10, '2026-10-09');
+  IF v_row.invoice_exchange_rate <> 7.10 THEN
+    RAISE EXCEPTION 'TEST FAIL - no se pudo corregir el TC al facturar en modo fijo (quedo %)', v_row.invoice_exchange_rate;
+  END IF;
+  IF v_row.invoice_exchange_rate_date <> '2026-10-09' THEN
+    RAISE EXCEPTION 'TEST FAIL - no se guardo de que fecha salio el TC';
+  END IF;
+  RAISE NOTICE 'PASS - en modo fijo el TC se corrige al facturar, y solo ahi';
+
+  -- 12.e El resincronizado del plan sigue funcionando: corre con la OT en Draft y sin rol de
+  -- cobranza, y los chequeos nuevos no lo pueden romper.
+  PERFORM pg_temp.impersonate(c_manager);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo4, 30, 6.50, 'fijo') RETURNING plan_id INTO v_plan4;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan4, c_wo4, 1, 100, 500, 'Pending', v_today + 10, v_today + 40, 6.50, 6.50);
+
+  UPDATE public.wo_payment_plan SET exchange_rate = 6.75 WHERE plan_id = v_plan4;
+  SELECT invoice_exchange_rate INTO v_rate FROM public.wo_payment_installments
+   WHERE plan_id = v_plan4 AND installment_number = 1;
+  IF v_rate <> 6.75 THEN
+    RAISE EXCEPTION 'TEST FAIL - editar el TC del plan dejo de resincronizar las cuotas (quedo %)', v_rate;
+  END IF;
+  RAISE NOTICE 'PASS - editar el TC del plan sigue resincronizando las cuotas pendientes';
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASE 1: ALL CHECKS PASSED';
 END $$;

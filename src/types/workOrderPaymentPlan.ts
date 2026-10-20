@@ -58,4 +58,9 @@ export interface PaymentInstallmentInput {
   status: PaymentInstallmentStatus;
   invoice_exchange_rate: number | null;
   payment_exchange_rate: number | null;
+  // Cobranzas Fase 6 (decisión Q29): la cuota puede ir en otra moneda que la OT. null/undefined
+  // = la de la OT, que es el caso normal.
+  currency?: 'BOB' | 'USD' | 'USDT' | null;
+  // De qué fecha salió el TC de facturación; null = se escribió a mano (Q49).
+  invoice_exchange_rate_date?: string | null;
 }

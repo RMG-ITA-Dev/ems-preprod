@@ -7899,6 +7899,15 @@ CREATE TABLE public.wo_payment_installments (
     --   * confirmed_by/_at     -> quien gestiono y cuando, para el historial.
     -- Al cambiar la fecha vigente la confirmacion vuelve a 'sin_gestionar' (lo hace
     -- reschedule_installment): lo que el cliente confirmo era la fecha anterior.
+    -- Cobranzas Fase 6 (issue #352, decision del operador Q29): "tipo de cambio MIX" resulto
+    -- ser esto -- cuotas de un mismo plan en MONEDAS DISTINTAS. Una OT en USD puede tener una
+    -- cuota que se factura y se cobra en Bs, y al reves. NULL = la moneda de la OT, que es el
+    -- caso normal; la columna solo se llena cuando la cuota se aparta.
+    -- Sin pagos partidos: una cuota tiene UNA moneda (Q30 quedo sin objeto).
+    currency text,
+    -- De que fecha salio el TC de facturacion: el usuario puede escribirlo a mano o elegir una
+    -- fecha en el calendario y traer el TC de ese dia (decision Q49). NULL = se escribio a mano.
+    invoice_exchange_rate_date date,
     confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
     confirmed_for_date date,
     confirmed_by uuid,
@@ -7906,7 +7915,8 @@ CREATE TABLE public.wo_payment_installments (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text]))),
-    CONSTRAINT wo_payment_installments_confirmation_status_check CHECK ((confirmation_status = ANY (ARRAY['sin_gestionar'::text, 'confirmada'::text, 'no_confirmada'::text])))
+    CONSTRAINT wo_payment_installments_confirmation_status_check CHECK ((confirmation_status = ANY (ARRAY['sin_gestionar'::text, 'confirmada'::text, 'no_confirmada'::text]))),
+    CONSTRAINT wo_payment_installments_currency_check CHECK ((currency IS NULL OR currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text])))
 );
 
 
@@ -8205,7 +8215,7 @@ $$;
 -- calendario divergente -- justo lo que esta fase viene a eliminar. La validacion acota el
 -- rango a un maximo generoso (dias habiles <= dias calendario * 2 + 14) para que una
 -- llamada directa no pueda inventar un vencimiento arbitrario.
-CREATE FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date DEFAULT NULL, p_invoice_exchange_rate numeric DEFAULT NULL) RETURNS public.wo_payment_installments
+CREATE FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date DEFAULT NULL, p_invoice_exchange_rate numeric DEFAULT NULL, p_invoice_exchange_rate_date date DEFAULT NULL) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -8242,11 +8252,15 @@ BEGIN
   -- vez que la cuota queda 'Invoiced' cualquier cambio de invoice_exchange_rate se rechaza
   -- con EXCHANGE_RATE_LOCKED. NULL deja el valor que ya tenia (modo fijo lo sincroniza
   -- solo desde el plan).
+  -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
+  -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
+  -- de uno tecleado.
   UPDATE public.wo_payment_installments
      SET status = 'Invoiced',
          collection_invoice_date = v_invoice_date,
          collection_payment_date = p_payment_due_date,
-         invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate)
+         invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
+         invoice_exchange_rate_date = p_invoice_exchange_rate_date
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -8741,6 +8755,32 @@ BEGIN
 
   RETURN v_note;
 END;
+$$;
+
+
+--
+--
+-- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 6 (decision del operador Q49): al facturar, quien cobra puede escribir el TC a
+-- mano o elegir una FECHA en el calendario y traer el TC de ese dia. Esta funcion resuelve lo
+-- segundo.
+--
+-- Usa el valor de COMPRA, igual que latest_exchange_rate(), para que el TC del calendario y el
+-- que se autocompleta solo sean la misma magnitud. Si la fecha pedida no tiene registro (fin de
+-- semana, feriado, o un dia que el sincronizador no alcanzo) cae al ultimo anterior: un viernes
+-- es la cotizacion vigente el sabado. Si no hay ninguno anterior devuelve NULL y la pantalla
+-- deja cargar el TC a mano.
+CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT h.compra
+    FROM public.exchange_rate_history h
+   WHERE h.fecha_vigencia <= p_date
+   ORDER BY h.fecha_vigencia DESC
+   LIMIT 1;
 $$;
 
 

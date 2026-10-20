@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import {
   useUpdateInstallmentStatus,
   useUpdateCollectionDate,
@@ -177,10 +178,27 @@ export function WorkOrderPaymentPlanSection({
     { idx: number; mode: "reschedule" | "notConfirmed" } | null
   >(null);
   const [scheduleDate, setScheduleDate] = useState("");
+  // Cobranzas Fase 6 (decisión Q49): al facturar, el TC se autocompleta según el modo del
+  // plan, pero se puede corregir — a mano, o eligiendo una fecha y trayendo el TC de ese día.
+  // `invoiceRateDate` vacío significa "escrito a mano", y así se guarda.
+  const [invoiceRate, setInvoiceRate] = useState<number | null>(null);
+  const [invoiceRateDate, setInvoiceRateDate] = useState("");
   const [scheduleReason, setScheduleReason] = useState("");
   const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
   const latestRate = useLatestExchangeRate();
   const latestBuyRate = latestRate.data?.compra ?? null;
+
+  // Cobranzas Fase 6: el TC de una fecha concreta, para el calendario del diálogo de facturar.
+  // Va por RPC porque la regla —si esa fecha no tiene cotización, vale la última anterior— vive
+  // en la base (exchange_rate_on), y repetirla acá sería un segundo criterio.
+  const fetchRateOn = async (date: string): Promise<number | null> => {
+    const { data, error } = await (supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ data: unknown; error: unknown }>)("exchange_rate_on", { p_date: date });
+    if (error) return null;
+    return data == null ? null : Number(data);
+  };
   const [pendingChange, setPendingChange] = useState<{
     idx: number;
     newStatus: "Invoiced" | "Completed" | "Overdue";
@@ -592,7 +610,13 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
-  const handleStatusChange = (idx: number, newStatus: PaymentInstallmentStatus) => {
+  const handleStatusChange = (
+    idx: number,
+    newStatus: PaymentInstallmentStatus,
+    // Cobranzas Fase 6: el TC que la persona confirmó en el diálogo de facturar, y de qué
+    // fecha salió (null = lo escribió a mano).
+    rateOverride?: { invoiceRate: number | null; invoiceRateDate: string | null },
+  ) => {
     const inst = installments[idx];
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
 
@@ -623,7 +647,11 @@ export function WorkOrderPaymentPlanSection({
         // 0722-156b: snapshot atomico del TC vigente en el local state al momento
         // de confirmar la transicion — el trigger de freeze evalua OLD.status, asi
         // que esto sigue permitido en la MISMA transicion que congela la cuota.
-        invoiceExchangeRate: newStatus === "Invoiced" ? inst.invoice_exchange_rate : undefined,
+        invoiceExchangeRate:
+          newStatus === "Invoiced"
+            ? rateOverride?.invoiceRate ?? inst.invoice_exchange_rate
+            : undefined,
+        invoiceExchangeRateDate: newStatus === "Invoiced" ? rateOverride?.invoiceRateDate ?? null : undefined,
         paymentExchangeRate: newStatus === "Completed" ? inst.payment_exchange_rate : undefined,
       });
     }
@@ -708,13 +736,27 @@ export function WorkOrderPaymentPlanSection({
 
   // ----- Formatting -----
 
-  const formatAmount = (amount: number) => {
-    const amountLocale = currency === "BOB" ? "es-BO" : "en-US";
+  // Cobranzas Fase 6 (decisión Q29): una cuota puede ir en otra moneda que la OT. NULL = la de
+  // la OT, que es el caso normal.
+  const installmentCurrency = (inst: PaymentInstallmentInput) => inst.currency ?? currency;
+
+  const formatAmount = (amount: number, amountCurrency: string = currency) => {
+    const amountLocale = amountCurrency === "BOB" ? "es-BO" : "en-US";
     return Number(amount).toLocaleString(amountLocale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     });
   };
+
+  // Totales POR MONEDA. Nunca se suman montos nativos de monedas distintas: un total que mezcla
+  // Bs y USD no significa nada. Si todas las cuotas van en la moneda de la OT —el caso normal—
+  // esto da un solo subtotal y se ve igual que antes.
+  const totalsByCurrency = installments.reduce<Record<string, number>>((acc, i) => {
+    const cur = installmentCurrency(i);
+    const amount = isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax);
+    acc[cur] = (acc[cur] ?? 0) + amount;
+    return acc;
+  }, {});
 
   // Los importes derivados de facturacion/pago SIEMPRE estan en Bs (el TC convierte a
   // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
@@ -1098,7 +1140,10 @@ export function WorkOrderPaymentPlanSection({
                         />
                       </td>
                       <td className="py-3 px-3 text-right font-mono border-b border-border/50">
-                        {formatAmount(instAmount)}
+                        {formatAmount(instAmount, installmentCurrency(inst))}
+                        {inst.currency && inst.currency !== currency && (
+                          <span className="ml-1 text-xs text-muted-foreground">{inst.currency}</span>
+                        )}
                       </td>
                       {/* Tipo de Cambio group — only for non-BOB currencies */}
                       {currency !== "BOB" && (
@@ -1273,6 +1318,16 @@ export function WorkOrderPaymentPlanSection({
                                 return;
                               }
                               if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
+                                if (s === "Invoiced") {
+                                  // El modo decide el VALOR POR DEFECTO, no si se puede tocar:
+                                  // fijo trae el TC del plan, variable el del día (Q49).
+                                  setInvoiceRate(
+                                    currentPlan.exchange_rate_mode === "fijo"
+                                      ? currentPlan.exchange_rate
+                                      : latestBuyRate ?? currentPlan.exchange_rate,
+                                  );
+                                  setInvoiceRateDate("");
+                                }
                                 setPendingChange({ idx, newStatus: s });
                               } else {
                                 handleStatusChange(idx, s);
@@ -1388,7 +1443,22 @@ export function WorkOrderPaymentPlanSection({
                     )}
                   </td>
                   <td className="py-3 px-3 text-right font-mono">
-                    {formatAmount(totalAmount)}
+                    {/* Cobranzas Fase 6: con cuotas en monedas distintas (decisión Q29), un
+                        total único no significaría nada — se muestra un subtotal POR MONEDA.
+                        Con todas las cuotas en la moneda de la OT, que es el caso normal, hay
+                        un solo subtotal y se ve igual que antes. */}
+                    {Object.keys(totalsByCurrency).length > 1 ? (
+                      <div className="space-y-0.5" data-testid="totals-by-currency">
+                        {Object.entries(totalsByCurrency).map(([cur, amount]) => (
+                          <div key={cur}>
+                            {formatAmount(amount, cur)}{" "}
+                            <span className="text-xs text-muted-foreground">{cur}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      formatAmount(totalAmount)
+                    )}
                   </td>
                   <td colSpan={currency !== "BOB" ? 6 : 4} />
                 </tr>
@@ -1440,6 +1510,52 @@ export function WorkOrderPaymentPlanSection({
             />
           </div>
         )}
+        {/* Cobranzas Fase 6 (decisión Q49): el TC con el que se factura. Se autocompleta según
+            el modo del plan y se puede corregir — a mano, o eligiendo una fecha y trayendo el
+            TC de ese día. Sólo aparece cuando hay conversión que hacer. */}
+        {pendingChange?.newStatus === "Invoiced" &&
+          installmentCurrency(installments[pendingChange.idx]) !== "BOB" && (
+            <div className="space-y-2 rounded-md border border-border/60 bg-muted/10 p-3">
+              <Label className="text-xs">{t("workOrders.paymentPlan.invoiceExchangeRate")}</Label>
+              <div className="flex flex-wrap items-end gap-2">
+                <NumericInput
+                  locale={numericLocale}
+                  value={invoiceRate ?? 0}
+                  onChange={(v) => {
+                    setInvoiceRate(v);
+                    // Tecleado a mano: deja de venir de una fecha.
+                    setInvoiceRateDate("");
+                  }}
+                  decimals={6}
+                  min={0}
+                  className="h-8 w-32"
+                  data-testid="invoice-rate-input"
+                />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    {t("workOrders.paymentPlan.invoiceRateFromDate")}
+                  </span>
+                  <Input
+                    type="date"
+                    lang="es-BO"
+                    className="h-8 w-40 text-sm"
+                    value={invoiceRateDate}
+                    max={today}
+                    onChange={async (e) => {
+                      const d = e.target.value;
+                      setInvoiceRateDate(d);
+                      if (!d) return;
+                      const rate = await fetchRateOn(d);
+                      // Sin cotización para esa fecha ni ninguna anterior: se deja lo que haya
+                      // y la persona lo carga a mano, en vez de pisarlo con un cero.
+                      if (rate != null) setInvoiceRate(rate);
+                      else toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setPendingChange(null)}>
             {t("common.cancel")}
@@ -1448,7 +1564,10 @@ export function WorkOrderPaymentPlanSection({
             variant={pendingChange?.newStatus === "Overdue" ? "destructive" : "default"}
             onClick={() => {
               if (pendingChange) {
-                handleStatusChange(pendingChange.idx, pendingChange.newStatus);
+                handleStatusChange(pendingChange.idx, pendingChange.newStatus, {
+                  invoiceRate,
+                  invoiceRateDate: invoiceRateDate || null,
+                });
                 setPendingChange(null);
               }
             }}

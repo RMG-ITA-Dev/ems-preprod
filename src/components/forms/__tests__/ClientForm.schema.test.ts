@@ -1,3 +1,4 @@
+import { describe, it, expect } from "vitest";
 import { formSchema } from "@/components/forms/ClientForm";
 
 // Cobranzas Fase 5 (issue #352): el cliente pasó de UN contacto opcional a DOS obligatorios

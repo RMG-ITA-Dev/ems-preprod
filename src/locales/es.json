@@ -371,9 +371,9 @@
     "exchangeRateTestStatus": "Estado: {{value}}",
     "exchangeRateTestChannel": "Canal: {{value}}",
     "exchangeRateError": {
-      "unauthorized": "Tu sesión ya no es válida. Volvé a iniciar sesión e intentá de nuevo.",
-      "forbidden": "No tenés permiso para probar esta conexión.",
-      "missing_url": "Ingresá una URL antes de probar.",
+      "unauthorized": "Su sesión ya no es válida. Vuelva a iniciar sesión e inténtelo de nuevo.",
+      "forbidden": "No tiene permiso para probar esta conexión.",
+      "missing_url": "Ingrese una URL antes de probar.",
       "provider_error": "El servicio de tipo de cambio no respondió correctamente.",
       "invalid_payload": "El servicio de tipo de cambio devolvió datos inesperados.",
       "generic": "No se pudo probar la conexión. Intentá de nuevo."
@@ -407,7 +407,7 @@
     "changeRole": "Cambiar Rol",
     "noUsers": "No se encontraron usuarios.",
     "cannotChangeSelf": "No puede cambiar su propio rol",
-    "noPermissionToChangeRoles": "No tenés permiso para cambiar roles",
+    "noPermissionToChangeRoles": "No tiene permiso para cambiar roles",
     "roleUpdated": "Rol de usuario actualizado exitosamente",
     "updateError": "Error al actualizar el rol de usuario",
     "orphan": "Huérfano",
@@ -469,7 +469,7 @@
     "retry": "Reintentar",
     "accessDenied": {
       "title": "Sin acceso",
-      "description": "No tenés permiso para ver esta sección. Si crees que es un error, contactá a un administrador."
+      "description": "No tiene permiso para ver esta sección. Si cree que es un error, contacte a un administrador."
     }
   },
   "industry": {
@@ -647,7 +647,7 @@
     "audRegNumber": "Nro. Reg. Auditor",
     "newStaff": "Nuevo Miembro del Personal",
     "editStaff": "Editar Miembro del Personal",
-    "readOnlyNoUpdatePermission": "Tenés acceso de solo lectura a este registro — no tenés permiso para guardar cambios.",
+    "readOnlyNoUpdatePermission": "Tiene acceso de solo lectura a este registro — no tiene permiso para guardar cambios.",
     "createStaff": "Crear Miembro del Personal",
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",
@@ -1900,7 +1900,7 @@
       "paymentAmountBob": "≈ {{value}}",
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
-      "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
+      "errorExchangeRateForbidden": "No tiene permiso para modificar este tipo de cambio.",
       "errorInstallmentStale": "Otra persona ya actualizó esta cuota. Vuelva a cargar la página para ver su estado actual.",
       "errorInstallmentForbidden": "No tiene permiso para registrar la cobranza de esta cuota.",
       "errorExchangeRateUnavailable": "No hay tipo de cambio disponible (historial BCB vacío y sin valor por defecto configurado).",
@@ -1926,6 +1926,9 @@
       "statusOverdue": "Mora",
       "statusOverdueLong": "Mora de Facturación",
       "statusBillingLate": "Facturación atrasada",
+      "invoiceRateFromDate": "o tómelo de una fecha",
+      "invoiceRateNotFound": "No hay cotización para esa fecha ni para ninguna anterior. Cárguelo a mano.",
+      "totalsByCurrency": "Totales por moneda",
       "contactsTitle": "Contactos del cliente",
       "contactGeneral": "Contacto del cliente",
       "contactCobranza": "Cobranza (finanzas)",
@@ -2103,11 +2106,11 @@
     "reversalExecuted": "Reversión ejecutada",
     "reversalRejected": "Solicitud rechazada",
     "revertDialogTitle": "Revertir líneas aprobadas",
-    "revertDialogDescription": "Escribí un motivo. Las líneas aprobadas de este encargo volverán a pendiente de inmediato.",
+    "revertDialogDescription": "Escriba un motivo. Las líneas aprobadas de este encargo volverán a pendiente de inmediato.",
     "executeDialogTitle": "Ejecutar solicitud de reversión",
-    "executeDialogDescription": "Escribí un motivo. Esto ejecutará la solicitud de inmediato.",
+    "executeDialogDescription": "Escriba un motivo. Esto ejecutará la solicitud de inmediato.",
     "rejectDialogTitle": "Rechazar solicitud de reversión",
-    "rejectDialogDescription": "Escribí un motivo. Se notificará al solicitante que su solicitud fue rechazada.",
+    "rejectDialogDescription": "Escriba un motivo. Se notificará al solicitante que su solicitud fue rechazada.",
     "reversalCascadeNote": "Cerrada automáticamente: se revirtió un encargo de esta semana y la boleta ya no está completamente aprobada.",
     "reversalScope": {
       "engagement": "Encargo",
@@ -2465,7 +2468,7 @@
     "dismissError": "No se pudo descartar la notificación",
     "news": "Novedades",
     "allClear": "Todo al día",
-    "allClearDescription": "No tenés nada pendiente por ahora.",
+    "allClearDescription": "No tiene nada pendiente por ahora.",
     "sections": {
       "time_control": "Control de Tiempo",
       "engagement_status": "Estado de Encargos Generados",
@@ -3119,7 +3122,7 @@
   },
   "myAssignments": {
     "title": "Mis Asignaciones",
-    "empty": "Todavía no tenés asignaciones.",
+    "empty": "Todavía no tiene asignaciones.",
     "deepLinkNotFound": "Esta asignación ya no es visible para vos — es posible que te hayan reasignado fuera de este encargo.",
     "loadError": "No se pudieron cargar tus asignaciones.",
     "retry": "Reintentar",

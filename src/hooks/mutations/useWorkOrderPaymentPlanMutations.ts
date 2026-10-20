@@ -278,6 +278,7 @@ export function useUpdateInstallmentStatus() {
       prevStatus,
       paymentDays,
       invoiceExchangeRate,
+      invoiceExchangeRateDate,
       paymentExchangeRate,
     }: {
       installmentId: string;
@@ -286,6 +287,8 @@ export function useUpdateInstallmentStatus() {
       woId: string;
       paymentDays?: number;
       invoiceExchangeRate?: number | null;
+      /** Cobranzas Fase 6: de qué fecha salió el TC; null = se escribió a mano (Q49). */
+      invoiceExchangeRateDate?: string | null;
       paymentExchangeRate?: number | null;
     }) => {
       if (newStatus === "Invoiced" && prevStatus === "Pending") {
@@ -297,6 +300,7 @@ export function useUpdateInstallmentStatus() {
           p_payment_due_date: dueDate,
           p_invoice_date: today,
           p_invoice_exchange_rate: invoiceExchangeRate ?? null,
+          p_invoice_exchange_rate_date: invoiceExchangeRateDate ?? null,
         });
         if (error) throw error;
         return;

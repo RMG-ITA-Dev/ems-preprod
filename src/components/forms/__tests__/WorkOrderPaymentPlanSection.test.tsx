@@ -791,3 +791,45 @@ describe("WorkOrderPaymentPlanSection — notas (Fase 4)", () => {
     expect(screen.getByText(/notesEdited/)).toBeInTheDocument();
   });
 });
+
+// ── Cobranzas Fase 6 (issue #352): cuotas en monedas distintas ───────────────────────────
+// "Tipo de cambio MIX" resultó ser esto (decisión Q29): un plan puede tener una cuota en Bs y
+// otra en USD. Sin pagos partidos: una cuota tiene UNA moneda.
+
+describe("WorkOrderPaymentPlanSection — moneda por cuota (Fase 6)", () => {
+  it("PPF6-1: una cuota en otra moneda que la OT muestra su moneda junto al monto", () => {
+    renderSection({
+      currency: "BOB",
+      installments: [makeInstallment({ percentage: 100, currency: "USD" })],
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.getAllByText("USD").length).toBeGreaterThan(0);
+  });
+
+  it("PPF6-2: si todas las cuotas van en la moneda de la OT, el total sigue siendo uno solo", () => {
+    renderSection({
+      currency: "BOB",
+      installments: [
+        makeInstallment({ installment_number: 1, percentage: 50 }),
+        makeInstallment({ installment_number: 2, percentage: 50 }),
+      ],
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    expect(screen.queryByTestId("totals-by-currency")).not.toBeInTheDocument();
+  });
+
+  // Un total que suma Bs con USD no significa nada: se muestran subtotales por moneda.
+  it("PPF6-3: con dos monedas en el plan, el total se parte por moneda", () => {
+    renderSection({
+      currency: "BOB",
+      installments: [
+        makeInstallment({ installment_number: 1, percentage: 50 }),
+        makeInstallment({ installment_number: 2, percentage: 50, currency: "USD" }),
+      ],
+      plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30, exchange_rate_mode: "fijo" },
+    });
+    const totals = screen.getByTestId("totals-by-currency");
+    expect(within(totals).getByText("BOB")).toBeInTheDocument();
+    expect(within(totals).getByText("USD")).toBeInTheDocument();
+  });
+});
