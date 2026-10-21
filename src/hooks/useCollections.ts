@@ -1,5 +1,5 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 
 /**
  * Cobranzas Fase 8 (issue #352) — la pantalla de Cobranzas del día a día.
@@ -25,6 +25,12 @@ export interface CollectionsFilters {
   currency?: string | null;
   search?: string | null;
   includeExpenseRows?: boolean;
+  /**
+   * El orden lo decide el SERVIDOR, no la pantalla, porque la lista viene paginada: agrupar en
+   * el cliente sobre un orden por fecha parte una orden de 12 cuotas entre dos páginas.
+   * `ot` deja contiguas las cuotas de una misma orden; `fecha`, lo que vence primero.
+   */
+  order?: "fecha" | "ot";
   limit?: number;
   offset?: number;
 }
@@ -100,13 +106,6 @@ export interface CollectionsResult {
   rows: CollectionsRow[];
 }
 
-// types.ts está desactualizado y no conoce las RPC de cobranzas; mismo puente que
-// useWorkOrderPaymentPlanMutations y useBillableExpenses. Se borra cuando se regeneren.
-const rpcUntyped = supabase.rpc as unknown as (
-  fn: string,
-  args: Record<string, unknown>,
-) => Promise<{ data: unknown; error: { message?: string } | null }>;
-
 const EMPTY_TOTALS = { por_facturar_mes: {}, facturado_sin_cobrar: {}, en_mora: {} };
 
 function normalize(raw: unknown, filters: CollectionsFilters): CollectionsResult {
@@ -146,6 +145,7 @@ export function useCollections(filters: CollectionsFilters, enabled = true) {
         p_currency: filters.currency ?? null,
         p_search: filters.search || null,
         p_include_expense_rows: filters.includeExpenseRows ?? true,
+        p_order: filters.order ?? "fecha",
         p_limit: filters.limit ?? 50,
         p_offset: filters.offset ?? 0,
       });
@@ -159,12 +159,6 @@ export function useCollections(filters: CollectionsFilters, enabled = true) {
   });
 }
 
-/** Suma por moneda de los totales normalizados, para mostrarlos sin tocar `Object.entries` en la vista. */
-export function totalsList(totals: TotalsByCurrency | undefined): Array<{ currency: string; amount: number }> {
-  return Object.entries(totals ?? {})
-    .map(([currency, amount]) => ({ currency, amount: Number(amount) }))
-    .sort((a, b) => a.currency.localeCompare(b.currency));
-}
 
 /** Las opciones de los selectores, sacadas de lo que realmente hay para cobrar. */
 export interface CollectionsFilterOptions {

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 
 /**
  * Cobranzas Fase 5 (issue #352) — contactos del cliente.
@@ -45,10 +46,7 @@ export function useWorkOrderClientContacts(woId: string | undefined) {
   return useQuery({
     queryKey: ["wo_client_contacts", woId],
     queryFn: async (): Promise<ClientContact[]> => {
-      const { data, error } = await (supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>,
-      ) => Promise<{ data: unknown; error: unknown }>)("get_wo_client_contacts", { p_wo_id: woId });
+      const { data, error } = await rpcUntyped("get_wo_client_contacts", { p_wo_id: woId });
       if (error) throw error;
       return (data ?? []) as ClientContact[];
     },

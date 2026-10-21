@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 import {
   useUpdateInstallmentStatus,
   useUpdateCollectionDate,
@@ -52,6 +52,7 @@ import { InstallmentNotesThread } from "./InstallmentNotesThread";
 import {
   distributePercentages,
   computeAmount,
+  computeAmountInCurrency,
   computePaymentDate,
   isAlertDue,
   getInstallmentDisplay,
@@ -214,10 +215,7 @@ export function WorkOrderPaymentPlanSection({
   // Va por RPC porque la regla —si esa fecha no tiene cotización, vale la última anterior— vive
   // en la base (exchange_rate_on), y repetirla acá sería un segundo criterio.
   const fetchRateOn = async (date: string): Promise<number | null> => {
-    const { data, error } = await (supabase.rpc as unknown as (
-      fn: string,
-      args: Record<string, unknown>,
-    ) => Promise<{ data: unknown; error: unknown }>)("exchange_rate_on", { p_date: date });
+    const { data, error } = await rpcUntyped<number | null>("exchange_rate_on", { p_date: date });
     if (error) return null;
     return data == null ? null : Number(data);
   };
@@ -275,6 +273,15 @@ export function WorkOrderPaymentPlanSection({
   // ese efecto tambien necesita excluir estas cuotas del recalculo de amount.
   const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
 
+  const installmentCurrency = (inst: PaymentInstallmentInput) => inst.currency ?? currency;
+
+  // El monto de una cuota EN SU MONEDA. Una cuota en otra moneda cobra el MISMO valor
+  // convertido con el TC del plan (decisión del operador 2026-10-20), no un monto distinto:
+  // así el porcentaje sigue significando lo que dice y el plan sigue repartiendo el 100% del
+  // honorario.
+  const amountFor = (inst: PaymentInstallmentInput, pct = inst.percentage) =>
+    computeAmountInCurrency(pct, feeWithTax, installmentCurrency(inst), currency, currentPlan.exchange_rate);
+
   const formatRate = (rate: number) =>
     Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
       minimumFractionDigits: 2,
@@ -293,7 +300,7 @@ export function WorkOrderPaymentPlanSection({
   // fee actual; antes de este fix el total del footer sí lo recalculaba para TODAS
   // las cuotas, divergiendo del monto real si el fee cambiaba tras facturar.
   const totalAmount = installments.reduce((s, i) => {
-    return s + (isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax));
+    return s + (isLocked(i) ? (i.amount ?? 0) : amountFor(i));
   }, 0);
 
   // ----- Plan header handlers -----
@@ -501,7 +508,7 @@ export function WorkOrderPaymentPlanSection({
     prevFeeWithTax.current = feeWithTax;
     onInstallmentsChange(
       installments.map((inst) =>
-        isLocked(inst) ? inst : { ...inst, amount: computeAmount(inst.percentage, feeWithTax) },
+        isLocked(inst) ? inst : { ...inst, amount: amountFor(inst) },
       ),
     );
   }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -536,7 +543,7 @@ export function WorkOrderPaymentPlanSection({
     const redistribute = (inst: PaymentInstallmentInput): PaymentInstallmentInput => {
       if (isLocked(inst)) return inst;
       const pct = unlockedPercentages[unlockedIdx++];
-      return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+      return { ...inst, percentage: pct, amount: amountFor(inst, pct) };
     };
 
     if (count > current) {
@@ -556,6 +563,8 @@ export function WorkOrderPaymentPlanSection({
           collection_payment_date: null,
           payment_date_actual: null,
           percentage: pct,
+          // Una cuota recien creada va SIEMPRE en la moneda de la OT (currency null), asi que
+          // no hay nada que convertir: se cambia despues, con el selector de la fila.
           amount: computeAmount(pct, feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
           invoice_exchange_rate: initialRate,
@@ -605,7 +614,7 @@ export function WorkOrderPaymentPlanSection({
     onInstallmentsChange(
       installments.map((inst, i) =>
         i === idx
-          ? { ...inst, percentage: val, amount: computeAmount(val, feeWithTax) }
+          ? { ...inst, percentage: val, amount: amountFor(inst, val) }
           : inst,
       ),
     );
@@ -681,6 +690,11 @@ export function WorkOrderPaymentPlanSection({
     }
     if (newStatus === "Completed") {
       updates.payment_date_actual = today;
+      // El TC con el que se cobró, confirmado en el diálogo. Sin esto, se cobraba con lo que
+      // hubiera quedado en la columna y después ya no se podía corregir.
+      if (rateOverride?.invoiceRate != null) {
+        updates.payment_exchange_rate = rateOverride.invoiceRate;
+      }
     }
     // Overdue (manual from Invoiced): keep existing collection dates, just change status
 
@@ -707,7 +721,10 @@ export function WorkOrderPaymentPlanSection({
             ? rateOverride?.invoiceRate ?? inst.invoice_exchange_rate
             : undefined,
         invoiceExchangeRateDate: newStatus === "Invoiced" ? rateOverride?.invoiceRateDate ?? null : undefined,
-        paymentExchangeRate: newStatus === "Completed" ? inst.payment_exchange_rate : undefined,
+        paymentExchangeRate:
+          newStatus === "Completed"
+            ? rateOverride?.invoiceRate ?? inst.payment_exchange_rate
+            : undefined,
       });
     }
   };
@@ -760,6 +777,27 @@ export function WorkOrderPaymentPlanSection({
     });
   };
 
+  /**
+   * Cobranzas Fase 6 (decisión Q29, resuelta el 2026-10-20): cambiar la moneda de una cuota
+   * CONVIERTE su monto con el tipo de cambio del plan. El cliente paga el mismo valor en otra
+   * moneda, no un monto distinto, así que el porcentaje sigue significando lo que dice y el
+   * plan sigue repartiendo el 100% del honorario.
+   *
+   * No se guarda directo: queda en el estado de la página y viaja con el "Guardar" del plan,
+   * igual que el porcentaje y las fechas acordadas. Son todas partes del mismo contrato.
+   */
+  const handleInstallmentCurrencyChange = (idx: number, next: "BOB" | "USD" | "USDT") => {
+    onInstallmentsChange(
+      installments.map((inst, i) => {
+        if (i !== idx) return inst;
+        // NULL = la moneda de la OT, que es el caso normal y lo que la base espera.
+        const value = next === currency ? null : next;
+        const updated = { ...inst, currency: value as PaymentInstallmentInput["currency"] };
+        return { ...updated, amount: amountFor(updated) };
+      }),
+    );
+  };
+
   const handleDeleteRow = (idx: number) => {
     // MUST FIX review iteracion 2 #1 (decision del operador): una cuota ya facturada no
     // se puede eliminar de ninguna manera — el trigger BEFORE DELETE de la migracion es
@@ -784,7 +822,7 @@ export function WorkOrderPaymentPlanSection({
       remaining.map((inst) => {
         if (isLocked(inst)) return inst;
         const pct = unlockedPercentages[unlockedIdx++];
-        return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+        return { ...inst, percentage: pct, amount: amountFor(inst, pct) };
       }),
     );
   };
@@ -793,7 +831,6 @@ export function WorkOrderPaymentPlanSection({
 
   // Cobranzas Fase 6 (decisión Q29): una cuota puede ir en otra moneda que la OT. NULL = la de
   // la OT, que es el caso normal.
-  const installmentCurrency = (inst: PaymentInstallmentInput) => inst.currency ?? currency;
 
   const formatAmount = (amount: number, amountCurrency: string = currency) => {
     const amountLocale = amountCurrency === "BOB" ? "es-BO" : "en-US";
@@ -808,7 +845,7 @@ export function WorkOrderPaymentPlanSection({
   // esto da un solo subtotal y se ve igual que antes.
   const totalsByCurrency = installments.reduce<Record<string, number>>((acc, i) => {
     const cur = installmentCurrency(i);
-    const amount = isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax);
+    const amount = isLocked(i) ? (i.amount ?? 0) : amountFor(i);
     acc[cur] = (acc[cur] ?? 0) + amount;
     return acc;
   }, {});
@@ -868,7 +905,14 @@ export function WorkOrderPaymentPlanSection({
                 decimals={6}
                 locale={numericLocale}
                 min={0}
-                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? 0)}
+                // Decision del operador 2026-10-20: el campo arranca con el TC de hoy a la
+                // vista y editable, no con un 0 y la cotizacion abajo como texto -- un 0 no es
+                // un tipo de cambio valido, y obligaba a copiar a mano un numero que la pagina
+                // ya tenia. Es solo lo que se MUESTRA: el valor no se escribe en el plan hasta
+                // que el usuario toca algo, para que abrir la pestana no deje la pagina
+                // "sin guardar" sin haber hecho nada. En cuanto hay una cuota, el efecto de
+                // autocompletado de mas arriba lo persiste.
+                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? latestBuyRate ?? 0)}
                 onChange={handleExchangeRateChange}
                 onBlur={() => setRateInputBlank(false)}
                 disabled={!isEditable || planLocked || !canEditPaymentPlan}
@@ -995,7 +1039,18 @@ export function WorkOrderPaymentPlanSection({
             <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
               {t("workOrders.paymentPlan.notesPlanTitle")}
+              {/* El conteo acá y el de cada fila hacen visible que son DOS lugares distintos.
+                  Sin esto, este bloque decía "Sin notas" mientras una cuota mostraba "2 notas",
+                  y quien escribía acá creía estar escribiendo en la cuota. */}
+              {planNotes.length > 0 && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {planNotes.length}
+                </span>
+              )}
             </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t("workOrders.paymentPlan.notesPlanHelp")}
+            </p>
             <InstallmentNotesThread
               woId={woId}
               installmentId={null}
@@ -1026,8 +1081,19 @@ export function WorkOrderPaymentPlanSection({
                     {t("workOrders.paymentPlan.percentage")}
                   </th>
                   <th rowSpan={2} className="text-right py-3 px-3 font-medium min-w-[115px] align-bottom border-b">
-                    {t("workOrders.paymentPlan.amount")} ({currency})
+                    {/* Ya no dice "(USD)" fijo: con una cuota en otra moneda, el encabezado
+                        estaria mintiendo sobre media columna. La moneda va por fila. */}
+                    {t("workOrders.paymentPlan.amount")}
                   </th>
+                  {/* Cobranzas Fase 6 (decisión Q29): la cuota puede cobrarse en Bs aunque la
+                      OT sea en otra moneda. Solo tiene sentido ofrecerlo cuando hay dos
+                      monedas en juego; en una OT en Bs no hay nada que elegir, y una OT en
+                      USDT no mezcla. */}
+                  {currency !== "BOB" && currency !== "USDT" && (
+                    <th rowSpan={2} className="text-left py-3 px-3 font-medium w-24 align-bottom border-b">
+                      {t("workOrders.paymentPlan.expenseRowsCurrency")}
+                    </th>
+                  )}
                   {currency !== "BOB" && (
                     <th colSpan={2} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
                       {t("workOrders.paymentPlan.exchangeRate")}
@@ -1068,7 +1134,7 @@ export function WorkOrderPaymentPlanSection({
                   // asi que la conversion a Bs (y la columna de monto) de una cuota ya
                   // facturada podia divergir del monto realmente congelado tras un
                   // cambio de fee tardio.
-                  const instAmount = isLocked(inst) ? inst.amount : computeAmount(inst.percentage, feeWithTax);
+                  const instAmount = isLocked(inst) ? inst.amount : amountFor(inst);
                   // isAdminDateEditable es un bypass aparte (admin corrigiendo fuera de
                   // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
                   // QUIEN puede editar el tramo normal (isEditable) del plan.
@@ -1231,6 +1297,29 @@ export function WorkOrderPaymentPlanSection({
                           </Button>
                         )}
                       </td>
+                      {currency !== "BOB" && currency !== "USDT" && (
+                        <td className="py-3 px-3 border-b border-border/50">
+                          {/* Una vez facturada, la moneda queda congelada junto con el monto y
+                              el TC: cambiarla despues reescribiria lo que ya se le facturo al
+                              cliente. El guard de la base aplica la misma regla. */}
+                          {!isLocked(inst) && dateEditable ? (
+                            <Select
+                              value={installmentCurrency(inst)}
+                              onValueChange={(v) => handleInstallmentCurrencyChange(idx, v as "BOB" | "USD" | "USDT")}
+                            >
+                              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={currency}>{currency}</SelectItem>
+                                <SelectItem value="BOB">BOB</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {installmentCurrency(inst)}
+                            </span>
+                          )}
+                        </td>
+                      )}
                       {/* Tipo de Cambio group — only for non-BOB currencies */}
                       {currency !== "BOB" && (
                         <>
@@ -1414,6 +1503,13 @@ export function WorkOrderPaymentPlanSection({
                                   );
                                   setInvoiceRateDate("");
                                 }
+                                if (s === "Completed") {
+                                  // Al cobrar, el TC por defecto es el del día: es el día en
+                                  // que el dinero entró. Lo que ya tenga la cuota se respeta
+                                  // si alguien lo capturó antes desde la columna.
+                                  setInvoiceRate(inst.payment_exchange_rate ?? latestBuyRate ?? currentPlan.exchange_rate);
+                                  setInvoiceRateDate("");
+                                }
                                 setPendingChange({ row: inst, newStatus: s });
                               } else {
                                 handleStatusChange(inst, s);
@@ -1546,7 +1642,7 @@ export function WorkOrderPaymentPlanSection({
                       formatAmount(totalAmount)
                     )}
                   </td>
-                  <td colSpan={currency !== "BOB" ? 6 : 4} />
+                  <td colSpan={currency !== "BOB" && currency !== "USDT" ? 7 : currency !== "BOB" ? 6 : 4} />
                 </tr>
               </tfoot>
             </table>
@@ -1790,11 +1886,20 @@ export function WorkOrderPaymentPlanSection({
         )}
         {/* Cobranzas Fase 6 (decisión Q49): el TC con el que se factura. Se autocompleta según
             el modo del plan y se puede corregir — a mano, o eligiendo una fecha y trayendo el
-            TC de ese día. Sólo aparece cuando hay conversión que hacer. */}
-        {pendingChange?.newStatus === "Invoiced" &&
+            TC de ese día. Sólo aparece cuando hay conversión que hacer.
+            2026-10-21: el mismo bloque sale al COBRAR. Antes el TC de pago era una columna
+            suelta que había que acordarse de editar ANTES de cambiar el estado, y si se
+            olvidaba quedaba congelado — isPaymentRateCaptureEditable sólo lo deja tocar
+            mientras la cuota sigue Facturada o En mora—, con la diferencia de cambio de la
+            Fase 9 calculada sobre un número viejo. Misma decisión, mismo gesto. */}
+        {(pendingChange?.newStatus === "Invoiced" || pendingChange?.newStatus === "Completed") &&
           installmentCurrency(pendingChange.row) !== "BOB" && (
             <div className="space-y-2 rounded-md border border-border/60 bg-muted/10 p-3">
-              <Label className="text-xs">{t("workOrders.paymentPlan.invoiceExchangeRate")}</Label>
+              <Label className="text-xs">
+                {pendingChange.newStatus === "Invoiced"
+                  ? t("workOrders.paymentPlan.invoiceExchangeRate")
+                  : t("workOrders.paymentPlan.paymentExchangeRate")}
+              </Label>
               <div className="flex flex-wrap items-end gap-2">
                 <NumericInput
                   locale={numericLocale}

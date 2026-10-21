@@ -8949,15 +8949,21 @@ BEGIN
     RAISE EXCEPTION 'CONTACT_PAYLOAD_INVALID: se esperaba una lista de contactos';
   END IF;
 
-  -- Minimo uno ACTIVO de cada tipo. Se mira el payload, no la tabla: es el estado al que se
-  -- quiere llegar.
+  -- Minimo uno ACTIVO de cada tipo, con nombre Y CORREO. Se mira el payload, no la tabla: es
+  -- el estado al que se quiere llegar.
+  --
+  -- El correo se exige desde el 2026-10-20 (decision del operador): el cobro se reclama por
+  -- correo, asi que un contacto sin correo no sirve para lo unico que tiene que servir. Se
+  -- valida aca ademas de en el formulario porque el formulario no es el unico que puede
+  -- llamar a esta RPC.
   IF NOT EXISTS (
     SELECT 1 FROM jsonb_array_elements(v_rows) c
      WHERE c->>'contact_type' = 'general'
        AND COALESCE((c->>'is_active')::boolean, true)
        AND btrim(COALESCE(c->>'full_name', '')) <> ''
+       AND btrim(COALESCE(c->>'email', '')) <> ''
   ) THEN
-    RAISE EXCEPTION 'CONTACT_GENERAL_REQUIRED: hace falta al menos un contacto del cliente';
+    RAISE EXCEPTION 'CONTACT_GENERAL_REQUIRED: hace falta al menos un contacto del cliente, con nombre y correo';
   END IF;
 
   IF NOT EXISTS (
@@ -8965,8 +8971,9 @@ BEGIN
      WHERE c->>'contact_type' = 'cobranza'
        AND COALESCE((c->>'is_active')::boolean, true)
        AND btrim(COALESCE(c->>'full_name', '')) <> ''
+       AND btrim(COALESCE(c->>'email', '')) <> ''
   ) THEN
-    RAISE EXCEPTION 'CONTACT_COBRANZA_REQUIRED: hace falta al menos un contacto de cobranza (finanzas)';
+    RAISE EXCEPTION 'CONTACT_COBRANZA_REQUIRED: hace falta al menos un contacto de cobranza (finanzas), con nombre y correo';
   END IF;
 
   -- Lo que no viene en el payload se desactiva.
@@ -9280,6 +9287,10 @@ CREATE FUNCTION public.list_collections_installments(
   p_currency text DEFAULT NULL,
   p_search text DEFAULT NULL,
   p_include_expense_rows boolean DEFAULT true,
+  -- 'fecha' (lo que vence primero) o 'ot' (las cuotas de una misma orden juntas). El orden es
+  -- del SERVIDOR y no de la pantalla porque la lista viene paginada: agrupar en el cliente
+  -- sobre un orden por fecha parte una orden de 12 cuotas entre dos paginas.
+  p_order text DEFAULT 'fecha',
   p_limit integer DEFAULT 50,
   p_offset integer DEFAULT 0
 ) RETURNS jsonb
@@ -9303,6 +9314,10 @@ BEGIN
 
   IF p_tab IS NULL OR p_tab NOT IN ('por_facturar', 'por_cobrar', 'en_mora', 'cobradas') THEN
     RAISE EXCEPTION 'COLLECTIONS_TAB_INVALID: pestana desconocida (%)', p_tab;
+  END IF;
+
+  IF p_order IS NULL OR p_order NOT IN ('fecha', 'ot') THEN
+    RAISE EXCEPTION 'COLLECTIONS_ORDER_INVALID: orden desconocido (%)', p_order;
   END IF;
 
   WITH base AS (
@@ -9396,7 +9411,15 @@ BEGIN
   ),
   page AS (
     SELECT t.* FROM tabbed t
-    ORDER BY t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number
+    -- Por 'ot', las cuotas de una misma orden quedan contiguas y en su orden natural, asi que
+    -- la pantalla puede agruparlas sin que un grupo se parta entre dos paginas. Por 'fecha',
+    -- lo que vence primero va primero, que es como se trabaja el dia a dia.
+    ORDER BY
+      CASE WHEN p_order = 'ot' THEN t.client_legal_name END,
+      CASE WHEN p_order = 'ot' THEN t.engagement_code END,
+      CASE WHEN p_order = 'ot' THEN t.wo_id::text END,
+      CASE WHEN p_order = 'ot' THEN t.installment_number END,
+      t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number
     LIMIT v_limit OFFSET v_offset
   ),
   -- Los tres totales de la cabecera, por moneda. Se calculan sobre `filtered`: describen la
@@ -9420,6 +9443,7 @@ BEGIN
   SELECT jsonb_build_object(
     'today', v_today,
     'tab', p_tab,
+    'order', p_order,
     'limit', v_limit,
     'offset', v_offset,
     'total_count', (SELECT COUNT(*) FROM tabbed),
@@ -9481,7 +9505,12 @@ BEGIN
           ORDER BY (cc.contact_type = 'cobranza') DESC, cc.created_at
           LIMIT 1
         )
-      ) ORDER BY p.fecha_relevante NULLS LAST, p.client_legal_name, p.installment_number)
+      ) ORDER BY
+          CASE WHEN p_order = 'ot' THEN p.client_legal_name END,
+          CASE WHEN p_order = 'ot' THEN p.engagement_code END,
+          CASE WHEN p_order = 'ot' THEN p.wo_id::text END,
+          CASE WHEN p_order = 'ot' THEN p.installment_number END,
+          p.fecha_relevante NULLS LAST, p.client_legal_name, p.installment_number)
       FROM page p
     ), '[]'::jsonb)
   ) INTO v_result;

@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, Download, MessageSquare, CalendarClock, Search, Receipt } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,13 +19,13 @@ import { canDoCollections } from "@/lib/collectionsAccess";
 import {
   useCollections,
   useCollectionsFilterOptions,
-  totalsList,
   type CollectionsRow,
   type CollectionsTab,
 } from "@/hooks/useCollections";
 import { exportCollectionsToExcel } from "@/lib/collectionsExport";
 
 const TABS: CollectionsTab[] = ["por_facturar", "por_cobrar", "en_mora", "cobradas"];
+type GroupBy = "ot" | "cliente" | "ninguno";
 const PAGE_SIZE = 50;
 /** El valor que usan los selectores para "sin filtro": Radix Select no admite un value vacío. */
 const ALL = "__all__";
@@ -59,23 +59,37 @@ export default function Collections() {
   const { roleKey, isLoading: roleLoading, isError: roleError, refetch: refetchRole } = useAuthorization();
   const canView = canDoCollections(roleKey);
 
-  const [tab, setTab] = useState<CollectionsTab>("por_facturar");
-  const [page, setPage] = useState(0);
-  const [search, setSearch] = useState("");
-  const [societyId, setSocietyId] = useState<string>(ALL);
-  const [practica, setPractica] = useState<string>(ALL);
-  const [managerId, setManagerId] = useState<string>(ALL);
-  const [currency, setCurrency] = useState<string>(ALL);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [includeExpenseRows, setIncludeExpenseRows] = useState(true);
-  const [groupByClient, setGroupByClient] = useState(false);
+  // Todo el estado de la vista vive en la URL, no en useState. Dos motivos: al volver desde
+  // una OT se recupera exactamente lo que se estaba mirando —pestaña, filtros y página—, y el
+  // enlace se puede compartir ("mirá lo que está en mora de este cliente").
+  const [params, setParams] = useSearchParams();
 
-  // Cualquier cambio de filtro vuelve a la primera página: quedarse en la página 4 de un
-  // resultado que ahora tiene una sola deja la tabla vacía sin explicar por qué.
-  const onFilterChange = <T,>(setter: (v: T) => void) => (value: T) => {
-    setter(value);
-    setPage(0);
+  const tab = (TABS.includes(params.get("tab") as CollectionsTab)
+    ? params.get("tab")
+    : "por_facturar") as CollectionsTab;
+  const page = Math.max(Number(params.get("page") ?? 0), 0);
+  const search = params.get("q") ?? "";
+  const societyId = params.get("sociedad") ?? ALL;
+  const practica = params.get("practica") ?? ALL;
+  const managerId = params.get("gerente") ?? ALL;
+  const currency = params.get("moneda") ?? ALL;
+  const dateFrom = params.get("desde") ?? "";
+  const dateTo = params.get("hasta") ?? "";
+  const includeExpenseRows = params.get("gastos") !== "0";
+  // Agrupado por OT de entrada: quien cobra trabaja orden por orden, no cuota suelta por
+  // cuota suelta (decisión del operador 2026-10-21).
+  const groupBy = (params.get("agrupar") ?? "ot") as GroupBy;
+
+  // Escribe en la URL con replace para no llenar el historial: volver atrás tiene que salir de
+  // Cobranzas, no deshacer filtro por filtro.
+  const setParam = (key: string, value: string | null, resetPage = true) => {
+    const next = new URLSearchParams(params);
+    if (value === null || value === "") next.delete(key);
+    else next.set(key, value);
+    // Cualquier cambio de filtro vuelve a la primera página: quedarse en la página 4 de un
+    // resultado que ahora tiene una sola deja la tabla vacía sin explicar por qué.
+    if (resetPage) next.delete("page");
+    setParams(next, { replace: true });
   };
 
   const filters = useMemo(
@@ -89,10 +103,12 @@ export default function Collections() {
       dateTo: dateTo || null,
       search: search.trim() || null,
       includeExpenseRows,
+      // Agrupar por OT sólo sirve si el servidor devuelve juntas las cuotas de cada orden.
+      order: groupBy === "ot" ? ("ot" as const) : ("fecha" as const),
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [tab, societyId, practica, managerId, currency, dateFrom, dateTo, search, includeExpenseRows, page],
+    [tab, societyId, practica, managerId, currency, dateFrom, dateTo, search, includeExpenseRows, groupBy, page],
   );
 
   const enabled = !roleLoading && !roleError && canView;
@@ -138,20 +154,40 @@ export default function Collections() {
     );
   };
 
-  // Agrupar por cliente es un interruptor de presentación sobre la MISMA página que trajo el
-  // servidor: no reordena ni junta filas de otras páginas, para que lo que se ve siga
-  // cuadrando con el paginador y con el archivo exportado.
+  // Agrupar es presentación sobre la MISMA página que trajo el servidor: no junta filas de
+  // otras páginas, para que lo que se ve siga cuadrando con el paginador y con el export. Lo
+  // que SÍ cambia en el servidor es el orden (`order`), porque sin eso una orden de 12 cuotas
+  // podría quedar partida entre dos páginas y el grupo se vería cortado por la mitad.
   const grouped = useMemo(() => {
-    if (!groupByClient) return null;
-    const map = new Map<string, CollectionsRow[]>();
+    if (groupBy === "ninguno") return null;
+    const map = new Map<string, { label: string; rows: CollectionsRow[] }>();
     for (const row of rows) {
-      const key = row.client_legal_name ?? "";
-      const list = map.get(key);
-      if (list) list.push(row);
-      else map.set(key, [row]);
+      const key = groupBy === "ot" ? row.wo_id : row.client_legal_name ?? "";
+      const label =
+        groupBy === "ot"
+          ? [row.client_legal_name, row.engagement_code].filter(Boolean).join(" · ")
+          : row.client_legal_name ?? "";
+      const entry = map.get(key);
+      if (entry) entry.rows.push(row);
+      else map.set(key, { label, rows: [row] });
     }
     return [...map.entries()];
-  }, [groupByClient, rows]);
+  }, [groupBy, rows]);
+
+  // Las monedas que las tres tarjetas muestran, en común: la unión de las que aparecen en
+  // cualquiera de los tres totales. Así las tres tienen las MISMAS filas y se pueden comparar
+  // de un vistazo, y un 0 dice "no hay nada pendiente en esa moneda", que es distinto de que
+  // esa moneda no exista en la cartera. Sale de los datos y no de una lista fija, para que el
+  // día que entre una OT en USDT aparezca sola en las tres.
+  const headerCurrencies = useMemo(() => {
+    const totals = data?.totals;
+    if (!totals) return [];
+    return [...new Set([
+      ...Object.keys(totals.por_facturar_mes ?? {}),
+      ...Object.keys(totals.facturado_sin_cobrar ?? {}),
+      ...Object.keys(totals.en_mora ?? {}),
+    ])].sort();
+  }, [data?.totals]);
 
   const totalsCard = (titleKey: string, totals: Record<string, number> | undefined) => (
     <Card>
@@ -160,13 +196,13 @@ export default function Collections() {
       </CardHeader>
       <CardContent className="space-y-0.5">
         {/* Un subtotal POR MONEDA. Nunca se suman Bs y USD: ese número no significaría nada. */}
-        {totalsList(totals).length === 0 ? (
+        {headerCurrencies.length === 0 ? (
           <p className="font-mono text-lg">—</p>
         ) : (
-          totalsList(totals).map(({ currency: cur, amount }) => (
+          headerCurrencies.map((cur) => (
             <p key={cur} className="font-mono text-lg">
               <span className="mr-2 text-xs font-normal text-muted-foreground">{cur}</span>
-              {fmtAmount(amount, cur)}
+              {fmtAmount(totals?.[cur] ?? 0, cur)}
             </p>
           ))
         )}
@@ -307,8 +343,7 @@ export default function Collections() {
         <Tabs
           value={tab}
           onValueChange={(v) => {
-            setTab(v as CollectionsTab);
-            setPage(0);
+            setParam("tab", v);
           }}
         >
           <TabsList>
@@ -329,7 +364,7 @@ export default function Collections() {
                   <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={search}
-                    onChange={(e) => onFilterChange(setSearch)(e.target.value)}
+                    onChange={(e) => setParam("q", e.target.value)}
                     placeholder={t("collections.searchPlaceholder")}
                     className="h-9 pl-8"
                   />
@@ -338,7 +373,7 @@ export default function Collections() {
 
               <div>
                 <Label className="text-xs">{t("collections.filterSociety")}</Label>
-                <Select value={societyId} onValueChange={onFilterChange(setSocietyId)}>
+                <Select value={societyId} onValueChange={(v) => setParam("sociedad", v === ALL ? null : v)}>
                   <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
@@ -351,7 +386,7 @@ export default function Collections() {
 
               <div>
                 <Label className="text-xs">{t("collections.filterPractice")}</Label>
-                <Select value={practica} onValueChange={onFilterChange(setPractica)}>
+                <Select value={practica} onValueChange={(v) => setParam("practica", v === ALL ? null : v)}>
                   <SelectTrigger className="h-9 w-40"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
@@ -364,7 +399,7 @@ export default function Collections() {
 
               <div>
                 <Label className="text-xs">{t("collections.filterManager")}</Label>
-                <Select value={managerId} onValueChange={onFilterChange(setManagerId)}>
+                <Select value={managerId} onValueChange={(v) => setParam("gerente", v === ALL ? null : v)}>
                   <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
@@ -377,7 +412,7 @@ export default function Collections() {
 
               <div>
                 <Label className="text-xs">{t("collections.filterCurrency")}</Label>
-                <Select value={currency} onValueChange={onFilterChange(setCurrency)}>
+                <Select value={currency} onValueChange={(v) => setParam("moneda", v === ALL ? null : v)}>
                   <SelectTrigger className="h-9 w-28"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
@@ -394,7 +429,7 @@ export default function Collections() {
                   type="date"
                   lang="es-BO"
                   value={dateFrom}
-                  onChange={(e) => onFilterChange(setDateFrom)(e.target.value)}
+                  onChange={(e) => setParam("desde", e.target.value)}
                   className="h-9 w-40"
                 />
               </div>
@@ -404,7 +439,7 @@ export default function Collections() {
                   type="date"
                   lang="es-BO"
                   value={dateTo}
-                  onChange={(e) => onFilterChange(setDateTo)(e.target.value)}
+                  onChange={(e) => setParam("hasta", e.target.value)}
                   className="h-9 w-40"
                 />
               </div>
@@ -413,20 +448,21 @@ export default function Collections() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <Switch
-                    id="group-by-client"
-                    checked={groupByClient}
-                    onCheckedChange={setGroupByClient}
-                  />
-                  <Label htmlFor="group-by-client" className="text-xs">
-                    {t("collections.groupByClient")}
-                  </Label>
+                  <Label className="text-xs">{t("collections.groupBy")}</Label>
+                  <Select value={groupBy} onValueChange={(v) => setParam("agrupar", v)}>
+                    <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ot">{t("collections.groupByWorkOrder")}</SelectItem>
+                      <SelectItem value="cliente">{t("collections.groupByClient")}</SelectItem>
+                      <SelectItem value="ninguno">{t("collections.groupByNone")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
                     id="include-expense-rows"
                     checked={includeExpenseRows}
-                    onCheckedChange={onFilterChange(setIncludeExpenseRows)}
+                    onCheckedChange={(v) => setParam("gastos", v ? null : "0")}
                   />
                   <Label htmlFor="include-expense-rows" className="text-xs">
                     {t("collections.includeExpenseRows")}
@@ -474,15 +510,15 @@ export default function Collections() {
                   </TableHeader>
                   <TableBody>
                     {grouped
-                      ? grouped.map(([client, clientRows]) => (
-                          <>
-                            <TableRow key={`group-${client}`} className="bg-muted/40 hover:bg-muted/40">
+                      ? grouped.map(([key, group]) => (
+                          <React.Fragment key={`group-${key}`}>
+                            <TableRow className="bg-muted/40 hover:bg-muted/40">
                               <TableCell colSpan={9} className="py-2 text-xs font-semibold uppercase tracking-wide">
-                                {client} · {clientRows.length}
+                                {group.label} · {group.rows.length}
                               </TableCell>
                             </TableRow>
-                            {clientRows.map(renderRow)}
-                          </>
+                            {group.rows.map(renderRow)}
+                          </React.Fragment>
                         ))
                       : rows.map(renderRow)}
                   </TableBody>
@@ -501,7 +537,7 @@ export default function Collections() {
                     variant="outline"
                     size="sm"
                     disabled={page === 0}
-                    onClick={() => setPage((p) => Math.max(p - 1, 0))}
+                    onClick={() => setParam("page", String(Math.max(page - 1, 0)), false)}
                   >
                     {t("common.previous")}
                   </Button>
@@ -510,7 +546,7 @@ export default function Collections() {
                     variant="outline"
                     size="sm"
                     disabled={page + 1 >= pageCount}
-                    onClick={() => setPage((p) => p + 1)}
+                    onClick={() => setParam("page", String(page + 1), false)}
                   >
                     {t("common.next")}
                   </Button>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -88,6 +88,7 @@ const WorkOrderEdit = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
 
   const { data: workOrder, isLoading } = useWorkOrderById(id || "");
@@ -1050,7 +1051,15 @@ const WorkOrderEdit = () => {
           onApprove={handleApprove}
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
-          onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
+          // Vuelve A DONDE SE ENTRÓ, no siempre a la lista de OT: desde Cobranzas, Cancelar
+          // tenía que devolver a Cobranzas, con su pestaña y sus filtros (que viven en la URL).
+          // `location.key === "default"` es una pestaña abierta directamente en esta OT: ahí no
+          // hay historial propio al que volver y la lista de OT es el destino razonable.
+          onCancel={() => {
+            allowNextNavigation();
+            if (location.key !== "default") navigate(-1);
+            else navigate("/work-orders");
+          }}
           rejectionNote={workOrder?.notes ?? null}
           isLocked={isLocked}
           canApprove={canApprove}

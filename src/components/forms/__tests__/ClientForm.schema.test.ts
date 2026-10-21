@@ -3,11 +3,14 @@ import { formSchema } from "@/components/forms/ClientForm";
 
 // Cobranzas Fase 5 (issue #352): el cliente pasó de UN contacto opcional a DOS obligatorios
 // —el del cliente y el de cobranza (finanzas)—, así que una ficha válida ya los incluye.
+// Desde el 2026-10-20 los dos necesitan además CORREO: el cobro se reclama por correo.
 const validBase = {
   client_legal_name: "Acme S.A.",
   unique_tax_id: "1020182020",
   contact_general_name: "Ana Pérez",
+  contact_general_email: "ana@acme.test",
   contact_cobranza_name: "Luis Finanzas",
+  contact_cobranza_email: "luis@acme.test",
   is_active: true,
 };
 
@@ -56,6 +59,18 @@ describe("ClientForm — los dos contactos son obligatorios (Cobranzas Fase 5)",
   });
 
   // El de cobranza es el que faltaba antes: sin él, Cobranzas no sabe a quién reclamarle.
+  // El correo es tan obligatorio como el nombre: un contacto al que no se le puede escribir no
+  // sirve para lo unico que tiene que servir.
+  it("rechaza una ficha sin el correo del contacto del cliente", () => {
+    const r = formSchema.safeParse({ ...validBase, contact_general_email: "" });
+    expect(r.success).toBe(false);
+  });
+
+  it("rechaza una ficha sin el correo del contacto de cobranza", () => {
+    const r = formSchema.safeParse({ ...validBase, contact_cobranza_email: "" });
+    expect(r.success).toBe(false);
+  });
+
   it("rechaza una ficha sin contacto de cobranza", () => {
     const r = formSchema.safeParse({ ...validBase, contact_cobranza_name: "" });
     expect(r.success).toBe(false);

@@ -1939,7 +1939,7 @@
       "errorNoteForbidden": "No tiene permiso para esta nota.",
       "errorNoteBodyRequired": "La nota no puede estar vacía.",
       "notesTitle": "Notas",
-      "notesPlanTitle": "Notas del plan de pagos",
+      "notesPlanTitle": "Notas del plan (todas las cuotas)",
       "notesEmpty": "Sin notas.",
       "notesAdd": "Agregar nota",
       "notesPlaceholder": "Lo que Contabilidad o el equipo del encargo tienen que saber",
@@ -2025,7 +2025,8 @@
       "errorAdjustmentForbidden": "Solo Contabilidad puede registrar ajustes sobre una cuota.",
       "errorAdjustmentLocked": "Un descuento se acuerda antes de cobrar, y la diferencia de cambio recién existe después.",
       "errorAdjustmentExceeds": "El descuento supera lo que queda por cobrar de la cuota.",
-      "errorAdjustmentReasonRequired": "El ajuste necesita un motivo."
+      "errorAdjustmentReasonRequired": "El ajuste necesita un motivo.",
+      "notesPlanHelp": "Aplican a todo el encargo. Si la nota es sobre una cuota específica, use el botón de notas de esa fila."
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",
@@ -3256,7 +3257,7 @@
     "filterCurrency": "Moneda",
     "filterDateFrom": "Desde",
     "filterDateTo": "Hasta",
-    "groupByClient": "Agrupar por cliente",
+    "groupByClient": "Cliente",
     "includeExpenseRows": "Incluir gastos ejecutados",
     "export": "Exportar",
     "pageOf": "Página {{page}} de {{pages}} · {{total}} cuotas",
@@ -3285,6 +3286,9 @@
     "colContactPhone": "Teléfono",
     "colToCollect": "Por cobrar",
     "colExchangeDifference": "Dif. de cambio",
-    "adjustedTooltip": "Esta cuota tiene ajustes registrados."
+    "adjustedTooltip": "Esta cuota tiene ajustes registrados.",
+    "groupBy": "Agrupar por",
+    "groupByWorkOrder": "Orden de trabajo",
+    "groupByNone": "Sin agrupar"
   }
 }

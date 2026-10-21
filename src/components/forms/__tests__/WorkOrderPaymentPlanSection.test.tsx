@@ -18,8 +18,9 @@ const mockReschedule = vi.fn();
 const mockAddNote = vi.fn();
 const mockRecordConfirmation = vi.fn();
 
+const mockUpdateStatus = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/mutations", () => ({
-  useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateInstallmentStatus: () => ({ mutate: mockUpdateStatus, isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
   useRescheduleInstallment: () => ({ mutate: mockReschedule, isPending: false }),
@@ -57,14 +58,31 @@ vi.mock("@/hooks/useExchangeRate", () => ({
   useLatestExchangeRate: () => ({ data: null }),
 }));
 
-// Radix Select requires PointerEvent APIs not available in jsdom
+// Radix Select requires PointerEvent APIs not available in jsdom.
+// Se renderiza como un <select> nativo —y no como un <div>— para poder DISPARAR el cambio de
+// estado desde el test: el diálogo de cobro sólo se abre por esa vía.
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children, value }: { children?: React.ReactNode; value?: string }) => (
-    <div data-testid="select" data-value={value}>{children}</div>
+  Select: ({
+    children,
+    value,
+    onValueChange,
+  }: {
+    children?: React.ReactNode;
+    value?: string;
+    onValueChange?: (v: string) => void;
+  }) => (
+    <select
+      data-testid="select"
+      data-value={value}
+      value={value ?? ""}
+      onChange={(e) => onValueChange?.(e.target.value)}
+    >
+      {children}
+    </select>
   ),
   SelectTrigger: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   SelectValue: () => null,
-  SelectContent: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  SelectContent: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   SelectItem: ({ value, children, disabled }: { value?: string; children?: React.ReactNode; disabled?: boolean }) => (
     <option value={value} disabled={disabled}>{children}</option>
   ),
@@ -839,5 +857,71 @@ describe("WorkOrderPaymentPlanSection — moneda por cuota (Fase 6)", () => {
     const totals = screen.getByTestId("totals-by-currency");
     expect(within(totals).getByText("BOB")).toBeInTheDocument();
     expect(within(totals).getByText("USD")).toBeInTheDocument();
+  });
+});
+
+
+describe("WorkOrderPaymentPlanSection — el TC al COBRAR se confirma en el diálogo (2026-10-21)", () => {
+  // Antes, el TC de pago era una columna suelta que había que acordarse de editar ANTES de
+  // cambiar el estado. Si se olvidaba, la cuota se cobraba con el valor viejo y quedaba
+  // congelada —isPaymentRateCaptureEditable sólo lo deja tocar mientras sigue Facturada o En
+  // mora—, y la diferencia de cambio de la Fase 9 salía calculada sobre ese número. Ahora se
+  // confirma en el mismo diálogo que la fecha de pago, igual que al facturar.
+
+  const facturada = () =>
+    makeInstallment({
+      status: "Invoiced" as PaymentInstallmentStatus,
+      amount: 1000,
+      collection_invoice_date: "2026-10-01",
+      collection_payment_date: "2026-11-15",
+      invoice_exchange_rate: 6.96,
+      payment_exchange_rate: 6.96,
+    });
+
+  const cobrar = (container: HTMLElement) => {
+    const selects = Array.from(container.querySelectorAll("select"));
+    const estado = selects.find((el) =>
+      Array.from(el.options).some((o) => o.value === "Completed"),
+    );
+    if (!estado) throw new Error("no se encontró el selector de estado");
+    fireEvent.change(estado, { target: { value: "Completed" } });
+  };
+
+  it("PTC1: el diálogo de cobro ofrece el TC, igual que el de facturación", () => {
+    const container = renderSection({
+      currency: "USD" as const,
+      isStatusEditable: true,
+      installments: [facturada()],
+    });
+    cobrar(container);
+    expect(screen.getByTestId("invoice-rate-input")).toBeInTheDocument();
+  });
+
+  it("PTC2: confirmar manda el TC tecleado, no el que traía la cuota", () => {
+    mockUpdateStatus.mockClear();
+    const container = renderSection({
+      currency: "USD" as const,
+      isStatusEditable: true,
+      installments: [facturada()],
+    });
+    cobrar(container);
+
+    fireEvent.change(screen.getByTestId("invoice-rate-input"), { target: { value: "7.25" } });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmCompletedAction"));
+
+    expect(mockUpdateStatus).toHaveBeenCalledTimes(1);
+    const args = mockUpdateStatus.mock.calls[0][0];
+    expect(args.newStatus).toBe("Completed");
+    expect(args.paymentExchangeRate).toBe(7.25);
+  });
+
+  it("PTC3: una cuota en Bs no muestra el campo — no hay nada que convertir", () => {
+    const container = renderSection({
+      currency: "BOB" as const,
+      isStatusEditable: true,
+      installments: [facturada()],
+    });
+    cobrar(container);
+    expect(screen.queryByTestId("invoice-rate-input")).not.toBeInTheDocument();
   });
 });

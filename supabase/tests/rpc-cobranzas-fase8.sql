@@ -500,6 +500,51 @@ BEGIN
   PERFORM public.set_installment_overdue(v_txt::uuid, 'Overdue', false);
 
   -- ══════════════════════════════════════════════════════════════════
+  -- 8bis. El orden lo decide el servidor
+  -- ══════════════════════════════════════════════════════════════════
+  -- Agrupar por orden de trabajo en la pantalla solo sirve si el servidor devuelve juntas las
+  -- cuotas de cada orden: la lista viene PAGINADA, asi que con un orden por fecha una orden de
+  -- 12 cuotas puede quedar partida entre dos paginas y el grupo se ve cortado por la mitad.
+  PERFORM pg_temp.impersonate(c_collections);
+
+  -- Por 'ot', las dos cuotas del plan 1 que estan en mora salen consecutivas y en su orden de
+  -- numeracion, aunque sus fechas digan otra cosa.
+  v_res := public.list_collections_installments('por_facturar', p_order := 'ot');
+  IF (v_res->'rows'->0->>'wo_id') IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el orden por OT no devolvio filas';
+  END IF;
+  IF (v_res->>'order') <> 'ot' THEN
+    RAISE EXCEPTION 'TEST FAIL - la respuesta no informa el orden aplicado';
+  END IF;
+
+  -- Las filas de una misma OT quedan CONTIGUAS: ninguna aparece, se interrumpe y vuelve. Se
+  -- cuentan los "tramos" (el truco clasico de restar dos ROW_NUMBER): si una OT estuviera
+  -- partida, tendria mas de un tramo y el total daria mayor que la cantidad de OT distintas.
+  SELECT COUNT(*) INTO v_n FROM (
+    SELECT wo FROM (
+      SELECT r.value->>'wo_id' AS wo,
+             ROW_NUMBER() OVER (ORDER BY r.ordinality)
+               - ROW_NUMBER() OVER (PARTITION BY r.value->>'wo_id' ORDER BY r.ordinality) AS grupo
+        FROM jsonb_array_elements(v_res->'rows') WITH ORDINALITY AS r(value, ordinality)
+    ) q GROUP BY wo, grupo
+  ) t;
+  IF v_n <> (SELECT COUNT(DISTINCT r.value->>'wo_id') FROM jsonb_array_elements(v_res->'rows') r) THEN
+    RAISE EXCEPTION 'TEST FAIL - una orden de trabajo quedo partida en tramos separados';
+  END IF;
+
+  -- Un orden inventado se rechaza, igual que una pestana inventada.
+  denied := false;
+  BEGIN
+    PERFORM public.list_collections_installments('por_facturar', p_order := 'monto');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'COLLECTIONS_ORDER_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un orden desconocido';
+  END IF;
+  RAISE NOTICE 'PASS - por OT las cuotas de una orden salen contiguas, y un orden inventado se rechaza';
+
+  -- ══════════════════════════════════════════════════════════════════
   -- 9. Las opciones de los selectores
   -- ══════════════════════════════════════════════════════════════════
   -- Salen de lo que REALMENTE hay para cobrar, no del catalogo entero: un selector con las

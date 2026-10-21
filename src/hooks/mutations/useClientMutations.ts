@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 import { toast } from "sonner";
 import { createMutationErrorHandler, handleError, ErrorCode } from "@/lib/error-handler";
 import i18n from "@/i18n";
@@ -138,10 +139,7 @@ export function useSaveClientContacts() {
       /** Presente cuando se guarda desde el plan: invalida también esa consulta. */
       woId?: string;
     }) => {
-      const { error } = await (supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>,
-      ) => Promise<{ error: { message?: string } | null }>)("save_client_contacts", {
+      const { error } = await rpcUntyped("save_client_contacts", {
         p_client_id: clientId,
         p_contacts: contacts,
       });

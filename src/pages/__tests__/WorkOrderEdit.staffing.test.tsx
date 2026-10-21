@@ -43,6 +43,9 @@ vi.mock("react-router-dom", async () => {
     // "useLocation() may be used only in the context of a <Router>" porque este archivo
     // no envuelve WorkOrderEdit en un MemoryRouter.
     useSearchParams: () => [new URLSearchParams()],
+    // Cancelar vuelve a donde se entro (navigate(-1)) salvo que la OT se haya abierto
+    // directamente, que es lo que dice location.key === 'default'.
+    useLocation: () => ({ key: "default", pathname: "/work-orders/wo-1", search: "" }),
   };
 });
 

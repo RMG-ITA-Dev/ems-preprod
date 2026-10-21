@@ -50,6 +50,34 @@ export function computeAmount(percentage: number, feeWithTax: number): number {
   return parseFloat(((percentage / 100) * feeWithTax).toFixed(2));
 }
 
+/**
+ * Cobranzas Fase 6 (decisión Q29, UI resuelta el 2026-10-20): el monto de una cuota EN SU
+ * MONEDA.
+ *
+ * El honorario está en la moneda de la OT, así que `porcentaje × honorario` da un número en
+ * esa moneda. Cuando la cuota se cobra en otra, el cliente paga **el mismo valor convertido**,
+ * no un monto distinto: por eso se aplica el tipo de cambio del plan y el porcentaje sigue
+ * significando lo que dice. Sin esto, pasar una cuota a bolivianos dejaba el número de dólares
+ * con una etiqueta de bolivianos al lado.
+ *
+ * Solo se convierte entre la moneda de la OT y Bs, que es el único caso que la pantalla ofrece.
+ * Sin tipo de cambio no hay conversión posible, así que devuelve el monto sin tocar.
+ */
+export function computeAmountInCurrency(
+  percentage: number,
+  feeWithTax: number,
+  rowCurrency: string,
+  woCurrency: string,
+  planRate: number | null | undefined,
+): number {
+  const base = computeAmount(percentage, feeWithTax);
+  if (rowCurrency === woCurrency) return base;
+  if (!planRate || planRate <= 0) return base;
+  // El TC del plan son bolivianos por unidad de la moneda de la OT.
+  const converted = rowCurrency === "BOB" ? base * planRate : base / planRate;
+  return parseFloat(converted.toFixed(2));
+}
+
 // Computes the payment date from an invoice date string (YYYY-MM-DD) and business days.
 // Returns null if invoiceDate is null.
 export function computePaymentDate(invoiceDate: string | null, paymentDays: number): string | null {

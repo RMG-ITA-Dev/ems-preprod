@@ -78,11 +78,14 @@ export const formSchema = z.object({
   // Cobranzas Fase 5 (issue #352, decisiones Q20/Q52): el cliente pasa de UN contacto suelto a
   // dos CONTACTOS con tipo, los dos obligatorios. El de cobranza (finanzas) es a quien se le
   // reclama una factura, y casi nunca es el mismo que el contacto del encargo.
+  // El CORREO tambien es obligatorio en los dos (decision del operador 2026-10-20): el cobro se
+  // reclama por correo, asi que un contacto sin correo no sirve para lo unico que tiene que
+  // servir. El telefono sigue siendo opcional.
   contact_general_name: z.string().trim().min(1, "El contacto del cliente es obligatorio"),
-  contact_general_email: z.string().email("Invalid email").optional().or(z.literal("")),
+  contact_general_email: z.string().trim().min(1, "El correo del contacto es obligatorio").email("Invalid email"),
   contact_general_phone: phoneSchema,
   contact_cobranza_name: z.string().trim().min(1, "El contacto de cobranza es obligatorio"),
-  contact_cobranza_email: z.string().email("Invalid email").optional().or(z.literal("")),
+  contact_cobranza_email: z.string().trim().min(1, "El correo del contacto de cobranza es obligatorio").email("Invalid email"),
   contact_cobranza_phone: phoneSchema,
   address: z.string().optional(),
   is_active: z.boolean(),
@@ -384,7 +387,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_general_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactGeneralName")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactGeneralName")} *</FormLabel>
                     <FormControl>
                       <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
                     </FormControl>
@@ -397,7 +400,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_general_email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactGeneralEmail")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactGeneralEmail")} *</FormLabel>
                     <FormControl>
                       <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
                     </FormControl>
@@ -423,7 +426,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_cobranza_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactCobranzaName")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactCobranzaName")} *</FormLabel>
                     <FormControl>
                       <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
                     </FormControl>
@@ -436,7 +439,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_cobranza_email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactCobranzaEmail")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactCobranzaEmail")} *</FormLabel>
                     <FormControl>
                       <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
                     </FormControl>
@@ -651,7 +654,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_general_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("client.contactGeneralName")}</FormLabel>
+                    <FormLabel>{t("client.contactGeneralName")} *</FormLabel>
                     <FormControl>
                       <Input placeholder="John Doe" {...field} />
                     </FormControl>
@@ -664,7 +667,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_general_email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("client.contactGeneralEmail")}</FormLabel>
+                    <FormLabel>{t("client.contactGeneralEmail")} *</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="contact@company.com" {...field} />
                     </FormControl>
@@ -690,7 +693,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_cobranza_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("client.contactCobranzaName")}</FormLabel>
+                    <FormLabel>{t("client.contactCobranzaName")} *</FormLabel>
                     <FormControl>
                       <Input placeholder="John Doe" {...field} />
                     </FormControl>
@@ -703,7 +706,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 name="contact_cobranza_email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("client.contactCobranzaEmail")}</FormLabel>
+                    <FormLabel>{t("client.contactCobranzaEmail")} *</FormLabel>
                     <FormControl>
                       <Input type="email" placeholder="contact@company.com" {...field} />
                     </FormControl>

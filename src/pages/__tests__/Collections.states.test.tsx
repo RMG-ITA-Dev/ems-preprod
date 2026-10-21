@@ -147,6 +147,27 @@ describe("Collections — acceso", () => {
   });
 });
 
+describe("Collections — agrupado y orden", () => {
+  it("entra agrupado por OT y se lo pide así al servidor", () => {
+    // Quien cobra trabaja orden por orden, no cuota suelta por cuota suelta. Y el orden es del
+    // SERVIDOR: agrupar en el cliente sobre un orden por fecha partiría una orden de 12 cuotas
+    // entre dos páginas.
+    renderPage();
+    expect(lastFilters?.order).toBe("ot");
+  });
+
+  it("sin agrupar, el orden vuelve a ser por fecha", () => {
+    // Es el modo del día a día: lo que vence primero, primero.
+    const { container } = renderPage();
+    const agrupar = Array.from(container.querySelectorAll("select")).find((el) =>
+      Array.from(el.options).some((o) => o.value === "ninguno"),
+    );
+    if (!agrupar) throw new Error("no se encontró el selector de agrupado");
+    fireEvent.change(agrupar, { target: { value: "ninguno" } });
+    expect(lastFilters?.order).toBe("fecha");
+  });
+});
+
 describe("Collections — lo que le pide al servidor", () => {
   it("abre en 'Por facturar', que es lo primero que se revisa cada día", () => {
     renderPage();
@@ -242,6 +263,27 @@ describe("Collections — totales", () => {
     renderPage();
     expect(screen.getByText("1.000")).toBeInTheDocument();
     expect(screen.getByText(/800/)).toBeInTheDocument();
+  });
+
+  it("las tres tarjetas comparten las MISMAS monedas, con 0 donde no tienen", () => {
+    // Si cada tarjeta mostrara solo sus monedas, las tres tendrian distinta forma y no se
+    // podrian comparar de un vistazo. Ademas un hueco no distingue "no hay nada pendiente en
+    // esa moneda" de "esa moneda no existe en la cartera"; un 0 si.
+    result = {
+      ...emptyResult,
+      totals: {
+        por_facturar_mes: { USD: 100 },
+        facturado_sin_cobrar: { BOB: 5000, USD: 500 },
+        en_mora: {},
+      },
+    };
+    const { container } = renderPage();
+    const tarjetas = container.querySelectorAll(".font-mono.text-lg");
+    // 3 tarjetas x 2 monedas: ninguna se saltea una fila.
+    expect(tarjetas).toHaveLength(6);
+    // La de "en mora" no tiene nada, pero igual muestra las dos en cero.
+    const enMora = Array.from(tarjetas).slice(4).map((el) => el.textContent);
+    expect(enMora).toEqual(["BOB0", "USD0"]);
   });
 
   it("sin nada que mostrar, el total dice '—' en vez de 0", () => {

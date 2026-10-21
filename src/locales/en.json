@@ -1939,7 +1939,7 @@
       "errorNoteForbidden": "You don't have permission for this note.",
       "errorNoteBodyRequired": "The note cannot be empty.",
       "notesTitle": "Notes",
-      "notesPlanTitle": "Payment plan notes",
+      "notesPlanTitle": "Plan notes (all installments)",
       "notesEmpty": "No notes.",
       "notesAdd": "Add note",
       "notesPlaceholder": "What Accounting or the engagement team needs to know",
@@ -2025,7 +2025,8 @@
       "errorAdjustmentForbidden": "Only Accounting can record adjustments on an installment.",
       "errorAdjustmentLocked": "A discount is agreed before collecting, and an exchange difference only exists afterwards.",
       "errorAdjustmentExceeds": "The discount exceeds what is left to collect on this installment.",
-      "errorAdjustmentReasonRequired": "The adjustment needs a reason."
+      "errorAdjustmentReasonRequired": "The adjustment needs a reason.",
+      "notesPlanHelp": "What applies to the whole engagement. For something about a single installment, use that row’s notes button."
     },
     "staffingRequirements": {
       "title": "Staffing Requirements",
@@ -3256,7 +3257,7 @@
     "filterCurrency": "Currency",
     "filterDateFrom": "From",
     "filterDateTo": "To",
-    "groupByClient": "Group by client",
+    "groupByClient": "Client",
     "includeExpenseRows": "Include executed expenses",
     "export": "Export",
     "pageOf": "Page {{page}} of {{pages}} · {{total}} installments",
@@ -3285,6 +3286,9 @@
     "colContactPhone": "Phone",
     "colToCollect": "To collect",
     "colExchangeDifference": "FX difference",
-    "adjustedTooltip": "This installment has recorded adjustments."
+    "adjustedTooltip": "This installment has recorded adjustments.",
+    "groupBy": "Group by",
+    "groupByWorkOrder": "Work order",
+    "groupByNone": "No grouping"
   }
 }

@@ -5,6 +5,7 @@ import { createMutationErrorHandler, handleError } from "@/lib/error-handler";
 import i18n from "@/i18n";
 import type { PaymentPlanInput, PaymentInstallmentInput, PaymentInstallmentStatus } from "@/types/workOrderPaymentPlan";
 import { computePaymentDate, todayInLaPaz } from "@/lib/workOrderPaymentPlan";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 
 // 0722-156b (Fase 2): trg_wo_payment_plan_guard_exchange_rate / trg_wo_payment_
 // installments_guard_exchange_rate (migración 20260905172820) rechazan un cambio de
@@ -331,15 +332,6 @@ export function useBatchUpsertInstallments() {
 // como fuente — sólo está sembrada 2026-2027 y además trae 2 feriados "puente" que el
 // generador no produce — así que la RPC lo recibe y lo valida en vez de recalcularlo, para
 // no crear un segundo calendario divergente.
-// src/integrations/supabase/types.ts está desactualizado: no conoce las 3 RPC de cobranza
-// (tampoco exchange_rate_mode, invoice/payment_exchange_rate ni exchange_rate_history, de
-// 0722-156b). No se edita a mano — se regenera con la herramienta oficial contra el proyecto
-// destino, y recién entonces se borra este puente y las llamadas quedan tipadas. Mismo recurso
-// que useExchangeRate.ts usa hoy para exchange_rate_history.
-const rpcUntyped = supabase.rpc as unknown as (
-  fn: string,
-  args: Record<string, unknown>,
-) => Promise<{ error: { message?: string; code?: string } | null }>;
 
 export function useUpdateInstallmentStatus() {
   const queryClient = useQueryClient();
@@ -814,10 +806,7 @@ export function useDeleteInstallmentAdjustment() {
  * alguno de los dos TC.
  */
 export async function fetchSuggestedExchangeDifference(installmentId: string): Promise<number | null> {
-  const { data, error } = await (supabase.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>)("suggest_exchange_difference", {
+  const { data, error } = await rpcUntyped<number | null>("suggest_exchange_difference", {
     p_installment_id: installmentId,
   });
   if (error) return null;

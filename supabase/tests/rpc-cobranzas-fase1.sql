@@ -844,7 +844,7 @@ BEGIN
   denied := false;
   BEGIN
     PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
-      jsonb_build_object('contact_type', 'general', 'full_name', 'Ana Perez')));
+      jsonb_build_object('contact_type', 'general', 'full_name', 'Ana Perez', 'email', 'ana@cliente.com')));
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE 'CONTACT_COBRANZA_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
   END;
@@ -862,7 +862,20 @@ BEGIN
   IF NOT denied THEN
     RAISE EXCEPTION 'TEST FAIL - se guardo un cliente sin contacto general';
   END IF;
-  RAISE NOTICE 'PASS - hacen falta los dos contactos, el del cliente y el de cobranza';
+  -- Y los dos necesitan CORREO (decision del operador 2026-10-20): el cobro se reclama por
+  -- correo, asi que un contacto sin correo no sirve para lo unico que tiene que servir.
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
+      jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez', 'email', 'ana@cliente.com'),
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_COBRANZA_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se guardo un contacto de cobranza sin correo';
+  END IF;
+  RAISE NOTICE 'PASS - hacen falta los dos contactos, con nombre y correo';
 
   -- 11.b Camino feliz.
   PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
@@ -881,9 +894,9 @@ BEGIN
   -- 11.c Varios del mismo tipo (Q52), y lo que no viene en el payload se DESACTIVA, no se
   -- borra: una nota o una gestion pudo haberlo nombrado.
   PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
-    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez'),
-    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas'),
-    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Marta Tesoreria')));
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez',       'email', 'ana@cliente.com'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas',   'email', 'luis@cliente.com'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Marta Tesoreria', 'email', 'marta@cliente.com')));
   SELECT COUNT(*) INTO v_n FROM public.client_contacts
    WHERE client_id = 'c1000000-0000-4000-8000-0000000000f1' AND is_active AND contact_type = 'cobranza';
   IF v_n <> 2 THEN
@@ -917,8 +930,8 @@ BEGIN
   -- que es donde se descubre que falta el de finanzas (decision Q21/Q22).
   PERFORM pg_temp.impersonate(c_manager);
   PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f1', jsonb_build_array(
-    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez'),
-    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas')));
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Ana Perez',     'email', 'ana@cliente.com'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas', 'email', 'luis@cliente.com')));
   RAISE NOTICE 'PASS - los edita quien mantiene al cliente o el gerente del encargo, no Cobranzas';
 
   -- 11.e Contabilidad ve los contactos DESDE el plan, sin tener client.read (decision Q57).

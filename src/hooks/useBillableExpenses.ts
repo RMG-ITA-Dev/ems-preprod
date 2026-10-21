@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { rpcUntyped } from "@/lib/rpcUntyped";
 
 /**
  * Cobranzas Fase 7 (issue #352) — qué gastos de una orden de trabajo se le pueden facturar
@@ -21,13 +21,6 @@ export interface BillableExpense {
   fre_id: string;
   amount: number;
 }
-
-// src/integrations/supabase/types.ts está desactualizado y no conoce las RPC de cobranzas;
-// mismo puente que useWorkOrderPaymentPlanMutations. Se borra cuando se regeneren los tipos.
-const rpcUntyped = supabase.rpc as unknown as (
-  fn: string,
-  args: Record<string, unknown>,
-) => Promise<{ data: unknown; error: { message?: string } | null }>;
 
 export function useBillableExpenses(woId: string | undefined, enabled = true) {
   return useQuery({
