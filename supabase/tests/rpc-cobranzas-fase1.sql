@@ -1091,6 +1091,23 @@ BEGIN
   IF NOT denied THEN
     RAISE EXCEPTION 'TEST FAIL - un gerente sin client.update edito la ficha por la RPC';
   END IF;
+  -- Y con p_is_new NULL tampoco: con el booleano a secas ningun chequeo corria y se caia en la
+  -- rama de edicion (revision de Greptile).
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', NULL,
+      jsonb_build_object('client_legal_name', 'Intruso'),
+      jsonb_build_array(
+        jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
+        jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CLIENT_PAYLOAD_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied OR EXISTS (SELECT 1 FROM public.clients
+                            WHERE client_id = 'c1000000-0000-4000-8000-0000000000f3'
+                              AND client_legal_name = 'Intruso') THEN
+    RAISE EXCEPTION 'TEST FAIL - con p_is_new NULL se edito la ficha sin client.update';
+  END IF;
   PERFORM pg_temp.impersonate(c_collections);
   denied := false;
   BEGIN

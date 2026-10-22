@@ -1187,3 +1187,37 @@ describe("WorkOrderPaymentPlanSection — gastos facturados en móvil (revisión
     expect(screen.getByText("workOrders.paymentPlan.expenseRowsBilledAmount")).toBeInTheDocument();
   });
 });
+
+describe("WorkOrderPaymentPlanSection — bitácora de la fila de gastos (revisión de Codex, 2026-10-22)", () => {
+  afterEach(() => {
+    mockEvents = [];
+  });
+
+  it("la fila de gastos abre su propio historial, con la corrección del monto", () => {
+    // El evento reimbursement_amount_changed se guardaba, pero el diálogo sólo se abría desde
+    // las cuotas de honorarios: la corrección del monto de gastos era invisible.
+    mockEvents = [
+      {
+        event_id: "ev-g", seq: 1, installment_id: "g-1", wo_id: "wo-1", action: "reimbursement_amount_changed",
+        from_status: null, to_status: null, old_date: null, new_date: null,
+        amount: 450, currency: "BOB", reason: null, actor_staff_id: null,
+        created_at: "2026-10-02T00:00:00Z",
+      },
+    ];
+    renderSection({
+      expenseRows: [
+        makeInstallment({
+          installment_id: "g-1",
+          installment_number: 3,
+          percentage: 0,
+          amount: 450,
+          installment_type: "expense_reimbursement",
+          currency: "BOB",
+          net_amount: 500,
+        } as Partial<PaymentInstallmentInput>),
+      ],
+    });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+    expect(screen.getByText("workOrders.paymentPlan.historyReimbursementAmount")).toBeInTheDocument();
+  });
+});

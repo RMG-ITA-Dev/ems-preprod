@@ -9102,15 +9102,18 @@ CREATE FUNCTION public.save_client_with_contacts(
 DECLARE
   v_count integer;
 BEGIN
-  IF p_client_id IS NULL OR p_client IS NULL OR jsonb_typeof(p_client) <> 'object' THEN
+  -- p_is_new NULL se rechaza ANTES de todo: con NULL, `p_is_new AND ...` y `NOT p_is_new AND
+  -- ...` dan NULL los dos, ningun chequeo de permiso corria y se caia en la rama de edicion.
+  IF p_client_id IS NULL OR p_is_new IS NULL OR p_client IS NULL OR jsonb_typeof(p_client) <> 'object' THEN
     RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan los datos del cliente';
   END IF;
 
-  -- Las mismas reglas que "clients write insert" / "clients write update".
-  IF p_is_new AND NOT public.has_permission('client.create') THEN
+  -- Las mismas reglas que "clients write insert" / "clients write update". IS TRUE / IS FALSE
+  -- y no el booleano a secas: un chequeo de permiso no puede depender de que nadie mande NULL.
+  IF p_is_new IS TRUE AND NOT public.has_permission('client.create') THEN
     RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para crear clientes';
   END IF;
-  IF NOT p_is_new AND NOT public.has_permission('client.update') THEN
+  IF p_is_new IS FALSE AND NOT public.has_permission('client.update') THEN
     RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para editar este cliente';
   END IF;
 

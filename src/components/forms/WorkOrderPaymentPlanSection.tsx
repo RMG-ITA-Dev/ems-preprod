@@ -262,7 +262,9 @@ export function WorkOrderPaymentPlanSection({
   const { data: adjustments } = useInstallmentAdjustments(woId || undefined);
   // La bitácora de todas las cuotas de la OT, en UNA consulta.
   const { data: events } = useInstallmentEvents(woId || undefined);
-  const [historyDialog, setHistoryDialog] = useState<{ idx: number } | null>(null);
+  // Por ID de cuota y no por posición en `installments`: las filas de gastos facturados viven
+  // en otro arreglo (`expenseRows`) y también tienen bitácora.
+  const [historyDialog, setHistoryDialog] = useState<{ installmentId: string; number: number } | null>(null);
   const addAdjustment = useAddInstallmentAdjustment();
   const deleteAdjustment = useDeleteInstallmentAdjustment();
   const [adjustmentsDialog, setAdjustmentsDialog] = useState<{ installmentId: string } | null>(null);
@@ -298,10 +300,7 @@ export function WorkOrderPaymentPlanSection({
   // Con la cuota cobrada, su descuento ya no se retira (el servidor lo rechaza igual).
   const dialogInstallmentCompleted =
     installments.find((i) => i.installment_id === adjustmentsDialog?.installmentId)?.status === "Completed";
-  const historyEvents = eventsForInstallment(
-    events,
-    historyDialog !== null ? installments[historyDialog.idx]?.installment_id : undefined,
-  );
+  const historyEvents = eventsForInstallment(events, historyDialog?.installmentId);
 
   /**
    * Una línea por evento, en el idioma del negocio. La tabla guarda el QUÉ en bruto
@@ -968,6 +967,7 @@ export function WorkOrderPaymentPlanSection({
     // El monto sólo se corrige mientras la fila no se facturó: después, lo
     // que el cliente recibió ya está emitido.
     const amountEditable = canBillExpenses && row.status === "Pending";
+    const rowEvents = eventsForInstallment(events, row.installment_id);
     const spent = (
       <>
         {formatAmount(row.net_amount ?? 0, "BOB")} <span className="text-[10px]">BOB</span>
@@ -1122,6 +1122,20 @@ export function WorkOrderPaymentPlanSection({
           >
             {t(`workOrders.paymentPlan.status${stage}`)}
           </span>
+        )}
+        {/* La bitácora de la fila: ahí quedan la facturación, el cobro y cada corrección del
+            monto. Sin este acceso, esos eventos se guardaban pero no se podían ver. */}
+        {rowEvents.length > 0 && row.installment_id && (
+          <button
+            type="button"
+            onClick={() =>
+              setHistoryDialog({ installmentId: row.installment_id!, number: row.installment_number ?? 0 })
+            }
+            className="ml-1 inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          >
+            <History className="mr-1 h-3 w-3" />
+            {t("workOrders.paymentPlan.historyCount", { count: rowEvents.length })}
+          </button>
         )}
       </>
     );
@@ -1910,7 +1924,7 @@ export function WorkOrderPaymentPlanSection({
                         {rowEvents.length > 0 && inst.installment_id && (
                           <button
                             type="button"
-                            onClick={() => setHistoryDialog({ idx })}
+                            onClick={() => setHistoryDialog({ installmentId: inst.installment_id!, number: idx + 1 })}
                             className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                           >
                             <History className="mr-1 h-3 w-3" />
@@ -2497,7 +2511,7 @@ export function WorkOrderPaymentPlanSection({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {t("workOrders.paymentPlan.historyTitle", { number: (historyDialog?.idx ?? 0) + 1 })}
+            {t("workOrders.paymentPlan.historyTitle", { number: historyDialog?.number ?? 1 })}
           </DialogTitle>
           <DialogDescription>{t("workOrders.paymentPlan.historyDesc")}</DialogDescription>
         </DialogHeader>
