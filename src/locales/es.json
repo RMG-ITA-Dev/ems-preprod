@@ -1910,6 +1910,7 @@
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
       "errorExchangeRateForbidden": "No tiene permiso para modificar este tipo de cambio.",
+      "errorExchangeRateRequired": "Una cuota en moneda extranjera necesita el tipo de cambio para facturarse o cobrarse.",
       "errorInstallmentStale": "Otra persona ya actualizó esta cuota. Vuelva a cargar la página para ver su estado actual.",
       "errorInstallmentForbidden": "No tiene permiso para registrar la cobranza de esta cuota.",
       "errorExchangeRateUnavailable": "No hay tipo de cambio disponible (historial BCB vacío y sin valor por defecto configurado).",

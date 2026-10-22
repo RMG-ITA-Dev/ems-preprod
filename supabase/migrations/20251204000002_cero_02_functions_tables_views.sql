@@ -2762,8 +2762,8 @@ CREATE FUNCTION public.fund_work_order_expense_summary() RETURNS TABLE(wo_id uui
 --   assigned   = lo asignado a la OT en esas solicitudes (fund_request_work_orders).
 --   spent      = gastos validados por Contabilidad (revisado_asistente): lo que cuenta en la
 --                liquidación.
---   in_process = gastos enviados que todavía no son finales (pendiente / aprobado por el
---                gerente / observado).
+--   in_process = gastos enviados que todavía no son finales (fund_expense_in_process: pendiente /
+--                aprobado por el gerente / observado, y rechazado mientras se pueda corregir).
 --   budget     = presupuesto de gastos de la OT (wo_expense_budget), para comparar.
 -- Solicitudes consideradas: aprobado_gerente, fondos_entregados, en_liquidacion, cerrado
 -- (canceladas fuera).
@@ -2774,7 +2774,7 @@ BEGIN
 
   RETURN QUERY
   WITH frs AS (
-    SELECT fr.fund_request_id
+    SELECT fr.fund_request_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
   ),
@@ -2790,7 +2790,7 @@ BEGIN
     SELECT e.wo_id,
            count(*) FILTER (WHERE e.status NOT IN ('borrador', 'vencido'))::int AS expense_count,
            COALESCE(sum(e.amount) FILTER (WHERE e.status = 'revisado_asistente'), 0) AS spent,
-           COALESCE(sum(e.amount) FILTER (WHERE e.status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')), 0) AS in_process
+           COALESCE(sum(e.amount) FILTER (WHERE public.fund_expense_in_process(e.status::text, frs.expense_period_month)), 0) AS in_process
       FROM public.fund_request_expenses e
       JOIN frs ON frs.fund_request_id = e.fund_request_id
      GROUP BY e.wo_id
@@ -2842,14 +2842,15 @@ BEGIN
   END IF;
 
   WITH frs AS (
-    SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id
+    SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
        AND EXISTS (SELECT 1 FROM public.fund_request_work_orders frw
                     WHERE frw.fund_request_id = fr.fund_request_id AND frw.wo_id = p_wo_id)
   ),
   exps AS (
-    SELECT e.*, frs.request_number, frs.requester_staff_id, et.expense_name
+    SELECT e.*, frs.request_number, frs.requester_staff_id, et.expense_name,
+           public.fund_expense_in_process(e.status::text, frs.expense_period_month) AS in_process
       FROM public.fund_request_expenses e
       JOIN frs ON frs.fund_request_id = e.fund_request_id
       LEFT JOIN public.expense_types et ON et.expense_type_id = e.expense_type_id
@@ -2878,8 +2879,7 @@ BEGIN
                      JOIN frs ON frs.fund_request_id = frw.fund_request_id
                     WHERE frw.wo_id = p_wo_id),
       'spent', (SELECT COALESCE(sum(amount), 0) FROM exps WHERE status = 'revisado_asistente'),
-      'in_process', (SELECT COALESCE(sum(amount), 0) FROM exps
-                      WHERE status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')),
+      'in_process', (SELECT COALESCE(sum(amount), 0) FROM exps WHERE in_process),
       'budget', (SELECT COALESCE(sum(budgeted_amount), 0) FROM public.wo_expense_budget
                   WHERE wo_id = p_wo_id)),
     'requests', COALESCE((
@@ -2913,7 +2913,10 @@ BEGIN
                'supplier_name', x.supplier_name,
                'iva_penalty_amount', x.iva_penalty_amount,
                'manager_auto_approved', x.manager_auto_approved,
-               'review_auto_approved', x.review_auto_approved)
+               'review_auto_approved', x.review_auto_approved,
+               -- Lo decide el servidor (fund_expense_in_process): un rechazado cuenta como "en
+               -- proceso" solo hasta la fecha fin, y esa fecha es de la solicitud.
+               'in_process', x.in_process)
              ORDER BY x.expense_date DESC, x.fre_id)
         FROM exps x
         LEFT JOIN public.staff s ON s.staff_id = x.requester_staff_id), '[]'::jsonb),
@@ -2929,7 +2932,7 @@ BEGIN
                                      AND x.status = 'revisado_asistente'), 0),
                'in_process', COALESCE((SELECT sum(x.amount) FROM exps x
                                         WHERE x.expense_type_id IS NOT DISTINCT FROM t.expense_type_id
-                                          AND x.status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')), 0))
+                                          AND x.in_process), 0))
              ORDER BY et.expense_name NULLS LAST)
         FROM types t
         LEFT JOIN public.expense_types et ON et.expense_type_id = t.expense_type_id), '[]'::jsonb)
@@ -3026,6 +3029,25 @@ CREATE FUNCTION public.fund_request_deadline(p_month date) RETURNS date
   -- Fecha fin de la solicitud: día 3 (calendario) del mes siguiente al mes elegido. Último día
   -- para registrar/enviar gastos y para que el gerente los apruebe.
   SELECT (date_trunc('month', p_month) + interval '1 month' + interval '2 days')::date;
+$$;
+
+
+--
+--
+-- Name: fund_expense_in_process(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Un gasto "en proceso": enviado y todavia no final. Incluye el RECHAZADO mientras no vence la
+-- fecha fin de su solicitud, porque hasta entonces el solicitante lo corrige y lo reenvia --
+-- el mismo criterio con el que fund_request_settle no deja liquidar. Sin el rechazado, el
+-- resumen y el detalle por OT mostraban menos plata en camino de la que habia.
+CREATE FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT p_status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')
+      OR (p_status = 'rechazado'
+          AND public.fund_today() <= public.fund_request_deadline(p_period_month));
 $$;
 
 
@@ -8352,6 +8374,14 @@ BEGIN
     RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: el vencimiento no corresponde a la fecha de facturacion mas los dias de pago del plan';
   END IF;
 
+  -- Una cuota en moneda extranjera no se factura SIN TC: el que se congela aca no se puede
+  -- completar despues (EXCHANGE_RATE_LOCKED), y sin el la sugerencia de diferencia de cambio
+  -- da NULL y los dashboards caen en silencio a otro TC.
+  IF (SELECT COALESCE(v_row.currency, w.currency) FROM public.work_orders w WHERE w.wo_id = v_row.wo_id) <> 'BOB'
+     AND COALESCE(p_invoice_exchange_rate, v_row.invoice_exchange_rate, 0) <= 0 THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_REQUIRED: una cuota en moneda extranjera necesita el tipo de cambio de facturacion';
+  END IF;
+
   -- El TC de facturacion se congela en el MISMO UPDATE que la transicion, no en uno
   -- posterior: wo_payment_installments_guard_exchange_rate evalua OLD.status, asi que una
   -- vez que la cuota queda 'Invoiced' cualquier cambio de invoice_exchange_rate se rechaza
@@ -8404,6 +8434,13 @@ BEGIN
 
   IF v_row.collection_invoice_date IS NOT NULL AND v_payment_date < v_row.collection_invoice_date THEN
     RAISE EXCEPTION 'INSTALLMENT_DATE_BEFORE_INVOICE: la fecha de pago no puede ser anterior a la de facturacion';
+  END IF;
+
+  -- Mismo motivo que en invoice_installment: sin TC de pago no se cobra una cuota en moneda
+  -- extranjera, porque al quedar 'Completed' ya no se puede completar.
+  IF (SELECT COALESCE(v_row.currency, w.currency) FROM public.work_orders w WHERE w.wo_id = v_row.wo_id) <> 'BOB'
+     AND COALESCE(p_payment_exchange_rate, v_row.payment_exchange_rate, 0) <= 0 THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_REQUIRED: una cuota en moneda extranjera necesita el tipo de cambio de pago';
   END IF;
 
   -- Mismo motivo que en invoice_installment: el TC de pago se congela al llegar a

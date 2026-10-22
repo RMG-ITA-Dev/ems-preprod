@@ -1910,6 +1910,7 @@
       "errorExchangeRateLocked": "This exchange rate is already locked and can no longer be changed.",
       "errorInstallmentLocked": "This installment has already been invoiced and can no longer be changed or removed.",
       "errorExchangeRateForbidden": "You don't have permission to change this exchange rate.",
+      "errorExchangeRateRequired": "A foreign-currency installment needs an exchange rate to be invoiced or collected.",
       "errorInstallmentStale": "Someone else already updated this installment. Reload the page to see its current state.",
       "errorInstallmentForbidden": "You don't have permission to record collection on this installment.",
       "errorExchangeRateUnavailable": "No exchange rate is available (BCB history is empty and no default is configured).",

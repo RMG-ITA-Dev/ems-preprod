@@ -2,7 +2,8 @@ import type { WorkOrderExpense, WorkOrderExpenseDetail } from "@/hooks/useWorkOr
 
 // Detalle de gastos por OT (docs/plan-contabilidad-gastos.md, Fase 5). Lógica pura: filtros,
 // totales, agrupación por solicitud y la matriz del Excel. Mismas definiciones que las RPC:
-// gastado = revisado_asistente; en proceso = pendiente / aprobado por el gerente / observado.
+// gastado = revisado_asistente; en proceso = lo que marca el servidor (`in_process`), que incluye
+// el rechazado mientras se puede corregir. La lista fija queda para filas sin esa marca.
 
 const IN_PROCESS = new Set(["pendiente_aprobacion", "aprobado_gerente", "observado"]);
 
@@ -36,7 +37,7 @@ export function workOrderExpenseTotals(expenses: WorkOrderExpense[]) {
   let inProcess = 0;
   for (const e of expenses) {
     if (e.status === "revisado_asistente") spent += Number(e.amount);
-    else if (IN_PROCESS.has(e.status)) inProcess += Number(e.amount);
+    else if (e.in_process ?? IN_PROCESS.has(e.status)) inProcess += Number(e.amount);
   }
   return { spent: round2(spent), inProcess: round2(inProcess) };
 }

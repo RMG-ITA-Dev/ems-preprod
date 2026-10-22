@@ -222,6 +222,38 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — tipo desactivado: no entra en gastos ni presupuestos nuevos; lo registrado se conserva';
 
+  -- ── 5. Un rechazado cuenta como "en proceso" mientras se puede corregir ──────────────
+  -- Revisión de Codex (2026-10-22): hasta la fecha fin el solicitante corrige y reenvía un
+  -- gasto rechazado (es el criterio de fund_request_settle), así que es plata en camino. Pasada
+  -- la fecha fin ya no. Se mueve el mes de f2 sin los guards: lo que se prueba es la cuenta.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.fund_requests SET expense_period_month = date_trunc('month', public.fund_today())::date
+   WHERE fund_request_id = 'f7f00000-0000-4000-8000-000000000002';
+  INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_type_id,
+                                            expense_date, amount, currency, status)
+  VALUES ('b7f00000-0000-4000-8000-000000000008', 'f7f00000-0000-4000-8000-000000000002', c_wo,
+          '77f00000-0000-4000-8000-000000000002', '2026-10-09', 25, 'BOB', 'rechazado');
+  PERFORM set_config('session_replication_role', 'origin', true);
+  PERFORM pg_temp.impersonate('a7f00000-0000-4000-8000-000000000002');
+  SELECT * INTO r FROM public.fund_work_order_expense_summary() s WHERE s.wo_id = c_wo;
+  v := public.fund_work_order_expense_detail(c_wo);
+  IF r.in_process <> 105 OR (v->'totals'->>'in_process')::numeric <> 105
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v->'expenses') e
+                     WHERE e->>'fre_id' = 'b7f00000-0000-4000-8000-000000000008'
+                       AND (e->>'in_process')::boolean) THEN
+    RAISE EXCEPTION 'FUND WO FAIL — el rechazado corregible no cuenta en proceso (resumen %, detalle %)',
+      r.in_process, v->'totals'->>'in_process';
+  END IF;
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.fund_requests SET expense_period_month = '2025-01-01'
+   WHERE fund_request_id = 'f7f00000-0000-4000-8000-000000000002';
+  PERFORM set_config('session_replication_role', 'origin', true);
+  SELECT * INTO r FROM public.fund_work_order_expense_summary() s WHERE s.wo_id = c_wo;
+  IF r.in_process <> 80 THEN
+    RAISE EXCEPTION 'FUND WO FAIL — un rechazado vencido sigue contando en proceso (%)', r.in_process;
+  END IF;
+  RAISE NOTICE 'PASS — el rechazado cuenta en proceso hasta la fecha fin, y después no';
+
   RAISE NOTICE 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED (rolled back)';
 END $$;
 

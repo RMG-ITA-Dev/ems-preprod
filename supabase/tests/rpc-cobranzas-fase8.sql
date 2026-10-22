@@ -981,6 +981,50 @@ BEGIN
   -- tenia el de facturacion (Q49). Antes el dialogo de cobro ofrecia un TC editable y cobrar
   -- con otro valor revento con EXCHANGE_RATE_LOCKED: la cuota no se podia cobrar.
   PERFORM pg_temp.impersonate(c_collections);
+
+  -- 11.c-pre Una cuota en USD no se factura ni se cobra SIN TC: el que se congela al pasar de
+  -- estado ya no se puede completar despues. Se le borran los TC sin los guards (subbloque que
+  -- se deshace solo) y se intenta facturar sin mandar ninguno.
+  denied := false;
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    UPDATE public.wo_payment_installments
+       SET invoice_exchange_rate = NULL, payment_exchange_rate = NULL
+     WHERE installment_id = v_i51;
+    PERFORM set_config('session_replication_role', 'origin', true);
+    BEGIN
+      PERFORM public.invoice_installment(v_i51, 'Pending', v_today + 30, v_today, NULL);
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+    END;
+    RAISE EXCEPTION USING ERRCODE = 'UE11C', MESSAGE = 'deshacer';
+  EXCEPTION WHEN SQLSTATE 'UE11C' THEN
+    NULL;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se facturo una cuota en USD sin tipo de cambio';
+  END IF;
+  -- Y cobrar tampoco: facturada con TC pero sin TC de pago ni uno nuevo.
+  denied := false;
+  BEGIN
+    PERFORM public.invoice_installment(v_i51, 'Pending', v_today + 30, v_today, 6.96);
+    PERFORM set_config('session_replication_role', 'replica', true);
+    UPDATE public.wo_payment_installments SET payment_exchange_rate = NULL WHERE installment_id = v_i51;
+    PERFORM set_config('session_replication_role', 'origin', true);
+    BEGIN
+      PERFORM public.collect_installment(v_i51, 'Invoiced', v_today, NULL);
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXCHANGE_RATE_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+    END;
+    RAISE EXCEPTION USING ERRCODE = 'UE11D', MESSAGE = 'deshacer';
+  EXCEPTION WHEN SQLSTATE 'UE11D' THEN
+    NULL;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se cobro una cuota en USD sin tipo de cambio de pago';
+  END IF;
+  RAISE NOTICE 'PASS - una cuota en moneda extranjera no se factura ni se cobra sin TC';
+
   PERFORM public.invoice_installment(v_i51, 'Pending', v_today + 30, v_today, 6.96);
   v_row := public.collect_installment(v_i51, 'Invoiced', v_today, 7.10);
   IF v_row.payment_exchange_rate <> 7.10 THEN

@@ -49,6 +49,8 @@ export type WorkOrderExpense = {
   iva_penalty_amount: number;
   manager_auto_approved: boolean;
   review_auto_approved: boolean;
+  /** "En proceso" según el servidor: incluye el rechazado mientras se puede corregir. */
+  in_process?: boolean;
 }
 
 export type WorkOrderBudgetLine = {
