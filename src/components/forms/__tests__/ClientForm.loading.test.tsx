@@ -25,6 +25,7 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateClient: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useDeleteClient: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveClientContacts: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveClientWithContacts: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useAuthorization", () => ({

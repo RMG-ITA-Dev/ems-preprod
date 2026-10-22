@@ -42,7 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
-import { useCreateClient, useUpdateClient, useDeleteClient, useSaveClientContacts } from "@/hooks/mutations";
+import { useDeleteClient, useSaveClientWithContacts } from "@/hooks/mutations";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -116,11 +116,11 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
   const canSave = !isEdit || can("client.update");
   const { data: industries } = useIndustries();
-  const createMutation = useCreateClient();
-  const updateMutation = useUpdateClient();
   // Cobranzas Fase 5: los contactos ya no son columnas de la ficha; se leen y se guardan
   // aparte, y la RPC valida que haya al menos uno de cada tipo.
-  const saveContacts = useSaveClientContacts();
+  // La ficha y los contactos se guardan JUNTOS, en una transacción: si los contactos fallan,
+  // no queda una ficha a medias (ver save_client_with_contacts).
+  const saveClient = useSaveClientWithContacts();
   const { data: clientContacts, isFetched: contactsFetched } = useClientContacts(client?.client_id);
   const generalContact = firstContactOfType(clientContacts, "general");
   const cobranzaContact = firstContactOfType(clientContacts, "cobranza");
@@ -281,16 +281,19 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         })),
     ];
 
-    if (isEdit && client) {
-      await updateMutation.mutateAsync({ id: client.client_id, data: payload });
-      await saveContacts.mutateAsync({ clientId: client.client_id, contacts: contactsPayload });
-    } else {
-      // El alta no puede devolver la fila creada: el RETURNING la haría pasar por la policy
-      // de LECTURA de clients, que varios roles no pasan (ver useCreateClient). Así que el id
-      // se genera acá y se manda, y los contactos se guardan contra ese mismo id.
-      const newClientId = crypto.randomUUID();
-      await createMutation.mutateAsync({ ...payload, client_id: newClientId });
-      await saveContacts.mutateAsync({ clientId: newClientId, contacts: contactsPayload });
+    // El alta no puede devolver la fila creada: el RETURNING la haría pasar por la policy de
+    // LECTURA de clients, que varios roles no pasan (ver useCreateClient). Así que el id se
+    // genera acá y los contactos se guardan contra ese mismo id.
+    const isNew = !(isEdit && client);
+    try {
+      await saveClient.mutateAsync({
+        clientId: isNew ? crypto.randomUUID() : client!.client_id,
+        isNew,
+        client: payload,
+        contacts: contactsPayload,
+      });
+    } catch {
+      return; // el toast lo pone la mutación; la ficha no quedó grabada a medias
     }
     if (onSaveSuccess) {
       onSaveSuccess();
@@ -518,7 +521,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   type="submit"
                   size="sm"
                   variant="default"
-                  loading={createMutation.isPending || updateMutation.isPending}
+                  loading={saveClient.isPending}
                 >
                   {t("common.saveChanges")}
                 </LoadingButton>
@@ -789,7 +792,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   type="submit"
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                  loading={createMutation.isPending || updateMutation.isPending}
+                  loading={saveClient.isPending}
                 >
                   {isEdit ? t("common.saveChanges") : t("client.createClient")}
                 </LoadingButton>

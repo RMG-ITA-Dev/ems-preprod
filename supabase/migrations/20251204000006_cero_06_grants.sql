@@ -2180,6 +2180,9 @@ REVOKE ALL ON TABLE public.client_contacts FROM PUBLIC, anon;
 GRANT SELECT ON TABLE public.client_contacts TO authenticated;
 GRANT ALL ON TABLE public.client_contacts TO service_role;
 
+REVOKE EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) TO authenticated, service_role;
+
 REVOKE EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) FROM PUBLIC, anon;

@@ -1997,7 +1997,7 @@ export function WorkOrderPaymentPlanSection({
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
+                  variant="default"
                   disabled={pendingBillable <= 0 || createExpenseRow.isPending}
                   onClick={() => createExpenseRow.mutate({ woId, paymentDays: currentPlan.payment_days })}
                 >

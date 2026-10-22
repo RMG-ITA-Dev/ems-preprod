@@ -9067,6 +9067,82 @@ END;
 $$;
 
 
+
+--
+--
+-- Name: save_client_with_contacts(uuid, boolean, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- La ficha del cliente y sus contactos, en UNA transaccion. Antes el formulario hacia dos
+-- escrituras: si la de contactos fallaba (un corte, un payload rechazado) quedaba grabada la
+-- ficha sin los contactos que ahora son obligatorios, y en un alta el NIT ya tomado impedia
+-- reintentar limpio. Aca, si los contactos fallan, la ficha se deshace con ellos.
+--
+-- SECURITY DEFINER, como toda funcion que nombra clients (Carril B / B3c: una INVOKER quedaria
+-- filtrada por la RLS del llamador, y su suite lo prohibe). Por eso repite, explicito, el mismo
+-- chequeo que las policies de escritura de clients: client.create para el alta y client.update
+-- para editar. Los triggers de clients (created_by_staff_id desde el JWT, normalizacion del
+-- nombre) corren igual. Los contactos van por save_client_contacts, que hace su propio
+-- chequeo -- el alta deja al que llama como creador, que es lo que ese chequeo acepta.
+--
+-- El id lo genera el formulario (mismo motivo que useCreateClient: el alta desde el cliente no
+-- puede leer la fila que acaba de crear).
+--
+-- p_client: {client_legal_name, unique_tax_id, industry_id?, address?, is_active?}. En la
+-- edicion, una clave ausente deja el valor como esta (igual que el UPDATE parcial de antes).
+CREATE FUNCTION public.save_client_with_contacts(
+  p_client_id uuid,
+  p_is_new boolean,
+  p_client jsonb,
+  p_contacts jsonb
+) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  IF p_client_id IS NULL OR p_client IS NULL OR jsonb_typeof(p_client) <> 'object' THEN
+    RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan los datos del cliente';
+  END IF;
+
+  -- Las mismas reglas que "clients write insert" / "clients write update".
+  IF p_is_new AND NOT public.has_permission('client.create') THEN
+    RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para crear clientes';
+  END IF;
+  IF NOT p_is_new AND NOT public.has_permission('client.update') THEN
+    RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para editar este cliente';
+  END IF;
+
+  IF p_is_new THEN
+    INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id, address, is_active)
+    VALUES (
+      p_client_id,
+      p_client->>'client_legal_name',
+      p_client->>'unique_tax_id',
+      NULLIF(p_client->>'industry_id', '')::uuid,
+      NULLIF(p_client->>'address', ''),
+      COALESCE((p_client->>'is_active')::boolean, true)
+    );
+  ELSE
+    UPDATE public.clients c
+       SET client_legal_name = CASE WHEN p_client ? 'client_legal_name' THEN p_client->>'client_legal_name' ELSE c.client_legal_name END,
+           unique_tax_id     = CASE WHEN p_client ? 'unique_tax_id' THEN p_client->>'unique_tax_id' ELSE c.unique_tax_id END,
+           industry_id       = CASE WHEN p_client ? 'industry_id' THEN NULLIF(p_client->>'industry_id', '')::uuid ELSE c.industry_id END,
+           address           = CASE WHEN p_client ? 'address' THEN NULLIF(p_client->>'address', '') ELSE c.address END,
+           is_active         = CASE WHEN p_client ? 'is_active' THEN (p_client->>'is_active')::boolean ELSE c.is_active END
+     WHERE c.client_id = p_client_id;
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    IF v_count = 0 THEN
+      RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+    END IF;
+  END IF;
+
+  PERFORM public.save_client_contacts(p_client_id, p_contacts);
+END;
+$$;
+
+
 --
 --
 -- Name: client_has_required_contacts(uuid); Type: FUNCTION; Schema: public; Owner: -

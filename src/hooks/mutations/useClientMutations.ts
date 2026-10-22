@@ -153,3 +153,51 @@ export function useSaveClientContacts() {
     onError: createMutationErrorHandler("saving client contacts"),
   });
 }
+
+// La ficha y sus contactos en UNA llamada (save_client_with_contacts): si los contactos fallan,
+// la ficha no queda grabada a medias. Reemplaza en ClientForm el par alta/edición + contactos.
+export function useSaveClientWithContacts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      clientId,
+      isNew,
+      client,
+      contacts,
+    }: {
+      clientId: string;
+      isNew: boolean;
+      client: {
+        client_legal_name: string;
+        unique_tax_id: string;
+        industry_id?: string;
+        address?: string;
+        is_active?: boolean;
+      };
+      contacts: Array<{
+        contact_id?: string;
+        contact_type: "general" | "cobranza";
+        full_name: string;
+        email?: string;
+        phone?: string;
+        is_active?: boolean;
+      }>;
+    }) => {
+      const { error } = await rpcUntyped("save_client_with_contacts", {
+        p_client_id: clientId,
+        p_is_new: isNew,
+        p_client: client,
+        p_contacts: contacts,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["client_contacts", v.clientId] });
+      toast.success(
+        i18n.t(v.isNew ? "messages.createSuccess" : "messages.updateSuccess", { entity: i18n.t("entities.client") }),
+      );
+    },
+    onError: (error, v) => handleClientError(error, v.isNew ? "creating client" : "updating client"),
+  });
+}

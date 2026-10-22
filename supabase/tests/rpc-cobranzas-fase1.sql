@@ -1016,6 +1016,97 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - un contacto de otro cliente se rechaza sin tocar nada';
 
+  -- 11.d-quater La ficha y sus contactos se guardan JUNTOS. Antes eran dos escrituras: si los
+  -- contactos fallaban, quedaba una ficha sin contactos y su NIT impedia reintentar.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', true,
+      jsonb_build_object('client_legal_name', 'CF1 Atomico', 'unique_tax_id', 'CF1-TAX-003'),
+      jsonb_build_array(
+        jsonb_build_object('contact_type', 'general',  'full_name', 'Sin Correo'),
+        jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_GENERAL_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un alta con un contacto sin correo';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.clients WHERE client_id = 'c1000000-0000-4000-8000-0000000000f3') THEN
+    RAISE EXCEPTION 'TEST FAIL - fallaron los contactos pero la ficha quedo grabada';
+  END IF;
+
+  -- Con contactos validos quedan las dos cosas; el que la crea queda como creador.
+  PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', true,
+    jsonb_build_object('client_legal_name', 'CF1 Atomico', 'unique_tax_id', 'CF1-TAX-003'),
+    jsonb_build_array(
+      jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  IF NOT public.client_has_required_contacts('c1000000-0000-4000-8000-0000000000f3') THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta valida no dejo los contactos';
+  END IF;
+
+  -- Al editar, una clave ausente deja el valor como estaba (direccion), y un fallo de
+  -- contactos tampoco deja el cambio de la ficha a medias.
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.clients SET address = 'Calle 1' WHERE client_id = 'c1000000-0000-4000-8000-0000000000f3';
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', false,
+      jsonb_build_object('client_legal_name', 'CF1 Atomico Renombrado'),
+      jsonb_build_array(jsonb_build_object('contact_type', 'general', 'full_name', 'Eva', 'email', 'eva@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_COBRANZA_REQUIRED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied OR EXISTS (SELECT 1 FROM public.clients
+                            WHERE client_id = 'c1000000-0000-4000-8000-0000000000f3'
+                              AND client_legal_name = 'CF1 Atomico Renombrado') THEN
+    RAISE EXCEPTION 'TEST FAIL - fallaron los contactos pero el cambio de la ficha quedo';
+  END IF;
+  PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', false,
+    jsonb_build_object('client_legal_name', 'CF1 Atomico Renombrado'),
+    jsonb_build_array(
+      jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  IF NOT EXISTS (SELECT 1 FROM public.clients
+                  WHERE client_id = 'c1000000-0000-4000-8000-0000000000f3'
+                    AND client_legal_name = 'CF1 Atomico Renombrado' AND address = 'Calle 1') THEN
+    RAISE EXCEPTION 'TEST FAIL - la edicion no guardo el nombre o borro la direccion ausente';
+  END IF;
+  RAISE NOTICE 'PASS - la ficha y sus contactos se guardan juntos, o ninguno';
+
+  -- Es DEFINER (Carril B), asi que repite el chequeo de las policies de clients: editar exige
+  -- client.update, que el gerente no tiene; crear exige client.create, que Cobranzas no tiene.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', false,
+      jsonb_build_object('client_legal_name', 'Intruso'),
+      jsonb_build_array(
+        jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
+        jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CLIENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - un gerente sin client.update edito la ficha por la RPC';
+  END IF;
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f4', true,
+      jsonb_build_object('client_legal_name', 'CF1 Intruso', 'unique_tax_id', 'CF1-TAX-004'),
+      jsonb_build_array(
+        jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
+        jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CLIENT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - Cobranzas (sin client.create) creo un cliente por la RPC';
+  END IF;
+  RAISE NOTICE 'PASS - la RPC exige client.create para crear y client.update para editar';
+
   -- 11.e Contabilidad ve los contactos DESDE el plan, sin tener client.read (decision Q57).
   PERFORM pg_temp.impersonate(c_acctmgr);
   SELECT COUNT(*) INTO v_n FROM public.get_wo_client_contacts(c_wo1);
