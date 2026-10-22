@@ -166,8 +166,9 @@ export default function Collections() {
 
   // Agrupar es presentación sobre la MISMA página que trajo el servidor: no junta filas de
   // otras páginas, para que lo que se ve siga cuadrando con el paginador y con el export. Lo
-  // que SÍ cambia en el servidor es el orden (`order`), porque sin eso una orden de 12 cuotas
-  // podría quedar partida entre dos páginas y el grupo se vería cortado por la mitad.
+  // que SÍ cambia en el servidor es el orden (`order`): por 'ot' la RPC además arma la página
+  // por órdenes enteras, así que una orden de 12 cuotas nunca queda partida entre dos páginas.
+  // Por cliente no hay esa garantía: es solo presentación sobre la página.
   const grouped = useMemo(() => {
     if (groupBy === "ninguno") return null;
     const map = new Map<string, { label: string; rows: CollectionsRow[] }>();

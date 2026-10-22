@@ -8919,6 +8919,12 @@ $$;
 -- descubre que falta el contacto de finanzas, y mandar a la persona a otra pantalla para
 -- volver es la forma mas segura de que no lo cargue nunca.
 --
+-- Y quien CREO el cliente. El formulario da de alta la ficha y recien despues guarda los
+-- contactos (necesita el client_id), pero `client.update` lo tiene solo admin y un cliente
+-- recien creado todavia no tiene encargo: sin esta via, un gerente que crea un cliente se
+-- encontraba con CONTACT_FORBIDDEN y un cliente a medias cuyo NIT ya no le dejaba reintentar.
+-- Es el mismo criterio de client_contacts_visible y de la policy "clients creator read".
+--
 -- p_contacts: [{contact_id?, contact_type, full_name, email, phone, is_active}]. Un
 -- contact_id que ya existe se actualiza; los que no vienen en el payload se DESACTIVAN, no se
 -- borran: una nota o una gestion pudo haberlos nombrado.
@@ -8929,6 +8935,7 @@ CREATE FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) 
 DECLARE
   v_rows jsonb;
   v_engagement_manager boolean;
+  v_creator boolean;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = p_client_id) THEN
     RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
@@ -8940,7 +8947,14 @@ BEGIN
        AND e.manager_id = public.get_my_staff_id()
   ) INTO v_engagement_manager;
 
-  IF NOT (public.is_admin() OR public.has_permission('client.update') OR v_engagement_manager) THEN
+  SELECT public.has_permission('client.create') AND EXISTS (
+    SELECT 1 FROM public.clients c
+     WHERE c.client_id = p_client_id
+       AND c.created_by_staff_id IS NOT NULL
+       AND c.created_by_staff_id = public.get_my_staff_id()
+  ) INTO v_creator;
+
+  IF NOT (public.is_admin() OR public.has_permission('client.update') OR v_engagement_manager OR v_creator) THEN
     RAISE EXCEPTION 'CONTACT_FORBIDDEN: no tiene permiso para editar los contactos de este cliente';
   END IF;
 
@@ -9421,18 +9435,34 @@ BEGIN
       WHEN 'cobradas'     THEN f.status = 'Completed'
     END
   ),
+  -- Por 'ot', las cuotas de una misma orden quedan contiguas y en su orden natural. Por
+  -- 'fecha', lo que vence primero va primero, que es como se trabaja el dia a dia.
+  ranked AS (
+    SELECT t.*,
+      (row_number() OVER (ORDER BY
+        CASE WHEN p_order = 'ot' THEN t.client_legal_name END,
+        CASE WHEN p_order = 'ot' THEN t.engagement_code END,
+        CASE WHEN p_order = 'ot' THEN t.wo_id::text END,
+        CASE WHEN p_order = 'ot' THEN t.installment_number END,
+        t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number) - 1) AS rn
+    FROM tabbed t
+  ),
+  -- Que las cuotas de una orden sean contiguas no alcanza: un LIMIT/OFFSET a secas igual corta
+  -- la orden que cae en el borde de la pagina, y la pantalla la mostraria como dos grupos
+  -- incompletos en dos paginas seguidas. Por 'ot' la pagina se arma por ORDENES: entra entera
+  -- cada orden cuya primera cuota cae en la ventana [offset, offset + limit), y la siguiente
+  -- pagina salta las cuotas que ya viajaron con ella. Asi una pagina puede traer algunas filas
+  -- de mas o de menos que `limit`, pero `total_count` y el paginador siguen contando filas y no
+  -- hay fila que aparezca dos veces ni ninguna que se pierda. Mientras ninguna orden tenga mas
+  -- cuotas que `limit` (un plan tiene una docena como mucho) ninguna pagina queda vacia.
+  grouped_rank AS (
+    SELECT r.*,
+      CASE WHEN p_order = 'ot' THEN min(r.rn) OVER (PARTITION BY r.wo_id) ELSE r.rn END AS page_anchor
+    FROM ranked r
+  ),
   page AS (
-    SELECT t.* FROM tabbed t
-    -- Por 'ot', las cuotas de una misma orden quedan contiguas y en su orden natural, asi que
-    -- la pantalla puede agruparlas sin que un grupo se parta entre dos paginas. Por 'fecha',
-    -- lo que vence primero va primero, que es como se trabaja el dia a dia.
-    ORDER BY
-      CASE WHEN p_order = 'ot' THEN t.client_legal_name END,
-      CASE WHEN p_order = 'ot' THEN t.engagement_code END,
-      CASE WHEN p_order = 'ot' THEN t.wo_id::text END,
-      CASE WHEN p_order = 'ot' THEN t.installment_number END,
-      t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number
-    LIMIT v_limit OFFSET v_offset
+    SELECT g.* FROM grouped_rank g
+    WHERE g.page_anchor >= v_offset AND g.page_anchor < v_offset + v_limit
   ),
   -- Los tres totales de la cabecera, por moneda. Se calculan sobre `filtered`: describen la
   -- cartera que los filtros dejaron a la vista, no la pestana abierta.
@@ -9517,12 +9547,7 @@ BEGIN
           ORDER BY (cc.contact_type = 'cobranza') DESC, cc.created_at
           LIMIT 1
         )
-      ) ORDER BY
-          CASE WHEN p_order = 'ot' THEN p.client_legal_name END,
-          CASE WHEN p_order = 'ot' THEN p.engagement_code END,
-          CASE WHEN p_order = 'ot' THEN p.wo_id::text END,
-          CASE WHEN p_order = 'ot' THEN p.installment_number END,
-          p.fecha_relevante NULLS LAST, p.client_legal_name, p.installment_number)
+      ) ORDER BY p.rn)
       FROM page p
     ), '[]'::jsonb)
   ) INTO v_result;

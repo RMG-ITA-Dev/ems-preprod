@@ -138,6 +138,11 @@ DECLARE
   v_i52       uuid;
   v_row       public.wo_payment_installments;
   denied   boolean;
+  -- Seccion 8bis: paginar por orden de trabajo.
+  v_total  integer;
+  v_off    integer;
+  v_ids    text[] := '{}';
+  v_pairs  text[] := '{}';
 BEGIN
   -- ── Plan 1 (OT BOB, sociedad A, practica 1, gerente Ana) ────────────
   -- Cuatro cuotas, una por pestana, para que cada chequeo tenga su caso:
@@ -537,6 +542,34 @@ BEGIN
   IF v_n <> (SELECT COUNT(DISTINCT r.value->>'wo_id') FROM jsonb_array_elements(v_res->'rows') r) THEN
     RAISE EXCEPTION 'TEST FAIL - una orden de trabajo quedo partida en tramos separados';
   END IF;
+
+  -- Contiguas no alcanza: el LIMIT/OFFSET igual cortaba la orden que caia en el borde de la
+  -- pagina, y la pantalla la mostraba como dos grupos incompletos en dos paginas seguidas. Con
+  -- paginas de UNA fila todo borde cae dentro de alguna orden, asi que es el peor caso: cada
+  -- orden tiene que viajar entera en una sola pagina, y entre todas las paginas tienen que
+  -- estar todas las filas, cada una una sola vez.
+  v_total := (v_res->>'total_count')::int;
+  IF v_total = (SELECT COUNT(DISTINCT r.value->>'wo_id') FROM jsonb_array_elements(v_res->'rows') r) THEN
+    RAISE EXCEPTION 'TEST FAIL - fixture: ninguna orden tiene dos cuotas por facturar, el chequeo no prueba nada';
+  END IF;
+  FOR v_off IN 0 .. v_total - 1 LOOP
+    v_res := public.list_collections_installments('por_facturar', p_order := 'ot', p_limit := 1, p_offset := v_off);
+    v_ids := v_ids || ARRAY(SELECT r.value->>'installment_id' FROM jsonb_array_elements(v_res->'rows') r);
+    v_pairs := v_pairs || ARRAY(SELECT DISTINCT (r.value->>'wo_id') || ':' || v_off FROM jsonb_array_elements(v_res->'rows') r);
+  END LOOP;
+  IF cardinality(v_ids) <> v_total OR (SELECT COUNT(DISTINCT x) FROM unnest(v_ids) x) <> v_total THEN
+    RAISE EXCEPTION 'TEST FAIL - paginando por OT se perdieron o repitieron filas (% de %)', cardinality(v_ids), v_total;
+  END IF;
+  IF EXISTS (SELECT split_part(x, ':', 1) FROM unnest(v_pairs) x GROUP BY 1 HAVING COUNT(*) > 1) THEN
+    RAISE EXCEPTION 'TEST FAIL - una orden de trabajo quedo repartida entre dos paginas';
+  END IF;
+
+  -- Por 'fecha' la pagina sigue siendo de exactamente `limit` filas.
+  v_res := public.list_collections_installments('por_facturar', p_order := 'fecha', p_limit := 1);
+  IF jsonb_array_length(v_res->'rows') <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - por fecha la pagina no respeta el limite';
+  END IF;
+  RAISE NOTICE 'PASS - por OT cada orden viaja entera en una sola pagina, sin perder ni repetir filas';
 
   -- Un orden inventado se rechaza, igual que una pestana inventada.
   denied := false;

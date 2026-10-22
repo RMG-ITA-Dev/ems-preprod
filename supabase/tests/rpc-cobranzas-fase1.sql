@@ -934,6 +934,35 @@ BEGIN
     jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Luis Finanzas', 'email', 'luis@cliente.com')));
   RAISE NOTICE 'PASS - los edita quien mantiene al cliente o el gerente del encargo, no Cobranzas';
 
+  -- 11.d-bis Quien CREA el cliente guarda sus contactos. El formulario da de alta la ficha y
+  -- recien despues guarda los contactos; `client.update` es solo de admin y un cliente nuevo
+  -- no tiene encargo, asi que sin esta via el gerente que creaba un cliente recibia
+  -- CONTACT_FORBIDDEN con la ficha ya grabada, y el NIT tomado no lo dejaba reintentar.
+  PERFORM pg_temp.impersonate(c_manager);
+  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  VALUES ('c1000000-0000-4000-8000-0000000000f2', 'CF1 Client Nuevo', 'CF1-TAX-002');
+  PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f2', jsonb_build_array(
+    jsonb_build_object('contact_type', 'general',  'full_name', 'Eva Nueva',  'email', 'eva@nuevo.com'),
+    jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia Nueva',  'email', 'pia@nuevo.com')));
+  IF NOT public.client_has_required_contacts('c1000000-0000-4000-8000-0000000000f2') THEN
+    RAISE EXCEPTION 'TEST FAIL - el creador del cliente no pudo guardar sus contactos';
+  END IF;
+
+  -- Otro con `client.create` que NO lo creo ni tiene encargo con el, no.
+  PERFORM pg_temp.impersonate(c_partner);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f2', jsonb_build_array(
+      jsonb_build_object('contact_type', 'general',  'full_name', 'Intruso', 'email', 'x@x.com'),
+      jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Intruso', 'email', 'x@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - alguien que no creo el cliente edito sus contactos';
+  END IF;
+  RAISE NOTICE 'PASS - quien crea el cliente guarda sus contactos; otro con client.create, no';
+
   -- 11.e Contabilidad ve los contactos DESDE el plan, sin tener client.read (decision Q57).
   PERFORM pg_temp.impersonate(c_acctmgr);
   SELECT COUNT(*) INTO v_n FROM public.get_wo_client_contacts(c_wo1);
