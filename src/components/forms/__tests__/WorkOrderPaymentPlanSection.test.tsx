@@ -1011,7 +1011,8 @@ describe("WorkOrderPaymentPlanSection — la bitácora de la cuota (2026-10-21)"
     // en old_date. Si se leyeran igual, "confirmó para el X" y "no confirmó el X" serían
     // indistinguibles en la bitácora, que es el unico lugar donde queda el rastro.
     mockEvents = [
-      evento({ action: "confirmation", new_date: "2026-11-20", reason: "Confirmada" }),
+      // Sin nota la confirmación no lleva motivo: el texto lo pone la traducción de la acción.
+      evento({ action: "confirmation", new_date: "2026-11-20", reason: null }),
       evento({ action: "confirmation", old_date: "2026-11-20", reason: "pidió más plazo" }),
     ];
     renderSection({ installments: [inst()] });

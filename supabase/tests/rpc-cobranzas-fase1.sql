@@ -590,6 +590,14 @@ BEGIN
   IF v_row.confirmation_status <> 'confirmada' OR v_row.confirmed_for_date <> v_today + 60 THEN
     RAISE EXCEPTION 'TEST FAIL - la confirmacion no quedo registrada: %', v_row;
   END IF;
+  -- Sin nota, el evento no lleva motivo: un literal en espanol guardado aca se mostraba tal
+  -- cual a quien usa la app en ingles. El texto lo pone la traduccion de la accion.
+  SELECT reason INTO v_txt FROM public.wo_installment_events
+   WHERE installment_id = v_i3 AND action = 'confirmation'
+   ORDER BY seq DESC LIMIT 1;
+  IF v_txt IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - confirmar sin nota guardo el motivo %', v_txt;
+  END IF;
 
   -- Y reprogramar DESPUES invalida esa confirmacion: el cliente se comprometio con la fecha
   -- vieja, asi que la cuota vuelve a necesitar gestion.
@@ -963,6 +971,29 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - quien crea el cliente guarda sus contactos; otro con client.create, no';
 
+  -- 11.d-ter Un contact_id de OTRO cliente se rechaza con error. Antes el ON CONFLICT ... WHERE
+  -- saltaba la fila en silencio: la RPC terminaba bien despues de haber desactivado los
+  -- contactos que no venian, y el cliente quedaba sin el de cobranza.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f2', jsonb_build_array(
+      jsonb_build_object('contact_type', 'general', 'full_name', 'Eva Nueva', 'email', 'eva@nuevo.com'),
+      jsonb_build_object('contact_id', (SELECT contact_id FROM public.client_contacts
+                                         WHERE client_id = 'c1000000-0000-4000-8000-0000000000f1'
+                                           AND is_active AND contact_type = 'cobranza' LIMIT 1),
+                         'contact_type', 'cobranza', 'full_name', 'Ajeno', 'email', 'ajeno@x.com')));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'CONTACT_PAYLOAD_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un contacto que pertenece a otro cliente';
+  END IF;
+  IF NOT public.client_has_required_contacts('c1000000-0000-4000-8000-0000000000f2') THEN
+    RAISE EXCEPTION 'TEST FAIL - el rechazo dejo al cliente sin sus contactos';
+  END IF;
+  RAISE NOTICE 'PASS - un contacto de otro cliente se rechaza sin tocar nada';
+
   -- 11.e Contabilidad ve los contactos DESDE el plan, sin tener client.read (decision Q57).
   PERFORM pg_temp.impersonate(c_acctmgr);
   SELECT COUNT(*) INTO v_n FROM public.get_wo_client_contacts(c_wo1);
@@ -1204,7 +1235,21 @@ BEGIN
   UPDATE public.fund_request_expenses SET status = 'revisado_asistente'
    WHERE fre_id = 'f5000000-0000-4000-8000-00000000000c';
   PERFORM pg_temp.impersonate(c_collections);
-  v_row := public.create_expense_reimbursement_row(c_wo5);
+  -- El vencimiento lo calcula la pantalla en dias HABILES, como el de las cuotas de
+  -- honorarios; uno fuera de la ventana del plan se rechaza igual que en invoice_installment.
+  denied := false;
+  BEGIN
+    PERFORM public.create_expense_reimbursement_row(c_wo5, v_today + 400);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_DUE_DATE_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se acepto un vencimiento fuera de la ventana del plan';
+  END IF;
+  v_row := public.create_expense_reimbursement_row(c_wo5, v_today + 42);
+  IF v_row.agreed_payment_date <> v_today + 42 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos no guardo el vencimiento enviado (quedo %)', v_row.agreed_payment_date;
+  END IF;
   IF v_row.net_amount <> 999 THEN
     RAISE EXCEPTION 'TEST FAIL - la segunda fila deberia traer solo el gasto nuevo (999), trajo %', v_row.net_amount;
   END IF;

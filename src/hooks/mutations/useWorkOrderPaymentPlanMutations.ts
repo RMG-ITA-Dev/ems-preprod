@@ -719,9 +719,12 @@ export function useDeleteInstallment() {
 export function useCreateExpenseReimbursementRow() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ woId }: { woId: string }) => {
+    mutationFn: async ({ woId, paymentDays }: { woId: string; paymentDays?: number }) => {
+      // El vencimiento se calcula acá, en días HÁBILES, igual que el de las cuotas de
+      // honorarios: el calendario de feriados vive en el cliente.
       const { error } = await rpcUntyped("create_expense_reimbursement_row", {
         p_wo_id: woId,
+        p_payment_due_date: computePaymentDate(todayInLaPaz(), paymentDays ?? 30),
       });
       if (error) throw error;
     },

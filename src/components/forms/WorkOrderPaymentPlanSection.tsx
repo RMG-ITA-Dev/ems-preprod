@@ -1821,7 +1821,7 @@ export function WorkOrderPaymentPlanSection({
                   size="sm"
                   variant="outline"
                   disabled={pendingBillable <= 0 || createExpenseRow.isPending}
-                  onClick={() => createExpenseRow.mutate({ woId })}
+                  onClick={() => createExpenseRow.mutate({ woId, paymentDays: currentPlan.payment_days })}
                 >
                   <Plus className="h-4 w-4 mr-1" />
                   {pendingBillable > 0

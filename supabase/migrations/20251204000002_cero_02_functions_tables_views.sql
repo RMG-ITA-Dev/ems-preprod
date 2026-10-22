@@ -8630,8 +8630,10 @@ BEGIN
 
     INSERT INTO public.wo_installment_events
       (installment_id, wo_id, action, new_date, reason, actor_staff_id)
+    -- Sin nota, el motivo queda NULL: la bitacora ya dice "Confirmada" con el texto
+    -- traducido de la accion, y un literal guardado aca se mostraba tal cual en ingles.
     VALUES (v_row.installment_id, v_row.wo_id, 'confirmation', v_current,
-            COALESCE(NULLIF(btrim(COALESCE(p_note, '')), ''), 'Confirmada'), public.get_my_staff_id());
+            NULLIF(btrim(COALESCE(p_note, '')), ''), public.get_my_staff_id());
 
     RETURN v_row;
   END IF;
@@ -8990,6 +8992,20 @@ BEGIN
     RAISE EXCEPTION 'CONTACT_COBRANZA_REQUIRED: hace falta al menos un contacto de cobranza (finanzas), con nombre y correo';
   END IF;
 
+  -- Un contact_id que pertenece a OTRO cliente se rechaza ANTES de escribir nada. El
+  -- ON CONFLICT ... WHERE de abajo no alcanza: con el predicado en falso Postgres SALTA la fila
+  -- sin error, y para entonces el minimo ya se conto con esa fila y el UPDATE ya desactivo los
+  -- contactos que no venian -- la RPC terminaba bien dejando al cliente sin contacto general o
+  -- de cobranza.
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+      JOIN public.client_contacts t ON t.contact_id = (c->>'contact_id')::uuid
+     WHERE c->>'contact_id' IS NOT NULL
+       AND t.client_id <> p_client_id
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_PAYLOAD_INVALID: un contacto de la lista pertenece a otro cliente';
+  END IF;
+
   -- Lo que no viene en el payload se desactiva.
   UPDATE public.client_contacts
      SET is_active = false, updated_at = now()
@@ -9018,7 +9034,8 @@ BEGIN
          phone        = excluded.phone,
          is_active    = excluded.is_active,
          updated_at   = now()
-   -- Un contact_id de OTRO cliente no se adopta: se rechaza la fila entera.
+   -- Segunda cerradura: un contact_id de OTRO cliente nunca se adopta (el chequeo de arriba
+   -- ya lo rechazo con error).
    WHERE t.client_id = p_client_id;
 
   RETURN QUERY
@@ -9121,7 +9138,7 @@ $$;
 
 --
 --
--- Name: create_expense_reimbursement_row(uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: create_expense_reimbursement_row(uuid, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
 -- Cobranzas Fase 7 — el boton "Facturar gastos ejecutados" de Contabilidad (decision Q39).
@@ -9136,7 +9153,14 @@ $$;
 -- honorarios, que es un contrato cerrado antes de aprobar. Los gastos ejecutados aparecen
 -- DESPUES, por definicion, asi que esta RPC es la excepcion explicita: corre como SECURITY
 -- DEFINER y marca la fila como 'expense_reimbursement' para que los guards la distingan.
-CREATE FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) RETURNS public.wo_payment_installments
+--
+-- p_payment_due_date: el vencimiento acordado, que calcula la pantalla. Los dias de pago del
+-- plan son HABILES (computePaymentDate salta fines de semana y feriados nacionales), y el
+-- calendario de feriados vive en el cliente, igual que para invoice_installment: sumar los dias
+-- aca como corridos dejaba la fila de gastos venciendo un domingo mientras las cuotas de
+-- honorarios del mismo plan vencian el martes. Se valida con la misma ventana que
+-- invoice_installment. NULL (otro llamador que no lo sabe) cae a dias corridos.
+CREATE FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date DEFAULT NULL) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9180,6 +9204,12 @@ BEGIN
     PERFORM set_config('app.expense_billing_wo', '', true);
   END IF;
 
+  IF p_payment_due_date IS NOT NULL
+     AND (p_payment_due_date < v_today
+          OR p_payment_due_date > v_today + (COALESCE(v_payment_days, 30) * 2 + 14)) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: el vencimiento no corresponde a la fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
   SELECT COALESCE(MAX(installment_number), 0) + 1 INTO v_number
   FROM public.wo_payment_installments WHERE plan_id = v_plan_id;
 
@@ -9205,7 +9235,7 @@ BEGIN
      installment_type, currency, status, agreed_invoice_date, agreed_payment_date)
   VALUES (v_plan_id, p_wo_id, v_number, 0, v_total, v_billed,
           'expense_reimbursement', 'BOB', 'Pending', v_today,
-          v_today + COALESCE(v_payment_days, 30))
+          COALESCE(p_payment_due_date, v_today + COALESCE(v_payment_days, 30)))
   RETURNING * INTO v_row;
 
   INSERT INTO public.wo_installment_expenses (installment_id, fre_id, amount)

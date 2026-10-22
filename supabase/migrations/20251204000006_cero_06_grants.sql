@@ -2197,10 +2197,10 @@ GRANT SELECT ON TABLE public.wo_installment_expenses TO authenticated;
 GRANT ALL ON TABLE public.wo_installment_expenses TO service_role;
 
 REVOKE EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) TO authenticated, service_role;
 
 -- Cobranzas Fase 8: la vista de Cobranzas. La funcion verifica el rol por dentro
