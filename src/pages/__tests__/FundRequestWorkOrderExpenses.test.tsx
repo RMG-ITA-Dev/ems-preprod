@@ -52,6 +52,10 @@ vi.mock("@/hooks/useWorkOrderExpenses", () => ({
   useWorkOrderExpenseDetail: () => ({ data: detail, isLoading: false }),
 }));
 
+// jsdom no trae matchMedia: el test decide si la pantalla es un teléfono.
+let mobile = false;
+vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => mobile }));
+
 // ── Import under test (after all vi.mock hoists) ───────────────────────────────
 import FundRequestWorkOrderExpenses from "../FundRequestWorkOrderExpenses";
 
@@ -78,5 +82,18 @@ describe("FundRequestWorkOrderExpenses — detalle de gastos por OT (Fase 5)", (
     fireEvent.click(screen.getByRole("switch"));
     expect(screen.getByText("SF-1")).toBeInTheDocument();
     expect(screen.getByText("SF-2")).toBeInTheDocument();
+  });
+
+  it("agrupado en un teléfono, cada solicitud lista sus gastos sin tabla", () => {
+    // AGENTS.md, regla 7: la tabla de 5 columnas obligaba a desplazarse de costado.
+    mobile = true;
+    try {
+      const { container } = render(<FundRequestWorkOrderExpenses />);
+      fireEvent.click(screen.getByRole("switch"));
+      expect(screen.getByText("SF-1")).toBeInTheDocument();
+      expect(container.querySelector("table")).toBeNull();
+    } finally {
+      mobile = false;
+    }
   });
 });

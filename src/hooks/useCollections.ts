@@ -98,6 +98,8 @@ export interface CollectionsResult {
   limit: number;
   offset: number;
   total_count: number;
+  /** Lo que cuenta el paginador: con el agrupado por OT no coincide con `total_count`. */
+  page_rows: number;
   totals: {
     por_facturar_mes: TotalsByCurrency;
     facturado_sin_cobrar: TotalsByCurrency;
@@ -116,6 +118,7 @@ function normalize(raw: unknown, filters: CollectionsFilters): CollectionsResult
     limit: Number(r.limit ?? 50),
     offset: Number(r.offset ?? 0),
     total_count: Number(r.total_count ?? 0),
+    page_rows: Number(r.page_rows ?? r.total_count ?? 0),
     totals: { ...EMPTY_TOTALS, ...(r.totals ?? {}) } as CollectionsResult["totals"],
     // Los importes vienen como NUMERIC y PostgREST los entrega en string: se convierten acá,
     // una vez, para que ninguna pantalla haga aritmética con texto.

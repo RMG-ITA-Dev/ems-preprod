@@ -143,6 +143,9 @@ DECLARE
   v_off    integer;
   v_ids    text[] := '{}';
   v_pairs  text[] := '{}';
+  v_l      integer;
+  v_pr     integer;
+  v_sum    integer := 0;
 BEGIN
   -- ── Plan 1 (OT BOB, sociedad A, practica 1, gerente Ana) ────────────
   -- Cuatro cuotas, una por pestana, para que cada chequeo tenga su caso:
@@ -562,6 +565,31 @@ BEGIN
   END IF;
   IF EXISTS (SELECT split_part(x, ':', 1) FROM unnest(v_pairs) x GROUP BY 1 HAVING COUNT(*) > 1) THEN
     RAISE EXCEPTION 'TEST FAIL - una orden de trabajo quedo repartida entre dos paginas';
+  END IF;
+
+  -- Y el paginador no anuncia paginas vacias. `total_count` cuenta filas, pero por 'ot' una
+  -- orden que cruza el borde viaja entera en la pagina anterior: si la ultima lo hace, contar
+  -- filas anunciaba una pagina final sin nada. `page_rows` es lo que el paginador cuenta. Se
+  -- prueba con paginas del tamano de la orden mas grande, que es el caso que la RPC promete
+  -- cubrir (con ordenes mas grandes que la pagina, si puede haber una intermedia vacia).
+  v_res := public.list_collections_installments('por_facturar', p_order := 'ot');
+  SELECT MAX(n) INTO v_l FROM (
+    SELECT COUNT(*) AS n FROM jsonb_array_elements(v_res->'rows') r GROUP BY r.value->>'wo_id'
+  ) q;
+  v_res := public.list_collections_installments('por_facturar', p_order := 'ot', p_limit := v_l);
+  v_pr := (v_res->>'page_rows')::int;
+  IF v_pr > v_total THEN
+    RAISE EXCEPTION 'TEST FAIL - page_rows (%) no puede superar las filas (%)', v_pr, v_total;
+  END IF;
+  FOR v_off IN 0 .. ((v_pr + v_l - 1) / v_l) - 1 LOOP
+    v_res := public.list_collections_installments('por_facturar', p_order := 'ot', p_limit := v_l, p_offset := v_off * v_l);
+    IF jsonb_array_length(v_res->'rows') = 0 THEN
+      RAISE EXCEPTION 'TEST FAIL - el paginador anuncio la pagina % y vino vacia', v_off + 1;
+    END IF;
+    v_sum := v_sum + jsonb_array_length(v_res->'rows');
+  END LOOP;
+  IF v_sum <> v_total THEN
+    RAISE EXCEPTION 'TEST FAIL - las paginas anunciadas suman % filas de %', v_sum, v_total;
   END IF;
 
   -- Por 'fecha' la pagina sigue siendo de exactamente `limit` filas.

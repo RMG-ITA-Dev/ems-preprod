@@ -127,7 +127,9 @@ export default function Collections() {
   // el agrupado (useMemo sobre `rows`) se recalculaba siempre.
   const rows = data?.rows ?? NO_ROWS;
   const totalCount = data?.total_count ?? 0;
-  const pageCount = Math.max(Math.ceil(totalCount / PAGE_SIZE), 1);
+  // Las páginas salen de `page_rows`, no del total de filas: agrupado por OT, una orden que
+  // cruza el borde viaja entera en la página anterior y contar filas anunciaba una página vacía.
+  const pageCount = Math.max(Math.ceil((data?.page_rows ?? 0) / PAGE_SIZE), 1);
 
   const statusLabel = (row: CollectionsRow): string =>
     row.calendar_state === "overdue"
@@ -620,7 +622,7 @@ export default function Collections() {
               </div>
             )}
 
-            {totalCount > PAGE_SIZE && (
+            {pageCount > 1 && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {t("collections.pageOf", { page: page + 1, pages: pageCount, total: totalCount })}

@@ -9519,6 +9519,13 @@ BEGIN
     'limit', v_limit,
     'offset', v_offset,
     'total_count', (SELECT COUNT(*) FROM tabbed),
+    -- Lo que el paginador tiene que contar. Por 'fecha' son las filas. Por 'ot' la pagina se
+    -- arma por ordenes (ver `page`), asi que la ultima pagina es la de la ultima orden que
+    -- EMPIEZA: si esa orden se corre a la pagina anterior, contar filas anunciaba una pagina
+    -- final vacia. Con el ancla de la ultima orden + 1, toda pagina anunciada trae filas.
+    'page_rows', CASE WHEN p_order = 'ot'
+                      THEN COALESCE((SELECT MAX(page_anchor) + 1 FROM grouped_rank), 0)
+                      ELSE (SELECT COUNT(*) FROM tabbed) END,
     'totals', jsonb_build_object(
       'por_facturar_mes',     COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_por_facturar), '{}'::jsonb),
       'facturado_sin_cobrar', COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_sin_cobrar), '{}'::jsonb),

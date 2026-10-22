@@ -65,6 +65,7 @@ const emptyResult: CollectionsResult = {
   limit: 50,
   offset: 0,
   total_count: 0,
+  page_rows: 0,
   totals: { por_facturar_mes: {}, facturado_sin_cobrar: {}, en_mora: {} },
   rows: [],
 };
@@ -181,11 +182,20 @@ describe("Collections — lo que le pide al servidor", () => {
   });
 
   it("cambiar de pestaña vuelve a la primera página", () => {
-    result = { ...emptyResult, total_count: 300 };
+    result = { ...emptyResult, total_count: 300, page_rows: 300 };
     renderPage();
     fireEvent.click(screen.getByText("collections.tab_en_mora"));
     expect(lastFilters?.tab).toBe("en_mora");
     expect(lastFilters?.offset).toBe(0);
+  });
+
+  it("las páginas salen de page_rows, no del total de filas", () => {
+    // Agrupado por OT, una orden que cruza el borde viaja entera en la página anterior. Con 51
+    // filas y la última orden empezando en la fila 48, contar filas anunciaba una página 2
+    // vacía; el servidor manda page_rows = 49 y hay una sola página.
+    result = { ...emptyResult, total_count: 51, page_rows: 49 };
+    renderPage();
+    expect(screen.queryByText("common.next")).not.toBeInTheDocument();
   });
 
   it("manda la búsqueda al servidor, no filtra en memoria", () => {
@@ -200,7 +210,7 @@ describe("Collections — lo que le pide al servidor", () => {
   it("un filtro nuevo devuelve a la primera página", () => {
     // Quedarse en la página 4 de un resultado que ahora tiene una sola deja la tabla vacía
     // sin explicar por qué.
-    result = { ...emptyResult, total_count: 300 };
+    result = { ...emptyResult, total_count: 300, page_rows: 300 };
     const { container } = renderPage();
     fireEvent.click(screen.getByText("common.next"));
     expect(lastFilters?.offset).toBe(50);

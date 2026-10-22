@@ -1258,6 +1258,26 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - cada gasto entra en UNA sola fila, y los que se revisan despues van a otra';
 
+  -- 13.c-bis La fila de gastos no se borra, ni Pendiente. La policy de cuotas le deja DELETE al
+  -- gerente del encargo; borrarla arrastraba (FK en cascada) sus vinculos y esos gastos volvian
+  -- a ser facturables: se le cobraban dos veces al cliente.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    DELETE FROM public.wo_payment_installments WHERE installment_id = v_row.installment_id;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se borro una fila de gastos facturados pendiente';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_expenses WHERE installment_id = v_row.installment_id;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la fila de gastos perdio sus vinculos (quedan %)', v_n;
+  END IF;
+  PERFORM pg_temp.impersonate(c_collections);
+  RAISE NOTICE 'PASS - la fila de gastos facturados no se puede eliminar';
+
   -- 13.d Una OT aprobada SIN plan: la RPC crea el encabezado. Sin esto, una OT que solo tuvo
   -- gastos no se podria cobrar nunca, porque el guard del plan no deja crearlo ya aprobada.
   v_row := public.create_expense_reimbursement_row(c_wo6);

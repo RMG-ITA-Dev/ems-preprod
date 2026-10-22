@@ -1025,6 +1025,9 @@ BEGIN
 
   -- La fila la carga el GERENTE de E1: esta suite evalua RLS, y la policy de escritura de
   -- cuotas esta acotada al gerente del encargo. (En produccion la crea una RPC definer.)
+  -- Va en un subbloque que se deshace solo: la fila de gastos ya no se puede borrar (guard de
+  -- borrado), asi que la limpieza es el ROLLBACK del subbloque, no un DELETE.
+  BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(5));
   INSERT INTO public.wo_payment_installments
     (plan_id, wo_id, installment_number, percentage, amount, net_amount, status,
@@ -1036,14 +1039,15 @@ BEGIN
 
   PERFORM pg_temp.impersonate(pg_temp.u(2));
   v_despues := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'economic_cycle'->>'to_invoice_bob')::numeric;
+  RAISE EXCEPTION USING ERRCODE = 'UE15B', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE15B' THEN
+    NULL;
+  END;
+
   IF abs((v_despues - v_antes) - 500) > 0.01 THEN
     RAISE EXCEPTION 'FAIL: una fila de Bs 500 en una OT en USD sumo % a to_invoice_bob; tenia que sumar 500 (no 500 x TC)',
       v_despues - v_antes;
   END IF;
-
-  PERFORM pg_temp.impersonate(pg_temp.u(5));
-  DELETE FROM public.wo_payment_installments
-   WHERE wo_id = 'd0da5c10-0000-4000-8000-000000000001' AND installment_number = 99;
   RAISE NOTICE 'OK 15bis: una cuota en Bs se valua a 1 aunque la OT sea en USD';
 END $$;
 

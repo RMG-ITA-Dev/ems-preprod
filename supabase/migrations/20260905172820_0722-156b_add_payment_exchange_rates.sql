@@ -252,6 +252,15 @@ BEGIN
   IF OLD.status <> 'Pending' THEN
     RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
   END IF;
+  -- Cobranzas Fase 7: la fila de gastos facturados no se borra NUNCA, ni Pendiente. Borrarla
+  -- arrastra (FK en cascada) sus vinculos en wo_installment_expenses, y esos gastos volverian
+  -- a figurar como facturables: se le cobrarian dos veces al cliente. La policy de cuotas le
+  -- deja DELETE al gerente del encargo, y eso es correcto para las de honorarios; esta fila
+  -- la crea Contabilidad por RPC y solo cambia por RPC. Tambien frena borrar el plan entero
+  -- mientras la tenga (la pantalla ya no lo ofrece en ese caso).
+  IF OLD.installment_type = 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: la fila de gastos facturados no se puede eliminar';
+  END IF;
   RETURN OLD;
 END;
 $$;
