@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -158,12 +158,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     },
   });
 
-  // Se carga la ficha UNA vez, cuando llegaron el cliente Y sus contactos. Los contactos vienen
-  // en otra consulta que casi siempre llega después: antes el formulario se reseteaba dos veces,
-  // y si en el medio se empezaba a escribir, el segundo reset borraba lo tecleado. Tampoco se
-  // pisa un formulario con cambios si la consulta se vuelve a pedir en segundo plano.
+  // Se carga la ficha cuando llegaron el cliente Y sus contactos. Los contactos vienen en otra
+  // consulta que casi siempre llega después: antes el formulario se reseteaba dos veces, y si en
+  // el medio se empezaba a escribir, el segundo reset borraba lo tecleado. Hasta esa primera
+  // carga los campos quedan deshabilitados (`loaded`), así que no hay nada que perder; después,
+  // una consulta repetida en segundo plano no pisa un formulario con cambios.
+  const [loaded, setLoaded] = useState(!client);
   useEffect(() => {
-    if (client && contactsFetched && !form.formState.isDirty) {
+    if (client && contactsFetched && (!loaded || !form.formState.isDirty)) {
       form.reset({
         client_legal_name: client.client_legal_name,
         unique_tax_id: client.unique_tax_id,
@@ -180,8 +182,9 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         address: client.address || "",
         is_active: client.is_active,
       });
+      setLoaded(true);
     }
-  }, [client, form, contactsFetched, generalContact, cobranzaContact]);
+  }, [client, form, contactsFetched, loaded, generalContact, cobranzaContact]);
 
   // Report dirty state to parent
   const { isDirty } = form.formState;
@@ -326,6 +329,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       <div className="bg-card rounded-lg border border-border p-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+            <fieldset disabled={!loaded} className="contents">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <FormField
                 control={form.control}
@@ -520,6 +524,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 </LoadingButton>
               )}
             </div>
+            </fieldset>
           </form>
         </Form>
       </div>
@@ -579,6 +584,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <fieldset disabled={!loaded} className="contents">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -789,6 +795,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 </LoadingButton>
               )}
             </div>
+            </fieldset>
           </form>
         </Form>
       </div>
