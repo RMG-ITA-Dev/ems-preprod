@@ -1268,6 +1268,38 @@ BEGIN
   RAISE NOTICE 'OK 20c: lo cobrado de los finalizados valua la cuota en Bs a 1 aunque la OT sea en USD';
 END $$;
 
+-- ── 20d. Lo cobrado descuenta los descuentos vigentes ─────────────────────────────────────────
+-- Revision de Codex al PR (2026-10-22): i.amount es el contrato; lo cobrado es el monto mas los
+-- descuentos vigentes. Un descuento de 100 sobre la cuota cobrada de E12 (500 Bs) tiene que
+-- dejar lo cobrado de los finalizados en 400. Uno ya retirado no cuenta. Se deshace solo.
+DO $$
+DECLARE v_collected numeric;
+BEGIN
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    INSERT INTO public.wo_installment_adjustments
+      (installment_id, wo_id, adjustment_type, amount, currency, reason)
+    VALUES
+      ('f0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 'descuento', -100, 'BOB', 'pronto pago');
+    INSERT INTO public.wo_installment_adjustments
+      (installment_id, wo_id, adjustment_type, amount, currency, reason, deleted_at)
+    VALUES
+      ('f0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 'descuento', -50, 'BOB', 'retirado', now());
+    PERFORM set_config('session_replication_role', 'origin', true);
+
+    PERFORM pg_temp.impersonate(pg_temp.u(1));
+    v_collected := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'finalized_summary'->>'collected_bob')::numeric;
+    RAISE EXCEPTION USING ERRCODE = 'UE20D', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE20D' THEN
+    NULL;
+  END;
+
+  IF v_collected IS DISTINCT FROM 400 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.collected_bob esperado 400 (500 - 100 de descuento vigente), obtuvo %', v_collected;
+  END IF;
+  RAISE NOTICE 'OK 20d: lo cobrado de los finalizados descuenta los descuentos vigentes';
+END $$;
+
 -- ── 21. Prerrequisito de TC: NOT NULL/CHECK/DEFAULT + fallback de latest_exchange_rate() ───
 -- Nota: SET LOCAL ROLE / RESET ROLE son comandos de sesion -- no pueden invocarse dentro de
 -- un bloque DO (plpgsql); por eso este chequeo intercala sentencias de nivel superior con

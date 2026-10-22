@@ -708,7 +708,11 @@ BEGIN
         i.status, i.agreed_invoice_date, i.current_invoice_date,
         i.agreed_payment_date, i.collection_payment_date,
         (SELECT today FROM now_ctx)) AS calendar_state,
-      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
+      -- Cobranzas Fase 9: lo que el cliente DEBE (o pago), no el monto del contrato: el monto
+      -- mas los descuentos vigentes en la moneda de la cuota, igual que amount_effective en la
+      -- pantalla de Cobranzas. Sin esto todo KPI de una cuota con descuento la contaba entera.
+      COALESCE(i.amount, i.percentage * w.installment_base / 100)
+        + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, w.currency)) AS amount_native,
       -- La moneda que cuenta es la de la CUOTA, no la de la OT (Cobranzas Fase 6/7). Una cuota
       -- puede ir en Bs aunque la OT sea en USD, y la fila de gastos ejecutados nace siempre en
       -- Bs: valuarla con el TC de la OT la multiplicaba por ~7 en todos los KPI. Para una
