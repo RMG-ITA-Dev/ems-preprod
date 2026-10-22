@@ -45,6 +45,10 @@ vi.mock("@/components/ui/select", () => ({
   SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) => <option value={value}>{children}</option>,
 }));
 
+// En jsdom el ancho real es fijo: el test decide si la pantalla se pinta como teléfono.
+let mobile = false;
+vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => mobile }));
+
 const authState = {
   roleKey: "collections_analyst" as string | null,
   isLoading: false,
@@ -107,6 +111,7 @@ beforeEach(() => {
   lastFilters = undefined;
   lastEnabled = undefined;
   result = emptyResult;
+  mobile = false;
 });
 
 describe("Collections — acceso", () => {
@@ -290,5 +295,49 @@ describe("Collections — totales", () => {
     // Un 0 se lee como "no hay deuda"; el guion dice "no hay nada en esta categoría".
     renderPage();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Collections — móvil", () => {
+  const twoRowsOneWo = (): CollectionsResult => {
+    const base = {
+      installment_type: "fee" as const,
+      wo_id: "wo1", engagement_id: "e1", engagement_code: "RM-001", engagement_name: "Auditoría",
+      client_id: "c1", client_legal_name: "Cliente Uno", unique_tax_id: "1",
+      society_id: "s1", practica: 1, manager_id: "m1", manager_name: "Ana",
+      amount: 1000, adjustments_total: 0, amount_effective: 1000, exchange_difference_bob: 0,
+      currency: "BOB", status: "Invoiced" as const, calendar_state: "on_track" as const,
+      confirmation_status: null, agreed_invoice_date: "2026-06-01", agreed_payment_date: "2026-07-01",
+      invoice_date_vigente: "2026-06-01", due_date_vigente: "2026-07-01",
+      collection_invoice_date: "2026-06-01", payment_date_actual: null,
+      fecha_relevante: "2026-07-01", days_overdue: 0, was_rescheduled: false, has_notes: false,
+      contact: null,
+    };
+    return {
+      ...emptyResult,
+      total_count: 2,
+      rows: [
+        { ...base, installment_id: "i1", installment_number: 1 },
+        { ...base, installment_id: "i2", installment_number: 2 },
+      ],
+    };
+  };
+
+  it("en un teléfono cada cuota es una tarjeta, no una fila de tabla", () => {
+    // AGENTS.md, regla 7: la tabla de 9 columnas no entra en una pantalla angosta.
+    mobile = true;
+    result = twoRowsOneWo();
+    const { container } = renderPage();
+    expect(screen.getAllByTestId("collections-card")).toHaveLength(2);
+    expect(container.querySelector("table")).toBeNull();
+    // Agrupado por OT igual que en escritorio: un solo encabezado para las dos cuotas.
+    expect(screen.getAllByText(/collections\.groupRowCount/)).toHaveLength(1);
+  });
+
+  it("en escritorio sigue la tabla", () => {
+    result = twoRowsOneWo();
+    const { container } = renderPage();
+    expect(container.querySelector("table")).not.toBeNull();
+    expect(screen.queryByTestId("collections-card")).toBeNull();
   });
 });

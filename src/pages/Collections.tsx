@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/useMobile";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { canDoCollections } from "@/lib/collectionsAccess";
 import {
@@ -37,6 +38,11 @@ const fmtDate = (iso: string | null): string => {
   return `${d}/${m}/${y}`;
 };
 
+// Excepción deliberada a la regla de montos de AGENTS.md (cero decimales, moneda en el
+// encabezado de la columna): acá se factura y se cobra, y la factura va al centavo —el IVA y la
+// liquidación redondean a 2—, así que esconder los centavos mostraría un monto distinto del que
+// lleva la factura. Y la moneda va en cada celda porque una misma columna mezcla monedas: la
+// cuota puede ir en otra moneda que su OT (Q29) y la fila de gastos nace en Bs.
 const fmtAmount = (amount: number | null, currency: string): string =>
   Number(amount ?? 0).toLocaleString(currency === "BOB" ? "es-BO" : "en-US", {
     minimumFractionDigits: 0,
@@ -57,6 +63,7 @@ const fmtAmount = (amount: number | null, currency: string): string =>
 export default function Collections() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { roleKey, isLoading: roleLoading, isError: roleError, refetch: refetchRole } = useAuthorization();
   const canView = canDoCollections(roleKey);
 
@@ -213,6 +220,85 @@ export default function Collections() {
     </Card>
   );
 
+  // Piezas de una fila que comparten la tabla (escritorio) y la tarjeta (móvil), para que las
+  // dos vistas no se desincronicen cuando cambie una de ellas.
+  const typeBadge = (row: CollectionsRow) =>
+    row.installment_type === "expense_reimbursement" ? (
+      // Las filas de gastos ejecutados (Fase 7) se cobran igual que una cuota, así que
+      // están acá; el distintivo evita confundirlas con una cuota de honorarios.
+      <span
+        title={t("collections.typeExpense")}
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
+      >
+        <Receipt className="h-3 w-3" />
+        {t("collections.typeExpenseShort")}
+      </span>
+    ) : null;
+
+  const amountDetail = (row: CollectionsRow) => (
+    <>
+    {/* Cobranzas Fase 9: arriba el monto acordado, debajo lo que queda por cobrar. Mostrar
+        solo el acordado diría que el cliente debe más de lo que se le va a cobrar, justo
+        en la pantalla que existe para saber cuánto falta. */}
+    {row.adjustments_total !== 0 && (
+      <div
+        className="text-xs font-normal text-muted-foreground"
+        title={t("collections.adjustedTooltip")}
+      >
+        {t("collections.colToCollect")}: {fmtAmount(row.amount_effective, row.currency)}
+      </div>
+    )}
+    {row.exchange_difference_bob !== 0 && (
+      <div className="text-xs font-normal text-muted-foreground">
+        {t("collections.colExchangeDifference")}: BOB{" "}
+        {fmtAmount(row.exchange_difference_bob, "BOB")}
+      </div>
+    )}
+    </>
+  );
+
+  const rescheduledMark = (row: CollectionsRow) =>
+    row.was_rescheduled ? (
+      <span title={t("collections.rescheduledTooltip")} className="ml-1 inline-flex align-middle text-warning">
+        <CalendarClock className="h-3 w-3" />
+      </span>
+    ) : null;
+
+  const statusChip = (row: CollectionsRow) => (
+    <>
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        row.calendar_state === "overdue"
+          ? "bg-destructive/15 text-destructive"
+          : row.status === "Completed"
+            ? "bg-success/15 text-success"
+            : row.status === "Invoiced"
+              ? "bg-info/15 text-info"
+              : "bg-muted/60 text-muted-foreground",
+      )}
+    >
+      {statusLabel(row)}
+    </span>
+    {row.has_notes && (
+      <span title={t("collections.hasNotesTooltip")} className="ml-1 inline-flex align-middle text-muted-foreground">
+        <MessageSquare className="h-3 w-3" />
+      </span>
+    )}
+    </>
+  );
+
+  const contactBlock = (row: CollectionsRow) =>
+    row.contact ? (
+      <>
+        <div>{row.contact.full_name}</div>
+        <div className="text-muted-foreground">{row.contact.email ?? row.contact.phone ?? ""}</div>
+      </>
+    ) : (
+      // Sin contacto no hay a quién llamar: se dice, en vez de dejar la celda vacía.
+      <span className="text-warning">{t("collections.noContact")}</span>
+    );
+
   const renderRow = (row: CollectionsRow) => (
     <TableRow
       key={row.installment_id}
@@ -226,48 +312,16 @@ export default function Collections() {
       </TableCell>
       <TableCell className="text-sm">{row.manager_name ?? "—"}</TableCell>
       <TableCell className="text-center">
-        {row.installment_type === "expense_reimbursement" ? (
-          // Las filas de gastos ejecutados (Fase 7) se cobran igual que una cuota, así que
-          // están acá; el distintivo evita confundirlas con una cuota de honorarios.
-          <span
-            title={t("collections.typeExpense")}
-            className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
-          >
-            <Receipt className="h-3 w-3" />
-            {t("collections.typeExpenseShort")}
-          </span>
-        ) : (
-          row.installment_number
-        )}
+        {typeBadge(row) ?? row.installment_number}
       </TableCell>
       <TableCell className="text-right font-mono">
         <span className="mr-2 text-xs text-muted-foreground">{row.currency}</span>
         {fmtAmount(row.amount, row.currency)}
-        {/* Cobranzas Fase 9: arriba el monto acordado, debajo lo que queda por cobrar. Mostrar
-            solo el acordado diría que el cliente debe más de lo que se le va a cobrar, justo
-            en la pantalla que existe para saber cuánto falta. */}
-        {row.adjustments_total !== 0 && (
-          <div
-            className="text-xs font-normal text-muted-foreground"
-            title={t("collections.adjustedTooltip")}
-          >
-            {t("collections.colToCollect")}: {fmtAmount(row.amount_effective, row.currency)}
-          </div>
-        )}
-        {row.exchange_difference_bob !== 0 && (
-          <div className="text-xs font-normal text-muted-foreground">
-            {t("collections.colExchangeDifference")}: BOB{" "}
-            {fmtAmount(row.exchange_difference_bob, "BOB")}
-          </div>
-        )}
+        {amountDetail(row)}
       </TableCell>
       <TableCell className="font-mono text-xs">
         {fmtDate(row.fecha_relevante)}
-        {row.was_rescheduled && (
-          <span title={t("collections.rescheduledTooltip")} className="ml-1 inline-flex align-middle text-warning">
-            <CalendarClock className="h-3 w-3" />
-          </span>
-        )}
+        {rescheduledMark(row)}
       </TableCell>
       <TableCell className="text-right font-mono text-xs">
         {row.days_overdue > 0 ? (
@@ -277,38 +331,58 @@ export default function Collections() {
         )}
       </TableCell>
       <TableCell>
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-            row.calendar_state === "overdue"
-              ? "bg-destructive/15 text-destructive"
-              : row.status === "Completed"
-                ? "bg-success/15 text-success"
-                : row.status === "Invoiced"
-                  ? "bg-info/15 text-info"
-                  : "bg-muted/60 text-muted-foreground",
-          )}
-        >
-          {statusLabel(row)}
-        </span>
-        {row.has_notes && (
-          <span title={t("collections.hasNotesTooltip")} className="ml-1 inline-flex align-middle text-muted-foreground">
-            <MessageSquare className="h-3 w-3" />
-          </span>
-        )}
+        {statusChip(row)}
       </TableCell>
       <TableCell className="text-xs">
-        {row.contact ? (
-          <>
-            <div>{row.contact.full_name}</div>
-            <div className="text-muted-foreground">{row.contact.email ?? row.contact.phone ?? ""}</div>
-          </>
-        ) : (
-          // Sin contacto no hay a quién llamar: se dice, en vez de dejar la celda vacía.
-          <span className="text-warning">{t("collections.noContact")}</span>
-        )}
+        {contactBlock(row)}
       </TableCell>
     </TableRow>
+  );
+
+  // Móvil (AGENTS.md, regla 7): la tabla de 9 columnas no entra en un teléfono, así que cada
+  // cuota se vuelve una tarjeta con lo mismo: quién debe, cuánto, para cuándo y a quién llamar.
+  const renderCard = (row: CollectionsRow) => (
+    <button
+      key={row.installment_id}
+      type="button"
+      data-testid="collections-card"
+      onClick={() => navigate(`/work-orders/${row.wo_id}`)}
+      className="w-full space-y-2 rounded-md border bg-card p-3 text-left hover:bg-muted/30"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium">{row.client_legal_name}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {row.engagement_code ?? "—"} · {row.engagement_name}
+          </div>
+        </div>
+        <div className="shrink-0">
+          {typeBadge(row) ?? (
+            <span className="text-xs text-muted-foreground">
+              {t("collections.colInstallment")} {row.installment_number}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="font-mono">
+        <span className="mr-2 text-xs text-muted-foreground">{row.currency}</span>
+        {fmtAmount(row.amount, row.currency)}
+        {amountDetail(row)}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="font-mono">
+          {fmtDate(row.fecha_relevante)}
+          {rescheduledMark(row)}
+        </span>
+        {row.days_overdue > 0 && (
+          <span className="font-semibold text-destructive">
+            {t("collections.colDaysOverdue")}: {row.days_overdue}
+          </span>
+        )}
+        <span>{statusChip(row)}</span>
+      </div>
+      <div className="text-xs">{contactBlock(row)}</div>
+    </button>
   );
 
   // Escalera de estados: el rol primero, para no mostrar un "no autorizado" mientras carga.
@@ -495,6 +569,19 @@ export default function Collections() {
               <p className="py-8 text-center text-sm text-muted-foreground">
                 {t("collections.empty")}
               </p>
+            ) : isMobile ? (
+              <div className="space-y-2">
+                {grouped
+                  ? grouped.map(([key, group]) => (
+                      <div key={`group-${key}`} className="space-y-2">
+                        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {group.label} · {t("collections.groupRowCount", { count: group.rows.length })}
+                        </p>
+                        {group.rows.map(renderCard)}
+                      </div>
+                    ))
+                  : rows.map(renderCard)}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <Table>

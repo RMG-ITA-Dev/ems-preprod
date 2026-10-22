@@ -17,6 +17,7 @@ import {
   Receipt,
   CalendarRange,
   ChartColumnDecreasing,
+  HandCoins,
 } from "lucide-react";
 import {
   Drawer,
@@ -28,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { canDoCollections } from "@/lib/collectionsAccess";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
@@ -101,6 +103,9 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     { path: "/fund-requests/approvals", icon: CheckSquare, labelKey: "nav.fundRequestApprovals", show: can("fund_approval.read") || !!managesAnyOt },
     { path: "/fund-requests/disbursements", icon: Banknote, labelKey: "nav.fundRequestDisbursements", show: can("fund_disbursement.read") },
     { path: "/fund-requests/work-orders", icon: Receipt, labelKey: "nav.fundRequestWorkOrders", show: can("expense_settlement.read") },
+    // Cobranzas: mismo predicado que AppSidebar (canDoCollections). Faltaba acá, así que en
+    // móvil —donde el sidebar no existe— Contabilidad no tenía cómo llegar a la pantalla.
+    { path: "/collections", icon: HandCoins, labelKey: "nav.collections", show: canDoCollections(roleKey) },
   ].filter((i) => i.show);
 
   // Mismo predicado que AppSidebar.tsx — la matriz no puede divergir entre sidebar y drawer
