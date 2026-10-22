@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -50,6 +50,14 @@ vi.mock("@/hooks/useClientContacts", async (importOriginal) => {
 vi.mock("@/hooks/useInstallmentNotes", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/hooks/useInstallmentNotes")>();
   return { ...real, useInstallmentNotes: () => ({ data: mockNotes }) };
+});
+
+// La bitácora de la cuota. Se controla desde los tests para montar la sección con y sin
+// historial: sin eventos el botón no existe, que es el caso normal de una cuota recién creada.
+let mockEvents: unknown[] = [];
+vi.mock("@/hooks/useInstallmentEvents", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/hooks/useInstallmentEvents")>();
+  return { ...real, useInstallmentEvents: () => ({ data: mockEvents }) };
 });
 
 // WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
@@ -923,5 +931,137 @@ describe("WorkOrderPaymentPlanSection — el TC al COBRAR se confirma en el diá
     });
     cobrar(container);
     expect(screen.queryByTestId("invoice-rate-input")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("WorkOrderPaymentPlanSection — la bitácora de la cuota (2026-10-21)", () => {
+  // `wo_installment_events` se escribe sola desde la Fase 1 y nadie la puede editar, pero no
+  // se veía en ninguna pantalla: el rastro existía sólo en la base. Sin esto, cambiar un hecho
+  // ya registrado —desconfirmar, reprogramar, corregir una fecha de cobro— no dejaba nada
+  // visible, y es justamente lo que vuelve defendible ese cambio.
+
+  const inst = () => makeInstallment({ installment_id: "i-h", status: "Invoiced" as PaymentInstallmentStatus });
+
+  const evento = (over: Record<string, unknown>) => ({
+    event_id: `ev-${Math.random()}`,
+    seq: 1,
+    installment_id: "i-h",
+    wo_id: "wo-1",
+    action: "status_change",
+    from_status: null,
+    to_status: null,
+    old_date: null,
+    new_date: null,
+    amount: null,
+    currency: null,
+    reason: null,
+    actor_staff_id: "s-1",
+    created_at: "2026-10-21T15:00:00Z",
+    actor: { first_name: "Ana", last_name: "Gerente" },
+    ...over,
+  });
+
+  afterEach(() => {
+    mockEvents = [];
+  });
+
+  it("sin eventos no hay botón: una cuota recién creada no tiene historial que mostrar", () => {
+    renderSection({ installments: [inst()] });
+    expect(screen.queryByText(/workOrders.paymentPlan.historyCount/)).not.toBeInTheDocument();
+  });
+
+  it("con eventos aparece el contador", () => {
+    mockEvents = [evento({ from_status: "Pending", to_status: "Invoiced" })];
+    renderSection({ installments: [inst()] });
+    expect(screen.getByText(/workOrders.paymentPlan.historyCount/)).toBeInTheDocument();
+  });
+
+  it("cuenta sólo los eventos de ESA cuota", () => {
+    mockEvents = [
+      evento({ from_status: "Pending", to_status: "Invoiced" }),
+      evento({ installment_id: "otra-cuota" }),
+    ];
+    const container = renderSection({ installments: [inst()] });
+    const boton = container.querySelector("button:not([aria-label])");
+    expect(screen.getByText("workOrders.paymentPlan.historyCount")).toBeInTheDocument();
+    expect(boton).toBeTruthy();
+  });
+
+  it("distingue una confirmación de un rechazo por la fecha que lleva cada una", () => {
+    // La confirmación guarda la fecha confirmada en new_date; el rechazo, la fecha rechazada
+    // en old_date. Si se leyeran igual, "confirmó para el X" y "no confirmó el X" serían
+    // indistinguibles en la bitácora, que es el unico lugar donde queda el rastro.
+    mockEvents = [
+      evento({ action: "confirmation", new_date: "2026-11-20", reason: "Confirmada" }),
+      evento({ action: "confirmation", old_date: "2026-11-20", reason: "pidió más plazo" }),
+    ];
+    renderSection({ installments: [inst()] });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+    expect(screen.getByText("workOrders.paymentPlan.historyConfirmed")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.paymentPlan.historyNotConfirmed")).toBeInTheDocument();
+    // El motivo viaja con el evento: sin él, un rechazo no se puede explicar después.
+    expect(screen.getByText("pidió más plazo")).toBeInTheDocument();
+  });
+
+  it("muestra el más reciente primero", () => {
+    mockEvents = [
+      evento({ seq: 1, action: "rescheduled", old_date: "2026-11-01", new_date: "2026-11-20" }),
+      evento({ seq: 2, action: "confirmation", new_date: "2026-11-20" }),
+    ];
+    renderSection({ installments: [inst()] });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+    const lineas = screen.getAllByText(/workOrders.paymentPlan.history(Confirmed|Rescheduled)/);
+    expect(lineas[0].textContent).toBe("workOrders.paymentPlan.historyConfirmed");
+  });
+
+  it("un evento sin autor dice Sistema en vez de dejar el hueco", () => {
+    mockEvents = [evento({ actor: null, actor_staff_id: null })];
+    renderSection({ installments: [inst()] });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+    expect(screen.getByText("workOrders.paymentPlan.historyUnknownActor")).toBeInTheDocument();
+  });
+});
+
+
+describe("WorkOrderPaymentPlanSection — el formulario de ajustes arranca en blanco (2026-10-21)", () => {
+  // Reportado probando: se cargaba un ajuste en una cuota, se cerraba con "Cerrar" y al abrir
+  // el de OTRA cuota seguían los valores anteriores. El formulario se limpiaba sólo en
+  // `onOpenChange`, que Radix dispara al cerrar por ESC/overlay/X — pero el botón "Cerrar"
+  // pone el estado en null por su cuenta, así que ese camino nunca limpiaba. Ahora se limpia
+  // al ABRIR, que es el único momento que garantiza empezar en blanco.
+
+  const dos = () => [
+    makeInstallment({ installment_id: "i-1", installment_number: 1, percentage: 50, amount: 1000, status: "Invoiced" as PaymentInstallmentStatus }),
+    makeInstallment({ installment_id: "i-2", installment_number: 2, percentage: 50, amount: 1000, status: "Invoiced" as PaymentInstallmentStatus }),
+  ];
+
+  const abrirAjustes = (container: HTMLElement, fila: number) => {
+    const botones = Array.from(container.querySelectorAll("button")).filter((b) =>
+      b.textContent?.includes("workOrders.paymentPlan.adjustmentsAdd"),
+    );
+    fireEvent.click(botones[fila]);
+  };
+
+  it("un motivo tecleado en una cuota no aparece en el de la siguiente", () => {
+    const container = renderSection({ installments: dos(), canBillExpenses: true });
+
+    abrirAjustes(container, 0);
+    const motivo = screen.getByPlaceholderText("workOrders.paymentPlan.adjustmentReasonPlaceholder");
+    fireEvent.change(motivo, { target: { value: "rebaja de la cuota 1" } });
+
+    // Se cierra por el BOTÓN, que es el camino que no limpiaba.
+    fireEvent.click(screen.getByText("common.close"));
+
+    abrirAjustes(container, 1);
+    expect(
+      (screen.getByPlaceholderText("workOrders.paymentPlan.adjustmentReasonPlaceholder") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+
+  it("el botón de registrar arranca deshabilitado: sin motivo no se puede guardar", () => {
+    const container = renderSection({ installments: dos(), canBillExpenses: true });
+    abrirAjustes(container, 0);
+    expect(screen.getByText("workOrders.paymentPlan.adjustmentAdd").closest("button")).toBeDisabled();
   });
 });

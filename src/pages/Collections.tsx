@@ -514,7 +514,10 @@ export default function Collections() {
                           <React.Fragment key={`group-${key}`}>
                             <TableRow className="bg-muted/40 hover:bg-muted/40">
                               <TableCell colSpan={9} className="py-2 text-xs font-semibold uppercase tracking-wide">
-                                {group.label} · {group.rows.length}
+                                {/* "· 3" suelto se lee como el número de algo, no como un
+                                    conteo — y al lado de la columna "Cuota", que lleva el
+                                    número de cuota, la confusión es inmediata. */}
+                                {group.label} · {t("collections.groupRowCount", { count: group.rows.length })}
                               </TableCell>
                             </TableRow>
                             {group.rows.map(renderRow)}

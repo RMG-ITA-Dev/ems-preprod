@@ -1418,6 +1418,7 @@ export function WorkOrderForm({
           installments={paymentInstallments}
           expenseRows={paymentExpenseRows}
           canBillExpenses={canBillExpenses}
+          taxRate={taxRate}
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
           collectionsApprovalStatus={collectionsOnly ? approvalStatus : null}

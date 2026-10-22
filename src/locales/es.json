@@ -1955,7 +1955,7 @@
       "errorNewDateRequired": "Hay que registrar la nueva fecha de facturación.",
       "confirmationPending": "Sin gestionar",
       "confirmationConfirmed": "Confirmada",
-      "confirmationNotConfirmed": "No confirmada",
+      "confirmationNotConfirmed": "No confirmó la fecha anterior",
       "confirmCheckLabel": "¿El cliente pagará en esta fecha?",
       "confirmYes": "Sí, confirma",
       "confirmNo": "No confirma",
@@ -1996,7 +1996,7 @@
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
       "confirmCollectionDateAction": "Guardar fecha",
       "expenseRowsTitle": "Gastos ejecutados",
-      "expenseRowsHelp": "Los gastos ya revisados por Contabilidad se le cobran al cliente en su propia fila, aparte de las cuotas de honorarios.",
+      "expenseRowsHelp": "Los gastos ya revisados por Contabilidad se le cobran al cliente en su propia fila, aparte de las cuotas de honorarios. El monto a facturar incluye el IVA, para que la firma recupere exactamente lo que gastó.",
       "expenseRowsBill": "Facturar gastos ejecutados (Bs {{amount}})",
       "expenseRowsNothingToBill": "Sin gastos pendientes de facturar",
       "expenseRowsEmpty": "Todavía no se le facturó ningún gasto al cliente.",
@@ -2010,7 +2010,7 @@
       "adjustmentsCount": "Ajustes ({{count}})",
       "adjustmentsAdd": "Ajustar",
       "adjustmentsTitle": "Ajustes de la cuota",
-      "adjustmentsDesc": "Un ajuste no cambia el monto acordado: se registra aparte y se descuenta de lo que queda por cobrar.",
+      "adjustmentsDesc": "Un ajuste explica por qué lo que se cobra no coincide con lo facturado. No cambia el monto acordado: se registra aparte y queda en el historial de la cuota.",
       "adjustmentType_descuento": "Descuento",
       "adjustmentType_diferencia_cambio": "Diferencia de cambio",
       "adjustmentTypeLabel": "Tipo de ajuste",
@@ -2026,7 +2026,22 @@
       "errorAdjustmentLocked": "Un descuento se acuerda antes de cobrar, y la diferencia de cambio recién existe después.",
       "errorAdjustmentExceeds": "El descuento supera lo que queda por cobrar de la cuota.",
       "errorAdjustmentReasonRequired": "El ajuste necesita un motivo.",
-      "notesPlanHelp": "Aplican a todo el encargo. Si la nota es sobre una cuota específica, use el botón de notas de esa fila."
+      "notesPlanHelp": "Aplican a todo el encargo. Si la nota es sobre una cuota específica, use el botón de notas de esa fila.",
+      "historyCount": "Historial ({{count}})",
+      "historyTitle": "Historial de la cuota {{number}}",
+      "historyDesc": "Todo lo que pasó con esta cuota, en orden. Se escribe solo y nadie lo puede editar.",
+      "historyUnknownActor": "Sistema",
+      "historyStatusChange": "Cambió de {{from}} a {{to}}",
+      "historyRescheduled": "Reprogramada del {{from}} al {{to}}",
+      "historyConfirmed": "El cliente confirmó para el {{date}}",
+      "historyNotConfirmed": "El cliente no confirmó el {{date}}",
+      "historyAdjustment": "Ajuste de {{amount}}",
+      "historyPaymentDateCorrected": "Fecha de cobranza corregida del {{from}} al {{to}}",
+      "historyReimbursementAmount": "Monto de los gastos facturados cambiado a {{amount}}",
+      "confirmationNotConfirmedTooltip": "El cliente rechazó la fecha anterior y la cuota se reprogramó. El detalle está en el historial.",
+      "adjustmentTypeHint_descuento": "Se acordó cobrarle menos al cliente. Solo antes de cobrar: una vez que la plata entró, ya no hay nada que descontar.",
+      "adjustmentTypeHint_diferencia_cambio": "La brecha entre el tipo de cambio con el que se facturó y el del día en que se cobró. Va en bolivianos y solo existe después de cobrar, porque hasta entonces hay un solo tipo de cambio.",
+      "expenseRowsVat": "incluye IVA {{rate}}%: {{amount}}"
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",
@@ -2446,8 +2461,12 @@
           "expense_row_created": "Se facturaron gastos ejecutados de {{engagement_code}} por {{currency}} {{amount}}",
           "expense_row_amount_changed": "Cambió el monto de los gastos facturados de {{engagement_code}} a {{currency}} {{amount}}",
           "overdue": "Cuotas vencidas",
-          "adjustment_added": "Ajuste en la cuota {{installment_number}} de {{engagement_code}}",
-          "adjustment_removed": "Se retiró un ajuste de la cuota {{installment_number}} de {{engagement_code}}"
+          "adjustment_added": "Ajuste de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed": "Se retiró un ajuste de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_added_descuento": "Descuento de {{currency}} {{amount_abs}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_added_diferencia_cambio": "Diferencia de cambio de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed_descuento": "Se retiró el descuento de {{currency}} {{amount_abs}} de la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed_diferencia_cambio": "Se retiró la diferencia de cambio de {{currency}} {{amount}} de la cuota {{installment_number}} de {{engagement_code}}"
         },
         "client": {
           "billing_week": "Semana de facturación del cliente — cuota {{installment_number}}"
@@ -3289,6 +3308,8 @@
     "adjustedTooltip": "Esta cuota tiene ajustes registrados.",
     "groupBy": "Agrupar por",
     "groupByWorkOrder": "Orden de trabajo",
-    "groupByNone": "Sin agrupar"
+    "groupByNone": "Sin agrupar",
+    "groupRowCount_one": "{{count}} cuota",
+    "groupRowCount_other": "{{count}} cuotas"
   }
 }

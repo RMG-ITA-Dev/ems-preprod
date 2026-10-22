@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare, Percent } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare, Percent, History } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +44,7 @@ import {
   adjustmentsForInstallment,
   adjustmentsTotal,
 } from "@/hooks/useInstallmentAdjustments";
+import { useInstallmentEvents, eventsForInstallment, type InstallmentEvent } from "@/hooks/useInstallmentEvents";
 import { fetchSuggestedExchangeDifference } from "@/hooks/mutations/useWorkOrderPaymentPlanMutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
@@ -112,6 +113,11 @@ interface WorkOrderPaymentPlanSectionProps {
   expenseRows?: PaymentInstallmentInput[];
   /** Cobranzas Fase 7 (decisión Q24): sólo Contabilidad factura los gastos ejecutados. */
   canBillExpenses?: boolean;
+  /**
+   * La alícuota de la OT, para mostrar cuánto del monto facturado es impuesto. Sale de la orden
+   * y no de un 0,13 escrito acá: si alguna vez cambia, cambia en un solo lugar.
+   */
+  taxRate?: number;
   /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
   currentStaffId?: string | null;
   isAdminViewer?: boolean;
@@ -167,6 +173,7 @@ export function WorkOrderPaymentPlanSection({
   canWriteNotes = false,
   expenseRows = [],
   canBillExpenses = false,
+  taxRate = 0.13,
   currentStaffId = null,
   isAdminViewer = false,
   isPaymentPlanDirty = false,
@@ -250,9 +257,33 @@ export function WorkOrderPaymentPlanSection({
   // Cobranzas Fase 9: los ajustes de todas las cuotas de la OT, en UNA consulta — el total por
   // fila y el dialogo salen del mismo arreglo.
   const { data: adjustments } = useInstallmentAdjustments(woId || undefined);
+  // La bitácora de todas las cuotas de la OT, en UNA consulta.
+  const { data: events } = useInstallmentEvents(woId || undefined);
+  const [historyDialog, setHistoryDialog] = useState<{ idx: number } | null>(null);
   const addAdjustment = useAddInstallmentAdjustment();
   const deleteAdjustment = useDeleteInstallmentAdjustment();
   const [adjustmentsDialog, setAdjustmentsDialog] = useState<{ installmentId: string } | null>(null);
+
+  // El formulario se limpia al ABRIR, no sólo al cerrar. Limpiar sólo al cerrar dejaba los
+  // valores de una cuota cargados en el diálogo de la siguiente: el botón "Cerrar" pone el
+  // estado en null por su cuenta y Radix no dispara `onOpenChange`, así que ese camino nunca
+  // limpiaba. Abrir es el único momento que garantiza empezar en blanco.
+  const resetAdjustmentForm = () => {
+    setAdjustmentType("descuento");
+    setAdjustmentAmount(0);
+    setAdjustmentReason("");
+    setSuggestedDifference(null);
+  };
+
+  const openAdjustments = (installmentId: string) => {
+    resetAdjustmentForm();
+    setAdjustmentsDialog({ installmentId });
+  };
+
+  const closeAdjustments = () => {
+    setAdjustmentsDialog(null);
+    resetAdjustmentForm();
+  };
   const [adjustmentType, setAdjustmentType] = useState<"descuento" | "diferencia_cambio">("descuento");
   const [adjustmentAmount, setAdjustmentAmount] = useState(0);
   const [adjustmentReason, setAdjustmentReason] = useState("");
@@ -260,6 +291,52 @@ export function WorkOrderPaymentPlanSection({
   // hacer (la cuota no esta cobrada, va en Bs, o le falta alguno de los dos TC).
   const [suggestedDifference, setSuggestedDifference] = useState<number | null>(null);
   const dialogAdjustments = adjustmentsForInstallment(adjustments, adjustmentsDialog?.installmentId);
+  const historyEvents = eventsForInstallment(
+    events,
+    historyDialog !== null ? installments[historyDialog.idx]?.installment_id : undefined,
+  );
+
+  /**
+   * Una línea por evento, en el idioma del negocio. La tabla guarda el QUÉ en bruto
+   * (`action` más las columnas que ese tipo usa); traducirlo acá, y no al escribirlo, deja la
+   * bitácora intacta si mañana cambia la redacción.
+   */
+  const describeEvent = (ev: InstallmentEvent): string => {
+    switch (ev.action) {
+      case "status_change":
+        return t("workOrders.paymentPlan.historyStatusChange", {
+          from: ev.from_status ? t(`workOrders.paymentPlan.status${ev.from_status}`) : "—",
+          to: ev.to_status ? t(`workOrders.paymentPlan.status${ev.to_status}`) : "—",
+        });
+      case "rescheduled":
+        return t("workOrders.paymentPlan.historyRescheduled", {
+          from: fmtDate(ev.old_date),
+          to: fmtDate(ev.new_date),
+        });
+      case "confirmation":
+        // La confirmación lleva la fecha en `new_date`; el rechazo, la fecha que se rechazó en
+        // `old_date`. Es lo que distingue "confirmó para el X" de "no confirmó el X".
+        return ev.new_date
+          ? t("workOrders.paymentPlan.historyConfirmed", { date: fmtDate(ev.new_date) })
+          : t("workOrders.paymentPlan.historyNotConfirmed", { date: fmtDate(ev.old_date) });
+      case "adjustment":
+        return t("workOrders.paymentPlan.historyAdjustment", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? currency)}`.trim(),
+        });
+      case "payment_date_corrected":
+        return t("workOrders.paymentPlan.historyPaymentDateCorrected", {
+          from: fmtDate(ev.old_date),
+          to: fmtDate(ev.new_date),
+        });
+      case "reimbursement_amount_changed":
+        return t("workOrders.paymentPlan.historyReimbursementAmount", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? "BOB")}`.trim(),
+        });
+      default:
+        return ev.action;
+    }
+  };
+
 
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
@@ -1145,6 +1222,7 @@ export function WorkOrderPaymentPlanSection({
                   const stage = display.stage;
                   const availableOptions = STATUS_TRANSITIONS[stage];
                   const rowNotes = notesForInstallment(notes, inst.installment_id);
+                  const rowEvents = eventsForInstallment(events, inst.installment_id);
                   // Cobranzas Fase 9: los ajustes vigentes de esta fila, en SU moneda. Un
                   // descuento va en la moneda de la cuota; una diferencia de cambio va en Bs y
                   // por eso no entra en esta suma.
@@ -1224,19 +1302,46 @@ export function WorkOrderPaymentPlanSection({
                                 </>
                               )}
                             {inst.confirmation_status === "confirmada" && (
-                              <span
-                                title={t("workOrders.paymentPlan.confirmedTooltip", {
-                                  date: fmtDate(inst.confirmed_for_date ?? null),
-                                  by: "",
-                                })}
-                                className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
-                              >
-                                <Check className="h-3 w-3 mr-1" />
-                                {t("workOrders.paymentPlan.confirmationConfirmed")}
-                              </span>
+                              <>
+                                <span
+                                  title={t("workOrders.paymentPlan.confirmedTooltip", {
+                                    date: fmtDate(inst.confirmed_for_date ?? null),
+                                    by: "",
+                                  })}
+                                  className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
+                                >
+                                  <Check className="h-3 w-3 mr-1" />
+                                  {t("workOrders.paymentPlan.confirmationConfirmed")}
+                                </span>
+                                {/* Una confirmación se puede dar vuelta: el cliente confirma y
+                                    después llama para decir que no, y hasta acá eso no tenía
+                                    salida por pantalla. Sirve también para el clic errado. No
+                                    hay un "deshacer" a secas a propósito: cambiar un hecho ya
+                                    registrado exige motivo y fecha nueva, que es justo lo que
+                                    pide este camino. */}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => openScheduleDialog(idx, "notConfirmed")}
+                                >
+                                  <X className="h-3 w-3 mr-1" />
+                                  {t("workOrders.paymentPlan.confirmNo")}
+                                </Button>
+                              </>
                             )}
                             {inst.confirmation_status === "no_confirmada" && (
-                              <span className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning">
+                              // Dice "la fecha ANTERIOR" a propósito: este estado sólo existe
+                              // justo después de una reprogramación, así que el chip habla de
+                              // la fecha rechazada mientras los botones de al lado preguntan
+                              // por la nueva. Sin esa palabra, las dos cosas se leían como si
+                              // hablaran de la misma fecha. Cuál era queda en el historial:
+                              // el RPC borra `confirmed_for_date` al rechazar.
+                              <span
+                                title={t("workOrders.paymentPlan.confirmationNotConfirmedTooltip")}
+                                className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning"
+                              >
                                 {t("workOrders.paymentPlan.confirmationNotConfirmed")}
                               </span>
                             )}
@@ -1288,7 +1393,7 @@ export function WorkOrderPaymentPlanSection({
                             size="sm"
                             variant="ghost"
                             className="mt-0.5 h-6 px-2 text-xs font-normal"
-                            onClick={() => setAdjustmentsDialog({ installmentId: inst.installment_id! })}
+                            onClick={() => openAdjustments(inst.installment_id!)}
                           >
                             <Percent className="mr-1 h-3 w-3" />
                             {rowAdjustmentRows.length > 0
@@ -1589,6 +1694,21 @@ export function WorkOrderPaymentPlanSection({
                               : t("workOrders.paymentPlan.notesAdd")}
                           </button>
                         )}
+                        {/* La bitácora. Se escribe sola desde la Fase 1 y nadie la puede
+                            editar, pero hasta ahora no se veía en ninguna pantalla: el rastro
+                            existía sólo en la base. Sin esto, cambiar un hecho ya registrado
+                            —desconfirmar, reprogramar, corregir una fecha de cobro— no dejaba
+                            nada visible, y es lo que hace que esos cambios sean defendibles. */}
+                        {rowEvents.length > 0 && inst.installment_id && (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryDialog({ idx })}
+                            className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <History className="mr-1 h-3 w-3" />
+                            {t("workOrders.paymentPlan.historyCount", { count: rowEvents.length })}
+                          </button>
+                        )}
                         </div>
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
@@ -1748,6 +1868,16 @@ export function WorkOrderPaymentPlanSection({
                                 {formatAmount(row.amount ?? 0, row.currency ?? "BOB")}
                               </span>
                             )}
+                            {/* Cuánto de ese monto es impuesto. Sin esto, "gastado 500 / a
+                                facturar 574,71" se lee como si se le estuviera cobrando de más
+                                al cliente; con el IVA a la vista se entiende que la firma
+                                termina recuperando exactamente lo que gastó. */}
+                            <p className="mt-0.5 text-[10px] text-muted-foreground">
+                              {t("workOrders.paymentPlan.expenseRowsVat", {
+                                rate: (taxRate * 100).toFixed(0),
+                                amount: formatAmount((row.amount ?? 0) * taxRate, row.currency ?? "BOB"),
+                              })}
+                            </p>
                           </td>
                           <td className="py-2 px-3 border-b border-border/50">
                             {/* Decisión del operador 2026-10-20: la fila nace en Bs, que es la
@@ -2088,15 +2218,7 @@ export function WorkOrderPaymentPlanSection({
         estuvo vigente explica por qué la cuota cambió de monto a cobrar entre dos momentos. */}
     <Dialog
       open={!!adjustmentsDialog}
-      onOpenChange={(open) => {
-        if (!open) {
-          setAdjustmentsDialog(null);
-          setAdjustmentAmount(0);
-          setAdjustmentReason("");
-          setAdjustmentType("descuento");
-          setSuggestedDifference(null);
-        }
-      }}
+      onOpenChange={(open) => { if (!open) closeAdjustments(); }}
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -2174,6 +2296,12 @@ export function WorkOrderPaymentPlanSection({
                   </SelectItem>
                 </SelectContent>
               </Select>
+              {/* Qué es cada tipo, dicho donde se elige. "Ajuste" no le dice nada a nadie, y
+                  los dos tipos no son variantes de lo mismo: uno es una decisión comercial y
+                  el otro es un hecho contable que ya ocurrió. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t(`workOrders.paymentPlan.adjustmentTypeHint_${adjustmentType}`)}
+              </p>
             </div>
 
             <div>
@@ -2216,7 +2344,7 @@ export function WorkOrderPaymentPlanSection({
         )}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setAdjustmentsDialog(null)}>
+          <Button type="button" variant="outline" onClick={closeAdjustments}>
             {t("common.close")}
           </Button>
           {canBillExpenses && (
@@ -2241,18 +2369,52 @@ export function WorkOrderPaymentPlanSection({
                     reason: adjustmentReason.trim(),
                     woId,
                   },
-                  {
-                    onSuccess: () => {
-                      setAdjustmentAmount(0);
-                      setAdjustmentReason("");
-                    },
-                  },
+                  // Queda listo para cargar otro sobre la misma cuota, en blanco.
+                  { onSuccess: resetAdjustmentForm },
                 );
               }}
             >
               {t("workOrders.paymentPlan.adjustmentAdd")}
             </Button>
           )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* La bitácora de una cuota. Es de SOLO lectura y no tiene acciones a propósito: su valor
+        está en que nadie la pueda tocar, ni siquiera quien la generó. */}
+    <Dialog open={!!historyDialog} onOpenChange={(open) => { if (!open) setHistoryDialog(null); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {t("workOrders.paymentPlan.historyTitle", { number: (historyDialog?.idx ?? 0) + 1 })}
+          </DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.historyDesc")}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {historyEvents.map((ev) => (
+            <div key={ev.event_id} className="rounded-md border border-border/60 p-2.5 text-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-medium">{describeEvent(ev)}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {new Date(ev.created_at).toLocaleString("es-BO", {
+                    day: "2-digit", month: "2-digit", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              {ev.reason && <p className="mt-1 text-xs text-muted-foreground">{ev.reason}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {[ev.actor?.first_name, ev.actor?.last_name].filter(Boolean).join(" ") ||
+                  t("workOrders.paymentPlan.historyUnknownActor")}
+              </p>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setHistoryDialog(null)}>
+            {t("common.close")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

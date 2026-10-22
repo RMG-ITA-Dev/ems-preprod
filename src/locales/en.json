@@ -1955,7 +1955,7 @@
       "errorNewDateRequired": "A new invoice date is required.",
       "confirmationPending": "Not handled",
       "confirmationConfirmed": "Confirmed",
-      "confirmationNotConfirmed": "Not confirmed",
+      "confirmationNotConfirmed": "Did not confirm the previous date",
       "confirmCheckLabel": "Will the client pay on this date?",
       "confirmYes": "Yes, confirmed",
       "confirmNo": "Not confirmed",
@@ -1996,7 +1996,7 @@
       "confirmCollectionDateDesc": "The collection invoice date will be set to {{date}}. The collection payment date will be recalculated automatically.",
       "confirmCollectionDateAction": "Save date",
       "expenseRowsTitle": "Executed expenses",
-      "expenseRowsHelp": "Expenses already reviewed by Accounting are billed to the client on their own row, separate from the fee installments.",
+      "expenseRowsHelp": "Expenses already reviewed by Accounting are billed to the client on their own row, separate from the fee installments. The amount to bill includes VAT, so the firm recovers exactly what it spent.",
       "expenseRowsBill": "Bill executed expenses (Bs {{amount}})",
       "expenseRowsNothingToBill": "No expenses pending billing",
       "expenseRowsEmpty": "No expenses have been billed to the client yet.",
@@ -2010,7 +2010,7 @@
       "adjustmentsCount": "Adjustments ({{count}})",
       "adjustmentsAdd": "Adjust",
       "adjustmentsTitle": "Installment adjustments",
-      "adjustmentsDesc": "An adjustment does not change the agreed amount: it is recorded separately and deducted from what is left to collect.",
+      "adjustmentsDesc": "An adjustment explains why what is collected does not match what was invoiced. It does not change the agreed amount: it is recorded separately and stays in the installment history.",
       "adjustmentType_descuento": "Discount",
       "adjustmentType_diferencia_cambio": "Exchange difference",
       "adjustmentTypeLabel": "Adjustment type",
@@ -2026,7 +2026,22 @@
       "errorAdjustmentLocked": "A discount is agreed before collecting, and an exchange difference only exists afterwards.",
       "errorAdjustmentExceeds": "The discount exceeds what is left to collect on this installment.",
       "errorAdjustmentReasonRequired": "The adjustment needs a reason.",
-      "notesPlanHelp": "What applies to the whole engagement. For something about a single installment, use that row’s notes button."
+      "notesPlanHelp": "What applies to the whole engagement. For something about a single installment, use that row’s notes button.",
+      "historyCount": "History ({{count}})",
+      "historyTitle": "Installment {{number}} history",
+      "historyDesc": "Everything that happened to this installment, in order. It is written automatically and cannot be edited.",
+      "historyUnknownActor": "System",
+      "historyStatusChange": "Changed from {{from}} to {{to}}",
+      "historyRescheduled": "Rescheduled from {{from}} to {{to}}",
+      "historyConfirmed": "Client confirmed for {{date}}",
+      "historyNotConfirmed": "Client did not confirm {{date}}",
+      "historyAdjustment": "Adjustment of {{amount}}",
+      "historyPaymentDateCorrected": "Collection date corrected from {{from}} to {{to}}",
+      "historyReimbursementAmount": "Billed expenses amount changed to {{amount}}",
+      "confirmationNotConfirmedTooltip": "The client rejected the previous date and the installment was rescheduled. The details are in the history.",
+      "adjustmentTypeHint_descuento": "The client was granted a lower amount. Only before collecting: once the money is in, there is nothing left to discount.",
+      "adjustmentTypeHint_diferencia_cambio": "The gap between the exchange rate used to invoice and the one on the day it was collected. It is recorded in bolivianos and only exists after collecting, because until then there is a single exchange rate.",
+      "expenseRowsVat": "includes {{rate}}% VAT: {{amount}}"
     },
     "staffingRequirements": {
       "title": "Staffing Requirements",
@@ -2446,8 +2461,12 @@
           "expense_row_created": "Executed expenses billed for {{engagement_code}}: {{currency}} {{amount}}",
           "expense_row_amount_changed": "The billed expense amount for {{engagement_code}} changed to {{currency}} {{amount}}",
           "overdue": "Overdue installments",
-          "adjustment_added": "Adjustment on installment {{installment_number}} of {{engagement_code}}",
-          "adjustment_removed": "An adjustment was removed from installment {{installment_number}} of {{engagement_code}}"
+          "adjustment_added": "Adjustment of {{currency}} {{amount}} on installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_removed": "An adjustment of {{currency}} {{amount}} was removed from installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_added_descuento": "Discount of {{currency}} {{amount_abs}} on installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_added_diferencia_cambio": "Exchange difference of {{currency}} {{amount}} on installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_removed_descuento": "The {{currency}} {{amount_abs}} discount was removed from installment {{installment_number}} of {{engagement_code}}",
+          "adjustment_removed_diferencia_cambio": "The {{currency}} {{amount}} exchange difference was removed from installment {{installment_number}} of {{engagement_code}}"
         },
         "client": {
           "billing_week": "Client billing week — installment {{installment_number}}"
@@ -3289,6 +3308,8 @@
     "adjustedTooltip": "This installment has recorded adjustments.",
     "groupBy": "Group by",
     "groupByWorkOrder": "Work order",
-    "groupByNone": "No grouping"
+    "groupByNone": "No grouping",
+    "groupRowCount_one": "{{count}} installment",
+    "groupRowCount_other": "{{count}} installments"
   }
 }

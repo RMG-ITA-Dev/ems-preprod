@@ -1687,6 +1687,23 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - la cuota avisa al cambiar de estado, y solo entonces';
 
+  -- 2026-10-21: a quien movio la cuota NO se le avisa de su propio clic. El aviso sigue siendo
+  -- departamental -- su valor es que se entere la otra persona del circuito-- pero quien
+  -- factura treinta cuotas en una manana se comia treinta campanazos propios, y eso enterraba
+  -- lo que si importa. Misma regla que todos los demas avisos de cobranzas.
+  -- Se usa Invoiced -> Overdue -> Invoiced y no el cobro, porque la cuota tiene que seguir
+  -- vencida para el chequeo de mora que viene abajo. Las dos transiciones las hace el propio
+  -- destinatario, asi que ninguna deberia dejarle un aviso.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');
+  UPDATE public.wo_payment_installments SET status = 'Overdue'  WHERE installment_id = v_inst;
+  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.installment.status_changed' AND recipient_staff_id = c_acct;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad recibio el aviso de su propio cambio de estado (hay %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - a quien mueve la cuota no se le avisa de su propio cambio';
+
   -- 9.c El contador de mora respeta el scope. El GERENTE lo tiene en `assigned`: cuenta su
   -- encargo y trae el COT como item.
   PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');

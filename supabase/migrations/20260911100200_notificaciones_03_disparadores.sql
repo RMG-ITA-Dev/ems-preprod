@@ -666,8 +666,17 @@ BEGIN
                             'installment_id',     p_row.installment_id,
                             'installment_number', v_num,
                             'adjustment_type',    p_row.adjustment_type,
+                            -- `context` es la clave que i18next usa para elegir variante de un
+                            -- mismo mensaje. Asi el aviso dice "Descuento de ..." o "Diferencia
+                            -- de cambio de ...", en vez de un generico "Ajuste de ..." que
+                            -- ademas arrastraba el signo pegado a la moneda ("USD -200").
+                            'context',            p_row.adjustment_type,
                             'currency',           p_row.currency,
                             'amount',             p_row.amount,
+                            -- Sin signo, para el texto del DESCUENTO: que siempre resta ya lo
+                            -- dice la palabra. La diferencia de cambio usa el firmado, porque
+                            -- ahi el sentido es parte del dato.
+                            'amount_abs',         abs(p_row.amount),
                             'reason',             p_row.reason)) IS NOT NULL THEN
       v_sent := v_sent + 1;
     END IF;
@@ -942,6 +951,7 @@ DECLARE
   -- sale (solo hace solicitudes de fondos). OJO: la otra constante con el mismo nombre, en el
   -- disparador de FONDOS de este mismo archivo, SI sigue siendo gerente + analista contable.
   c_contabilidad constant text[] := ARRAY['accounting_manager', 'collections_analyst'];
+  v_actor uuid := public.get_my_staff_id();
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
     RETURN NULL;
@@ -957,6 +967,13 @@ BEGIN
   -- de la pestaña "Plan de pagos" de su OT.
   FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
   LOOP
+    -- 2026-10-21: a quien movio la cuota no se le avisa de su propio clic. El aviso sigue
+    -- siendo DEPARTAMENTAL -- su valor es que la OTRA persona del circuito se entere-- pero
+    -- quien factura treinta cuotas en una manana se comia treinta campanazos propios, y eso
+    -- enterraba lo que si importa: una nota del encargo, una reprogramacion. Es la misma regla
+    -- que ya seguian todos los avisos de las fases 3, 4, 7 y 9.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
     PERFORM public.notify_staff('wo.installment.status_changed', v_rec.staff_id,
               NEW.wo_id::text,
               jsonb_build_object(
