@@ -293,6 +293,9 @@ export function WorkOrderPaymentPlanSection({
   // hacer (la cuota no esta cobrada, va en Bs, o le falta alguno de los dos TC).
   const [suggestedDifference, setSuggestedDifference] = useState<number | null>(null);
   const dialogAdjustments = adjustmentsForInstallment(adjustments, adjustmentsDialog?.installmentId);
+  // Con la cuota cobrada, su descuento ya no se retira (el servidor lo rechaza igual).
+  const dialogInstallmentCompleted =
+    installments.find((i) => i.installment_id === adjustmentsDialog?.installmentId)?.status === "Completed";
   const historyEvents = eventsForInstallment(
     events,
     historyDialog !== null ? installments[historyDialog.idx]?.installment_id : undefined,
@@ -323,6 +326,10 @@ export function WorkOrderPaymentPlanSection({
           : t("workOrders.paymentPlan.historyNotConfirmed", { date: fmtDate(ev.old_date) });
       case "adjustment":
         return t("workOrders.paymentPlan.historyAdjustment", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? currency)}`.trim(),
+        });
+      case "adjustment_removed":
+        return t("workOrders.paymentPlan.historyAdjustmentRemoved", {
           amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? currency)}`.trim(),
         });
       case "payment_date_corrected":
@@ -2289,7 +2296,9 @@ export function WorkOrderPaymentPlanSection({
                   </span>
                   <p className="truncate text-xs">{adj.reason}</p>
                 </div>
-                {!adj.deleted_at && canBillExpenses && (
+                {!adj.deleted_at &&
+                  canBillExpenses &&
+                  !(adj.adjustment_type === "descuento" && dialogInstallmentCompleted) && (
                   <Button
                     type="button"
                     size="sm"

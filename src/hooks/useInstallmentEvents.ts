@@ -18,6 +18,7 @@ export type InstallmentEventAction =
   | "rescheduled"
   | "confirmation"
   | "adjustment"
+  | "adjustment_removed"
   | "payment_date_corrected"
   | "reimbursement_amount_changed";
 

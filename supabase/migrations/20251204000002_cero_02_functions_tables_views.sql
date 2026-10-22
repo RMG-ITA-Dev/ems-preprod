@@ -8095,7 +8095,7 @@ CREATE TABLE public.wo_installment_events (
     reason text,
     actor_staff_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
+    CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
 );
 
 
@@ -9720,7 +9720,13 @@ BEGIN
   END IF;
 
   -- Positiva: se cobro mas Bs de los que se facturo (el TC subio). Negativa: menos.
-  RETURN round(v_row.amount * (v_row.payment_exchange_rate - v_row.invoice_exchange_rate), 2);
+  --
+  -- Sobre lo que el cliente REALMENTE pago: el monto mas los descuentos vigentes en la moneda
+  -- de la cuota. Con el monto del contrato, una cuota de USD 500 con USD 100 de descuento
+  -- sugeria la diferencia de USD 500 y se registraba de mas.
+  RETURN round(
+    (v_row.amount + public.installment_adjustments_total(p_installment_id, v_currency))
+    * (v_row.payment_exchange_rate - v_row.invoice_exchange_rate), 2);
 END;
 $$;
 
@@ -9818,6 +9824,13 @@ BEGIN
           btrim(p_reason), public.get_my_staff_id())
   RETURNING * INTO v_row;
 
+  -- A la bitacora de la cuota, en la MISMA transaccion: es un cambio de plata sobre la cuota y
+  -- el historial es el unico lugar donde queda el rastro ordenado de lo que le paso.
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'adjustment', v_row.amount, v_row.currency,
+          v_row.reason, public.get_my_staff_id());
+
   BEGIN
     PERFORM public.notif_installment_adjustment(v_row, 'added');
   EXCEPTION WHEN OTHERS THEN
@@ -9860,10 +9873,25 @@ BEGIN
     RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
   END IF;
 
+  -- La regla de add_installment_adjustment, del otro lado: un descuento se acuerda antes de
+  -- cobrar, y una vez cobrada la cuota lo pagado ya esta. Retirarlo despues subiria lo
+  -- "cobrado" de una cuota cerrada y cambiaria los totales historicos.
+  IF v_row.adjustment_type = 'descuento' AND EXISTS (
+    SELECT 1 FROM public.wo_payment_installments i
+     WHERE i.installment_id = v_row.installment_id AND i.status = 'Completed'
+  ) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la cuota ya fue cobrada; su descuento no se puede retirar';
+  END IF;
+
   UPDATE public.wo_installment_adjustments
      SET deleted_at = now(), deleted_by_staff_id = public.get_my_staff_id()
    WHERE adjustment_id = p_adjustment_id
   RETURNING * INTO v_row;
+
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'adjustment_removed', v_row.amount, v_row.currency,
+          v_row.reason, public.get_my_staff_id());
 
   BEGIN
     PERFORM public.notif_installment_adjustment(v_row, 'removed');

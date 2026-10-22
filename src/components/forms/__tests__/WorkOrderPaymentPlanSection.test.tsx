@@ -60,6 +60,13 @@ vi.mock("@/hooks/useInstallmentEvents", async (importOriginal) => {
   return { ...real, useInstallmentEvents: () => ({ data: mockEvents }) };
 });
 
+// Los ajustes de la OT. Vacío salvo en los tests que los necesitan.
+let mockAdjustments: unknown[] = [];
+vi.mock("@/hooks/useInstallmentAdjustments", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/hooks/useInstallmentAdjustments")>();
+  return { ...real, useInstallmentAdjustments: () => ({ data: mockAdjustments }) };
+});
+
 // WorkOrderPaymentPlanSection now calls useLatestExchangeRate (0722-156b Fase 2) —
 // unrelated to this suite's Fase-1-and-earlier coverage, so stub it out with no data.
 vi.mock("@/hooks/useExchangeRate", () => ({
@@ -1082,5 +1089,66 @@ describe("WorkOrderPaymentPlanSection — el formulario de ajustes arranca en bl
     const container = renderSection({ installments: dos(), canBillExpenses: true });
     abrirAjustes(container, 0);
     expect(screen.getByText("workOrders.paymentPlan.adjustmentAdd").closest("button")).toBeDisabled();
+  });
+});
+
+describe("WorkOrderPaymentPlanSection — ajustes de una cuota cobrada (revisión de Codex, 2026-10-22)", () => {
+  afterEach(() => {
+    mockAdjustments = [];
+    mockEvents = [];
+  });
+
+  const descuento = (installmentId: string) => ({
+    adjustment_id: `adj-${installmentId}`,
+    installment_id: installmentId,
+    wo_id: "wo-1",
+    adjustment_type: "descuento",
+    amount: -100,
+    currency: "BOB",
+    reason: "pronto pago",
+    created_by_staff_id: null,
+    created_at: "2026-10-01T00:00:00Z",
+    deleted_at: null,
+  });
+
+  const abrir = (container: HTMLElement, fila: number) => {
+    const botones = Array.from(container.querySelectorAll("button")).filter((b) =>
+      b.textContent?.includes("workOrders.paymentPlan.adjustmentsCount"),
+    );
+    fireEvent.click(botones[fila]);
+  };
+
+  it("con la cuota cobrada su descuento ya no ofrece 'Retirar'; sin cobrar, sí", () => {
+    // El servidor lo rechaza igual (ADJUSTMENT_LOCKED): retirarlo subiría lo cobrado de una
+    // cuota cerrada. La pantalla no ofrece un botón que siempre va a fallar.
+    mockAdjustments = [descuento("i-1"), descuento("i-2")];
+    const container = renderSection({
+      canBillExpenses: true,
+      installments: [
+        makeInstallment({ installment_id: "i-1", installment_number: 1, percentage: 50, amount: 1000, status: "Completed" as PaymentInstallmentStatus }),
+        makeInstallment({ installment_id: "i-2", installment_number: 2, percentage: 50, amount: 1000, status: "Invoiced" as PaymentInstallmentStatus }),
+      ],
+    });
+
+    abrir(container, 0);
+    expect(screen.queryByText("workOrders.paymentPlan.adjustmentRemove")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("common.close"));
+
+    abrir(container, 1);
+    expect(screen.getByText("workOrders.paymentPlan.adjustmentRemove")).toBeInTheDocument();
+  });
+
+  it("la bitácora muestra el retiro de un ajuste como tal", () => {
+    mockEvents = [
+      {
+        event_id: "ev-r", seq: 2, installment_id: "i-1", wo_id: "wo-1", action: "adjustment_removed",
+        from_status: null, to_status: null, old_date: null, new_date: null,
+        amount: -100, currency: "BOB", reason: "pronto pago", actor_staff_id: null,
+        created_at: "2026-10-02T00:00:00Z",
+      },
+    ];
+    renderSection({ installments: [makeInstallment({ installment_id: "i-1", installment_number: 1, percentage: 100, amount: 1000 })] });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+    expect(screen.getByText("workOrders.paymentPlan.historyAdjustmentRemoved")).toBeInTheDocument();
   });
 });

@@ -2036,6 +2036,7 @@
       "historyConfirmed": "Client confirmed for {{date}}",
       "historyNotConfirmed": "Client did not confirm {{date}}",
       "historyAdjustment": "Adjustment of {{amount}}",
+      "historyAdjustmentRemoved": "Adjustment of {{amount}} removed",
       "historyPaymentDateCorrected": "Collection date corrected from {{from}} to {{to}}",
       "historyReimbursementAmount": "Billed expenses amount changed to {{amount}}",
       "confirmationNotConfirmedTooltip": "The client rejected the previous date and the installment was rescheduled. The details are in the history.",

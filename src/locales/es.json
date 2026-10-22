@@ -2036,6 +2036,7 @@
       "historyConfirmed": "El cliente confirmó para el {{date}}",
       "historyNotConfirmed": "El cliente no confirmó el {{date}}",
       "historyAdjustment": "Ajuste de {{amount}}",
+      "historyAdjustmentRemoved": "Ajuste de {{amount}} retirado",
       "historyPaymentDateCorrected": "Fecha de cobranza corregida del {{from}} al {{to}}",
       "historyReimbursementAmount": "Monto de los gastos facturados cambiado a {{amount}}",
       "confirmationNotConfirmedTooltip": "El cliente rechazó la fecha anterior y la cuota se reprogramó. El detalle está en el historial.",

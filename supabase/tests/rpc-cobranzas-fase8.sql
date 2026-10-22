@@ -757,6 +757,19 @@ BEGIN
   IF NOT denied THEN
     RAISE EXCEPTION 'TEST FAIL - se retiro dos veces el mismo ajuste';
   END IF;
+  -- Los dos movimientos quedan en la bitacora de la cuota: es un cambio de plata, y el
+  -- historial es el unico lugar donde queda el rastro ordenado.
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_events
+   WHERE installment_id = v_i_cobrar AND action = 'adjustment_removed'
+     AND amount = v_adj.amount AND currency = v_adj.currency;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el retiro del ajuste no quedo en la bitacora (hay %)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_events
+   WHERE installment_id = v_i_cobrar AND action = 'adjustment' AND amount = v_adj.amount;
+  IF v_n < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el alta del ajuste no quedo en la bitacora';
+  END IF;
   RAISE NOTICE 'PASS - retirar un ajuste lo marca, no lo borra, y devuelve la plata';
 
   -- 10.g Cada tipo, en su momento.
@@ -974,6 +987,38 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - un usuario sin rol de cobranza leyo los gastos facturables';
   END IF;
   RAISE NOTICE 'PASS - los gastos por facturar solo los ve contabilidad';
+
+  -- 11.e Una cuota en USD con descuento: la diferencia de cambio se sugiere sobre lo que el
+  -- cliente REALMENTE pago. USD 1.000 - 100 de descuento = 900, facturada a 6,96 y cobrada a
+  -- 7,10: 900 x 0,14 = 126 Bs. Sobre el monto del contrato habria dado 140, de mas.
+  PERFORM pg_temp.impersonate(c_collections);
+  v_adj := public.add_installment_adjustment(v_i52, 'descuento', -100, 'pronto pago');
+  PERFORM public.collect_installment(v_i52, 'Invoiced', v_today, 7.10);
+  v_rate := public.suggest_exchange_difference(v_i52);
+  IF v_rate <> 126 THEN
+    RAISE EXCEPTION 'TEST FAIL - la diferencia sugerida deberia ser 126 Bs (sobre 900), fue %', v_rate;
+  END IF;
+  RAISE NOTICE 'PASS - la diferencia de cambio se sugiere sobre lo cobrado, no sobre el contrato';
+
+  -- 11.f Con la cuota cobrada, su descuento ya no se retira: subiria lo "cobrado" de una cuota
+  -- cerrada. Es la misma regla que impide cargarlo despues de cobrar.
+  denied := false;
+  BEGIN
+    PERFORM public.delete_installment_adjustment(v_adj.adjustment_id);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se retiro el descuento de una cuota ya cobrada';
+  END IF;
+
+  -- La diferencia de cambio, en cambio, solo existe con la cuota cobrada: esa si se retira.
+  v_adj := public.add_installment_adjustment(v_i52, 'diferencia_cambio', v_rate, 'TC de cobro');
+  v_adj := public.delete_installment_adjustment(v_adj.adjustment_id);
+  IF v_adj.deleted_at IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - no se pudo retirar la diferencia de cambio de una cuota cobrada';
+  END IF;
+  RAISE NOTICE 'PASS - cobrada la cuota, su descuento queda fijo; la diferencia de cambio se puede retirar';
 
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASES 8 Y 9: ALL CHECKS PASSED';

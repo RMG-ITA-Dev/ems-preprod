@@ -932,7 +932,11 @@ BEGIN
   finalized_collected AS (
     SELECT COALESCE(SUM(
       COALESCE(i.amount, i.percentage * (fw.fee_net / NULLIF(1 - fw.tax_rate, 0)) / 100)
-      * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
+      -- La cuota se valua en SU moneda, como en installments_full: una fila en Bs (la de
+      -- gastos nace asi) de una OT en USD no tiene TC propio y caia al de la OT, inflando lo
+      -- cobrado unas siete veces.
+      * CASE WHEN COALESCE(i.currency, fw.currency) = 'BOB' THEN 1
+             ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob) END
     ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
     FROM finalized_wo fw
     JOIN public.wo_payment_installments i ON i.wo_id = fw.wo_id

@@ -1233,6 +1233,37 @@ END $$;
 
 RESET ROLE;
 
+-- ── 20c. Lo cobrado de los finalizados tambien valua la cuota en SU moneda ───────────────────
+-- Revision de Codex al PR (2026-10-22): el arreglo de 15bis cubrio installments_full, pero
+-- finalized_collected calcula aparte y seguia cayendo al TC de la OT. Se pasa E12 a USD con su
+-- cuota cobrada en Bs (como nace la fila de gastos) y se mira que siga sumando 500, no
+-- 500 x 6,96. Corre como dueno, fuera del rol autenticado, para poder tocar el fixture sin los
+-- guards; los cambios se deshacen con el ROLLBACK del subbloque.
+DO $$
+DECLARE v_collected numeric;
+BEGIN
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    UPDATE public.work_orders SET currency = 'USD' WHERE wo_id = 'd0da5c10-0000-4000-8000-000000000012';
+    UPDATE public.wo_payment_plan SET exchange_rate = 6.96 WHERE plan_id = 'e0da5c10-0000-4000-8000-000000000012';
+    UPDATE public.wo_payment_installments
+       SET currency = 'BOB', invoice_exchange_rate = NULL, payment_exchange_rate = NULL
+     WHERE installment_id = 'f0da5c10-0000-4000-8000-000000000012';
+    PERFORM set_config('session_replication_role', 'origin', true);
+
+    PERFORM pg_temp.impersonate(pg_temp.u(1));
+    v_collected := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'finalized_summary'->>'collected_bob')::numeric;
+    RAISE EXCEPTION USING ERRCODE = 'UE20C', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE20C' THEN
+    NULL;
+  END;
+
+  IF v_collected IS DISTINCT FROM 500 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.collected_bob esperado 500 (cuota en Bs de una OT en USD), obtuvo %', v_collected;
+  END IF;
+  RAISE NOTICE 'OK 20c: lo cobrado de los finalizados valua la cuota en Bs a 1 aunque la OT sea en USD';
+END $$;
+
 -- ── 21. Prerrequisito de TC: NOT NULL/CHECK/DEFAULT + fallback de latest_exchange_rate() ───
 -- Nota: SET LOCAL ROLE / RESET ROLE son comandos de sesion -- no pueden invocarse dentro de
 -- un bloque DO (plpgsql); por eso este chequeo intercala sentencias de nivel superior con
