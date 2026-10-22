@@ -338,7 +338,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.legalName")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="Company Name S.A." {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderLegalName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -423,7 +423,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.contactGeneralName")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderContactName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -436,7 +436,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.contactGeneralEmail")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
+                      <Input className="h-8 text-sm" type="email" placeholder={t("client.placeholderEmail")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -462,7 +462,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.contactCobranzaName")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderContactName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -475,7 +475,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.contactCobranzaEmail")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
+                      <Input className="h-8 text-sm" type="email" placeholder={t("client.placeholderEmail")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -501,7 +501,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.address")}</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="Street, City" {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderAddress")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -595,7 +595,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                     <FormItem>
                       <FormLabel>{t("client.legalName")} *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Company Name S.A." {...field} />
+                        <Input placeholder={t("client.placeholderLegalName")} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -692,7 +692,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.contactGeneralName")} *</FormLabel>
                     <FormControl>
-                      <Input placeholder="John Doe" {...field} />
+                      <Input placeholder={t("client.placeholderContactName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -705,7 +705,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.contactGeneralEmail")} *</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="contact@company.com" {...field} />
+                      <Input type="email" placeholder={t("client.placeholderEmail")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -731,7 +731,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.contactCobranzaName")} *</FormLabel>
                     <FormControl>
-                      <Input placeholder="John Doe" {...field} />
+                      <Input placeholder={t("client.placeholderContactName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -744,7 +744,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.contactCobranzaEmail")} *</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="contact@company.com" {...field} />
+                      <Input type="email" placeholder={t("client.placeholderEmail")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -772,7 +772,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.address")}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Street, City, Country" {...field} />
+                      <Textarea placeholder={t("client.placeholderAddressFull")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

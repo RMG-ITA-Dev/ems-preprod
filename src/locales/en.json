@@ -730,6 +730,11 @@
     }
   },
   "client": {
+    "placeholderLegalName": "Company Name S.A.",
+    "placeholderContactName": "John Doe",
+    "placeholderEmail": "contact@company.com",
+    "placeholderAddress": "Street, City",
+    "placeholderAddressFull": "Street, City, Country",
     "name": "Client Name",
     "legalName": "Client Legal Name",
     "nit": "NIT",

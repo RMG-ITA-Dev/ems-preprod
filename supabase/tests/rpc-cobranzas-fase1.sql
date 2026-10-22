@@ -1278,6 +1278,30 @@ BEGIN
   PERFORM pg_temp.impersonate(c_collections);
   RAISE NOTICE 'PASS - la fila de gastos facturados no se puede eliminar';
 
+  -- 13.c-ter Solo una OT APROBADA factura gastos. La pantalla lo exige, pero una pestana vieja o
+  -- una llamada directa se lo saltaban. La OT se pasa a borrador dentro de un subbloque que se
+  -- deshace solo (sin los guards: el cambio de estado no es lo que se prueba).
+  denied := false;
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    UPDATE public.fund_request_expenses SET status = 'revisado_asistente'
+     WHERE fre_id = 'f5000000-0000-4000-8000-00000000000c';
+    UPDATE public.work_orders SET approval_status = 'Draft' WHERE wo_id = c_wo6;
+    PERFORM set_config('session_replication_role', 'origin', true);
+    BEGIN
+      PERFORM public.create_expense_reimbursement_row(c_wo6);
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'EXPENSE_ROW_INVALID%' THEN denied := true; ELSE RAISE; END IF;
+    END;
+    RAISE EXCEPTION USING ERRCODE = 'UE13C', MESSAGE = 'deshacer';
+  EXCEPTION WHEN SQLSTATE 'UE13C' THEN
+    NULL;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - una OT en borrador facturo gastos ejecutados';
+  END IF;
+  RAISE NOTICE 'PASS - solo una OT aprobada factura gastos ejecutados';
+
   -- 13.d Una OT aprobada SIN plan: la RPC crea el encabezado. Sin esto, una OT que solo tuvo
   -- gastos no se podria cobrar nunca, porque el guard del plan no deja crearlo ya aprobada.
   v_row := public.create_expense_reimbursement_row(c_wo6);

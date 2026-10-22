@@ -9177,6 +9177,7 @@ DECLARE
   v_billed numeric;
   v_row public.wo_payment_installments;
   v_today date := public.fund_today();
+  v_approval text;
 BEGIN
   IF NOT (public.is_admin() OR public.is_collections_role()) THEN
     RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede facturar los gastos ejecutados';
@@ -9184,9 +9185,16 @@ BEGIN
 
   -- Se bloquea la OT para que dos llamadas simultaneas no creen dos filas con los mismos
   -- gastos. El UNIQUE de wo_installment_expenses es la red final; esto evita llegar a ella.
-  SELECT tax_rate INTO v_tax_rate FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
+  SELECT tax_rate, approval_status INTO v_tax_rate, v_approval
+    FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
+  END IF;
+  -- Solo una OT APROBADA factura gastos ejecutados. La pantalla ya lo exige, pero una pestana
+  -- vieja (la OT se devolvio a borrador despues) o una llamada directa a la RPC se lo saltaban.
+  -- Se mira con la fila bloqueada, para que nadie la cambie entre el chequeo y el alta.
+  IF v_approval IS DISTINCT FROM 'Approved' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: solo una orden de trabajo aprobada puede facturar gastos ejecutados';
   END IF;
 
   SELECT COALESCE(SUM(amount), 0) INTO v_total FROM public.wo_billable_expenses(p_wo_id);

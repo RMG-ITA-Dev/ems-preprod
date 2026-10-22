@@ -730,6 +730,11 @@
     }
   },
   "client": {
+    "placeholderLegalName": "Empresa S.A.",
+    "placeholderContactName": "Juan Pérez",
+    "placeholderEmail": "contacto@empresa.com",
+    "placeholderAddress": "Calle, Ciudad",
+    "placeholderAddressFull": "Calle, Ciudad, País",
     "name": "Nombre del Cliente",
     "legalName": "Razón Social",
     "nit": "NIT",
