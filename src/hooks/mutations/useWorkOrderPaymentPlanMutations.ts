@@ -53,6 +53,7 @@ const ADJUSTMENT_FORBIDDEN_TOKEN = "ADJUSTMENT_FORBIDDEN";
 const ADJUSTMENT_LOCKED_TOKEN = "ADJUSTMENT_LOCKED";
 const ADJUSTMENT_EXCEEDS_TOKEN = "ADJUSTMENT_EXCEEDS_AMOUNT";
 const ADJUSTMENT_REASON_REQUIRED_TOKEN = "ADJUSTMENT_REASON_REQUIRED";
+const ADJUSTMENT_DUPLICATE_TOKEN = "ADJUSTMENT_DUPLICATE";
 // Cambiar la moneda de una cuota con un ajuste vigente: el ajuste quedaría en la moneda vieja
 // y dejaría de restar.
 const CURRENCY_HAS_ADJUSTMENTS_TOKEN = "INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS";
@@ -121,6 +122,10 @@ function isAdjustmentExceedsError(error: unknown): boolean {
   return errorMessageOf(error).includes(ADJUSTMENT_EXCEEDS_TOKEN);
 }
 
+function isAdjustmentDuplicateError(error: unknown): boolean {
+  return errorMessageOf(error).includes(ADJUSTMENT_DUPLICATE_TOKEN);
+}
+
 function isAdjustmentReasonRequiredError(error: unknown): boolean {
   return errorMessageOf(error).includes(ADJUSTMENT_REASON_REQUIRED_TOKEN);
 }
@@ -180,6 +185,10 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isAdjustmentExceedsError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentExceeds"));
+    return;
+  }
+  if (isAdjustmentDuplicateError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentDuplicate"));
     return;
   }
   if (isAdjustmentReasonRequiredError(error)) {

@@ -2216,6 +2216,9 @@ REVOKE ALL ON TABLE public.wo_installment_adjustments FROM PUBLIC, anon;
 GRANT SELECT ON TABLE public.wo_installment_adjustments TO authenticated;
 GRANT ALL ON TABLE public.wo_installment_adjustments TO service_role;
 
+REVOKE EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) TO authenticated, service_role;
+
 REVOKE EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) FROM PUBLIC, anon;

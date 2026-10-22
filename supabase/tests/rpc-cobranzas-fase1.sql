@@ -825,6 +825,28 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - borrar una nota la oculta sin perderla';
 
+  -- 10.g-bis El historial de ediciones de una nota BORRADA lo sigue leyendo quien participa del
+  -- hilo: es evidencia. La policy leia la nota a traves de la RLS de notas, que esconde las
+  -- borradas, y el historial desaparecia con ella. Aca SI se evalua la RLS: el subbloque pasa
+  -- al rol authenticated y se deshace solo.
+  v_n := NULL;
+  BEGIN
+    PERFORM pg_temp.impersonate(c_manager);
+    PERFORM set_config('role', 'authenticated', true);
+    -- Sin esto el test no probaria nada: el dueno no evalua RLS.
+    IF current_user <> 'authenticated' THEN
+      RAISE EXCEPTION 'TEST FAIL - el subbloque no corre como authenticated (%)', current_user;
+    END IF;
+    SELECT COUNT(*) INTO v_n FROM public.wo_installment_note_versions WHERE note_id = v_note;
+    RAISE EXCEPTION USING ERRCODE = 'UE10G', MESSAGE = 'volver al dueno';
+  EXCEPTION WHEN SQLSTATE 'UE10G' THEN
+    NULL;
+  END;
+  IF COALESCE(v_n, 0) = 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el historial de una nota borrada quedo ilegible para un participante';
+  END IF;
+  RAISE NOTICE 'PASS - el historial de una nota borrada se sigue leyendo';
+
   -- 10.h El aviso es solo de campana y va a la otra parte (Q35).
   SELECT COUNT(*) INTO v_n FROM public.notification_types
    WHERE type_key = 'wo.installment.note_added' AND NOT email_enabled;
@@ -1331,6 +1353,12 @@ BEGIN
   v_row := public.set_expense_reimbursement_amount(v_i6, 450);
   IF v_row.amount <> 450 OR v_row.net_amount <> 500 THEN
     RAISE EXCEPTION 'TEST FAIL - corregir el monto deberia dejar net_amount intacto (monto=% neto=%)', v_row.amount, v_row.net_amount;
+  END IF;
+  -- La correccion queda en la bitacora de la fila: es un cambio de plata.
+  SELECT COUNT(*) INTO v_n FROM public.wo_installment_events
+   WHERE installment_id = v_i6 AND action = 'reimbursement_amount_changed' AND amount = 450;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - la correccion del monto no quedo en la bitacora (hay %)', v_n;
   END IF;
 
   -- Y una cuota de honorarios no se corrige por esta puerta.

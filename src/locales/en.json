@@ -2031,6 +2031,7 @@
       "errorAdjustmentLocked": "A discount is agreed before collecting, and an exchange difference only exists afterwards.",
       "errorAdjustmentExceeds": "The discount exceeds what is left to collect on this installment.",
       "errorAdjustmentReasonRequired": "The adjustment needs a reason.",
+      "errorAdjustmentDuplicate": "This installment already has an exchange difference. Remove it before recording another.",
       "notesPlanHelp": "What applies to the whole engagement. For something about a single installment, use that row’s notes button.",
       "historyCount": "History ({{count}})",
       "historyTitle": "Installment {{number}} history",

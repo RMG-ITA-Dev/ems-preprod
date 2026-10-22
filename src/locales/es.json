@@ -2031,6 +2031,7 @@
       "errorAdjustmentLocked": "Un descuento se acuerda antes de cobrar, y la diferencia de cambio recién existe después.",
       "errorAdjustmentExceeds": "El descuento supera lo que queda por cobrar de la cuota.",
       "errorAdjustmentReasonRequired": "El ajuste necesita un motivo.",
+      "errorAdjustmentDuplicate": "La cuota ya tiene una diferencia de cambio registrada. Retírela antes de registrar otra.",
       "notesPlanHelp": "Aplican a todo el encargo. Si la nota es sobre una cuota específica, use el botón de notas de esa fila.",
       "historyCount": "Historial ({{count}})",
       "historyTitle": "Historial de la cuota {{number}}",

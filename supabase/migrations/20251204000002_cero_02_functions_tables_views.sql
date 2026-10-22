@@ -8079,6 +8079,23 @@ CREATE TABLE public.wo_installment_note_versions (
 
 --
 --
+-- Name: wo_note_wo_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- La OT de una nota, SIN la RLS de wo_installment_notes. La usa la policy del historial de
+-- versiones: leer la nota desde esa policy evaluaba la RLS de notas, que esconde las borradas,
+-- asi que el historial de una nota borrada quedaba ilegible justo cuando es evidencia. El
+-- permiso lo sigue decidiendo wo_notes_participant(): esta funcion solo dice de que OT es.
+CREATE FUNCTION public.wo_note_wo_id(p_note_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT n.wo_id FROM public.wo_installment_notes n WHERE n.note_id = p_note_id;
+$$;
+
+
+--
+--
 -- Name: wo_installment_events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -9307,6 +9324,13 @@ BEGIN
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
+  -- A la bitacora de la cuota, en la misma transaccion: es una correccion de plata y el
+  -- historial es el unico rastro ordenado de lo que le paso a la fila.
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'reimbursement_amount_changed', v_row.amount,
+          v_row.currency, public.get_my_staff_id());
+
   BEGIN
     PERFORM public.notif_installment_expense_row(v_row, 'amount_changed');
   EXCEPTION WHEN OTHERS THEN
@@ -9832,6 +9856,18 @@ BEGIN
     END IF;
     IF v_currency = 'BOB' THEN
       RAISE EXCEPTION 'ADJUSTMENT_TYPE_INVALID: una cuota en Bs no tiene diferencia de cambio';
+    END IF;
+    -- Una sola vigente por cuota: la diferencia entre dos TC es UN numero. Dos envios del
+    -- dialogo (o dos sesiones) la sumaban dos veces en exchange_difference_bob. Se mira con la
+    -- cuota bloqueada (FOR UPDATE de arriba), asi que dos llamadas a la vez no pasan las dos.
+    -- Para corregirla, se retira la vigente y se registra la nueva.
+    IF EXISTS (
+      SELECT 1 FROM public.wo_installment_adjustments a
+       WHERE a.installment_id = p_installment_id
+         AND a.adjustment_type = 'diferencia_cambio'
+         AND a.deleted_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'ADJUSTMENT_DUPLICATE: la cuota ya tiene una diferencia de cambio vigente; retirela antes de registrar otra';
     END IF;
     -- La diferencia entre dos TC es un monto en bolivianos, no en la moneda de la cuota.
     v_adj_currency := 'BOB';

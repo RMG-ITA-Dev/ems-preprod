@@ -1435,13 +1435,11 @@ ALTER TABLE public.wo_installment_notes ENABLE ROW LEVEL SECURITY;
 -- Name: wo_installment_note_versions wo_installment_note_versions_select; Type: POLICY; Schema: public; Owner: -
 --
 
--- El historial de ediciones se lee igual que la nota a la que pertenece. El EXISTS no repite
--- el criterio: al referenciar wo_installment_notes desde la policy, Postgres evalua la RLS de
--- ESA tabla para el mismo usuario. Se consulta sin filtrar deleted_at a proposito -- el
--- historial de una nota borrada sigue siendo evidencia para quien participa del hilo.
-CREATE POLICY wo_installment_note_versions_select ON public.wo_installment_note_versions FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.wo_installment_notes n
-  WHERE ((n.note_id = wo_installment_note_versions.note_id) AND public.wo_notes_participant(n.wo_id)))));
+-- El historial de ediciones lo leen los mismos que participan del hilo de la nota, AUNQUE la
+-- nota este borrada: ese historial sigue siendo evidencia. Por eso la OT se busca con
+-- wo_note_wo_id() (definer) y no con un EXISTS sobre wo_installment_notes: el EXISTS evaluaba
+-- la RLS de notas, que esconde las borradas, y el historial de una nota borrada desaparecia.
+CREATE POLICY wo_installment_note_versions_select ON public.wo_installment_note_versions FOR SELECT TO authenticated USING (public.wo_notes_participant(public.wo_note_wo_id(note_id)));
 
 
 --

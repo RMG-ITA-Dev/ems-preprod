@@ -1042,6 +1042,16 @@ BEGIN
 
   -- La diferencia de cambio, en cambio, solo existe con la cuota cobrada: esa si se retira.
   v_adj := public.add_installment_adjustment(v_i52, 'diferencia_cambio', v_rate, 'TC de cobro');
+  -- Una sola vigente: un segundo envio la sumaba dos veces en exchange_difference_bob.
+  denied := false;
+  BEGIN
+    PERFORM public.add_installment_adjustment(v_i52, 'diferencia_cambio', v_rate, 'doble envio');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ADJUSTMENT_DUPLICATE%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se registraron dos diferencias de cambio vigentes en la misma cuota';
+  END IF;
   v_adj := public.delete_installment_adjustment(v_adj.adjustment_id);
   IF v_adj.deleted_at IS NULL THEN
     RAISE EXCEPTION 'TEST FAIL - no se pudo retirar la diferencia de cambio de una cuota cobrada';
