@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -67,7 +67,12 @@ const phoneSchema = z
   })
   .optional();
 
-export const formSchema = z.object({
+// Los mensajes de los contactos pasan por i18n: eran texto fijo en español (y el de formato de
+// correo en inglés), así que según qué fallara el formulario mezclaba idiomas. `t` por defecto
+// devuelve la clave, que es lo que ven los tests del schema.
+type Translate = (key: string) => string;
+
+export const buildFormSchema = (t: Translate = (k) => k) => z.object({
   client_legal_name: z.string().min(1, "Client name is required"),
   unique_tax_id: z
     .string()
@@ -81,15 +86,17 @@ export const formSchema = z.object({
   // El CORREO tambien es obligatorio en los dos (decision del operador 2026-10-20): el cobro se
   // reclama por correo, asi que un contacto sin correo no sirve para lo unico que tiene que
   // servir. El telefono sigue siendo opcional.
-  contact_general_name: z.string().trim().min(1, "El contacto del cliente es obligatorio"),
-  contact_general_email: z.string().trim().min(1, "El correo del contacto es obligatorio").email("Invalid email"),
+  contact_general_name: z.string().trim().min(1, t("validation.contactGeneralRequired")),
+  contact_general_email: z.string().trim().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
   contact_general_phone: phoneSchema,
-  contact_cobranza_name: z.string().trim().min(1, "El contacto de cobranza es obligatorio"),
-  contact_cobranza_email: z.string().trim().min(1, "El correo del contacto de cobranza es obligatorio").email("Invalid email"),
+  contact_cobranza_name: z.string().trim().min(1, t("validation.contactCobranzaRequired")),
+  contact_cobranza_email: z.string().trim().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
   contact_cobranza_phone: phoneSchema,
   address: z.string().optional(),
   is_active: z.boolean(),
 });
+
+export const formSchema = buildFormSchema();
 
 type FormData = z.infer<typeof formSchema>;
 
@@ -114,7 +121,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   // Cobranzas Fase 5: los contactos ya no son columnas de la ficha; se leen y se guardan
   // aparte, y la RPC valida que haya al menos uno de cada tipo.
   const saveContacts = useSaveClientContacts();
-  const { data: clientContacts } = useClientContacts(client?.client_id);
+  const { data: clientContacts, isFetched: contactsFetched } = useClientContacts(client?.client_id);
   const generalContact = firstContactOfType(clientContacts, "general");
   const cobranzaContact = firstContactOfType(clientContacts, "cobranza");
   const deleteMutation = useDeleteClient();
@@ -133,8 +140,9 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
 
   const hasEngagements = isEdit && (engagementCount || 0) > 0;
 
+  const schema = useMemo(() => buildFormSchema(t), [t]);
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       client_legal_name: "",
       unique_tax_id: "",
@@ -150,8 +158,12 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     },
   });
 
+  // Se carga la ficha UNA vez, cuando llegaron el cliente Y sus contactos. Los contactos vienen
+  // en otra consulta que casi siempre llega después: antes el formulario se reseteaba dos veces,
+  // y si en el medio se empezaba a escribir, el segundo reset borraba lo tecleado. Tampoco se
+  // pisa un formulario con cambios si la consulta se vuelve a pedir en segundo plano.
   useEffect(() => {
-    if (client) {
+    if (client && contactsFetched && !form.formState.isDirty) {
       form.reset({
         client_legal_name: client.client_legal_name,
         unique_tax_id: client.unique_tax_id,
@@ -169,7 +181,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         is_active: client.is_active,
       });
     }
-  }, [client, form, generalContact, cobranzaContact]);
+  }, [client, form, contactsFetched, generalContact, cobranzaContact]);
 
   // Report dirty state to parent
   const { isDirty } = form.formState;

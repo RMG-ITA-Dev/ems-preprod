@@ -60,6 +60,10 @@ vi.mock("@/hooks/useInstallmentEvents", async (importOriginal) => {
   return { ...real, useInstallmentEvents: () => ({ data: mockEvents }) };
 });
 
+// jsdom no trae matchMedia: el test decide si la pantalla es un teléfono.
+let mockMobile = false;
+vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => mockMobile }));
+
 // Los ajustes de la OT. Vacío salvo en los tests que los necesitan.
 let mockAdjustments: unknown[] = [];
 vi.mock("@/hooks/useInstallmentAdjustments", async (importOriginal) => {
@@ -1150,5 +1154,36 @@ describe("WorkOrderPaymentPlanSection — ajustes de una cuota cobrada (revisió
     renderSection({ installments: [makeInstallment({ installment_id: "i-1", installment_number: 1, percentage: 100, amount: 1000 })] });
     fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
     expect(screen.getByText("workOrders.paymentPlan.historyAdjustmentRemoved")).toBeInTheDocument();
+  });
+});
+
+describe("WorkOrderPaymentPlanSection — gastos facturados en móvil (revisión de Codex, 2026-10-22)", () => {
+  afterEach(() => {
+    mockMobile = false;
+  });
+
+  const filaGastos = () =>
+    makeInstallment({
+      installment_id: "g-1",
+      installment_number: 3,
+      percentage: 0,
+      amount: 574.71,
+      installment_type: "expense_reimbursement",
+      currency: "BOB",
+      net_amount: 500,
+    } as Partial<PaymentInstallmentInput>);
+
+  it("en un teléfono la fila de gastos es una tarjeta, no una tabla de 6 columnas", () => {
+    // AGENTS.md, regla 7: la tabla obligaba a desplazarse de costado entre gastado,
+    // facturado, moneda, fechas y estado.
+    mockMobile = true;
+    renderSection({ expenseRows: [filaGastos()] });
+    expect(screen.queryByText("workOrders.paymentPlan.expenseRowsBilledAmount")).not.toBeInTheDocument();
+    expect(screen.getByText(/workOrders.paymentPlan.expenseRowsSpent/)).toBeInTheDocument();
+  });
+
+  it("en escritorio sigue la tabla", () => {
+    renderSection({ expenseRows: [filaGastos()] });
+    expect(screen.getByText("workOrders.paymentPlan.expenseRowsBilledAmount")).toBeInTheDocument();
   });
 });

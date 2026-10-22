@@ -2322,6 +2322,8 @@
     "lastNameRequired": "Last name is required",
     "emailRequired": "Email is required",
     "emailInvalid": "Invalid email",
+    "contactGeneralRequired": "The client contact is required",
+    "contactCobranzaRequired": "The collections contact is required",
     "societyRequired": "Society is required",
     "practiceRequired": "Practice is required",
     "categoryRequired": "Category is required",

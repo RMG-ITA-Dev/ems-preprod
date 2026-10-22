@@ -2322,6 +2322,8 @@
     "lastNameRequired": "El apellido es requerido",
     "emailRequired": "El correo electrónico es requerido",
     "emailInvalid": "Correo electrónico inválido",
+    "contactGeneralRequired": "El contacto del cliente es obligatorio",
+    "contactCobranzaRequired": "El contacto de cobranza es obligatorio",
     "societyRequired": "La sociedad es requerida",
     "practiceRequired": "La práctica es requerida",
     "categoryRequired": "La categoría es requerida",

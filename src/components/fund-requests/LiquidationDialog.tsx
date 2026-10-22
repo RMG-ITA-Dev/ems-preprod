@@ -13,7 +13,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { NumericInput } from "@/components/ui/numeric-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertTriangle } from "lucide-react";
@@ -64,7 +63,6 @@ export function LiquidationDialog({
   // Resolución: con saldo a favor de la firma el admin elige; en los otros casos
   // queda determinada.
   const [firmChoice, setFirmChoice] = useState<"devolucion" | "descuento_planilla" | null>(null);
-  const [amount, setAmount] = useState<number>(Math.abs(balance));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Confirmación explícita cuando no hay gastos registrados (devolución total).
@@ -73,7 +71,6 @@ export function LiquidationDialog({
   useEffect(() => {
     if (open) {
       setFirmChoice(null);
-      setAmount(Math.abs(balance));
       setNotes("");
       setError(null);
       setAckNoExpenses(false);
@@ -97,7 +94,7 @@ export function LiquidationDialog({
       setError(t("fundRequest.settlement.chooseResolution"));
       return;
     }
-    onConfirm({ resolution, amount, notes });
+    onConfirm({ resolution, amount: Math.abs(balance), notes });
   };
 
   return (
@@ -211,15 +208,14 @@ export function LiquidationDialog({
               <Label htmlFor="settle-amount">
                 {t("fundRequest.settlement.amount")} ({currency})
               </Label>
-              <NumericInput
-                id="settle-amount"
-                decimals={2}
-                locale={numericLocale}
-                min={0}
-                value={amount || ""}
-                onChange={(v) => setAmount(v)}
-                className="text-right font-mono"
-              />
+              {/* El monto es el saldo y no se edita: el servidor exige que coincida, porque
+                  liquidar por otro monto cerraba la solicitud sin saldar lo registrado. */}
+              <p id="settle-amount" className="rounded-md border bg-muted/40 px-3 py-2 text-right font-mono">
+                {Math.abs(balance).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
             </div>
           )}
 

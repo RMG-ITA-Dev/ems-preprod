@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/useMobile";
 import { rpcUntyped } from "@/lib/rpcUntyped";
 import {
   useUpdateInstallmentStatus,
@@ -249,6 +250,7 @@ export function WorkOrderPaymentPlanSection({
   const { data: billableExpenses } = useBillableExpenses(woId || undefined, canBillExpenses);
   const pendingBillable = totalBillable(billableExpenses);
   const createExpenseRow = useCreateExpenseReimbursementRow();
+  const isMobile = useIsMobile();
   const setExpenseAmount = useSetExpenseReimbursementAmount();
   const setInstallmentCurrency = useSetInstallmentCurrency();
   // El monto se escribe en el input y se manda al salir del campo: mandarlo en cada tecla
@@ -956,6 +958,175 @@ export function WorkOrderPaymentPlanSection({
   // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
   const formatBob = (amount: number) =>
     Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  // Cobranzas Fase 7: las piezas de una fila de gastos facturados. Las usan la tabla (escritorio)
+  // y la tarjeta (móvil, AGENTS.md regla 7), para que las dos vistas no se desincronicen.
+  const expenseRowParts = (row: PaymentInstallmentInput) => {
+    const display = getInstallmentDisplay(row);
+    const stage = display.stage;
+    const availableOptions = STATUS_TRANSITIONS[stage];
+    // El monto sólo se corrige mientras la fila no se facturó: después, lo
+    // que el cliente recibió ya está emitido.
+    const amountEditable = canBillExpenses && row.status === "Pending";
+    const spent = (
+      <>
+        {formatAmount(row.net_amount ?? 0, "BOB")} <span className="text-[10px]">BOB</span>
+      </>
+    );
+    const billed = (
+      <>
+        {amountEditable ? (
+          <NumericInput
+            locale={numericLocale}
+            value={
+              expenseAmountDraft?.id === row.installment_id
+                ? expenseAmountDraft.value
+                : row.amount ?? 0
+            }
+            decimals={2}
+            min={0}
+            className="h-8 w-32 text-sm"
+            onChange={(v) =>
+              setExpenseAmountDraft({ id: row.installment_id!, value: v })
+            }
+            onBlur={() => {
+              const draft = expenseAmountDraft;
+              setExpenseAmountDraft(null);
+              // Se manda sólo si de verdad cambió: así salir del campo sin
+              // tocar nada no genera un aviso al gerente por un cambio que
+              // no hubo.
+              if (!draft || draft.id !== row.installment_id) return;
+              if (draft.value <= 0 || draft.value === (row.amount ?? 0)) return;
+              setExpenseAmount.mutate({
+                installmentId: row.installment_id!,
+                amount: draft.value,
+                woId,
+              });
+            }}
+          />
+        ) : (
+          <span className="font-mono text-xs">
+            {formatAmount(row.amount ?? 0, row.currency ?? "BOB")}
+          </span>
+        )}
+        {/* Cuánto de ese monto es impuesto. Sin esto, "gastado 500 / a
+            facturar 574,71" se lee como si se le estuviera cobrando de más
+            al cliente; con el IVA a la vista se entiende que la firma
+            termina recuperando exactamente lo que gastó. */}
+        <p className="mt-0.5 text-[10px] text-muted-foreground">
+          {t("workOrders.paymentPlan.expenseRowsVat", {
+            rate: (taxRate * 100).toFixed(0),
+            amount: formatAmount((row.amount ?? 0) * taxRate, row.currency ?? "BOB"),
+          })}
+        </p>
+      </>
+    );
+    const currencyCell = (
+      <>
+        {/* Decisión del operador 2026-10-20: la fila nace en Bs, que es la
+            moneda en la que los gastos se rinden, pero se puede cobrar en
+            otra. Al facturarla, el diálogo de la Fase 6 ya deja elegir el TC
+            por fecha. Después de facturar la moneda queda congelada junto
+            con el monto. USDT no se mezcla: sólo en una OT en USDT. */}
+        {amountEditable ? (
+          <Select
+            value={row.currency ?? "BOB"}
+            onValueChange={(v) => {
+              const from = row.currency ?? "BOB";
+              if (!row.installment_id || v === from) return;
+              // Se convierte con el TC del plan, igual que una cuota de
+              // honorarios: el cliente paga el mismo valor en otra moneda.
+              const converted = convertAmount(row.amount ?? 0, from, v, currentPlan.exchange_rate);
+              if (converted === null) {
+                toast.error(t("workOrders.paymentPlan.errorCurrencyNoRate"));
+                return;
+              }
+              setInstallmentCurrency.mutate({
+                installmentId: row.installment_id,
+                currency: v as "BOB" | "USD" | "USDT",
+                amount: converted,
+                woId,
+              });
+            }}
+          >
+            <SelectTrigger className="h-8 w-24 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="BOB">BOB</SelectItem>
+              {currency === "USDT" ? (
+                <SelectItem value="USDT">USDT</SelectItem>
+              ) : (
+                <SelectItem value="USD">USD</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="font-mono text-xs">{row.currency ?? "BOB"}</span>
+        )}
+      </>
+    );
+    const invoiceDate = (
+      <>
+        {fmtDate(row.collection_invoice_date)}
+      </>
+    );
+    const paymentDate = (
+      <>
+        {fmtDate(row.collection_payment_date)}
+      </>
+    );
+    const statusCell = (
+      <>
+        {isStatusEditable && availableOptions.length > 0 ? (
+          <Select
+            value={stage}
+            onValueChange={(val) => {
+              const s = val as PaymentInstallmentStatus;
+              if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
+                // Se reinicia al facturar Y al cobrar: el estado del TC es
+                // compartido con el diálogo de las cuotas, y sin esto una
+                // fila de gastos heredaba el último TC que alguien tecleó.
+                // En Bs no hay TC; si la fila se pasó a otra moneda, arranca
+                // con el del día, igual que una cuota.
+                setInvoiceRate(
+                  (row.currency ?? "BOB") === "BOB"
+                    ? null
+                    : latestBuyRate ?? currentPlan.exchange_rate,
+                );
+                setInvoiceRateDate("");
+                setPendingChange({ row, newStatus: s });
+              } else {
+                handleStatusChange(row, s);
+              }
+            }}
+          >
+            <SelectTrigger className={cn("h-8 w-36 text-sm", STATUS_COLORS[stage])}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
+                {t(`workOrders.paymentPlan.status${stage}`)}
+              </SelectItem>
+              {availableOptions.map((val) => (
+                <SelectItem key={val} value={val} className={STATUS_COLORS[val]}>
+                  {t(`workOrders.paymentPlan.status${val}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+              STATUS_CHIP_CLASSES[stage],
+            )}
+          >
+            {t(`workOrders.paymentPlan.status${stage}`)}
+          </span>
+        )}
+      </>
+    );
+    return { spent, billed, currencyCell, invoiceDate, paymentDate, statusCell };
+  };
 
   return (
     <>
@@ -1845,179 +2016,65 @@ export function WorkOrderPaymentPlanSection({
                 {t("workOrders.paymentPlan.expenseRowsEmpty")}
               </p>
             ) : (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsSpent")}</th>
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsCurrency")}</th>
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
-                      <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.status")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              isMobile ? (
+                <div className="mt-3 space-y-2">
+                  {expenseRows.map((row) => {
+                    const p = expenseRowParts(row);
+                    return (
+                      <div key={row.installment_id} className="space-y-2 rounded-md border p-3 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-1">{p.billed}</div>
+                          <div className="shrink-0">{p.currencyCell}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t("workOrders.paymentPlan.expenseRowsSpent")}: {p.spent}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-muted-foreground">{t("workOrders.paymentPlan.collectionInvoiceDate")}</div>
+                            {p.invoiceDate}
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">{t("workOrders.paymentPlan.collectionPaymentDate")}</div>
+                            {p.paymentDate}
+                          </div>
+                        </div>
+                        <div>{p.statusCell}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+  <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsSpent")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsCurrency")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.status")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
                     {expenseRows.map((row) => {
-                      const display = getInstallmentDisplay(row);
-                      const stage = display.stage;
-                      const availableOptions = STATUS_TRANSITIONS[stage];
-                      // El monto sólo se corrige mientras la fila no se facturó: después, lo
-                      // que el cliente recibió ya está emitido.
-                      const amountEditable = canBillExpenses && row.status === "Pending";
+                      const p = expenseRowParts(row);
                       return (
                         <tr key={row.installment_id} className="hover:bg-muted/20 transition-colors">
-                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
-                            {formatAmount(row.net_amount ?? 0, "BOB")} <span className="text-[10px]">BOB</span>
-                          </td>
-                          <td className="py-2 px-3 border-b border-border/50">
-                            {amountEditable ? (
-                              <NumericInput
-                                locale={numericLocale}
-                                value={
-                                  expenseAmountDraft?.id === row.installment_id
-                                    ? expenseAmountDraft.value
-                                    : row.amount ?? 0
-                                }
-                                decimals={2}
-                                min={0}
-                                className="h-8 w-32 text-sm"
-                                onChange={(v) =>
-                                  setExpenseAmountDraft({ id: row.installment_id!, value: v })
-                                }
-                                onBlur={() => {
-                                  const draft = expenseAmountDraft;
-                                  setExpenseAmountDraft(null);
-                                  // Se manda sólo si de verdad cambió: así salir del campo sin
-                                  // tocar nada no genera un aviso al gerente por un cambio que
-                                  // no hubo.
-                                  if (!draft || draft.id !== row.installment_id) return;
-                                  if (draft.value <= 0 || draft.value === (row.amount ?? 0)) return;
-                                  setExpenseAmount.mutate({
-                                    installmentId: row.installment_id!,
-                                    amount: draft.value,
-                                    woId,
-                                  });
-                                }}
-                              />
-                            ) : (
-                              <span className="font-mono text-xs">
-                                {formatAmount(row.amount ?? 0, row.currency ?? "BOB")}
-                              </span>
-                            )}
-                            {/* Cuánto de ese monto es impuesto. Sin esto, "gastado 500 / a
-                                facturar 574,71" se lee como si se le estuviera cobrando de más
-                                al cliente; con el IVA a la vista se entiende que la firma
-                                termina recuperando exactamente lo que gastó. */}
-                            <p className="mt-0.5 text-[10px] text-muted-foreground">
-                              {t("workOrders.paymentPlan.expenseRowsVat", {
-                                rate: (taxRate * 100).toFixed(0),
-                                amount: formatAmount((row.amount ?? 0) * taxRate, row.currency ?? "BOB"),
-                              })}
-                            </p>
-                          </td>
-                          <td className="py-2 px-3 border-b border-border/50">
-                            {/* Decisión del operador 2026-10-20: la fila nace en Bs, que es la
-                                moneda en la que los gastos se rinden, pero se puede cobrar en
-                                otra. Al facturarla, el diálogo de la Fase 6 ya deja elegir el TC
-                                por fecha. Después de facturar la moneda queda congelada junto
-                                con el monto. USDT no se mezcla: sólo en una OT en USDT. */}
-                            {amountEditable ? (
-                              <Select
-                                value={row.currency ?? "BOB"}
-                                onValueChange={(v) => {
-                                  const from = row.currency ?? "BOB";
-                                  if (!row.installment_id || v === from) return;
-                                  // Se convierte con el TC del plan, igual que una cuota de
-                                  // honorarios: el cliente paga el mismo valor en otra moneda.
-                                  const converted = convertAmount(row.amount ?? 0, from, v, currentPlan.exchange_rate);
-                                  if (converted === null) {
-                                    toast.error(t("workOrders.paymentPlan.errorCurrencyNoRate"));
-                                    return;
-                                  }
-                                  setInstallmentCurrency.mutate({
-                                    installmentId: row.installment_id,
-                                    currency: v as "BOB" | "USD" | "USDT",
-                                    amount: converted,
-                                    woId,
-                                  });
-                                }}
-                              >
-                                <SelectTrigger className="h-8 w-24 text-sm"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="BOB">BOB</SelectItem>
-                                  {currency === "USDT" ? (
-                                    <SelectItem value="USDT">USDT</SelectItem>
-                                  ) : (
-                                    <SelectItem value="USD">USD</SelectItem>
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span className="font-mono text-xs">{row.currency ?? "BOB"}</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
-                            {fmtDate(row.collection_invoice_date)}
-                          </td>
-                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">
-                            {fmtDate(row.collection_payment_date)}
-                          </td>
-                          <td className="py-2 px-3 border-b border-border/50">
-                            {isStatusEditable && availableOptions.length > 0 ? (
-                              <Select
-                                value={stage}
-                                onValueChange={(val) => {
-                                  const s = val as PaymentInstallmentStatus;
-                                  if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
-                                    // Se reinicia al facturar Y al cobrar: el estado del TC es
-                                    // compartido con el diálogo de las cuotas, y sin esto una
-                                    // fila de gastos heredaba el último TC que alguien tecleó.
-                                    // En Bs no hay TC; si la fila se pasó a otra moneda, arranca
-                                    // con el del día, igual que una cuota.
-                                    setInvoiceRate(
-                                      (row.currency ?? "BOB") === "BOB"
-                                        ? null
-                                        : latestBuyRate ?? currentPlan.exchange_rate,
-                                    );
-                                    setInvoiceRateDate("");
-                                    setPendingChange({ row, newStatus: s });
-                                  } else {
-                                    handleStatusChange(row, s);
-                                  }
-                                }}
-                              >
-                                <SelectTrigger className={cn("h-8 w-36 text-sm", STATUS_COLORS[stage])}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
-                                    {t(`workOrders.paymentPlan.status${stage}`)}
-                                  </SelectItem>
-                                  {availableOptions.map((val) => (
-                                    <SelectItem key={val} value={val} className={STATUS_COLORS[val]}>
-                                      {t(`workOrders.paymentPlan.status${val}`)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <span
-                                className={cn(
-                                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                                  STATUS_CHIP_CLASSES[stage],
-                                )}
-                              >
-                                {t(`workOrders.paymentPlan.status${stage}`)}
-                              </span>
-                            )}
-                          </td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.spent}</td>
+                          <td className="py-2 px-3 border-b border-border/50">{p.billed}</td>
+                          <td className="py-2 px-3 border-b border-border/50">{p.currencyCell}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.invoiceDate}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.paymentDate}</td>
+                          <td className="py-2 px-3 border-b border-border/50">{p.statusCell}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+              )
             )}
           </div>
         )}

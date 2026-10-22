@@ -169,6 +169,17 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM LIKE 'FUND ACCT FAIL%' THEN RAISE; END IF;
   END;
+  -- Un monto que no es el saldo tampoco: liquidar por menos (o por 0) cerraba la solicitud con
+  -- un movimiento que no saldaba lo registrado.
+  BEGIN
+    PERFORM public.fund_request_settle(p_fr, 'devolucion', 150, NULL);
+    RAISE EXCEPTION 'FUND ACCT FAIL — %: liquidó por un monto distinto del saldo', p_label;
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'FUND ACCT FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%igual al saldo%' THEN
+      RAISE EXCEPTION 'FUND ACCT FAIL — %: monto distinto rechazado por otro motivo (%)', p_label, SQLERRM;
+    END IF;
+  END;
   BEGIN
     PERFORM public.fund_request_settle(p_fr, 'devolucion', 200, 'devuelve en caja');
   EXCEPTION WHEN OTHERS THEN

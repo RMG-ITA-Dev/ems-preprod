@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formSchema } from "@/components/forms/ClientForm";
+import { buildFormSchema, formSchema } from "@/components/forms/ClientForm";
 
 // Cobranzas Fase 5 (issue #352): el cliente pasó de UN contacto opcional a DOS obligatorios
 // —el del cliente y el de cobranza (finanzas)—, así que una ficha válida ya los incluye.
@@ -121,5 +121,18 @@ describe("ClientForm — contact phone validation", () => {
     const result = phone("+591 1234567890123456789");
     expect(result.success).toBe(false);
     expect(result.error?.issues[0].message).toBe("Phone cannot exceed 20 characters");
+  });
+});
+
+describe("ClientForm — los mensajes de los contactos pasan por i18n", () => {
+  // Eran texto fijo en español, y el de formato de correo en inglés: según qué fallara, el
+  // formulario mezclaba idiomas.
+  const t = (k: string) => `T(${k})`;
+  it("contacto vacío y correo inválido salen traducidos", () => {
+    const schema = buildFormSchema(t);
+    const sinNombre = schema.safeParse({ ...validBase, contact_cobranza_name: "" });
+    expect(sinNombre.error?.issues[0].message).toBe("T(validation.contactCobranzaRequired)");
+    const malCorreo = schema.safeParse({ ...validBase, contact_general_email: "no-es-correo" });
+    expect(malCorreo.error?.issues[0].message).toBe("T(validation.emailInvalid)");
   });
 });

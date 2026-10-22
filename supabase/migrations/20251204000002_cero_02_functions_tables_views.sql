@@ -3534,10 +3534,14 @@ BEGIN
     IF v_balance > 0 AND p_resolution NOT IN ('devolucion', 'descuento_planilla') THEN
       RAISE EXCEPTION 'Saldo a favor de la firma, la resolución debe ser devolucion o descuento_planilla (recibido %)', p_resolution;
     END IF;
-    IF p_amount IS NULL OR p_amount < 0 THEN
-      RAISE EXCEPTION 'El monto de la resolución debe ser mayor o igual a 0';
+    -- El monto ES el saldo: lo que hay que devolver o reembolsar sale de lo desembolsado menos
+    -- lo gastado validado, que se calcula aca. Antes se aceptaba cualquier monto (hasta 0), y
+    -- la solicitud podia cerrarse con un movimiento que no saldaba lo registrado. El cliente
+    -- lo sigue mandando, pero solo como confirmacion de lo que vio.
+    v_amount := abs(v_balance);
+    IF p_amount IS NULL OR round(p_amount, 2) <> v_amount THEN
+      RAISE EXCEPTION 'El monto de la resolución debe ser igual al saldo (%)', v_amount;
     END IF;
-    v_amount := round(p_amount, 2);
   END IF;
 
   -- Fase 4: sin saldo no hay dinero que mover, así que la liquidación cierra la solicitud. Con
