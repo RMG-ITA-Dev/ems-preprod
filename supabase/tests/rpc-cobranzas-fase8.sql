@@ -131,6 +131,12 @@ DECLARE
   v_i_cobrar  uuid;   -- plan 1, cuota 2: facturada y en plazo
   v_i_cobrada uuid;   -- plan 1, cuota 4: ya cobrada
   v_i_usd     uuid;   -- plan 2, cuota 1: la unica en USD
+  -- Seccion 11: una OT en USD con plan en modo fijo.
+  c_wo5       uuid := '40000000-0000-4000-8000-0000000000c5';
+  v_plan5     uuid;
+  v_i51       uuid;
+  v_i52       uuid;
+  v_row       public.wo_payment_installments;
   denied   boolean;
 BEGIN
   -- ── Plan 1 (OT BOB, sociedad A, practica 1, gerente Ana) ────────────
@@ -802,6 +808,139 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - retirar un ajuste deberia ser solo de campana';
   END IF;
   RAISE NOTICE 'PASS - el alta avisa por campana y correo; retirarlo, solo por campana';
+
+
+  -- ══════════════════════════════════════════════════════════════════
+  -- 11. Hallazgos de la revision previa al PR (2026-10-22)
+  -- ══════════════════════════════════════════════════════════════════
+  -- Cada bloque fija un bug real que una revision independiente encontro con el modulo ya
+  -- "terminado" y probado a mano. Estan aca para que vuelvan a fallar si alguien los reintroduce.
+  --
+  -- Fixture propio: una OT en USD con plan en modo FIJO y dos cuotas, porque varios de estos
+  -- bugs solo aparecen ahi.
+  PERFORM pg_temp.impersonate(c_admin);
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, practica, funcion, fecha_cierre, society_id, manager_id)
+  VALUES ('e0000000-0000-4000-8000-0000000000c5', c_cli1, 'CF8 Revision', 'CF8-E5', 1, 1, '2026-12-31',
+          c_soc_a, '51c00000-0000-4000-8000-0000000000c2');
+  INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, approval_status)
+  VALUES (c_wo5, 'e0000000-0000-4000-8000-0000000000c5', 'USD', 'High', 'Draft');
+
+  PERFORM pg_temp.impersonate(c_manager);
+  INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
+  VALUES (c_wo5, 30, 6.96, 'fijo') RETURNING plan_id INTO v_plan5;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan5, c_wo5, 1, 50, 1000, 'Pending', v_today + 5, v_today + 35, 6.96, 6.96)
+  RETURNING installment_id INTO v_i51;
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
+  VALUES (v_plan5, c_wo5, 2, 50, 1000, 'Pending', v_today + 10, v_today + 40, 6.96, 6.96)
+  RETURNING installment_id INTO v_i52;
+
+  -- 11.a La moneda de una cuota SE GUARDA al guardar el plan. La pantalla convertia el monto
+  -- al cambiar la moneda y lo mandaba, pero la moneda no viajaba: una cuota de USD 1.000 pasada
+  -- a Bs quedaba como USD 6.960, un error de 6,96 veces.
+  PERFORM public.sync_wo_payment_installments(v_plan5, c_wo5, jsonb_build_array(
+    jsonb_build_object('installment_id', v_i51, 'installment_number', 1, 'percentage', 50,
+                       'amount', 6960, 'status', 'Pending', 'currency', 'BOB',
+                       'agreed_invoice_date', to_char(v_today + 5, 'YYYY-MM-DD'),
+                       'agreed_payment_date', to_char(v_today + 35, 'YYYY-MM-DD'),
+                       'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96),
+    jsonb_build_object('installment_id', v_i52, 'installment_number', 2, 'percentage', 50,
+                       'amount', 1000, 'status', 'Pending',
+                       'agreed_invoice_date', to_char(v_today + 10, 'YYYY-MM-DD'),
+                       'agreed_payment_date', to_char(v_today + 40, 'YYYY-MM-DD'),
+                       'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96)));
+  SELECT currency INTO v_txt FROM public.wo_payment_installments WHERE installment_id = v_i51;
+  IF v_txt IS DISTINCT FROM 'BOB' THEN
+    RAISE EXCEPTION 'TEST FAIL - guardar el plan no persistio la moneda de la cuota (quedo %)', v_txt;
+  END IF;
+  -- Y la otra, que no se toco, sigue en la moneda de la OT (NULL).
+  SELECT currency INTO v_txt FROM public.wo_payment_installments WHERE installment_id = v_i52;
+  IF v_txt IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - la cuota sin moneda propia quedo con %', v_txt;
+  END IF;
+  RAISE NOTICE 'PASS - guardar el plan persiste la moneda de cada cuota junto con su monto';
+
+  -- Se vuelve a USD para lo que sigue.
+  PERFORM public.sync_wo_payment_installments(v_plan5, c_wo5, jsonb_build_array(
+    jsonb_build_object('installment_id', v_i51, 'installment_number', 1, 'percentage', 50,
+                       'amount', 1000, 'status', 'Pending',
+                       'agreed_invoice_date', to_char(v_today + 5, 'YYYY-MM-DD'),
+                       'agreed_payment_date', to_char(v_today + 35, 'YYYY-MM-DD'),
+                       'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96),
+    jsonb_build_object('installment_id', v_i52, 'installment_number', 2, 'percentage', 50,
+                       'amount', 1000, 'status', 'Pending',
+                       'agreed_invoice_date', to_char(v_today + 10, 'YYYY-MM-DD'),
+                       'agreed_payment_date', to_char(v_today + 40, 'YYYY-MM-DD'),
+                       'invoice_exchange_rate', 6.96, 'payment_exchange_rate', 6.96)));
+
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo5;
+
+  -- 11.b Una cuota con un descuento vigente NO cambia de moneda. El descuento vive en la moneda
+  -- de cuando se cargo y lo que queda por cobrar suma solo los de la moneda actual: cambiarla
+  -- hacia desaparecer el descuento en silencio, de los totales y del tope.
+  PERFORM pg_temp.impersonate(c_collections);
+  v_adj := public.add_installment_adjustment(v_i52, 'descuento', -100, 'rebaja acordada');
+
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET currency = 'BOB' WHERE installment_id = v_i52;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se cambio la moneda de una cuota con un descuento vigente';
+  END IF;
+
+  -- Retirado el descuento, el cambio si pasa: el orden queda explicito en el historial.
+  PERFORM pg_temp.impersonate(c_collections);
+  PERFORM public.delete_installment_adjustment(v_adj.adjustment_id);
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.wo_payment_installments SET currency = 'BOB' WHERE installment_id = v_i52;
+  UPDATE public.wo_payment_installments SET currency = NULL  WHERE installment_id = v_i52;
+  RAISE NOTICE 'PASS - con un ajuste vigente la moneda no cambia; retirado, si';
+
+  -- 11.c En modo FIJO, el TC de PAGO se puede corregir al cobrar -- la misma ventana que ya
+  -- tenia el de facturacion (Q49). Antes el dialogo de cobro ofrecia un TC editable y cobrar
+  -- con otro valor revento con EXCHANGE_RATE_LOCKED: la cuota no se podia cobrar.
+  PERFORM pg_temp.impersonate(c_collections);
+  PERFORM public.invoice_installment(v_i51, 'Pending', v_today + 30, v_today, 6.96);
+  v_row := public.collect_installment(v_i51, 'Invoiced', v_today, 7.10);
+  IF v_row.payment_exchange_rate <> 7.10 THEN
+    RAISE EXCEPTION 'TEST FAIL - en modo fijo no se pudo cobrar con otro TC (quedo %)', v_row.payment_exchange_rate;
+  END IF;
+
+  -- Fuera de esa ventana, el modo fijo sigue mandando: el TC de pago de una cuota facturada no
+  -- se mueve suelto.
+  PERFORM public.invoice_installment(v_i52, 'Pending', v_today + 30, v_today, 6.96);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate = 7.20 WHERE installment_id = v_i52;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - en modo fijo se movio el TC de pago fuera del cobro';
+  END IF;
+  RAISE NOTICE 'PASS - en modo fijo el TC de pago se corrige al cobrar, y solo ahi';
+
+  -- 11.d Los gastos facturables NO los lee cualquiera. La funcion es SECURITY DEFINER para
+  -- saltar la RLS de fondos, y por eso mismo tiene que chequear el rol: sin el, cualquier
+  -- usuario con sesion se llevaba los gastos aprobados de cualquier OT.
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    PERFORM public.wo_billable_expenses(c_wo1);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXPENSE_ROW_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - un usuario sin rol de cobranza leyo los gastos facturables';
+  END IF;
+  RAISE NOTICE 'PASS - los gastos por facturar solo los ve contabilidad';
 
   PERFORM set_config('request.jwt.claims', NULL, true);
   RAISE NOTICE 'COBRANZAS FASES 8 Y 9: ALL CHECKS PASSED';

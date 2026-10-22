@@ -1173,6 +1173,10 @@ BEGIN
       JOIN public.work_orders w ON w.wo_id = i.wo_id
       JOIN public.engagements e ON e.engagement_id = w.engagement_id
      WHERE i.status = 'Pending'
+       -- Solo OT aprobadas, el mismo corte que la pantalla de Cobranzas y las RPC de cobro. Un
+       -- plan en borrador no es todavia un contrato: avisar "facturacion atrasada" sobre el le
+       -- pide a Contabilidad algo que no puede hacer (INSTALLMENT_LOCKED).
+       AND w.approval_status = 'Approved'
        AND public.wo_installment_calendar_state(
              i.status, i.agreed_invoice_date, i.current_invoice_date,
              i.agreed_payment_date, i.collection_payment_date, v_today)

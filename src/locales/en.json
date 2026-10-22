@@ -2041,7 +2041,9 @@
       "confirmationNotConfirmedTooltip": "The client rejected the previous date and the installment was rescheduled. The details are in the history.",
       "adjustmentTypeHint_descuento": "The client was granted a lower amount. Only before collecting: once the money is in, there is nothing left to discount.",
       "adjustmentTypeHint_diferencia_cambio": "The gap between the exchange rate used to invoice and the one on the day it was collected. It is recorded in bolivianos and only exists after collecting, because until then there is a single exchange rate.",
-      "expenseRowsVat": "includes {{rate}}% VAT: {{amount}}"
+      "expenseRowsVat": "includes {{rate}}% VAT: {{amount}}",
+      "currencyLockedByAdjustments": "This installment has active adjustments. Remove them before changing the currency.",
+      "errorCurrencyNoRate": "Cannot convert: the plan exchange rate is missing."
     },
     "staffingRequirements": {
       "title": "Staffing Requirements",

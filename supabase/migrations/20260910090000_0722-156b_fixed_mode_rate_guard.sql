@@ -203,6 +203,19 @@ BEGIN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: la moneda de una cuota ya facturada no se puede cambiar';
     END IF;
 
+    -- Cobranzas Fase 9: un descuento vive en la moneda que tenia la cuota cuando se cargo, y
+    -- lo que queda por cobrar solo suma los ajustes de la moneda ACTUAL. Cambiarla con un
+    -- descuento vigente lo hacia desaparecer en silencio de todos los totales -- y del tope
+    -- que impide descontar mas de lo que queda. Primero se retira el ajuste, despues se cambia
+    -- la moneda: asi el cambio queda explicito en el historial en vez de ocurrir de costado.
+    IF EXISTS (
+      SELECT 1 FROM public.wo_installment_adjustments a
+       WHERE a.installment_id = OLD.installment_id
+         AND a.deleted_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS: la cuota tiene ajustes vigentes; retirelos antes de cambiar la moneda';
+    END IF;
+
     SELECT wo.currency INTO v_wo_currency
     FROM public.wo_payment_plan p
     JOIN public.work_orders wo ON wo.wo_id = p.wo_id
@@ -370,8 +383,15 @@ BEGIN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
     END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago de la cuota debe coincidir con el del plan';
+    -- Cobranzas Fase 6 (Q49), extendida al TC de PAGO el 2026-10-21: el modo decide con que
+    -- valor se autocompleta, no si se puede corregir. En modo fijo, apartarse del TC del plan
+    -- vale solo en la MISMA sentencia que cobra la cuota -- la misma ventana que ya tenia el
+    -- TC de facturacion. Antes el dialogo de cobro ofrecia un TC editable y, en fijo, cobrar
+    -- con otro valor revento con EXCHANGE_RATE_LOCKED: la cuota quedaba sin poder cobrarse.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+       AND NOT (OLD.status IN ('Invoiced', 'Overdue') AND NEW.status = 'Completed') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago solo se puede apartar del TC del plan al cobrar la cuota';
     END IF;
   END IF;
 

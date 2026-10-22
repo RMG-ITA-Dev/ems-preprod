@@ -246,6 +246,24 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         email: data.contact_cobranza_email,
         phone: data.contact_cobranza_phone,
       },
+      // El resto de los contactos activos viaja SIN TOCAR. El formulario edita uno de cada
+      // tipo, pero el modelo admite varios (Q52), y la RPC desactiva todo contacto activo que
+      // no venga en la lista: sin esto, guardar la ficha —para corregir una dirección, por
+      // ejemplo— borraba en silencio un segundo contacto de cobranza.
+      ...(clientContacts ?? [])
+        .filter(
+          (c) =>
+            c.is_active &&
+            c.contact_id !== generalContact?.contact_id &&
+            c.contact_id !== cobranzaContact?.contact_id,
+        )
+        .map((c) => ({
+          contact_id: c.contact_id,
+          contact_type: c.contact_type,
+          full_name: c.full_name,
+          email: c.email,
+          phone: c.phone,
+        })),
     ];
 
     if (isEdit && client) {

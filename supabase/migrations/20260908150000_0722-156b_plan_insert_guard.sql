@@ -281,7 +281,12 @@ BEGIN
     installment_id, plan_id, wo_id, installment_number,
     agreed_invoice_date, agreed_payment_date,
     collection_invoice_date, collection_payment_date, payment_date_actual,
-    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate
+    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate,
+    -- Cobranzas Fase 6 (Q29): la moneda de la cuota viaja con el plan. Faltaba aca: la
+    -- pantalla convertia el monto al cambiar la moneda y lo mandaba, pero la moneda no, asi
+    -- que una cuota de USD 946 pasada a Bs quedaba guardada como USD 11.070. NULL = la de la
+    -- OT, que es el caso normal.
+    currency
   )
   SELECT
     COALESCE((row_data->>'installment_id')::uuid, gen_random_uuid()),
@@ -297,7 +302,8 @@ BEGIN
     (row_data->>'amount')::numeric,
     row_data->>'status',
     (row_data->>'invoice_exchange_rate')::numeric,
-    (row_data->>'payment_exchange_rate')::numeric
+    (row_data->>'payment_exchange_rate')::numeric,
+    NULLIF(row_data->>'currency', '')
   FROM jsonb_array_elements(p_installments) AS row_data
   ON CONFLICT (installment_id) DO UPDATE SET
     installment_number = EXCLUDED.installment_number,
@@ -310,7 +316,11 @@ BEGIN
     amount = EXCLUDED.amount,
     status = EXCLUDED.status,
     invoice_exchange_rate = EXCLUDED.invoice_exchange_rate,
-    payment_exchange_rate = EXCLUDED.payment_exchange_rate
+    payment_exchange_rate = EXCLUDED.payment_exchange_rate,
+    -- Si la cuota ya esta facturada y el payload trae la misma moneda, no cambia nada y el
+    -- guard no salta. Si trae otra, el guard lo rechaza: la moneda queda congelada con el
+    -- monto al facturar.
+    currency = EXCLUDED.currency
   RETURNING w.*;
 END;
 $$;

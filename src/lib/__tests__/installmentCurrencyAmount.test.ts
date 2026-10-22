@@ -6,7 +6,7 @@
 // parte de lo que debía.
 
 import { describe, it, expect } from "vitest";
-import { computeAmount, computeAmountInCurrency } from "@/lib/workOrderPaymentPlan";
+import { computeAmount, computeAmountInCurrency, convertAmount } from "@/lib/workOrderPaymentPlan";
 
 const FEE_USD = 3154.03; // honorario con IVA de una OT en USD
 const RATE = 11.7; // bolivianos por dólar
@@ -47,5 +47,33 @@ describe("computeAmountInCurrency", () => {
   it("redondea a dos decimales, que es lo que se factura", () => {
     const v = computeAmountInCurrency(33.33, FEE_USD, "BOB", "USD", RATE);
     expect(v).toBe(parseFloat(v.toFixed(2)));
+  });
+});
+
+describe("convertAmount — la fila de gastos que cambia de moneda", () => {
+  // Hallazgo de la revisión previa al PR (2026-10-22): cambiar la moneda de la fila de gastos
+  // sólo cambiaba la etiqueta, así que Bs 574,71 pasaban a ser USD 574,71 — unas siete veces lo
+  // gastado. Ahora el monto viaja convertido en la misma sentencia que la moneda.
+
+  it("de Bs a la moneda de la OT divide por el TC", () => {
+    expect(convertAmount(696, "BOB", "USD", 6.96)).toBe(100);
+  });
+
+  it("de la moneda de la OT a Bs multiplica por el TC", () => {
+    expect(convertAmount(100, "USD", "BOB", 6.96)).toBe(696);
+  });
+
+  it("misma moneda, mismo monto", () => {
+    expect(convertAmount(574.71, "BOB", "BOB", 6.96)).toBe(574.71);
+  });
+
+  it("sin TC devuelve null en vez de guardar el mismo número con otra etiqueta", () => {
+    // Es justamente el error que esto evita: preferible rechazar el cambio que mentir.
+    expect(convertAmount(574.71, "BOB", "USD", null)).toBeNull();
+    expect(convertAmount(574.71, "BOB", "USD", 0)).toBeNull();
+  });
+
+  it("entre dos monedas extranjeras no hay TC del plan que sirva", () => {
+    expect(convertAmount(100, "USD", "USDT", 6.96)).toBeNull();
   });
 });

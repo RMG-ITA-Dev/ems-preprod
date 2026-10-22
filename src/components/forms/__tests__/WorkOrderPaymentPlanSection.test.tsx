@@ -923,6 +923,24 @@ describe("WorkOrderPaymentPlanSection — el TC al COBRAR se confirma en el diá
     expect(args.paymentExchangeRate).toBe(7.25);
   });
 
+  it("PTC4: una cuota en Bs dentro de una OT en USD NO recibe el TC del diálogo", () => {
+    // Hallazgo de la revisión previa al PR (2026-10-22): el diálogo prellenaba un TC y se le
+    // escribía igual a la cuota en bolivianos — sin sentido, y en modo fijo hacía rebotar el
+    // cobro con EXCHANGE_RATE_LOCKED. Ahora el TC sólo viaja si la cuota NO va en Bs.
+    mockUpdateStatus.mockClear();
+    const container = renderSection({
+      currency: "USD" as const,
+      isStatusEditable: true,
+      plan: { plan_id: "plan-1", wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30, exchange_rate_mode: "fijo" },
+      installments: [{ ...facturada(), currency: "BOB", payment_exchange_rate: null }],
+    });
+    cobrar(container);
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmCompletedAction"));
+
+    const args = mockUpdateStatus.mock.calls[0][0];
+    expect(args.paymentExchangeRate).toBeNull();
+  });
+
   it("PTC3: una cuota en Bs no muestra el campo — no hay nada que convertir", () => {
     const container = renderSection({
       currency: "BOB" as const,

@@ -26,6 +26,7 @@ import { exportCollectionsToExcel } from "@/lib/collectionsExport";
 
 const TABS: CollectionsTab[] = ["por_facturar", "por_cobrar", "en_mora", "cobradas"];
 type GroupBy = "ot" | "cliente" | "ninguno";
+const NO_ROWS: CollectionsRow[] = [];
 const PAGE_SIZE = 50;
 /** El valor que usan los selectores para "sin filtro": Radix Select no admite un value vacío. */
 const ALL = "__all__";
@@ -115,7 +116,9 @@ export default function Collections() {
   const { data, isLoading, isError } = useCollections(filters, enabled);
   const { data: options } = useCollectionsFilterOptions(enabled);
 
-  const rows = data?.rows ?? [];
+  // Referencia ESTABLE mientras no hay datos: `?? []` creaba un arreglo nuevo en cada render y
+  // el agrupado (useMemo sobre `rows`) se recalculaba siempre.
+  const rows = data?.rows ?? NO_ROWS;
   const totalCount = data?.total_count ?? 0;
   const pageCount = Math.max(Math.ceil(totalCount / PAGE_SIZE), 1);
 

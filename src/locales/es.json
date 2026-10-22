@@ -2041,7 +2041,9 @@
       "confirmationNotConfirmedTooltip": "El cliente rechazó la fecha anterior y la cuota se reprogramó. El detalle está en el historial.",
       "adjustmentTypeHint_descuento": "Se acordó cobrarle menos al cliente. Solo antes de cobrar: una vez que la plata entró, ya no hay nada que descontar.",
       "adjustmentTypeHint_diferencia_cambio": "La brecha entre el tipo de cambio con el que se facturó y el del día en que se cobró. Va en bolivianos y solo existe después de cobrar, porque hasta entonces hay un solo tipo de cambio.",
-      "expenseRowsVat": "incluye IVA {{rate}}%: {{amount}}"
+      "expenseRowsVat": "incluye IVA {{rate}}%: {{amount}}",
+      "currencyLockedByAdjustments": "La cuota tiene ajustes vigentes. Retírelos antes de cambiar la moneda.",
+      "errorCurrencyNoRate": "No se puede convertir: falta el tipo de cambio del plan."
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",

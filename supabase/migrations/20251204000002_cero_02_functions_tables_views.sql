@@ -9080,16 +9080,28 @@ $$;
 --
 -- La penalidad IVA del 13% no se descuenta: es un castigo al empleado por una factura mal
 -- emitida, no un menor costo para el cliente (Q43).
+--
+-- Es SECURITY DEFINER porque lee fund_request_expenses, cuya RLS no le da acceso a Cobranzas.
+-- Por eso mismo verifica el rol adentro: sin ese chequeo, cualquier usuario con sesion le
+-- pasaba el id de cualquier OT y se llevaba los gastos aprobados, saltando la RLS. Es la
+-- regla de todo el modulo -- una funcion definer no confia en sus parametros.
 CREATE FUNCTION public.wo_billable_expenses(p_wo_id uuid) RETURNS TABLE (fre_id uuid, amount numeric)
-    LANGUAGE sql STABLE SECURITY DEFINER
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede ver los gastos por facturar';
+  END IF;
+
+  RETURN QUERY
   SELECT e.fre_id, e.amount
     FROM public.fund_request_expenses e
    WHERE e.wo_id = p_wo_id
      AND e.status = 'revisado_asistente'
      AND NOT EXISTS (SELECT 1 FROM public.wo_installment_expenses x WHERE x.fre_id = e.fre_id)
    ORDER BY e.fre_id;
+END;
 $$;
 
 

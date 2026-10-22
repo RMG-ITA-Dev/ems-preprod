@@ -53,6 +53,9 @@ const ADJUSTMENT_FORBIDDEN_TOKEN = "ADJUSTMENT_FORBIDDEN";
 const ADJUSTMENT_LOCKED_TOKEN = "ADJUSTMENT_LOCKED";
 const ADJUSTMENT_EXCEEDS_TOKEN = "ADJUSTMENT_EXCEEDS_AMOUNT";
 const ADJUSTMENT_REASON_REQUIRED_TOKEN = "ADJUSTMENT_REASON_REQUIRED";
+// Cambiar la moneda de una cuota con un ajuste vigente: el ajuste quedaría en la moneda vieja
+// y dejaría de restar.
+const CURRENCY_HAS_ADJUSTMENTS_TOKEN = "INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS";
 
 function errorMessageOf(error: unknown): string {
   return error instanceof Error
@@ -163,6 +166,10 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
     toast.error(i18n.t("workOrders.paymentPlan.errorNoteBodyRequired"));
     return;
   }
+  if (errorMessageOf(error).includes(CURRENCY_HAS_ADJUSTMENTS_TOKEN)) {
+    toast.error(i18n.t("workOrders.paymentPlan.currencyLockedByAdjustments"));
+    return;
+  }
   if (isAdjustmentForbiddenError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorAdjustmentForbidden"));
     return;
@@ -211,6 +218,24 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
     toastTitle: `Error ${operation}`,
     context: { operation },
   });
+}
+
+
+/**
+ * Lo que hay que refrescar cuando cambia algo de una cuota. Son tres vistas que leen lo mismo
+ * desde lugares distintos, y si se refresca una sola las otras quedan mostrando un estado viejo:
+ *   * la OT (el plan de pagos);
+ *   * la bitácora de la cuota — casi toda mutación de cuota escribe un evento;
+ *   * la pantalla de Cobranzas — que con su staleTime podía seguir listando como "por
+ *     facturar" una cuota recién facturada al volver desde la OT.
+ */
+function invalidateInstallmentViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+  woId: string,
+): void {
+  queryClient.invalidateQueries({ queryKey: ["work_order", woId] });
+  queryClient.invalidateQueries({ queryKey: ["installment_events", woId] });
+  queryClient.invalidateQueries({ queryKey: ["collections"] });
 }
 
 // Create or update the plan header row.
@@ -290,6 +315,9 @@ export function useBatchUpsertInstallments() {
         status: inst.status,
         invoice_exchange_rate: inst.invoice_exchange_rate,
         payment_exchange_rate: inst.payment_exchange_rate,
+        // La moneda viaja con el monto. Sin ella, una cuota convertida a Bs en pantalla se
+        // guardaba con el número en bolivianos y la etiqueta de la OT (USD): un error de ×TC.
+        currency: inst.currency ?? null,
       }));
 
       // NOTA: sync_wo_payment_installments aún no está en
@@ -304,7 +332,7 @@ export function useBatchUpsertInstallments() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -396,7 +424,7 @@ export function useUpdateInstallmentStatus() {
       throw new Error(`INVALID_STATUS_TRANSITION: ${prevStatus} -> ${newStatus}`);
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -417,7 +445,7 @@ export function useDeletePaymentPlan() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -468,7 +496,7 @@ export function useRescheduleInstallment() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "rescheduling installment"),
@@ -509,7 +537,7 @@ export function useRecordInstallmentConfirmation() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "recording installment confirmation"),
@@ -602,7 +630,7 @@ export function useUpdateCollectionDate() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -638,7 +666,7 @@ export function useUpdateInstallmentExchangeRate() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -650,7 +678,7 @@ export function useUpdateInstallmentExchangeRate() {
     // pantalla; en una OT Approved (sin botón de Guardar de página) quedaba sin forma
     // de corregirse hasta recargar. Invalidar fuerza un refetch que trae el valor real.
     onError: (error: unknown, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -671,7 +699,7 @@ export function useDeleteInstallment() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       // dashboard: cartera/encargo/personal/socio leen plan de pagos/cuotas de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -698,7 +726,7 @@ export function useCreateExpenseReimbursementRow() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       queryClient.invalidateQueries({ queryKey: ["billable_expenses", variables.woId] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
@@ -724,7 +752,7 @@ export function useSetExpenseReimbursementAmount() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "adjusting billed expenses"),
@@ -767,10 +795,8 @@ export function useAddInstallmentAdjustment() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       invalidateAdjustments(queryClient, variables.woId);
-      // La pantalla de Cobranzas muestra lo que queda por cobrar: un ajuste la cambia.
-      queryClient.invalidateQueries({ queryKey: ["collections"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "adding installment adjustment"),
@@ -787,9 +813,8 @@ export function useDeleteInstallmentAdjustment() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       invalidateAdjustments(queryClient, variables.woId);
-      queryClient.invalidateQueries({ queryKey: ["collections"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "removing installment adjustment"),
@@ -828,20 +853,31 @@ export function useSetInstallmentCurrency() {
     mutationFn: async ({
       installmentId,
       currency,
+      amount,
     }: {
       installmentId: string;
       currency: "BOB" | "USD" | "USDT";
+      /**
+       * El monto YA convertido a la moneda nueva. Viaja en la misma sentencia que la moneda:
+       * cambiar sólo la etiqueta dejaba 574,71 Bs convertidos en 574,71 USD.
+       */
+      amount: number;
       woId: string;
     }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("wo_payment_installments")
-        .update({ currency } as never)
-        .eq("installment_id", installmentId);
+        .update({ currency, amount } as never)
+        .eq("installment_id", installmentId)
+        // Sin `.select()`, un UPDATE que la RLS filtra devuelve éxito habiendo tocado cero
+        // filas: la pantalla diría que cambió y la base seguiría igual.
+        .select("installment_id");
       if (error) throw error;
+      if (!data || (data as unknown[]).length === 0) {
+        throw new Error("INSTALLMENT_FORBIDDEN: no se pudo cambiar la moneda de esta fila");
+      }
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["work_order", variables.woId] });
-      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      invalidateInstallmentViews(queryClient, variables.woId);
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => handlePaymentPlanError(error, "changing installment currency"),

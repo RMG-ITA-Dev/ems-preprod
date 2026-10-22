@@ -63,6 +63,28 @@ export function computeAmount(percentage: number, feeWithTax: number): number {
  * Solo se convierte entre la moneda de la OT y Bs, que es el único caso que la pantalla ofrece.
  * Sin tipo de cambio no hay conversión posible, así que devuelve el monto sin tocar.
  */
+/**
+ * Pasa un monto de una moneda a otra con el TC del plan (bolivianos por unidad de la moneda de
+ * la OT). Sólo entre Bs y otra moneda: es el único cruce que la pantalla ofrece, y entre dos
+ * monedas extranjeras no hay TC del plan que sirva.
+ *
+ * Devuelve `null` cuando no se puede convertir —falta el TC, o el cruce no pasa por Bs— para
+ * que quien llama lo rechace en vez de guardar el mismo número con otra etiqueta, que es
+ * exactamente el error que esto evita.
+ */
+export function convertAmount(
+  amount: number,
+  from: string,
+  to: string,
+  bobPerUnit: number | null | undefined,
+): number | null {
+  if (from === to) return amount;
+  if (!bobPerUnit || bobPerUnit <= 0) return null;
+  if (to === "BOB") return parseFloat((amount * bobPerUnit).toFixed(2));
+  if (from === "BOB") return parseFloat((amount / bobPerUnit).toFixed(2));
+  return null;
+}
+
 export function computeAmountInCurrency(
   percentage: number,
   feeWithTax: number,

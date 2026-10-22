@@ -54,6 +54,7 @@ import {
   distributePercentages,
   computeAmount,
   computeAmountInCurrency,
+  convertAmount,
   computePaymentDate,
   isAlertDue,
   getInstallmentDisplay,
@@ -276,6 +277,7 @@ export function WorkOrderPaymentPlanSection({
   };
 
   const openAdjustments = (installmentId: string) => {
+    if (blockIfPlanDirty()) return;
     resetAdjustmentForm();
     setAdjustmentsDialog({ installmentId });
   };
@@ -755,6 +757,10 @@ export function WorkOrderPaymentPlanSection({
     rateOverride?: { invoiceRate: number | null; invoiceRateDate: string | null },
   ) => {
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
+    // El TC del diálogo sólo vale para una cuota que NO va en Bs: en una cuota en bolivianos no
+    // hay nada que convertir, y aplicarlo igual le escribía un TC sin sentido —a veces uno
+    // heredado de otro diálogo— que en modo fijo hacía rebotar el cobro.
+    const rate = installmentCurrency(inst) !== "BOB" ? rateOverride?.invoiceRate ?? null : null;
 
     if (newStatus === "Invoiced") {
       if (inst.status !== "Overdue") {
@@ -769,8 +775,8 @@ export function WorkOrderPaymentPlanSection({
       updates.payment_date_actual = today;
       // El TC con el que se cobró, confirmado en el diálogo. Sin esto, se cobraba con lo que
       // hubiera quedado en la columna y después ya no se podía corregir.
-      if (rateOverride?.invoiceRate != null) {
-        updates.payment_exchange_rate = rateOverride.invoiceRate;
+      if (rate != null) {
+        updates.payment_exchange_rate = rate;
       }
     }
     // Overdue (manual from Invoiced): keep existing collection dates, just change status
@@ -795,18 +801,29 @@ export function WorkOrderPaymentPlanSection({
         // que esto sigue permitido en la MISMA transicion que congela la cuota.
         invoiceExchangeRate:
           newStatus === "Invoiced"
-            ? rateOverride?.invoiceRate ?? inst.invoice_exchange_rate
+            ? rate ?? inst.invoice_exchange_rate
             : undefined,
-        invoiceExchangeRateDate: newStatus === "Invoiced" ? rateOverride?.invoiceRateDate ?? null : undefined,
+        invoiceExchangeRateDate:
+          newStatus === "Invoiced" && rate != null ? rateOverride?.invoiceRateDate ?? null : undefined,
         paymentExchangeRate:
           newStatus === "Completed"
-            ? rateOverride?.invoiceRate ?? inst.payment_exchange_rate
+            ? rate ?? inst.payment_exchange_rate
             : undefined,
       });
     }
   };
 
+  // Las acciones de fila guardan por su cuenta y después refrescan la OT, y ese refresco
+  // rehidrata TODO el plan desde la base: si había cambios sin guardar —porcentajes, fechas—
+  // se perdían sin aviso. Es el mismo chequeo que ya tenía el selector de estado.
+  const blockIfPlanDirty = (): boolean => {
+    if (!isPaymentPlanDirty) return false;
+    toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+    return true;
+  };
+
   const openScheduleDialog = (idx: number, mode: "reschedule" | "notConfirmed") => {
+    if (blockIfPlanDirty()) return;
     setScheduleDate("");
     setScheduleReason("");
     setScheduleDialog({ idx, mode });
@@ -843,6 +860,7 @@ export function WorkOrderPaymentPlanSection({
   };
 
   const handleConfirmClient = (idx: number) => {
+    if (blockIfPlanDirty()) return;
     const inst = installments[idx];
     if (!inst?.installment_id) return;
     recordConfirmation.mutate({
@@ -1407,7 +1425,19 @@ export function WorkOrderPaymentPlanSection({
                           {/* Una vez facturada, la moneda queda congelada junto con el monto y
                               el TC: cambiarla despues reescribiria lo que ya se le facturo al
                               cliente. El guard de la base aplica la misma regla. */}
-                          {!isLocked(inst) && dateEditable ? (
+                          {/* Con un ajuste vigente la moneda no se cambia: el descuento vive en
+                              la moneda de cuando se cargó y dejaría de restar en silencio. El
+                              servidor lo rechaza igual (INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS);
+                              acá se avisa antes. */}
+                          {!isLocked(inst) && dateEditable &&
+                            rowAdjustmentRows.some((a) => a.deleted_at === null) ? (
+                            <span
+                              className="font-mono text-xs text-muted-foreground"
+                              title={t("workOrders.paymentPlan.currencyLockedByAdjustments")}
+                            >
+                              {installmentCurrency(inst)}
+                            </span>
+                          ) : !isLocked(inst) && dateEditable ? (
                             <Select
                               value={installmentCurrency(inst)}
                               onValueChange={(v) => handleInstallmentCurrencyChange(idx, v as "BOB" | "USD" | "USDT")}
@@ -1889,10 +1919,19 @@ export function WorkOrderPaymentPlanSection({
                               <Select
                                 value={row.currency ?? "BOB"}
                                 onValueChange={(v) => {
-                                  if (!row.installment_id || v === (row.currency ?? "BOB")) return;
+                                  const from = row.currency ?? "BOB";
+                                  if (!row.installment_id || v === from) return;
+                                  // Se convierte con el TC del plan, igual que una cuota de
+                                  // honorarios: el cliente paga el mismo valor en otra moneda.
+                                  const converted = convertAmount(row.amount ?? 0, from, v, currentPlan.exchange_rate);
+                                  if (converted === null) {
+                                    toast.error(t("workOrders.paymentPlan.errorCurrencyNoRate"));
+                                    return;
+                                  }
                                   setInstallmentCurrency.mutate({
                                     installmentId: row.installment_id,
                                     currency: v as "BOB" | "USD" | "USDT",
+                                    amount: converted,
                                     woId,
                                   });
                                 }}
@@ -1924,12 +1963,17 @@ export function WorkOrderPaymentPlanSection({
                                 onValueChange={(val) => {
                                   const s = val as PaymentInstallmentStatus;
                                   if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
-                                    if (s === "Invoiced") {
-                                      // Los gastos se rinden y se cobran en Bs: no hay
-                                      // conversión que confirmar.
-                                      setInvoiceRate(null);
-                                      setInvoiceRateDate("");
-                                    }
+                                    // Se reinicia al facturar Y al cobrar: el estado del TC es
+                                    // compartido con el diálogo de las cuotas, y sin esto una
+                                    // fila de gastos heredaba el último TC que alguien tecleó.
+                                    // En Bs no hay TC; si la fila se pasó a otra moneda, arranca
+                                    // con el del día, igual que una cuota.
+                                    setInvoiceRate(
+                                      (row.currency ?? "BOB") === "BOB"
+                                        ? null
+                                        : latestBuyRate ?? currentPlan.exchange_rate,
+                                    );
+                                    setInvoiceRateDate("");
                                     setPendingChange({ row, newStatus: s });
                                   } else {
                                     handleStatusChange(row, s);

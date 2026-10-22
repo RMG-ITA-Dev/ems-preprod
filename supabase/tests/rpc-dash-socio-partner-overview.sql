@@ -1013,6 +1013,40 @@ BEGIN
   RAISE NOTICE 'OK 15: to_invoice_bob=base c/IVA*6.96, collected_bob usa TC de pago, overdue_90_bob solo la cuota vencida';
 END $$;
 
+-- ── 15bis. Una cuota en Bs dentro de una OT en USD se valua a 1, no al TC de la OT ─────────
+-- Hallazgo de la revision previa al PR (2026-10-22): el dashboard valuaba cada cuota con el TC
+-- de la OT e ignoraba la moneda propia de la cuota. La fila de gastos ejecutados nace siempre en
+-- Bs, asi que en una OT en USD cada una entraba a los KPI multiplicada por ~7.
+DO $$
+DECLARE v_antes numeric; v_despues numeric;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(2));
+  v_antes := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'economic_cycle'->>'to_invoice_bob')::numeric;
+
+  -- La fila la carga el GERENTE de E1: esta suite evalua RLS, y la policy de escritura de
+  -- cuotas esta acotada al gerente del encargo. (En produccion la crea una RPC definer.)
+  PERFORM pg_temp.impersonate(pg_temp.u(5));
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, net_amount, status,
+     installment_type, currency, agreed_invoice_date, agreed_payment_date)
+  VALUES ('e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 99,
+          0, 500, 500, 'Pending', 'expense_reimbursement', 'BOB',
+          (now() AT TIME ZONE 'America/La_Paz')::date + 5,
+          (now() AT TIME ZONE 'America/La_Paz')::date + 35);
+
+  PERFORM pg_temp.impersonate(pg_temp.u(2));
+  v_despues := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'economic_cycle'->>'to_invoice_bob')::numeric;
+  IF abs((v_despues - v_antes) - 500) > 0.01 THEN
+    RAISE EXCEPTION 'FAIL: una fila de Bs 500 en una OT en USD sumo % a to_invoice_bob; tenia que sumar 500 (no 500 x TC)',
+      v_despues - v_antes;
+  END IF;
+
+  PERFORM pg_temp.impersonate(pg_temp.u(5));
+  DELETE FROM public.wo_payment_installments
+   WHERE wo_id = 'd0da5c10-0000-4000-8000-000000000001' AND installment_number = 99;
+  RAISE NOTICE 'OK 15bis: una cuota en Bs se valua a 1 aunque la OT sea en USD';
+END $$;
+
 -- ── 16. next_7_days incluye agreed_payment_date=hoy+3 y NO la vencida (hoy-2, que va en overdue); in_arrears ─
 DO $$
 DECLARE v jsonb;
