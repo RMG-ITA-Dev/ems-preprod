@@ -24,6 +24,7 @@ const INSTALLMENT_LOCKED_TOKEN = "INSTALLMENT_LOCKED";
 // cuando quien escribe no tiene el rol correcto — distinto de "LOCKED" (que es sobre
 // el momento/estado), este es sobre quién puede hacerlo.
 const EXCHANGE_RATE_FORBIDDEN_TOKEN = "EXCHANGE_RATE_FORBIDDEN";
+const EXCHANGE_RATE_REQUIRED_TOKEN = "EXCHANGE_RATE_REQUIRED";
 // Cobranzas Fase 1: tokens de las RPC invoice_installment/collect_installment/
 // set_installment_overdue.
 // STALE es el caso de concurrencia — alguien más ya movió la cuota — y necesita su propio
@@ -72,6 +73,10 @@ function isExchangeRateLockedError(error: unknown): boolean {
 
 function isInstallmentLockedError(error: unknown): boolean {
   return errorMessageOf(error).includes(INSTALLMENT_LOCKED_TOKEN);
+}
+
+function isExchangeRateRequiredError(error: unknown): boolean {
+  return errorMessageOf(error).includes(EXCHANGE_RATE_REQUIRED_TOKEN);
 }
 
 function isExchangeRateForbiddenError(error: unknown): boolean {
@@ -217,6 +222,10 @@ function handlePaymentPlanError(error: unknown, operation: string): void {
   }
   if (isExchangeRateForbiddenError(error)) {
     toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateForbidden"));
+    return;
+  }
+  if (isExchangeRateRequiredError(error)) {
+    toast.error(i18n.t("workOrders.paymentPlan.errorExchangeRateRequired"));
     return;
   }
   if (isExchangeRateUnavailableError(error)) {

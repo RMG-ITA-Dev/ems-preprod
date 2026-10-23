@@ -2219,6 +2219,9 @@ REVOKE ALL ON TABLE public.wo_installment_adjustments FROM PUBLIC, anon;
 GRANT SELECT ON TABLE public.wo_installment_adjustments TO authenticated;
 GRANT ALL ON TABLE public.wo_installment_adjustments TO service_role;
 
+REVOKE EXECUTE ON FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) TO authenticated, service_role;
+
 REVOKE EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) TO authenticated, service_role;
 

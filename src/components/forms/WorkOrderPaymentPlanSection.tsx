@@ -970,7 +970,7 @@ export function WorkOrderPaymentPlanSection({
     const rowEvents = eventsForInstallment(events, row.installment_id);
     const spent = (
       <>
-        {formatAmount(row.net_amount ?? 0, "BOB")} <span className="text-[10px]">BOB</span>
+        {formatAmount(row.net_amount ?? 0, "BOB")}
       </>
     );
     const billed = (
@@ -985,7 +985,7 @@ export function WorkOrderPaymentPlanSection({
             }
             decimals={2}
             min={0}
-            className="h-8 w-32 text-sm"
+            className="ml-auto h-8 w-32 text-right text-sm"
             onChange={(v) =>
               setExpenseAmountDraft({ id: row.installment_id!, value: v })
             }
@@ -2041,7 +2041,7 @@ export function WorkOrderPaymentPlanSection({
                           <div className="shrink-0">{p.currencyCell}</div>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {t("workOrders.paymentPlan.expenseRowsSpent")}: {p.spent}
+                          {t("workOrders.paymentPlan.expenseRowsSpent")} (BOB): {p.spent}
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div>
@@ -2063,8 +2063,11 @@ export function WorkOrderPaymentPlanSection({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsSpent")}</th>
-                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
+                        {/* Montos a la derecha (AGENTS.md regla 4). Lo gastado siempre está en Bs: la
+                            moneda va en el encabezado. El monto a facturar puede ir en otra
+                            moneda, que tiene su propia columna al lado. */}
+                        <th className="py-2 px-3 text-right">{t("workOrders.paymentPlan.expenseRowsSpent")} (BOB)</th>
+                        <th className="py-2 px-3 text-right">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
                         <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsCurrency")}</th>
                         <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
                         <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
@@ -2076,8 +2079,8 @@ export function WorkOrderPaymentPlanSection({
                       const p = expenseRowParts(row);
                       return (
                         <tr key={row.installment_id} className="hover:bg-muted/20 transition-colors">
-                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.spent}</td>
-                          <td className="py-2 px-3 border-b border-border/50">{p.billed}</td>
+                          <td className="py-2 px-3 text-right font-mono text-xs text-muted-foreground border-b border-border/50">{p.spent}</td>
+                          <td className="py-2 px-3 text-right border-b border-border/50">{p.billed}</td>
                           <td className="py-2 px-3 border-b border-border/50">{p.currencyCell}</td>
                           <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.invoiceDate}</td>
                           <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.paymentDate}</td>
@@ -2468,7 +2471,7 @@ export function WorkOrderPaymentPlanSection({
         )}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={closeAdjustments}>
+          <Button type="button" variant="cancel" onClick={closeAdjustments}>
             {t("common.close")}
           </Button>
           {canBillExpenses && (

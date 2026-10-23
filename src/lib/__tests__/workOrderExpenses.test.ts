@@ -45,6 +45,14 @@ describe("workOrderExpenses", () => {
     expect(workOrderExpenseTotals(list)).toEqual({ spent: 620, inProcess: 80 });
   });
 
+  it("un rechazado cuenta en proceso solo si el servidor lo marca (todavía se puede corregir)", () => {
+    // La fecha fin es de la solicitud y la decide el servidor (fund_expense_in_process): la
+    // pantalla usa su marca en vez de adivinar por el estado.
+    const corregible = exp({ fre_id: "e5", amount: 25, status: "rechazado", in_process: true });
+    const vencido = exp({ fre_id: "e6", amount: 40, status: "rechazado", in_process: false });
+    expect(workOrderExpenseTotals([...list, corregible, vencido])).toEqual({ spent: 620, inProcess: 105 });
+  });
+
   it("filtra por período, solicitante, tipo y estado", () => {
     expect(filterWorkOrderExpenses(list, { from: "2026-10-01" }).map((e) => e.fre_id)).toEqual(["e2", "e3", "e4"]);
     expect(filterWorkOrderExpenses(list, { to: "2026-09-30" }).map((e) => e.fre_id)).toEqual(["e1"]);

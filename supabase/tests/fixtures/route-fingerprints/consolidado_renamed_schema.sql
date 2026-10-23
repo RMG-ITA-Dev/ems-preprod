@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
+\restrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -332,7 +332,8 @@ CREATE TYPE public.fund_request_expense_status AS ENUM (
     'aprobado_gerente',
     'observado',
     'rechazado',
-    'revisado_asistente'
+    'revisado_asistente',
+    'vencido'
 );
 
 
@@ -810,6 +811,207 @@ begin
     where rolname=$1 and rolcanlogin;
 end;
 $_$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: wo_installment_adjustments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_installment_adjustments (
+    adjustment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    installment_id uuid NOT NULL,
+    wo_id uuid NOT NULL,
+    adjustment_type text NOT NULL,
+    amount numeric NOT NULL,
+    currency text NOT NULL,
+    reason text NOT NULL,
+    created_by_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    deleted_by_staff_id uuid,
+    CONSTRAINT wo_installment_adjustments_amount_check CHECK ((((adjustment_type = 'descuento'::text) AND (amount < (0)::numeric)) OR ((adjustment_type = 'diferencia_cambio'::text) AND (amount <> (0)::numeric)))),
+    CONSTRAINT wo_installment_adjustments_currency_check CHECK ((currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text]))),
+    CONSTRAINT wo_installment_adjustments_reason_check CHECK ((btrim(reason) <> ''::text)),
+    CONSTRAINT wo_installment_adjustments_type_check CHECK ((adjustment_type = ANY (ARRAY['descuento'::text, 'diferencia_cambio'::text])))
+);
+
+
+--
+-- Name: add_installment_adjustment(uuid, text, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) RETURNS public.wo_installment_adjustments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_inst public.wo_payment_installments;
+  v_wo_currency text;
+  v_currency text;
+  v_adj_currency text;
+  v_vigente numeric;
+  v_row public.wo_installment_adjustments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  IF p_type IS NULL OR p_type NOT IN ('descuento', 'diferencia_cambio') THEN
+    RAISE EXCEPTION 'ADJUSTMENT_TYPE_INVALID: tipo de ajuste desconocido (%)', p_type;
+  END IF;
+
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'ADJUSTMENT_REASON_REQUIRED: el ajuste necesita un motivo';
+  END IF;
+
+  -- Se bloquea la cuota: dos personas cargando descuentos a la vez no pueden pasarse del
+  -- monto entre las dos, porque el chequeo de abajo las ve en orden.
+  SELECT i.* INTO v_inst FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_inst.wo_id;
+  v_currency := COALESCE(v_inst.currency, v_wo_currency);
+
+  IF p_type = 'descuento' THEN
+    IF p_amount IS NULL OR p_amount >= 0 THEN
+      RAISE EXCEPTION 'ADJUSTMENT_AMOUNT_INVALID: un descuento tiene que ser negativo';
+    END IF;
+    IF v_inst.status = 'Completed' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la cuota ya fue cobrada; un descuento se acuerda antes de cobrar';
+    END IF;
+    -- Un descuento va en la moneda de la cuota: es una rebaja de ESE monto.
+    v_adj_currency := v_currency;
+    -- Nunca por debajo de cero: una cuota con descuentos por mas de su monto dejaria al
+    -- cliente debiendo un numero negativo, que no quiere decir nada.
+    v_vigente := COALESCE(v_inst.amount, 0)
+               + public.installment_adjustments_total(p_installment_id, v_adj_currency);
+    IF abs(p_amount) > v_vigente THEN
+      RAISE EXCEPTION 'ADJUSTMENT_EXCEEDS_AMOUNT: el descuento (%) supera lo que queda por cobrar de la cuota (%)',
+        abs(p_amount), v_vigente;
+    END IF;
+  ELSE
+    IF p_amount IS NULL OR p_amount = 0 THEN
+      RAISE EXCEPTION 'ADJUSTMENT_AMOUNT_INVALID: la diferencia de cambio no puede ser cero';
+    END IF;
+    IF v_inst.status <> 'Completed' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la diferencia de cambio recien existe cuando la cuota esta cobrada';
+    END IF;
+    IF v_currency = 'BOB' THEN
+      RAISE EXCEPTION 'ADJUSTMENT_TYPE_INVALID: una cuota en Bs no tiene diferencia de cambio';
+    END IF;
+    -- Una sola vigente por cuota: la diferencia entre dos TC es UN numero. Dos envios del
+    -- dialogo (o dos sesiones) la sumaban dos veces en exchange_difference_bob. Se mira con la
+    -- cuota bloqueada (FOR UPDATE de arriba), asi que dos llamadas a la vez no pasan las dos.
+    -- Para corregirla, se retira la vigente y se registra la nueva.
+    IF EXISTS (
+      SELECT 1 FROM public.wo_installment_adjustments a
+       WHERE a.installment_id = p_installment_id
+         AND a.adjustment_type = 'diferencia_cambio'
+         AND a.deleted_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'ADJUSTMENT_DUPLICATE: la cuota ya tiene una diferencia de cambio vigente; retirela antes de registrar otra';
+    END IF;
+    -- La diferencia entre dos TC es un monto en bolivianos, no en la moneda de la cuota.
+    v_adj_currency := 'BOB';
+  END IF;
+
+  INSERT INTO public.wo_installment_adjustments
+    (installment_id, wo_id, adjustment_type, amount, currency, reason, created_by_staff_id)
+  VALUES (p_installment_id, v_inst.wo_id, p_type, p_amount, v_adj_currency,
+          btrim(p_reason), public.get_my_staff_id())
+  RETURNING * INTO v_row;
+
+  -- A la bitacora de la cuota, en la MISMA transaccion: es un cambio de plata sobre la cuota y
+  -- el historial es el unico lugar donde queda el rastro ordenado de lo que le paso.
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'adjustment', v_row.amount, v_row.currency,
+          v_row.reason, public.get_my_staff_id());
+
+  BEGIN
+    PERFORM public.notif_installment_adjustment(v_row, 'added');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'add_installment_adjustment: fallo el aviso para % : %', v_row.adjustment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+-- Name: wo_installment_notes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_installment_notes (
+    note_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    wo_id uuid NOT NULL,
+    installment_id uuid,
+    author_staff_id uuid,
+    author_role text,
+    body text NOT NULL,
+    deleted_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT wo_installment_notes_body_check CHECK ((btrim(body) <> ''::text))
+);
+
+
+--
+-- Name: add_installment_note(uuid, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+  v_inst_wo uuid;
+BEGIN
+  IF NOT public.wo_notes_participant(p_wo_id) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: no participa del hilo de notas de esta orden de trabajo';
+  END IF;
+
+  IF p_body IS NULL OR btrim(p_body) = '' THEN
+    RAISE EXCEPTION 'NOTE_BODY_REQUIRED: la nota no puede estar vacia';
+  END IF;
+
+  -- Una cuota de OTRA orden de trabajo dejaria la nota colgada de un hilo que su autor no
+  -- necesariamente puede leer.
+  IF p_installment_id IS NOT NULL THEN
+    SELECT i.wo_id INTO v_inst_wo
+    FROM public.wo_payment_installments i WHERE i.installment_id = p_installment_id;
+    IF v_inst_wo IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+    END IF;
+    IF v_inst_wo IS DISTINCT FROM p_wo_id THEN
+      RAISE EXCEPTION 'NOTE_WO_MISMATCH: la cuota no pertenece a esa orden de trabajo';
+    END IF;
+  END IF;
+
+  INSERT INTO public.wo_installment_notes (wo_id, installment_id, author_staff_id, author_role, body)
+  VALUES (p_wo_id, p_installment_id, public.get_my_staff_id(), public.current_role_key(), btrim(p_body))
+  RETURNING * INTO v_note;
+
+  -- Aviso de campana a la otra parte (decision Q35). En su propio bloque: que falle el modulo
+  -- de notificaciones no puede hacer perder la nota, que es el hecho que importa.
+  BEGIN
+    PERFORM public.notif_installment_note_added(v_note);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'add_installment_note: fallo el aviso para la nota % : %', v_note.note_id, SQLERRM;
+  END;
+
+  RETURN v_note;
+END;
+$$;
 
 
 --
@@ -1821,6 +2023,186 @@ COMMENT ON FUNCTION public.clear_account_deletion_mark(p_user_id uuid) IS 'Borra
 
 
 --
+-- Name: client_contacts_visible(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.client_contacts_visible(p_client_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.has_permission('client.read')
+     AND (
+       public.permission_scope('client.read') <> 'assigned_clients'
+       OR public.is_assigned_to_client(p_client_id)
+       OR EXISTS (SELECT 1 FROM public.clients c
+                   WHERE c.client_id = p_client_id
+                     AND c.created_by_staff_id IS NOT NULL
+                     AND c.created_by_staff_id = public.get_my_staff_id())
+     );
+$$;
+
+
+--
+-- Name: client_has_required_contacts(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.client_has_required_contacts(p_client_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (SELECT 1 FROM public.client_contacts
+                  WHERE client_id = p_client_id AND is_active AND contact_type = 'general')
+     AND EXISTS (SELECT 1 FROM public.client_contacts
+                  WHERE client_id = p_client_id AND is_active AND contact_type = 'cobranza');
+$$;
+
+
+--
+-- Name: wo_payment_installments; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_payment_installments (
+    installment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    plan_id uuid NOT NULL,
+    wo_id uuid NOT NULL,
+    installment_number integer NOT NULL,
+    agreed_invoice_date date,
+    agreed_payment_date date,
+    current_invoice_date date,
+    current_payment_date date,
+    collection_invoice_date date,
+    collection_payment_date date,
+    payment_date_actual date,
+    percentage numeric DEFAULT 0 NOT NULL,
+    amount numeric,
+    status text DEFAULT 'Pending'::text NOT NULL,
+    installment_type text DEFAULT 'fee'::text NOT NULL,
+    net_amount numeric,
+    currency text,
+    invoice_exchange_rate_date date,
+    confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
+    confirmed_for_date date,
+    confirmed_by uuid,
+    confirmed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    invoice_exchange_rate numeric,
+    payment_exchange_rate numeric,
+    CONSTRAINT wo_payment_installments_confirmation_status_check CHECK ((confirmation_status = ANY (ARRAY['sin_gestionar'::text, 'confirmada'::text, 'no_confirmada'::text]))),
+    CONSTRAINT wo_payment_installments_currency_check CHECK (((currency IS NULL) OR (currency = ANY (ARRAY['BOB'::text, 'USD'::text, 'USDT'::text])))),
+    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
+    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text]))),
+    CONSTRAINT wo_payment_installments_type_check CHECK ((installment_type = ANY (ARRAY['fee'::text, 'expense_reimbursement'::text])))
+);
+
+
+--
+-- Name: collect_installment(uuid, text, date, numeric); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL::date, p_payment_exchange_rate numeric DEFAULT NULL::numeric) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+  v_payment_date date := COALESCE(p_payment_date, public.fund_today());
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_expected_status IS DISTINCT FROM 'Invoiced' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota facturada puede marcarse como cobrada';
+  END IF;
+
+  IF v_payment_date > v_today THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_FUTURE: la fecha de pago no puede ser futura';
+  END IF;
+
+  IF v_row.collection_invoice_date IS NOT NULL AND v_payment_date < v_row.collection_invoice_date THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_BEFORE_INVOICE: la fecha de pago no puede ser anterior a la de facturacion';
+  END IF;
+
+  -- Mismo motivo que en invoice_installment: sin TC de pago no se cobra una cuota en moneda
+  -- extranjera, porque al quedar 'Completed' ya no se puede completar.
+  IF (SELECT COALESCE(v_row.currency, w.currency) FROM public.work_orders w WHERE w.wo_id = v_row.wo_id) <> 'BOB'
+     AND COALESCE(p_payment_exchange_rate, v_row.payment_exchange_rate, 0) <= 0 THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_REQUIRED: una cuota en moneda extranjera necesita el tipo de cambio de pago';
+  END IF;
+
+  -- Mismo motivo que en invoice_installment: el TC de pago se congela al llegar a
+  -- 'Completed', asi que se escribe en esta misma sentencia.
+  UPDATE public.wo_payment_installments
+     SET status = 'Completed',
+         payment_date_actual = v_payment_date,
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+-- Name: collections_filter_options(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.collections_filter_options() RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_result jsonb;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'COLLECTIONS_FORBIDDEN: esta vista es de contabilidad (o de un administrador)';
+  END IF;
+
+  WITH cobrables AS (
+    SELECT DISTINCT e.society_id, e.practica, e.manager_id
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+     WHERE wo.approval_status = 'Approved'
+       AND (e.funcion IS NULL OR e.funcion = 1)
+  )
+  SELECT jsonb_build_object(
+    'societies', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('society_id', s.society_id, 'name', s.name) ORDER BY s.name)
+        FROM public.society s
+       WHERE s.society_id IN (SELECT society_id FROM cobrables WHERE society_id IS NOT NULL)
+    ), '[]'::jsonb),
+    'practicas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('code', p.code, 'name', p.name, 'abbreviation', p.abbreviation) ORDER BY p.code)
+        FROM public.practicas p
+       WHERE p.code IN (SELECT practica FROM cobrables WHERE practica IS NOT NULL)
+    ), '[]'::jsonb),
+    'managers', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'staff_id', st.staff_id,
+               'name', NULLIF(btrim(COALESCE(st.first_name, '') || ' ' || COALESCE(st.last_name, '')), '')
+             ) ORDER BY st.first_name, st.last_name)
+        FROM public.staff st
+       WHERE st.staff_id IN (SELECT manager_id FROM cobrables WHERE manager_id IS NOT NULL)
+    ), '[]'::jsonb),
+    'currencies', COALESCE((
+      SELECT jsonb_agg(DISTINCT COALESCE(i.currency, wo.currency))
+        FROM public.wo_payment_installments i
+        JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+        JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+       WHERE wo.approval_status = 'Approved'
+         AND (e.funcion IS NULL OR e.funcion = 1)
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
+
+
+--
 -- Name: copy_categories_between_practices(uuid, uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1916,10 +2298,6 @@ BEGIN
 END;
 $$;
 
-
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
 
 --
 -- Name: categories; Type: TABLE; Schema: public; Owner: -
@@ -2213,6 +2591,110 @@ $$;
 
 
 --
+-- Name: create_expense_reimbursement_row(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_plan_id uuid;
+  v_payment_days integer;
+  v_number integer;
+  v_total numeric;
+  v_tax_rate numeric;
+  v_billed numeric;
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+  v_approval text;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede facturar los gastos ejecutados';
+  END IF;
+
+  -- Se bloquea la OT para que dos llamadas simultaneas no creen dos filas con los mismos
+  -- gastos. El UNIQUE de wo_installment_expenses es la red final; esto evita llegar a ella.
+  SELECT tax_rate, approval_status INTO v_tax_rate, v_approval
+    FROM public.work_orders WHERE wo_id = p_wo_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
+  END IF;
+  -- Solo una OT APROBADA factura gastos ejecutados. La pantalla ya lo exige, pero una pestana
+  -- vieja (la OT se devolvio a borrador despues) o una llamada directa a la RPC se lo saltaban.
+  -- Se mira con la fila bloqueada, para que nadie la cambie entre el chequeo y el alta.
+  IF v_approval IS DISTINCT FROM 'Approved' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: solo una orden de trabajo aprobada puede facturar gastos ejecutados';
+  END IF;
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_total FROM public.wo_billable_expenses(p_wo_id);
+  IF v_total <= 0 THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_EMPTY: no hay gastos aprobados pendientes de facturar en esta orden de trabajo';
+  END IF;
+
+  SELECT plan_id, payment_days INTO v_plan_id, v_payment_days
+  FROM public.wo_payment_plan WHERE wo_id = p_wo_id;
+
+  IF v_plan_id IS NULL THEN
+    -- La marca que deja pasar el guard de wo_payment_plan (20260908150000). Es local a esta
+    -- transaccion, lleva el wo_id y el guard ademas exige el rol, asi que no abre la creacion
+    -- del plan a nadie mas ni a otra OT. Se apaga enseguida.
+    PERFORM set_config('app.expense_billing_wo', p_wo_id::text, true);
+    INSERT INTO public.wo_payment_plan (wo_id, payment_days)
+    VALUES (p_wo_id, 30)
+    RETURNING plan_id, payment_days INTO v_plan_id, v_payment_days;
+    PERFORM set_config('app.expense_billing_wo', '', true);
+  END IF;
+
+  IF p_payment_due_date IS NOT NULL
+     AND (p_payment_due_date < v_today
+          OR p_payment_due_date > v_today + (COALESCE(v_payment_days, 30) * 2 + 14)) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: el vencimiento no corresponde a la fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
+  SELECT COALESCE(MAX(installment_number), 0) + 1 INTO v_number
+  FROM public.wo_payment_installments WHERE plan_id = v_plan_id;
+
+  -- Anexo A, respuesta del operador (2026-10-20): se factura SUBIENDO el monto para cubrir el
+  -- IVA. Con el monto a secas, la firma se quedaba con el 87% de lo que gasto -- una perdida
+  -- del 13% en cada rendicion, escondida dentro de la factura. Subiendolo, la firma recupera
+  -- exactamente lo gastado y el cliente, inscrito en el padron, recupera ese IVA como credito
+  -- fiscal: su costo real sigue siendo el neto.
+  --
+  -- Es la misma formula que ya usan los honorarios (feeWithTax), y `tax_rate` sale de la OT, no
+  -- de un 0.13 escrito aca: si alguna vez cambia la alicuota, cambia en un solo lugar.
+  --
+  -- net_amount guarda lo REALMENTE gastado y amount lo que se factura. Los dos se guardan
+  -- porque la diferencia entre ambos es justamente lo que hay que poder explicar.
+  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.13), 0), 2);
+
+  -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
+  -- Nace en BOB, que es la moneda en la que los gastos se rinden
+  -- (fund_requests_enforce_bob). Contabilidad puede cambiarsela mientras siga Pendiente, con
+  -- la regla de siempre: USDT no se mezcla.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, net_amount, amount,
+     installment_type, currency, status, agreed_invoice_date, agreed_payment_date)
+  VALUES (v_plan_id, p_wo_id, v_number, 0, v_total, v_billed,
+          'expense_reimbursement', 'BOB', 'Pending', v_today,
+          COALESCE(p_payment_due_date, v_today + COALESCE(v_payment_days, 30)))
+  RETURNING * INTO v_row;
+
+  INSERT INTO public.wo_installment_expenses (installment_id, fre_id, amount)
+  SELECT v_row.installment_id, b.fre_id, b.amount FROM public.wo_billable_expenses(p_wo_id) b;
+
+  BEGIN
+    PERFORM public.notif_installment_expense_row(v_row, 'created');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'create_expense_reimbursement_row: fallo el aviso para % : %', v_row.installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
 -- Name: activity_codes; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2412,6 +2894,99 @@ $$;
 
 
 --
+-- Name: delete_installment_adjustment(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) RETURNS public.wo_installment_adjustments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_installment_adjustments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  SELECT a.* INTO v_row FROM public.wo_installment_adjustments a
+   WHERE a.adjustment_id = p_adjustment_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND: el ajuste no existe';
+  END IF;
+  IF v_row.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
+  END IF;
+
+  -- La regla de add_installment_adjustment, del otro lado: un descuento se acuerda antes de
+  -- cobrar, y una vez cobrada la cuota lo pagado ya esta. Retirarlo despues subiria lo
+  -- "cobrado" de una cuota cerrada y cambiaria los totales historicos.
+  IF v_row.adjustment_type = 'descuento' AND EXISTS (
+    SELECT 1 FROM public.wo_payment_installments i
+     WHERE i.installment_id = v_row.installment_id AND i.status = 'Completed'
+  ) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_LOCKED: la cuota ya fue cobrada; su descuento no se puede retirar';
+  END IF;
+
+  UPDATE public.wo_installment_adjustments
+     SET deleted_at = now(), deleted_by_staff_id = public.get_my_staff_id()
+   WHERE adjustment_id = p_adjustment_id
+  RETURNING * INTO v_row;
+
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'adjustment_removed', v_row.amount, v_row.currency,
+          v_row.reason, public.get_my_staff_id());
+
+  BEGIN
+    PERFORM public.notif_installment_adjustment(v_row, 'removed');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'delete_installment_adjustment: fallo el aviso para % : %', p_adjustment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+-- Name: delete_installment_note(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.delete_installment_note(p_note_id uuid) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+BEGIN
+  SELECT n.* INTO v_note FROM public.wo_installment_notes n
+   WHERE n.note_id = p_note_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe';
+  END IF;
+
+  IF NOT (public.is_admin()
+          OR (v_note.author_staff_id IS NOT NULL
+              AND v_note.author_staff_id = public.get_my_staff_id())) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: solo el autor (o un administrador) puede borrar una nota';
+  END IF;
+
+  IF v_note.deleted_at IS NOT NULL THEN
+    RETURN v_note;
+  END IF;
+
+  UPDATE public.wo_installment_notes
+     SET deleted_at = now(), updated_at = now()
+   WHERE note_id = p_note_id
+  RETURNING * INTO v_note;
+
+  RETURN v_note;
+END;
+$$;
+
+
+--
 -- Name: dismiss_notifications(uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2450,6 +3025,51 @@ $$;
 --
 
 COMMENT ON FUNCTION public.dismiss_notifications(p_ids uuid[]) IS 'Descarta notificaciones propias marcando dismissed_at; NO borra la fila, que sigue siendo el registro de que el aviso ya salio (sin ella el cron lo repite al dia siguiente). Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de UPDATE para authenticated — esta es la unica via.';
+
+
+--
+-- Name: edit_installment_note(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) RETURNS public.wo_installment_notes
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_note public.wo_installment_notes;
+BEGIN
+  SELECT n.* INTO v_note FROM public.wo_installment_notes n
+   WHERE n.note_id = p_note_id FOR UPDATE;
+
+  IF NOT FOUND OR v_note.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe o fue borrada';
+  END IF;
+
+  IF NOT (public.is_admin()
+          OR (v_note.author_staff_id IS NOT NULL
+              AND v_note.author_staff_id = public.get_my_staff_id())) THEN
+    RAISE EXCEPTION 'NOTE_FORBIDDEN: solo el autor (o un administrador) puede editar una nota';
+  END IF;
+
+  IF p_body IS NULL OR btrim(p_body) = '' THEN
+    RAISE EXCEPTION 'NOTE_BODY_REQUIRED: la nota no puede quedar vacia';
+  END IF;
+
+  IF btrim(p_body) IS NOT DISTINCT FROM v_note.body THEN
+    RETURN v_note;  -- no-op: no ensucia el historial con una version identica
+  END IF;
+
+  INSERT INTO public.wo_installment_note_versions (note_id, body, edited_by_staff_id)
+  VALUES (v_note.note_id, v_note.body, public.get_my_staff_id());
+
+  UPDATE public.wo_installment_notes
+     SET body = btrim(p_body), updated_at = now()
+   WHERE note_id = p_note_id
+  RETURNING * INTO v_note;
+
+  RETURN v_note;
+END;
+$$;
 
 
 --
@@ -3284,15 +3904,8 @@ CREATE FUNCTION public.engagement_in_my_fund_request(p_engagement_id uuid) RETUR
       and (
         fr.requester_staff_id = get_my_staff_id()
         or frwo.manager_staff_id = get_my_staff_id()
-        -- Contabilidad, con el MISMO corte que fr_select_accounting (Ola D):
-        --   Gerente (fund_disbursement.read)  -> toda la fase contable.
-        --   Analista (expense_settlement.read) -> hasta 'fondos_entregados'; queda
-        --   fuera de 'en_liquidacion' y 'cerrado'.
-        or (public.has_permission('fund_disbursement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados',
-                                       'en_liquidacion','cerrado']::fund_request_status[]))
-        or (public.has_permission('expense_settlement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados']::fund_request_status[]))
+        -- Contabilidad: el MISMO corte que fr_select_accounting (helper único).
+        or public.fr_accounting_sees(fr.status, fr.cancelled_from_status)
       )
   );
 $$;
@@ -3871,6 +4484,22 @@ COMMENT ON FUNCTION public.engagement_overview(p_engagement_id uuid, p_start dat
 
 
 --
+-- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT h.compra
+    FROM public.exchange_rate_history h
+   WHERE h.fecha_vigencia <= p_date
+   ORDER BY h.fecha_vigencia DESC
+   LIMIT 1;
+$$;
+
+
+--
 -- Name: execute_timesheet_reversal(uuid, text, uuid, text, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4211,6 +4840,30 @@ $$;
 
 
 --
+-- Name: fr_accounting_sees(public.fund_request_status, public.fund_request_status); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Corte ÚNICO de visibilidad de Contabilidad (docs/plan-contabilidad-gastos.md, Fase 1.4).
+  -- Gerente y Analista de Contabilidad tienen los mismos permisos (Q2), así que ya no hay un
+  -- corte por permiso: cualquiera de los dos permisos contables ve toda la fase contable.
+  -- Lo usan fr_select_accounting, fre_select_accounting, frwo_select_accounting,
+  -- wo_in_my_fund_request y engagement_in_my_fund_request: un solo lugar para cambiarlo.
+  -- Una solicitud cancelada se ve solo si se canceló desde la fase contable.
+  select (public.has_permission('fund_disbursement.read')
+          or public.has_permission('expense_settlement.read'))
+     and (p_status = any (array['aprobado_gerente','fondos_entregados',
+                                'en_liquidacion','cerrado']::public.fund_request_status[])
+          or (p_status = 'cancelado'
+              and p_cancelled_from = any (array['aprobado_gerente','fondos_entregados',
+                                                'en_liquidacion']::public.fund_request_status[])));
+$$;
+
+
+--
 -- Name: fr_guard_accounting_cols(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4229,7 +4882,15 @@ begin
     new.disbursed_at is distinct from old.disbursed_at or
     new.disbursed_by_staff_id is distinct from old.disbursed_by_staff_id or
     new.accounting_notes is distinct from old.accounting_notes or
-    new.closed_at is distinct from old.closed_at
+    new.closed_at is distinct from old.closed_at or
+    new.closed_by_staff_id is distinct from old.closed_by_staff_id or
+    new.settlement_confirmed_at is distinct from old.settlement_confirmed_at or
+    new.settlement_confirmed_by_staff_id is distinct from old.settlement_confirmed_by_staff_id or
+    new.settlement_reference is distinct from old.settlement_reference or
+    new.settlement_confirmation_notes is distinct from old.settlement_confirmation_notes or
+    new.cancelled_at is distinct from old.cancelled_at or
+    new.cancelled_by_staff_id is distinct from old.cancelled_by_staff_id or
+    new.cancelled_from_status is distinct from old.cancelled_from_status
   ) and not public.has_permission('fund_disbursement.update') then
     raise exception 'Solo contabilidad (desembolso) puede modificar estos campos';
   end if;
@@ -4298,6 +4959,103 @@ CREATE FUNCTION public.fr_is_submitted(p_fr_id uuid) RETURNS boolean
     WHERE fr.fund_request_id = p_fr_id
       AND fr.status <> 'borrador'
   );
+$$;
+
+
+--
+-- Name: fr_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora de la solicitud (docs/plan-contabilidad-gastos.md, Fase 2). Registra cada cambio de
+-- estado con su actor, tomado de la sesión. Sin sesión (seed, cron) el actor queda NULL y la UI
+-- lo muestra como "Sistema". Es un trigger y no una escritura en cada RPC para que ningún camino
+-- (RPC, UPDATE directo permitido por RLS, rollup de OTs, cron) quede sin registrar.
+DECLARE
+  v_action TEXT;
+  v_notes TEXT;
+  v_amount NUMERIC;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    v_action := 'created';
+  ELSE
+    IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+      RETURN NULL;
+    END IF;
+    v_action := CASE
+      WHEN NEW.status = 'cerrado' AND OLD.status = 'fondos_entregados' THEN 'settled_closed'
+      WHEN NEW.status = 'cerrado' AND NEW.settlement_confirmed_at IS NOT NULL
+           AND OLD.settlement_confirmed_at IS NULL THEN 'settlement_confirmed'
+      ELSE NULL
+    END;
+    v_action := COALESCE(v_action, CASE NEW.status
+      WHEN 'pendiente_aprobacion' THEN 'submitted'
+      WHEN 'aprobado_gerente'     THEN 'approved'
+      WHEN 'observado'            THEN 'observed'
+      WHEN 'rechazado'            THEN 'rejected'
+      WHEN 'fondos_entregados'    THEN 'disbursed'
+      WHEN 'en_liquidacion'       THEN 'settled'
+      WHEN 'cerrado'              THEN 'closed'
+      WHEN 'cancelado'            THEN 'cancelled'
+      ELSE 'status_changed'
+    END);
+    v_notes := CASE
+      WHEN v_action = 'settled_closed' THEN NEW.settlement_notes
+      WHEN v_action = 'settlement_confirmed'
+        THEN NULLIF(concat_ws(' · ', NEW.settlement_reference, NEW.settlement_confirmation_notes), '')
+      ELSE CASE NEW.status
+      WHEN 'fondos_entregados' THEN NEW.accounting_notes
+      WHEN 'en_liquidacion'    THEN NEW.settlement_notes
+      -- Al cerrar solo cuenta una nota NUEVA: la RPC conserva la del desembolso si no hay otra.
+      WHEN 'cerrado' THEN CASE WHEN NEW.accounting_notes IS DISTINCT FROM OLD.accounting_notes
+                               THEN NEW.accounting_notes END
+      WHEN 'cancelado' THEN NEW.rejection_reason
+      ELSE NULL
+    END END;
+    v_amount := CASE
+      WHEN v_action = 'settlement_confirmed' THEN NEW.settlement_amount
+      ELSE CASE NEW.status
+      WHEN 'fondos_entregados' THEN NEW.total_disbursed_amount
+      WHEN 'en_liquidacion'    THEN NEW.settlement_amount
+      ELSE NULL
+    END END;
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, action, from_status, to_status, actor_staff_id, notes, amount)
+  VALUES
+    (NEW.fund_request_id, 'request', v_action,
+     CASE WHEN TG_OP = 'UPDATE' THEN OLD.status::text END, NEW.status::text,
+     get_my_staff_id(), v_notes, v_amount);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: fr_validate_period_month(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_validate_period_month() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+-- El mes de la solicitud: el actual o hasta 5 más adelante. Se valida solo cuando alguien con
+-- sesión lo elige o lo cambia (el seed y las pruebas cargan meses pasados sin sesión).
+BEGIN
+  IF get_my_staff_id() IS NULL OR is_admin() THEN
+    RETURN NEW;
+  END IF;
+  IF (TG_OP = 'INSERT' OR NEW.expense_period_month IS DISTINCT FROM OLD.expense_period_month)
+     AND NOT public.fund_request_month_is_selectable(NEW.expense_period_month) THEN
+    RAISE EXCEPTION 'El mes de la solicitud (%) debe ser el actual o hasta 5 meses adelante',
+      NEW.expense_period_month;
+  END IF;
+  RETURN NEW;
+END;
 $$;
 
 
@@ -4378,6 +5136,40 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fr_wo_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_wo_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora: decisión del gerente sobre UNA OT de la solicitud. El reset a 'pendiente' del
+-- reenvío no se registra (es ruido: el evento 'submitted' de la solicitud ya lo cuenta).
+BEGIN
+  IF NEW.approval_status IS NOT DISTINCT FROM OLD.approval_status
+     OR NEW.approval_status = 'pendiente' THEN
+    RETURN NULL;
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, fr_wo_id, wo_id, action, from_status, to_status,
+     actor_staff_id, notes)
+  VALUES
+    (NEW.fund_request_id, 'work_order', NEW.fr_wo_id, NEW.wo_id,
+     CASE NEW.approval_status
+       WHEN 'aprobado'  THEN 'wo_approved'
+       WHEN 'observado' THEN 'wo_observed'
+       WHEN 'rechazado' THEN 'wo_rejected'
+       ELSE 'wo_status_changed'
+     END,
+     OLD.approval_status::text, NEW.approval_status::text,
+     get_my_staff_id(), COALESCE(NEW.rejection_reason, NEW.manager_notes));
+  RETURN NULL;
 END;
 $$;
 
@@ -4515,6 +5307,154 @@ $$;
 
 
 --
+-- Name: fre_enforce_window(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fre_enforce_window() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3). Ventana del SOLICITANTE: desde
+-- el día del desembolso hasta la fecha fin (día 3 del mes siguiente al mes elegido). Fuera de
+-- ella no registra, no edita, no envía ni reenvía. La fecha del gasto ("Del") va desde el día del
+-- desembolso en adelante, y la fecha "Al" de un gasto de varios días, desde "Del" en adelante.
+-- Un lote a la vez: mientras el gerente no decida el lote enviado, el solicitante no registra ni
+-- envía otro. El GERENTE decide hasta la fecha fin.
+-- Contabilidad tiene sus propias reglas en fund_request_expense_review. Exentos: admin, el job
+-- de plazos y los procesos sin sesión (seed).
+DECLARE
+  v_me UUID := get_my_staff_id();
+  v_requester UUID;
+  v_disbursed TIMESTAMPTZ;
+  v_month DATE;
+  v_today DATE := public.fund_today();
+  v_deadline DATE;
+  v_min DATE;
+  v_new_batch BOOLEAN := false;
+BEGIN
+  IF COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' OR v_me IS NULL OR is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT requester_staff_id, disbursed_at, expense_period_month
+    INTO v_requester, v_disbursed, v_month
+  FROM public.fund_requests
+  WHERE fund_request_id = NEW.fund_request_id;
+
+  v_deadline := public.fund_request_deadline(v_month);
+
+  IF v_requester = v_me THEN
+    IF v_today > v_deadline THEN
+      RAISE EXCEPTION 'El plazo para registrar y enviar gastos de esta solicitud venció el %', v_deadline;
+    END IF;
+    IF v_disbursed IS NULL THEN
+      RAISE EXCEPTION 'La solicitud todavía no tiene fondos desembolsados';
+    END IF;
+    v_min := (v_disbursed AT TIME ZONE 'America/La_Paz')::date;
+    IF NEW.expense_date < v_min THEN
+      RAISE EXCEPTION 'La fecha del gasto no puede ser anterior al % (día del desembolso)', v_min;
+    END IF;
+    IF NEW.expense_date_end IS NOT NULL AND NEW.expense_date_end < NEW.expense_date THEN
+      RAISE EXCEPTION 'La fecha "Al" (%) no puede ser anterior a la fecha "Del" (%)',
+        NEW.expense_date_end, NEW.expense_date;
+    END IF;
+    -- Un lote a la vez: registrar un gasto o enviar uno al gerente solo si no hay otro lote
+    -- esperando su decisión. Los gastos de un mismo envío salen con submitted_at = now() (la hora
+    -- de la transacción, la fija este trigger), así que no se bloquean entre sí.
+    IF TG_OP = 'INSERT' THEN
+      v_new_batch := true;
+    ELSIF NEW.status = 'pendiente_aprobacion' AND OLD.status IS DISTINCT FROM 'pendiente_aprobacion' THEN
+      v_new_batch := true;
+      NEW.submitted_at := now();
+    END IF;
+    IF v_new_batch AND EXISTS (
+      SELECT 1 FROM public.fund_request_expenses x
+       WHERE x.fund_request_id = NEW.fund_request_id
+         AND x.fre_id <> NEW.fre_id
+         AND x.status = 'pendiente_aprobacion'
+         AND x.submitted_at IS DISTINCT FROM now()
+    ) THEN
+      RAISE EXCEPTION 'Hay un lote de gastos esperando la decisión del gerente; podrás registrar o enviar más cuando lo decida';
+    END IF;
+  ELSIF TG_OP = 'UPDATE'
+        AND OLD.status = 'pendiente_aprobacion'
+        AND NEW.status IS DISTINCT FROM OLD.status
+        AND v_today > v_deadline THEN
+    RAISE EXCEPTION 'Venció el plazo para aprobar (%); el sistema aprueba automáticamente', v_deadline;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fre_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fre_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Bitácora de un gasto: cada cambio de estado con su actor (NULL = Sistema).
+DECLARE
+  v_action TEXT;
+  v_notes TEXT;
+  v_amount NUMERIC;
+BEGIN
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+    RETURN NULL;
+  END IF;
+
+  IF NEW.status = 'pendiente_aprobacion' THEN
+    v_action := 'expense_submitted';
+  ELSIF NEW.status = 'vencido' THEN
+    v_action := 'expense_expired';
+  ELSIF NEW.status = 'aprobado_gerente' AND NEW.manager_auto_approved AND NOT OLD.manager_auto_approved THEN
+    v_action := 'expense_manager_auto_approved';
+  ELSIF NEW.status = 'revisado_asistente' AND NEW.review_auto_approved THEN
+    v_action := 'expense_review_auto_approved';
+  ELSIF NEW.status = 'rechazado' AND OLD.status = 'aprobado_gerente' THEN
+    v_action := 'expense_rejected_by_accounting';
+    v_notes := NEW.rejection_reason;
+  ELSIF NEW.status = 'aprobado_gerente' AND OLD.status = 'observado' AND OLD.returned_by_assistant THEN
+    v_action := 'expense_resubmitted_to_accounting';
+  ELSIF NEW.status = 'aprobado_gerente' THEN
+    v_action := 'expense_manager_approved';
+    v_notes := NEW.manager_notes;
+  ELSIF NEW.status = 'observado' AND NEW.returned_by_assistant AND NOT OLD.returned_by_assistant THEN
+    v_action := 'expense_returned_by_accounting';
+    v_notes := NEW.invoice_observation_notes;
+  ELSIF NEW.status = 'observado' THEN
+    v_action := 'expense_manager_observed';
+    v_notes := NEW.manager_notes;
+  ELSIF NEW.status = 'rechazado' THEN
+    v_action := 'expense_manager_rejected';
+    v_notes := NEW.rejection_reason;
+  ELSIF NEW.status = 'revisado_asistente' THEN
+    v_action := 'expense_reviewed';
+    v_notes := NEW.invoice_observation_notes;
+    v_amount := NULLIF(NEW.iva_penalty_amount, 0);
+  ELSE
+    v_action := 'expense_status_changed';
+  END IF;
+
+  INSERT INTO public.fund_request_events
+    (fund_request_id, entity, wo_id, fre_id, action, from_status, to_status,
+     actor_staff_id, notes, amount)
+  VALUES
+    (NEW.fund_request_id, 'expense', NEW.wo_id, NEW.fre_id, v_action,
+     OLD.status::text, NEW.status::text,
+     -- Lo que hace el job de plazos es del sistema aunque la transacción tenga sesión.
+     CASE WHEN COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' THEN NULL
+          ELSE get_my_staff_id() END,
+     v_notes, v_amount);
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: fre_validate_transition(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4527,6 +5467,12 @@ DECLARE
   v_is_requester BOOLEAN;
 BEGIN
   IF is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  -- Job de plazos (fund_request_run_deadlines): aprobaciones automáticas y vencimientos. La
+  -- marca la pone solo esa función, dentro de su propia transacción (set_config local).
+  IF COALESCE(current_setting('app.fund_deadlines', true), '') = 'on' THEN
     RETURN NEW;
   END IF;
 
@@ -4588,26 +5534,9 @@ BEGIN
     END IF;
   END IF;
 
-  -- En un gasto devuelto por contabilidad (returned_by_assistant) el solicitante
-  -- SOLO puede re-adjuntar el respaldo; cambiar datos exige reenviar al gerente.
-  -- Aplica AUNQUE no cambie el status: si no, editaría datos con status observado
-  -- y luego reenviaría a aprobado_gerente sin que el guard del reenvío (que
-  -- compara contra la fila ya mutada) detecte la diferencia.
-  IF OLD.returned_by_assistant AND OLD.status = 'observado' THEN
-    IF NEW.amount           IS DISTINCT FROM OLD.amount
-       OR NEW.wo_id            IS DISTINCT FROM OLD.wo_id
-       OR NEW.expense_type_id  IS DISTINCT FROM OLD.expense_type_id
-       OR NEW.expense_date     IS DISTINCT FROM OLD.expense_date
-       OR NEW.expense_date_end IS DISTINCT FROM OLD.expense_date_end
-       OR NEW.days             IS DISTINCT FROM OLD.days
-       OR NEW.description      IS DISTINCT FROM OLD.description
-       OR NEW.document_number  IS DISTINCT FROM OLD.document_number
-       OR NEW.supplier_name    IS DISTINCT FROM OLD.supplier_name
-       OR NEW.supplier_tax_id  IS DISTINCT FROM OLD.supplier_tax_id
-       OR NEW.currency         IS DISTINCT FROM OLD.currency THEN
-      RAISE EXCEPTION 'En un gasto devuelto por contabilidad solo se puede actualizar el respaldo (adjunto); para cambiar datos reenvíe al gerente';
-    END IF;
-  END IF;
+  -- Gasto devuelto por Contabilidad (returned_by_assistant): el solicitante puede corregir
+  -- TODOS los campos y lo reenvía directo a Contabilidad (decisión S3, 2026-10-08). Antes solo
+  -- podía cambiar el respaldo.
 
   -- ── Validación de transiciones de estado ──
   -- En una edición SIN cambio de estado, un no-admin no puede tocar la metadata
@@ -4652,8 +5581,10 @@ BEGIN
   --   revisado_asistente -> factura correcta (useReviewFundRequestExpense)
   --   observado          -> devuelta por falta de respaldo, con returned_by_assistant
   --                         (useReturnFundRequestExpense; el flag lo autoriza P1a)
+  --   rechazado          -> rechazado por Contabilidad en los días 4 y 5 (fund_request_expense_review
+  --                         'reject'; ya no hay plazo para devolverlo al solicitante).
   IF OLD.status = 'aprobado_gerente'
-     AND NEW.status IN ('revisado_asistente', 'observado')
+     AND NEW.status IN ('revisado_asistente', 'observado', 'rechazado')
      AND public.has_permission('expense_settlement.update') THEN
     RETURN NEW;
   END IF;
@@ -4697,6 +5628,297 @@ $$;
 
 
 --
+-- Name: fund_expense_in_process(text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT p_status IN ('pendiente_aprobacion', 'aprobado_gerente', 'observado')
+      OR (p_status = 'rechazado'
+          AND public.fund_today() <= public.fund_request_deadline(p_period_month));
+$$;
+
+
+--
+-- Name: fund_request_cancel(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+BEGIN
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'El motivo de la cancelación es obligatorio';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  -- Admin: cualquier estado no terminal. Contabilidad (los dos roles): solo la fase contable,
+  -- que es lo que ve (fr_accounting_sees).
+  IF is_admin() THEN
+    IF v_status IN ('borrador', 'cerrado', 'cancelado') THEN
+      RAISE EXCEPTION 'La solicitud no se puede cancelar en su estado actual (%)', v_status;
+    END IF;
+  ELSIF public.has_permission('fund_disbursement.update') THEN
+    IF v_status NOT IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion') THEN
+      RAISE EXCEPTION 'La solicitud no se puede cancelar en su estado actual (%)', v_status;
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'No autorizado a cancelar esta solicitud' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'cancelado',
+      rejection_reason = btrim(p_reason),
+      cancelled_at = now(),
+      cancelled_by_staff_id = get_my_staff_id(),
+      cancelled_from_status = v_status
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+-- Name: fund_request_confirm_settlement(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text DEFAULT NULL::text, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Fase 4 (plan-contabilidad-gastos): Contabilidad confirma que el dinero se movió —el reembolso
+-- al empleado se pagó, la devolución se recibió o el descuento se aplicó en planilla— y eso
+-- CIERRA la solicitud. Fecha y hora las pone el servidor; el actor sale de la sesión. No se
+-- revierte (N6). Reemplaza al "Cerrar" manual: una solicitud con saldo ya no se cierra sin
+-- confirmar que el dinero se movió.
+DECLARE
+  v_status public.fund_request_status;
+  v_resolution TEXT;
+BEGIN
+  IF NOT public.has_permission('fund_disbursement.update') THEN
+    RAISE EXCEPTION 'No autorizado a confirmar el movimiento de dinero' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, settlement_resolution INTO v_status, v_resolution
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'en_liquidacion' THEN
+    RAISE EXCEPTION 'La solicitud no tiene un movimiento de dinero pendiente (estado %)', v_status;
+  END IF;
+
+  IF v_resolution NOT IN ('pago_solicitante', 'devolucion', 'descuento_planilla') THEN
+    RAISE EXCEPTION 'La liquidación (%) no tiene movimiento de dinero que confirmar', v_resolution;
+  END IF;
+
+  UPDATE public.fund_requests
+  SET status = 'cerrado',
+      settlement_confirmed_at = now(),
+      settlement_confirmed_by_staff_id = get_my_staff_id(),
+      settlement_reference = NULLIF(btrim(p_reference), ''),
+      settlement_confirmation_notes = NULLIF(btrim(p_notes), ''),
+      closed_at = now(),
+      closed_by_staff_id = get_my_staff_id()
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+-- Name: fund_request_deadline(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_deadline(p_month date) RETURNS date
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Fecha fin de la solicitud: día 3 (calendario) del mes siguiente al mes elegido. Último día
+  -- para registrar/enviar gastos y para que el gerente los apruebe.
+  SELECT (date_trunc('month', p_month) + interval '1 month' + interval '2 days')::date;
+$$;
+
+
+--
+-- Name: fund_request_disburse(uuid, numeric, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text DEFAULT NULL::text, p_new_month date DEFAULT NULL::date) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+  v_total NUMERIC;
+  v_month DATE;
+BEGIN
+  IF NOT public.has_permission('fund_disbursement.update') THEN
+    RAISE EXCEPTION 'No autorizado a desembolsar' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, total_requested_amount, expense_period_month INTO v_status, v_total, v_month
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'aprobado_gerente' THEN
+    RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
+  END IF;
+
+  -- Calendario (U1): con la fecha fin vencida el solicitante no tendría plazo para rendir, así
+  -- que no se desembolsa sin elegir un mes nuevo. El mes nuevo también se acepta sin vencer.
+  IF p_new_month IS NOT NULL THEN
+    IF NOT public.fund_request_month_is_selectable(p_new_month) THEN
+      RAISE EXCEPTION 'El mes elegido (%) no es válido: debe ser el actual o hasta 5 meses adelante', p_new_month;
+    END IF;
+    v_month := p_new_month;
+  ELSIF public.fund_today() > public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'La fecha fin de la solicitud (%) ya venció; elija un mes nuevo para desembolsar',
+      public.fund_request_deadline(v_month);
+  END IF;
+
+  IF p_amount IS NULL OR p_amount <= 0 OR round(p_amount, 2) > round(v_total, 2) THEN
+    RAISE EXCEPTION 'El monto a desembolsar debe ser mayor a 0 y no superar lo solicitado (%)', v_total;
+  END IF;
+
+  -- El actor sale de la sesión, nunca del cliente.
+  UPDATE public.fund_requests
+  SET status = 'fondos_entregados',
+      expense_period_month = v_month,
+      total_disbursed_amount = round(p_amount, 2),
+      disbursed_at = now(),
+      disbursed_by_staff_id = get_my_staff_id(),
+      accounting_notes = NULLIF(btrim(p_notes), '')
+  WHERE fund_request_id = p_fund_request_id;
+END;
+$$;
+
+
+--
+-- Name: fund_request_expense_review(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_expense_status;
+  v_amount NUMERIC;
+  v_fr_status public.fund_request_status;
+  v_month DATE;
+  v_today DATE := public.fund_today();
+  v_notes TEXT := NULLIF(btrim(p_notes), '');
+BEGIN
+  IF NOT public.has_permission('expense_settlement.update') THEN
+    RAISE EXCEPTION 'No autorizado a revisar gastos' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT fre.status, fre.amount, fr.status, fr.expense_period_month
+    INTO v_status, v_amount, v_fr_status, v_month
+  FROM public.fund_request_expenses fre
+  JOIN public.fund_requests fr ON fr.fund_request_id = fre.fund_request_id
+  WHERE fre.fre_id = p_fre_id
+  FOR UPDATE OF fre;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Gasto % no encontrado', p_fre_id;
+  END IF;
+
+  IF v_fr_status <> 'fondos_entregados' THEN
+    RAISE EXCEPTION 'La solicitud no admite revisión de gastos en su estado actual (%)', v_fr_status;
+  END IF;
+
+  IF v_status <> 'aprobado_gerente' THEN
+    RAISE EXCEPTION 'El gasto no está esperando revisión de contabilidad (estado %)', v_status;
+  END IF;
+
+  IF p_decision IN ('incorrect', 'return', 'reject') AND v_notes IS NULL THEN
+    RAISE EXCEPTION 'La observación es obligatoria';
+  END IF;
+
+  -- Calendario (Fase 3): Contabilidad revisa hasta el día 5. Hasta la fecha fin (día 3) puede
+  -- devolver para que el solicitante corrija; en los días 4 y 5 ya nadie podría corregirlo, así
+  -- que en lugar de devolver, rechaza.
+  IF v_today > public.fund_request_review_deadline(v_month) THEN
+    RAISE EXCEPTION 'Venció el plazo de revisión (%); el sistema ya aprobó los gastos pendientes',
+      public.fund_request_review_deadline(v_month);
+  END IF;
+  IF p_decision = 'return' AND v_today > public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'Pasada la fecha fin (%) ya no se puede devolver el gasto; corresponde aprobarlo o rechazarlo',
+      public.fund_request_deadline(v_month);
+  END IF;
+  IF p_decision = 'reject' AND v_today <= public.fund_request_deadline(v_month) THEN
+    RAISE EXCEPTION 'Hasta la fecha fin (%) el gasto se devuelve al solicitante para que lo corrija',
+      public.fund_request_deadline(v_month);
+  END IF;
+
+  IF p_decision = 'correct' THEN
+    UPDATE public.fund_request_expenses
+    SET status = 'revisado_asistente',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        has_invoice_observation = false,
+        invoice_observation_notes = NULL,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'incorrect' THEN
+    -- Factura incorrecta: se valida igual, con penalidad del 13% (IVA) sobre el monto.
+    UPDATE public.fund_request_expenses
+    SET status = 'revisado_asistente',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        has_invoice_observation = true,
+        invoice_observation_notes = v_notes,
+        iva_penalty_amount = round(v_amount * 0.13, 2)
+    WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'return' THEN
+    -- Sin respaldo: vuelve al solicitante, que lo reenvía directo a contabilidad.
+    UPDATE public.fund_request_expenses
+    SET status = 'observado',
+        returned_by_assistant = true,
+        has_invoice_observation = false,
+        invoice_observation_notes = v_notes,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
+  ELSIF p_decision = 'reject' THEN
+    -- Días 4 y 5: el gasto no se acepta y no cuenta como gastado.
+    UPDATE public.fund_request_expenses
+    SET status = 'rechazado',
+        reviewed_at = now(),
+        reviewed_by_staff_id = get_my_staff_id(),
+        rejection_reason = v_notes,
+        has_invoice_observation = false,
+        iva_penalty_amount = 0
+    WHERE fre_id = p_fre_id;
+  ELSE
+    RAISE EXCEPTION 'Decisión de revisión no válida: %', p_decision;
+  END IF;
+END;
+$$;
+
+
+--
 -- Name: fund_request_expenses_touch_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4707,6 +5929,150 @@ CREATE FUNCTION public.fund_request_expenses_touch_updated_at() RETURNS trigger
 BEGIN
   NEW.updated_at := now();
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fund_request_month_is_selectable(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_month_is_selectable(p_month date) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Meses que se pueden elegir: el actual y hasta 5 más adelante (6 opciones, ronda 5 / T1).
+  SELECT p_month IS NOT NULL
+     AND p_month = date_trunc('month', p_month)::date
+     AND p_month >= date_trunc('month', public.fund_today())::date
+     AND p_month <= (date_trunc('month', public.fund_today()) + interval '5 months')::date;
+$$;
+
+
+--
+-- Name: fund_request_review_deadline(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_review_deadline(p_month date) RETURNS date
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  -- Último día para que Contabilidad revise: día 5 del mes siguiente (fecha fin + 2).
+  SELECT (date_trunc('month', p_month) + interval '1 month' + interval '4 days')::date;
+$$;
+
+
+--
+-- Name: fund_request_run_deadlines(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_run_deadlines(p_today date DEFAULT NULL::date) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Job diario de plazos (Fase 3.8). Corre a las 00:05 de La Paz, o sea cuando el día anterior
+-- ya terminó. Sobre solicitudes con fondos entregados:
+--   · fecha fin (día 3) pasada: lo que el gerente no aprobó se aprueba solo; borradores y
+--     gastos observados/devueltos sin reenviar quedan vencidos.
+--   · fin de revisión (día 5) pasado: lo que Contabilidad no revisó se aprueba solo, como
+--     factura correcta y sin penalidad (U4). La solicitud queda lista para liquidar.
+-- Es idempotente: cada UPDATE filtra por el estado de origen. La bitácora registra todo con
+-- actor NULL (= Sistema). `p_today` solo existe para las pruebas.
+DECLARE
+  v_today DATE := COALESCE(p_today, public.fund_today());
+  v_mgr INT := 0;
+  v_exp INT := 0;
+  v_rev INT := 0;
+  v_rows JSONB;
+  v_item JSONB;
+BEGIN
+  -- p_today mueve el calendario: aprobaría y vencería todo con una fecha futura. Solo se acepta en
+  -- una sesión de superusuario (el harness de pruebas), la misma regla que fund_today(). El job
+  -- diario la llama sin argumento. Además, ningún rol de API la ejecuta (cero_06).
+  IF p_today IS NOT NULL
+     AND NOT COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false) THEN
+    RAISE EXCEPTION 'p_today solo se admite en pruebas' USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM set_config('app.fund_deadlines', 'on', true);
+
+  -- Cada paso junta lo que cambió por solicitud (y los gerentes de las OT afectadas) para
+  -- mandar UN aviso por solicitud y audiencia (notificaciones_03, Fase 3.9).
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'aprobado_gerente',
+           manager_decided_at = now(),
+           manager_auto_approved = true
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status = 'pendiente_aprobacion'
+       AND v_today > public.fund_request_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id, fre.wo_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n, 'mgrs', g.mgrs)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT u.fund_request_id, count(*) AS n,
+                 array_remove(array_agg(DISTINCT frw.manager_staff_id), NULL) AS mgrs
+            FROM upd u
+            LEFT JOIN public.fund_request_work_orders frw
+              ON frw.fund_request_id = u.fund_request_id AND frw.wo_id = u.wo_id
+           GROUP BY u.fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_mgr := v_mgr + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_auto_approval('fund.expense.manager_auto_approved',
+              (v_item->>'fr')::uuid, (v_item->>'n')::int,
+              ARRAY(SELECT jsonb_array_elements_text(v_item->'mgrs'))::uuid[]);
+  END LOOP;
+
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'vencido'
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status IN ('borrador', 'observado')
+       AND v_today > public.fund_request_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT fund_request_id, count(*) AS n FROM upd GROUP BY fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_exp := v_exp + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_expired((v_item->>'fr')::uuid, (v_item->>'n')::int);
+  END LOOP;
+
+  WITH upd AS (
+    UPDATE public.fund_request_expenses fre
+       SET status = 'revisado_asistente',
+           reviewed_at = now(),
+           reviewed_by_staff_id = NULL,
+           has_invoice_observation = false,
+           invoice_observation_notes = NULL,
+           iva_penalty_amount = 0,
+           review_auto_approved = true
+      FROM public.fund_requests fr
+     WHERE fr.fund_request_id = fre.fund_request_id
+       AND fr.status = 'fondos_entregados'
+       AND fre.status = 'aprobado_gerente'
+       AND v_today > public.fund_request_review_deadline(fr.expense_period_month)
+    RETURNING fre.fund_request_id
+  )
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('fr', g.fund_request_id, 'n', g.n)), '[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT fund_request_id, count(*) AS n FROM upd GROUP BY fund_request_id) g;
+  FOR v_item IN SELECT * FROM jsonb_array_elements(v_rows) LOOP
+    v_rev := v_rev + (v_item->>'n')::int;
+    PERFORM public.notif_emit_fund_auto_approval('fund.expense.review_auto_approved',
+              (v_item->>'fr')::uuid, (v_item->>'n')::int,
+              ARRAY(SELECT staff_id FROM public.notif_fund_request_managers((v_item->>'fr')::uuid)));
+  END LOOP;
+
+  PERFORM set_config('app.fund_deadlines', '', true);
+
+  RETURN jsonb_build_object('manager_auto_approved', v_mgr, 'expired', v_exp,
+                            'review_auto_approved', v_rev);
 END;
 $$;
 
@@ -4735,10 +6101,10 @@ BEGIN
         CASE WHEN p_fields ? 'purpose'
              THEN p_fields->>'purpose'
              ELSE purpose END,
-      due_back_date =
-        CASE WHEN p_fields ? 'due_back_date'
-             THEN NULLIF(p_fields->>'due_back_date', '')::DATE
-             ELSE due_back_date END
+      expense_period_month =
+        CASE WHEN p_fields ? 'expense_period_month'
+             THEN (p_fields->>'expense_period_month')::DATE
+             ELSE expense_period_month END
     WHERE fund_request_id = p_fund_request_id;
   END IF;
 
@@ -4756,6 +6122,115 @@ BEGIN
       FROM jsonb_array_elements(p_allocations) AS a;
     END IF;
   END IF;
+END;
+$$;
+
+
+--
+-- Name: fund_request_settle(uuid, text, numeric, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_status public.fund_request_status;
+  v_disbursed NUMERIC;
+  v_spent NUMERIC;
+  v_iva NUMERIC;
+  v_balance NUMERIC;
+  v_amount NUMERIC;
+BEGIN
+  IF NOT public.has_permission('expense_settlement.update') THEN
+    RAISE EXCEPTION 'No autorizado a liquidar' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT status, total_disbursed_amount INTO v_status, v_disbursed
+  FROM public.fund_requests
+  WHERE fund_request_id = p_fund_request_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
+  END IF;
+
+  IF v_status <> 'fondos_entregados' THEN
+    RAISE EXCEPTION 'La solicitud no se puede liquidar en su estado actual (%)', v_status;
+  END IF;
+
+  -- Gastos a medio camino impiden liquidar (mismo criterio que unfinishedExpenses en la UI).
+  -- `vencido` es final. `rechazado` solo bloquea hasta la fecha fin: después ya nadie lo corrige.
+  IF EXISTS (
+    SELECT 1 FROM public.fund_request_expenses fre
+    JOIN public.fund_requests fr ON fr.fund_request_id = fre.fund_request_id
+    WHERE fre.fund_request_id = p_fund_request_id
+      AND (fre.status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado')
+           OR (fre.status = 'rechazado'
+               AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month)))
+  ) THEN
+    RAISE EXCEPTION 'Hay gastos sin finalizar; no se puede liquidar';
+  END IF;
+
+  -- Sin gastos todavía no se liquida: hasta la fecha fin el solicitante puede registrarlos. Al
+  -- vencer, se liquida igual (devolución total). Mismo criterio que expensePhase en la UI.
+  IF NOT EXISTS (SELECT 1 FROM public.fund_request_expenses WHERE fund_request_id = p_fund_request_id)
+     AND public.fund_today() <= (SELECT public.fund_request_deadline(expense_period_month)
+                                   FROM public.fund_requests
+                                  WHERE fund_request_id = p_fund_request_id) THEN
+    RAISE EXCEPTION 'La solicitud todavía no tiene gastos; se liquida cuando estén revisados o al vencer la fecha fin';
+  END IF;
+
+  -- El snapshot se calcula AQUÍ, no lo manda el cliente: solo lo validado cuenta como gastado.
+  SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(iva_penalty_amount), 0)
+  INTO v_spent, v_iva
+  FROM public.fund_request_expenses
+  WHERE fund_request_id = p_fund_request_id
+    AND status = 'revisado_asistente';
+
+  v_balance := round(v_disbursed - v_spent, 2);
+
+  -- La resolución debe corresponder al signo del saldo (> 0 sobró, < 0 gastó de más).
+  IF v_balance = 0 THEN
+    IF p_resolution <> 'sin_saldo' THEN
+      RAISE EXCEPTION 'Sin saldo, la resolución debe ser sin_saldo (recibido %)', p_resolution;
+    END IF;
+    v_amount := 0;
+  ELSE
+    IF v_balance < 0 AND p_resolution <> 'pago_solicitante' THEN
+      RAISE EXCEPTION 'Saldo a favor del solicitante, la resolución debe ser pago_solicitante (recibido %)', p_resolution;
+    END IF;
+    IF v_balance > 0 AND p_resolution NOT IN ('devolucion', 'descuento_planilla') THEN
+      RAISE EXCEPTION 'Saldo a favor de la firma, la resolución debe ser devolucion o descuento_planilla (recibido %)', p_resolution;
+    END IF;
+    -- El monto ES el saldo: lo que hay que devolver o reembolsar sale de lo desembolsado menos
+    -- lo gastado validado, que se calcula aca. Antes se aceptaba cualquier monto (hasta 0), y
+    -- la solicitud podia cerrarse con un movimiento que no saldaba lo registrado. El cliente
+    -- lo sigue mandando, pero solo como confirmacion de lo que vio.
+    v_amount := abs(v_balance);
+    IF p_amount IS NULL OR round(p_amount, 2) <> v_amount THEN
+      RAISE EXCEPTION 'El monto de la resolución debe ser igual al saldo (%)', v_amount;
+    END IF;
+  END IF;
+
+  -- Fase 4: sin saldo no hay dinero que mover, así que la liquidación cierra la solicitud. Con
+  -- saldo queda en `en_liquidacion` = "esperando el movimiento de dinero" hasta que Contabilidad
+  -- lo confirme (fund_request_confirm_settlement).
+  UPDATE public.fund_requests
+  SET status = CASE WHEN p_resolution = 'sin_saldo' THEN 'cerrado'::public.fund_request_status
+                    ELSE 'en_liquidacion'::public.fund_request_status END,
+      closed_at = CASE WHEN p_resolution = 'sin_saldo' THEN now() ELSE closed_at END,
+      closed_by_staff_id = CASE WHEN p_resolution = 'sin_saldo' THEN get_my_staff_id()
+                                ELSE closed_by_staff_id END,
+      settlement_total_spent = v_spent,
+      settlement_balance = v_balance,
+      settlement_iva_total = v_iva,
+      settlement_resolution = p_resolution,
+      settlement_amount = v_amount,
+      settlement_notes = NULLIF(btrim(p_notes), ''),
+      settled_at = now(),
+      settled_by_staff_id = get_my_staff_id()
+  WHERE fund_request_id = p_fund_request_id;
 END;
 $$;
 
@@ -4897,6 +6372,224 @@ CREATE FUNCTION public.fund_requests_touch_updated_at() RETURNS trigger
 BEGIN
   NEW.updated_at := now();
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fund_today(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_today() RETURNS date
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  -- "Hoy" del calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3): la fecha de
+  -- La Paz, no CURRENT_DATE (la base vive en UTC; de 20:00 a medianoche ya sería mañana).
+  -- Las pruebas fijan el día con el GUC app.fund_today, que SOLO se respeta en una sesión de
+  -- superusuario (el harness, el SQL Editor). Por la API la sesión es `authenticator`, así que
+  -- ningún cliente puede mover la fecha.
+  SELECT CASE
+           WHEN COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)
+                AND NULLIF(current_setting('app.fund_today', true), '') IS NOT NULL
+             THEN current_setting('app.fund_today', true)::date
+           ELSE (now() AT TIME ZONE 'America/La_Paz')::date
+         END;
+$$;
+
+
+--
+-- Name: fund_work_order_expense_detail(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Detalle de UNA OT (Fase 5): totales, sus solicitudes, la lista plana de gastos enviados (con
+-- la solicitud de origen, para agrupar en la pantalla) y el presupuesto vs gastado por tipo.
+-- Mismo portón y mismo corte de solicitudes que fund_work_order_expense_summary. Los borradores
+-- y vencidos no se envían nunca, así que no aparecen.
+DECLARE
+  v_out jsonb;
+BEGIN
+  IF NOT public.has_permission('expense_settlement.read') THEN
+    RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
+  END IF;
+
+  WITH frs AS (
+    SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id, fr.expense_period_month
+      FROM public.fund_requests fr
+     WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND EXISTS (SELECT 1 FROM public.fund_request_work_orders frw
+                    WHERE frw.fund_request_id = fr.fund_request_id AND frw.wo_id = p_wo_id)
+  ),
+  exps AS (
+    SELECT e.*, frs.request_number, frs.requester_staff_id, et.expense_name,
+           public.fund_expense_in_process(e.status::text, frs.expense_period_month) AS in_process
+      FROM public.fund_request_expenses e
+      JOIN frs ON frs.fund_request_id = e.fund_request_id
+      LEFT JOIN public.expense_types et ON et.expense_type_id = e.expense_type_id
+     WHERE e.wo_id = p_wo_id
+       AND e.status NOT IN ('borrador', 'vencido')
+  ),
+  types AS (
+    SELECT b.expense_type_id FROM public.wo_expense_budget b WHERE b.wo_id = p_wo_id
+    UNION
+    SELECT x.expense_type_id FROM exps x
+  )
+  SELECT jsonb_build_object(
+    'work_order', (
+      SELECT jsonb_build_object(
+        'wo_id', wo.wo_id,
+        'engagement_code', eng.engagement_code,
+        'engagement_name', eng.engagement_name,
+        'client_name', cl.client_legal_name)
+        FROM public.work_orders wo
+        JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+        LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
+       WHERE wo.wo_id = p_wo_id),
+    'totals', jsonb_build_object(
+      'assigned', (SELECT COALESCE(sum(frw.allocated_amount), 0)
+                     FROM public.fund_request_work_orders frw
+                     JOIN frs ON frs.fund_request_id = frw.fund_request_id
+                    WHERE frw.wo_id = p_wo_id),
+      'spent', (SELECT COALESCE(sum(amount), 0) FROM exps WHERE status = 'revisado_asistente'),
+      'in_process', (SELECT COALESCE(sum(amount), 0) FROM exps WHERE in_process),
+      'budget', (SELECT COALESCE(sum(budgeted_amount), 0) FROM public.wo_expense_budget
+                  WHERE wo_id = p_wo_id)),
+    'requests', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'fund_request_id', frs.fund_request_id,
+               'request_number', frs.request_number,
+               'status', frs.status,
+               'requester_name', btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')),
+               'allocated_amount', frw.allocated_amount)
+             ORDER BY frs.request_number)
+        FROM frs
+        JOIN public.fund_request_work_orders frw
+          ON frw.fund_request_id = frs.fund_request_id AND frw.wo_id = p_wo_id
+        LEFT JOIN public.staff s ON s.staff_id = frs.requester_staff_id), '[]'::jsonb),
+    'expenses', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'fre_id', x.fre_id,
+               'fund_request_id', x.fund_request_id,
+               'request_number', x.request_number,
+               'requester_staff_id', x.requester_staff_id,
+               'requester_name', btrim(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')),
+               'expense_date', x.expense_date,
+               'expense_date_end', x.expense_date_end,
+               'amount', x.amount,
+               'currency', x.currency,
+               'status', x.status,
+               'expense_type_id', x.expense_type_id,
+               'expense_type_name', x.expense_name,
+               'description', x.description,
+               'document_number', x.document_number,
+               'supplier_name', x.supplier_name,
+               'iva_penalty_amount', x.iva_penalty_amount,
+               'manager_auto_approved', x.manager_auto_approved,
+               'review_auto_approved', x.review_auto_approved,
+               -- Lo decide el servidor (fund_expense_in_process): un rechazado cuenta como "en
+               -- proceso" solo hasta la fecha fin, y esa fecha es de la solicitud.
+               'in_process', x.in_process)
+             ORDER BY x.expense_date DESC, x.fre_id)
+        FROM exps x
+        LEFT JOIN public.staff s ON s.staff_id = x.requester_staff_id), '[]'::jsonb),
+    'budget_by_type', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'expense_type_id', t.expense_type_id,
+               'expense_type_name', et.expense_name,
+               'budgeted', COALESCE((SELECT sum(b.budgeted_amount) FROM public.wo_expense_budget b
+                                      WHERE b.wo_id = p_wo_id
+                                        AND b.expense_type_id IS NOT DISTINCT FROM t.expense_type_id), 0),
+               'spent', COALESCE((SELECT sum(x.amount) FROM exps x
+                                   WHERE x.expense_type_id IS NOT DISTINCT FROM t.expense_type_id
+                                     AND x.status = 'revisado_asistente'), 0),
+               'in_process', COALESCE((SELECT sum(x.amount) FROM exps x
+                                        WHERE x.expense_type_id IS NOT DISTINCT FROM t.expense_type_id
+                                          AND x.in_process), 0))
+             ORDER BY et.expense_name NULLS LAST)
+        FROM types t
+        LEFT JOIN public.expense_types et ON et.expense_type_id = t.expense_type_id), '[]'::jsonb)
+  ) INTO v_out;
+
+  RETURN v_out;
+END;
+$$;
+
+
+--
+-- Name: fund_work_order_expense_summary(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_work_order_expense_summary() RETURNS TABLE(wo_id uuid, engagement_code text, engagement_name text, client_name text, request_count integer, expense_count integer, assigned numeric, spent numeric, in_process numeric, budget numeric)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Detalle de gastos por OT (docs/plan-contabilidad-gastos.md, Fase 5): una fila por OT que tiene
+-- solicitudes de fondos en la fase contable. Lo ven el Gerente y el Analista de Contabilidad
+-- (V1), que NO tienen work_order.read: por eso es SECURITY DEFINER con su propio portón de
+-- permiso, y devuelve solo lo que la pantalla necesita (nada de presupuesto de honorarios ni
+-- datos del cliente más allá del nombre).
+--   assigned   = lo asignado a la OT en esas solicitudes (fund_request_work_orders).
+--   spent      = gastos validados por Contabilidad (revisado_asistente): lo que cuenta en la
+--                liquidación.
+--   in_process = gastos enviados que todavía no son finales (fund_expense_in_process: pendiente /
+--                aprobado por el gerente / observado, y rechazado mientras se pueda corregir).
+--   budget     = presupuesto de gastos de la OT (wo_expense_budget), para comparar.
+-- Solicitudes consideradas: aprobado_gerente, fondos_entregados, en_liquidacion, cerrado
+-- (canceladas fuera).
+BEGIN
+  IF NOT public.has_permission('expense_settlement.read') THEN
+    RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  WITH frs AS (
+    SELECT fr.fund_request_id, fr.expense_period_month
+      FROM public.fund_requests fr
+     WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+  ),
+  alloc AS (
+    SELECT frw.wo_id,
+           count(DISTINCT frw.fund_request_id)::int AS request_count,
+           sum(frw.allocated_amount) AS assigned
+      FROM public.fund_request_work_orders frw
+      JOIN frs ON frs.fund_request_id = frw.fund_request_id
+     GROUP BY frw.wo_id
+  ),
+  exp AS (
+    SELECT e.wo_id,
+           count(*) FILTER (WHERE e.status NOT IN ('borrador', 'vencido'))::int AS expense_count,
+           COALESCE(sum(e.amount) FILTER (WHERE e.status = 'revisado_asistente'), 0) AS spent,
+           COALESCE(sum(e.amount) FILTER (WHERE public.fund_expense_in_process(e.status::text, frs.expense_period_month)), 0) AS in_process
+      FROM public.fund_request_expenses e
+      JOIN frs ON frs.fund_request_id = e.fund_request_id
+     GROUP BY e.wo_id
+  ),
+  bud AS (
+    SELECT b.wo_id, sum(b.budgeted_amount) AS budget
+      FROM public.wo_expense_budget b
+     GROUP BY b.wo_id
+  )
+  SELECT a.wo_id,
+         eng.engagement_code::text,
+         eng.engagement_name::text,
+         cl.client_legal_name::text,
+         a.request_count,
+         COALESCE(x.expense_count, 0),
+         a.assigned,
+         COALESCE(x.spent, 0),
+         COALESCE(x.in_process, 0),
+         COALESCE(bu.budget, 0)
+    FROM alloc a
+    JOIN public.work_orders wo ON wo.wo_id = a.wo_id
+    JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+    LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
+    LEFT JOIN exp x ON x.wo_id = a.wo_id
+    LEFT JOIN bud bu ON bu.wo_id = a.wo_id
+   ORDER BY eng.engagement_code;
 END;
 $$;
 
@@ -5813,6 +7506,49 @@ COMMENT ON FUNCTION public.get_week_statuses(p_staff_id uuid, p_start_date date,
 
 
 --
+-- Name: client_contacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.client_contacts (
+    contact_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    client_id uuid NOT NULL,
+    contact_type text NOT NULL,
+    full_name character varying(200) NOT NULL,
+    email character varying(255),
+    phone character varying(50),
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT client_contacts_name_check CHECK ((btrim((full_name)::text) <> ''::text)),
+    CONSTRAINT client_contacts_type_check CHECK ((contact_type = ANY (ARRAY['general'::text, 'cobranza'::text])))
+);
+
+
+--
+-- Name: get_wo_client_contacts(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_wo_client_contacts(p_wo_id uuid) RETURNS SETOF public.client_contacts
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.wo_notes_participant(p_wo_id) THEN
+    RAISE EXCEPTION 'CONTACT_FORBIDDEN: no tiene acceso al plan de pagos de esta orden de trabajo';
+  END IF;
+
+  RETURN QUERY
+  SELECT cc.*
+    FROM public.client_contacts cc
+    JOIN public.engagements e ON e.client_id = cc.client_id
+    JOIN public.work_orders w ON w.engagement_id = e.engagement_id
+   WHERE w.wo_id = p_wo_id AND cc.is_active
+   ORDER BY cc.contact_type, cc.full_name;
+END;
+$$;
+
+
+--
 -- Name: guard_auth_lockout_settings(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5928,6 +7664,118 @@ $$;
 
 
 --
+-- Name: installment_adjustments_total(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(SUM(a.amount), 0)
+    FROM public.wo_installment_adjustments a
+   WHERE a.installment_id = p_installment_id
+     AND a.currency = p_currency
+     AND a.deleted_at IS NULL;
+$$;
+
+
+--
+-- Name: installment_calendar_state(text, date, date, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer DEFAULT 7) RETURNS text
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE
+    WHEN p_status = 'Completed' THEN 'closed'
+    -- La mora MANUAL (Invoiced -> Overdue, decision del operador Q3: se mantiene) es mora
+    -- aunque la fecha de vencimiento no haya pasado. La pantalla muestra un unico chip
+    -- "En mora" para los dos casos y distingue manual/por fecha en el tooltip.
+    WHEN p_status = 'Overdue' THEN 'overdue'
+    WHEN p_status = 'Invoiced' THEN CASE
+      WHEN p_payment_due_date IS NULL THEN 'on_track'
+      WHEN p_today > p_payment_due_date THEN 'overdue'
+      WHEN p_payment_due_date - p_today <= p_window_days THEN 'payment_due_soon'
+      ELSE 'on_track'
+    END
+    ELSE CASE  -- Pending
+      WHEN p_invoice_date IS NULL THEN 'on_track'
+      WHEN p_today > p_invoice_date THEN 'billing_late'
+      WHEN p_invoice_date - p_today <= p_window_days THEN 'billing_due_soon'
+      ELSE 'on_track'
+    END
+  END;
+$$;
+
+
+--
+-- Name: invoice_installment(uuid, text, date, date, numeric, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date DEFAULT NULL::date, p_invoice_exchange_rate numeric DEFAULT NULL::numeric, p_invoice_exchange_rate_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_today date := public.fund_today();
+  v_invoice_date date := COALESCE(p_invoice_date, public.fund_today());
+  v_payment_days integer;
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_expected_status IS DISTINCT FROM 'Pending' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota Pendiente de facturacion puede facturarse';
+  END IF;
+
+  IF v_invoice_date > v_today THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_FUTURE: la fecha de facturacion no puede ser futura';
+  END IF;
+
+  IF p_payment_due_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_REQUIRED: falta la fecha de vencimiento de pago';
+  END IF;
+
+  SELECT p.payment_days INTO v_payment_days
+  FROM public.wo_payment_plan p WHERE p.plan_id = v_row.plan_id;
+
+  IF p_payment_due_date < v_invoice_date
+     OR p_payment_due_date > v_invoice_date + (COALESCE(v_payment_days, 30) * 2 + 14) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: el vencimiento no corresponde a la fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
+  -- Una cuota en moneda extranjera no se factura SIN TC: el que se congela aca no se puede
+  -- completar despues (EXCHANGE_RATE_LOCKED), y sin el la sugerencia de diferencia de cambio
+  -- da NULL y los dashboards caen en silencio a otro TC.
+  IF (SELECT COALESCE(v_row.currency, w.currency) FROM public.work_orders w WHERE w.wo_id = v_row.wo_id) <> 'BOB'
+     AND COALESCE(p_invoice_exchange_rate, v_row.invoice_exchange_rate, 0) <= 0 THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_REQUIRED: una cuota en moneda extranjera necesita el tipo de cambio de facturacion';
+  END IF;
+
+  -- El TC de facturacion se congela en el MISMO UPDATE que la transicion, no en uno
+  -- posterior: wo_payment_installments_guard_exchange_rate evalua OLD.status, asi que una
+  -- vez que la cuota queda 'Invoiced' cualquier cambio de invoice_exchange_rate se rechaza
+  -- con EXCHANGE_RATE_LOCKED. NULL deja el valor que ya tenia (modo fijo lo sincroniza
+  -- solo desde el plan).
+  -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
+  -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
+  -- de uno tecleado.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_invoice_date,
+         collection_payment_date = p_payment_due_date,
+         invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
+         invoice_exchange_rate_date = p_invoice_exchange_rate_date
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
 -- Name: is_admin(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6001,6 +7849,18 @@ CREATE FUNCTION public.is_auto_approved_category(p_staff_id uuid) RETURNS boolea
     where s.staff_id = p_staff_id
       and rp.permission_key = 'timesheet.self_approve'
   )
+$$;
+
+
+--
+-- Name: is_collections_role(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_collections_role() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(public.current_role_key() in ('accounting_manager', 'collections_analyst'), false);
 $$;
 
 
@@ -6252,6 +8112,255 @@ $$;
 --
 
 COMMENT ON FUNCTION public.list_administrative_internal_clients() IS '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT -- defensa en profundidad, independiente de que el DO block de arriba ya deba haber reactivado ambas filas canonicas.';
+
+
+--
+-- Name: list_collections_installments(text, uuid, integer, uuid, uuid, date, date, text, text, boolean, text, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_collections_installments(p_tab text DEFAULT 'por_facturar'::text, p_society_id uuid DEFAULT NULL::uuid, p_practica integer DEFAULT NULL::integer, p_manager_id uuid DEFAULT NULL::uuid, p_client_id uuid DEFAULT NULL::uuid, p_date_from date DEFAULT NULL::date, p_date_to date DEFAULT NULL::date, p_currency text DEFAULT NULL::text, p_search text DEFAULT NULL::text, p_include_expense_rows boolean DEFAULT true, p_order text DEFAULT 'fecha'::text, p_limit integer DEFAULT 50, p_offset integer DEFAULT 0) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_today date := public.fund_today();
+  v_month_start date := date_trunc('month', v_today)::date;
+  v_month_end date := (date_trunc('month', v_today) + interval '1 month - 1 day')::date;
+  v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
+  v_search text := NULLIF(btrim(COALESCE(p_search, '')), '');
+  v_result jsonb;
+BEGIN
+  -- Misma puerta que el resto de cobranzas (decision Q58): Gerente de Contabilidad y Analista
+  -- de Cobranzas, mas admin. El Analista de Contabilidad queda fuera: solo trabaja fondos.
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'COLLECTIONS_FORBIDDEN: esta vista es de contabilidad (o de un administrador)';
+  END IF;
+
+  IF p_tab IS NULL OR p_tab NOT IN ('por_facturar', 'por_cobrar', 'en_mora', 'cobradas') THEN
+    RAISE EXCEPTION 'COLLECTIONS_TAB_INVALID: pestana desconocida (%)', p_tab;
+  END IF;
+
+  IF p_order IS NULL OR p_order NOT IN ('fecha', 'ot') THEN
+    RAISE EXCEPTION 'COLLECTIONS_ORDER_INVALID: orden desconocido (%)', p_order;
+  END IF;
+
+  WITH base AS (
+    SELECT
+      i.installment_id,
+      i.installment_number,
+      i.installment_type,
+      i.amount,
+      i.status,
+      i.confirmation_status,
+      i.agreed_invoice_date,
+      i.agreed_payment_date,
+      i.current_invoice_date,
+      i.collection_invoice_date,
+      i.collection_payment_date,
+      i.payment_date_actual,
+      wo.wo_id,
+      e.engagement_id,
+      e.engagement_code,
+      e.engagement_name,
+      e.society_id,
+      e.practica,
+      e.manager_id,
+      c.client_id,
+      c.client_legal_name,
+      c.unique_tax_id,
+      COALESCE(i.currency, wo.currency) AS row_currency,
+      -- La fecha que la pantalla llama "vigente": la reprogramada si la hubo.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date_vigente,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS due_date_vigente,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date, v_today
+      ) AS calendar_state,
+      (i.current_invoice_date IS NOT NULL) AS was_rescheduled,
+      -- Cobranzas Fase 9: los descuentos vigentes, en la moneda de la cuota. Lo que el cliente
+      -- debe es el monto MAS los ajustes; mostrar el monto a secas seria decir que debe mas de
+      -- lo que se le va a cobrar, justo en la pantalla que existe para saber cuanto falta.
+      public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, wo.currency)) AS adjustments_total,
+      -- La diferencia de cambio va en Bs, asi que en una cuota en otra moneda no se puede
+      -- sumar al monto: viaja aparte. Solo existe en cuotas ya cobradas.
+      CASE WHEN COALESCE(i.currency, wo.currency) <> 'BOB'
+           THEN public.installment_adjustments_total(i.installment_id, 'BOB')
+           ELSE 0 END AS exchange_difference_bob,
+      m.first_name AS manager_first_name,
+      m.last_name AS manager_last_name
+    FROM public.wo_payment_installments i
+    JOIN public.work_orders wo ON wo.wo_id = i.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff m ON m.staff_id = e.manager_id
+    WHERE wo.approval_status = 'Approved'
+      -- Encargos administrativos fuera (ver la nota de arriba).
+      AND (e.funcion IS NULL OR e.funcion = 1)
+      AND (p_include_expense_rows OR i.installment_type = 'fee')
+      AND (p_society_id IS NULL OR e.society_id = p_society_id)
+      AND (p_practica IS NULL OR e.practica = p_practica)
+      AND (p_manager_id IS NULL OR e.manager_id = p_manager_id)
+      AND (p_client_id IS NULL OR c.client_id = p_client_id)
+      AND (p_currency IS NULL OR COALESCE(i.currency, wo.currency) = p_currency)
+      AND (v_search IS NULL
+           OR c.client_legal_name ILIKE '%' || v_search || '%'
+           OR e.engagement_code ILIKE '%' || v_search || '%'
+           OR e.engagement_name ILIKE '%' || v_search || '%')
+  ),
+  dated AS (
+    SELECT b.*,
+      -- La fecha por la que se filtra y se ordena cambia con la etapa, porque cambia la
+      -- pregunta: antes de facturar importa CUANDO hay que facturar; despues, cuando vence.
+      CASE WHEN b.status = 'Pending' THEN b.invoice_date_vigente ELSE b.due_date_vigente END AS fecha_relevante,
+      CASE WHEN b.calendar_state = 'overdue' AND b.due_date_vigente IS NOT NULL
+           THEN GREATEST(v_today - b.due_date_vigente, 0) ELSE 0 END AS days_overdue,
+      -- Lo que realmente queda por cobrar. Todos los totales de abajo usan ESTE numero.
+      COALESCE(b.amount, 0) + b.adjustments_total AS amount_effective
+    FROM base b
+  ),
+  filtered AS (
+    SELECT d.* FROM dated d
+    WHERE (p_date_from IS NULL OR d.fecha_relevante >= p_date_from)
+      AND (p_date_to IS NULL OR d.fecha_relevante <= p_date_to)
+  ),
+  -- Las cuatro pestanas, disjuntas por construccion.
+  tabbed AS (
+    SELECT f.* FROM filtered f
+    WHERE CASE p_tab
+      WHEN 'por_facturar' THEN f.status = 'Pending'
+      WHEN 'por_cobrar'   THEN f.status = 'Invoiced' AND f.calendar_state <> 'overdue'
+      WHEN 'en_mora'      THEN f.calendar_state = 'overdue'
+      WHEN 'cobradas'     THEN f.status = 'Completed'
+    END
+  ),
+  -- Por 'ot', las cuotas de una misma orden quedan contiguas y en su orden natural. Por
+  -- 'fecha', lo que vence primero va primero, que es como se trabaja el dia a dia.
+  ranked AS (
+    SELECT t.*,
+      (row_number() OVER (ORDER BY
+        CASE WHEN p_order = 'ot' THEN t.client_legal_name END,
+        CASE WHEN p_order = 'ot' THEN t.engagement_code END,
+        CASE WHEN p_order = 'ot' THEN t.wo_id::text END,
+        CASE WHEN p_order = 'ot' THEN t.installment_number END,
+        t.fecha_relevante NULLS LAST, t.client_legal_name, t.installment_number) - 1) AS rn
+    FROM tabbed t
+  ),
+  -- Que las cuotas de una orden sean contiguas no alcanza: un LIMIT/OFFSET a secas igual corta
+  -- la orden que cae en el borde de la pagina, y la pantalla la mostraria como dos grupos
+  -- incompletos en dos paginas seguidas. Por 'ot' la pagina se arma por ORDENES: entra entera
+  -- cada orden cuya primera cuota cae en la ventana [offset, offset + limit), y la siguiente
+  -- pagina salta las cuotas que ya viajaron con ella. Asi una pagina puede traer algunas filas
+  -- de mas o de menos que `limit`, pero `total_count` y el paginador siguen contando filas y no
+  -- hay fila que aparezca dos veces ni ninguna que se pierda. Mientras ninguna orden tenga mas
+  -- cuotas que `limit` (un plan tiene una docena como mucho) ninguna pagina queda vacia.
+  grouped_rank AS (
+    SELECT r.*,
+      CASE WHEN p_order = 'ot' THEN min(r.rn) OVER (PARTITION BY r.wo_id) ELSE r.rn END AS page_anchor
+    FROM ranked r
+  ),
+  page AS (
+    SELECT g.* FROM grouped_rank g
+    WHERE g.page_anchor >= v_offset AND g.page_anchor < v_offset + v_limit
+  ),
+  -- Los tres totales de la cabecera, por moneda. Se calculan sobre `filtered`: describen la
+  -- cartera que los filtros dejaron a la vista, no la pestana abierta.
+  tot_por_facturar AS (
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
+     WHERE f.status = 'Pending'
+       AND f.invoice_date_vigente BETWEEN v_month_start AND v_month_end
+     GROUP BY f.row_currency
+  ),
+  tot_sin_cobrar AS (
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
+     WHERE f.status IN ('Invoiced', 'Overdue')
+     GROUP BY f.row_currency
+  ),
+  tot_en_mora AS (
+    SELECT f.row_currency, SUM(f.amount_effective) AS total FROM filtered f
+     WHERE f.calendar_state = 'overdue'
+     GROUP BY f.row_currency
+  )
+  SELECT jsonb_build_object(
+    'today', v_today,
+    'tab', p_tab,
+    'order', p_order,
+    'limit', v_limit,
+    'offset', v_offset,
+    'total_count', (SELECT COUNT(*) FROM tabbed),
+    -- Lo que el paginador tiene que contar. Por 'fecha' son las filas. Por 'ot' la pagina se
+    -- arma por ordenes (ver `page`), asi que la ultima pagina es la de la ultima orden que
+    -- EMPIEZA: si esa orden se corre a la pagina anterior, contar filas anunciaba una pagina
+    -- final vacia. Con el ancla de la ultima orden + 1, toda pagina anunciada trae filas.
+    'page_rows', CASE WHEN p_order = 'ot'
+                      THEN COALESCE((SELECT MAX(page_anchor) + 1 FROM grouped_rank), 0)
+                      ELSE (SELECT COUNT(*) FROM tabbed) END,
+    'totals', jsonb_build_object(
+      'por_facturar_mes',     COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_por_facturar), '{}'::jsonb),
+      'facturado_sin_cobrar', COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_sin_cobrar), '{}'::jsonb),
+      'en_mora',              COALESCE((SELECT jsonb_object_agg(row_currency, total) FROM tot_en_mora), '{}'::jsonb)
+    ),
+    'rows', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'installment_id',     p.installment_id,
+        'installment_number', p.installment_number,
+        'installment_type',   p.installment_type,
+        'wo_id',              p.wo_id,
+        'engagement_id',      p.engagement_id,
+        'engagement_code',    p.engagement_code,
+        'engagement_name',    p.engagement_name,
+        'client_id',          p.client_id,
+        'client_legal_name',  p.client_legal_name,
+        'unique_tax_id',      p.unique_tax_id,
+        'society_id',         p.society_id,
+        'practica',           p.practica,
+        'manager_id',         p.manager_id,
+        'manager_name',       NULLIF(btrim(COALESCE(p.manager_first_name, '') || ' ' || COALESCE(p.manager_last_name, '')), ''),
+        'amount',             p.amount,
+        -- El contrato y lo que queda por cobrar, por separado: la diferencia entre los dos es
+        -- el descuento, y es lo que hay que poder explicar.
+        'adjustments_total',  p.adjustments_total,
+        'amount_effective',   p.amount_effective,
+        'exchange_difference_bob', p.exchange_difference_bob,
+        'currency',           p.row_currency,
+        'status',             p.status,
+        'calendar_state',     p.calendar_state,
+        'confirmation_status', p.confirmation_status,
+        'agreed_invoice_date', p.agreed_invoice_date,
+        'agreed_payment_date', p.agreed_payment_date,
+        'invoice_date_vigente', p.invoice_date_vigente,
+        'due_date_vigente',   p.due_date_vigente,
+        'collection_invoice_date', p.collection_invoice_date,
+        'payment_date_actual', p.payment_date_actual,
+        'fecha_relevante',    p.fecha_relevante,
+        'days_overdue',       p.days_overdue,
+        'was_rescheduled',    p.was_rescheduled,
+        -- Si la cuota tiene notas, para el icono de la fila. Las notas en si se leen al abrir
+        -- la OT: traerlas todas aca hincharia la respuesta sin que la lista las muestre.
+        'has_notes', EXISTS (
+          SELECT 1 FROM public.wo_installment_notes n
+           WHERE n.installment_id = p.installment_id AND n.deleted_at IS NULL
+        ),
+        -- El contacto con el que hay que cobrar, a mano en la fila (decision 2026-10-20): el de
+        -- cobranza, y si el cliente no tiene, el general. Sin esto habria que abrir la ficha
+        -- del cliente para cada llamada.
+        'contact', (
+          SELECT jsonb_build_object(
+            'full_name', cc.full_name, 'email', cc.email, 'phone', cc.phone, 'contact_type', cc.contact_type
+          )
+          FROM public.client_contacts cc
+          WHERE cc.client_id = p.client_id AND cc.is_active
+          ORDER BY (cc.contact_type = 'cobranza') DESC, cc.created_at
+          LIMIT 1
+        )
+      ) ORDER BY p.rn)
+      FROM page p
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$$;
 
 
 --
@@ -6953,11 +9062,23 @@ CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- En liquidación y sin liquidación registrada. La liquidación es de dos pasos manuales,
-  -- así que `en_liquidacion` con settled_at NULL es exactamente "falta registrarla".
+  -- Solicitudes listas para liquidar: fondos entregados, ningún gasto en curso ni esperando
+  -- revisión, y con gastos o con la fecha fin ya pasada (una solicitud sin gastos al vencer se
+  -- liquida igual: devolución total). Mismo criterio que expensePhase() 'ready' en la bandeja
+  -- de Desembolsos y que fund_request_settle (plan-contabilidad-gastos Fases 3 y 4). Antes
+  -- contaba `en_liquidacion` sin settled_at, que desde las RPC contables no existe.
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE status = 'en_liquidacion' AND settled_at IS NULL;
+    FROM public.fund_requests fr
+   WHERE fr.status = 'fondos_entregados'
+     AND (EXISTS (SELECT 1 FROM public.fund_request_expenses e
+                   WHERE e.fund_request_id = fr.fund_request_id)
+          OR public.fund_today() > public.fund_request_deadline(fr.expense_period_month))
+     AND NOT EXISTS (
+       SELECT 1 FROM public.fund_request_expenses e
+        WHERE e.fund_request_id = fr.fund_request_id
+          AND (e.status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado')
+               OR (e.status = 'rechazado'
+                   AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month))));
 $$;
 
 
@@ -7155,11 +9276,22 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
    --
    -- Gana el estado más específico, mismo criterio que usa este módulo cuando
    -- `client.deactivated` le gana a `client.updated`: si ya está vencida, no está por vencer.
-   WHERE i.status NOT IN ('Completed', 'Overdue')
-     AND i.agreed_payment_date IS NOT NULL
-     AND i.agreed_payment_date >= (now() AT TIME ZONE 'America/La_Paz')::date
-     AND i.agreed_payment_date <=
-         (date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6);
+   --
+   -- Cobranzas Fase 1 (issue #352, decision del operador Q4): el contador pasa de
+   -- `agreed_payment_date` (la fecha PACTADA) a la fecha de vencimiento VIGENTE
+   -- -- COALESCE(collection_payment_date, agreed_payment_date), o sea la fecha de
+   -- facturacion REAL mas los dias habiles del plan. Una cuota facturada tarde vencia
+   -- tarde, y contra la fecha pactada aparecia vencida antes de tiempo.
+   --
+   -- El filtro de estado pasa de "NOT IN (Completed, Overdue)" a "= Invoiced": una cuota
+   -- todavia Pendiente no tiene vencimiento de PAGO, tiene fecha de FACTURACION. Su caso
+   -- (no se facturo a tiempo) es "facturacion atrasada", con su propio aviso en la Fase 3,
+   -- no "por vencer".
+   WHERE i.status = 'Invoiced'
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) IS NOT NULL
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) >= public.fund_today()
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) <=
+         (date_trunc('week', public.fund_today())::date + 6);
 $$;
 
 
@@ -7167,7 +9299,7 @@ $$;
 -- Name: FUNCTION notif_agg_wo_installment_due_this_week(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS 'Contador "Cuotas por vencer esta semana": cuotas cuya fecha de pago acordada cae entre hoy y el domingo, excluyendo Completed y tambien Overdue. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
+COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS 'Contador "Cuotas por vencer esta semana": cuotas FACTURADAS cuya fecha de vencimiento vigente (facturacion real + dias habiles) cae entre hoy y el domingo. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
 
 
 --
@@ -7198,10 +9330,18 @@ CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope
         FROM public.wo_payment_installments i
         JOIN public.work_orders w  ON w.wo_id = i.wo_id
         JOIN public.engagements e  ON e.engagement_id = w.engagement_id
-       WHERE i.status <> 'Completed'
-         AND (i.status = 'Overdue'
-              OR (i.agreed_payment_date IS NOT NULL
-                  AND i.agreed_payment_date < (now() AT TIME ZONE 'America/La_Paz')::date))
+       -- Cobranzas Fase 1 (issue #352): la mora deja de calcularse aqui y pasa a la regla
+       -- unica wo_installment_calendar_state() -- el mismo criterio que usan la pantalla,
+       -- el indicador de la pestana y los dashboards. Cambia respecto del criterio
+       -- anterior en dos casos reales:
+       --   * una cuota todavia Pendiente con la fecha de pago pactada ya pasada YA NO
+       --     cuenta como mora (nunca se facturo: es facturacion atrasada, Fase 3);
+       --   * una cuota facturada tarde se mide contra su vencimiento REAL
+       --     (collection_payment_date), no contra el pactado.
+       -- La mora MANUAL (status 'Overdue') la sigue contando la propia funcion.
+       WHERE public.wo_installment_calendar_state(
+               i.status, i.agreed_invoice_date, i.current_invoice_date,
+               i.agreed_payment_date, i.collection_payment_date) = 'overdue'
          AND (p_scope <> 'assigned'
               OR p_staff_id IN (e.manager_id, e.specialist_it_id, e.specialist_tax_id))
     ) q;
@@ -7212,7 +9352,7 @@ $$;
 -- Name: FUNCTION notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) IS 'Contador "Cuotas vencidas". Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
+COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) IS 'Contador "Cuotas vencidas" (mora segun wo_installment_calendar_state: manual, o facturada y pasada su fecha de vencimiento vigente). Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
 
 
 --
@@ -7341,6 +9481,188 @@ $$;
 --
 
 COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS 'Recordatorio semanal de aprobaciones: lineas de timesheet, cola de capacitacion y encargos esperando al Socio. Cada pieza entra solo si la matriz le concede ese contador al rol.';
+
+
+--
+-- Name: notif_emit_fund_auto_approval(text, uuid, integer, uuid[]); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_fund_auto_approval(p_type_key text, p_fund_request_id uuid, p_count integer, p_managers uuid[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Resumen de una aprobación automática (job de plazos) para UNA solicitud, a sus tres
+-- audiencias: el solicitante, los gerentes (los de las OT afectadas en la etapa del gerente;
+-- todos los de la solicitud en la de Contabilidad) y los dos roles de Contabilidad. Cada uno
+-- con su redacción (payload.context).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+  v_rec       record;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count)
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NULL THEN
+    RETURN;
+  END IF;
+
+  PERFORM public.notify_staff(p_type_key, v_requester, p_fund_request_id::text,
+            v_payload || jsonb_build_object('context', 'requester'));
+
+  FOR v_rec IN
+    SELECT DISTINCT m AS staff_id
+      FROM unnest(COALESCE(p_managers, ARRAY[]::uuid[])) AS m
+     WHERE m IS NOT NULL AND m IS DISTINCT FROM v_requester
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'manager'));
+  END LOOP;
+
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'accounting'));
+  END LOOP;
+END;
+$$;
+
+
+--
+-- Name: notif_emit_fund_deadline_reminders(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_fund_deadline_reminders(p_today date DEFAULT NULL::date) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Recordatorios diarios de plazo:
+--   · días 1 a 3 (hasta la fecha fin): al solicitante, si tiene borradores sin enviar o gastos
+--     observados/rechazados/devueltos por corregir; y a cada gerente de OT con gastos por aprobar.
+--   · días 3 a 5 (hasta el fin de revisión): a los dos roles de Contabilidad, un solo aviso con
+--     el total de gastos por revisar. El día 5 dice que hoy vence (context = 'last_day').
+DECLARE
+  v_today   date := COALESCE(p_today, public.fund_today());
+  v_sent    integer := 0;
+  v_rec     record;
+  v_mgr     record;
+  v_payload jsonb;
+  v_count   integer;
+  v_reqs    integer;
+  v_review  date;
+BEGIN
+  FOR v_rec IN
+    SELECT fr.fund_request_id, fr.requester_staff_id, COALESCE(fr.request_number, '') AS request_number,
+           public.fund_request_deadline(fr.expense_period_month) AS deadline
+      FROM public.fund_requests fr
+     WHERE fr.status = 'fondos_entregados'
+       AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month) - 2
+                       AND public.fund_request_deadline(fr.expense_period_month)
+  LOOP
+    v_payload := jsonb_build_object(
+      'fund_request_id', v_rec.fund_request_id,
+      'request_number',  v_rec.request_number,
+      'deadline',        v_rec.deadline,
+      'deadline_label',  to_char(v_rec.deadline, 'DD/MM/YYYY'));
+
+    SELECT count(*) INTO v_count
+      FROM public.fund_request_expenses e
+     WHERE e.fund_request_id = v_rec.fund_request_id
+       AND e.status IN ('borrador', 'observado', 'rechazado');
+    IF v_count > 0 AND NOT public.notif_fund_sent_today(
+         'fund.expense.deadline_reminder', v_rec.requester_staff_id, v_rec.fund_request_id::text) THEN
+      PERFORM public.notify_staff('fund.expense.deadline_reminder', v_rec.requester_staff_id,
+                v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_count));
+      v_sent := v_sent + 1;
+    END IF;
+
+    FOR v_mgr IN
+      SELECT frw.manager_staff_id AS staff_id, count(*) AS n
+        FROM public.fund_request_expenses e
+        JOIN public.fund_request_work_orders frw
+          ON frw.fund_request_id = e.fund_request_id AND frw.wo_id = e.wo_id
+       WHERE e.fund_request_id = v_rec.fund_request_id
+         AND e.status = 'pendiente_aprobacion'
+         AND frw.manager_staff_id IS NOT NULL
+       GROUP BY frw.manager_staff_id
+    LOOP
+      IF NOT public.notif_fund_sent_today(
+           'fund.expense.approval_reminder', v_mgr.staff_id, v_rec.fund_request_id::text) THEN
+        PERFORM public.notify_staff('fund.expense.approval_reminder', v_mgr.staff_id,
+                  v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_mgr.n));
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- Contabilidad: en un día dado, todas las solicitudes en revisión comparten el mismo fin de
+  -- revisión (día 5 del mes en curso), así que un solo aviso con el total alcanza.
+  SELECT count(*), count(DISTINCT e.fund_request_id),
+         min(public.fund_request_review_deadline(fr.expense_period_month))
+    INTO v_count, v_reqs, v_review
+    FROM public.fund_request_expenses e
+    JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
+   WHERE fr.status = 'fondos_entregados'
+     AND e.status = 'aprobado_gerente'
+     AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
+                     AND public.fund_request_review_deadline(fr.expense_period_month);
+
+  IF v_count > 0 THEN
+    v_payload := jsonb_build_object(
+      'expense_count',  v_count,
+      'request_count',  v_reqs,
+      'deadline',       v_review,
+      'deadline_label', to_char(v_review, 'DD/MM/YYYY'));
+    IF v_today = v_review THEN
+      v_payload := v_payload || jsonb_build_object('context', 'last_day');
+    END IF;
+    FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+    LOOP
+      IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
+        PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: notif_emit_fund_expired(uuid, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_emit_fund_expired(p_fund_request_id uuid, p_count integer) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Al solicitante: cuántos gastos quedaron vencidos al pasar la fecha fin (no cuentan como gastado).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count,
+                            'deadline',        public.fund_request_deadline(fr.expense_period_month),
+                            'deadline_label',  to_char(public.fund_request_deadline(fr.expense_period_month), 'DD/MM/YYYY'))
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.expense.expired', v_requester, p_fund_request_id::text, v_payload);
+  END IF;
+END;
+$$;
 
 
 --
@@ -7773,6 +10095,272 @@ COMMENT ON FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid) I
 
 
 --
+-- Name: notif_fund_sent_today(text, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_fund_sent_today(p_type_key text, p_staff_id uuid, p_entity_id text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- ¿Ya se le mandó hoy (día de La Paz) este aviso por esta entidad? Los recordatorios corren
+  -- una vez por día; esto evita repetirlos si el job se vuelve a correr a mano.
+  SELECT EXISTS (
+    SELECT 1 FROM public.notifications n
+     WHERE n.type_key = p_type_key
+       AND n.recipient_staff_id = p_staff_id
+       AND n.entity_id IS NOT DISTINCT FROM p_entity_id
+       AND (n.created_at AT TIME ZONE 'America/La_Paz')::date = (now() AT TIME ZONE 'America/La_Paz')::date
+  );
+$$;
+
+
+--
+-- Name: notif_installment_adjustment(public.wo_installment_adjustments, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_installment_adjustment(p_row public.wo_installment_adjustments, p_evento text) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'added'
+                       THEN 'wo.installment.adjustment_added'
+                       ELSE 'wo.installment.adjustment_removed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_num   integer;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  SELECT i.installment_number INTO v_num
+    FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_row.installment_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    -- Quien lo cargo no necesita que le avisen de lo que acaba de hacer.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', v_num,
+                            'adjustment_type',    p_row.adjustment_type,
+                            -- `context` es la clave que i18next usa para elegir variante de un
+                            -- mismo mensaje. Asi el aviso dice "Descuento de ..." o "Diferencia
+                            -- de cambio de ...", en vez de un generico "Ajuste de ..." que
+                            -- ademas arrastraba el signo pegado a la moneda ("USD -200").
+                            'context',            p_row.adjustment_type,
+                            'currency',           p_row.currency,
+                            'amount',             p_row.amount,
+                            -- Sin signo, para el texto del DESCUENTO: que siempre resta ya lo
+                            -- dice la palabra. La diferencia de cambio usa el firmado, porque
+                            -- ahi el sentido es parte del dato.
+                            'amount_abs',         abs(p_row.amount),
+                            'reason',             p_row.reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_installment_adjustment(p_row public.wo_installment_adjustments, p_evento text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_installment_adjustment(p_row public.wo_installment_adjustments, p_evento text) IS 'Cobranzas Fase 9: avisa al gerente y al socio del encargo que se registro o se retiro un ajuste sobre una cuota. La llaman add_installment_adjustment() y delete_installment_adjustment().';
+
+
+--
+-- Name: notif_installment_expense_row(public.wo_payment_installments, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_installment_expense_row(p_row public.wo_payment_installments, p_evento text) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'created'
+                       THEN 'wo.installment.expense_row_created'
+                       ELSE 'wo.installment.expense_row_amount_changed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           COALESCE(p_row.currency, 'BOB'),
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'net_amount',         p_row.net_amount)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_installment_expense_row(p_row public.wo_payment_installments, p_evento text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_installment_expense_row(p_row public.wo_payment_installments, p_evento text) IS 'Cobranzas Fase 7: avisa al gerente (campana + correo) y al socio (campana) que se facturaron gastos ejecutados, o que cambio su monto. La llaman create_expense_reimbursement_row() y set_expense_reimbursement_amount().';
+
+
+--
+-- Name: notif_installment_note_added(public.wo_installment_notes); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_installment_note_added(p_note public.wo_installment_notes) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_autor_es_contabilidad boolean := COALESCE(p_note.author_role IN ('accounting_manager', 'collections_analyst'), false);
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_note.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM (
+      -- Escribió Contabilidad → se avisa al encargo (gerentes y socios).
+      -- Escribió el encargo → se avisa a Contabilidad.
+      SELECT staff_id FROM public.notif_engagement_managers(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_engagement_partners(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+       WHERE NOT v_autor_es_contabilidad
+    ) q
+  LOOP
+    CONTINUE WHEN p_note.author_staff_id IS NOT NULL AND v_rec.staff_id = p_note.author_staff_id;
+
+    IF public.notify_staff('wo.installment.note_added', v_rec.staff_id,
+         p_note.wo_id::text,
+         jsonb_build_object('engagement_code',  v_code,
+                            'engagement_id',    v_eng,
+                            'currency',         v_curr,
+                            'note_id',          p_note.note_id,
+                            'installment_id',   p_note.installment_id,
+                            -- Un extracto, no la nota entera: la campana no es el lugar para
+                            -- leerla, es el lugar para enterarse de que existe.
+                            'excerpt',          left(p_note.body, 140))) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_installment_note_added(p_note public.wo_installment_notes); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_installment_note_added(p_note public.wo_installment_notes) IS 'Cobranzas Fase 4: avisa por campana a la OTRA parte del hilo (encargo <-> Contabilidad) que hay una nota nueva, excluyendo al autor. La llama add_installment_note().';
+
+
+--
+-- Name: notif_installment_rescheduled(public.wo_payment_installments, date, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_installment_rescheduled(p_row public.wo_payment_installments, p_old_date date, p_reason text) RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff('wo.installment.rescheduled', v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           v_curr,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'old_date',           p_old_date,
+                            'new_date',           p_row.current_invoice_date,
+                            'reason',             p_reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION notif_installment_rescheduled(p_row public.wo_payment_installments, p_old_date date, p_reason text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_installment_rescheduled(p_row public.wo_payment_installments, p_old_date date, p_reason text) IS 'Cobranzas Fase 3: avisa por campana al socio del encargo y a Contabilidad que una cuota se reprogramo, excluyendo a quien la reprogramo. La llama reschedule_installment().';
+
+
+--
 -- Name: notif_origen_cambio_rol(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -7828,6 +10416,9 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
     -- excepcion el correo le ofrecia un boton a "Sin acceso".
     WHEN p_type_key = 'fund.reminder.weekly' THEN 'fund_disbursement.read'
+    -- Calendario de gastos (Fase 3): el recordatorio de revisión no es de una solicitud sino de
+    -- la bandeja de Contabilidad.
+    WHEN p_type_key = 'fund.expense.review_reminder' THEN 'fund_disbursement.read'
     WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
     WHEN p_module_key = 'work_order'         THEN 'work_order.read'
     WHEN p_module_key = 'engagement'         THEN 'engagement.read'
@@ -8090,6 +10681,8 @@ CREATE FUNCTION public.notif_wo_daily_scheduled() RETURNS integer
 DECLARE
   v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
   v_rec   record;
+  v_dest  record;
+  v_type  text;
   v_sent  integer := 0;
   c_riesgos constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
 BEGIN
@@ -8170,11 +10763,18 @@ BEGIN
   END LOOP;
 
   -- ── 3. Semana de facturación del cliente (D-22) ──
-  -- Una cuota entra en su semana de facturación cuando `agreed_invoice_date` cae en la semana
-  -- corriente (lunes a domingo) y todavía no se facturó. El dedup lleva installment_id porque
-  -- una OT puede tener dos cuotas facturables en la misma semana y el entity_id es la OT.
+  -- Una cuota entra en su semana de facturación cuando su fecha de facturación VIGENTE cae en
+  -- la semana corriente (lunes a domingo) y todavía no se facturó. El dedup lleva
+  -- installment_id porque una OT puede tener dos cuotas facturables en la misma semana y el
+  -- entity_id es la OT.
+  --
+  -- Cobranzas Fase 1 (issue #352): la fecha vigente es COALESCE(current_invoice_date,
+  -- agreed_invoice_date) — la reprogramada si la hubo, si no la del contrato. Contra
+  -- `agreed_invoice_date` a secas, una cuota reprogramada avisaba en su semana original (que
+  -- ya nadie va a facturar) y callaba en la nueva.
   FOR v_rec IN
-    SELECT i.installment_id, i.installment_number, i.amount, i.agreed_invoice_date,
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS agreed_invoice_date,
            w.wo_id, w.engagement_id, w.currency,
            COALESCE(e.engagement_code, '') AS engagement_code,
            r.staff_id
@@ -8185,9 +10785,9 @@ BEGIN
         SELECT staff_id FROM public.notif_engagement_managers(w.engagement_id)
       ) r
      WHERE i.status = 'Pending'
-       AND i.agreed_invoice_date IS NOT NULL
-       AND i.agreed_invoice_date >= date_trunc('week', v_today)::date
-       AND i.agreed_invoice_date <= date_trunc('week', v_today)::date + 6
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) IS NOT NULL
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) >= date_trunc('week', v_today)::date
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) <= date_trunc('week', v_today)::date + 6
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM public.notifications n
@@ -8210,6 +10810,79 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- ── 4. Cobranzas Fase 3: confirmación pendiente y facturación atrasada ──
+  -- Los dos salen de la MISMA regla de calendario que usa todo lo demás
+  -- (wo_installment_calendar_state), no de una comparación propia: ese fue el problema que
+  -- el issue #352 vino a cerrar.
+  --
+  -- El dedup contra public.notifications lleva installment_id Y la fecha vigente en el
+  -- payload. Que lleve la fecha es lo que hace que el aviso NO se repita una vez gestionada
+  -- la cuota y SÍ vuelva a salir si se reprograma a una fecha nueva: son dos hechos
+  -- distintos, no el mismo repetido.
+  FOR v_rec IN
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date,
+           public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today) AS calendar_state,
+           w.wo_id, w.engagement_id, w.currency,
+           COALESCE(e.engagement_code, '') AS engagement_code
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders w ON w.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+     WHERE i.status = 'Pending'
+       -- Solo OT aprobadas, el mismo corte que la pantalla de Cobranzas y las RPC de cobro. Un
+       -- plan en borrador no es todavia un contrato: avisar "facturacion atrasada" sobre el le
+       -- pide a Contabilidad algo que no puede hacer (INSTALLMENT_LOCKED).
+       AND w.approval_status = 'Approved'
+       AND public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today)
+           IN ('billing_due_soon', 'billing_late')
+       -- "Confirmación pendiente" es solo mientras nadie gestionó el check. Una cuota ya
+       -- confirmada no necesita recordatorio; una reprogramada vuelve a 'sin_gestionar' y
+       -- por eso vuelve a entrar acá, con su fecha nueva.
+       AND (i.confirmation_status = 'sin_gestionar'
+            OR public.wo_installment_calendar_state(
+                 i.status, i.agreed_invoice_date, i.current_invoice_date,
+                 i.agreed_payment_date, i.collection_payment_date, v_today) = 'billing_late')
+  LOOP
+    -- El gerente del encargo es quien marca el check (decisión Q11/Q56), así que el
+    -- recordatorio de confirmación le llega a él además de a Contabilidad. El de facturación
+    -- atrasada es de Contabilidad: son ellos quienes emiten.
+    FOR v_dest IN
+      SELECT staff_id FROM public.notif_engagement_managers(v_rec.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+    LOOP
+      v_type := CASE WHEN v_rec.calendar_state = 'billing_late'
+                     THEN 'wo.installment.billing_late'
+                     ELSE 'wo.installment.confirmation_pending' END;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM public.notifications n
+         WHERE n.type_key = v_type
+           AND n.entity_id = v_rec.wo_id::text
+           AND n.recipient_staff_id = v_dest.staff_id
+           AND n.payload->>'installment_id' = v_rec.installment_id::text
+           AND n.payload->>'invoice_date' = v_rec.invoice_date::text
+      ) THEN
+        IF public.notify_staff(v_type, v_dest.staff_id,
+             v_rec.wo_id::text,
+             jsonb_build_object('engagement_code',    v_rec.engagement_code,
+                                'engagement_id',      v_rec.engagement_id,
+                                'currency',           v_rec.currency,
+                                'installment_id',     v_rec.installment_id,
+                                'installment_number', v_rec.installment_number,
+                                'amount',             v_rec.amount,
+                                'invoice_date',       v_rec.invoice_date)) IS NOT NULL THEN
+          v_sent := v_sent + 1;
+        END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+
   RETURN v_sent;
 END;
 $$;
@@ -8219,7 +10892,7 @@ $$;
 -- Name: FUNCTION notif_wo_daily_scheduled(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS 'FASE 3.b: los 3 eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
+COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS 'FASE 3.b + Cobranzas Fase 3: los eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion, confirmacion pendiente y facturacion atrasada). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
 
 
 --
@@ -8620,6 +11293,11 @@ DECLARE
   -- La bandeja de revision contable. Los dos eventos de abajo deben repartirse SIEMPRE al
   -- mismo conjunto; tenerlos como constante evita que vuelvan a separarse.
   c_contabilidad constant text[] := ARRAY['accounting_analyst', 'accounting_manager'];
+  -- Job de plazos (fund_request_run_deadlines): aprueba y vence en lote y manda UN resumen por
+  -- solicitud (notif_emit_fund_auto_approval / notif_emit_fund_expired). Los avisos de a un
+  -- gasto de abajo se callan mientras corre, para no repetir lo mismo gasto por gasto.
+  -- COALESCE: sin el GUC puesto current_setting(..., true) da NULL, y NOT NULL callaba todo.
+  v_job       constant boolean := COALESCE(current_setting('app.fund_deadlines', true), '') = 'on';
 BEGIN
   SELECT fr.requester_staff_id, COALESCE(fr.request_number, '')
     INTO v_requester, v_number
@@ -8650,14 +11328,15 @@ BEGIN
 
   -- Decision del gerente sobre el gasto: al solicitante.
   IF OLD.status = 'pendiente_aprobacion'
-     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado') THEN
+     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado')
+     AND NOT v_job THEN
     PERFORM public.notify_staff('fund.expense.decided',
               v_requester, NEW.fre_id::text,
               v_payload || jsonb_build_object('decision', NEW.status::text));
   END IF;
 
   -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
-  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' THEN
+  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' AND NOT v_job THEN
     FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
     LOOP
       PERFORM public.notify_staff('fund.expense.sent_to_support_review',
@@ -8689,19 +11368,23 @@ BEGIN
   -- Contabilidad aprobo ESTE gasto: solo al solicitante (uno por gasto).
   IF NEW.status = 'revisado_asistente'
      AND OLD.status IS DISTINCT FROM 'revisado_asistente' THEN
-    PERFORM public.notify_staff('fund.expense.reviewed',
-              v_requester, NEW.fre_id::text, v_payload);
+    IF NOT v_job THEN
+      PERFORM public.notify_staff('fund.expense.reviewed',
+                v_requester, NEW.fre_id::text, v_payload);
+    END IF;
 
     -- Y si con este quedaron TODOS revisados, el consolidado al gerente.
     --
-    -- 'rechazado' SI cuenta como pendiente, alineado con expensePhase() (src/lib/fundRequest.ts):
-    -- "rechazado sigue siendo corregible/reenviable -> no esta finalizado". Excluirlo
-    -- disparaba el hito "todos aprobados" mientras quedaba un gasto que el solicitante
-    -- todavia puede corregir, y la solicitud no aparecia como lista para liquidar.
+    -- Alineado con expensePhase() (src/lib/fundRequest.ts) y fund_request_settle: 'rechazado'
+    -- cuenta como pendiente mientras el solicitante todavia puede corregirlo (hasta la fecha fin);
+    -- despues es final, igual que 'vencido' (calendario, plan-contabilidad-gastos Fase 3).
     SELECT COUNT(*) INTO v_faltan
       FROM public.fund_request_expenses e
+      JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
      WHERE e.fund_request_id = NEW.fund_request_id
-       AND e.status <> 'revisado_asistente';
+       AND e.status NOT IN ('revisado_asistente', 'vencido')
+       AND NOT (e.status = 'rechazado'
+                AND public.fund_today() > public.fund_request_deadline(fr.expense_period_month));
 
     IF v_faltan = 0 THEN
       FOR v_rec IN SELECT staff_id
@@ -8713,6 +11396,14 @@ BEGIN
                                      'fund_request_id', NEW.fund_request_id));
       END LOOP;
     END IF;
+  END IF;
+
+  -- Contabilidad rechaza un gasto en los días 4 y 5 (calendario, Fase 3): al solicitante. Ya
+  -- no puede corregirlo, así que el aviso le explica que no cuenta como gastado.
+  IF OLD.status = 'aprobado_gerente' AND NEW.status = 'rechazado' THEN
+    PERFORM public.notify_staff('fund.expense.rejected_by_accounting',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object('reason', COALESCE(NEW.rejection_reason, '')));
   END IF;
 
   -- Multa IVA: al solicitante.
@@ -8808,11 +11499,34 @@ BEGIN
     END LOOP;
   END IF;
 
+  -- Fase 4 (plan-contabilidad-gastos): si el cierre es la confirmación del movimiento de dinero,
+  -- el solicitante recibe un aviso propio ("Tu reembolso fue pagado" / "Contabilidad recibió tu
+  -- devolución" / "Se aplicó el descuento"), con fecha y hora, EN LUGAR del genérico "Solicitud
+  -- cerrada". Los gerentes de OT siguen recibiendo el genérico (decisión de Neil, 2026-10-09).
+  IF OLD.settlement_confirmed_at IS NULL AND NEW.settlement_confirmed_at IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.settlement.confirmed',
+              NEW.requester_staff_id, NEW.fund_request_id::text,
+              v_payload || jsonb_build_object(
+                'context', CASE NEW.settlement_resolution
+                             WHEN 'pago_solicitante'   THEN 'reimbursement'
+                             WHEN 'devolucion'         THEN 'return'
+                             WHEN 'descuento_planilla' THEN 'payroll'
+                           END,
+                -- El monto del aviso es el del movimiento, no el solicitado.
+                'amount', NEW.settlement_amount,
+                'confirmed_label', to_char(NEW.settlement_confirmed_at AT TIME ZONE 'America/La_Paz',
+                                           'DD/MM/YYYY HH24:MI'),
+                'reference', NEW.settlement_reference));
+  END IF;
+
   IF OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL THEN
     FOR v_rec IN
       SELECT NEW.requester_staff_id AS staff_id
+       WHERE NEW.settlement_confirmed_at IS NULL
       UNION
       SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+       WHERE NEW.settlement_confirmed_at IS NULL
+          OR staff_id IS DISTINCT FROM NEW.requester_staff_id
     LOOP
       PERFORM public.notify_staff('fund.request.closed',
                 v_rec.staff_id, NEW.fund_request_id::text, v_payload);
@@ -9532,7 +12246,12 @@ DECLARE
   v_code text;
   v_curr text;
   v_rec  record;
-  c_contabilidad constant text[] := ARRAY['accounting_manager', 'accounting_analyst'];
+  -- Cobranzas Fase 2 (Q14/Q46): el aviso de cambio de estado de una CUOTA es del circuito de
+  -- cobranza -- Gerente de Contabilidad y Analista de Cobranzas. El Analista de Contabilidad
+  -- sale (solo hace solicitudes de fondos). OJO: la otra constante con el mismo nombre, en el
+  -- disparador de FONDOS de este mismo archivo, SI sigue siendo gerente + analista contable.
+  c_contabilidad constant text[] := ARRAY['accounting_manager', 'collections_analyst'];
+  v_actor uuid := public.get_my_staff_id();
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
     RETURN NULL;
@@ -9548,6 +12267,13 @@ BEGIN
   -- de la pestaña "Plan de pagos" de su OT.
   FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
   LOOP
+    -- 2026-10-21: a quien movio la cuota no se le avisa de su propio clic. El aviso sigue
+    -- siendo DEPARTAMENTAL -- su valor es que la OTRA persona del circuito se entere-- pero
+    -- quien factura treinta cuotas en una manana se comia treinta campanazos propios, y eso
+    -- enterraba lo que si importa: una nota del encargo, una reprogramacion. Es la misma regla
+    -- que ya seguian todos los avisos de las fases 3, 4, 7 y 9.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
     PERFORM public.notify_staff('wo.installment.status_changed', v_rec.staff_id,
               NEW.wo_id::text,
               jsonb_build_object(
@@ -10103,7 +12829,10 @@ BEGIN
   wo AS (
     SELECT
       w.*,
-      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+      -- Cobranzas Fase 7 (decision del operador Q41): la base de las cuotas son SOLO los
+      -- honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se cobran
+      -- por su propia fila, con lo EJECUTADO; sumarlo a la base los cobraria dos veces.
+      w.fee_net / NULLIF(1 - w.tax_rate, 0) AS installment_base
     FROM wo_rate w
   ),
 
@@ -10188,10 +12917,34 @@ BEGIN
       i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
       i.status, i.agreed_invoice_date, i.agreed_payment_date,
       i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
-      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
-      w.rate_to_bob,
-      COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
-      COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) AS payment_rate
+      -- Cobranzas Fase 1 (issue #352): fechas VIGENTES y estado de calendario, calculados
+      -- una sola vez aqui para que ningun bloque de abajo repita el criterio.
+      --   * current_invoice_date = la reprogramada si la hubo, si no la del contrato.
+      --   * current_due_date     = el vencimiento REAL (facturacion real + dias habiles);
+      --                            cae a la pactada solo si falta (anomalia de datos).
+      --   * calendar_state       = la regla unica de mora (decision del operador Q4), la
+      --                            misma que usan la pantalla, los avisos y el cron.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS current_invoice_date,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS current_due_date,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date,
+        (SELECT today FROM now_ctx)) AS calendar_state,
+      -- Cobranzas Fase 9: lo que el cliente DEBE (o pago), no el monto del contrato: el monto
+      -- mas los descuentos vigentes en la moneda de la cuota, igual que amount_effective en la
+      -- pantalla de Cobranzas. Sin esto todo KPI de una cuota con descuento la contaba entera.
+      COALESCE(i.amount, i.percentage * w.installment_base / 100)
+        + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, w.currency)) AS amount_native,
+      -- La moneda que cuenta es la de la CUOTA, no la de la OT (Cobranzas Fase 6/7). Una cuota
+      -- puede ir en Bs aunque la OT sea en USD, y la fila de gastos ejecutados nace siempre en
+      -- Bs: valuarla con el TC de la OT la multiplicaba por ~7 en todos los KPI. Para una
+      -- cuota en Bs los tres TC son 1; para el resto, lo de siempre.
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE w.rate_to_bob END AS rate_to_bob,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.invoice_exchange_rate, w.rate_to_bob) END AS invoice_rate,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) END AS payment_rate
     FROM wo w
     JOIN public.wo_payment_installments i ON i.wo_id = w.wo_id
   ),
@@ -10229,13 +12982,13 @@ BEGIN
         'count', COUNT(*) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')), 0)),
       'in_arrears', jsonb_build_object(
-        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)),
+        'count', COUNT(*) FILTER (WHERE inst.calendar_state = 'billing_late'),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)), 0)),
+          WHERE inst.calendar_state = 'billing_late'), 0)),
       'upcoming', jsonb_build_object(
-        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)),
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)), 0))
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'), 0))
     ) AS by_status
     FROM installments_full inst
   ),
@@ -10244,7 +12997,7 @@ BEGIN
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
         'client_legal_name', cl.client_legal_name,
         'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
-        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END,
         -- review.md dash_socio iteración 9, G-01 (2026-09-22): una cuota ya facturada
         -- (Invoiced/Overdue) se valora al TC congelado de su factura (invoice_rate), NO al
         -- TC del plan (rate_to_bob) -- consistente con collections_by_status.invoiced, unas
@@ -10253,17 +13006,20 @@ BEGIN
         'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
                         THEN inst.amount_native * inst.invoice_rate
                         ELSE inst.amount_native * inst.rate_to_bob END
-      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END
     ), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
     WHERE
+      -- Cobranzas Fase 1 (issue #352): la ventana de 7 dias mira las fechas VIGENTES
+      -- (current_due_date / current_invoice_date del CTE), no las pactadas: una cuota
+      -- reprogramada o facturada tarde aparecia en la semana equivocada.
       (inst.status IN ('Invoiced', 'Overdue')
-        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_due_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
       OR
       (inst.status = 'Pending'
-        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
   ),
   overdue_list AS (
     SELECT
@@ -10272,13 +13028,15 @@ BEGIN
       COALESCE(jsonb_agg(jsonb_build_object(
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id,
         'client_legal_name', cl.client_legal_name,
-        'agreed_payment_date', inst.agreed_payment_date,
+        'agreed_payment_date', inst.current_due_date,
         'amount_bob', inst.amount_native * inst.rate_to_bob
-      ) ORDER BY inst.agreed_payment_date), '[]'::jsonb) AS items
+      ) ORDER BY inst.current_due_date), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
-    WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_payment_date < (SELECT today FROM now_ctx)
+    -- Cobranzas Fase 1 (Q4): la mora la decide wo_installment_calendar_state (ver el CTE
+    -- installments_full), no una comparacion propia contra la fecha PACTADA.
+    WHERE inst.calendar_state = 'overdue'
   ),
 
   -- ── 12. my_engagements/my_budget/my_hours: KPI 3/4, SIEMPRE personales ──────────────
@@ -10625,8 +13383,14 @@ BEGIN
   ),
   finalized_collected AS (
     SELECT COALESCE(SUM(
-      COALESCE(i.amount, i.percentage * ((fw.fee_net + fw.expense_budget) / NULLIF(1 - fw.tax_rate, 0)) / 100)
-      * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
+      (COALESCE(i.amount, i.percentage * (fw.fee_net / NULLIF(1 - fw.tax_rate, 0)) / 100)
+       -- Lo cobrado de verdad: con sus descuentos, como en installments_full.
+       + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, fw.currency)))
+      -- La cuota se valua en SU moneda, como en installments_full: una fila en Bs (la de
+      -- gastos nace asi) de una OT en USD no tiene TC propio y caia al de la OT, inflando lo
+      -- cobrado unas siete veces.
+      * CASE WHEN COALESCE(i.currency, fw.currency) = 'BOB' THEN 1
+             ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob) END
     ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
     FROM finalized_wo fw
     JOIN public.wo_payment_installments i ON i.wo_id = fw.wo_id
@@ -11317,7 +14081,9 @@ BEGIN
       'purpose', frs.purpose,
       'status', frs.status,
       'request_currency', frs.currency,
-      'due_back_date', frs.due_back_date,
+      -- Vencimiento de la rendición = fecha fin de la solicitud (Fase 3). Se conserva la
+      -- clave del payload para no mover el contrato con la pestaña Personal.
+      'due_back_date', public.fund_request_deadline(frs.expense_period_month),
       'amounts_by_currency', COALESCE(faj.items, '[]'::jsonb),
       'expenses', COALESCE(fej.items, '[]'::jsonb)
     ) ORDER BY COALESCE(frs.submitted_at, frs.created_at) DESC, frs.fund_request_id), '[]'::jsonb) AS items
@@ -11646,7 +14412,8 @@ BEGIN
   wo AS (
     SELECT
       w.*,
-      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+      -- Cobranzas Fase 7 (Q41): base de cuotas = solo honorarios. Ver dash_socio.
+      w.fee_net / NULLIF(1 - w.tax_rate, 0) AS installment_base
     FROM wo_rate w
   ),
 
@@ -11955,10 +14722,34 @@ BEGIN
       i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
       i.status, i.agreed_invoice_date, i.agreed_payment_date,
       i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
-      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
-      w.rate_to_bob,
-      COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
-      COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) AS payment_rate
+      -- Cobranzas Fase 1 (issue #352): fechas VIGENTES y estado de calendario, calculados
+      -- una sola vez aqui para que ningun bloque de abajo repita el criterio.
+      --   * current_invoice_date = la reprogramada si la hubo, si no la del contrato.
+      --   * current_due_date     = el vencimiento REAL (facturacion real + dias habiles);
+      --                            cae a la pactada solo si falta (anomalia de datos).
+      --   * calendar_state       = la regla unica de mora (decision del operador Q4), la
+      --                            misma que usan la pantalla, los avisos y el cron.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS current_invoice_date,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS current_due_date,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date,
+        (SELECT today FROM now_ctx)) AS calendar_state,
+      -- Cobranzas Fase 9: lo que el cliente DEBE (o pago), no el monto del contrato: el monto
+      -- mas los descuentos vigentes en la moneda de la cuota, igual que amount_effective en la
+      -- pantalla de Cobranzas. Sin esto todo KPI de una cuota con descuento la contaba entera.
+      COALESCE(i.amount, i.percentage * w.installment_base / 100)
+        + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, w.currency)) AS amount_native,
+      -- La moneda que cuenta es la de la CUOTA, no la de la OT (Cobranzas Fase 6/7). Una cuota
+      -- puede ir en Bs aunque la OT sea en USD, y la fila de gastos ejecutados nace siempre en
+      -- Bs: valuarla con el TC de la OT la multiplicaba por ~7 en todos los KPI. Para una
+      -- cuota en Bs los tres TC son 1; para el resto, lo de siempre.
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE w.rate_to_bob END AS rate_to_bob,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.invoice_exchange_rate, w.rate_to_bob) END AS invoice_rate,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) END AS payment_rate
     FROM wo w
     JOIN public.wo_payment_installments i ON i.wo_id = w.wo_id
   ),
@@ -11974,17 +14765,17 @@ BEGIN
           WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
       'in_arrears', jsonb_build_object(
         'count', COUNT(*) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+          WHERE inst.calendar_state = 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)
+          WHERE inst.calendar_state = 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0)),
       'upcoming', jsonb_build_object(
         'count', COUNT(*) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'
             AND inst.agreed_invoice_date BETWEEN p_start AND p_end), 0))
     ) AS by_status
     FROM installments_full inst
@@ -11994,24 +14785,27 @@ BEGIN
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
         'client_legal_name', cl.client_legal_name,
         'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
-        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END,
         -- review.md dash_cartera iteración 4, G-01 (2026-09-22): igual que dash_socio --
         -- una cuota ya facturada (Invoiced/Overdue) se valora al TC congelado de su factura
         -- (invoice_rate), NO al TC del plan (rate_to_bob).
         'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
                         THEN inst.amount_native * inst.invoice_rate
                         ELSE inst.amount_native * inst.rate_to_bob END
-      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END
     ), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
     WHERE
+      -- Cobranzas Fase 1 (issue #352): la ventana de 7 dias mira las fechas VIGENTES
+      -- (current_due_date / current_invoice_date del CTE), no las pactadas: una cuota
+      -- reprogramada o facturada tarde aparecia en la semana equivocada.
       (inst.status IN ('Invoiced', 'Overdue')
-        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_due_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
       OR
       (inst.status = 'Pending'
-        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
   ),
   avg_collection_days_agg AS (
     SELECT AVG(COALESCE(inst.payment_date_actual, inst.collection_payment_date) - inst.collection_invoice_date)
@@ -13010,6 +15804,80 @@ $_$;
 
 
 --
+-- Name: record_installment_confirmation(uuid, boolean, date, text, date, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date DEFAULT NULL::date, p_note text DEFAULT NULL::text, p_new_invoice_date date DEFAULT NULL::date, p_new_payment_due_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_current date;
+BEGIN
+  v_row := public.wo_installment_assert_manager(p_installment_id);
+  v_current := COALESCE(v_row.current_invoice_date, v_row.agreed_invoice_date);
+
+  IF p_expected_invoice_date IS DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no vence el % (ahora es %); recargue la pagina', p_expected_invoice_date, v_current;
+  END IF;
+
+  IF p_confirmed THEN
+    IF v_current IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: la cuota no tiene fecha de facturacion que confirmar';
+    END IF;
+
+    UPDATE public.wo_payment_installments
+       SET confirmation_status = 'confirmada',
+           confirmed_for_date  = v_current,
+           confirmed_by        = public.get_my_staff_id(),
+           confirmed_at        = now()
+     WHERE installment_id = p_installment_id
+    RETURNING * INTO v_row;
+
+    INSERT INTO public.wo_installment_events
+      (installment_id, wo_id, action, new_date, reason, actor_staff_id)
+    -- Sin nota, el motivo queda NULL: la bitacora ya dice "Confirmada" con el texto
+    -- traducido de la accion, y un literal guardado aca se mostraba tal cual en ingles.
+    VALUES (v_row.installment_id, v_row.wo_id, 'confirmation', v_current,
+            NULLIF(btrim(COALESCE(p_note, '')), ''), public.get_my_staff_id());
+
+    RETURN v_row;
+  END IF;
+
+  -- "El cliente no confirma": la nota y la fecha nueva son obligatorias. Sin ellas, la cuota
+  -- quedaria marcada como problematica sin decir que pasa ni para cuando -- que es el vacio
+  -- que el issue #352 describe.
+  IF p_note IS NULL OR btrim(p_note) = '' THEN
+    RAISE EXCEPTION 'INSTALLMENT_REASON_REQUIRED: si el cliente no confirma, hay que registrar el motivo';
+  END IF;
+  IF p_new_invoice_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: si el cliente no confirma, hay que registrar la nueva fecha de facturacion';
+  END IF;
+
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, old_date, reason, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'confirmation', v_current, p_note, public.get_my_staff_id());
+
+  -- Reprograma en la MISMA transaccion. reschedule_installment deja confirmation_status en
+  -- 'sin_gestionar' (la fecha cambio), asi que despues se marca 'no_confirmada': lo que el
+  -- gerente registro es que para la fecha ANTERIOR el cliente dijo que no.
+  v_row := public.reschedule_installment(p_installment_id, p_new_invoice_date, p_new_payment_due_date, p_note, v_current);
+
+  UPDATE public.wo_payment_installments
+     SET confirmation_status = 'no_confirmada',
+         confirmed_for_date  = NULL,
+         confirmed_by        = public.get_my_staff_id(),
+         confirmed_at        = now()
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
 -- Name: reject_engagement_assignment_move(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -13353,6 +16221,90 @@ $$;
 
 
 --
+-- Name: reschedule_installment(uuid, date, date, text, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_current date;
+  v_payment_days integer;
+BEGIN
+  v_row := public.wo_installment_assert_manager(p_installment_id);
+  v_current := COALESCE(v_row.current_invoice_date, v_row.agreed_invoice_date);
+
+  -- Control de concurrencia, igual que el expected_status de las RPC de cobranza: si otra
+  -- persona ya reprogramo mientras esta pantalla estaba abierta, la segunda llamada falla en
+  -- vez de pisar la fecha nueva con una vieja.
+  IF p_expected_invoice_date IS DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no vence el % (ahora es %); recargue la pagina', p_expected_invoice_date, v_current;
+  END IF;
+
+  IF p_new_invoice_date IS NULL THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_REQUIRED: falta la nueva fecha de facturacion';
+  END IF;
+
+  -- La nota es obligatoria: sin motivo, la bitacora no sirve para distinguir una
+  -- reprogramacion acordada con el cliente de una fecha movida por error.
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'INSTALLMENT_REASON_REQUIRED: reprogramar exige registrar el motivo';
+  END IF;
+
+  IF p_new_invoice_date IS NOT DISTINCT FROM v_current THEN
+    RAISE EXCEPTION 'INSTALLMENT_DATE_UNCHANGED: la fecha nueva es la que ya tenia la cuota';
+  END IF;
+
+  SELECT p.payment_days INTO v_payment_days
+  FROM public.wo_payment_plan p WHERE p.plan_id = v_row.plan_id;
+
+  IF p_new_payment_due_date IS NULL
+     OR p_new_payment_due_date < p_new_invoice_date
+     OR p_new_payment_due_date > p_new_invoice_date + (COALESCE(v_payment_days, 30) * 2 + 14) THEN
+    RAISE EXCEPTION 'INSTALLMENT_DUE_DATE_INVALID: la fecha de pago prevista no corresponde a la nueva fecha de facturacion mas los dias de pago del plan';
+  END IF;
+
+  -- La confirmacion anterior deja de valer: el cliente se comprometio con la fecha vieja.
+  -- Queda en la bitacora (el evento 'confirmation' no se borra), pero la cuota vuelve a
+  -- necesitar gestion.
+  UPDATE public.wo_payment_installments
+     SET current_invoice_date = p_new_invoice_date,
+         current_payment_date = p_new_payment_due_date,
+         confirmation_status  = 'sin_gestionar',
+         confirmed_for_date   = NULL,
+         confirmed_by         = NULL,
+         confirmed_at         = NULL
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  -- El trigger de bitacora ya registro el evento 'rescheduled' con las dos fechas; aca solo
+  -- se le agrega el motivo, que el trigger no puede conocer.
+  UPDATE public.wo_installment_events
+     SET reason = p_reason
+   WHERE event_id = (
+     SELECT event_id FROM public.wo_installment_events
+      WHERE installment_id = p_installment_id AND action = 'rescheduled'
+      ORDER BY seq DESC LIMIT 1
+   );
+
+  -- Aviso de campana al socio del encargo y a Contabilidad (decision Q45). Se emite ACA y no
+  -- en un trigger porque hay que excluir a quien reprogramo: el avisa, no se avisa. Va dentro
+  -- de un bloque propio para que una falla del modulo de notificaciones no revierta la
+  -- reprogramacion, que es el hecho que importa.
+  BEGIN
+    PERFORM public.notif_installment_rescheduled(v_row, v_current, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'reschedule_installment: fallo el aviso de reprogramacion para % : %', p_installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
 -- Name: reset_login_attempts(text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -13522,6 +16474,181 @@ $$;
 --
 
 COMMENT ON FUNCTION public.rollback_unconfirmed_signup(p_user_id uuid) IS 'Deshace el rastro en public de un alta que quedo a medias (el correo de confirmacion no salio): borra los avisos auth.user.registered, sus correos que no llegaron a salir —incluidos los ya reclamados por el drenaje, que se cancelan solos porque begin_notification_email_attempt deja de encontrarlos en sending— y la fila de user_roles, con ems.account_rollback puesto para que el trigger no reporte una baja de cuenta a Seguridad TI. Rechaza cuentas ya confirmadas. La cuenta en auth la borra GoTrue por su API.';
+
+
+--
+-- Name: save_client_contacts(uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) RETURNS SETOF public.client_contacts
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_rows jsonb;
+  v_engagement_manager boolean;
+  v_creator boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = p_client_id) THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.client_id = p_client_id
+       AND e.manager_id = public.get_my_staff_id()
+  ) INTO v_engagement_manager;
+
+  SELECT public.has_permission('client.create') AND EXISTS (
+    SELECT 1 FROM public.clients c
+     WHERE c.client_id = p_client_id
+       AND c.created_by_staff_id IS NOT NULL
+       AND c.created_by_staff_id = public.get_my_staff_id()
+  ) INTO v_creator;
+
+  IF NOT (public.is_admin() OR public.has_permission('client.update') OR v_engagement_manager OR v_creator) THEN
+    RAISE EXCEPTION 'CONTACT_FORBIDDEN: no tiene permiso para editar los contactos de este cliente';
+  END IF;
+
+  v_rows := COALESCE(p_contacts, '[]'::jsonb);
+  IF jsonb_typeof(v_rows) <> 'array' THEN
+    RAISE EXCEPTION 'CONTACT_PAYLOAD_INVALID: se esperaba una lista de contactos';
+  END IF;
+
+  -- Minimo uno ACTIVO de cada tipo, con nombre Y CORREO. Se mira el payload, no la tabla: es
+  -- el estado al que se quiere llegar.
+  --
+  -- El correo se exige desde el 2026-10-20 (decision del operador): el cobro se reclama por
+  -- correo, asi que un contacto sin correo no sirve para lo unico que tiene que servir. Se
+  -- valida aca ademas de en el formulario porque el formulario no es el unico que puede
+  -- llamar a esta RPC.
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+     WHERE c->>'contact_type' = 'general'
+       AND COALESCE((c->>'is_active')::boolean, true)
+       AND btrim(COALESCE(c->>'full_name', '')) <> ''
+       AND btrim(COALESCE(c->>'email', '')) <> ''
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_GENERAL_REQUIRED: hace falta al menos un contacto del cliente, con nombre y correo';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+     WHERE c->>'contact_type' = 'cobranza'
+       AND COALESCE((c->>'is_active')::boolean, true)
+       AND btrim(COALESCE(c->>'full_name', '')) <> ''
+       AND btrim(COALESCE(c->>'email', '')) <> ''
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_COBRANZA_REQUIRED: hace falta al menos un contacto de cobranza (finanzas), con nombre y correo';
+  END IF;
+
+  -- Un contact_id que pertenece a OTRO cliente se rechaza ANTES de escribir nada. El
+  -- ON CONFLICT ... WHERE de abajo no alcanza: con el predicado en falso Postgres SALTA la fila
+  -- sin error, y para entonces el minimo ya se conto con esa fila y el UPDATE ya desactivo los
+  -- contactos que no venian -- la RPC terminaba bien dejando al cliente sin contacto general o
+  -- de cobranza.
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_rows) c
+      JOIN public.client_contacts t ON t.contact_id = (c->>'contact_id')::uuid
+     WHERE c->>'contact_id' IS NOT NULL
+       AND t.client_id <> p_client_id
+  ) THEN
+    RAISE EXCEPTION 'CONTACT_PAYLOAD_INVALID: un contacto de la lista pertenece a otro cliente';
+  END IF;
+
+  -- Lo que no viene en el payload se desactiva.
+  UPDATE public.client_contacts
+     SET is_active = false, updated_at = now()
+   WHERE client_id = p_client_id
+     AND is_active
+     AND contact_id NOT IN (
+       SELECT (c->>'contact_id')::uuid FROM jsonb_array_elements(v_rows) c
+        WHERE c->>'contact_id' IS NOT NULL
+     );
+
+  INSERT INTO public.client_contacts AS t
+    (contact_id, client_id, contact_type, full_name, email, phone, is_active)
+  SELECT COALESCE((c->>'contact_id')::uuid, gen_random_uuid()),
+         p_client_id,
+         c->>'contact_type',
+         btrim(c->>'full_name'),
+         NULLIF(btrim(COALESCE(c->>'email', '')), ''),
+         NULLIF(btrim(COALESCE(c->>'phone', '')), ''),
+         COALESCE((c->>'is_active')::boolean, true)
+    FROM jsonb_array_elements(v_rows) c
+   WHERE btrim(COALESCE(c->>'full_name', '')) <> ''
+  ON CONFLICT (contact_id) DO UPDATE
+     SET contact_type = excluded.contact_type,
+         full_name    = excluded.full_name,
+         email        = excluded.email,
+         phone        = excluded.phone,
+         is_active    = excluded.is_active,
+         updated_at   = now()
+   -- Segunda cerradura: un contact_id de OTRO cliente nunca se adopta (el chequeo de arriba
+   -- ya lo rechazo con error).
+   WHERE t.client_id = p_client_id;
+
+  RETURN QUERY
+  SELECT * FROM public.client_contacts
+   WHERE client_id = p_client_id AND is_active
+   ORDER BY contact_type, full_name;
+END;
+$$;
+
+
+--
+-- Name: save_client_with_contacts(uuid, boolean, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  -- p_is_new NULL se rechaza ANTES de todo: con NULL, `p_is_new AND ...` y `NOT p_is_new AND
+  -- ...` dan NULL los dos, ningun chequeo de permiso corria y se caia en la rama de edicion.
+  IF p_client_id IS NULL OR p_is_new IS NULL OR p_client IS NULL OR jsonb_typeof(p_client) <> 'object' THEN
+    RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan los datos del cliente';
+  END IF;
+
+  -- Las mismas reglas que "clients write insert" / "clients write update". IS TRUE / IS FALSE
+  -- y no el booleano a secas: un chequeo de permiso no puede depender de que nadie mande NULL.
+  IF p_is_new IS TRUE AND NOT public.has_permission('client.create') THEN
+    RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para crear clientes';
+  END IF;
+  IF p_is_new IS FALSE AND NOT public.has_permission('client.update') THEN
+    RAISE EXCEPTION 'CLIENT_FORBIDDEN: no tiene permiso para editar este cliente';
+  END IF;
+
+  IF p_is_new THEN
+    INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id, address, is_active)
+    VALUES (
+      p_client_id,
+      p_client->>'client_legal_name',
+      p_client->>'unique_tax_id',
+      NULLIF(p_client->>'industry_id', '')::uuid,
+      NULLIF(p_client->>'address', ''),
+      COALESCE((p_client->>'is_active')::boolean, true)
+    );
+  ELSE
+    UPDATE public.clients c
+       SET client_legal_name = CASE WHEN p_client ? 'client_legal_name' THEN p_client->>'client_legal_name' ELSE c.client_legal_name END,
+           unique_tax_id     = CASE WHEN p_client ? 'unique_tax_id' THEN p_client->>'unique_tax_id' ELSE c.unique_tax_id END,
+           industry_id       = CASE WHEN p_client ? 'industry_id' THEN NULLIF(p_client->>'industry_id', '')::uuid ELSE c.industry_id END,
+           address           = CASE WHEN p_client ? 'address' THEN NULLIF(p_client->>'address', '') ELSE c.address END,
+           is_active         = CASE WHEN p_client ? 'is_active' THEN (p_client->>'is_active')::boolean ELSE c.is_active END
+     WHERE c.client_id = p_client_id;
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    IF v_count = 0 THEN
+      RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+    END IF;
+  END IF;
+
+  PERFORM public.save_client_contacts(p_client_id, p_contacts);
+END;
+$$;
 
 
 --
@@ -13987,6 +17114,60 @@ $$;
 
 
 --
+-- Name: set_expense_reimbursement_amount(uuid, numeric); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede corregir el monto de los gastos facturados';
+  END IF;
+
+  SELECT i.* INTO v_row FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+  IF v_row.installment_type <> 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: esta cuota no es una fila de gastos ejecutados';
+  END IF;
+  IF v_row.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: la fila ya fue facturada y su monto no se puede corregir';
+  END IF;
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_AMOUNT_INVALID: el monto tiene que ser mayor que cero';
+  END IF;
+
+  UPDATE public.wo_payment_installments
+     SET amount = p_amount
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  -- A la bitacora de la cuota, en la misma transaccion: es una correccion de plata y el
+  -- historial es el unico rastro ordenado de lo que le paso a la fila.
+  INSERT INTO public.wo_installment_events
+    (installment_id, wo_id, action, amount, currency, actor_staff_id)
+  VALUES (v_row.installment_id, v_row.wo_id, 'reimbursement_amount_changed', v_row.amount,
+          v_row.currency, public.get_my_staff_id());
+
+  BEGIN
+    PERFORM public.notif_installment_expense_row(v_row, 'amount_changed');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'set_expense_reimbursement_amount: fallo el aviso para % : %', p_installment_id, SQLERRM;
+  END;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
 -- Name: set_fund_request_number(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -14015,6 +17196,36 @@ $$;
 --
 
 COMMENT ON FUNCTION public.set_fund_request_number() IS 'Numera las solicitudes de fondos como FR-<anio>-<secuencia>. La secuencia se rellena a 4 digitos SOLO mientras entre: lpad() trunca por la derecha y con valores mas largos generaba numeros duplicados (hallazgo 2026-09-10).';
+
+
+--
+-- Name: set_installment_overdue(uuid, text, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+BEGIN
+  v_row := public.wo_installment_assert_actionable(p_installment_id, p_expected_status);
+
+  IF p_overdue AND p_expected_status IS DISTINCT FROM 'Invoiced' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota facturada puede marcarse en mora';
+  END IF;
+  IF NOT p_overdue AND p_expected_status IS DISTINCT FROM 'Overdue' THEN
+    RAISE EXCEPTION 'INVALID_STATUS_TRANSITION: solo una cuota en mora puede volver a facturada';
+  END IF;
+
+  UPDATE public.wo_payment_installments
+     SET status = CASE WHEN p_overdue THEN 'Overdue' ELSE 'Invoiced' END
+   WHERE installment_id = p_installment_id
+  RETURNING * INTO v_row;
+
+  RETURN v_row;
+END;
+$$;
 
 
 --
@@ -14501,6 +17712,52 @@ $$;
 
 
 --
+-- Name: suggest_exchange_difference(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.suggest_exchange_difference(p_installment_id uuid) RETURNS numeric
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_wo_currency text;
+  v_currency text;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'ADJUSTMENT_FORBIDDEN: los ajustes son de contabilidad (o de un administrador)';
+  END IF;
+
+  SELECT i.* INTO v_row FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_installment_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_row.wo_id;
+  v_currency := COALESCE(v_row.currency, v_wo_currency);
+
+  IF v_row.status <> 'Completed'
+     OR v_currency = 'BOB'
+     OR v_row.invoice_exchange_rate IS NULL
+     OR v_row.payment_exchange_rate IS NULL
+     OR v_row.amount IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Positiva: se cobro mas Bs de los que se facturo (el TC subio). Negativa: menos.
+  --
+  -- Sobre lo que el cliente REALMENTE pago: el monto mas los descuentos vigentes en la moneda
+  -- de la cuota. Con el monto del contrato, una cuota de USD 500 con USD 100 de descuento
+  -- sugeria la diferencia de USD 500 y se registraba de mas.
+  RETURN round(
+    (v_row.amount + public.installment_adjustments_total(p_installment_id, v_currency))
+    * (v_row.payment_exchange_rate - v_row.invoice_exchange_rate), 2);
+END;
+$$;
+
+
+--
 -- Name: sync_user_role_from_category(uuid, text, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -14631,33 +17888,6 @@ COMMENT ON FUNCTION public.sync_user_role_from_category(p_staff_id uuid, p_expec
 
 
 --
--- Name: wo_payment_installments; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.wo_payment_installments (
-    installment_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    plan_id uuid NOT NULL,
-    wo_id uuid NOT NULL,
-    installment_number integer NOT NULL,
-    agreed_invoice_date date,
-    agreed_payment_date date,
-    collection_invoice_date date,
-    collection_payment_date date,
-    payment_date_actual date,
-    percentage numeric DEFAULT 0 NOT NULL,
-    amount numeric,
-    status text DEFAULT 'Pending'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    invoice_exchange_rate numeric,
-    payment_exchange_rate numeric,
-    CONSTRAINT wo_payment_installments_invoice_exchange_rate_check CHECK (((invoice_exchange_rate IS NULL) OR (invoice_exchange_rate > (0)::numeric))),
-    CONSTRAINT wo_payment_installments_payment_exchange_rate_check CHECK (((payment_exchange_rate IS NULL) OR (payment_exchange_rate > (0)::numeric))),
-    CONSTRAINT wo_payment_installments_status_check CHECK ((status = ANY (ARRAY['Pending'::text, 'Invoiced'::text, 'Completed'::text, 'Overdue'::text])))
-);
-
-
---
 -- Name: sync_wo_payment_installments(uuid, uuid, jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -14692,12 +17922,17 @@ BEGIN
   -- Borra huerfanos PRIMERO, para que una fila renumerada no choque contra el UNIQUE
   -- (plan_id, installment_number) de una fila vieja que todavia no se borro -- mismo
   -- orden que ya usaba useBatchUpsertInstallments, ahora atomico con el paso de abajo.
+  -- Cobranzas Fase 7: el borrado NUNCA alcanza a las filas de gastos ejecutados. Esta RPC
+  -- sincroniza el plan de HONORARIOS contra lo que manda la pantalla, y esa pantalla no las
+  -- conoce: sin este filtro, guardar el plan borraria la fila de gastos que Contabilidad
+  -- acababa de crear, en silencio.
   IF v_kept_ids IS NOT NULL AND array_length(v_kept_ids, 1) > 0 THEN
     DELETE FROM public.wo_payment_installments
-    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids);
+    WHERE plan_id = p_plan_id AND installment_id <> ALL (v_kept_ids)
+      AND installment_type = 'fee';
   ELSE
     DELETE FROM public.wo_payment_installments
-    WHERE plan_id = p_plan_id;
+    WHERE plan_id = p_plan_id AND installment_type = 'fee';
   END IF;
 
   RETURN QUERY
@@ -14705,7 +17940,12 @@ BEGIN
     installment_id, plan_id, wo_id, installment_number,
     agreed_invoice_date, agreed_payment_date,
     collection_invoice_date, collection_payment_date, payment_date_actual,
-    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate
+    percentage, amount, status, invoice_exchange_rate, payment_exchange_rate,
+    -- Cobranzas Fase 6 (Q29): la moneda de la cuota viaja con el plan. Faltaba aca: la
+    -- pantalla convertia el monto al cambiar la moneda y lo mandaba, pero la moneda no, asi
+    -- que una cuota de USD 946 pasada a Bs quedaba guardada como USD 11.070. NULL = la de la
+    -- OT, que es el caso normal.
+    currency
   )
   SELECT
     COALESCE((row_data->>'installment_id')::uuid, gen_random_uuid()),
@@ -14721,7 +17961,8 @@ BEGIN
     (row_data->>'amount')::numeric,
     row_data->>'status',
     (row_data->>'invoice_exchange_rate')::numeric,
-    (row_data->>'payment_exchange_rate')::numeric
+    (row_data->>'payment_exchange_rate')::numeric,
+    NULLIF(row_data->>'currency', '')
   FROM jsonb_array_elements(p_installments) AS row_data
   ON CONFLICT (installment_id) DO UPDATE SET
     installment_number = EXCLUDED.installment_number,
@@ -14734,7 +17975,11 @@ BEGIN
     amount = EXCLUDED.amount,
     status = EXCLUDED.status,
     invoice_exchange_rate = EXCLUDED.invoice_exchange_rate,
-    payment_exchange_rate = EXCLUDED.payment_exchange_rate
+    payment_exchange_rate = EXCLUDED.payment_exchange_rate,
+    -- Si la cuota ya esta facturada y el payload trae la misma moneda, no cambia nada y el
+    -- guard no salta. Si trae otra, el guard lo rechaza: la moneda queda congelada con el
+    -- monto al facturar.
+    currency = EXCLUDED.currency
   RETURNING w.*;
 END;
 $$;
@@ -15093,6 +18338,30 @@ $$;
 
 
 --
+-- Name: validate_expense_type_active(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_expense_type_active() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Tipo de gasto desactivado (docs/plan-contabilidad-gastos.md, Fase 1.7 / V4): no se puede
+-- usar en un gasto ni en un presupuesto de OT NUEVOS, ni al cambiar el tipo de uno existente.
+-- Lo ya registrado conserva su tipo: editar otro campo de un gasto viejo sigue funcionando.
+-- Se desactiva en vez de borrar porque borrar un tipo en uso rompería los datos anteriores.
+BEGIN
+  IF NEW.expense_type_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.expense_type_id IS DISTINCT FROM OLD.expense_type_id)
+     AND EXISTS (SELECT 1 FROM public.expense_types et
+                  WHERE et.expense_type_id = NEW.expense_type_id AND NOT et.is_active) THEN
+    RAISE EXCEPTION 'El tipo de gasto está desactivado; elija otro';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: validate_submission_has_entries(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -15147,6 +18416,30 @@ $$;
 --
 
 COMMENT ON FUNCTION public.validate_timer_entry_duration() IS 'Validates 8h max on timer_entries. Legacy data cleaned by migration (Bug 0213-31).';
+
+
+--
+-- Name: wo_billable_expenses(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_billable_expenses(p_wo_id uuid) RETURNS TABLE(fre_id uuid, amount numeric)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede ver los gastos por facturar';
+  END IF;
+
+  RETURN QUERY
+  SELECT e.fre_id, e.amount
+    FROM public.fund_request_expenses e
+   WHERE e.wo_id = p_wo_id
+     AND e.status = 'revisado_asistente'
+     AND NOT EXISTS (SELECT 1 FROM public.wo_installment_expenses x WHERE x.fre_id = e.fre_id)
+   ORDER BY e.fre_id;
+END;
+$$;
 
 
 --
@@ -15280,15 +18573,8 @@ CREATE FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) RETURNS boolean
       and (
         fr.requester_staff_id = get_my_staff_id()
         or frwo.manager_staff_id = get_my_staff_id()
-        -- Contabilidad, con el MISMO corte que fr_select_accounting (Ola D):
-        --   Gerente (fund_disbursement.read)  -> toda la fase contable.
-        --   Analista (expense_settlement.read) -> hasta 'fondos_entregados'; queda
-        --   fuera de 'en_liquidacion' y 'cerrado'.
-        or (public.has_permission('fund_disbursement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados',
-                                       'en_liquidacion','cerrado']::fund_request_status[]))
-        or (public.has_permission('expense_settlement.read')
-            and fr.status = any (array['aprobado_gerente','fondos_entregados']::fund_request_status[]))
+        -- Contabilidad: el MISMO corte que fr_select_accounting (helper único).
+        or public.fr_accounting_sees(fr.status, fr.cancelled_from_status)
       )
   );
 $$;
@@ -15302,6 +18588,183 @@ COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT
 
 
 --
+-- Name: wo_installment_assert_actionable(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_installment_assert_actionable(p_installment_id uuid, p_expected_status text) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_approval_status text;
+BEGIN
+  IF NOT (public.is_admin() OR public.is_collections_role()) THEN
+    RAISE EXCEPTION 'INSTALLMENT_FORBIDDEN: solo contabilidad (o un administrador) puede registrar la cobranza de una cuota';
+  END IF;
+
+  SELECT i.* INTO v_row
+  FROM public.wo_payment_installments i
+  WHERE i.installment_id = p_installment_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  IF NOT public.is_admin() THEN
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = v_row.plan_id;
+
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: la cobranza de una cuota solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
+  END IF;
+
+  IF v_row.status IS DISTINCT FROM p_expected_status THEN
+    RAISE EXCEPTION 'INSTALLMENT_STALE: la cuota ya no esta en estado % (ahora esta en %); recargue la pagina', p_expected_status, v_row.status;
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+-- Name: wo_installment_assert_manager(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_installment_assert_manager(p_installment_id uuid) RETURNS public.wo_payment_installments
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_row public.wo_payment_installments;
+  v_manager uuid;
+BEGIN
+  SELECT i.* INTO v_row
+  FROM public.wo_payment_installments i
+  WHERE i.installment_id = p_installment_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
+  END IF;
+
+  IF NOT public.is_admin() THEN
+    SELECT e.manager_id INTO v_manager
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    JOIN public.engagements e  ON e.engagement_id = wo.engagement_id
+    WHERE p.plan_id = v_row.plan_id;
+
+    IF v_manager IS NULL OR v_manager IS DISTINCT FROM public.get_my_staff_id() THEN
+      RAISE EXCEPTION 'INSTALLMENT_FORBIDDEN: solo el gerente del encargo (o un administrador) puede gestionar la confirmacion y la reprogramacion de una cuota';
+    END IF;
+  END IF;
+
+  IF v_row.status <> 'Pending' THEN
+    RAISE EXCEPTION 'INSTALLMENT_LOCKED: la cuota ya fue facturada; su fecha de facturacion ya no es una promesa que se pueda reprogramar';
+  END IF;
+
+  RETURN v_row;
+END;
+$$;
+
+
+--
+-- Name: wo_installment_calendar_state(text, date, date, date, date, date, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date DEFAULT NULL::date, p_window_days integer DEFAULT 7) RETURNS text
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.installment_calendar_state(
+    p_status,
+    COALESCE(p_current_invoice_date, p_agreed_invoice_date),
+    COALESCE(p_collection_payment_date, p_agreed_payment_date),
+    COALESCE(p_today, public.fund_today()),
+    p_window_days
+  );
+$$;
+
+
+--
+-- Name: wo_installment_log_event(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status THEN
+    INSERT INTO public.wo_installment_events (
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+    ) VALUES (
+      NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
+      -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
+      CASE NEW.status
+        WHEN 'Invoiced'  THEN NEW.collection_invoice_date
+        WHEN 'Completed' THEN NEW.payment_date_actual
+        ELSE NULL
+      END,
+      NEW.amount, public.get_my_staff_id()
+    );
+  END IF;
+
+  -- Reprogramacion (Fase 3). El trigger ya la registra aqui para que la bitacora quede
+  -- completa desde el primer dia y Fase 3 solo tenga que aportar el motivo via la RPC.
+  IF NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date THEN
+    INSERT INTO public.wo_installment_events (
+      installment_id, wo_id, action, old_date, new_date, actor_staff_id
+    ) VALUES (
+      NEW.installment_id, NEW.wo_id, 'rescheduled',
+      COALESCE(OLD.current_invoice_date, OLD.agreed_invoice_date),
+      NEW.current_invoice_date,
+      public.get_my_staff_id()
+    );
+  END IF;
+
+  RETURN NULL;  -- AFTER trigger: el valor de retorno se ignora.
+END;
+$$;
+
+
+--
+-- Name: wo_note_wo_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_note_wo_id(p_note_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT n.wo_id FROM public.wo_installment_notes n WHERE n.note_id = p_note_id;
+$$;
+
+
+--
+-- Name: wo_notes_participant(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_notes_participant(p_wo_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.is_admin()
+      OR public.is_collections_role()
+      OR EXISTS (
+           SELECT 1 FROM public.work_orders w
+            WHERE w.wo_id = p_wo_id
+              AND public.is_engagement_team_member(w.engagement_id)
+         );
+$$;
+
+
+--
 -- Name: wo_payment_installments_guard_delete(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -15312,6 +18775,15 @@ CREATE FUNCTION public.wo_payment_installments_guard_delete() RETURNS trigger
 BEGIN
   IF OLD.status <> 'Pending' THEN
     RAISE EXCEPTION 'INSTALLMENT_LOCKED: esta cuota ya fue facturada y no puede eliminarse';
+  END IF;
+  -- Cobranzas Fase 7: la fila de gastos facturados no se borra NUNCA, ni Pendiente. Borrarla
+  -- arrastra (FK en cascada) sus vinculos en wo_installment_expenses, y esos gastos volverian
+  -- a figurar como facturables: se le cobrarian dos veces al cliente. La policy de cuotas le
+  -- deja DELETE al gerente del encargo, y eso es correcto para las de honorarios; esta fila
+  -- la crea Contabilidad por RPC y solo cambia por RPC. Tambien frena borrar el plan entero
+  -- mientras la tenga (la pantalla ya no lo ofrece en ese caso).
+  IF OLD.installment_type = 'expense_reimbursement' THEN
+    RAISE EXCEPTION 'EXPENSE_ROW_INVALID: la fila de gastos facturados no se puede eliminar';
   END IF;
   RETURN OLD;
 END;
@@ -15333,6 +18805,7 @@ DECLARE
   v_plan_wo_id uuid;
   v_legal_transition boolean;
   v_is_accounting_or_admin boolean;
+  v_wo_currency text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
@@ -15375,11 +18848,23 @@ BEGIN
     -- lectura" segun el mismo criterio ya usado en wo_payment_plan_guard_exchange_rate
     -- (que si bloquea INSERT/DELETE del plan en ambos estados), pero el INSERT de
     -- una cuota nueva se colaba igual durante esa ventana.
-    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+    -- Cobranzas Fase 7: la fila de GASTOS EJECUTADOS es la excepcion. El bloqueo de arriba
+    -- protege el plan de HONORARIOS, que es un contrato cerrado antes de aprobar la OT; los
+    -- gastos ejecutados aparecen despues, por definicion, asi que exigir la OT en Draft los
+    -- dejaria sin poder facturarse nunca. La crea create_expense_reimbursement_row(), que ya
+    -- verifica que quien llama sea contabilidad o admin.
+    IF NOT public.is_admin()
+       AND NEW.installment_type <> 'expense_reimbursement'
+       AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
-    IF v_exchange_rate_mode = 'fijo' AND (
+    -- Cobranzas Fase 7: la fila de gastos ejecutados tampoco entra aca. El modo Fijo es una
+    -- garantia sobre el HONORARIO: toda cuota que lo reparte se convierte al mismo TC. Los
+    -- gastos se rinden y se cobran en BOB, asi que no hay nada que convertir, y exigirles el
+    -- TC del plan solo le pondria un numero sin sentido a una fila que no lo usa.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.installment_type <> 'expense_reimbursement' AND (
       NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
       OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
     ) THEN
@@ -15403,6 +18888,13 @@ BEGIN
     RAISE EXCEPTION 'INSTALLMENT_PLAN_IMMUTABLE: una cuota no puede reasignarse a otro plan de pagos ni a otra orden de trabajo';
   END IF;
 
+  -- Cobranzas Fase 7: una fila de honorarios no se convierte en una de gastos ni al reves.
+  -- Son cosas distintas (una reparte el 100% del fee, la otra lleva monto fijo y gastos
+  -- vinculados) y convertirla dejaria el plan sin cuadrar, sin que nada lo avise.
+  IF NEW.installment_type IS DISTINCT FROM OLD.installment_type THEN
+    RAISE EXCEPTION 'INSTALLMENT_TYPE_IMMUTABLE: el tipo de una cuota no se puede cambiar';
+  END IF;
+
   -- MUST FIX review iteracion 16 #1 (greptile + codex): la policy RLS "Accounting can
   -- update payment installments" (mas abajo en este archivo) autoriza a
   -- collections_analyst a hacer UPDATE de la fila COMPLETA -- ningun chequeo de este
@@ -15423,15 +18915,75 @@ BEGIN
   -- update_wo_payment_installments_updated_at en cada UPDATE), nada impedia que
   -- collections_analyst falsificara la fecha de creacion de una cuota via un UPDATE
   -- directo.
-  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+  -- Cobranzas Fase 1 (2026-10-15): el literal 'collections_analyst' pasa a
+  -- is_collections_role() -- accounting_manager (Gerente de Contabilidad) tiene
+  -- EXACTAMENTE los mismos permisos de cobranza que collections_analyst (decision del
+  -- operador Q58). Sin este cambio el Gerente de Contabilidad quedaba fuera del allowlist
+  -- por columna, es decir SIN restriccion, que es lo contrario de lo que se quiere.
+  --
+  -- current_invoice_date/current_payment_date (la fecha VIGENTE tras una reprogramacion)
+  -- se suman a la lista prohibida: reprogramar es exclusivo del gerente del encargo
+  -- (decision del operador Q42), no de contabilidad.
+  IF NOT public.is_admin() AND public.is_collections_role() THEN
     IF NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
        OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date
+       OR NEW.current_payment_date IS DISTINCT FROM OLD.current_payment_date
+       -- Cobranzas Fase 3: la gestion de la confirmacion con el cliente es del gerente del
+       -- encargo (decision del operador Q11), no de contabilidad.
+       OR NEW.confirmation_status IS DISTINCT FROM OLD.confirmation_status
+       OR NEW.confirmed_for_date IS DISTINCT FROM OLD.confirmed_for_date
+       OR NEW.confirmed_by IS DISTINCT FROM OLD.confirmed_by
+       OR NEW.confirmed_at IS DISTINCT FROM OLD.confirmed_at
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
-       OR NEW.amount IS DISTINCT FROM OLD.amount
+       -- Cobranzas Fase 7 (decision Q24): el monto SI lo corrige contabilidad, pero solo en
+       -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
+       -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
+       OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
     THEN
       RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
+    END IF;
+  END IF;
+
+  -- Cobranzas Fase 6 (decision del operador Q29): una cuota puede ir en otra moneda que la OT
+  -- ("tipo de cambio MIX" = cuotas en monedas distintas). NULL = la moneda de la OT, que es el
+  -- caso normal. Las dos restricciones que SI aplican:
+  --   * USDT no se mezcla: el proyecto no lo convierte en ningun lado (los dashboards le dan
+  --     rate_to_bob NULL y lo cuentan como no convertible), asi que una OT en USDT lleva todas
+  --     sus cuotas en USDT y una cuota USDT solo existe en una OT USDT.
+  --   * Una vez facturada, la moneda queda congelada junto con el monto y el TC: cambiarla
+  --     despues reescribiria lo que ya se le facturo al cliente.
+  IF NEW.currency IS DISTINCT FROM OLD.currency THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: la moneda de una cuota ya facturada no se puede cambiar';
+    END IF;
+
+    -- Cobranzas Fase 9: un descuento vive en la moneda que tenia la cuota cuando se cargo, y
+    -- lo que queda por cobrar solo suma los ajustes de la moneda ACTUAL. Cambiarla con un
+    -- descuento vigente lo hacia desaparecer en silencio de todos los totales -- y del tope
+    -- que impide descontar mas de lo que queda. Primero se retira el ajuste, despues se cambia
+    -- la moneda: asi el cambio queda explicito en el historial en vez de ocurrir de costado.
+    IF EXISTS (
+      SELECT 1 FROM public.wo_installment_adjustments a
+       WHERE a.installment_id = OLD.installment_id
+         AND a.deleted_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS: la cuota tiene ajustes vigentes; retirelos antes de cambiar la moneda';
+    END IF;
+
+    SELECT wo.currency INTO v_wo_currency
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+
+    IF v_wo_currency = 'USDT' AND COALESCE(NEW.currency, 'USDT') <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: una orden de trabajo en USDT no admite cuotas en otra moneda';
+    END IF;
+    IF NEW.currency = 'USDT' AND v_wo_currency <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: solo una orden de trabajo en USDT puede tener cuotas en USDT';
     END IF;
   END IF;
 
@@ -15465,6 +19017,26 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
       END IF;
+    END IF;
+
+    -- Cobranzas Fase 1 (issue #352): INVARIANTES de cada etapa. El camino normal son las
+    -- RPC invoice_installment()/collect_installment()/set_installment_overdue(), que
+    -- ademas validan rol, concurrencia y fechas; esto es la red de seguridad para que
+    -- NINGUN camino (UPDATE directo de un admin, script, backfill) pueda dejar una cuota
+    -- en un estado que el calendario no sabe interpretar:
+    --   * 'Invoiced' sin collection_invoice_date/collection_payment_date deja la cuota sin
+    --     fecha de vencimiento real -- y la mora se mide justamente sobre esa fecha
+    --     (decision del operador Q4), asi que la cuota nunca entraria en mora.
+    --   * 'Completed' sin payment_date_actual pierde cuando se cobro de verdad.
+    -- No se exigen al revertir Overdue -> Invoiced: esa cuota ya venia facturada y
+    -- conserva sus fechas.
+    IF NEW.status = 'Invoiced' AND OLD.status <> 'Overdue'
+       AND (NEW.collection_invoice_date IS NULL OR NEW.collection_payment_date IS NULL) THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: facturar una cuota exige registrar la fecha de facturacion y la de vencimiento de pago';
+    END IF;
+
+    IF NEW.status = 'Completed' AND NEW.payment_date_actual IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: marcar una cuota como cobrada exige registrar la fecha de pago';
     END IF;
   END IF;
 
@@ -15519,17 +19091,37 @@ BEGIN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_exchange_rate_mode = 'variable' THEN
+    -- Cobranzas Fase 6 (decision del operador Q49): el modo del plan ya no decide SI se puede
+    -- tocar el TC, solo con que valor se autocompleta. En los dos modos, quien factura puede
+    -- corregirlo -- escribirlo a mano o traerlo de una fecha del calendario.
+    --
+    -- v_capturando_al_facturar es la ventana donde eso vale: la MISMA sentencia que pasa la
+    -- cuota de Pendiente a Facturada. Fuera de esa ventana, el modo fijo sigue exigiendo que
+    -- el TC coincida con el del plan, porque mientras la cuota sigue Pendiente el trigger
+    -- trg_wo_payment_plan_sync_fixed_installments le copia el TC del plan: dejar otro valor
+    -- ahi solo duraria hasta la proxima edicion del plan.
+    -- En modo fijo, que el valor nuevo COINCIDA con el del plan no es una captura: es el
+    -- resincronizado automatico de trg_wo_payment_plan_sync_fixed_installments, que corre
+    -- cuando el gerente edita el TC del plan, con la OT todavia en Draft y sin rol de
+    -- cobranza. Ese camino no pasa por los chequeos de abajo -- si pasara, editar el plan
+    -- quedaria roto.
+    IF NOT (v_exchange_rate_mode = 'fijo'
+            AND NEW.invoice_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate) THEN
+
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
       END IF;
-    END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
+
+      -- Y en modo fijo, apartarse del TC del plan solo vale en la MISMA sentencia que factura
+      -- la cuota: mientras sigue Pendiente, el resincronizado se lo volveria a pisar.
+      IF v_exchange_rate_mode = 'fijo'
+         AND NOT (OLD.status = 'Pending' AND NEW.status = 'Invoiced') THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion solo se puede apartar del TC del plan al facturar la cuota';
+      END IF;
     END IF;
   END IF;
 
@@ -15544,13 +19136,20 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
     END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago de la cuota debe coincidir con el del plan';
+    -- Cobranzas Fase 6 (Q49), extendida al TC de PAGO el 2026-10-21: el modo decide con que
+    -- valor se autocompleta, no si se puede corregir. En modo fijo, apartarse del TC del plan
+    -- vale solo en la MISMA sentencia que cobra la cuota -- la misma ventana que ya tenia el
+    -- TC de facturacion. Antes el dialogo de cobro ofrecia un TC editable y, en fijo, cobrar
+    -- con otro valor revento con EXCHANGE_RATE_LOCKED: la cuota quedaba sin poder cobrarse.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+       AND NOT (OLD.status IN ('Invoiced', 'Overdue') AND NEW.status = 'Completed') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago solo se puede apartar del TC del plan al cobrar la cuota';
     END IF;
   END IF;
 
@@ -15585,6 +19184,22 @@ BEGIN
   END IF;
 
   IF TG_OP = 'INSERT' THEN
+    -- Cobranzas Fase 7: unica excepcion a las dos reglas de abajo. Cuando Contabilidad le
+    -- factura al cliente los gastos ya ejecutados de una OT que nunca tuvo plan, hay que
+    -- crear el encabezado, y para entonces la OT SIEMPRE esta aprobada -- los gastos se
+    -- ejecutan despues de aprobar, por definicion. Sin esto, una OT que solo tuvo gastos no
+    -- se podria cobrar nunca.
+    --
+    -- La excepcion es angosta a proposito: la marca la pone create_expense_reimbursement_row()
+    -- con set_config(..., true), o sea que vive y muere dentro de esa transaccion, y lleva el
+    -- wo_id, asi que no sirve para crear el plan de OTRA OT. Ademas se exige el rol: la marca
+    -- sola no alcanza. El plan nace sin TC propio y con los dias por defecto; el contrato de
+    -- honorarios no se toca aca.
+    IF COALESCE(current_setting('app.expense_billing_wo', true), '') = NEW.wo_id::text
+       AND (public.is_admin() OR public.is_collections_role()) THEN
+      RETURN NEW;
+    END IF;
+
     SELECT approval_status INTO v_approval_status
     FROM public.work_orders
     WHERE wo_id = NEW.wo_id;
@@ -18258,9 +21873,6 @@ CREATE TABLE public.clients (
     client_legal_name character varying(255) NOT NULL,
     unique_tax_id character varying(50) NOT NULL,
     industry_id uuid,
-    contact_name character varying(200),
-    contact_email character varying(255),
-    contact_phone character varying(50),
     address text,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
@@ -18418,7 +22030,52 @@ CREATE TABLE public.expense_types (
     expense_type_id uuid DEFAULT gen_random_uuid() NOT NULL,
     expense_name character varying(100) NOT NULL,
     default_unit_cost numeric(10,2) DEFAULT 0,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    is_active boolean DEFAULT true NOT NULL
+);
+
+
+--
+-- Name: fund_request_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fund_request_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint NOT NULL,
+    fund_request_id uuid NOT NULL,
+    entity text NOT NULL,
+    fr_wo_id uuid,
+    wo_id uuid,
+    fre_id uuid,
+    action text NOT NULL,
+    from_status text,
+    to_status text,
+    actor_staff_id uuid,
+    notes text,
+    amount numeric,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT fund_request_events_entity_check CHECK ((entity = ANY (ARRAY['request'::text, 'work_order'::text, 'expense'::text])))
+);
+
+
+--
+-- Name: TABLE fund_request_events; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.fund_request_events IS 'Bitácora append-only de Solicitud de Fondos: cada cambio de estado de la solicitud, de sus OTs y de sus gastos, con el actor de la sesión (NULL = Sistema). La escriben solo los triggers fr_log_event / fr_wo_log_event / fre_log_event; no hay policy de escritura.';
+
+
+--
+-- Name: fund_request_events_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fund_request_events ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.fund_request_events_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
 );
 
 
@@ -18454,6 +22111,8 @@ CREATE TABLE public.fund_request_expenses (
     expense_date_end date,
     days integer,
     returned_by_assistant boolean DEFAULT false NOT NULL,
+    manager_auto_approved boolean DEFAULT false NOT NULL,
+    review_auto_approved boolean DEFAULT false NOT NULL,
     CONSTRAINT fund_request_expenses_amount_check CHECK ((amount > (0)::numeric)),
     CONSTRAINT fund_request_expenses_currency_check CHECK (((currency)::text = ANY ((ARRAY['BOB'::character varying, 'USD'::character varying])::text[])))
 );
@@ -18574,12 +22233,11 @@ CREATE TABLE public.fund_requests (
     fund_request_id uuid DEFAULT gen_random_uuid() NOT NULL,
     request_number character varying,
     requester_staff_id uuid NOT NULL,
-    approver_manager_staff_id uuid,
     total_requested_amount numeric NOT NULL,
     currency character varying NOT NULL,
     status public.fund_request_status DEFAULT 'borrador'::public.fund_request_status NOT NULL,
     purpose text,
-    due_back_date date,
+    expense_period_month date DEFAULT (date_trunc('month'::text, (now() AT TIME ZONE 'America/La_Paz'::text)))::date NOT NULL,
     submitted_at timestamp with time zone,
     manager_decided_at timestamp with time zone,
     manager_notes text,
@@ -18599,8 +22257,17 @@ CREATE TABLE public.fund_requests (
     settlement_notes text,
     settled_at timestamp with time zone,
     settled_by_staff_id uuid,
+    closed_by_staff_id uuid,
+    settlement_confirmed_at timestamp with time zone,
+    settlement_confirmed_by_staff_id uuid,
+    settlement_reference text,
+    settlement_confirmation_notes text,
+    cancelled_at timestamp with time zone,
+    cancelled_by_staff_id uuid,
+    cancelled_from_status public.fund_request_status,
     CONSTRAINT fund_requests_currency_check CHECK (((currency)::text = ANY ((ARRAY['BOB'::character varying, 'USD'::character varying])::text[]))),
     CONSTRAINT fund_requests_disbursed_nonneg CHECK ((total_disbursed_amount >= (0)::numeric)),
+    CONSTRAINT fund_requests_expense_period_month_check CHECK ((expense_period_month = (date_trunc('month'::text, (expense_period_month)::timestamp without time zone))::date)),
     CONSTRAINT fund_requests_settlement_resolution_check CHECK (((settlement_resolution IS NULL) OR (settlement_resolution = ANY (ARRAY['sin_saldo'::text, 'devolucion'::text, 'descuento_planilla'::text, 'pago_solicitante'::text])))),
     CONSTRAINT fund_requests_total_requested_amount_check CHECK ((total_requested_amount > (0)::numeric))
 );
@@ -19391,6 +23058,83 @@ CREATE TABLE public.wo_expense_budget (
 
 
 --
+-- Name: wo_installment_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_installment_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint NOT NULL,
+    installment_id uuid NOT NULL,
+    wo_id uuid NOT NULL,
+    action text NOT NULL,
+    from_status text,
+    to_status text,
+    old_date date,
+    new_date date,
+    amount numeric,
+    currency text,
+    reason text,
+    actor_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
+);
+
+
+--
+-- Name: wo_installment_events_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_events ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.wo_installment_events_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: wo_installment_expenses; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_installment_expenses (
+    installment_id uuid NOT NULL,
+    fre_id uuid NOT NULL,
+    amount numeric NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: wo_installment_note_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.wo_installment_note_versions (
+    version_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    seq bigint NOT NULL,
+    note_id uuid NOT NULL,
+    body text NOT NULL,
+    edited_by_staff_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: wo_installment_note_versions_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_note_versions ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.wo_installment_note_versions_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: wo_payment_plan; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -19477,10 +23221,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_13; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_13 (
+CREATE TABLE realtime.messages_2026_10_22 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19493,10 +23237,10 @@ CREATE TABLE realtime.messages_2026_10_13 (
 
 
 --
--- Name: messages_2026_10_14; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_14 (
+CREATE TABLE realtime.messages_2026_10_23 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19509,10 +23253,10 @@ CREATE TABLE realtime.messages_2026_10_14 (
 
 
 --
--- Name: messages_2026_10_15; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_15 (
+CREATE TABLE realtime.messages_2026_10_24 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19525,10 +23269,10 @@ CREATE TABLE realtime.messages_2026_10_15 (
 
 
 --
--- Name: messages_2026_10_16; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_25; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_16 (
+CREATE TABLE realtime.messages_2026_10_25 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19541,10 +23285,10 @@ CREATE TABLE realtime.messages_2026_10_16 (
 
 
 --
--- Name: messages_2026_10_17; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_10_26; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_10_17 (
+CREATE TABLE realtime.messages_2026_10_26 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -19837,38 +23581,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_13 FOR VALUES FROM ('2026-10-13 00:00:00') TO ('2026-10-14 00:00:00');
-
-
---
--- Name: messages_2026_10_14; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_14 FOR VALUES FROM ('2026-10-14 00:00:00') TO ('2026-10-15 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_22 FOR VALUES FROM ('2026-10-22 00:00:00') TO ('2026-10-23 00:00:00');
 
 
 --
--- Name: messages_2026_10_15; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_15 FOR VALUES FROM ('2026-10-15 00:00:00') TO ('2026-10-16 00:00:00');
-
-
---
--- Name: messages_2026_10_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_16 FOR VALUES FROM ('2026-10-16 00:00:00') TO ('2026-10-17 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_23 FOR VALUES FROM ('2026-10-23 00:00:00') TO ('2026-10-24 00:00:00');
 
 
 --
--- Name: messages_2026_10_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_17 FOR VALUES FROM ('2026-10-17 00:00:00') TO ('2026-10-18 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_24 FOR VALUES FROM ('2026-10-24 00:00:00') TO ('2026-10-25 00:00:00');
+
+
+--
+-- Name: messages_2026_10_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_25 FOR VALUES FROM ('2026-10-25 00:00:00') TO ('2026-10-26 00:00:00');
+
+
+--
+-- Name: messages_2026_10_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_26 FOR VALUES FROM ('2026-10-26 00:00:00') TO ('2026-10-27 00:00:00');
 
 
 --
@@ -20286,6 +24030,14 @@ ALTER TABLE ONLY public.categories
 
 
 --
+-- Name: client_contacts client_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_pkey PRIMARY KEY (contact_id);
+
+
+--
 -- Name: clients clients_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -20355,6 +24107,14 @@ ALTER TABLE ONLY public.expense_types
 
 ALTER TABLE ONLY public.expense_types
     ADD CONSTRAINT expense_types_pkey PRIMARY KEY (expense_type_id);
+
+
+--
+-- Name: fund_request_events fund_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_pkey PRIMARY KEY (event_id);
 
 
 --
@@ -20702,6 +24462,46 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 
 --
+-- Name: wo_installment_adjustments wo_installment_adjustments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_pkey PRIMARY KEY (adjustment_id);
+
+
+--
+-- Name: wo_installment_events wo_installment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_pkey PRIMARY KEY (event_id);
+
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_pkey PRIMARY KEY (fre_id);
+
+
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_pkey PRIMARY KEY (version_id);
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_pkey PRIMARY KEY (note_id);
+
+
+--
 -- Name: wo_payment_installments wo_payment_installments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -20790,43 +24590,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_13 messages_2026_10_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22 messages_2026_10_22_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_13
-    ADD CONSTRAINT messages_2026_10_13_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_14 messages_2026_10_14_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_14
-    ADD CONSTRAINT messages_2026_10_14_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_22
+    ADD CONSTRAINT messages_2026_10_22_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_10_15 messages_2026_10_15_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23 messages_2026_10_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_15
-    ADD CONSTRAINT messages_2026_10_15_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_16 messages_2026_10_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_16
-    ADD CONSTRAINT messages_2026_10_16_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_23
+    ADD CONSTRAINT messages_2026_10_23_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_10_17 messages_2026_10_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24 messages_2026_10_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_10_17
-    ADD CONSTRAINT messages_2026_10_17_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_10_24
+    ADD CONSTRAINT messages_2026_10_24_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_25 messages_2026_10_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_25
+    ADD CONSTRAINT messages_2026_10_25_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_26 messages_2026_10_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_26
+    ADD CONSTRAINT messages_2026_10_26_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -21434,6 +25234,13 @@ CREATE INDEX idx_authz_rp_permission ON public.authorization_role_permissions US
 
 
 --
+-- Name: idx_client_contacts_client; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_client_contacts_client ON public.client_contacts USING btree (client_id, contact_type) WHERE is_active;
+
+
+--
 -- Name: idx_clients_created_by_staff; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21504,13 +25311,6 @@ CREATE INDEX idx_fr_created_at ON public.fund_requests USING btree (created_at D
 
 
 --
--- Name: idx_fr_manager_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_fr_manager_status ON public.fund_requests USING btree (approver_manager_staff_id, status);
-
-
---
 -- Name: idx_fr_requester_status; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21557,6 +25357,20 @@ CREATE INDEX idx_fre_status ON public.fund_request_expenses USING btree (status)
 --
 
 CREATE INDEX idx_fre_wo ON public.fund_request_expenses USING btree (wo_id);
+
+
+--
+-- Name: idx_fund_request_events_fr; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fr ON public.fund_request_events USING btree (fund_request_id, seq);
+
+
+--
+-- Name: idx_fund_request_events_fre; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fre ON public.fund_request_events USING btree (fre_id) WHERE (fre_id IS NOT NULL);
 
 
 --
@@ -21798,6 +25612,62 @@ CREATE INDEX idx_wo_expense_budget_wo_id ON public.wo_expense_budget USING btree
 
 
 --
+-- Name: idx_wo_installment_adjustments_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_adjustments_installment ON public.wo_installment_adjustments USING btree (installment_id, currency) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: idx_wo_installment_adjustments_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_adjustments_wo ON public.wo_installment_adjustments USING btree (wo_id);
+
+
+--
+-- Name: idx_wo_installment_events_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_events_installment ON public.wo_installment_events USING btree (installment_id, seq);
+
+
+--
+-- Name: idx_wo_installment_events_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_events_wo ON public.wo_installment_events USING btree (wo_id, seq);
+
+
+--
+-- Name: idx_wo_installment_expenses_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_expenses_installment ON public.wo_installment_expenses USING btree (installment_id);
+
+
+--
+-- Name: idx_wo_installment_note_versions_note; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_note_versions_note ON public.wo_installment_note_versions USING btree (note_id, seq);
+
+
+--
+-- Name: idx_wo_installment_notes_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_notes_installment ON public.wo_installment_notes USING btree (installment_id) WHERE ((installment_id IS NOT NULL) AND (deleted_at IS NULL));
+
+
+--
+-- Name: idx_wo_installment_notes_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_notes_wo ON public.wo_installment_notes USING btree (wo_id, created_at) WHERE (deleted_at IS NULL);
+
+
+--
 -- Name: idx_wo_payment_installments_wo_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -21868,38 +25738,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_13_inserted_at_topic_idx ON realtime.messages_2026_10_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_14_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_14_inserted_at_topic_idx ON realtime.messages_2026_10_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_22_inserted_at_topic_idx ON realtime.messages_2026_10_22 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_10_15_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_15_inserted_at_topic_idx ON realtime.messages_2026_10_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_16_inserted_at_topic_idx ON realtime.messages_2026_10_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_23_inserted_at_topic_idx ON realtime.messages_2026_10_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_10_17_inserted_at_topic_idx ON realtime.messages_2026_10_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_10_24_inserted_at_topic_idx ON realtime.messages_2026_10_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_25_inserted_at_topic_idx ON realtime.messages_2026_10_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_26_inserted_at_topic_idx ON realtime.messages_2026_10_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -22001,73 +25871,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_13_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_13_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_13_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_22_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_14_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_22_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_14_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_14_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_14_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_22_pkey;
 
 
 --
--- Name: messages_2026_10_15_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_15_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_15_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_15_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_23_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_16_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_16_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_23_pkey;
 
 
 --
--- Name: messages_2026_10_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_17_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_24_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_10_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_10_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_17_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_24_pkey;
+
+
+--
+-- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_25_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_25_pkey;
+
+
+--
+-- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_26_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_26_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_26_pkey;
 
 
 --
@@ -22141,10 +26011,31 @@ CREATE TRIGGER tr_fr_guard_accounting_cols BEFORE UPDATE ON public.fund_requests
 
 
 --
+-- Name: fund_requests tr_fr_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_log_event AFTER INSERT OR UPDATE OF status ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_log_event();
+
+
+--
+-- Name: fund_requests tr_fr_validate_period_month; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_validate_period_month BEFORE INSERT OR UPDATE OF expense_period_month ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_validate_period_month();
+
+
+--
 -- Name: fund_request_work_orders tr_fr_wo_guard_approval; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER tr_fr_wo_guard_approval BEFORE UPDATE ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_guard_approval_cols();
+
+
+--
+-- Name: fund_request_work_orders tr_fr_wo_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_wo_log_event AFTER UPDATE OF approval_status ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_log_event();
 
 
 --
@@ -22166,6 +26057,27 @@ CREATE TRIGGER tr_fr_wo_set_manager BEFORE INSERT OR UPDATE OF wo_id ON public.f
 --
 
 CREATE TRIGGER tr_fr_wo_validate_approved BEFORE INSERT OR UPDATE OF wo_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_validate_approved();
+
+
+--
+-- Name: fund_request_expenses tr_fre_enforce_window; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_enforce_window BEFORE INSERT OR UPDATE ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_enforce_window();
+
+
+--
+-- Name: fund_request_expenses tr_fre_expense_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_expense_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
+-- Name: fund_request_expenses tr_fre_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_log_event AFTER UPDATE OF status ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_log_event();
 
 
 --
@@ -22323,10 +26235,24 @@ CREATE TRIGGER tr_reject_work_order_engagement_move BEFORE UPDATE OF engagement_
 
 
 --
+-- Name: wo_expense_budget tr_wo_expense_budget_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_wo_expense_budget_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.wo_expense_budget FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
 -- Name: work_orders tr_wo_guard_risk_approval; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_risk_approval();
+
+
+--
+-- Name: wo_payment_installments tr_wo_installment_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_wo_installment_log_event AFTER UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_installment_log_event();
 
 
 --
@@ -23012,6 +26938,14 @@ ALTER TABLE ONLY public.categories
 
 
 --
+-- Name: client_contacts client_contacts_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(client_id) ON DELETE CASCADE;
+
+
+--
 -- Name: clients clients_created_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23132,6 +27066,38 @@ ALTER TABLE ONLY public.engagements
 
 
 --
+-- Name: fund_request_events fund_request_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: fund_request_events fund_request_events_fr_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fr_wo_id_fkey FOREIGN KEY (fr_wo_id) REFERENCES public.fund_request_work_orders(fr_wo_id) ON DELETE SET NULL;
+
+
+--
+-- Name: fund_request_events fund_request_events_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE SET NULL;
+
+
+--
+-- Name: fund_request_events fund_request_events_fund_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fund_request_id_fkey FOREIGN KEY (fund_request_id) REFERENCES public.fund_requests(fund_request_id) ON DELETE CASCADE;
+
+
+--
 -- Name: fund_request_expenses fund_request_expenses_expense_type_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23188,11 +27154,19 @@ ALTER TABLE ONLY public.fund_request_work_orders
 
 
 --
--- Name: fund_requests fund_requests_approver_manager_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: fund_requests fund_requests_cancelled_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.fund_requests
-    ADD CONSTRAINT fund_requests_approver_manager_staff_id_fkey FOREIGN KEY (approver_manager_staff_id) REFERENCES public.staff(staff_id);
+    ADD CONSTRAINT fund_requests_cancelled_by_staff_id_fkey FOREIGN KEY (cancelled_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: fund_requests fund_requests_closed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_closed_by_staff_id_fkey FOREIGN KEY (closed_by_staff_id) REFERENCES public.staff(staff_id);
 
 
 --
@@ -23217,6 +27191,14 @@ ALTER TABLE ONLY public.fund_requests
 
 ALTER TABLE ONLY public.fund_requests
     ADD CONSTRAINT fund_requests_settled_by_staff_id_fkey FOREIGN KEY (settled_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: fund_requests fund_requests_settlement_confirmed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_settlement_confirmed_by_staff_id_fkey FOREIGN KEY (settlement_confirmed_by_staff_id) REFERENCES public.staff(staff_id);
 
 
 --
@@ -23540,6 +27522,126 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 
 --
+-- Name: wo_installment_adjustments wo_installment_adjustments_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_created_by_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_deleted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_deleted_by_fkey FOREIGN KEY (deleted_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_events wo_installment_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_events wo_installment_events_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_events wo_installment_events_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_edited_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_edited_by_staff_id_fkey FOREIGN KEY (edited_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.wo_installment_notes(note_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_author_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_author_staff_id_fkey FOREIGN KEY (author_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_payment_installments wo_payment_installments_confirmed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_payment_installments
+    ADD CONSTRAINT wo_payment_installments_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: wo_payment_installments wo_payment_installments_plan_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -23799,7 +27901,7 @@ ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 -- Name: wo_payment_installments Accounting can update payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments FOR UPDATE TO authenticated USING ((public.current_role_key() = 'collections_analyst'::text)) WITH CHECK ((public.current_role_key() = 'collections_analyst'::text));
+CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments FOR UPDATE TO authenticated USING (public.is_collections_role()) WITH CHECK (public.is_collections_role());
 
 
 --
@@ -24490,6 +28592,19 @@ CREATE POLICY "categories write update" ON public.categories FOR UPDATE TO authe
 
 
 --
+-- Name: client_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.client_contacts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: client_contacts client_contacts_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY client_contacts_select ON public.client_contacts FOR SELECT TO authenticated USING (public.client_contacts_visible(client_id));
+
+
+--
 -- Name: clients; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -24725,6 +28840,19 @@ CREATE POLICY fr_delete_requester_draft ON public.fund_requests FOR DELETE TO au
 
 
 --
+-- Name: fund_request_events fr_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY fr_events_select ON public.fund_request_events FOR SELECT TO authenticated USING (((EXISTS ( SELECT 1
+   FROM public.fund_requests fr
+  WHERE (fr.fund_request_id = fund_request_events.fund_request_id))) AND ((fr_wo_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_work_orders frwo
+  WHERE (frwo.fr_wo_id = fund_request_events.fr_wo_id)))) AND ((fre_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_expenses fre
+  WHERE (fre.fre_id = fund_request_events.fre_id))))));
+
+
+--
 -- Name: fund_requests fr_insert_requester; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -24737,7 +28865,7 @@ CREATE POLICY fr_insert_requester ON public.fund_requests FOR INSERT TO authenti
 -- Name: fund_requests fr_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY fr_select_accounting ON public.fund_requests FOR SELECT TO authenticated USING (((public.has_permission('fund_disbursement.read'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.read'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))));
+CREATE POLICY fr_select_accounting ON public.fund_requests FOR SELECT TO authenticated USING (public.fr_accounting_sees(status, cancelled_from_status));
 
 
 --
@@ -24759,13 +28887,6 @@ CREATE POLICY fr_select_manager ON public.fund_requests FOR SELECT TO authentica
 --
 
 CREATE POLICY fr_select_requester ON public.fund_requests FOR SELECT TO authenticated USING ((requester_staff_id = public.get_my_staff_id()));
-
-
---
--- Name: fund_requests fr_update_accounting; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY fr_update_accounting ON public.fund_requests FOR UPDATE TO authenticated USING (((public.has_permission('fund_disbursement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))) WITH CHECK (((public.has_permission('fund_disbursement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))));
 
 
 --
@@ -24872,24 +28993,9 @@ CREATE POLICY fre_select ON public.fund_request_expenses FOR SELECT TO authentic
 -- Name: fund_request_expenses fre_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY fre_select_accounting ON public.fund_request_expenses FOR SELECT TO authenticated USING ((public.has_permission('expense_settlement.read'::text) AND (EXISTS ( SELECT 1
+CREATE POLICY fre_select_accounting ON public.fund_request_expenses FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))));
-
-
---
--- Name: fund_request_expenses fre_update_accounting; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY fre_update_accounting ON public.fund_request_expenses FOR UPDATE TO authenticated USING (((public.has_permission('fund_disbursement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))))))) WITH CHECK (((public.has_permission('fund_disbursement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))))));
+  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND public.fr_accounting_sees(fr.status, fr.cancelled_from_status)))));
 
 
 --
@@ -24927,12 +29033,16 @@ CREATE POLICY fre_update_requester ON public.fund_request_expenses FOR UPDATE TO
 -- Name: fund_request_work_orders frwo_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY frwo_select_accounting ON public.fund_request_work_orders FOR SELECT TO authenticated USING (((public.has_permission('fund_disbursement.read'::text) AND (EXISTS ( SELECT 1
+CREATE POLICY frwo_select_accounting ON public.fund_request_work_orders FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.read'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))))));
+  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND public.fr_accounting_sees(fr.status, fr.cancelled_from_status)))));
 
+
+--
+-- Name: fund_request_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fund_request_events ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: fund_request_expenses; Type: ROW SECURITY; Schema: public; Owner: -
@@ -25359,6 +29469,77 @@ CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authen
 ALTER TABLE public.wo_expense_budget ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: wo_installment_adjustments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_adjustments ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_installment_adjustments_select ON public.wo_installment_adjustments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_adjustments.installment_id))));
+
+
+--
+-- Name: wo_installment_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_events ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: wo_installment_events wo_installment_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_installment_events_select ON public.wo_installment_events FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_events.installment_id))));
+
+
+--
+-- Name: wo_installment_expenses; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_expenses ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_installment_expenses_select ON public.wo_installment_expenses FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_expenses.installment_id))));
+
+
+--
+-- Name: wo_installment_note_versions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_note_versions ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_installment_note_versions_select ON public.wo_installment_note_versions FOR SELECT TO authenticated USING (public.wo_notes_participant(public.wo_note_wo_id(note_id)));
+
+
+--
+-- Name: wo_installment_notes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_notes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY wo_installment_notes_select ON public.wo_installment_notes FOR SELECT TO authenticated USING (((deleted_at IS NULL) AND public.wo_notes_participant(wo_id)));
+
+
+--
 -- Name: wo_payment_installments; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -25707,5 +29888,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict aA2Xz7Nqb25ttQDpjgWvR86gnlmlJjUn9ifTAyX2GSpSY0T7E7P7sssZKcgr857
+\unrestrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
 
