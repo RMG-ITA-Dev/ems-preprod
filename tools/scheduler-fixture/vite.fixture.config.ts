@@ -5,6 +5,7 @@
 // no permanent Playwright devDependency, plan D6).
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 const REPO = path.resolve(__dirname, "../..");
@@ -12,8 +13,7 @@ const REPO = path.resolve(__dirname, "../..");
 export default defineConfig({
   root: __dirname,
   publicDir: path.join(REPO, "public"),
-  plugins: [react()],
-  css: { postcss: path.join(REPO, "postcss.config.js") },
+  plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.join(REPO, "src") } },
   build: { outDir: path.join(__dirname, "dist"), emptyOutDir: true },
 });
