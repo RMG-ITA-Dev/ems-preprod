@@ -8,7 +8,10 @@
     { "name": "Neil Graneros", "email": "neilgraneros@ruizmier.com" }
   ],
   "type": "module",
-  "packageManager": "npm@10.9.7",
+  "packageManager": "npm@11.21.1",
+  "engines": {
+    "node": "^24.0.0"
+  },
   "scripts": {
     "predev": "node tools/banner.js dev",
     "dev": "vite",

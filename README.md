@@ -325,8 +325,7 @@ The canonical inventory of edge functions and their purposes lives in **[`docs/o
 
 ### Prerequisites
 
-- Node.js 18+
-- npm
+See [Running Locally](./docs/operations.md#running-locally) for the required Node.js and npm versions.
 
 ### Getting Started
 
