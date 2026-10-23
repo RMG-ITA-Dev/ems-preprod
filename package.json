@@ -2,6 +2,11 @@
   "name": "EMS 2.0 - Engagement Management System",
   "private": true,
   "version": "2.0.0",
+  "description": "Sistema de Gestión de Encargos (EMS) para la gestión de proyectos y tareas.",
+  "contributors": [
+    { "name": "Marcelo Ovando", "email": "marceloovando@ruizmier.com" },
+    { "name": "Neil Graneros", "email": "neilgraneros@ruizmier.com" }
+  ],
   "type": "module",
   "packageManager": "npm@10.9.7",
   "scripts": {
