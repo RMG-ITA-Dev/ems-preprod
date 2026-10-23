@@ -41,6 +41,13 @@ import {
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import {
+  formatDateDMY,
+  fundRequestDeadline,
+  isDeadlinePassed,
+  laPazToday,
+} from "@/lib/fundRequestCalendar";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -67,12 +74,14 @@ const FundRequestExpenses = () => {
 
   const { data: fr, isLoading: frLoading } = useFundRequestById(id);
   const { data: expenses, isLoading: expLoading } = useFundRequestExpenses(id);
+  const { data: events } = useFundRequestEvents(id);
   const { staffRecord } = useCurrentStaff();
   // "Ve todo el pedido" es el rol de Contabilidad (liquidación), no admin. El
   // comentario original decía "admin (contabilidad por ahora)": ahora se decide
   // por el permiso real, así que el Gerente y el Analista de Contabilidad
   // también lo ven, como manda la matriz.
-  const { can } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const canSettleExpenses = can("expense_settlement.read");
 
   const submitAll = useSubmitAllFundRequestExpenses();
@@ -110,24 +119,24 @@ const FundRequestExpenses = () => {
     Math.abs(myAllocatedTotal - Number(fr?.total_requested_amount ?? 0)) < 0.01;
   const isManagerScoped =
     isManagerOfThisFr && !isRequester && !canSettleExpenses && !seesWholeRequest;
-  // Hay gastos "bloqueados": enviados (pendiente), aprobados por el gerente o
-  // revisados por contabilidad. Mientras exista alguno, el solicitante no puede
-  // registrar/enviar nuevos gastos.
-  const hasLockedExpenses = (expenses ?? []).some((e) =>
-    ["pendiente_aprobacion", "aprobado_gerente", "revisado_asistente"].includes(e.status),
-  );
-  // Gastos devueltos por contabilidad (solo falta adjuntar respaldo): se
-  // reenvían UNO POR UNO desde su modal, no en lote. Mientras exista alguno,
-  // tampoco se agregan nuevos gastos (irían al gerente y aquí toca resolver
-  // primero lo de contabilidad).
+  // Calendario (Fase 3): el solicitante registra y envía gastos desde el desembolso hasta la
+  // fecha fin (día 3 del mes siguiente al mes de la solicitud). Puede enviar VARIOS lotes, pero
+  // uno a la vez: mientras el gerente no decida el lote enviado, no registra ni envía otro. El
+  // servidor valida lo mismo (fre_enforce_window).
+  const today = laPazToday();
+  const deadline = fr ? fundRequestDeadline(fr.expense_period_month) : null;
+  const windowOpen =
+    !!fr &&
+    fr.status === "fondos_entregados" &&
+    !!fr.disbursed_at &&
+    !isDeadlinePassed(fr.expense_period_month, today);
+  // Gastos devueltos por contabilidad: se corrigen y reenvían UNO POR UNO desde su modal
+  // (vuelven directo a contabilidad, no al gerente).
   const hasReturnedByAssistant = (expenses ?? []).some(
     (e) => e.status === "observado" && e.returned_by_assistant,
   );
-  const canAddExpenses =
-    isRequester &&
-    fr?.status === "fondos_entregados" &&
-    !hasLockedExpenses &&
-    !hasReturnedByAssistant;
+  const hasPendingBatch = (expenses ?? []).some((e) => e.status === "pendiente_aprobacion");
+  const canAddExpenses = isRequester && windowOpen && !hasPendingBatch;
 
   // Gastos que se pueden enviar en lote al gerente (excluye los devueltos por
   // contabilidad, que se reenvían individualmente).
@@ -140,15 +149,8 @@ const FundRequestExpenses = () => {
       ),
     [expenses],
   );
-  // Reenviar correcciones (observado/rechazado) NO depende de poder agregar
-  // gastos nuevos: aunque haya un gasto ya revisado (bloqueado), el solicitante
-  // debe poder reenviar lo corregido. Solo se respeta el gate de los devueltos
-  // por contabilidad (que se reenvían uno por uno).
-  const canSubmitAll =
-    isRequester &&
-    fr?.status === "fondos_entregados" &&
-    !hasReturnedByAssistant &&
-    submittable.length > 0;
+  // Enviar el lote (borradores y correcciones para el gerente) mientras la ventana esté abierta.
+  const canSubmitAll = isRequester && windowOpen && !hasPendingBatch && submittable.length > 0;
 
   const handleSubmitAll = async () => {
     if (!id) return;
@@ -160,10 +162,13 @@ const FundRequestExpenses = () => {
     }
   };
 
-  // Gastos pendientes que ESTE gerente debe decidir (sus OTs). El admin ve todos.
+  // Gastos pendientes que ESTE gerente debe decidir (los de SUS OTs). El admin ve todos.
+  // Contabilidad NO decide gastos: su permiso (expense_settlement.*) sirve para ver y revisar,
+  // y la RLS solo tiene fre_update_admin y fre_update_manager. Antes el permiso contable abría
+  // los tres botones de decisión sobre TODOS los pendientes, y el click moría en la RLS.
   const myPendingExpenses = useMemo(() => {
     const list = (expenses ?? []).filter((e) => e.status === "pendiente_aprobacion");
-    if (canSettleExpenses) return list;
+    if (isAdmin) return list;
     if (!staffRecord || !fr) return [];
     const myWoIds = new Set(
       (fr.fund_request_work_orders ?? [])
@@ -171,9 +176,13 @@ const FundRequestExpenses = () => {
         .map((o) => o.wo_id),
     );
     return list.filter((e) => myWoIds.has(e.wo_id));
-  }, [expenses, fr, staffRecord, canSettleExpenses]);
+  }, [expenses, fr, staffRecord, isAdmin]);
 
-  const canDecideAll = myPendingExpenses.length > 0;
+  // El gerente decide hasta la fecha fin y solo con la solicitud en fondos_entregados: después
+  // el job aprueba solo (fre_enforce_window) y la RLS fre_update_manager exige ese estado.
+  // windowOpen ya exige fondos_entregados y que no haya pasado la fecha fin. El admin queda
+  // exento, igual que en fre_enforce_window y en la policy fre_update_admin.
+  const canDecideAll = myPendingExpenses.length > 0 && (isAdmin || windowOpen);
 
   const handleDecideAll = async (notes: string) => {
     if (!id || !decisionMode) return;
@@ -255,10 +264,21 @@ const FundRequestExpenses = () => {
       frStatusLabel: (s) => t(`fundRequest.status.${s}`),
       otStatusLabel: (s) => t(`fundRequest.otApproval.status.${s}`),
       expenseStatusLabel: (s) => t(`fundRequestExpense.status.${s}`),
+      history: {
+        section: t("fundRequestEvent.title"),
+        dateTime: t("fundRequestEvent.report.dateTime"),
+        action: t("fundRequestEvent.report.action"),
+        actor: t("fundRequestEvent.report.actor"),
+        workOrder: t("fundRequestEvent.report.workOrder"),
+        notes: t("fundRequestEvent.report.notes"),
+        amount: t("fundRequestEvent.report.amount"),
+        system: t("fundRequestEvent.system"),
+      },
+      actionLabel: (a) => t(`fundRequestEvent.actions.${a}`, { defaultValue: a }),
     };
     try {
       await downloadExpenseReportXlsx(
-        { fr, expenses: expenses ?? [], totals },
+        { fr, expenses: expenses ?? [], totals, events: events ?? [] },
         labels,
         reportFilename(
           fr.request_number,
@@ -327,7 +347,10 @@ const FundRequestExpenses = () => {
     },
   ];
 
-  if (frLoading) {
+  // expLoading cuenta igual que frLoading: casi todo lo de esta pantalla (lote pendiente,
+  // totales, botones de decisión) sale de `expenses`, y con la lista a medio cargar se muestra
+  // "Nuevo Gasto" habilitado y Total gastado 0 por un instante.
+  if (frLoading || expLoading) {
     return (
       <AppLayout title={t("fundRequestExpense.title")} focusMode>
         <div className="space-y-4">
@@ -439,24 +462,40 @@ const FundRequestExpenses = () => {
           </CardContent>
         </Card>
 
-        {/* Banner: contabilidad devolvió gastos por falta de respaldo */}
-        {isRequester && fr.status === "fondos_entregados" && hasReturnedByAssistant && (
+        {/* Banner: plazo para registrar y enviar gastos (Fase 3) */}
+        {fr.status === "fondos_entregados" && deadline && (
+          windowOpen ? (
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                {t("fundRequestExpense.window.open", { date: formatDateDMY(deadline) })}
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert className="border-warning/30 bg-warning/5 text-warning [&>svg]:text-warning">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t("fundRequestExpense.window.closed", { date: formatDateDMY(deadline) })}
+              </AlertDescription>
+            </Alert>
+          )
+        )}
+
+        {/* Banner: un lote a la vez; el gerente todavía no decidió el enviado */}
+        {isRequester && windowOpen && hasPendingBatch && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t("fundRequestExpense.pendingBatchHint")}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Banner: contabilidad devolvió gastos; se corrigen y reenvían uno por uno */}
+        {isRequester && windowOpen && hasReturnedByAssistant && (
           <Alert className="border-warning/30 bg-warning/5 text-warning [&>svg]:text-warning">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>{t("fundRequestExpense.returnedLockHint")}</AlertDescription>
           </Alert>
         )}
-
-        {/* Banner: hay gastos en proceso, no se pueden registrar nuevos */}
-        {isRequester &&
-          fr.status === "fondos_entregados" &&
-          hasLockedExpenses &&
-          !hasReturnedByAssistant && (
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertDescription>{t("fundRequestExpense.pendingLockHint")}</AlertDescription>
-            </Alert>
-          )}
 
         <DataTable
           data={expenses ?? []}

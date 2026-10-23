@@ -65,6 +65,62 @@ CREATE TRIGGER tr_fr_wo_validate_approved BEFORE INSERT OR UPDATE OF wo_id ON pu
 
 --
 --
+-- Name: fund_requests tr_fr_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_log_event AFTER INSERT OR UPDATE OF status ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_log_event();
+
+
+--
+--
+-- Name: fund_request_work_orders tr_fr_wo_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_wo_log_event AFTER UPDATE OF approval_status ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_log_event();
+
+
+--
+--
+-- Name: fund_request_expenses tr_fre_enforce_window; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_enforce_window BEFORE INSERT OR UPDATE ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_enforce_window();
+
+
+--
+--
+-- Name: fund_requests tr_fr_validate_period_month; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_validate_period_month BEFORE INSERT OR UPDATE OF expense_period_month ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_validate_period_month();
+
+
+--
+--
+-- Name: fund_request_expenses tr_fre_expense_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_expense_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
+--
+-- Name: wo_expense_budget tr_wo_expense_budget_type_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_wo_expense_budget_type_active BEFORE INSERT OR UPDATE OF expense_type_id ON public.wo_expense_budget FOR EACH ROW EXECUTE FUNCTION public.validate_expense_type_active();
+
+
+--
+--
+-- Name: fund_request_expenses tr_fre_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fre_log_event AFTER UPDATE OF status ON public.fund_request_expenses FOR EACH ROW EXECUTE FUNCTION public.fre_log_event();
+
+
+--
+--
 -- Name: fund_request_expenses tr_fre_touch; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -433,6 +489,17 @@ CREATE TRIGGER update_timesheet_periods_updated_at BEFORE UPDATE ON public.times
 
 --
 --
+-- Name: wo_payment_installments tr_wo_installment_log_event; Type: TRIGGER; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: bitacora de la cuota (issue #352). AFTER UPDATE a proposito -- se
+-- dispara venga el cambio de una RPC, de un UPDATE directo de admin o de un backfill, asi
+-- que el historial no se puede esquivar eligiendo otro camino de escritura.
+CREATE TRIGGER tr_wo_installment_log_event AFTER UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_installment_log_event();
+
+
+--
+--
 -- Name: wo_payment_installments update_wo_payment_installments_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -708,6 +775,42 @@ ALTER TABLE ONLY public.fund_request_expenses
 
 --
 --
+-- Name: fund_request_events fund_request_events_fund_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fund_request_id_fkey FOREIGN KEY (fund_request_id) REFERENCES public.fund_requests(fund_request_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_fr_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fr_wo_id_fkey FOREIGN KEY (fr_wo_id) REFERENCES public.fund_request_work_orders(fr_wo_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: fund_request_events fund_request_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
 -- Name: fund_request_expenses fund_request_expenses_fund_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -762,15 +865,6 @@ ALTER TABLE ONLY public.fund_request_work_orders
 
 --
 --
--- Name: fund_requests fund_requests_approver_manager_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.fund_requests
-    ADD CONSTRAINT fund_requests_approver_manager_staff_id_fkey FOREIGN KEY (approver_manager_staff_id) REFERENCES public.staff(staff_id);
-
-
---
---
 -- Name: fund_requests fund_requests_disbursed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -794,6 +888,33 @@ ALTER TABLE ONLY public.fund_requests
 
 ALTER TABLE ONLY public.fund_requests
     ADD CONSTRAINT fund_requests_settled_by_staff_id_fkey FOREIGN KEY (settled_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
+-- Name: fund_requests fund_requests_closed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_closed_by_staff_id_fkey FOREIGN KEY (closed_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
+-- Name: fund_requests fund_requests_settlement_confirmed_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_settlement_confirmed_by_staff_id_fkey FOREIGN KEY (settlement_confirmed_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+--
+-- Name: fund_requests fund_requests_cancelled_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_requests
+    ADD CONSTRAINT fund_requests_cancelled_by_staff_id_fkey FOREIGN KEY (cancelled_by_staff_id) REFERENCES public.staff(staff_id);
 
 
 --
@@ -1058,6 +1179,144 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 
 --
+--
+-- Name: client_contacts client_contacts_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(client_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_expenses wo_installment_expenses_fre_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_fre_id_fkey FOREIGN KEY (fre_id) REFERENCES public.fund_request_expenses(fre_id) ON DELETE CASCADE;
+
+
+--
+-- Name: wo_installment_adjustments; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: el ajuste vive colgado de su cuota. Si la cuota desaparece (solo puede
+-- pasar mientras el plan sigue en borrador), sus ajustes se van con ella.
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+-- Quien lo cargo y quien lo retiro se conservan aunque esa persona deje de estar activa: el
+-- ajuste tiene que poder explicarse despues.
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_created_by_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_deleted_by_fkey FOREIGN KEY (deleted_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_notes wo_installment_notes_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- SET NULL y no CASCADE: si la cuota desaparece (solo posible mientras siguio Pending), la
+-- nota sigue valiendo para el plan. Lo que se dijo del encargo no se borra porque se haya
+-- reacomodado una cuota.
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: wo_installment_notes wo_installment_notes_author_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_author_staff_id_fkey FOREIGN KEY (author_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_note_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_note_id_fkey FOREIGN KEY (note_id) REFERENCES public.wo_installment_notes(note_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_edited_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_edited_by_staff_id_fkey FOREIGN KEY (edited_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+-- Name: wo_installment_events wo_installment_events_installment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1. CASCADE igual que fund_request_events: si la cuota desaparece (solo
+-- posible mientras siguio Pending -- wo_payment_installments_guard_delete rechaza borrar
+-- una ya facturada) su bitacora deja de tener sujeto. El historial que #352 pide proteger
+-- es el de una cuota viva.
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_installment_id_fkey FOREIGN KEY (installment_id) REFERENCES public.wo_payment_installments(installment_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_wo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_wo_id_fkey FOREIGN KEY (wo_id) REFERENCES public.work_orders(wo_id) ON DELETE CASCADE;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_actor_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- SET NULL: dar de baja a una persona nunca puede borrar la bitacora de lo que hizo, ni
+-- quedar bloqueado por ella. (fund_request_events usa NO ACTION, que bloquearia el borrado;
+-- aqui se prefiere que la bitacora sobreviva al actor.)
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_actor_staff_id_fkey FOREIGN KEY (actor_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
+--
+-- Name: wo_payment_installments wo_payment_installments_confirmed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 3. SET NULL por el mismo criterio que la bitacora: dar de baja a una persona
+-- no puede bloquear ni borrar el registro de la gestion. El evento 'confirmation' conserva el
+-- actor historico igual.
+ALTER TABLE ONLY public.wo_payment_installments
+    ADD CONSTRAINT wo_payment_installments_confirmed_by_fkey FOREIGN KEY (confirmed_by) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
 --
 -- Name: wo_payment_installments wo_payment_installments_plan_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --

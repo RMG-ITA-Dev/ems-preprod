@@ -381,7 +381,10 @@ BEGIN
   wo AS (
     SELECT
       w.*,
-      (w.fee_net + w.expense_budget) / NULLIF(1 - w.tax_rate, 0) AS installment_base
+      -- Cobranzas Fase 7 (decision del operador Q41): la base de las cuotas son SOLO los
+      -- honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se cobran
+      -- por su propia fila, con lo EJECUTADO; sumarlo a la base los cobraria dos veces.
+      w.fee_net / NULLIF(1 - w.tax_rate, 0) AS installment_base
     FROM wo_rate w
   ),
 
@@ -466,10 +469,34 @@ BEGIN
       i.installment_id, w.wo_id, w.engagement_id, w.plan_id,
       i.status, i.agreed_invoice_date, i.agreed_payment_date,
       i.collection_invoice_date, i.collection_payment_date, i.payment_date_actual,
-      COALESCE(i.amount, i.percentage * w.installment_base / 100) AS amount_native,
-      w.rate_to_bob,
-      COALESCE(i.invoice_exchange_rate, w.rate_to_bob) AS invoice_rate,
-      COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) AS payment_rate
+      -- Cobranzas Fase 1 (issue #352): fechas VIGENTES y estado de calendario, calculados
+      -- una sola vez aqui para que ningun bloque de abajo repita el criterio.
+      --   * current_invoice_date = la reprogramada si la hubo, si no la del contrato.
+      --   * current_due_date     = el vencimiento REAL (facturacion real + dias habiles);
+      --                            cae a la pactada solo si falta (anomalia de datos).
+      --   * calendar_state       = la regla unica de mora (decision del operador Q4), la
+      --                            misma que usan la pantalla, los avisos y el cron.
+      COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS current_invoice_date,
+      COALESCE(i.collection_payment_date, i.agreed_payment_date) AS current_due_date,
+      public.wo_installment_calendar_state(
+        i.status, i.agreed_invoice_date, i.current_invoice_date,
+        i.agreed_payment_date, i.collection_payment_date,
+        (SELECT today FROM now_ctx)) AS calendar_state,
+      -- Cobranzas Fase 9: lo que el cliente DEBE (o pago), no el monto del contrato: el monto
+      -- mas los descuentos vigentes en la moneda de la cuota, igual que amount_effective en la
+      -- pantalla de Cobranzas. Sin esto todo KPI de una cuota con descuento la contaba entera.
+      COALESCE(i.amount, i.percentage * w.installment_base / 100)
+        + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, w.currency)) AS amount_native,
+      -- La moneda que cuenta es la de la CUOTA, no la de la OT (Cobranzas Fase 6/7). Una cuota
+      -- puede ir en Bs aunque la OT sea en USD, y la fila de gastos ejecutados nace siempre en
+      -- Bs: valuarla con el TC de la OT la multiplicaba por ~7 en todos los KPI. Para una
+      -- cuota en Bs los tres TC son 1; para el resto, lo de siempre.
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE w.rate_to_bob END AS rate_to_bob,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.invoice_exchange_rate, w.rate_to_bob) END AS invoice_rate,
+      CASE WHEN COALESCE(i.currency, w.currency) = 'BOB' THEN 1
+           ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, w.rate_to_bob) END AS payment_rate
     FROM wo w
     JOIN public.wo_payment_installments i ON i.wo_id = w.wo_id
   ),
@@ -507,13 +534,13 @@ BEGIN
         'count', COUNT(*) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.invoice_rate) FILTER (WHERE inst.status IN ('Invoiced', 'Overdue')), 0)),
       'in_arrears', jsonb_build_object(
-        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)),
+        'count', COUNT(*) FILTER (WHERE inst.calendar_state = 'billing_late'),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date < (SELECT today FROM now_ctx)), 0)),
+          WHERE inst.calendar_state = 'billing_late'), 0)),
       'upcoming', jsonb_build_object(
-        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)),
+        'count', COUNT(*) FILTER (WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'),
         'amount_bob', COALESCE(SUM(inst.amount_native * inst.rate_to_bob) FILTER (
-          WHERE inst.status = 'Pending' AND inst.agreed_invoice_date >= (SELECT today FROM now_ctx)), 0))
+          WHERE inst.status = 'Pending' AND inst.calendar_state <> 'billing_late'), 0))
     ) AS by_status
     FROM installments_full inst
   ),
@@ -522,7 +549,7 @@ BEGIN
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id, 'engagement_id', inst.engagement_id,
         'client_legal_name', cl.client_legal_name,
         'kind', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN 'collect' ELSE 'invoice' END,
-        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END,
+        'date', CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END,
         -- review.md dash_socio iteración 9, G-01 (2026-09-22): una cuota ya facturada
         -- (Invoiced/Overdue) se valora al TC congelado de su factura (invoice_rate), NO al
         -- TC del plan (rate_to_bob) -- consistente con collections_by_status.invoiced, unas
@@ -531,17 +558,20 @@ BEGIN
         'amount_bob', CASE WHEN inst.status IN ('Invoiced', 'Overdue')
                         THEN inst.amount_native * inst.invoice_rate
                         ELSE inst.amount_native * inst.rate_to_bob END
-      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.agreed_payment_date ELSE inst.agreed_invoice_date END
+      ) ORDER BY CASE WHEN inst.status IN ('Invoiced', 'Overdue') THEN inst.current_due_date ELSE inst.current_invoice_date END
     ), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
     WHERE
+      -- Cobranzas Fase 1 (issue #352): la ventana de 7 dias mira las fechas VIGENTES
+      -- (current_due_date / current_invoice_date del CTE), no las pactadas: una cuota
+      -- reprogramada o facturada tarde aparecia en la semana equivocada.
       (inst.status IN ('Invoiced', 'Overdue')
-        AND inst.agreed_payment_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_due_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
       OR
       (inst.status = 'Pending'
-        AND inst.agreed_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
+        AND inst.current_invoice_date BETWEEN (SELECT today FROM now_ctx) AND (SELECT today FROM now_ctx) + 7)
   ),
   overdue_list AS (
     SELECT
@@ -550,13 +580,15 @@ BEGIN
       COALESCE(jsonb_agg(jsonb_build_object(
         'installment_id', inst.installment_id, 'wo_id', inst.wo_id,
         'client_legal_name', cl.client_legal_name,
-        'agreed_payment_date', inst.agreed_payment_date,
+        'agreed_payment_date', inst.current_due_date,
         'amount_bob', inst.amount_native * inst.rate_to_bob
-      ) ORDER BY inst.agreed_payment_date), '[]'::jsonb) AS items
+      ) ORDER BY inst.current_due_date), '[]'::jsonb) AS items
     FROM installments_full inst
     JOIN public.engagements e ON e.engagement_id = inst.engagement_id
     JOIN public.clients cl ON cl.client_id = e.client_id
-    WHERE inst.status IN ('Invoiced', 'Overdue') AND inst.agreed_payment_date < (SELECT today FROM now_ctx)
+    -- Cobranzas Fase 1 (Q4): la mora la decide wo_installment_calendar_state (ver el CTE
+    -- installments_full), no una comparacion propia contra la fecha PACTADA.
+    WHERE inst.calendar_state = 'overdue'
   ),
 
   -- ── 12. my_engagements/my_budget/my_hours: KPI 3/4, SIEMPRE personales ──────────────
@@ -903,8 +935,14 @@ BEGIN
   ),
   finalized_collected AS (
     SELECT COALESCE(SUM(
-      COALESCE(i.amount, i.percentage * ((fw.fee_net + fw.expense_budget) / NULLIF(1 - fw.tax_rate, 0)) / 100)
-      * COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob)
+      (COALESCE(i.amount, i.percentage * (fw.fee_net / NULLIF(1 - fw.tax_rate, 0)) / 100)
+       -- Lo cobrado de verdad: con sus descuentos, como en installments_full.
+       + public.installment_adjustments_total(i.installment_id, COALESCE(i.currency, fw.currency)))
+      -- La cuota se valua en SU moneda, como en installments_full: una fila en Bs (la de
+      -- gastos nace asi) de una OT en USD no tiene TC propio y caia al de la OT, inflando lo
+      -- cobrado unas siete veces.
+      * CASE WHEN COALESCE(i.currency, fw.currency) = 'BOB' THEN 1
+             ELSE COALESCE(i.payment_exchange_rate, i.invoice_exchange_rate, fw.rate_to_bob) END
     ) FILTER (WHERE i.status = 'Completed'), 0) AS collected_bob
     FROM finalized_wo fw
     JOIN public.wo_payment_installments i ON i.wo_id = fw.wo_id

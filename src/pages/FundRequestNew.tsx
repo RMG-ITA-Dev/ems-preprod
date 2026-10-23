@@ -1,3 +1,4 @@
+import { laPazToday, monthStart } from "@/lib/fundRequestCalendar";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -16,13 +17,15 @@ import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useSelectableWorkOrders } from "@/hooks/useFundRequests";
 import { toast } from "sonner";
 
-const emptyValues: FundRequestFormValues = {
+// Función y no constante: el mes por defecto (el actual en La Paz) se calcula al abrir el
+// formulario, no al cargar el módulo. useState la llama como inicializador perezoso.
+const emptyValues = (): FundRequestFormValues => ({
   total_requested_amount: 0,
   currency: "BOB",
   purpose: "",
-  due_back_date: "",
+  expense_period_month: monthStart(laPazToday()),
   allocations: [],
-};
+});
 
 const FundRequestNew = () => {
   const { t } = useTranslation();
@@ -88,7 +91,7 @@ const FundRequestNew = () => {
         total_requested_amount: values.total_requested_amount,
         currency: values.currency,
         purpose: values.purpose || null,
-        due_back_date: values.due_back_date || null,
+        expense_period_month: values.expense_period_month,
         allocations: values.allocations,
       });
       allowNextNavigation();

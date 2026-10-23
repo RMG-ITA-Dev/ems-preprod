@@ -146,3 +146,80 @@ describe("reportFilename", () => {
     expect(reportFilename("FR 2026/26", "mis gastos", "x")).toBe("mis_gastos_FR_2026_26.xlsx");
   });
 });
+
+describe("buildExpenseReportMatrix — historial (bitácora)", () => {
+  const history = {
+    section: "Historial",
+    dateTime: "Fecha y hora",
+    action: "Acción",
+    actor: "Realizado por",
+    workOrder: "OT",
+    notes: "Notas",
+    amount: "Monto",
+    system: "Sistema",
+  };
+  const frWithWo = {
+    ...fr,
+    fund_request_work_orders: [
+      { ...(fr.fund_request_work_orders ?? [])[0], wo_id: "wo-1" },
+    ],
+  } as unknown as FundRequest;
+  const events = [
+    {
+      event_id: "e1",
+      seq: 1,
+      fund_request_id: "fr1",
+      entity: "work_order",
+      fr_wo_id: "frwo-1",
+      wo_id: "wo-1",
+      fre_id: null,
+      action: "wo_approved",
+      from_status: "pendiente",
+      to_status: "aprobado",
+      actor_staff_id: "s1",
+      notes: "ok",
+      amount: null,
+      created_at: new Date(2026, 9, 8, 14, 32).toISOString(),
+      actor: { staff_id: "s1", first_name: "Ana", last_name: "Paz", short_name: "Ana P" },
+    },
+    {
+      event_id: "e2",
+      seq: 2,
+      fund_request_id: "fr1",
+      entity: "expense",
+      fr_wo_id: null,
+      wo_id: null,
+      fre_id: "fre-1",
+      action: "expense_reviewed",
+      from_status: "aprobado_gerente",
+      to_status: "revisado_asistente",
+      actor_staff_id: null,
+      notes: null,
+      amount: 13,
+      created_at: new Date(2026, 9, 9, 0, 5).toISOString(),
+      actor: null,
+    },
+  ] as ExpenseReportInput["events"];
+
+  it("adds the history section with actor, local date-time and action label", () => {
+    const matrix = buildExpenseReportMatrix(
+      { fr: frWithWo, expenses, totals, events },
+      { ...labels, history, actionLabel: (a) => `act:${a}` },
+    );
+    expect(matrix).toContainEqual(["Historial"]);
+    expect(matrix).toContainEqual(["08/10/2026 14:32", "act:wo_approved", "Ana P", "12-06", "ok", ""]);
+  });
+
+  it("shows the system as actor when the event has no actor", () => {
+    const matrix = buildExpenseReportMatrix(
+      { fr: frWithWo, expenses, totals, events },
+      { ...labels, history, actionLabel: (a) => `act:${a}` },
+    );
+    expect(matrix).toContainEqual(["09/10/2026 00:05", "act:expense_reviewed", "Sistema", "", "", 13]);
+  });
+
+  it("omits the section when there are no events", () => {
+    const matrix = buildExpenseReportMatrix({ fr, expenses, totals, events: [] }, { ...labels, history });
+    expect(matrix).not.toContainEqual(["Historial"]);
+  });
+});

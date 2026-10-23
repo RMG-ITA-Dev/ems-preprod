@@ -9,6 +9,8 @@ const statusStyles: Record<FundRequestExpenseStatus, string> = {
   observado: "bg-warning/10 text-warning border-warning/40",
   rechazado: "bg-destructive/15 text-destructive border-destructive/30",
   revisado_asistente: "bg-success/15 text-success border-success/30",
+  // Final: no se envió (o no se reenvió) hasta la fecha fin. No cuenta como gastado.
+  vencido: "bg-muted text-muted-foreground border-dashed border-border",
 };
 
 interface Props {

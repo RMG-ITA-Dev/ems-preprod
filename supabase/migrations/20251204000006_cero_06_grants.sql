@@ -543,6 +543,85 @@ GRANT ALL ON FUNCTION public.fund_request_submit(p_fund_request_id uuid) TO serv
 
 --
 --
+-- Name: FUNCTION fund_work_order_expense_summary(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_work_order_expense_summary() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_summary() TO authenticated;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_summary() TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_work_order_expense_detail(p_wo_id uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_run_deadlines(p_today date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_run_deadlines(p_today date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_run_deadlines(p_today date) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_cancel(p_fund_request_id uuid, p_reason text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) TO service_role;
+
+
+--
+--
+-- Name: FUNCTION fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) TO service_role;
+
+
+--
+--
 -- Name: FUNCTION fund_requests_enforce_bob(); Type: ACL; Schema: public; Owner: -
 --
 
@@ -1270,6 +1349,15 @@ GRANT ALL ON TABLE public.expense_types TO service_role;
 
 --
 --
+-- Name: TABLE fund_request_events; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.fund_request_events TO authenticated;
+GRANT ALL ON TABLE public.fund_request_events TO service_role;
+
+
+--
+--
 -- Name: TABLE fund_request_expenses; Type: ACL; Schema: public; Owner: -
 --
 
@@ -1977,3 +2065,171 @@ REVOKE EXECUTE ON FUNCTION public.sync_worksheet_to_wo_budget(p_worksheet_id uui
 --     frontend ni en las Edge Functions, y el job diario que la ejecuta corre como postgres, que es su
 --     dueño. Esto cierra BAR-008 por completo.
 REVOKE EXECUTE ON FUNCTION public.finalize_due_engagements() FROM PUBLIC, anon, authenticated;
+
+-- Plan de contabilidad de gastos (docs/plan-contabilidad-gastos.md, Fases 1-5): objetos nuevos que
+-- nacieron después del Carril A. Mismo mecanismo: la plataforma les concede privilegios a anon y
+-- authenticated al crearlos, y una función nace ejecutable por PUBLIC, así que el estado final se
+-- fija con REVOKE explícitos. Los verifica el check 17 de schema-convergence-assertions.sql.
+--
+-- Bitácora: solo la escriben triggers SECURITY DEFINER; authenticated solo lee (RLS fr_events_select).
+REVOKE ALL ON TABLE public.fund_request_events FROM anon;
+REVOKE DELETE, INSERT, REFERENCES, TRIGGER, TRUNCATE, UPDATE ON TABLE public.fund_request_events FROM authenticated;
+-- RPC contables y de gastos por OT: validan has_permission() adentro; sin sesión fallan igual, pero
+-- anon no debe poder ejecutarlas.
+REVOKE EXECUTE ON FUNCTION public.fund_request_cancel(p_fund_request_id uuid, p_reason text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_confirm_settlement(p_fund_request_id uuid, p_reference text, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_disburse(p_fund_request_id uuid, p_amount numeric, p_notes text, p_new_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_expense_review(p_fre_id uuid, p_decision text, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_settle(p_fund_request_id uuid, p_resolution text, p_amount numeric, p_notes text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_work_order_expense_summary() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_work_order_expense_detail(p_wo_id uuid) FROM PUBLIC, anon;
+-- Job de plazos: SECURITY DEFINER que aprueba y vence en lote. Ningún rol de API la ejecuta: corre
+-- como postgres desde pg_cron (y service_role conserva su grant).
+REVOKE EXECUTE ON FUNCTION public.fund_request_run_deadlines(p_today date) FROM PUBLIC, anon, authenticated;
+-- Auxiliares de solo lectura. authenticated las necesita: las políticas RLS llaman a
+-- fr_accounting_sees, y fr_validate_period_month (SECURITY INVOKER) llama a
+-- fund_request_month_is_selectable y fund_today con los permisos de quien escribe.
+REVOKE EXECUTE ON FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_today() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_deadline(p_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_review_deadline(p_month date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fund_request_month_is_selectable(p_month date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fr_accounting_sees(p_status public.fund_request_status, p_cancelled_from public.fund_request_status) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_today() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_deadline(p_month date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_review_deadline(p_month date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_month_is_selectable(p_month date) TO authenticated, service_role;
+-- Funciones de trigger: PostgREST no las expone y disparar un trigger no exige EXECUTE, pero nacen
+-- ejecutables por PUBLIC y se cierran igual.
+REVOKE EXECUTE ON FUNCTION public.fr_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fr_wo_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fre_log_event() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fre_enforce_window() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.fr_validate_period_month() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.validate_expense_type_active() FROM PUBLIC, anon;
+
+--
+--
+-- Cobranzas Fase 1 (issue #352 / 0923-206) — privilegios de la bitacora y de las RPC de cobranza.
+--
+
+-- Bitacora: solo lectura para quien pase la RLS, igual que fund_request_events. Se escribe
+-- exclusivamente desde el trigger y las RPC SECURITY DEFINER, que corren como el dueño.
+REVOKE ALL ON TABLE public.wo_installment_events FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_events TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_events TO service_role;
+
+-- Desde el Carril B / etapa B5 (20261013160000_rls_carril_b5_privilegios.sql) los
+-- privilegios por defecto ya no conceden EXECUTE a PUBLIC, pero esa migracion corre DESPUES
+-- de este archivo: estas funciones nacen aqui ejecutables por PUBLIC y por anon, asi que se
+-- cierran explicitamente. REVOKE a PUBLIC no alcanza — Supabase concede aparte a anon.
+REVOKE EXECUTE ON FUNCTION public.is_collections_role() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION public.is_collections_role() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) TO authenticated, service_role;
+
+-- wo_installment_assert_actionable es la guarda interna de las 3 RPC (rol, OT aprobada,
+-- estado esperado). No la llama el cliente: no se concede a authenticated.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_actionable(p_installment_id uuid, p_expected_status text) FROM PUBLIC, anon, authenticated;
+
+-- Funcion de trigger: PostgREST no la expone y disparar un trigger no exige EXECUTE, pero
+-- nace ejecutable por PUBLIC y se cierra igual.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_log_event() FROM PUBLIC, anon;
+
+-- Cobranzas Fase 3: confirmacion con el cliente y reprogramacion (issue #352).
+REVOKE EXECUTE ON FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date, p_note text, p_new_invoice_date date, p_new_payment_due_date date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.reschedule_installment(p_installment_id uuid, p_new_invoice_date date, p_new_payment_due_date date, p_reason text, p_expected_invoice_date date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.record_installment_confirmation(p_installment_id uuid, p_confirmed boolean, p_expected_invoice_date date, p_note text, p_new_invoice_date date, p_new_payment_due_date date) TO authenticated, service_role;
+
+-- Guarda interna de las dos anteriores (gerente del encargo o admin): no la llama el cliente.
+REVOKE EXECUTE ON FUNCTION public.wo_installment_assert_manager(p_installment_id uuid) FROM PUBLIC, anon, authenticated;
+
+-- Cobranzas Fase 4: notas entre gerente/socio y Contabilidad (issue #352).
+-- Solo lectura para quien pase la RLS; se escriben por las 3 RPC, que corren como el dueño y
+-- son las que verifican autoría y guardan la versión anterior.
+REVOKE ALL ON TABLE public.wo_installment_notes FROM PUBLIC, anon;
+REVOKE ALL ON TABLE public.wo_installment_note_versions FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_notes TO authenticated;
+GRANT SELECT ON TABLE public.wo_installment_note_versions TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_notes TO service_role;
+GRANT ALL ON TABLE public.wo_installment_note_versions TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.wo_notes_participant(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_installment_note(p_note_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_notes_participant(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.add_installment_note(p_wo_id uuid, p_installment_id uuid, p_body text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.edit_installment_note(p_note_id uuid, p_body text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_installment_note(p_note_id uuid) TO authenticated, service_role;
+
+-- Cobranzas Fase 5: contactos del cliente (issue #352).
+-- Solo lectura para quien pase la RLS; se escriben por save_client_contacts(), que valida el
+-- mínimo de un contacto activo por tipo.
+REVOKE ALL ON TABLE public.client_contacts FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.client_contacts TO authenticated;
+GRANT ALL ON TABLE public.client_contacts TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) TO authenticated, service_role;
+
+-- Cobranzas Fase 6: TC de una fecha concreta, para el calendario del diálogo de facturar.
+REVOKE EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) TO authenticated, service_role;
+
+-- Cobranzas Fase 7: gastos ejecutados facturados al cliente (issue #352).
+REVOKE ALL ON TABLE public.wo_installment_expenses FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_expenses TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_expenses TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_billable_expenses(p_wo_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.create_expense_reimbursement_row(p_wo_id uuid, p_payment_due_date date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_expense_reimbursement_amount(p_installment_id uuid, p_amount numeric) TO authenticated, service_role;
+
+-- Cobranzas Fase 8: la vista de Cobranzas. La funcion verifica el rol por dentro
+-- (is_admin() o is_collections_role()); el GRANT solo la hace alcanzable.
+REVOKE EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_society_id uuid, p_practica integer, p_manager_id uuid, p_client_id uuid, p_date_from date, p_date_to date, p_currency text, p_search text, p_include_expense_rows boolean, p_order text, p_limit integer, p_offset integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_collections_installments(p_tab text, p_society_id uuid, p_practica integer, p_manager_id uuid, p_client_id uuid, p_date_from date, p_date_to date, p_currency text, p_search text, p_include_expense_rows boolean, p_order text, p_limit integer, p_offset integer) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.collections_filter_options() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.collections_filter_options() TO authenticated, service_role;
+
+-- Cobranzas Fase 9: ajustes sobre una cuota. La tabla se LEE por RLS; escribir es solo por las
+-- dos RPC, que verifican el rol por dentro.
+REVOKE ALL ON TABLE public.wo_installment_adjustments FROM PUBLIC, anon;
+GRANT SELECT ON TABLE public.wo_installment_adjustments TO authenticated;
+GRANT ALL ON TABLE public.wo_installment_adjustments TO service_role;
+
+REVOKE EXECUTE ON FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fund_expense_in_process(p_status text, p_period_month date) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.wo_note_wo_id(p_note_id uuid) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id uuid, p_currency text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) TO authenticated, service_role;

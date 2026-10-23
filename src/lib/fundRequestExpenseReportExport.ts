@@ -1,5 +1,6 @@
 import type { FundRequest } from "@/hooks/useFundRequests";
 import type { FundRequestExpense } from "@/hooks/useFundRequestExpenses";
+import type { FundRequestEvent } from "@/hooks/useFundRequestEvents";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 
 // Reporte Excel de los gastos de una solicitud de fondos. Sigue el patrón de
@@ -17,6 +18,8 @@ export interface ExpenseReportInput {
   fr: FundRequest;
   expenses: FundRequestExpense[];
   totals: ExpenseReportTotals;
+  /** Bitácora (P5): si viene, se agrega la sección de historial con quién hizo qué y cuándo. */
+  events?: FundRequestEvent[];
 }
 
 export interface ExpenseReportLabels {
@@ -53,10 +56,22 @@ export interface ExpenseReportLabels {
     status: string;
     total: string;
   };
+  history?: {
+    section: string;
+    dateTime: string;
+    action: string;
+    actor: string;
+    workOrder: string;
+    notes: string;
+    amount: string;
+    /** Nombre que se muestra cuando el actor es NULL (lo hizo el sistema). */
+    system: string;
+  };
   // Resolutores de etiquetas de estado (el caller los conecta a i18n).
   frStatusLabel: (status: string) => string;
   otStatusLabel: (status: string) => string;
   expenseStatusLabel: (status: string) => string;
+  actionLabel?: (action: string) => string;
 }
 
 type NamedStaff = {
@@ -72,6 +87,13 @@ function staffName(s: NamedStaff): string {
 
 // dd/mm/yyyy en hora local (parseDateLocal evita el corrimiento de un día que
 // provoca interpretar un DATE 'YYYY-MM-DD' como UTC).
+// dd/mm/yyyy hh:mm en hora local, para timestamps (created_at de la bitácora).
+function fmtDateTime(iso: string): string {
+  const dt = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(dt.getDate())}/${p(dt.getMonth() + 1)}/${dt.getFullYear()} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
+}
+
 function fmtDate(d: string | null | undefined): string {
   if (!d) return "";
   const dt = parseDateLocal(d);
@@ -170,6 +192,29 @@ export function buildExpenseReportMatrix(
     Math.round(totalIva * 100) / 100,
     "",
   ]);
+
+  // Historial (bitácora): quién hizo qué y cuándo, incluidas las acciones del sistema.
+  if (input.events && input.events.length > 0 && labels.history) {
+    const h = labels.history;
+    const woCode = (woId: string | null) =>
+      woId
+        ? ((fr.fund_request_work_orders ?? []).find((o) => o.wo_id === woId)?.work_order?.engagement
+            ?.engagement_code ?? "")
+        : "";
+    rows.push([]);
+    rows.push([h.section]);
+    rows.push([h.dateTime, h.action, h.actor, h.workOrder, h.notes, h.amount]);
+    for (const ev of input.events) {
+      rows.push([
+        fmtDateTime(ev.created_at),
+        labels.actionLabel ? labels.actionLabel(ev.action) : ev.action,
+        ev.actor ? staffName(ev.actor) : h.system,
+        woCode(ev.wo_id),
+        ev.notes ?? "",
+        ev.amount != null ? Number(ev.amount) : "",
+      ]);
+    }
+  }
 
   return rows;
 }

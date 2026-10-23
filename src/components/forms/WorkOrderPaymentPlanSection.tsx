@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Plus, Minus } from "lucide-react";
+import { Trash2, AlertTriangle, Plus, Minus, CalendarClock, Check, X, MessageSquare, Percent, History } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -24,14 +25,42 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useUpdateInstallmentStatus, useUpdateCollectionDate, useUpdateInstallmentExchangeRate } from "@/hooks/mutations";
+import { useIsMobile } from "@/hooks/useMobile";
+import { rpcUntyped } from "@/lib/rpcUntyped";
+import {
+  useUpdateInstallmentStatus,
+  useUpdateCollectionDate,
+  useUpdateInstallmentExchangeRate,
+  useRescheduleInstallment,
+  useRecordInstallmentConfirmation,
+  useCreateExpenseReimbursementRow,
+  useSetExpenseReimbursementAmount,
+  useAddInstallmentAdjustment,
+  useDeleteInstallmentAdjustment,
+  useSetInstallmentCurrency,
+} from "@/hooks/mutations";
+import { useBillableExpenses, totalBillable } from "@/hooks/useBillableExpenses";
+import {
+  useInstallmentAdjustments,
+  adjustmentsForInstallment,
+  adjustmentsTotal,
+} from "@/hooks/useInstallmentAdjustments";
+import { useInstallmentEvents, eventsForInstallment, type InstallmentEvent } from "@/hooks/useInstallmentEvents";
+import { fetchSuggestedExchangeDifference } from "@/hooks/mutations/useWorkOrderPaymentPlanMutations";
 import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
+import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
+import { useWorkOrderClientContacts } from "@/hooks/useClientContacts";
+import { InstallmentNotesThread } from "./InstallmentNotesThread";
 import {
   distributePercentages,
   computeAmount,
+  computeAmountInCurrency,
+  convertAmount,
   computePaymentDate,
   isAlertDue,
-  getEffectiveInstallmentStatus,
+  getInstallmentDisplay,
+  currentDueDate,
+  currentInvoiceDate,
   isInvoiceRateEditable,
   isPaymentRateEditable,
   isPaymentRateCaptureEditable,
@@ -63,6 +92,37 @@ interface WorkOrderPaymentPlanSectionProps {
   // tambien en la policy RLS "Manager can manage payment plans/installments"
   // (20260908150000_0722-156b_plan_insert_guard.sql).
   canEditPaymentPlan: boolean;
+  /**
+   * Cobranzas Fase 2 (decisión del operador Q19): Contabilidad SÍ puede abrir una OT que
+   * todavía no está aprobada, pero no puede cobrar sobre ella. En vez de dejar los
+   * controles apagados sin explicación, se avisa por qué. El bloqueo real lo aplica el
+   * servidor (wo_payment_installments_guard_exchange_rate y las RPC de cobranza); esto solo
+   * lo cuenta.
+   */
+  collectionsApprovalStatus?: "Draft" | "Pending_Approval" | "Approved" | "Rejected" | null;
+  /**
+   * Cobranzas Fase 4 (decisión Q16): quién participa del hilo de notas — gerente y socio del
+   * encargo, Contabilidad y admin. Es un conjunto más amplio que `canEditPaymentPlan`: el
+   * SOCIO escribe notas aunque siga sin poder tocar el plan, y esa es justamente la vía que la
+   * Fase 4 le da para dejar constancia.
+   */
+  canWriteNotes?: boolean;
+  /**
+   * Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+   * ejecutados. Llegan aparte de `installments` porque NO reparten el honorario: no entran en
+   * la suma del 100%, no se redistribuyen y la pantalla no las manda al guardar el plan.
+   */
+  expenseRows?: PaymentInstallmentInput[];
+  /** Cobranzas Fase 7 (decisión Q24): sólo Contabilidad factura los gastos ejecutados. */
+  canBillExpenses?: boolean;
+  /**
+   * La alícuota de la OT, para mostrar cuánto del monto facturado es impuesto. Sale de la orden
+   * y no de un 0,13 escrito acá: si alguna vez cambia, cambia en un solo lugar.
+   */
+  taxRate?: number;
+  /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
+  currentStaffId?: string | null;
+  isAdminViewer?: boolean;
   isPaymentPlanDirty?: boolean;
   onPlanChange: (plan: PaymentPlanInput) => void;
   onInstallmentsChange: (rows: PaymentInstallmentInput[]) => void;
@@ -82,7 +142,12 @@ const STATUS_CHIP_CLASSES: Record<PaymentInstallmentStatus, string> = {
   Overdue:   "bg-destructive/15 text-destructive",
 };
 
-// Options available per effective status (state machine)
+// Transiciones legales, siempre sobre el estado PERSISTIDO. Cobranzas Fase 1: antes se
+// consultaba con el estado "efectivo" (una cuota Pendiente con su fecha de facturación
+// pasada se leía como "Overdue"), que daba la misma lista por casualidad —
+// STATUS_TRANSITIONS.Pending y .Overdue son ambos ["Invoiced"]— pero hacía creer que una
+// cuota sin facturar estaba en mora. La condición de calendario ya no se mezcla con la
+// etapa: va en su propia insignia.
 const STATUS_TRANSITIONS: Record<PaymentInstallmentStatus, PaymentInstallmentStatus[]> = {
   Pending:   ["Invoiced"],
   Overdue:   ["Invoiced"],
@@ -106,6 +171,13 @@ export function WorkOrderPaymentPlanSection({
   isStatusEditable,
   isAdminDateEditable,
   canEditPaymentPlan,
+  collectionsApprovalStatus = null,
+  canWriteNotes = false,
+  expenseRows = [],
+  canBillExpenses = false,
+  taxRate = 0.13,
+  currentStaffId = null,
+  isAdminViewer = false,
   isPaymentPlanDirty = false,
   onPlanChange,
   onInstallmentsChange,
@@ -114,11 +186,50 @@ export function WorkOrderPaymentPlanSection({
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
   const updateStatus = useUpdateInstallmentStatus();
   const updateCollectionDate = useUpdateCollectionDate();
+  // Cobranzas Fase 3: confirmación con el cliente y reprogramación. Las dos son del gerente
+  // del encargo o un admin (decisiones Q11 y Q42); el servidor lo verifica.
+  // Confirmar y reprogramar las hace el gerente del encargo o un admin: el mismo predicado
+  // que `canEditPaymentPlan`. Se le da nombre propio porque el permiso es sobre el CONTRATO
+  // de la cuota (su fecha pactada), no sobre editar el plan mientras la OT está en Draft —
+  // de hecho el caso normal es con la OT ya aprobada.
+  const canManageSchedule = canEditPaymentPlan;
+  // Cobranzas Fase 4: el hilo entero de la OT en UNA consulta — el banner del plan, los
+  // contadores por fila y el bloque de los diálogos salen todos de acá (decisión Q6/Q34).
+  const { data: notes } = useInstallmentNotes(woId || undefined);
+  // Cobranzas Fase 5 (decisión Q57): los contactos del cliente se ven DENTRO del plan. Van por
+  // RPC y no por la tabla porque el Gerente de Contabilidad no tiene `client.read`, y la
+  // decisión fue mostrárselos acá en vez de abrirle la ficha entera del cliente.
+  const { data: clientContacts } = useWorkOrderClientContacts(woId || undefined);
+  const planNotes = planLevelNotes(notes);
+  const [notesDialog, setNotesDialog] = useState<{ idx: number } | null>(null);
+  const rescheduleInstallment = useRescheduleInstallment();
+  const recordConfirmation = useRecordInstallmentConfirmation();
+  // `notConfirmed` abre el mismo diálogo que `reschedule` pero además registra que el
+  // cliente dijo que no: es el flujo de un solo paso que pidió el operador (Q11).
+  const [scheduleDialog, setScheduleDialog] = useState<
+    { idx: number; mode: "reschedule" | "notConfirmed" } | null
+  >(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  // Cobranzas Fase 6 (decisión Q49): al facturar, el TC se autocompleta según el modo del
+  // plan, pero se puede corregir — a mano, o eligiendo una fecha y trayendo el TC de ese día.
+  // `invoiceRateDate` vacío significa "escrito a mano", y así se guarda.
+  const [invoiceRate, setInvoiceRate] = useState<number | null>(null);
+  const [invoiceRateDate, setInvoiceRateDate] = useState("");
+  const [scheduleReason, setScheduleReason] = useState("");
   const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
   const latestRate = useLatestExchangeRate();
   const latestBuyRate = latestRate.data?.compra ?? null;
+
+  // Cobranzas Fase 6: el TC de una fecha concreta, para el calendario del diálogo de facturar.
+  // Va por RPC porque la regla —si esa fecha no tiene cotización, vale la última anterior— vive
+  // en la base (exchange_rate_on), y repetirla acá sería un segundo criterio.
+  const fetchRateOn = async (date: string): Promise<number | null> => {
+    const { data, error } = await rpcUntyped<number | null>("exchange_rate_on", { p_date: date });
+    if (error) return null;
+    return data == null ? null : Number(data);
+  };
   const [pendingChange, setPendingChange] = useState<{
-    idx: number;
+    row: PaymentInstallmentInput;
     newStatus: "Invoiced" | "Completed" | "Overdue";
   } | null>(null);
   const [pendingCollectionDate, setPendingCollectionDate] = useState<{
@@ -134,6 +245,109 @@ export function WorkOrderPaymentPlanSection({
   // valor real (ver onBlur del input).
   const [rateInputBlank, setRateInputBlank] = useState(false);
 
+  // Cobranzas Fase 7: los gastos de la OT que todavía se le pueden facturar al cliente. Sólo
+  // se consulta si quien mira puede facturarlos — para el resto, el bloque es de lectura.
+  const { data: billableExpenses } = useBillableExpenses(woId || undefined, canBillExpenses);
+  const pendingBillable = totalBillable(billableExpenses);
+  const createExpenseRow = useCreateExpenseReimbursementRow();
+  const isMobile = useIsMobile();
+  const setExpenseAmount = useSetExpenseReimbursementAmount();
+  const setInstallmentCurrency = useSetInstallmentCurrency();
+  // El monto se escribe en el input y se manda al salir del campo: mandarlo en cada tecla
+  // dispararía un aviso al gerente por cada dígito.
+  const [expenseAmountDraft, setExpenseAmountDraft] = useState<{ id: string; value: number } | null>(null);
+
+  // Cobranzas Fase 9: los ajustes de todas las cuotas de la OT, en UNA consulta — el total por
+  // fila y el dialogo salen del mismo arreglo.
+  const { data: adjustments } = useInstallmentAdjustments(woId || undefined);
+  // La bitácora de todas las cuotas de la OT, en UNA consulta.
+  const { data: events } = useInstallmentEvents(woId || undefined);
+  // Por ID de cuota y no por posición en `installments`: las filas de gastos facturados viven
+  // en otro arreglo (`expenseRows`) y también tienen bitácora.
+  const [historyDialog, setHistoryDialog] = useState<{ installmentId: string; number: number } | null>(null);
+  const addAdjustment = useAddInstallmentAdjustment();
+  const deleteAdjustment = useDeleteInstallmentAdjustment();
+  const [adjustmentsDialog, setAdjustmentsDialog] = useState<{ installmentId: string } | null>(null);
+
+  // El formulario se limpia al ABRIR, no sólo al cerrar. Limpiar sólo al cerrar dejaba los
+  // valores de una cuota cargados en el diálogo de la siguiente: el botón "Cerrar" pone el
+  // estado en null por su cuenta y Radix no dispara `onOpenChange`, así que ese camino nunca
+  // limpiaba. Abrir es el único momento que garantiza empezar en blanco.
+  const resetAdjustmentForm = () => {
+    setAdjustmentType("descuento");
+    setAdjustmentAmount(0);
+    setAdjustmentReason("");
+    setSuggestedDifference(null);
+  };
+
+  const openAdjustments = (installmentId: string) => {
+    if (blockIfPlanDirty()) return;
+    resetAdjustmentForm();
+    setAdjustmentsDialog({ installmentId });
+  };
+
+  const closeAdjustments = () => {
+    setAdjustmentsDialog(null);
+    resetAdjustmentForm();
+  };
+  const [adjustmentType, setAdjustmentType] = useState<"descuento" | "diferencia_cambio">("descuento");
+  const [adjustmentAmount, setAdjustmentAmount] = useState(0);
+  const [adjustmentReason, setAdjustmentReason] = useState("");
+  // El numero que la base propone para una diferencia de cambio; null = no hay cuenta que
+  // hacer (la cuota no esta cobrada, va en Bs, o le falta alguno de los dos TC).
+  const [suggestedDifference, setSuggestedDifference] = useState<number | null>(null);
+  const dialogAdjustments = adjustmentsForInstallment(adjustments, adjustmentsDialog?.installmentId);
+  // Con la cuota cobrada, su descuento ya no se retira (el servidor lo rechaza igual).
+  const dialogInstallmentCompleted =
+    installments.find((i) => i.installment_id === adjustmentsDialog?.installmentId)?.status === "Completed";
+  const historyEvents = eventsForInstallment(events, historyDialog?.installmentId);
+
+  /**
+   * Una línea por evento, en el idioma del negocio. La tabla guarda el QUÉ en bruto
+   * (`action` más las columnas que ese tipo usa); traducirlo acá, y no al escribirlo, deja la
+   * bitácora intacta si mañana cambia la redacción.
+   */
+  const describeEvent = (ev: InstallmentEvent): string => {
+    switch (ev.action) {
+      case "status_change":
+        return t("workOrders.paymentPlan.historyStatusChange", {
+          from: ev.from_status ? t(`workOrders.paymentPlan.status${ev.from_status}`) : "—",
+          to: ev.to_status ? t(`workOrders.paymentPlan.status${ev.to_status}`) : "—",
+        });
+      case "rescheduled":
+        return t("workOrders.paymentPlan.historyRescheduled", {
+          from: fmtDate(ev.old_date),
+          to: fmtDate(ev.new_date),
+        });
+      case "confirmation":
+        // La confirmación lleva la fecha en `new_date`; el rechazo, la fecha que se rechazó en
+        // `old_date`. Es lo que distingue "confirmó para el X" de "no confirmó el X".
+        return ev.new_date
+          ? t("workOrders.paymentPlan.historyConfirmed", { date: fmtDate(ev.new_date) })
+          : t("workOrders.paymentPlan.historyNotConfirmed", { date: fmtDate(ev.old_date) });
+      case "adjustment":
+        return t("workOrders.paymentPlan.historyAdjustment", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? currency)}`.trim(),
+        });
+      case "adjustment_removed":
+        return t("workOrders.paymentPlan.historyAdjustmentRemoved", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? currency)}`.trim(),
+        });
+      case "payment_date_corrected":
+        return t("workOrders.paymentPlan.historyPaymentDateCorrected", {
+          from: fmtDate(ev.old_date),
+          to: fmtDate(ev.new_date),
+        });
+      case "reimbursement_amount_changed":
+        return t("workOrders.paymentPlan.historyReimbursementAmount", {
+          amount: `${ev.currency ?? ""} ${formatAmount(ev.amount ?? 0, ev.currency ?? "BOB")}`.trim(),
+        });
+      default:
+        return ev.action;
+    }
+  };
+
+
   const currentPlan = plan ?? { wo_id: woId, exchange_rate: null, payment_days: 30, exchange_rate_mode: "fijo" as ExchangeRateMode };
   const numInstallments = installments.length;
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
@@ -146,13 +360,21 @@ export function WorkOrderPaymentPlanSection({
   // ese efecto tambien necesita excluir estas cuotas del recalculo de amount.
   const isLocked = (inst: PaymentInstallmentInput) => inst.status !== "Pending";
 
+  const installmentCurrency = (inst: PaymentInstallmentInput) => inst.currency ?? currency;
+
+  // El monto de una cuota EN SU MONEDA. Una cuota en otra moneda cobra el MISMO valor
+  // convertido con el TC del plan (decisión del operador 2026-10-20), no un monto distinto:
+  // así el porcentaje sigue significando lo que dice y el plan sigue repartiendo el 100% del
+  // honorario.
+  const amountFor = (inst: PaymentInstallmentInput, pct = inst.percentage) =>
+    computeAmountInCurrency(pct, feeWithTax, installmentCurrency(inst), currency, currentPlan.exchange_rate);
+
   const formatRate = (rate: number) =>
     Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 6,
     });
 
-  const getEffectiveStatus = getEffectiveInstallmentStatus;
 
   const hasAlert = installments.some((inst) => isAlertDue(inst));
 
@@ -165,7 +387,7 @@ export function WorkOrderPaymentPlanSection({
   // fee actual; antes de este fix el total del footer sí lo recalculaba para TODAS
   // las cuotas, divergiendo del monto real si el fee cambiaba tras facturar.
   const totalAmount = installments.reduce((s, i) => {
-    return s + (isLocked(i) ? (i.amount ?? 0) : computeAmount(i.percentage, feeWithTax));
+    return s + (isLocked(i) ? (i.amount ?? 0) : amountFor(i));
   }, 0);
 
   // ----- Plan header handlers -----
@@ -373,7 +595,7 @@ export function WorkOrderPaymentPlanSection({
     prevFeeWithTax.current = feeWithTax;
     onInstallmentsChange(
       installments.map((inst) =>
-        isLocked(inst) ? inst : { ...inst, amount: computeAmount(inst.percentage, feeWithTax) },
+        isLocked(inst) ? inst : { ...inst, amount: amountFor(inst) },
       ),
     );
   }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -408,7 +630,7 @@ export function WorkOrderPaymentPlanSection({
     const redistribute = (inst: PaymentInstallmentInput): PaymentInstallmentInput => {
       if (isLocked(inst)) return inst;
       const pct = unlockedPercentages[unlockedIdx++];
-      return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+      return { ...inst, percentage: pct, amount: amountFor(inst, pct) };
     };
 
     if (count > current) {
@@ -428,6 +650,8 @@ export function WorkOrderPaymentPlanSection({
           collection_payment_date: null,
           payment_date_actual: null,
           percentage: pct,
+          // Una cuota recien creada va SIEMPRE en la moneda de la OT (currency null), asi que
+          // no hay nada que convertir: se cambia despues, con el selector de la fila.
           amount: computeAmount(pct, feeWithTax),
           status: "Pending" as PaymentInstallmentStatus,
           invoice_exchange_rate: initialRate,
@@ -477,7 +701,7 @@ export function WorkOrderPaymentPlanSection({
     onInstallmentsChange(
       installments.map((inst, i) =>
         i === idx
-          ? { ...inst, percentage: val, amount: computeAmount(val, feeWithTax) }
+          ? { ...inst, percentage: val, amount: amountFor(inst, val) }
           : inst,
       ),
     );
@@ -529,9 +753,22 @@ export function WorkOrderPaymentPlanSection({
     );
   };
 
-  const handleStatusChange = (idx: number, newStatus: PaymentInstallmentStatus) => {
-    const inst = installments[idx];
+  // Cobranzas Fase 7: recibe la FILA, no su posición. Las filas de gastos ejecutados viven
+  // fuera de `installments` —no reparten el honorario— pero se facturan y se cobran con este
+  // mismo flujo, que es justamente el punto: para Contabilidad son plata a cobrar como
+  // cualquier cuota.
+  const handleStatusChange = (
+    inst: PaymentInstallmentInput,
+    newStatus: PaymentInstallmentStatus,
+    // Cobranzas Fase 6: el TC que la persona confirmó en el diálogo de facturar, y de qué
+    // fecha salió (null = lo escribió a mano).
+    rateOverride?: { invoiceRate: number | null; invoiceRateDate: string | null },
+  ) => {
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
+    // El TC del diálogo sólo vale para una cuota que NO va en Bs: en una cuota en bolivianos no
+    // hay nada que convertir, y aplicarlo igual le escribía un TC sin sentido —a veces uno
+    // heredado de otro diálogo— que en modo fijo hacía rebotar el cobro.
+    const rate = installmentCurrency(inst) !== "BOB" ? rateOverride?.invoiceRate ?? null : null;
 
     if (newStatus === "Invoiced") {
       if (inst.status !== "Overdue") {
@@ -544,11 +781,21 @@ export function WorkOrderPaymentPlanSection({
     }
     if (newStatus === "Completed") {
       updates.payment_date_actual = today;
+      // El TC con el que se cobró, confirmado en el diálogo. Sin esto, se cobraba con lo que
+      // hubiera quedado en la columna y después ya no se podía corregir.
+      if (rate != null) {
+        updates.payment_exchange_rate = rate;
+      }
     }
     // Overdue (manual from Invoiced): keep existing collection dates, just change status
 
-    const updated = installments.map((r, i) => (i === idx ? { ...r, ...updates } : r));
-    onInstallmentsChange(updated);
+    // Sólo el plan de honorarios vive en el estado de la página. Una fila de gastos se
+    // refresca sola cuando la mutación invalida la OT.
+    if (inst.installment_type !== "expense_reimbursement") {
+      onInstallmentsChange(
+        installments.map((r) => (r.installment_id === inst.installment_id ? { ...r, ...updates } : r)),
+      );
+    }
 
     if (inst.installment_id) {
       updateStatus.mutate({
@@ -560,10 +807,98 @@ export function WorkOrderPaymentPlanSection({
         // 0722-156b: snapshot atomico del TC vigente en el local state al momento
         // de confirmar la transicion — el trigger de freeze evalua OLD.status, asi
         // que esto sigue permitido en la MISMA transicion que congela la cuota.
-        invoiceExchangeRate: newStatus === "Invoiced" ? inst.invoice_exchange_rate : undefined,
-        paymentExchangeRate: newStatus === "Completed" ? inst.payment_exchange_rate : undefined,
+        invoiceExchangeRate:
+          newStatus === "Invoiced"
+            ? rate ?? inst.invoice_exchange_rate
+            : undefined,
+        invoiceExchangeRateDate:
+          newStatus === "Invoiced" && rate != null ? rateOverride?.invoiceRateDate ?? null : undefined,
+        paymentExchangeRate:
+          newStatus === "Completed"
+            ? rate ?? inst.payment_exchange_rate
+            : undefined,
       });
     }
+  };
+
+  // Las acciones de fila guardan por su cuenta y después refrescan la OT, y ese refresco
+  // rehidrata TODO el plan desde la base: si había cambios sin guardar —porcentajes, fechas—
+  // se perdían sin aviso. Es el mismo chequeo que ya tenía el selector de estado.
+  const blockIfPlanDirty = (): boolean => {
+    if (!isPaymentPlanDirty) return false;
+    toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+    return true;
+  };
+
+  const openScheduleDialog = (idx: number, mode: "reschedule" | "notConfirmed") => {
+    if (blockIfPlanDirty()) return;
+    setScheduleDate("");
+    setScheduleReason("");
+    setScheduleDialog({ idx, mode });
+  };
+
+  const handleScheduleSubmit = () => {
+    if (!scheduleDialog) return;
+    const inst = installments[scheduleDialog.idx];
+    if (!inst?.installment_id) return;
+    // La fecha vigente que la pantalla tenía al abrir: viaja como control de concurrencia.
+    const expected = currentInvoiceDate(inst);
+
+    if (scheduleDialog.mode === "notConfirmed") {
+      recordConfirmation.mutate({
+        installmentId: inst.installment_id,
+        confirmed: false,
+        expectedInvoiceDate: expected,
+        note: scheduleReason,
+        newInvoiceDate: scheduleDate,
+        paymentDays: currentPlan.payment_days,
+        woId,
+      });
+    } else {
+      rescheduleInstallment.mutate({
+        installmentId: inst.installment_id,
+        newInvoiceDate: scheduleDate,
+        reason: scheduleReason,
+        expectedInvoiceDate: expected,
+        paymentDays: currentPlan.payment_days,
+        woId,
+      });
+    }
+    setScheduleDialog(null);
+  };
+
+  const handleConfirmClient = (idx: number) => {
+    if (blockIfPlanDirty()) return;
+    const inst = installments[idx];
+    if (!inst?.installment_id) return;
+    recordConfirmation.mutate({
+      installmentId: inst.installment_id,
+      confirmed: true,
+      expectedInvoiceDate: currentInvoiceDate(inst),
+      paymentDays: currentPlan.payment_days,
+      woId,
+    });
+  };
+
+  /**
+   * Cobranzas Fase 6 (decisión Q29, resuelta el 2026-10-20): cambiar la moneda de una cuota
+   * CONVIERTE su monto con el tipo de cambio del plan. El cliente paga el mismo valor en otra
+   * moneda, no un monto distinto, así que el porcentaje sigue significando lo que dice y el
+   * plan sigue repartiendo el 100% del honorario.
+   *
+   * No se guarda directo: queda en el estado de la página y viaja con el "Guardar" del plan,
+   * igual que el porcentaje y las fechas acordadas. Son todas partes del mismo contrato.
+   */
+  const handleInstallmentCurrencyChange = (idx: number, next: "BOB" | "USD" | "USDT") => {
+    onInstallmentsChange(
+      installments.map((inst, i) => {
+        if (i !== idx) return inst;
+        // NULL = la moneda de la OT, que es el caso normal y lo que la base espera.
+        const value = next === currency ? null : next;
+        const updated = { ...inst, currency: value as PaymentInstallmentInput["currency"] };
+        return { ...updated, amount: amountFor(updated) };
+      }),
+    );
   };
 
   const handleDeleteRow = (idx: number) => {
@@ -590,25 +925,222 @@ export function WorkOrderPaymentPlanSection({
       remaining.map((inst) => {
         if (isLocked(inst)) return inst;
         const pct = unlockedPercentages[unlockedIdx++];
-        return { ...inst, percentage: pct, amount: computeAmount(pct, feeWithTax) };
+        return { ...inst, percentage: pct, amount: amountFor(inst, pct) };
       }),
     );
   };
 
   // ----- Formatting -----
 
-  const formatAmount = (amount: number) => {
-    const amountLocale = currency === "BOB" ? "es-BO" : "en-US";
+  // Cobranzas Fase 6 (decisión Q29): una cuota puede ir en otra moneda que la OT. NULL = la de
+  // la OT, que es el caso normal.
+
+  const formatAmount = (amount: number, amountCurrency: string = currency) => {
+    const amountLocale = amountCurrency === "BOB" ? "es-BO" : "en-US";
     return Number(amount).toLocaleString(amountLocale, {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,
     });
   };
 
+  // Totales POR MONEDA. Nunca se suman montos nativos de monedas distintas: un total que mezcla
+  // Bs y USD no significa nada. Si todas las cuotas van en la moneda de la OT —el caso normal—
+  // esto da un solo subtotal y se ve igual que antes.
+  const totalsByCurrency = installments.reduce<Record<string, number>>((acc, i) => {
+    const cur = installmentCurrency(i);
+    const amount = isLocked(i) ? (i.amount ?? 0) : amountFor(i);
+    acc[cur] = (acc[cur] ?? 0) + amount;
+    return acc;
+  }, {});
+
   // Los importes derivados de facturacion/pago SIEMPRE estan en Bs (el TC convierte a
   // Bs sin importar la moneda de la OT) — formato es-BO fijo, no el locale de `currency`.
   const formatBob = (amount: number) =>
     Number(amount).toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+  // Cobranzas Fase 7: las piezas de una fila de gastos facturados. Las usan la tabla (escritorio)
+  // y la tarjeta (móvil, AGENTS.md regla 7), para que las dos vistas no se desincronicen.
+  const expenseRowParts = (row: PaymentInstallmentInput) => {
+    const display = getInstallmentDisplay(row);
+    const stage = display.stage;
+    const availableOptions = STATUS_TRANSITIONS[stage];
+    // El monto sólo se corrige mientras la fila no se facturó: después, lo
+    // que el cliente recibió ya está emitido.
+    const amountEditable = canBillExpenses && row.status === "Pending";
+    const rowEvents = eventsForInstallment(events, row.installment_id);
+    const spent = (
+      <>
+        {formatAmount(row.net_amount ?? 0, "BOB")}
+      </>
+    );
+    const billed = (
+      <>
+        {amountEditable ? (
+          <NumericInput
+            locale={numericLocale}
+            value={
+              expenseAmountDraft?.id === row.installment_id
+                ? expenseAmountDraft.value
+                : row.amount ?? 0
+            }
+            decimals={2}
+            min={0}
+            className="ml-auto h-8 w-32 text-right text-sm"
+            onChange={(v) =>
+              setExpenseAmountDraft({ id: row.installment_id!, value: v })
+            }
+            onBlur={() => {
+              const draft = expenseAmountDraft;
+              setExpenseAmountDraft(null);
+              // Se manda sólo si de verdad cambió: así salir del campo sin
+              // tocar nada no genera un aviso al gerente por un cambio que
+              // no hubo.
+              if (!draft || draft.id !== row.installment_id) return;
+              if (draft.value <= 0 || draft.value === (row.amount ?? 0)) return;
+              setExpenseAmount.mutate({
+                installmentId: row.installment_id!,
+                amount: draft.value,
+                woId,
+              });
+            }}
+          />
+        ) : (
+          <span className="font-mono text-xs">
+            {formatAmount(row.amount ?? 0, row.currency ?? "BOB")}
+          </span>
+        )}
+        {/* Cuánto de ese monto es impuesto. Sin esto, "gastado 500 / a
+            facturar 574,71" se lee como si se le estuviera cobrando de más
+            al cliente; con el IVA a la vista se entiende que la firma
+            termina recuperando exactamente lo que gastó. */}
+        <p className="mt-0.5 text-[10px] text-muted-foreground">
+          {t("workOrders.paymentPlan.expenseRowsVat", {
+            rate: (taxRate * 100).toFixed(0),
+            amount: formatAmount((row.amount ?? 0) * taxRate, row.currency ?? "BOB"),
+          })}
+        </p>
+      </>
+    );
+    const currencyCell = (
+      <>
+        {/* Decisión del operador 2026-10-20: la fila nace en Bs, que es la
+            moneda en la que los gastos se rinden, pero se puede cobrar en
+            otra. Al facturarla, el diálogo de la Fase 6 ya deja elegir el TC
+            por fecha. Después de facturar la moneda queda congelada junto
+            con el monto. USDT no se mezcla: sólo en una OT en USDT. */}
+        {amountEditable ? (
+          <Select
+            value={row.currency ?? "BOB"}
+            onValueChange={(v) => {
+              const from = row.currency ?? "BOB";
+              if (!row.installment_id || v === from) return;
+              // Se convierte con el TC del plan, igual que una cuota de
+              // honorarios: el cliente paga el mismo valor en otra moneda.
+              const converted = convertAmount(row.amount ?? 0, from, v, currentPlan.exchange_rate);
+              if (converted === null) {
+                toast.error(t("workOrders.paymentPlan.errorCurrencyNoRate"));
+                return;
+              }
+              setInstallmentCurrency.mutate({
+                installmentId: row.installment_id,
+                currency: v as "BOB" | "USD" | "USDT",
+                amount: converted,
+                woId,
+              });
+            }}
+          >
+            <SelectTrigger className="h-8 w-24 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="BOB">BOB</SelectItem>
+              {currency === "USDT" ? (
+                <SelectItem value="USDT">USDT</SelectItem>
+              ) : (
+                <SelectItem value="USD">USD</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="font-mono text-xs">{row.currency ?? "BOB"}</span>
+        )}
+      </>
+    );
+    const invoiceDate = (
+      <>
+        {fmtDate(row.collection_invoice_date)}
+      </>
+    );
+    const paymentDate = (
+      <>
+        {fmtDate(row.collection_payment_date)}
+      </>
+    );
+    const statusCell = (
+      <>
+        {isStatusEditable && availableOptions.length > 0 ? (
+          <Select
+            value={stage}
+            onValueChange={(val) => {
+              const s = val as PaymentInstallmentStatus;
+              if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
+                // Se reinicia al facturar Y al cobrar: el estado del TC es
+                // compartido con el diálogo de las cuotas, y sin esto una
+                // fila de gastos heredaba el último TC que alguien tecleó.
+                // En Bs no hay TC; si la fila se pasó a otra moneda, arranca
+                // con el del día, igual que una cuota.
+                setInvoiceRate(
+                  (row.currency ?? "BOB") === "BOB"
+                    ? null
+                    : latestBuyRate ?? currentPlan.exchange_rate,
+                );
+                setInvoiceRateDate("");
+                setPendingChange({ row, newStatus: s });
+              } else {
+                handleStatusChange(row, s);
+              }
+            }}
+          >
+            <SelectTrigger className={cn("h-8 w-36 text-sm", STATUS_COLORS[stage])}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
+                {t(`workOrders.paymentPlan.status${stage}`)}
+              </SelectItem>
+              {availableOptions.map((val) => (
+                <SelectItem key={val} value={val} className={STATUS_COLORS[val]}>
+                  {t(`workOrders.paymentPlan.status${val}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+              STATUS_CHIP_CLASSES[stage],
+            )}
+          >
+            {t(`workOrders.paymentPlan.status${stage}`)}
+          </span>
+        )}
+        {/* La bitácora de la fila: ahí quedan la facturación, el cobro y cada corrección del
+            monto. Sin este acceso, esos eventos se guardaban pero no se podían ver. */}
+        {rowEvents.length > 0 && row.installment_id && (
+          <button
+            type="button"
+            onClick={() =>
+              setHistoryDialog({ installmentId: row.installment_id!, number: row.installment_number ?? 0 })
+            }
+            className="ml-1 inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+          >
+            <History className="mr-1 h-3 w-3" />
+            {t("workOrders.paymentPlan.historyCount", { count: rowEvents.length })}
+          </button>
+        )}
+      </>
+    );
+    return { spent, billed, currencyCell, invoiceDate, paymentDate, statusCell };
+  };
 
   return (
     <>
@@ -623,6 +1155,18 @@ export function WorkOrderPaymentPlanSection({
               <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
               <AlertDescription className="text-warning text-sm">
                 {t("workOrders.paymentPlan.alertBanner")}
+              </AlertDescription>
+            </Alert>
+          )}
+          {/* Cobranzas Fase 2 (Q19): la OT todavía no está aprobada, así que las acciones de
+              cobranza están apagadas. Se dice por qué en vez de dejar los controles muertos. */}
+          {collectionsApprovalStatus && collectionsApprovalStatus !== "Approved" && (
+            <Alert className="py-2 px-3 w-auto border-info/50 bg-info/10 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-info shrink-0" />
+              <AlertDescription className="text-info text-sm">
+                {t("workOrders.paymentPlan.collectionsNotApprovedBanner", {
+                  status: t(`workOrders.paymentPlan.approvalStatus${collectionsApprovalStatus}`),
+                })}
               </AlertDescription>
             </Alert>
           )}
@@ -648,7 +1192,14 @@ export function WorkOrderPaymentPlanSection({
                 decimals={6}
                 locale={numericLocale}
                 min={0}
-                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? 0)}
+                // Decision del operador 2026-10-20: el campo arranca con el TC de hoy a la
+                // vista y editable, no con un 0 y la cotizacion abajo como texto -- un 0 no es
+                // un tipo de cambio valido, y obligaba a copiar a mano un numero que la pagina
+                // ya tenia. Es solo lo que se MUESTRA: el valor no se escribe en el plan hasta
+                // que el usuario toca algo, para que abrir la pestana no deje la pagina
+                // "sin guardar" sin haber hecho nada. En cuanto hay una cuota, el efecto de
+                // autocompletado de mas arriba lo persiste.
+                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? latestBuyRate ?? 0)}
                 onChange={handleExchangeRateChange}
                 onBlur={() => setRateInputBlank(false)}
                 disabled={!isEditable || planLocked || !canEditPaymentPlan}
@@ -745,6 +1296,59 @@ export function WorkOrderPaymentPlanSection({
           </div>
         </div>
 
+        {/* Cobranzas Fase 5: a quién se le cobra. Es lo primero que Cobranzas necesita y
+            antes había que salir del plan a buscarlo en la ficha del cliente. */}
+        {clientContacts && clientContacts.length > 0 && (
+          <div className="rounded-md border border-border/60 bg-muted/10 p-3">
+            <div className="mb-2 text-sm font-medium">{t("workOrders.paymentPlan.contactsTitle")}</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {clientContacts.map((c) => (
+                <div key={c.contact_id} className="text-sm">
+                  <div className="text-xs text-muted-foreground">
+                    {c.contact_type === "cobranza"
+                      ? t("workOrders.paymentPlan.contactCobranza")
+                      : t("workOrders.paymentPlan.contactGeneral")}
+                  </div>
+                  <div className="font-medium">{c.full_name}</div>
+                  {c.email && <div className="font-mono text-xs">{c.email}</div>}
+                  {c.phone && <div className="font-mono text-xs">{c.phone}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Cobranzas Fase 4 (issue #352): notas del PLAN entero. Van arriba y siempre
+            visibles — son las que hablan del encargo, no de una cuota ("este cliente paga
+            siempre a 60 días"), y el operador pidió que fueran notorias (Q34). */}
+        {(planNotes.length > 0 || canWriteNotes) && (
+          <div data-testid="plan-notes" className="rounded-md border border-border/60 bg-muted/10 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              {t("workOrders.paymentPlan.notesPlanTitle")}
+              {/* El conteo acá y el de cada fila hacen visible que son DOS lugares distintos.
+                  Sin esto, este bloque decía "Sin notas" mientras una cuota mostraba "2 notas",
+                  y quien escribía acá creía estar escribiendo en la cuota. */}
+              {planNotes.length > 0 && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                  {planNotes.length}
+                </span>
+              )}
+            </div>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {t("workOrders.paymentPlan.notesPlanHelp")}
+            </p>
+            <InstallmentNotesThread
+              woId={woId}
+              installmentId={null}
+              notes={planNotes}
+              currentStaffId={currentStaffId}
+              canWrite={canWriteNotes}
+              isAdmin={isAdminViewer}
+            />
+          </div>
+        )}
+
         {/* Installments table */}
         {installments.length > 0 && (
           <div className="overflow-x-auto">
@@ -764,8 +1368,19 @@ export function WorkOrderPaymentPlanSection({
                     {t("workOrders.paymentPlan.percentage")}
                   </th>
                   <th rowSpan={2} className="text-right py-3 px-3 font-medium min-w-[115px] align-bottom border-b">
-                    {t("workOrders.paymentPlan.amount")} ({currency})
+                    {/* Ya no dice "(USD)" fijo: con una cuota en otra moneda, el encabezado
+                        estaria mintiendo sobre media columna. La moneda va por fila. */}
+                    {t("workOrders.paymentPlan.amount")}
                   </th>
+                  {/* Cobranzas Fase 6 (decisión Q29): la cuota puede cobrarse en Bs aunque la
+                      OT sea en otra moneda. Solo tiene sentido ofrecerlo cuando hay dos
+                      monedas en juego; en una OT en Bs no hay nada que elegir, y una OT en
+                      USDT no mezcla. */}
+                  {currency !== "BOB" && currency !== "USDT" && (
+                    <th rowSpan={2} className="text-left py-3 px-3 font-medium w-24 align-bottom border-b">
+                      {t("workOrders.paymentPlan.expenseRowsCurrency")}
+                    </th>
+                  )}
                   {currency !== "BOB" && (
                     <th colSpan={2} className="text-center py-2 px-3 font-medium border-b border-l border-r border-border/50 bg-muted/20 text-muted-foreground text-xs uppercase tracking-wide">
                       {t("workOrders.paymentPlan.exchangeRate")}
@@ -806,20 +1421,46 @@ export function WorkOrderPaymentPlanSection({
                   // asi que la conversion a Bs (y la columna de monto) de una cuota ya
                   // facturada podia divergir del monto realmente congelado tras un
                   // cambio de fee tardio.
-                  const instAmount = isLocked(inst) ? inst.amount : computeAmount(inst.percentage, feeWithTax);
+                  const instAmount = isLocked(inst) ? inst.amount : amountFor(inst);
                   // isAdminDateEditable es un bypass aparte (admin corrigiendo fuera de
                   // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
                   // QUIEN puede editar el tramo normal (isEditable) del plan.
                   const dateEditable = (isEditable && canEditPaymentPlan) || isAdminDateEditable;
-                  const effectiveStatus = getEffectiveStatus(inst);
-                  const availableOptions = STATUS_TRANSITIONS[effectiveStatus];
+                  // Etapa persistida (lo que decide qué transiciones existen) y condición
+                  // de calendario (lo que decide qué insignia se muestra), por separado.
+                  const display = getInstallmentDisplay(inst);
+                  const stage = display.stage;
+                  const availableOptions = STATUS_TRANSITIONS[stage];
+                  const rowNotes = notesForInstallment(notes, inst.installment_id);
+                  const rowEvents = eventsForInstallment(events, inst.installment_id);
+                  // Cobranzas Fase 9: los ajustes vigentes de esta fila, en SU moneda. Un
+                  // descuento va en la moneda de la cuota; una diferencia de cambio va en Bs y
+                  // por eso no entra en esta suma.
+                  const rowAdjustmentRows = adjustmentsForInstallment(adjustments, inst.installment_id);
+                  const rowAdjustments = adjustmentsTotal(
+                    adjustments, inst.installment_id, installmentCurrency(inst),
+                  );
+                  const calendarBadge =
+                    display.isOverdue && stage !== "Overdue"
+                      ? {
+                          label: t("workOrders.paymentPlan.statusOverdue"),
+                          title: t("workOrders.paymentPlan.statusOverduePaymentTooltip", { date: fmtDate(currentDueDate(inst)) }),
+                          className: "bg-destructive/15 text-destructive",
+                        }
+                      : display.calendar === "billing_late"
+                        ? {
+                            label: t("workOrders.paymentPlan.statusBillingLate"),
+                            title: t("workOrders.paymentPlan.statusBillingLateTooltip", { date: fmtDate(currentInvoiceDate(inst)) }),
+                            className: "bg-warning/15 text-warning",
+                          }
+                        : null;
 
                   return (
                     <tr key={inst.installment_id ?? inst.installment_number} className="hover:bg-muted/20 transition-colors">
                       <td className="py-3 px-3 text-muted-foreground font-medium border-b border-border/50">
                         {idx + 1}
                       </td>
-                      <td className="py-3 px-3 border-b border-border/50">
+                      <td className="py-3 px-3 border-b border-border/50 align-top">
                         <Input
                           type="date"
                           lang="es-BO"
@@ -828,6 +1469,104 @@ export function WorkOrderPaymentPlanSection({
                           disabled={!dateEditable}
                           className="h-8 text-sm"
                         />
+                        {/* Cobranzas Fase 3 (issue #352). La fecha de arriba es la ACORDADA y
+                            no se toca nunca: es el contrato. Lo que se mueve al reprogramar es
+                            la fecha VIGENTE, que se muestra acá debajo junto con la gestión de
+                            la confirmación con el cliente. */}
+                        {inst.current_invoice_date && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            <span className="font-medium">{t("workOrders.paymentPlan.currentInvoiceDateLabel")}</span>{" "}
+                            <span className="font-mono">{fmtDate(inst.current_invoice_date)}</span>
+                          </div>
+                        )}
+                        {canManageSchedule && stage === "Pending" && inst.installment_id && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                            {/* El check sólo aparece cuando la fecha está encima (≤7 días) o
+                                ya pasó: antes de eso preguntarle al cliente no tiene sentido. */}
+                            {(display.calendar === "billing_due_soon" || display.calendar === "billing_late") &&
+                              inst.confirmation_status !== "confirmada" && (
+                                <>
+                                  <span className="text-xs text-muted-foreground">
+                                    {t("workOrders.paymentPlan.confirmCheckLabel")}
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => handleConfirmClient(idx)}
+                                  >
+                                    <Check className="h-3 w-3 mr-1" />
+                                    {t("workOrders.paymentPlan.confirmYes")}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 px-2 text-xs"
+                                    onClick={() => openScheduleDialog(idx, "notConfirmed")}
+                                  >
+                                    <X className="h-3 w-3 mr-1" />
+                                    {t("workOrders.paymentPlan.confirmNo")}
+                                  </Button>
+                                </>
+                              )}
+                            {inst.confirmation_status === "confirmada" && (
+                              <>
+                                <span
+                                  title={t("workOrders.paymentPlan.confirmedTooltip", {
+                                    date: fmtDate(inst.confirmed_for_date ?? null),
+                                    by: "",
+                                  })}
+                                  className="inline-flex items-center rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success"
+                                >
+                                  <Check className="h-3 w-3 mr-1" />
+                                  {t("workOrders.paymentPlan.confirmationConfirmed")}
+                                </span>
+                                {/* Una confirmación se puede dar vuelta: el cliente confirma y
+                                    después llama para decir que no, y hasta acá eso no tenía
+                                    salida por pantalla. Sirve también para el clic errado. No
+                                    hay un "deshacer" a secas a propósito: cambiar un hecho ya
+                                    registrado exige motivo y fecha nueva, que es justo lo que
+                                    pide este camino. */}
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  onClick={() => openScheduleDialog(idx, "notConfirmed")}
+                                >
+                                  <X className="h-3 w-3 mr-1" />
+                                  {t("workOrders.paymentPlan.confirmNo")}
+                                </Button>
+                              </>
+                            )}
+                            {inst.confirmation_status === "no_confirmada" && (
+                              // Dice "la fecha ANTERIOR" a propósito: este estado sólo existe
+                              // justo después de una reprogramación, así que el chip habla de
+                              // la fecha rechazada mientras los botones de al lado preguntan
+                              // por la nueva. Sin esa palabra, las dos cosas se leían como si
+                              // hablaran de la misma fecha. Cuál era queda en el historial:
+                              // el RPC borra `confirmed_for_date` al rechazar.
+                              <span
+                                title={t("workOrders.paymentPlan.confirmationNotConfirmedTooltip")}
+                                className="inline-flex items-center rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning"
+                              >
+                                {t("workOrders.paymentPlan.confirmationNotConfirmed")}
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => openScheduleDialog(idx, "reschedule")}
+                            >
+                              <CalendarClock className="h-3 w-3 mr-1" />
+                              {t("workOrders.paymentPlan.rescheduleAction")}
+                            </Button>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-muted-foreground font-mono text-xs border-b border-border/50">
                         {fmtDate(inst.agreed_payment_date)}
@@ -844,8 +1583,70 @@ export function WorkOrderPaymentPlanSection({
                         />
                       </td>
                       <td className="py-3 px-3 text-right font-mono border-b border-border/50">
-                        {formatAmount(instAmount)}
+                        {formatAmount(instAmount, installmentCurrency(inst))}
+                        {inst.currency && inst.currency !== currency && (
+                          <span className="ml-1 text-xs text-muted-foreground">{inst.currency}</span>
+                        )}
+                        {/* Cobranzas Fase 9: el monto de arriba es el CONTRATO. Si hay ajustes
+                            vigentes, debajo va lo que queda por cobrar — los dos números, porque
+                            la diferencia entre ellos es justamente lo que hay que explicar. */}
+                        {rowAdjustments !== 0 && (
+                          <div className="text-xs font-normal text-muted-foreground">
+                            {t("workOrders.paymentPlan.adjustedToCollect", {
+                              amount: formatAmount(instAmount + rowAdjustments, installmentCurrency(inst)),
+                            })}
+                          </div>
+                        )}
+                        {(canBillExpenses || rowAdjustmentRows.length > 0) && inst.installment_id && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="mt-0.5 h-6 px-2 text-xs font-normal"
+                            onClick={() => openAdjustments(inst.installment_id!)}
+                          >
+                            <Percent className="mr-1 h-3 w-3" />
+                            {rowAdjustmentRows.length > 0
+                              ? t("workOrders.paymentPlan.adjustmentsCount", { count: rowAdjustmentRows.length })
+                              : t("workOrders.paymentPlan.adjustmentsAdd")}
+                          </Button>
+                        )}
                       </td>
+                      {currency !== "BOB" && currency !== "USDT" && (
+                        <td className="py-3 px-3 border-b border-border/50">
+                          {/* Una vez facturada, la moneda queda congelada junto con el monto y
+                              el TC: cambiarla despues reescribiria lo que ya se le facturo al
+                              cliente. El guard de la base aplica la misma regla. */}
+                          {/* Con un ajuste vigente la moneda no se cambia: el descuento vive en
+                              la moneda de cuando se cargó y dejaría de restar en silencio. El
+                              servidor lo rechaza igual (INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS);
+                              acá se avisa antes. */}
+                          {!isLocked(inst) && dateEditable &&
+                            rowAdjustmentRows.some((a) => a.deleted_at === null) ? (
+                            <span
+                              className="font-mono text-xs text-muted-foreground"
+                              title={t("workOrders.paymentPlan.currencyLockedByAdjustments")}
+                            >
+                              {installmentCurrency(inst)}
+                            </span>
+                          ) : !isLocked(inst) && dateEditable ? (
+                            <Select
+                              value={installmentCurrency(inst)}
+                              onValueChange={(v) => handleInstallmentCurrencyChange(idx, v as "BOB" | "USD" | "USDT")}
+                            >
+                              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={currency}>{currency}</SelectItem>
+                                <SelectItem value="BOB">BOB</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {installmentCurrency(inst)}
+                            </span>
+                          )}
+                        </td>
+                      )}
                       {/* Tipo de Cambio group — only for non-BOB currencies */}
                       {currency !== "BOB" && (
                         <>
@@ -1008,9 +1809,10 @@ export function WorkOrderPaymentPlanSection({
                         {fmtDate(inst.collection_payment_date)}
                       </td>
                       <td className="py-3 px-3 border-b border-r border-border/50 bg-muted/10">
+                        <div className="flex flex-wrap items-center gap-1.5">
                         {isStatusEditable && availableOptions.length > 0 ? (
                           <Select
-                            value={effectiveStatus}
+                            value={stage}
                             onValueChange={(val) => {
                               const s = val as PaymentInstallmentStatus;
                               if (isPaymentPlanDirty && inst.installment_id) {
@@ -1018,19 +1820,36 @@ export function WorkOrderPaymentPlanSection({
                                 return;
                               }
                               if (s === "Invoiced" || s === "Completed" || s === "Overdue") {
-                                setPendingChange({ idx, newStatus: s });
+                                if (s === "Invoiced") {
+                                  // El modo decide el VALOR POR DEFECTO, no si se puede tocar:
+                                  // fijo trae el TC del plan, variable el del día (Q49).
+                                  setInvoiceRate(
+                                    currentPlan.exchange_rate_mode === "fijo"
+                                      ? currentPlan.exchange_rate
+                                      : latestBuyRate ?? currentPlan.exchange_rate,
+                                  );
+                                  setInvoiceRateDate("");
+                                }
+                                if (s === "Completed") {
+                                  // Al cobrar, el TC por defecto es el del día: es el día en
+                                  // que el dinero entró. Lo que ya tenga la cuota se respeta
+                                  // si alguien lo capturó antes desde la columna.
+                                  setInvoiceRate(inst.payment_exchange_rate ?? latestBuyRate ?? currentPlan.exchange_rate);
+                                  setInvoiceRateDate("");
+                                }
+                                setPendingChange({ row: inst, newStatus: s });
                               } else {
-                                handleStatusChange(idx, s);
+                                handleStatusChange(inst, s);
                               }
                             }}
                           >
-                            <SelectTrigger className={cn("h-8 text-sm", STATUS_COLORS[effectiveStatus])}>
+                            <SelectTrigger className={cn("h-8 text-sm", STATUS_COLORS[stage])}>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
                               {/* Current state shown as disabled so SelectValue has text to display */}
-                              <SelectItem value={effectiveStatus} disabled className={cn("opacity-50", STATUS_COLORS[effectiveStatus])}>
-                                {t(`workOrders.paymentPlan.status${effectiveStatus}`)}
+                              <SelectItem value={stage} disabled className={cn("opacity-50", STATUS_COLORS[stage])}>
+                                {t(`workOrders.paymentPlan.status${stage}`)}
                               </SelectItem>
                               {availableOptions.map((val) => (
                                 <SelectItem
@@ -1044,16 +1863,75 @@ export function WorkOrderPaymentPlanSection({
                             </SelectContent>
                           </Select>
                         ) : (
+                          // Solo lectura: UN chip principal (decisión del operador Q2,
+                          // priorizar la claridad). Si hay mora dice "En mora" venga de
+                          // donde venga, y el tooltip aclara si fue a mano o por fecha.
                           <span
-                            title={effectiveStatus === "Overdue" ? t("workOrders.paymentPlan.statusOverdueLong") : undefined}
+                            title={
+                              display.overdueKind === "manual"
+                                ? t("workOrders.paymentPlan.statusOverdueManualTooltip")
+                                : display.overdueKind === "payment"
+                                  ? t("workOrders.paymentPlan.statusOverduePaymentTooltip", { date: fmtDate(currentDueDate(inst)) })
+                                  : undefined
+                            }
                             className={cn(
                               "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                              STATUS_CHIP_CLASSES[effectiveStatus],
+                              display.isOverdue ? STATUS_CHIP_CLASSES.Overdue : STATUS_CHIP_CLASSES[stage],
                             )}
                           >
-                            {t(`workOrders.paymentPlan.status${effectiveStatus}`)}
+                            {display.isOverdue
+                              ? t("workOrders.paymentPlan.statusOverdue")
+                              : t(`workOrders.paymentPlan.status${stage}`)}
                           </span>
                         )}
+                        {/* La condición de calendario que la etapa no muestra: "facturación
+                            atrasada" (todavía sin facturar) o "en mora" junto al selector. */}
+                        {calendarBadge && (!display.isOverdue || isStatusEditable) && (
+                          <span
+                            title={calendarBadge.title}
+                            className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", calendarBadge.className)}
+                          >
+                            {calendarBadge.label}
+                          </span>
+                        )}
+                        {/* Cobranzas Fase 4: contador de notas de la fila. En color de
+                            advertencia y no neutro porque el operador pidió que fueran
+                            NOTORIAS (Q34): sin acuse de lectura, lo único que empuja a abrirlas
+                            es que se vean. */}
+                        {(rowNotes.length > 0 || canWriteNotes) && inst.installment_id && (
+                          <button
+                            type="button"
+                            onClick={() => setNotesDialog({ idx })}
+                            aria-label={t("workOrders.paymentPlan.notesDialogTitle", { number: idx + 1 })}
+                            className={cn(
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                              rowNotes.length > 0
+                                ? "bg-warning/15 text-warning"
+                                : "bg-muted/60 text-muted-foreground",
+                            )}
+                          >
+                            <MessageSquare className="h-3 w-3 mr-1" />
+                            {rowNotes.length > 0
+                              ? t("workOrders.paymentPlan.notesCount", { count: rowNotes.length })
+                              : t("workOrders.paymentPlan.notesAdd")}
+                          </button>
+                        )}
+                        {/* La bitácora. Se escribe sola desde la Fase 1 y nadie la puede
+                            editar, pero hasta ahora no se veía en ninguna pantalla: el rastro
+                            existía sólo en la base. Sin esto, cambiar un hecho ya registrado
+                            —desconfirmar, reprogramar, corregir una fecha de cobro— no dejaba
+                            nada visible, y es lo que hace que esos cambios sean defendibles. */}
+                        {rowEvents.length > 0 && inst.installment_id && (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryDialog({ installmentId: inst.installment_id!, number: idx + 1 })}
+                            className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                          >
+                            <History className="mr-1 h-3 w-3" />
+                            {t("workOrders.paymentPlan.historyCount", { count: rowEvents.length })}
+                          </button>
+                        )}
+                        </div>
                       </td>
                       <td className="py-3 px-1 border-b border-border/50">
                         {isEditable && canEditPaymentPlan && installments.length > 1 && !isLocked(inst) && (
@@ -1089,18 +1967,140 @@ export function WorkOrderPaymentPlanSection({
                     )}
                   </td>
                   <td className="py-3 px-3 text-right font-mono">
-                    {formatAmount(totalAmount)}
+                    {/* Cobranzas Fase 6: con cuotas en monedas distintas (decisión Q29), un
+                        total único no significaría nada — se muestra un subtotal POR MONEDA.
+                        Con todas las cuotas en la moneda de la OT, que es el caso normal, hay
+                        un solo subtotal y se ve igual que antes. */}
+                    {Object.keys(totalsByCurrency).length > 1 ? (
+                      <div className="space-y-0.5" data-testid="totals-by-currency">
+                        {Object.entries(totalsByCurrency).map(([cur, amount]) => (
+                          <div key={cur}>
+                            {formatAmount(amount, cur)}{" "}
+                            <span className="text-xs text-muted-foreground">{cur}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      formatAmount(totalAmount)
+                    )}
                   </td>
-                  <td colSpan={currency !== "BOB" ? 6 : 4} />
+                  <td colSpan={currency !== "BOB" && currency !== "USDT" ? 7 : currency !== "BOB" ? 6 : 4} />
                 </tr>
               </tfoot>
             </table>
+          </div>
+        )}
+
+        {/* ── Cobranzas Fase 7: los gastos ejecutados que se le cobran al cliente ──────────
+            Van en su propio bloque, no entre las cuotas, porque no son parte del mismo trato:
+            las cuotas reparten el honorario pactado antes de empezar, y esto es lo que se
+            gastó haciendo el trabajo. Mezclarlos haría que el total de la tabla dejara de
+            cuadrar con el 100% del honorario. */}
+        {(canBillExpenses || expenseRows.length > 0) && (
+          <div className="mt-6 rounded-lg border border-border/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold">
+                  {t("workOrders.paymentPlan.expenseRowsTitle")}
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.expenseRowsHelp")}
+                </p>
+              </div>
+              {canBillExpenses && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  disabled={pendingBillable <= 0 || createExpenseRow.isPending}
+                  onClick={() => createExpenseRow.mutate({ woId, paymentDays: currentPlan.payment_days })}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  {pendingBillable > 0
+                    ? t("workOrders.paymentPlan.expenseRowsBill", {
+                        amount: formatAmount(pendingBillable, "BOB"),
+                      })
+                    : t("workOrders.paymentPlan.expenseRowsNothingToBill")}
+                </Button>
+              )}
+            </div>
+
+            {expenseRows.length === 0 ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {t("workOrders.paymentPlan.expenseRowsEmpty")}
+              </p>
+            ) : (
+              isMobile ? (
+                <div className="mt-3 space-y-2">
+                  {expenseRows.map((row) => {
+                    const p = expenseRowParts(row);
+                    return (
+                      <div key={row.installment_id} className="space-y-2 rounded-md border p-3 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-1">{p.billed}</div>
+                          <div className="shrink-0">{p.currencyCell}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t("workOrders.paymentPlan.expenseRowsSpent")} (BOB): {p.spent}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <div className="text-muted-foreground">{t("workOrders.paymentPlan.collectionInvoiceDate")}</div>
+                            {p.invoiceDate}
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">{t("workOrders.paymentPlan.collectionPaymentDate")}</div>
+                            {p.paymentDate}
+                          </div>
+                        </div>
+                        <div>{p.statusCell}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+  <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                        {/* Montos a la derecha (AGENTS.md regla 4). Lo gastado siempre está en Bs: la
+                            moneda va en el encabezado. El monto a facturar puede ir en otra
+                            moneda, que tiene su propia columna al lado. */}
+                        <th className="py-2 px-3 text-right">{t("workOrders.paymentPlan.expenseRowsSpent")} (BOB)</th>
+                        <th className="py-2 px-3 text-right">{t("workOrders.paymentPlan.expenseRowsBilledAmount")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.expenseRowsCurrency")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionInvoiceDate")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.collectionPaymentDate")}</th>
+                        <th className="py-2 px-3 text-left">{t("workOrders.paymentPlan.status")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                    {expenseRows.map((row) => {
+                      const p = expenseRowParts(row);
+                      return (
+                        <tr key={row.installment_id} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-2 px-3 text-right font-mono text-xs text-muted-foreground border-b border-border/50">{p.spent}</td>
+                          <td className="py-2 px-3 text-right border-b border-border/50">{p.billed}</td>
+                          <td className="py-2 px-3 border-b border-border/50">{p.currencyCell}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.invoiceDate}</td>
+                          <td className="py-2 px-3 font-mono text-xs text-muted-foreground border-b border-border/50">{p.paymentDate}</td>
+                          <td className="py-2 px-3 border-b border-border/50">{p.statusCell}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              )
+            )}
           </div>
         )}
       </CardContent>
     </Card>
 
     {/* Confirmation dialog for status changes that record a date */}
+    {/* Cobranzas Fase 4: al facturar o al cobrar es cuando las notas pesan (decisión Q6), así
+        que el diálogo las muestra. No se marcan como leídas (Q34): se muestran y ya. */}
     <Dialog open={!!pendingChange} onOpenChange={(open) => { if (!open) setPendingChange(null); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -1122,6 +2122,78 @@ export function WorkOrderPaymentPlanSection({
             )}
           </DialogDescription>
         </DialogHeader>
+        {/* Las notas de la cuota, acá y no en un enlace: es el momento en que pesan. */}
+        {pendingChange && notesForInstallment(notes, pendingChange.row.installment_id).length > 0 && (
+          <div className="rounded-md border border-warning/50 bg-warning/10 p-3">
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-warning">
+              <AlertTriangle className="h-4 w-4" />
+              {t("workOrders.paymentPlan.notesOnInvoiceWarning")}
+            </div>
+            <InstallmentNotesThread
+              woId={woId}
+              installmentId={pendingChange.row.installment_id ?? null}
+              notes={notesForInstallment(notes, pendingChange.row.installment_id)}
+              currentStaffId={currentStaffId}
+              canWrite={false}
+              isAdmin={isAdminViewer}
+            />
+          </div>
+        )}
+        {/* Cobranzas Fase 6 (decisión Q49): el TC con el que se factura. Se autocompleta según
+            el modo del plan y se puede corregir — a mano, o eligiendo una fecha y trayendo el
+            TC de ese día. Sólo aparece cuando hay conversión que hacer.
+            2026-10-21: el mismo bloque sale al COBRAR. Antes el TC de pago era una columna
+            suelta que había que acordarse de editar ANTES de cambiar el estado, y si se
+            olvidaba quedaba congelado — isPaymentRateCaptureEditable sólo lo deja tocar
+            mientras la cuota sigue Facturada o En mora—, con la diferencia de cambio de la
+            Fase 9 calculada sobre un número viejo. Misma decisión, mismo gesto. */}
+        {(pendingChange?.newStatus === "Invoiced" || pendingChange?.newStatus === "Completed") &&
+          installmentCurrency(pendingChange.row) !== "BOB" && (
+            <div className="space-y-2 rounded-md border border-border/60 bg-muted/10 p-3">
+              <Label className="text-xs">
+                {pendingChange.newStatus === "Invoiced"
+                  ? t("workOrders.paymentPlan.invoiceExchangeRate")
+                  : t("workOrders.paymentPlan.paymentExchangeRate")}
+              </Label>
+              <div className="flex flex-wrap items-end gap-2">
+                <NumericInput
+                  locale={numericLocale}
+                  value={invoiceRate ?? 0}
+                  onChange={(v) => {
+                    setInvoiceRate(v);
+                    // Tecleado a mano: deja de venir de una fecha.
+                    setInvoiceRateDate("");
+                  }}
+                  decimals={6}
+                  min={0}
+                  className="h-8 w-32"
+                  data-testid="invoice-rate-input"
+                />
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    {t("workOrders.paymentPlan.invoiceRateFromDate")}
+                  </span>
+                  <Input
+                    type="date"
+                    lang="es-BO"
+                    className="h-8 w-40 text-sm"
+                    value={invoiceRateDate}
+                    max={today}
+                    onChange={async (e) => {
+                      const d = e.target.value;
+                      setInvoiceRateDate(d);
+                      if (!d) return;
+                      const rate = await fetchRateOn(d);
+                      // Sin cotización para esa fecha ni ninguna anterior: se deja lo que haya
+                      // y la persona lo carga a mano, en vez de pisarlo con un cero.
+                      if (rate != null) setInvoiceRate(rate);
+                      else toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setPendingChange(null)}>
             {t("common.cancel")}
@@ -1130,7 +2202,10 @@ export function WorkOrderPaymentPlanSection({
             variant={pendingChange?.newStatus === "Overdue" ? "destructive" : "default"}
             onClick={() => {
               if (pendingChange) {
-                handleStatusChange(pendingChange.idx, pendingChange.newStatus);
+                handleStatusChange(pendingChange.row, pendingChange.newStatus, {
+                  invoiceRate,
+                  invoiceRateDate: invoiceRateDate || null,
+                });
                 setPendingChange(null);
               }
             }}
@@ -1174,6 +2249,303 @@ export function WorkOrderPaymentPlanSection({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Cobranzas Fase 3 (issue #352): reprogramar, y el caso "el cliente no confirma", que es
+        el mismo formulario más el registro de que dijo que no. Un solo diálogo porque el
+        operador pidió que fuera un solo paso (Q11): nota y fecha nueva juntas. */}
+    <Dialog open={!!scheduleDialog} onOpenChange={(open) => { if (!open) setScheduleDialog(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {scheduleDialog?.mode === "notConfirmed"
+              ? t("workOrders.paymentPlan.notConfirmedTitle")
+              : t("workOrders.paymentPlan.rescheduleTitle")}
+          </DialogTitle>
+          <DialogDescription>
+            {scheduleDialog?.mode === "notConfirmed"
+              ? t("workOrders.paymentPlan.notConfirmedDesc")
+              : t("workOrders.paymentPlan.rescheduleDesc", {
+                  agreed: fmtDate(
+                    scheduleDialog ? installments[scheduleDialog.idx]?.agreed_invoice_date ?? null : null,
+                  ),
+                })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="reschedule-date">{t("workOrders.paymentPlan.rescheduleNewDate")}</Label>
+            <Input
+              id="reschedule-date"
+              type="date"
+              lang="es-BO"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="reschedule-reason">{t("workOrders.paymentPlan.rescheduleReason")}</Label>
+            <Textarea
+              id="reschedule-reason"
+              value={scheduleReason}
+              onChange={(e) => setScheduleReason(e.target.value)}
+              placeholder={t("workOrders.paymentPlan.rescheduleReasonPlaceholder")}
+              rows={3}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setScheduleDialog(null)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            /* Motivo y fecha son obligatorios: sin ellos la cuota quedaría marcada como
+               problemática sin decir qué pasa ni para cuándo, que es justo el vacío que
+               describe el issue. El servidor los exige igual. */
+            disabled={!scheduleDate || !scheduleReason.trim()}
+            onClick={handleScheduleSubmit}
+          >
+            {t("workOrders.paymentPlan.rescheduleAction")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Cobranzas Fase 4: el hilo de UNA cuota. Se abre desde el contador de la fila. */}
+    <Dialog open={!!notesDialog} onOpenChange={(open) => { if (!open) setNotesDialog(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {t("workOrders.paymentPlan.notesDialogTitle", { number: (notesDialog?.idx ?? 0) + 1 })}
+          </DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.notesTitle")}</DialogDescription>
+        </DialogHeader>
+        {notesDialog && (
+          <InstallmentNotesThread
+            woId={woId}
+            installmentId={installments[notesDialog.idx]?.installment_id ?? null}
+            notes={notesForInstallment(notes, installments[notesDialog.idx]?.installment_id)}
+            currentStaffId={currentStaffId}
+            canWrite={canWriteNotes}
+            isAdmin={isAdminViewer}
+          />
+        )}
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setNotesDialog(null)}>
+            {t("common.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Cobranzas Fase 9: los ajustes de una cuota.
+        Un ajuste no pisa el monto: se lista aparte, y lo que queda por cobrar es el monto más
+        la suma de los vigentes. Los retirados se muestran tachados, porque un descuento que
+        estuvo vigente explica por qué la cuota cambió de monto a cobrar entre dos momentos. */}
+    <Dialog
+      open={!!adjustmentsDialog}
+      onOpenChange={(open) => { if (!open) closeAdjustments(); }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("workOrders.paymentPlan.adjustmentsTitle")}</DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.adjustmentsDesc")}</DialogDescription>
+        </DialogHeader>
+
+        {dialogAdjustments.length > 0 && (
+          <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+            {dialogAdjustments.map((adj) => (
+              <div
+                key={adj.adjustment_id}
+                className={cn(
+                  "flex items-start justify-between gap-2 text-sm",
+                  adj.deleted_at && "text-muted-foreground line-through",
+                )}
+              >
+                <div className="min-w-0">
+                  <span className="font-medium">
+                    {t(`workOrders.paymentPlan.adjustmentType_${adj.adjustment_type}`)}
+                  </span>
+                  <span className="ml-2 font-mono">
+                    {adj.currency} {formatAmount(adj.amount, adj.currency)}
+                  </span>
+                  <p className="truncate text-xs">{adj.reason}</p>
+                </div>
+                {!adj.deleted_at &&
+                  canBillExpenses &&
+                  !(adj.adjustment_type === "descuento" && dialogInstallmentCompleted) && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-xs"
+                    onClick={() =>
+                      deleteAdjustment.mutate({ adjustmentId: adj.adjustment_id, woId })
+                    }
+                  >
+                    {t("workOrders.paymentPlan.adjustmentRemove")}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canBillExpenses && (
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">{t("workOrders.paymentPlan.adjustmentTypeLabel")}</Label>
+              <Select
+                value={adjustmentType}
+                onValueChange={(v) => {
+                  const next = v as "descuento" | "diferencia_cambio";
+                  setAdjustmentType(next);
+                  // La diferencia de cambio se sugiere sola: el sistema ya guarda los dos TC,
+                  // así que hacer la cuenta a mano sería pedirle a alguien que repita algo que
+                  // la base ya sabe. Confirmarla sigue siendo una decisión.
+                  if (next === "diferencia_cambio" && adjustmentsDialog) {
+                    void fetchSuggestedExchangeDifference(adjustmentsDialog.installmentId).then((value) => {
+                      setSuggestedDifference(value);
+                      if (value !== null) setAdjustmentAmount(value);
+                    });
+                  } else {
+                    setSuggestedDifference(null);
+                    setAdjustmentAmount(0);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="descuento">
+                    {t("workOrders.paymentPlan.adjustmentType_descuento")}
+                  </SelectItem>
+                  <SelectItem value="diferencia_cambio">
+                    {t("workOrders.paymentPlan.adjustmentType_diferencia_cambio")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {/* Qué es cada tipo, dicho donde se elige. "Ajuste" no le dice nada a nadie, y
+                  los dos tipos no son variantes de lo mismo: uno es una decisión comercial y
+                  el otro es un hecho contable que ya ocurrió. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t(`workOrders.paymentPlan.adjustmentTypeHint_${adjustmentType}`)}
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-xs">
+                {adjustmentType === "descuento"
+                  ? t("workOrders.paymentPlan.adjustmentDiscountAmount")
+                  : t("workOrders.paymentPlan.adjustmentDifferenceAmount")}
+              </Label>
+              <NumericInput
+                locale={numericLocale}
+                decimals={2}
+                value={adjustmentAmount}
+                onChange={setAdjustmentAmount}
+                className="h-9"
+              />
+              {adjustmentType === "diferencia_cambio" && suggestedDifference !== null && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.adjustmentSuggested", {
+                    amount: formatAmount(suggestedDifference, "BOB"),
+                  })}
+                </p>
+              )}
+              {adjustmentType === "descuento" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("workOrders.paymentPlan.adjustmentDiscountHint")}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs">{t("workOrders.paymentPlan.adjustmentReason")}</Label>
+              <Textarea
+                value={adjustmentReason}
+                onChange={(e) => setAdjustmentReason(e.target.value)}
+                rows={2}
+                placeholder={t("workOrders.paymentPlan.adjustmentReasonPlaceholder")}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button type="button" variant="cancel" onClick={closeAdjustments}>
+            {t("common.close")}
+          </Button>
+          {canBillExpenses && (
+            <Button
+              type="button"
+              disabled={
+                !adjustmentReason.trim() ||
+                adjustmentAmount === 0 ||
+                addAdjustment.isPending
+              }
+              onClick={() => {
+                if (!adjustmentsDialog) return;
+                addAdjustment.mutate(
+                  {
+                    installmentId: adjustmentsDialog.installmentId,
+                    type: adjustmentType,
+                    // Un descuento SIEMPRE resta: el signo lo fija el tipo, no quien carga, así
+                    // que la pantalla pide el monto en positivo y lo manda negativo.
+                    amount: adjustmentType === "descuento"
+                      ? -Math.abs(adjustmentAmount)
+                      : adjustmentAmount,
+                    reason: adjustmentReason.trim(),
+                    woId,
+                  },
+                  // Queda listo para cargar otro sobre la misma cuota, en blanco.
+                  { onSuccess: resetAdjustmentForm },
+                );
+              }}
+            >
+              {t("workOrders.paymentPlan.adjustmentAdd")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* La bitácora de una cuota. Es de SOLO lectura y no tiene acciones a propósito: su valor
+        está en que nadie la pueda tocar, ni siquiera quien la generó. */}
+    <Dialog open={!!historyDialog} onOpenChange={(open) => { if (!open) setHistoryDialog(null); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {t("workOrders.paymentPlan.historyTitle", { number: historyDialog?.number ?? 1 })}
+          </DialogTitle>
+          <DialogDescription>{t("workOrders.paymentPlan.historyDesc")}</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {historyEvents.map((ev) => (
+            <div key={ev.event_id} className="rounded-md border border-border/60 p-2.5 text-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-medium">{describeEvent(ev)}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {new Date(ev.created_at).toLocaleString("es-BO", {
+                    day: "2-digit", month: "2-digit", year: "numeric",
+                    hour: "2-digit", minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              {ev.reason && <p className="mt-1 text-xs text-muted-foreground">{ev.reason}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {[ev.actor?.first_name, ev.actor?.last_name].filter(Boolean).join(" ") ||
+                  t("workOrders.paymentPlan.historyUnknownActor")}
+              </p>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="cancel" onClick={() => setHistoryDialog(null)}>
+            {t("common.close")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     </>
   );
 }

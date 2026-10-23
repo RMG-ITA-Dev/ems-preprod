@@ -150,13 +150,13 @@ export const DESTINOS_POR_CONCEPTO: Record<string, Record<string, DestinoRecorda
       intro: "Hay gastos esperando su revisión.",
     },
     liquidaciones: {
-      ruta: "/fund-requests/disbursements?tab=in_settlement",
+      ruta: "/fund-requests/disbursements?tab=ready_to_settle",
       boton: "Ir a liquidaciones",
       intro: "Hay solicitudes de fondos esperando su gestión.",
     },
     cierres: {
       ruta: "/fund-requests/disbursements?tab=in_settlement",
-      boton: "Ir a liquidaciones",
+      boton: "Ir a pagos y cobros pendientes",
       intro: "Hay solicitudes de fondos esperando su gestión.",
     },
   },

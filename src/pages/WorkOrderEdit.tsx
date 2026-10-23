@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isCollectionsRole as isCollectionsRoleKey } from "@/lib/collectionsAccess";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -87,6 +88,7 @@ const WorkOrderEdit = () => {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
 
   const { data: workOrder, isLoading } = useWorkOrderById(id || "");
@@ -153,6 +155,9 @@ const WorkOrderEdit = () => {
   const [expenseBudget, setExpenseBudget] = useState<ExpenseBudgetInput[]>([]);
   const [paymentPlan, setPaymentPlan] = useState<PaymentPlanInput | null>(null);
   const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentInput[]>([]);
+  // Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+  // ejecutados. Viven aparte del plan de honorarios y son de sólo lectura para esta pantalla.
+  const [expenseRows, setExpenseRows] = useState<PaymentInstallmentInput[]>([]);
   const [originalPaymentPlan, setOriginalPaymentPlan] = useState<PaymentPlanInput | null>(null);
   const [originalInstallments, setOriginalInstallments] = useState<PaymentInstallmentInput[]>([]);
   const [originalBudgetLines, setOriginalBudgetLines] = useState<string[]>([]);
@@ -269,14 +274,35 @@ const WorkOrderEdit = () => {
             status: i.status as PaymentInstallmentInput["status"],
             invoice_exchange_rate: i.invoice_exchange_rate !== null ? Number(i.invoice_exchange_rate) : null,
             payment_exchange_rate: i.payment_exchange_rate !== null ? Number(i.payment_exchange_rate) : null,
+            // Cobranzas Fases 3 a 7: se arrastran tal cual. Antes se perdían en este map, y
+            // con ellas la fecha reprogramada, la confirmación del cliente y la moneda de la
+            // cuota: la pantalla volvía a mostrar la fecha acordada en cuanto se recargaba.
+            current_invoice_date: i.current_invoice_date,
+            current_payment_date: i.current_payment_date,
+            confirmation_status: i.confirmation_status ?? undefined,
+            confirmed_for_date: i.confirmed_for_date,
+            confirmed_by: i.confirmed_by,
+            confirmed_at: i.confirmed_at,
+            currency: i.currency,
+            invoice_exchange_rate_date: i.invoice_exchange_rate_date,
+            installment_type: i.installment_type ?? "fee",
+            net_amount: i.net_amount !== null && i.net_amount !== undefined ? Number(i.net_amount) : null,
           }));
+        // Cobranzas Fase 7: las filas de gastos ejecutados NO son parte del plan de
+        // honorarios. Se separan acá para que no entren en el reparto del 100%, no se manden
+        // al guardar (sync_wo_payment_installments sólo toca las de honorarios) y no cuenten
+        // como cambio pendiente: las crea y las edita Contabilidad, por sus propias RPC.
+        const feeInstalls = installs.filter((i) => i.installment_type !== "expense_reimbursement");
+        const expenseInstalls = installs.filter((i) => i.installment_type === "expense_reimbursement");
         setPaymentPlan(plan);
-        setPaymentInstallments(installs);
+        setPaymentInstallments(feeInstalls);
+        setExpenseRows(expenseInstalls);
         setOriginalPaymentPlan(plan);
-        setOriginalInstallments(JSON.parse(JSON.stringify(installs)));
+        setOriginalInstallments(JSON.parse(JSON.stringify(feeInstalls)));
       } else {
         setPaymentPlan(null);
         setPaymentInstallments([]);
+        setExpenseRows([]);
         setOriginalPaymentPlan(null);
         setOriginalInstallments([]);
       }
@@ -453,6 +479,19 @@ const WorkOrderEdit = () => {
   const isEngagementManager =
     !!staffRecord && workOrder?.engagement?.manager_id === staffRecord.staff_id;
   const canEditPaymentPlan = isAdmin || isEngagementManager;
+  // Cobranzas Fase 2 (decisión del operador Q17): el Gerente de Contabilidad y el Analista de
+  // Cobranzas abren la OT solo para cobrar, así que ven únicamente Plan de pagos y
+  // Presupuesto. El merge del Carril B (etapa B3p) ya les dio `work_order.read`, así que la
+  // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
+  const isCollectionsRole = isCollectionsRoleKey(roleKey);
+  const collectionsOnlyView = !isAdmin && isCollectionsRole;
+  // Cobranzas Fase 4 (decisión Q16): el hilo de notas lo escriben los cinco que participan de
+  // él. Es un conjunto más amplio que `canEditPaymentPlan`: incluye al SOCIO del encargo, que
+  // sigue sin poder tocar el plan de pagos y para quien ésta es justamente la vía de dejar
+  // constancia. El servidor aplica el mismo corte en wo_notes_participant().
+  const isEngagementPartner =
+    !!staffRecord && workOrder?.engagement?.partner_id === staffRecord.staff_id;
+  const canWriteNotes = isAdmin || isCollectionsRole || isEngagementManager || isEngagementPartner;
   // work_order.submit da scope 'firm' a senior_partner pero 'assigned_engagements' a
   // partner/director (authz_fase2_seed.sql:431-434) — sin acotar, un senior_partner veía
   // el botón habilitado en cualquier OT (y la RLS lo rechazaba salvo que además fuera
@@ -622,8 +661,11 @@ const WorkOrderEdit = () => {
       setPaymentInstallments(syncedInstallments);
       setOriginalPaymentPlan(updatedPlan);
       setOriginalInstallments(JSON.parse(JSON.stringify(syncedInstallments)));
-    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id) {
-      // All installments removed → delete the plan (cascades to installments)
+    } else if (!isAdministrativeEngagement && paymentPlan?.plan_id && expenseRows.length === 0) {
+      // All installments removed → delete the plan (cascades to installments).
+      // Cobranzas Fase 7: salvo que cuelguen de él las filas de gastos ejecutados. El borrado
+      // en cascada se las llevaría, y son de Contabilidad, no del plan de honorarios: quitar
+      // la última cuota de honorarios no puede borrar lo que ya se le facturó al cliente.
       await deletePaymentPlan.mutateAsync({
         planId: paymentPlan.plan_id,
         woId: workOrder.wo_id,
@@ -1009,7 +1051,15 @@ const WorkOrderEdit = () => {
           onApprove={handleApprove}
           onReject={handleReject}
           onUnsubmit={handleUnsubmit}
-          onCancel={() => { allowNextNavigation(); navigate("/work-orders"); }}
+          // Vuelve A DONDE SE ENTRÓ, no siempre a la lista de OT: desde Cobranzas, Cancelar
+          // tenía que devolver a Cobranzas, con su pestaña y sus filtros (que viven en la URL).
+          // `location.key === "default"` es una pestaña abierta directamente en esta OT: ahí no
+          // hay historial propio al que volver y la lista de OT es el destino razonable.
+          onCancel={() => {
+            allowNextNavigation();
+            if (location.key !== "default") navigate(-1);
+            else navigate("/work-orders");
+          }}
           rejectionNote={workOrder?.notes ?? null}
           isLocked={isLocked}
           canApprove={canApprove}
@@ -1040,12 +1090,27 @@ const WorkOrderEdit = () => {
           woId={workOrder.wo_id}
           paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
           paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
+          paymentExpenseRows={isAdministrativeEngagement ? [] : expenseRows}
+          // Cobranzas Fase 7 (decisión Q24): facturar los gastos ejecutados es de
+          // Contabilidad, y sólo con la OT aprobada — antes de aprobar no hay nada ejecutado.
+          // El servidor lo verifica igual en create_expense_reimbursement_row().
+          canBillExpenses={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
           isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
           // TC de creacion, modo, dias, cuotas, fecha/porcentaje acordados).
-          isStatusEditable={(isAdmin || roleKey === "collections_analyst") && approvalStatus === "Approved"}
+          // Cobranzas Fase 1 (decision del operador Q58): el Gerente de Contabilidad
+          // (accounting_manager) tiene EXACTAMENTE los mismos permisos de cobranza que el
+          // Analista de Cobranzas (collections_analyst). Hasta ahora quedaba fuera de
+          // esta condicion, asi que no podia facturar ni marcar cobrada ninguna cuota. La
+          // policy RLS y el trigger de la base se abrieron al mismo par de roles via
+          // is_collections_role().
+          isStatusEditable={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
+          collectionsOnly={collectionsOnlyView}
+          canWriteNotes={canWriteNotes}
+          currentStaffId={staffRecord?.staff_id ?? null}
+          isAdminViewer={isAdmin}
           canEditPaymentPlan={canEditPaymentPlan}
           // MUST FIX review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate se
           // guardan directo en su propio onBlur (no via el flujo de pagina) -- si se cuentan

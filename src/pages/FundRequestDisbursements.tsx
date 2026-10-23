@@ -4,11 +4,15 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { AlertCircle } from "lucide-react";
 import { FundRequestStatusBadge } from "@/components/fund-requests/FundRequestStatusBadge";
 import { ExpenseActionBadge } from "@/components/fund-requests/ExpenseActionBadge";
 import { useFundRequests, type FundRequest, type FundRequestStatus } from "@/hooks/useFundRequests";
 import { useFundRequestExpenseCounts } from "@/hooks/useFundRequestExpenseCounts";
-import { expensePhase } from "@/lib/fundRequest";
+import { expensePhase, settlementMovement } from "@/lib/fundRequest";
+import { isDeadlinePassed, laPazToday } from "@/lib/fundRequestCalendar";
 import { useAuthorization } from "@/hooks/useAuthorization";
 
 const formatCurrency = (n: number, currency: "BOB" | "USD") =>
@@ -46,8 +50,17 @@ const TABS: readonly Tab[] = [
 const FundRequestDisbursements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data, isLoading } = useFundRequests();
-  const { data: expenseCounts } = useFundRequestExpenseCounts();
+  const { data, isLoading: frLoading } = useFundRequests();
+  // tabOf() reparte las solicitudes con fondos entregados SEGÚN estos contadores: hasta que
+  // cargan, todas caen en "Entregadas" y las pestañas mienten (p. ej. llegar desde la campana a
+  // "Gastos por revisar" y ver la bandeja vacía). Por eso la tabla espera a las dos consultas.
+  const {
+    data: expenseCounts,
+    isLoading: countsLoading,
+    isError: countsError,
+    refetch: refetchCounts,
+  } = useFundRequestExpenseCounts();
+  const isLoading = frLoading || countsLoading;
   // Se decide por permiso, no por el enum legacy. Con `isAdmin` esta pantalla
   // era solo para admin, mientras el sidebar la ofrecía a todo el que tuviera
   // fund_disbursement.read — o sea el Gerente de Contabilidad veía la pestaña y
@@ -71,13 +84,18 @@ const FundRequestDisbursements = () => {
     setSearchParams(params, { replace: true });
   };
 
+  // Hoy en La Paz: decide si una solicitud ya pasó su fecha fin (un rechazado deja de estar en curso).
+  const today = laPazToday();
   const tabOf = useCallback(
     (fr: FundRequest): Tab | null => {
       if (fr.status === "aprobado_gerente") return "to_disburse";
       if (fr.status === "en_liquidacion") return "in_settlement";
       if (fr.status === "cerrado" || fr.status === "cancelado") return "closed";
       if (fr.status === "fondos_entregados") {
-        const phase = expensePhase(expenseCounts?.[fr.fund_request_id]);
+        const phase = expensePhase(
+          expenseCounts?.[fr.fund_request_id],
+          isDeadlinePassed(fr.expense_period_month, today),
+        );
         return phase === "review"
           ? "expenses_review"
           : phase === "ready"
@@ -86,7 +104,7 @@ const FundRequestDisbursements = () => {
       }
       return null;
     },
-    [expenseCounts],
+    [expenseCounts, today],
   );
 
   const filtered = useMemo(
@@ -201,7 +219,21 @@ const FundRequestDisbursements = () => {
       label: t("common.status"),
       sortable: true,
       mobilePriority: "primary",
-      render: (row) => <FundRequestStatusBadge status={row.status} />,
+      render: (row) => {
+        // Fase 4 (P8): una solicitud liquidada con saldo muestra qué movimiento de dinero falta.
+        const movement = settlementMovement(row);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FundRequestStatusBadge status={row.status} />
+            {movement?.pending && (
+              <ExpenseActionBadge
+                label={t(`fundRequest.movement.pendingBadge.${movement.kind}`)}
+                tone="warning"
+              />
+            )}
+          </div>
+        );
+      },
     },
   ];
 
@@ -231,6 +263,17 @@ const FundRequestDisbursements = () => {
           </TabsList>
         </Tabs>
 
+        {countsError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span>{t("fundRequest.errors.expenseCountsLoadFailed")}</span>
+              <Button variant="outline" size="sm" onClick={() => refetchCounts()}>
+                {t("fundRequest.errors.retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
         <DataTable
           data={filtered}
           columns={columns}

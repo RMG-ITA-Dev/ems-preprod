@@ -76,9 +76,15 @@ BEGIN
 
   -- 18.a El seed trae la bandera, y la trae para los tipos que decidió D-44 (+ D-43, que agrego
   -- el aviso de asignacion a los gerentes especialistas).
+  -- + 7 del calendario de gastos (plan-contabilidad-gastos Fase 3.9): salen por campana Y correo.
   SELECT COUNT(*) INTO v_n FROM public.notification_types WHERE email_enabled;
-  IF v_n <> 32 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 32', v_n;
+  -- + 1 de la Fase 4 (fund.settlement.confirmed).
+  -- + 2 de Cobranzas Fase 3 (decisiones Q12/Q56 y Q32): confirmation_pending y billing_late
+  --   salen por campana Y correo. El tercer tipo nuevo, rescheduled, es solo campana (Q45):
+  --   avisa que algo se movio, no es una tarea que alguien tenga que hacer hoy.
+  -- + 1 de la Fase 7: expense_row_created (el cambio de monto es solo campana).
+  IF v_n <> 44 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 44', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types
@@ -566,9 +572,13 @@ BEGIN
   -- Desembolsos: aprobada por el gerente y sin desembolsar.
   INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
   VALUES (c_mgr, 100, 'BOB', 'aprobado_gerente');
-  -- Liquidaciones: en liquidacion y sin liquidar.
-  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status)
-  VALUES (c_mgr, 100, 'BOB', 'en_liquidacion');
+  -- Liquidaciones: lista para liquidar (plan-contabilidad-gastos Fase 4). Fondos entregados,
+  -- sin gastos en curso y con la fecha fin ya pasada (mes de hace dos meses): se liquida igual,
+  -- como devolución total.
+  INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency, status,
+                                    disbursed_at, expense_period_month)
+  VALUES (c_mgr, 100, 'BOB', 'fondos_entregados', now() - interval '2 months',
+          (date_trunc('month', now() - interval '2 months'))::date);
   -- Cierres: liquidada y sin cerrar. `settled_at` va en el INSERT para no pelear con el guard
   -- de columnas de Contabilidad, que mira los UPDATE.
   INSERT INTO public.fund_requests (requester_staff_id, total_requested_amount, currency,
@@ -615,7 +625,34 @@ BEGIN
   VALUES (v_plan, v_wo, 2, 50, 500, 'Pending', v_hoy,
           date_trunc('week', v_hoy)::date + 6, 6.96, 6.96);
 
-  -- ---- 19.a Fondos: el analista lee SOLO el contador que la matriz le concede ---------------
+  -- Cobranzas Fase 1 (decision del operador Q4): los dos contadores de este grupo
+  -- ("vencidas" y "por vencer esta semana") dejaron de mirar agreed_payment_date y miran el
+  -- vencimiento REAL, que solo existe una vez FACTURADA la cuota -- una cuota todavia
+  -- Pendiente con su fecha pasada ya no es mora, es facturacion atrasada. Asi que las dos
+  -- cuotas se facturan de verdad, con las fechas de cobranza que corresponden a lo que cada
+  -- una representa. La OT se aprueba primero porque el guard exige OT aprobada para
+  -- transicionar el estado (y el plan ya se inserto arriba, con la OT todavia en Draft,
+  -- que es cuando el otro guard lo permite).
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = v_wo;
+
+  -- La vencida del gerente: facturada hace 37 dias, vencio hace 7.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_hoy - 37,
+         collection_payment_date = v_hoy - 7
+   WHERE plan_id = v_plan AND installment_number = 1;
+
+  -- La que vence esta semana: facturada hace 30 dias, vence el domingo.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = v_hoy - 30,
+         collection_payment_date = date_trunc('week', v_hoy)::date + 6
+   WHERE plan_id = v_plan AND installment_number = 2;
+
+  -- ---- 19.a Fondos: el analista recibe los MISMOS cuatro contadores que el gerente ---------
+  -- Paridad contable (2026-10-08, docs/matriz-notificaciones.md): Gerente y Analista de
+  -- Contabilidad tienen los mismos permisos en Fondos, así que la matriz les concede los mismos
+  -- contadores. Antes el analista solo tenía revision_gastos.
   DELETE FROM public.notification_emails;
   PERFORM public.notif_emit_fund_reminder_weekly();
 
@@ -624,20 +661,21 @@ BEGIN
   IF v_pay IS NULL THEN
     RAISE EXCEPTION 'TEST FAIL - el analista de contabilidad no recibio el recordatorio de fondos';
   END IF;
-  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1 THEN
-    RAISE EXCEPTION 'TEST FAIL - al analista le falta el contador que SI tiene concedido: %', v_pay;
+  IF COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   < 1
+     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) < 1
+     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - al analista le faltan contadores de Contabilidad: %', v_pay;
   END IF;
-  IF COALESCE((v_pay->'desembolsos'->>'count')::int, 0)   <> 0
-     OR COALESCE((v_pay->'liquidaciones'->>'count')::int, 0) <> 0
-     OR COALESCE((v_pay->'cierres'->>'count')::int, 0)       <> 0 THEN
-    RAISE EXCEPTION 'TEST FAIL - el analista recibio contadores de Contabilidad que no tiene: %', v_pay;
-  END IF;
-  -- Y el total es el de lo que ve, no el de la firma: si no, el asunto del correo promete un
-  -- numero que el cuerpo no puede explicar.
-  IF (v_pay->>'total')::int <> COALESCE((v_pay->'revision_gastos'->>'count')::int, 0) THEN
+  -- Y el total es la suma de lo que se le entrega: el asunto del correo no promete un numero
+  -- que el cuerpo no puede explicar.
+  IF (v_pay->>'total')::int <> COALESCE((v_pay->'revision_gastos'->>'count')::int, 0)
+                              + COALESCE((v_pay->'desembolsos'->>'count')::int, 0)
+                              + COALESCE((v_pay->'liquidaciones'->>'count')::int, 0)
+                              + COALESCE((v_pay->'cierres'->>'count')::int, 0) THEN
     RAISE EXCEPTION 'TEST FAIL - el total del analista no coincide con lo que se le entrega: %', v_pay;
   END IF;
-  RAISE NOTICE 'PASS - el recordatorio de fondos le entrega al analista solo su contador';
+  RAISE NOTICE 'PASS - el recordatorio de fondos le entrega al analista los cuatro contadores';
 
   -- El Gerente de Contabilidad, que los tiene los cuatro, no pierde ninguno.
   SELECT payload INTO v_pay FROM public.notification_emails

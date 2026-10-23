@@ -71,7 +71,9 @@ BEGIN
   -- corregidos a incluidos el 2026-09-16; risk_partner con scope 'assigned_engagements'
   -- igual que director/sqr, NO firm-wide, ver bugs/dashboard/socio/decisiones.md §7) + 1 de
   -- 20260918120000_dash_encargo_engagement_overview.sql (dashboard.engagement.read para
-  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/) + 10 de
+  -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/) + 2 de
+  -- 20251204001004_cero_13_seed_authorization_rbac.sql (fund_disbursement.read/update para
+  -- accounting_analyst, paridad contable — docs/plan-contabilidad-gastos.md Fase 1.2) + 10 de
   -- 20261009120000_rls_carril_b.sql (Carril B / B1.2: +12 — 5 de timesheet.self_approve, 5 de
   -- risk_partner (activity_code.read, work_order.read/submit/payment_plan.approve, client.create)
   -- y 2 de risk_supervisor (work_order.read, engagement.read) — y -2: worksheet.create/update
@@ -79,8 +81,8 @@ BEGIN
   -- (Carril B / B3p, decisión del operador: lectura con alcance department de work_order, engagement
   -- y client para collections_analyst, y de work_order y engagement para accounting_manager y
   -- accounting_analyst; contabilidad sin client.read).
-  IF n <> 775 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 775, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 775 concesiones';
+  IF n <> 777 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 777, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 777 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

@@ -7,6 +7,7 @@ import {
   useReviewFundRequestExpense,
   useReturnFundRequestExpense,
   useResendReturnedExpense,
+  useAccountingRejectFundRequestExpense,
   useSubmitAllFundRequestExpenses,
   useDecideAllFundRequestExpenses,
 } from "../useFundRequestExpenseMutations";
@@ -46,68 +47,47 @@ function mockUpdateIn(rows: { fre_id: string }[] = [{ fre_id: "e1" }, { fre_id: 
 describe("useFundRequestExpenseMutations", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // La revisión contable va por la RPC fund_request_expense_review: el 13% de IVA, el
+  // revisor y la validación de estado viven en el servidor (cubiertos por
+  // supabase/tests/rls-fund-accounting-parity.sql).
   describe("useReviewFundRequestExpense", () => {
-    it("applies a 13% IVA penalty when the invoice has an observation", async () => {
-      const { update } = mockUpdateEq();
+    it("sends 'incorrect' with the observation when the invoice has one", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReviewFundRequestExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({
-        id: "e1",
-        hasObservation: true,
-        observationNotes: "NIT incorrecto",
-        amount: 100,
-        reviewedByStaffId: "s1",
-      });
+      result.current.mutate({ id: "e1", hasObservation: true, observationNotes: "NIT incorrecto" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "revisado_asistente",
-          has_invoice_observation: true,
-          iva_penalty_amount: 13,
-        }),
-      );
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "incorrect",
+        p_notes: "NIT incorrecto",
+      });
+      expect(supabase.from).not.toHaveBeenCalled();
     });
 
-    it("validates with zero penalty when the invoice is correct", async () => {
-      const { update } = mockUpdateEq();
+    it("sends 'correct' without notes when the invoice is correct", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReviewFundRequestExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: "e1", hasObservation: false, amount: 100 });
+      result.current.mutate({ id: "e1", hasObservation: false, observationNotes: "ignorada" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "revisado_asistente",
-          has_invoice_observation: false,
-          iva_penalty_amount: 0,
-        }),
-      );
-    });
-
-    it("rounds the 13% penalty to 2 decimals", async () => {
-      const { update } = mockUpdateEq();
-      const { result } = renderHook(() => useReviewFundRequestExpense(), {
-        wrapper: createWrapper(),
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "correct",
+        p_notes: null,
       });
-
-      result.current.mutate({ id: "e1", hasObservation: true, amount: 33.33 });
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      // 33.33 * 0.13 = 4.3329 → 4.33
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({ iva_penalty_amount: 4.33 }),
-      );
     });
   });
 
   describe("useReturnFundRequestExpense", () => {
-    it("returns to the requester as observado with the flag set", async () => {
-      const { update } = mockUpdateEq();
+    it("returns the expense to the requester through the RPC", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
       const { result } = renderHook(() => useReturnFundRequestExpense(), {
         wrapper: createWrapper(),
       });
@@ -115,29 +95,46 @@ describe("useFundRequestExpenseMutations", () => {
       result.current.mutate({ id: "e1", notes: "falta respaldo" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: "observado",
-          returned_by_assistant: true,
-          has_invoice_observation: false,
-          iva_penalty_amount: 0,
-        }),
-      );
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "return",
+        p_notes: "falta respaldo",
+      });
+    });
+  });
+
+  describe("useAccountingRejectFundRequestExpense", () => {
+    it("rejects through the review RPC (days 4-5; the server checks the calendar)", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+      const { result } = renderHook(() => useAccountingRejectFundRequestExpense(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "e1", notes: "factura de otro gasto" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_expense_review", {
+        p_fre_id: "e1",
+        p_decision: "reject",
+        p_notes: "factura de otro gasto",
+      });
     });
   });
 
   describe("useResendReturnedExpense", () => {
-    it("resends straight to accounting (aprobado_gerente) and clears the flag", async () => {
+    it("resends the corrected expense straight to accounting (aprobado_gerente) and clears the flag", async () => {
       const { update } = mockUpdateEq();
       const { result } = renderHook(() => useResendReturnedExpense(), {
         wrapper: createWrapper(),
       });
 
-      result.current.mutate({ id: "e1", attachmentUrl: "https://x/r.pdf" });
+      // Decisión S3: el solicitante corrige cualquier campo, no solo el respaldo.
+      result.current.mutate({ id: "e1", data: { attachment_url: "https://x/r.pdf", amount: 80 } });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(update).toHaveBeenCalledWith({
         attachment_url: "https://x/r.pdf",
+        amount: 80,
         status: "aprobado_gerente",
         returned_by_assistant: false,
       });

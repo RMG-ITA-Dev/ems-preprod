@@ -461,6 +461,21 @@ describe("notificationRoute", () => {
     expect(notificationRoute(e)).toBe("/fund-requests/fr-1");
   });
 
+  it("el recordatorio de revision de gastos lleva a la bandeja de Contabilidad (Fase 3.9)", () => {
+    // Resume TODAS las solicitudes en revision: no trae fund_request_id ni entity_id.
+    const e = { ...event("n1", "fund_request"), type_key: "fund.expense.review_reminder",
+                payload: { expense_count: 3 } };
+    expect(notificationRoute(e, () => true)).toBe("/fund-requests/disbursements?tab=expenses_review");
+    // Exige el permiso de la bandeja, no el del modulo.
+    expect(notificationRoute(e, (p) => p !== "fund_disbursement.read")).toBeNull();
+  });
+
+  it("los resumenes del calendario de gastos llevan a los gastos de su solicitud", () => {
+    const e = { ...event("n1", "fund_request"), type_key: "fund.expense.manager_auto_approved",
+                entity_id: "fr-1", payload: { fund_request_id: "fr-1", context: "manager" } };
+    expect(notificationRoute(e)).toBe("/fund-requests/fr-1/expenses");
+  });
+
   it("el borrado de un encargo NO rutea: la fila que nombra ya no existe", () => {
     // El trigger corre en TG_OP='DELETE' y emite el id de la fila que acaba de desaparecer, asi
     // que /engagements/:id solo puede mostrar `engagement.unavailable`. El aviso ya trae codigo

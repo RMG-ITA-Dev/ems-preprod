@@ -9,7 +9,9 @@ import {
   useSubmitFundRequest,
   useDecideWorkOrder,
   useSettleFundRequest,
-  useCloseFundRequest,
+  useConfirmSettlement,
+  useDisburseFundRequest,
+  useCancelFundRequest,
 } from "../useFundRequestMutations";
 
 function createWrapper() {
@@ -132,7 +134,8 @@ describe("useFundRequestMutations", () => {
 
   describe("useDecideWorkOrder", () => {
     it("rejecting stores the reason and clears manager notes", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
+      const select = vi.fn().mockResolvedValue({ data: [{ fr_wo_id: "ot1" }], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
       const update = vi.fn().mockReturnValue({ eq });
       vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
@@ -156,7 +159,8 @@ describe("useFundRequestMutations", () => {
     });
 
     it("approving stores the optional note as manager_notes", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
+      const select = vi.fn().mockResolvedValue({ data: [{ fr_wo_id: "ot1" }], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
       const update = vi.fn().mockReturnValue({ eq });
       vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
@@ -168,55 +172,87 @@ describe("useFundRequestMutations", () => {
         expect.objectContaining({ approval_status: "aprobado", rejection_reason: null }),
       );
     });
-  });
 
-  describe("useSettleFundRequest", () => {
-    it("saves the snapshot and moves to en_liquidacion (does not close)", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
+    // La RLS filtra la fila (otro gerente ya decidió y la solicitud salió de
+    // pendiente_aprobacion): sin filas afectadas la mutación FALLA en vez de
+    // mostrar "Decisión registrada" sin haber guardado nada.
+    it("fails when RLS filtered the row (no rows affected)", async () => {
+      const select = vi.fn().mockResolvedValue({ data: [], error: null });
+      const eq = vi.fn().mockReturnValue({ select });
       const update = vi.fn().mockReturnValue({ eq });
       vi.mocked(supabase.from).mockReturnValue({ update } as never);
 
-      const { result } = renderHook(() => useSettleFundRequest(), { wrapper: createWrapper() });
-      result.current.mutate({
-        id: "fr1",
-        totalSpent: 40,
-        balance: 10,
-        ivaTotal: 2.6,
-        resolution: "devolucion",
-        amount: 10,
-        notes: "ok",
-        settledByStaffId: "s1",
-      });
+      const { result } = renderHook(() => useDecideWorkOrder(), { wrapper: createWrapper() });
+      result.current.mutate({ frWoId: "ot1", fundRequestId: "fr1", decision: "aprobado" });
 
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      const arg = update.mock.calls[0][0];
-      expect(arg).toEqual(
-        expect.objectContaining({
-          status: "en_liquidacion",
-          settlement_total_spent: 40,
-          settlement_balance: 10,
-          settlement_resolution: "devolucion",
-        }),
-      );
-      expect(arg).not.toHaveProperty("closed_at");
+      await waitFor(() => expect(result.current.isError).toBe(true));
     });
   });
 
-  describe("useCloseFundRequest", () => {
-    it("closes the request setting closed_at", async () => {
-      const eq = vi.fn().mockResolvedValue({ error: null });
-      const update = vi.fn().mockReturnValue({ eq });
-      vi.mocked(supabase.from).mockReturnValue({ update } as never);
+  describe("useSettleFundRequest", () => {
+    it("settles through the RPC; the server computes the snapshot and the actor", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
 
-      const { result } = renderHook(() => useCloseFundRequest(), { wrapper: createWrapper() });
-      result.current.mutate({ id: "fr1" });
+      const { result } = renderHook(() => useSettleFundRequest(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", resolution: "devolucion", amount: 10, notes: "ok" });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({ status: "cerrado" }),
-      );
-      expect(update.mock.calls[0][0]).toHaveProperty("closed_at");
-      expect(eq).toHaveBeenCalledWith("fund_request_id", "fr1");
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_settle", {
+        p_fund_request_id: "fr1",
+        p_resolution: "devolucion",
+        p_amount: 10,
+        p_notes: "ok",
+      });
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("useConfirmSettlement", () => {
+    it("confirms the money movement through the RPC (closes the request)", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+
+      const { result } = renderHook(() => useConfirmSettlement(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", reference: "CH-123" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_confirm_settlement", {
+        p_fund_request_id: "fr1",
+        p_reference: "CH-123",
+        p_notes: null,
+      });
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("useDisburseFundRequest", () => {
+    it("disburses through the RPC without sending the actor", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+
+      const { result } = renderHook(() => useDisburseFundRequest(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", amount: 250, notes: "efectivo" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_disburse", {
+        p_fund_request_id: "fr1",
+        p_amount: 250,
+        p_notes: "efectivo",
+        p_new_month: null,
+      });
+    });
+  });
+
+  describe("useCancelFundRequest", () => {
+    it("cancels through the RPC with the reason", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as never);
+
+      const { result } = renderHook(() => useCancelFundRequest(), { wrapper: createWrapper() });
+      result.current.mutate({ id: "fr1", reason: "duplicada" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("fund_request_cancel", {
+        p_fund_request_id: "fr1",
+        p_reason: "duplicada",
+      });
     });
   });
 });
