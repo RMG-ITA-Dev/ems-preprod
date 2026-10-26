@@ -80,7 +80,7 @@ const CHART_COLORS = {
 /** ResponsiveContainer envuelto: jsdom (vitest) no implementa ResizeObserver y recharts no
  * lo detecta antes de instanciarlo -- sin este guard, cualquier gráfico crashea al montar
  * bajo test. En navegadores reales es un passthrough transparente. */
-function ChartContainer({ children, height = "100%" }: { children: ReactElement; height?: number | string }) {
+function ChartContainer({ children, height = "100%" }: { children: ReactElement; height?: number | `${number}%` }) {
   if (typeof ResizeObserver === "undefined") {
     return <div style={{ width: "100%", height }} />;
   }

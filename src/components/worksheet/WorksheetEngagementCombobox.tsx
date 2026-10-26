@@ -69,7 +69,7 @@ export function WorksheetEngagementCombobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="min-w-[--radix-popover-trigger-width] w-auto max-w-[600px] p-0"
+        className="min-w-(--radix-popover-trigger-width) w-auto max-w-[600px] p-0"
         align="start"
       >
         <Command>

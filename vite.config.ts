@@ -1,16 +1,16 @@
 // Build version: 2025-12-13v2 - Force rebuild for CarteraTab import fix
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
+import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { readFileSync } from "node:fs";
-import { componentTagger } from "lovable-tagger";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8")) as {
   version: string;
 };
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   // Se consume en AppSidebar (chip de versión). El tipo está en src/vite-env.d.ts y
   // vitest.config.ts repite esta clave: sin eso, cualquier test que monte AppSidebar
   // muere con `__APP_VERSION__ is not defined`.
@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => ({
   preview: {
     allowedHosts: ["ems-test.up.railway.app"],
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -50,4 +50,4 @@ export default defineConfig(({ mode }) => ({
       '@radix-ui/react-tabs',
     ],
   },
-}));
+});
