@@ -68,4 +68,11 @@ describe("AppSidebar — Mis asignaciones (0922-190)", () => {
     renderSidebar();
     expect(screen.getByText("nav.myAssignments")).toBeInTheDocument();
   });
+
+  // Decisión del operador 2026-10-26: el Supervisor de Riesgos no tiene asignaciones.
+  it("no aparece para el Supervisor de Riesgos", () => {
+    Object.assign(authState, { can: () => true, roleKey: "risk_supervisor" });
+    renderSidebar();
+    expect(screen.queryByText("nav.myAssignments")).not.toBeInTheDocument();
+  });
 });

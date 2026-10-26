@@ -107,12 +107,13 @@ export function AppSidebar() {
       icon: Grid3X3,
       show: can("timesheet.read"),
     },
-    // 0922-190: sin permiso — accesible a los 23 roles, la RLS acota los datos.
+    // 0922-190: sin permiso — accesible a todos los roles, la RLS acota los datos. Salvo el
+    // Supervisor de Riesgos (decisión del operador 2026-10-26): no se le asigna a encargos.
     {
       title: t("nav.myAssignments"),
       url: "/timesheet/assignments",
       icon: ListChecks,
-      show: true,
+      show: roleKey !== "risk_supervisor",
     },
     {
       title: t("nav.timesheetApprovals"),

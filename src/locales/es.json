@@ -1874,6 +1874,7 @@
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
     "riskSavedOnSubmit": "Los datos de Riesgo se guardarán al enviar para aprobación",
+    "riskOnlyAdministrative": "Esta OT es de un encargo administrativo: no tiene evaluación de riesgos.",
     "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
     "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
     "selectedCurrency": "Moneda",
