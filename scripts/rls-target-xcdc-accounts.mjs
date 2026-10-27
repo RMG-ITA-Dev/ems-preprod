@@ -140,6 +140,16 @@ async function createAccounts() {
       user = data.user;
       console.log(`  ${label}: creado`);
     } else {
+      // Un usuario existente conserva la contraseña con que se creó. Si el estado local no lo
+      // conoce (archivo borrado o corrida en otra máquina), readState() generó una contraseña
+      // nueva que NO le corresponde y las credenciales exportadas fallarían al iniciar sesión.
+      if (state.users[label] !== user.id) {
+        fail(
+          `${label}: la cuenta ya existe en Auth pero el estado local no la reconoce; ` +
+            "su contraseña no es recuperable. Restaure el archivo de estado original o " +
+            "restablezca la contraseña de esa cuenta de forma explícita antes de reanudar"
+        );
+      }
       console.log(`  ${label}: ya existía; se reanuda sin modificarlo`);
     }
     state.users[label] = user.id;

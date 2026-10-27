@@ -21,13 +21,21 @@ INSERT INTO public.time_entries (
   (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'RLSHRS'),
   DATE '2026-10-09', 1, 'b0c0dc00-0000-4000-8000-000000000001', false
 );
-UPDATE public.time_entries SET hours_logged = 1.5
- WHERE time_id = 'd9c0dc00-0000-4000-8000-000000000001';
-DELETE FROM public.time_entries WHERE time_id = 'd9c0dc00-0000-4000-8000-000000000001';
-
 DO $$
 DECLARE v_rows int;
 BEGIN
+  UPDATE public.time_entries SET hours_logged = 1.5
+   WHERE time_id = 'd9c0dc00-0000-4000-8000-000000000001';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: SEMISENIOR no pudo actualizar su propia hora (% fila/s)', v_rows;
+  END IF;
+  DELETE FROM public.time_entries WHERE time_id = 'd9c0dc00-0000-4000-8000-000000000001';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: SEMISENIOR no pudo borrar su propia hora (% fila/s)', v_rows;
+  END IF;
+
   UPDATE public.time_entries SET hours_logged = 9
    WHERE time_id = 'd0c0dc00-0000-4000-8000-000000000003'; -- hora de SOCIO
   GET DIAGNOSTICS v_rows = ROW_COUNT;
@@ -38,8 +46,16 @@ BEGIN
 END $$;
 
 -- El mismo dueño controla su timer; otro rol no puede tocarlo.
-UPDATE public.timer_entries SET description = 'RLS-XCDC rollback mutation'
- WHERE timer_id = 'c0c0dc00-0000-4000-8000-000000000001';
+DO $$
+DECLARE v_rows int;
+BEGIN
+  UPDATE public.timer_entries SET description = 'RLS-XCDC rollback mutation'
+   WHERE timer_id = 'c0c0dc00-0000-4000-8000-000000000001';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: SEMISENIOR no pudo actualizar su propio timer (% fila/s)', v_rows;
+  END IF;
+END $$;
 
 SELECT set_config(
   'request.jwt.claim.sub',
@@ -72,11 +88,22 @@ VALUES (
     WHERE p.code = 1 ORDER BY c.display_order, c.category_id LIMIT 1),
   1, 100
 );
-DELETE FROM public.wo_budget_lines WHERE wo_line_id = 'a9c0dc00-0000-4000-8000-000000000001';
-
-UPDATE public.activity_worksheet_cells SET budget_hours = budget_hours + 1
- WHERE id = 'a1c0dc00-0000-4000-8000-000000000001';
-DO $$ BEGIN RAISE NOTICE 'PASS write 3: GERENTE administra presupuesto y hoja de su encargo'; END $$;
+DO $$
+DECLARE v_rows int;
+BEGIN
+  DELETE FROM public.wo_budget_lines WHERE wo_line_id = 'a9c0dc00-0000-4000-8000-000000000001';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: GERENTE no pudo borrar su línea de presupuesto (% fila/s)', v_rows;
+  END IF;
+  UPDATE public.activity_worksheet_cells SET budget_hours = budget_hours + 1
+   WHERE id = 'a1c0dc00-0000-4000-8000-000000000001';
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: GERENTE no pudo actualizar la hoja de su encargo (% fila/s)', v_rows;
+  END IF;
+  RAISE NOTICE 'PASS write 3: GERENTE administra presupuesto y hoja de su encargo';
+END $$;
 
 -- Asistente: incluso estando asignado al Encargo Alfa, no puede escribir presupuesto.
 SELECT set_config(
@@ -143,9 +170,17 @@ SELECT set_config(
   (SELECT auth_user_id::text FROM public.staff WHERE email = 'rls-xcdc-20261016-admin@ruizmier.com'),
   true
 );
-UPDATE public.time_entries SET hours_logged = 2.5
- WHERE time_id = 'd0c0dc00-0000-4000-8000-000000000003'; -- hora de SOCIO
-DO $$ BEGIN RAISE NOTICE 'PASS write 7: ADMIN conserva modificación de hora ajena'; END $$;
+DO $$
+DECLARE v_rows int;
+BEGIN
+  UPDATE public.time_entries SET hours_logged = 2.5
+   WHERE time_id = 'd0c0dc00-0000-4000-8000-000000000003'; -- hora de SOCIO
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'RLS WRITE FAIL: ADMIN no pudo modificar una hora ajena (% fila/s)', v_rows;
+  END IF;
+  RAISE NOTICE 'PASS write 7: ADMIN conserva modificación de hora ajena';
+END $$;
 
 ROLLBACK;
 
