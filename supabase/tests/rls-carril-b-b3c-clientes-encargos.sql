@@ -371,13 +371,16 @@ BEGIN
     RAISE EXCEPTION 'B3c FAIL — vistas security_invoker nuevas sobre clients/engagements (su resultado dependería de la RLS): %', v_cols;
   END IF;
   -- (c) Las políticas de OTRAS tablas que nombran clients/engagements inline son exactamente las revisadas.
+  -- D1 (20/10/2026): timesheet_line_approvals."Approvers can view assigned line approvals" NO consulta engagements: el match es el
+  -- literal 'engagements' (un valor de my_line_approval_mode()); la pertenencia sale de my_team_engagement_ids() (SECURITY DEFINER).
   SELECT string_agg(tablename || '.' || policyname, ', ' ORDER BY tablename, policyname) INTO v_cols
     FROM pg_policies
    WHERE schemaname = 'public' AND tablename NOT IN ('clients', 'engagements')
      AND (coalesce(qual, '') || coalesce(with_check, '')) ~* '\m(clients|engagements)\M'
      AND (tablename, policyname) NOT IN (
        ('work_orders', 'Assigned SQR can view work orders'), ('work_orders', 'Assigned SQR can update work orders'),
-       ('wo_payment_plan', 'Manager can manage payment plans'), ('wo_payment_installments', 'Manager can manage payment installments'));
+       ('wo_payment_plan', 'Manager can manage payment plans'), ('wo_payment_installments', 'Manager can manage payment installments'),
+       ('timesheet_line_approvals', 'Approvers can view assigned line approvals'));
   IF v_cols IS NOT NULL THEN
     RAISE EXCEPTION 'B3c FAIL — política(s) nueva(s) con subconsulta inline a clients/engagements (se evaluarían con la RLS del usuario): %', v_cols;
   END IF;

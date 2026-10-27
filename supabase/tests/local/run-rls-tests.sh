@@ -444,6 +444,14 @@ run supabase/migrations/20261013160000_rls_carril_b5_privilegios.sql
 run supabase/migrations/20261013170000_rls_carril_b6_staff_auth_user_unique.sql
 run supabase/migrations/20261013170000_rls_carril_b6_staff_auth_user_unique.sql
 
+# D1 (campaña k6 en xcdc): las politicas RLS de LECTURA pasan de llamar funciones SECURITY DEFINER fila por fila a consultar conjuntos
+# (15 funciones my_*) y se reescriben con la regla de oro «mismas filas visibles para cada cuenta». Va DESPUES de B6 porque reescribe politicas
+# de B3b/B3c/B3d/B3e y recrea las politicas de engagement_assignments y timesheet_*. Tambien se aplica DOS veces (idempotencia: CREATE OR
+# REPLACE, DROP POLICY IF EXISTS + CREATE). La equivalencia la ejercen las suites de abajo que ya afirman visibilidad por rol (B3b, B3c, B3d,
+# B3e, B4, D5, 0922-190, cartera): corren sobre las politicas NUEVAS, asi que cualquier fila que aparezca o desaparezca las hace fallar.
+run supabase/migrations/20261020000000_rls_d1_lecturas_por_conjunto.sql
+run supabase/migrations/20261020000000_rls_d1_lecturas_por_conjunto.sql
+
 # B5 dejo el privilegio POR DEFECTO de funciones del dueño sin EXECUTE para PUBLIC (lo que cree `postgres` nace cerrado). Se verifica AQUI, con el
 # estado de produccion, y despues se restaura SOLO para lo que creen las suites: ellas definen auxiliares en pg_temp (impersonate, try_as...) como
 # `postgres` y los llaman estando en el rol authenticated o anon; sin EXECUTE para PUBLIC darian "permission denied for function impersonate" (fallo
