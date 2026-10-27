@@ -1,8 +1,8 @@
 # Registro de seguridad — validación RLS en la instancia controlada de Supabase
 
-**Fecha de ejecución:** 16/10/2026  
-**Proyecto validado:** `xcdcxtduotwgwmhxvsiz`  
-**Propósito:** dejar evidencia reproducible de la reconstrucción, la verificación y la validación funcional de Row Level Security (RLS) antes de ejecutar la campaña k6.  
+**Fecha de ejecución:** 16/10/2026\
+**Proyecto validado:** `xcdcxtduotwgwmhxvsiz`\
+**Propósito:** dejar evidencia reproducible de la reconstrucción, la verificación y la validación funcional de Row Level Security (RLS) antes de ejecutar la campaña k6.\
 **Clasificación del entorno:** instancia recién habilitada y dedicada a EMS para estas pruebas. Aunque el panel de Supabase muestra la rama `main` como `PRODUCTION`, este registro no presupone que contenga datos operativos.
 
 ## Veredicto
