@@ -774,8 +774,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     }
   }, [isEdit, canChooseFuncionFreely, administrativeMode, form]);
 
+  // En modo administrativo Cliente no es una opción. Además de sembrar el vacío, se corrige un
+  // Cliente ya sembrado: EngagementNew.tsx activa el modo para hr_analyst recién cuando llega su
+  // role_key, y para entonces el efecto de arriba (sin rol todavía, sin elección libre) ya fijó
+  // FUNCION_CLIENTE — un valor que el Select no muestra y que el trigger de BD rechaza.
   useEffect(() => {
-    if (!isEdit && administrativeMode && form.getValues("funcion") == null) {
+    if (isEdit || !administrativeMode) return;
+    const current = form.getValues("funcion");
+    if (current == null || current === FUNCION_CLIENTE) {
       form.setValue("funcion", 0, { shouldDirty: false, shouldValidate: false });
     }
   }, [isEdit, administrativeMode, form]);

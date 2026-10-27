@@ -17,6 +17,9 @@ export interface AdministrativeEngagement extends Record<string, unknown> {
   start_date: string | null;
   end_date: string | null;
   status: string;
+  work_order_required: boolean;
+  engagement_state_override: number | null;
+  work_order: { approval_status: string | null; approved_at: string | null; risk_status: string | null } | null;
 }
 
 export function useAdministrativeEngagements() {

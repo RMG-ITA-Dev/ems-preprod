@@ -26,6 +26,8 @@
 --  15. La ejecución sin identidad autenticada (seeds/migraciones/service_role) sigue siendo posible.
 --  16. El RPC conserva exactamente una firma.
 --  17. Una validación fallida no consume correlativo (la invocación revierte atómicamente).
+--  18. hr_analyst, con engagement.create y ficha completa, no puede crear un encargo de Cliente
+--      (funcion 1): solo Administrativa/Capacitación/Calidad (decisión del operador 27/10/2026).
 --
 -- Fixture: todos los ids llevan el prefijo eps- reconocible (eps = engagement profile scope).
 
@@ -52,7 +54,7 @@ BEGIN
     SELECT ('ec900000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'eps-test-' || n || '@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb
-      FROM generate_series(1, 5) n
+      FROM generate_series(1, 6) n
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
@@ -81,6 +83,7 @@ ON CONFLICT (code) DO NOTHING;
 -- 3: manager con ficha pero SIN ciudad (city NULL).
 -- 4: admin.
 -- 5: senior_partner (sin engagement.create en el seed real).
+-- 6: hr_analyst con ficha COMPLETA y válida (misma combinación que el sujeto 1).
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
                           practica_id, society_id, city)
 VALUES
@@ -95,6 +98,9 @@ VALUES
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
   ('5ec80000-0000-4000-8000-000000000005', 'ec900000-0000-4000-8000-000000000005',
    'EPS', 'Sujeto05', true, :'v_practica_1',
+   '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
+  ('5ec80000-0000-4000-8000-000000000006', 'ec900000-0000-4000-8000-000000000006',
+   'EPS', 'Sujeto06', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz');
 -- Sujeto 2 (subject sin ficha) deliberadamente NO tiene fila en staff.
 
@@ -103,7 +109,8 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('ec900000-0000-4000-8000-000000000002', 'manager'),
   ('ec900000-0000-4000-8000-000000000003', 'manager'),
   ('ec900000-0000-4000-8000-000000000004', 'admin'),
-  ('ec900000-0000-4000-8000-000000000005', 'senior_partner')
+  ('ec900000-0000-4000-8000-000000000005', 'senior_partner'),
+  ('ec900000-0000-4000-8000-000000000006', 'hr_analyst')
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Cliente del fixture ────────────────────────────────────────────────────────────────────────
@@ -446,6 +453,29 @@ BEGIN
   END IF;
   RAISE NOTICE 'CHECK 17 OK: una invocacion fallida revierte atomicamente y no consume correlativo.';
   RESET ROLE;
+END $$;
+
+-- ── #18: hr_analyst no crea encargos de Cliente ───────────────────────────────────────────────
+DO $$
+DECLARE v_raised boolean := false;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(6));
+  SET LOCAL ROLE authenticated;
+  -- No-vacuidad: el rechazo tiene que salir de la regla de funcion, no de un permiso ausente ni
+  -- de un perfil que no coincide (pg_temp.own_eng usa exactamente la ficha del sujeto 6).
+  IF NOT public.has_permission('engagement.create') THEN
+    RAISE EXCEPTION 'FIXTURE 18: hr_analyst deberia tener engagement.create en el seed vigente.';
+  END IF;
+  BEGIN
+    PERFORM pg_temp.own_eng('EPS hr_analyst cliente');
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_raised := SQLERRM LIKE '%Analista de Talento Humano%';
+  END;
+  RESET ROLE;
+  IF NOT v_raised THEN
+    RAISE EXCEPTION 'CHECK 18: hr_analyst no debia poder crear un encargo de Cliente (funcion 1).';
+  END IF;
+  RAISE NOTICE 'CHECK 18 OK: hr_analyst no crea encargos de Cliente.';
 END $$;
 
 DO $$

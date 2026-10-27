@@ -725,7 +725,17 @@ BEGIN
           'anio_fiscal', e.anio_fiscal,
           'start_date', e.start_date,
           'end_date', e.end_date,
-          'status', e.status
+          'status', e.status,
+          -- Insumos del estado efectivo (effectiveEngagementState en src/lib/engagementStatus.ts):
+          -- `status` es el legacy y siempre dice 'active', así que la lista mostraba "Activo"
+          -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
+          'work_order_required', e.work_order_required,
+          'engagement_state_override', e.engagement_state_override,
+          'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
+            'approval_status', wo.approval_status,
+            'approved_at', wo.approved_at,
+            'risk_status', wo.risk_status
+          ) END
         )
         ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
       )
@@ -733,6 +743,7 @@ BEGIN
         JOIN public.clients c ON c.client_id = e.client_id
         JOIN public.society s ON s.society_id = e.society_id
         LEFT JOIN public.practicas p ON p.code = e.practica
+        LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
     ),
@@ -742,7 +753,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;

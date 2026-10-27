@@ -17,7 +17,8 @@
 --   4. director (own_society) ve el encargo de su sociedad — mismo bucket que partner/sqr.
 --   5. manager (own_management) ve SOLO donde es manager_id + lo que creó; asignado nada más
 --      que partner_id en un encargo ajeno NO le da visibilidad (la regresión exacta del bug).
---   6. hr_analyst ve únicamente lo que creó.
+--   6. hr_analyst no ve ni lo que creó si es de Cliente (E7, funcion NULL legacy = Cliente): solo
+--      crea y ve encargos Administrativa/Capacitación/Calidad (decisión del operador 27/10/2026).
 --   7. senior -> vacío (sin engagement.read en la matriz real).
 --   8. Sin impersonar (auth.uid() NULL) -> arreglo vacío, sin error.
 --   9. Forma del payload: client/society/work_order/staff anidados con los campos que la UI
@@ -63,7 +64,7 @@ END $$;
 -- ── Personal: un caller por rol bajo prueba ─────────────────────────────────────────────────
 -- 01 admin · 02 it_security_manager · 03 senior_partner · 04 risk_partner (todos firm-wide)
 -- 05 partner (sociedad Norte) · 06 sqr SINTÉTICO (sociedad Norte, sin holder real hoy)
--- 07 manager (sociedad Sur, own_management) · 08 hr_analyst (solo creador)
+-- 07 manager (sociedad Sur, own_management) · 08 hr_analyst (creó E7 de Cliente: no lo ve)
 -- 09 senior (sin engagement.read -> vacío) · 10 risk_supervisor (firm-wide, solo lectura)
 -- 11 third party (crea encargos que ningún caller bajo prueba debe heredar por asignación)
 -- 12 director SINTÉTICO (sociedad Norte, mismo bucket que partner/sqr)
@@ -111,7 +112,8 @@ ON CONFLICT (client_id) DO NOTHING;
 -- E5: sociedad Sur, creado por un tercero, partner_id = manager (07) (NO manager_id) -- la
 --     regresión exacta: asignado nada más que como partner NO da visibilidad de portafolio.
 -- E6: sociedad Sur, creado por el manager (07) -- creator.
--- E7: sociedad Norte, creado por hr_analyst (08) -- creator, único que debe ver.
+-- E7: sociedad Norte, creado por hr_analyst (08), funcion NULL (= Cliente) -- hr_analyst NO lo ve
+--     pese a ser su creador; partner (own_society) sí.
 -- O1/O2/O3: sociedad Norte, creados por el partner (05) con created_at explícito y espaciado --
 --     fixture de orden determinístico.
 -- trg_engagements_created_by (BEFORE INSERT, set_engagement_created_by()) pisa
@@ -304,17 +306,17 @@ BEGIN
   RAISE NOTICE 'OK 5: manager ve solo manager_id + lo creado; ser partner/sqr/encargado/especialista en otro encargo NO da visibilidad';
 END $$;
 
--- ── 6. hr_analyst: solo lo que creó ──────────────────────────────────────────────────────────
+-- ── 6. hr_analyst: ningún encargo de Cliente, ni el que creó ─────────────────────────────────
 DO $$
 DECLARE v_result jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(8));
   SELECT public.list_portfolio_engagements() INTO v_result;
 
-  IF jsonb_array_length(v_result) <> 1 OR NOT pg_temp.has_eng(v_result, pg_temp.s(7)) THEN
-    RAISE EXCEPTION 'FAIL: hr_analyst debía ver únicamente E7 (lo que creó), vio % fila(s)', jsonb_array_length(v_result);
+  IF jsonb_array_length(v_result) <> 0 THEN
+    RAISE EXCEPTION 'FAIL: hr_analyst no debía ver ningún encargo de Cliente (ni E7, que creó), vio % fila(s)', jsonb_array_length(v_result);
   END IF;
-  RAISE NOTICE 'OK 6: hr_analyst ve únicamente lo que creó';
+  RAISE NOTICE 'OK 6: hr_analyst no ve encargos de Cliente, ni los que creó';
 END $$;
 
 -- ── 7. senior: sin engagement.read en la matriz real -> vacío ─────────────────────────────────

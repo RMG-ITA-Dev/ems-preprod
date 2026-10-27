@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -10,11 +10,16 @@ import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
+import { captureReturnNav } from "@/lib/returnNav";
 
 const EngagementEdit = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation();
+  // Vuelve a la lista de origen: Encargos Administrativos manda `returnTo` al abrir la fila.
+  // Sin estado (deep-link, recarga, campanita) se vuelve a Encargos como siempre.
+  const returnTo = captureReturnNav(location.state)?.returnTo ?? "/engagements";
   const { data: engagements, isLoading, isError, refetch } = usePortfolioEngagements();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
@@ -23,12 +28,12 @@ const EngagementEdit = () => {
 
   const handleCancel = () => {
     allowNextNavigation();
-    navigate("/engagements");
+    navigate(returnTo);
   };
 
   const handleSaveSuccess = () => {
     allowNextNavigation();
-    navigate("/engagements");
+    navigate(returnTo);
   };
 
   if (isLoading) {
@@ -57,7 +62,7 @@ const EngagementEdit = () => {
             <Button variant="outline" onClick={() => refetch()}>
               {t("engagement.retry")}
             </Button>
-            <Button variant="cancel" onClick={() => navigate("/engagements")}>
+            <Button variant="cancel" onClick={() => navigate(returnTo)}>
               {t("common.cancel")}
             </Button>
           </div>
@@ -79,7 +84,7 @@ const EngagementEdit = () => {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{t("engagement.unavailable")}</AlertDescription>
           </Alert>
-          <Button variant="cancel" onClick={() => navigate("/engagements")}>
+          <Button variant="cancel" onClick={() => navigate(returnTo)}>
             {t("common.cancel")}
           </Button>
         </div>

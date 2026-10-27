@@ -31,6 +31,11 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
 
 vi.mock("@/components/ui/leave-page-dialog", () => ({ LeavePageDialog: () => null }));
 
+let mockRoleKey: string | undefined = "manager";
+vi.mock("@/hooks/useAuthorization", () => ({
+  useAuthorization: () => ({ roleKey: mockRoleKey }),
+}));
+
 vi.mock("@/components/layout/AppLayout", () => ({
   AppLayout: ({ children }: any) => <div>{children}</div>,
 }));
@@ -41,8 +46,9 @@ vi.mock("@/components/layout/AppLayout", () => ({
 // BUG 0922-195 (Defecto 2): also surfaces the `initialClientId` prop EngagementNew forwards, so
 // the tests below can assert on what actually crossed the boundary from the URL's ?client_id=.
 vi.mock("@/components/forms/EngagementForm", () => ({
-  EngagementForm: ({ initialClientId, onGoToWorkMatrix }: any) => (
+  EngagementForm: ({ administrativeMode, initialClientId, onGoToWorkMatrix }: any) => (
     <>
+      <div data-testid="administrative-mode">{String(!!administrativeMode)}</div>
       <div data-testid="initial-client-id">{initialClientId ?? ""}</div>
       <button type="button" onClick={() => onGoToWorkMatrix?.("eng-123")}>
         go-to-work-matrix
@@ -96,5 +102,32 @@ describe("EngagementNew — forwards ?client_id as initialClientId (BUG 0922-195
     screen.getByText("go-to-work-matrix").click();
     expect(mockAllowNextNavigation).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith("/worksheets/new?engagement=eng-123");
+  });
+});
+
+// El Analista de Talento Humano solo crea encargos Administrativa/Capacitación/Calidad
+// (decisión del operador 2026-10-27): el alta es administrativa aunque la URL no lo pida.
+describe("EngagementNew — hr_analyst always creates administrative engagements", () => {
+  it("forces administrativeMode for hr_analyst without ?mode=administrative", () => {
+    mockRoleKey = "hr_analyst";
+    try {
+      render(
+        <MemoryRouter initialEntries={["/engagements/new"]}>
+          <EngagementNew />
+        </MemoryRouter>
+      );
+      expect(screen.getByTestId("administrative-mode")).toHaveTextContent("true");
+    } finally {
+      mockRoleKey = "manager";
+    }
+  });
+
+  it("keeps the client flow for other roles without ?mode=administrative", () => {
+    render(
+      <MemoryRouter initialEntries={["/engagements/new"]}>
+        <EngagementNew />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("administrative-mode")).toHaveTextContent("false");
   });
 });

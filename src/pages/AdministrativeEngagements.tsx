@@ -9,6 +9,7 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { effectiveEngagementState, engagementStateBadgeClass, engagementStateI18nKey } from "@/lib/engagementStatus";
 
 const FUNCION_LABEL_KEYS: Record<number, string> = {
   0: "engagement.funcion_adm",
@@ -84,9 +85,11 @@ const AdministrativeEngagements = () => {
       canCreate,
       currentBoliviaFiscalYear(),
     );
-    return funcionFilter === "all"
+    const filteredRows = funcionFilter === "all"
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
+    // Estado efectivo, igual que Engagements.tsx y el detalle: `status` es el legacy ('active').
+    return filteredRows.map((row) => ({ ...row, effective_state: effectiveEngagementState(row, row.work_order) }));
   }, [canCreate, data, funcionFilter]);
 
   const viewerColumns: Column<AdministrativeEngagement>[] = [
@@ -176,15 +179,18 @@ const AdministrativeEngagements = () => {
       render: (row) => row.end_date ? format(parseDateLocal(row.end_date), "dd/MM/yyyy") : "-",
     },
     {
-      key: "status",
+      key: "effective_state",
       label: t("engagement.status"),
       sortable: true,
       mobilePriority: "primary",
-      render: (row) => (
-        <Badge variant="outline" className="bg-muted text-muted-foreground">
-          {t(`status.${row.status}`)}
-        </Badge>
-      ),
+      render: (row) => {
+        const state = effectiveEngagementState(row, row.work_order);
+        return (
+          <Badge variant="outline" className={engagementStateBadgeClass(state)}>
+            {t(engagementStateI18nKey(state))}
+          </Badge>
+        );
+      },
     },
   ];
 
@@ -198,7 +204,7 @@ const AdministrativeEngagements = () => {
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("engagement.newAdministrativeEngagement") : undefined}
         onNewClick={canCreate ? () => navigate("/engagements/new?mode=administrative") : undefined}
-        onRowClick={canCreate ? (row) => navigate(`/engagements/${row.engagement_id}`) : undefined}
+        onRowClick={canCreate ? (row) => navigate(`/engagements/${row.engagement_id}`, { state: { returnTo: "/administrative-engagements" } }) : undefined}
         getRowId={(row) => row.engagement_id}
         filters={canCreate ? [
           {

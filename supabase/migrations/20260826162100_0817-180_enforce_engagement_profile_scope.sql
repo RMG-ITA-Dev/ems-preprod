@@ -40,6 +40,15 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Analista de Talento Humano: engagement.create es SOLO para encargos Administrativa,
+    -- Capacitación y Calidad (funcion 0/2/3); los de Cliente no los crea ni los ve (decisión del
+    -- operador, 27/10/2026). funcion NULL se lee como Cliente en todo el sistema, así que también
+    -- se rechaza. Espejo de EngagementNew.tsx, que fuerza el modo administrativo para este rol.
+    IF v_role = 'hr_analyst' AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Analista de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
     -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
     -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
@@ -101,7 +110,7 @@ END;
 $$;
 
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 GRANT ALL ON FUNCTION public.enforce_engagement_profile_scope() TO anon;

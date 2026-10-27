@@ -72,7 +72,9 @@ export function AppSidebar() {
       title: t("nav.engagements"),
       url: "/engagements",
       icon: FolderKanban,
-      show: can("engagement.read"),
+      // El Analista de Talento Humano no ve encargos de Cliente (decisión del operador
+      // 2026-10-27): trabaja solo desde Encargos Administrativos.
+      show: can("engagement.read") && roleKey !== "hr_analyst",
     },
     {
       title: t("nav.administrativeEngagements"),

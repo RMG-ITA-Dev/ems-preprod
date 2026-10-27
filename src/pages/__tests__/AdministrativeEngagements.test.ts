@@ -21,6 +21,9 @@ const row = (anio_fiscal: number | null) => ({
   start_date: null,
   end_date: null,
   status: "active",
+  work_order_required: false,
+  engagement_state_override: null,
+  work_order: null,
 });
 
 describe("administrativeRowsForViewer", () => {
