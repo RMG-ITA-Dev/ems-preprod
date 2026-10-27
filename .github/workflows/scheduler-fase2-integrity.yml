@@ -78,6 +78,11 @@ jobs:
 
   consolidated-replay:
     runs-on: ubuntu-latest
+    # packages: read para el login a ghcr.io de abajo (las imágenes de Supabase son públicas; el
+    # login solo cambia el pull de anónimo a autenticado, que tiene otro límite).
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -107,18 +112,25 @@ jobs:
       # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
       # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
       # aplica solo, es un regresión real, no un caso esperado.
-      # Reintentos y registry alterno (2026-10-27): el registry por defecto del CLI
-      # (public.ecr.aws) corta las descargas con `toomanyrequests: ... allowed: 44000/minute` en
-      # horas de mucho tráfico, y el job moría acá sin llegar al gate. Reintentar contra el mismo
-      # registry no alcanzó (4/4 cortados), así que los intentos alternan con ghcr.io vía
-      # SUPABASE_INTERNAL_IMAGE_REGISTRY (lo lee GetRegistry() del CLI; Supabase publica las mismas
-      # imágenes y tags en los dos, así que el fingerprint no cambia). Solo `start` baja imágenes:
-      # el resto del job usa los contenedores ya levantados y el pg_dump del runner. Entre intentos
-      # se baja el stack (`stop --no-backup`) para que el siguiente `start` aplique las migraciones
-      # desde cero igual. Un error real de migración falla todos los intentos: no se esconde.
+      # Pull autenticado (2026-10-27): el job moría acá sin llegar al gate porque los pulls
+      # ANÓNIMOS de los runners compartidos agotan los dos registries — public.ecr.aws responde
+      # `toomanyrequests: Data limit exceeded` y ghcr.io `toomanyrequests ... 44000/minute`.
+      # Con login, ghcr.io cuenta contra el token del repo y no contra la IP del runner. El CLI
+      # toma la credencial del config de Docker (GetRegistryAuth). No hace falta ningún secret:
+      # alcanza el GITHUB_TOKEN del propio job.
+      - name: Login a ghcr.io (pull autenticado de las imágenes de Supabase)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Registry y reintentos: primero ghcr.io (autenticado, ver arriba) vía
+      # SUPABASE_INTERNAL_IMAGE_REGISTRY, que lee GetRegistry() del CLI; Supabase publica las mismas
+      # imágenes y tags ahí y en public.ecr.aws, así que el fingerprint no cambia. Si igual falla,
+      # se alterna con public.ecr.aws (el default). Solo `start` baja imágenes: el resto del job usa
+      # los contenedores ya levantados y el pg_dump del runner. Entre intentos se baja el stack
+      # (`stop --no-backup`) para que el siguiente `start` aplique las migraciones desde cero igual.
+      # Un error real de migración falla todos los intentos: no se esconde.
       - name: supabase start (aplica el set consolidado limpio, sin preseed)
         run: |
-          registries=(public.ecr.aws ghcr.io public.ecr.aws ghcr.io)
+          registries=(ghcr.io public.ecr.aws ghcr.io public.ecr.aws)
           for attempt in 1 2 3 4; do
             export SUPABASE_INTERNAL_IMAGE_REGISTRY="${registries[$((attempt - 1))]}"
             echo "Intento ${attempt}/4 con registry ${SUPABASE_INTERNAL_IMAGE_REGISTRY}"
@@ -129,7 +141,7 @@ jobs:
             supabase stop --no-backup || true
             sleep $((attempt * 30))
           done
-          echo "::error::supabase start falló en los 4 intentos (public.ecr.aws y ghcr.io)"
+          echo "::error::supabase start falló en los 4 intentos (ghcr.io y public.ecr.aws)"
           exit 1
 
       - name: Verificar convergencia (7 migraciones aplicadas, 0 pendientes)
