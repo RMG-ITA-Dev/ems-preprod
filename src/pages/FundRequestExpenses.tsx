@@ -462,8 +462,9 @@ const FundRequestExpenses = () => {
           </CardContent>
         </Card>
 
-        {/* Banner: plazo para registrar y enviar gastos (Fase 3) */}
-        {fr.status === "fondos_entregados" && deadline && (
+        {/* Banner: plazo para registrar y enviar gastos (Fase 3). Solo al solicitante: le habla a él
+            ("Tienes hasta…", "tus gastos") y es quien carga y envía; al gerente y a Contabilidad no les aplica. */}
+        {isRequester && fr.status === "fondos_entregados" && deadline && (
           windowOpen ? (
             <Alert>
               <Info className="h-4 w-4" />

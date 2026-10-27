@@ -1,10 +1,8 @@
 -- Seed del catalogo de notificaciones: 84 tipos, 597 concesiones rol x tipo.
 -- Archivo generado a partir de la matriz de notificaciones. Idempotente.
--- Editado a mano (2026-10-27): hr_manager recibe 22 avisos de gerente con alcance 'assigned' (encargo,
--- fondos, envíos de horas, Socio en OT). La matriz lo trataba solo como Talento Humano, pero desde 0817-180
--- es Gerente de encargos y no recibía, p. ej., fund.request.submitted_for_approval. Quedan fuera Riesgos,
--- cuotas/cobranza y clientes: sus encargos administrativos no pasan por ahí. Si se regenera desde la matriz
--- (tools/parse-matriz-notificaciones.py), llevar estas filas a la matriz o se pierden.
+-- 2026-10-27 (D-50 de docs/matriz-notificaciones.md): hr_manager recibe 22 avisos de gerente con alcance
+-- 'assigned' (encargo, fondos, envíos de horas, Socio en OT); desde 0817-180 es Gerente de encargos y no
+-- recibía, p. ej., fund.request.submitted_for_approval. Quedan fuera Riesgos, cuotas/cobranza y clientes.
 
 insert into public.notification_types
   (type_key, module_key, label_key, delivery, display_order, is_active, email_enabled) values
