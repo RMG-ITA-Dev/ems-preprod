@@ -107,8 +107,34 @@ jobs:
       # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
       # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
       # aplica solo, es un regresión real, no un caso esperado.
+      # Pre-descarga secuencial con reintentos por imagen (y respaldo en public.ecr.aws): reintentar solo
+      # `supabase start` repite las 13 descargas en paralelo y no converge cuando ghcr.io limita (2026-10-27:
+      # 4 intentos seguidos fallaron). El login es opcional: si falla, las descargas siguen anónimas.
+      - name: Pre-descargar las imágenes de Supabase (una a una, con reintentos)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || echo "::notice::docker login a ghcr.io falló; se descarga sin autenticar"
+          bash supabase/tests/local/ci-pull-supabase-images.sh
+
+      # `supabase start` baja ~13 imágenes en paralelo de ghcr.io y el registro responde
+      # `toomanyrequests` de forma intermitente (visto el 2026-10-22 y el 2026-10-27, en ramas
+      # distintas y sin cambios de código de por medio). Se reintenta SOLO ese error, con espera
+      # creciente; las capas ya bajadas quedan en caché y cada intento avanza. Cualquier otro
+      # fallo (migración que no aplica, healthcheck) sigue siendo fatal al primer intento.
       - name: supabase start (aplica el set consolidado limpio, sin preseed)
-        run: supabase start
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3 4; do
+            if supabase start 2>&1 | tee "$RUNNER_TEMP/supabase-start.log"; then
+              exit 0
+            fi
+            if ! grep -q "toomanyrequests" "$RUNNER_TEMP/supabase-start.log"; then
+              exit 1
+            fi
+            echo "::warning::ghcr.io limitó las descargas (intento $attempt/4); se reintenta"
+            supabase stop --no-backup || true
+            sleep $((attempt * 30))
+          done
+          exit 1
 
       - name: Verificar convergencia (7 migraciones aplicadas, 0 pendientes)
         run: |

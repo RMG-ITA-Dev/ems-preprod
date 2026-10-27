@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
+\restrict UisywmzdVulhrA9gf12SSpw1Soid2uCddo8oLTcMPg7zKPBU9y024Xbg4hnwkWp
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -8889,6 +8889,169 @@ $$;
 
 
 --
+-- Name: my_approvable_period_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_approvable_period_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de can_approve_timesheet(auth.uid(), period_id): admin => todos; con permiso de aprobar => periodos de personas (no autoaprobadas) que cargaron
+  -- horas esa semana en un encargo que gerencio o del que soy socio (get_timesheet_approvers).
+  SELECT tp.period_id FROM public.timesheet_periods tp WHERE (SELECT public.my_line_approval_mode()) = 'all'
+  UNION
+  SELECT tp.period_id
+    FROM public.timesheet_periods tp
+    JOIN (SELECT DISTINCT te.staff_id, te.date_worked
+            FROM public.time_entries te
+            JOIN public.engagements e ON e.engagement_id = te.engagement_id
+           WHERE (SELECT public.my_line_approval_mode()) = 'engagements'
+             AND (e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))) x
+      ON x.staff_id = tp.staff_id AND x.date_worked >= tp.week_start_date AND x.date_worked < tp.week_start_date + interval '7 days'
+   WHERE NOT public.is_auto_approved_category(tp.staff_id)
+$$;
+
+
+--
+-- Name: my_assigned_client_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_assigned_client_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de is_assigned_to_client(): clientes con algun encargo donde ocupo uno de los seis cargos.
+  SELECT e.client_id FROM public.engagements e
+   WHERE (SELECT public.get_my_staff_id()) IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id, e.specialist_it_id, e.specialist_tax_id)
+$$;
+
+
+--
+-- Name: my_assigned_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_assigned_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de is_assigned_to_engagement(): yo en (socio, gerente, sqr, encargado).
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE (SELECT public.get_my_staff_id()) IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)
+$$;
+
+
+--
+-- Name: my_assigned_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_assigned_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.wo_id FROM public.work_orders wo
+   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
+                               WHERE (SELECT public.get_my_staff_id()) IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id))
+$$;
+
+
+--
+-- Name: my_assignment_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_assignment_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de has_assignment_on_engagement(): tengo una asignacion vigente en el encargo.
+  SELECT ea.engagement_id FROM public.engagement_assignments ea
+   WHERE ea.staff_id = (SELECT public.get_my_staff_id()) AND ea.deleted_at IS NULL
+$$;
+
+
+--
+-- Name: my_fund_request_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_fund_request_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de engagement_in_my_fund_request(): se llama a la funcion real, pero solo para los encargos con alguna solicitud enviada.
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE e.engagement_id IN (
+           SELECT wo.engagement_id
+             FROM public.fund_request_work_orders frwo
+             JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+            WHERE fr.status <> 'borrador')
+     AND public.engagement_in_my_fund_request(e.engagement_id)
+$$;
+
+
+--
+-- Name: my_fund_request_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_fund_request_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de wo_in_my_fund_request(): idem, solo para OT con alguna solicitud enviada.
+  SELECT DISTINCT frwo.wo_id
+    FROM public.fund_request_work_orders frwo
+    JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+   WHERE fr.status <> 'borrador' AND public.wo_in_my_fund_request(frwo.wo_id)
+$$;
+
+
+--
+-- Name: my_line_approval_mode(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_line_approval_mode() RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Parte constante de can_approve_timesheet_line / can_approve_timesheet: 'all' (admin por role_key), 'engagements' (permiso de aprobar) o 'none'.
+  SELECT CASE
+    WHEN (SELECT public.get_my_staff_id()) IS NULL THEN 'none'
+    WHEN EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role_key = 'admin') THEN 'all'
+    WHEN EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+                  WHERE ur.user_id = auth.uid() AND rp.permission_key = 'timesheet_approval.approve') THEN 'engagements'
+    ELSE 'none'
+  END
+$$;
+
+
+--
+-- Name: my_managed_visible_plan_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_managed_visible_plan_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT p.plan_id FROM public.wo_payment_plan p WHERE p.wo_id IN (SELECT public.my_managed_visible_wo_ids())
+$$;
+
+
+--
+-- Name: my_managed_visible_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_managed_visible_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo del EXISTS de "Manager can manage payment plans": OT de encargos que gerencio Y que la RLS de engagements me deja ver.
+  SELECT wo.wo_id FROM public.work_orders wo
+   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
+                               WHERE e.manager_id = (SELECT public.get_my_staff_id())
+                                 AND e.engagement_id IN (SELECT public.my_visible_engagement_ids()))
+$$;
+
+
+--
 -- Name: my_responsible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8917,6 +9080,75 @@ CREATE FUNCTION public.my_responsible_period_ids() RETURNS SETOF uuid
   UNION
   SELECT tla.period_id FROM public.timesheet_line_approvals tla
    WHERE tla.engagement_id IN (SELECT public.my_responsible_engagement_ids())
+$$;
+
+
+--
+-- Name: my_sqr_visible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_sqr_visible_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo del EXISTS de "Assigned SQR can view work orders": encargos donde soy SQR Y que la RLS de engagements me deja ver (RLS anidada).
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE e.sqr_id = (SELECT public.get_my_staff_id())
+     AND e.engagement_id IN (SELECT public.my_visible_engagement_ids())
+$$;
+
+
+--
+-- Name: my_staffed_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_staffed_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de is_engagement_responsible(): yo en los seis cargos del equipo.
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE (SELECT public.get_my_staff_id()) IN (e.manager_id, e.partner_id, e.sqr_id, e.encargado_id, e.specialist_it_id, e.specialist_tax_id)
+$$;
+
+
+--
+-- Name: my_team_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_team_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Espejo de is_engagement_team_member(): gerente o socio.
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id())
+$$;
+
+
+--
+-- Name: my_team_plan_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_team_plan_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT p.plan_id FROM public.wo_payment_plan p WHERE p.wo_id IN (SELECT public.my_team_wo_ids())
+$$;
+
+
+--
+-- Name: my_team_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_team_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.wo_id FROM public.work_orders wo
+   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
+                               WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))
 $$;
 
 
@@ -23221,74 +23453,74 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_22; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_22 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_23; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_23 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_24; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_24 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_25; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_25 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_26; Type: TABLE; Schema: realtime; Owner: -
 --
 
 CREATE TABLE realtime.messages_2026_10_26 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_27; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_27 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_28; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_28 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_29; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_29 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_30; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_30 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -23581,38 +23813,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_22; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_22 FOR VALUES FROM ('2026-10-22 00:00:00') TO ('2026-10-23 00:00:00');
-
-
---
--- Name: messages_2026_10_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_23 FOR VALUES FROM ('2026-10-23 00:00:00') TO ('2026-10-24 00:00:00');
-
-
---
--- Name: messages_2026_10_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_24 FOR VALUES FROM ('2026-10-24 00:00:00') TO ('2026-10-25 00:00:00');
-
-
---
--- Name: messages_2026_10_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_25 FOR VALUES FROM ('2026-10-25 00:00:00') TO ('2026-10-26 00:00:00');
-
-
---
 -- Name: messages_2026_10_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_26 FOR VALUES FROM ('2026-10-26 00:00:00') TO ('2026-10-27 00:00:00');
+
+
+--
+-- Name: messages_2026_10_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_27 FOR VALUES FROM ('2026-10-27 00:00:00') TO ('2026-10-28 00:00:00');
+
+
+--
+-- Name: messages_2026_10_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_28 FOR VALUES FROM ('2026-10-28 00:00:00') TO ('2026-10-29 00:00:00');
+
+
+--
+-- Name: messages_2026_10_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_29 FOR VALUES FROM ('2026-10-29 00:00:00') TO ('2026-10-30 00:00:00');
+
+
+--
+-- Name: messages_2026_10_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_30 FOR VALUES FROM ('2026-10-30 00:00:00') TO ('2026-10-31 00:00:00');
 
 
 --
@@ -24590,43 +24822,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_22 messages_2026_10_22_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_22
-    ADD CONSTRAINT messages_2026_10_22_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_23 messages_2026_10_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_23
-    ADD CONSTRAINT messages_2026_10_23_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_24 messages_2026_10_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_24
-    ADD CONSTRAINT messages_2026_10_24_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_25 messages_2026_10_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_25
-    ADD CONSTRAINT messages_2026_10_25_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_26 messages_2026_10_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages_2026_10_26
     ADD CONSTRAINT messages_2026_10_26_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_27 messages_2026_10_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_27
+    ADD CONSTRAINT messages_2026_10_27_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_28 messages_2026_10_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_28
+    ADD CONSTRAINT messages_2026_10_28_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_29 messages_2026_10_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_29
+    ADD CONSTRAINT messages_2026_10_29_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_30 messages_2026_10_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_30
+    ADD CONSTRAINT messages_2026_10_30_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -25738,38 +25970,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_22_inserted_at_topic_idx ON realtime.messages_2026_10_22 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_23_inserted_at_topic_idx ON realtime.messages_2026_10_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_24_inserted_at_topic_idx ON realtime.messages_2026_10_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_25_inserted_at_topic_idx ON realtime.messages_2026_10_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
 CREATE INDEX messages_2026_10_26_inserted_at_topic_idx ON realtime.messages_2026_10_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_27_inserted_at_topic_idx ON realtime.messages_2026_10_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_28_inserted_at_topic_idx ON realtime.messages_2026_10_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_29_inserted_at_topic_idx ON realtime.messages_2026_10_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_30_inserted_at_topic_idx ON realtime.messages_2026_10_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -25871,62 +26103,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_22_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_22_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_22_pkey;
-
-
---
--- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_23_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_23_pkey;
-
-
---
--- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_24_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_24_pkey;
-
-
---
--- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_25_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_25_pkey;
-
-
---
 -- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -25938,6 +26114,62 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_26_pkey;
+
+
+--
+-- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_27_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_27_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_27_pkey;
+
+
+--
+-- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_28_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_28_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_28_pkey;
+
+
+--
+-- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_29_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_29_pkey;
+
+
+--
+-- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_30_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_30_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_30_pkey;
 
 
 --
@@ -27945,7 +28177,7 @@ CREATE POLICY "Admins can insert servicios" ON public.servicios FOR INSERT TO au
 -- Name: wo_budget_lines Admins can manage budget lines; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can manage budget lines" ON public.wo_budget_lines TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can manage budget lines" ON public.wo_budget_lines TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
@@ -27959,7 +28191,7 @@ CREATE POLICY "Admins can manage categories" ON public.categories TO authenticat
 -- Name: wo_expense_budget Admins can manage expense budget; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can manage expense budget" ON public.wo_expense_budget TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can manage expense budget" ON public.wo_expense_budget TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
@@ -27980,14 +28212,14 @@ CREATE POLICY "Admins can manage industries" ON public.industries TO authenticat
 -- Name: wo_payment_installments Admins can manage payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can manage payment installments" ON public.wo_payment_installments TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can manage payment installments" ON public.wo_payment_installments TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: wo_payment_plan Admins can manage payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can manage payment plans" ON public.wo_payment_plan TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can manage payment plans" ON public.wo_payment_plan TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
@@ -28008,7 +28240,7 @@ CREATE POLICY "Admins can manage skills" ON public.skills TO authenticated USING
 -- Name: work_orders Admins can manage work orders; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can manage work orders" ON public.work_orders TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admins can manage work orders" ON public.work_orders TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
@@ -28050,35 +28282,35 @@ CREATE POLICY "Admins can update servicios" ON public.servicios FOR UPDATE TO au
 -- Name: wo_budget_lines Admins can view all budget lines; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can view all budget lines" ON public.wo_budget_lines FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY "Admins can view all budget lines" ON public.wo_budget_lines FOR SELECT TO authenticated USING (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: wo_expense_budget Admins can view all expense budget; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can view all expense budget" ON public.wo_expense_budget FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY "Admins can view all expense budget" ON public.wo_expense_budget FOR SELECT TO authenticated USING (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: wo_payment_installments Admins can view all payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can view all payment installments" ON public.wo_payment_installments FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY "Admins can view all payment installments" ON public.wo_payment_installments FOR SELECT TO authenticated USING (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: wo_payment_plan Admins can view all payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can view all payment plans" ON public.wo_payment_plan FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY "Admins can view all payment plans" ON public.wo_payment_plan FOR SELECT TO authenticated USING (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: work_orders Admins can view all work orders; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Admins can view all work orders" ON public.work_orders FOR SELECT TO authenticated USING (public.is_admin());
+CREATE POLICY "Admins can view all work orders" ON public.work_orders FOR SELECT TO authenticated USING (( SELECT public.is_admin() AS is_admin));
 
 
 --
@@ -28120,14 +28352,14 @@ CREATE POLICY "Approvers can update assigned timesheets" ON public.timesheet_per
 -- Name: timesheet_line_approvals Approvers can view assigned line approvals; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT USING (public.can_approve_timesheet_line(auth.uid(), period_id, engagement_id));
+CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT USING (((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'all'::text) OR ((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'engagements'::text) AND (engagement_id IN ( SELECT public.my_team_engagement_ids() AS my_team_engagement_ids)))));
 
 
 --
 -- Name: timesheet_periods Approvers can view assigned timesheets; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Approvers can view assigned timesheets" ON public.timesheet_periods FOR SELECT USING (public.can_approve_timesheet(auth.uid(), period_id));
+CREATE POLICY "Approvers can view assigned timesheets" ON public.timesheet_periods FOR SELECT USING ((period_id IN ( SELECT public.my_approvable_period_ids() AS my_approvable_period_ids)));
 
 
 --
@@ -28145,9 +28377,7 @@ CREATE POLICY "Assigned SQR can update work orders" ON public.work_orders FOR UP
 -- Name: work_orders Assigned SQR can view work orders; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id())))));
+CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_sqr_visible_engagement_ids() AS my_sqr_visible_engagement_ids)));
 
 
 --
@@ -28259,28 +28489,14 @@ CREATE POLICY "Firm-wide read periods" ON public.timesheet_periods FOR SELECT US
 -- Name: wo_payment_installments Manager can manage payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Manager can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((EXISTS ( SELECT 1
-   FROM ((public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM ((public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND (e.manager_id = public.get_my_staff_id())))));
+CREATE POLICY "Manager can manage payment installments" ON public.wo_payment_installments TO authenticated USING ((plan_id IN ( SELECT public.my_managed_visible_plan_ids() AS my_managed_visible_plan_ids))) WITH CHECK ((plan_id IN ( SELECT public.my_managed_visible_plan_ids() AS my_managed_visible_plan_ids)));
 
 
 --
 -- Name: wo_payment_plan Manager can manage payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((EXISTS ( SELECT 1
-   FROM (public.work_orders wo
-     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM (public.work_orders wo
-     JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND (e.manager_id = public.get_my_staff_id())))));
+CREATE POLICY "Manager can manage payment plans" ON public.wo_payment_plan TO authenticated USING ((wo_id IN ( SELECT public.my_managed_visible_wo_ids() AS my_managed_visible_wo_ids))) WITH CHECK ((wo_id IN ( SELECT public.my_managed_visible_wo_ids() AS my_managed_visible_wo_ids)));
 
 
 --
@@ -28329,14 +28545,14 @@ CREATE POLICY "Staff can update own unlocked periods" ON public.timesheet_period
 -- Name: engagements Staff can view fund request engagements; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Staff can view fund request engagements" ON public.engagements FOR SELECT TO authenticated USING (public.engagement_in_my_fund_request(engagement_id));
+CREATE POLICY "Staff can view fund request engagements" ON public.engagements FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_fund_request_engagement_ids() AS my_fund_request_engagement_ids)));
 
 
 --
 -- Name: work_orders Staff can view fund request work orders; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Staff can view fund request work orders" ON public.work_orders FOR SELECT TO authenticated USING (public.wo_in_my_fund_request(wo_id));
+CREATE POLICY "Staff can view fund request work orders" ON public.work_orders FOR SELECT TO authenticated USING ((wo_id IN ( SELECT public.my_fund_request_wo_ids() AS my_fund_request_wo_ids)));
 
 
 --
@@ -28362,22 +28578,14 @@ CREATE POLICY "Staff can view own periods" ON public.timesheet_periods FOR SELEC
 -- Name: wo_budget_lines Team can manage budget lines; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage budget lines" ON public.wo_budget_lines TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_budget_lines.wo_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_budget_lines.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can manage budget lines" ON public.wo_budget_lines TO authenticated USING ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids))) WITH CHECK ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids)));
 
 
 --
 -- Name: wo_expense_budget Team can manage expense budget; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can manage expense budget" ON public.wo_expense_budget TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_expense_budget.wo_id) AND public.is_engagement_team_member(wo.engagement_id))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_expense_budget.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can manage expense budget" ON public.wo_expense_budget TO authenticated USING ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids))) WITH CHECK ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids)));
 
 
 --
@@ -28395,44 +28603,35 @@ CREATE POLICY "Team can manage worksheet cells" ON public.activity_worksheet_cel
 -- Name: wo_budget_lines Team can view budget lines; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can view budget lines" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_budget_lines.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can view budget lines" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids)));
 
 
 --
 -- Name: work_orders Team can view engagement work orders; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can view engagement work orders" ON public.work_orders FOR SELECT TO authenticated USING (public.is_engagement_team_member(engagement_id));
+CREATE POLICY "Team can view engagement work orders" ON public.work_orders FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_team_engagement_ids() AS my_team_engagement_ids)));
 
 
 --
 -- Name: wo_expense_budget Team can view expense budget; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can view expense budget" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_expense_budget.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can view expense budget" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids)));
 
 
 --
 -- Name: wo_payment_installments Team can view payment installments; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can view payment installments" ON public.wo_payment_installments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM (public.wo_payment_plan p
-     JOIN public.work_orders wo ON ((wo.wo_id = p.wo_id)))
-  WHERE ((p.plan_id = wo_payment_installments.plan_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can view payment installments" ON public.wo_payment_installments FOR SELECT TO authenticated USING ((plan_id IN ( SELECT public.my_team_plan_ids() AS my_team_plan_ids)));
 
 
 --
 -- Name: wo_payment_plan Team can view payment plans; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Team can view payment plans" ON public.wo_payment_plan FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_payment_plan.wo_id) AND public.is_engagement_team_member(wo.engagement_id)))));
+CREATE POLICY "Team can view payment plans" ON public.wo_payment_plan FOR SELECT TO authenticated USING ((wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids)));
 
 
 --
@@ -28552,16 +28751,14 @@ CREATE POLICY authz_rp_select_admin ON public.authorization_role_permissions FOR
 -- Name: wo_budget_lines budget_lines assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "budget_lines assigned read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = 'assigned_engagements'::text) AND (EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_budget_lines.wo_id) AND public.is_assigned_to_engagement(wo.engagement_id))))));
+CREATE POLICY "budget_lines assigned read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_assigned_wo_ids() AS my_assigned_wo_ids))));
 
 
 --
 -- Name: wo_budget_lines budget_lines firm read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "budget_lines firm read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
+CREATE POLICY "budget_lines firm read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
 
 --
@@ -28614,14 +28811,14 @@ ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 -- Name: clients clients creator read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "clients creator read" ON public.clients FOR SELECT TO authenticated USING ((public.has_permission('client.read'::text) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = public.get_my_staff_id())));
+CREATE POLICY "clients creator read" ON public.clients FOR SELECT TO authenticated USING ((( SELECT public.has_permission('client.read'::text) AS has_permission) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id))));
 
 
 --
 -- Name: clients clients read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "clients read" ON public.clients FOR SELECT TO authenticated USING ((public.has_permission('client.read'::text) AND ((public.permission_scope('client.read'::text) <> 'assigned_clients'::text) OR public.is_assigned_to_client(client_id))));
+CREATE POLICY "clients read" ON public.clients FOR SELECT TO authenticated USING ((( SELECT public.has_permission('client.read'::text) AS has_permission) AND ((( SELECT public.permission_scope('client.read'::text) AS permission_scope) <> 'assigned_clients'::text) OR (client_id IN ( SELECT public.my_assigned_client_ids() AS my_assigned_client_ids)))));
 
 
 --
@@ -28649,42 +28846,42 @@ CREATE POLICY "clients write update" ON public.clients FOR UPDATE TO authenticat
 -- Name: engagement_assignments ea_admin_manage; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_admin_manage ON public.engagement_assignments TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY ea_admin_manage ON public.engagement_assignments TO authenticated USING (( SELECT public.is_admin() AS is_admin)) WITH CHECK (( SELECT public.is_admin() AS is_admin));
 
 
 --
 -- Name: engagement_assignments ea_select_assigned; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_select_assigned ON public.engagement_assignments FOR SELECT TO authenticated USING ((public.has_role(auth.uid(), 'senior'::public.app_role) AND public.has_assignment_on_engagement(engagement_id)));
+CREATE POLICY ea_select_assigned ON public.engagement_assignments FOR SELECT TO authenticated USING ((( SELECT public.has_role(auth.uid(), 'senior'::public.app_role) AS has_role) AND (engagement_id IN ( SELECT public.my_assignment_engagement_ids() AS my_assignment_engagement_ids))));
 
 
 --
 -- Name: engagement_assignments ea_select_firmwide; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_select_firmwide ON public.engagement_assignments FOR SELECT TO authenticated USING (public.has_firmwide_assignment_visibility());
+CREATE POLICY ea_select_firmwide ON public.engagement_assignments FOR SELECT TO authenticated USING (( SELECT public.has_firmwide_assignment_visibility() AS has_firmwide_assignment_visibility));
 
 
 --
 -- Name: engagement_assignments ea_select_lead; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO authenticated USING ((public.has_role(auth.uid(), 'manager'::public.app_role) AND public.is_engagement_team_member(engagement_id)));
+CREATE POLICY ea_select_lead ON public.engagement_assignments FOR SELECT TO authenticated USING ((( SELECT public.has_role(auth.uid(), 'manager'::public.app_role) AS has_role) AND (engagement_id IN ( SELECT public.my_team_engagement_ids() AS my_team_engagement_ids))));
 
 
 --
 -- Name: engagement_assignments ea_select_own; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_select_own ON public.engagement_assignments FOR SELECT TO authenticated USING ((staff_id = public.get_my_staff_id()));
+CREATE POLICY ea_select_own ON public.engagement_assignments FOR SELECT TO authenticated USING ((staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id)));
 
 
 --
 -- Name: engagement_assignments ea_select_responsible; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY ea_select_responsible ON public.engagement_assignments FOR SELECT TO authenticated USING (public.is_engagement_responsible(engagement_id));
+CREATE POLICY ea_select_responsible ON public.engagement_assignments FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_staffed_engagement_ids() AS my_staffed_engagement_ids)));
 
 
 --
@@ -28724,7 +28921,7 @@ ALTER TABLE public.engagements ENABLE ROW LEVEL SECURITY;
 -- Name: engagements engagements creator read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO authenticated USING ((public.has_permission('engagement.read'::text) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = public.get_my_staff_id())));
+CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO authenticated USING ((( SELECT public.has_permission('engagement.read'::text) AS has_permission) AND (created_by_staff_id IS NOT NULL) AND (created_by_staff_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id))));
 
 
 --
@@ -28738,7 +28935,7 @@ CREATE POLICY "engagements creator update" ON public.engagements FOR UPDATE TO a
 -- Name: engagements engagements hr administrative read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.read'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
+CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion <> 1) AND ( SELECT public.has_permission('engagement.read'::text) AS has_permission) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
 
 
 --
@@ -28752,7 +28949,7 @@ CREATE POLICY "engagements hr administrative update" ON public.engagements FOR U
 -- Name: engagements engagements read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "engagements read" ON public.engagements FOR SELECT TO authenticated USING ((public.has_permission('engagement.read'::text) AND ((public.permission_scope('engagement.read'::text) <> 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
+CREATE POLICY "engagements read" ON public.engagements FOR SELECT TO authenticated USING ((( SELECT public.has_permission('engagement.read'::text) AS has_permission) AND ((( SELECT public.permission_scope('engagement.read'::text) AS permission_scope) <> 'assigned_engagements'::text) OR (engagement_id IN ( SELECT public.my_assigned_engagement_ids() AS my_assigned_engagement_ids)))));
 
 
 --
@@ -28786,16 +28983,14 @@ ALTER TABLE public.exchange_rate_history ENABLE ROW LEVEL SECURITY;
 -- Name: wo_expense_budget expense_budget assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = 'assigned_engagements'::text) AND (EXISTS ( SELECT 1
-   FROM public.work_orders wo
-  WHERE ((wo.wo_id = wo_expense_budget.wo_id) AND public.is_assigned_to_engagement(wo.engagement_id))))));
+CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_assigned_wo_ids() AS my_assigned_wo_ids))));
 
 
 --
 -- Name: wo_expense_budget expense_budget firm read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "expense_budget firm read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
+CREATE POLICY "expense_budget firm read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
 
 --
@@ -29190,14 +29385,14 @@ ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
 -- Name: wo_payment_installments payment_installments firm read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "payment_installments firm read" ON public.wo_payment_installments FOR SELECT TO authenticated USING ((public.has_permission('work_order.payment_plan.approve'::text) AND (public.permission_scope('work_order.payment_plan.approve'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
+CREATE POLICY "payment_installments firm read" ON public.wo_payment_installments FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.payment_plan.approve'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.payment_plan.approve'::text) AS permission_scope) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
 
 --
 -- Name: wo_payment_plan payment_plan firm read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "payment_plan firm read" ON public.wo_payment_plan FOR SELECT TO authenticated USING ((public.has_permission('work_order.payment_plan.approve'::text) AND (public.permission_scope('work_order.payment_plan.approve'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
+CREATE POLICY "payment_plan firm read" ON public.wo_payment_plan FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.payment_plan.approve'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.payment_plan.approve'::text) AS permission_scope) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
 
 --
@@ -29636,14 +29831,14 @@ ALTER TABLE public.work_orders ENABLE ROW LEVEL SECURITY;
 -- Name: work_orders work_orders assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "work_orders assigned read" ON public.work_orders FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = 'assigned_engagements'::text) AND public.is_assigned_to_engagement(engagement_id)));
+CREATE POLICY "work_orders assigned read" ON public.work_orders FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (engagement_id IN ( SELECT public.my_assigned_engagement_ids() AS my_assigned_engagement_ids))));
 
 
 --
 -- Name: work_orders work_orders firm read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "work_orders firm read" ON public.work_orders FOR SELECT TO authenticated USING ((public.has_permission('work_order.read'::text) AND (public.permission_scope('work_order.read'::text) = ANY (ARRAY['firm'::text, 'department'::text]))));
+CREATE POLICY "work_orders firm read" ON public.work_orders FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = ANY (ARRAY['firm'::text, 'department'::text]))));
 
 
 --
@@ -29888,5 +30083,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
+\unrestrict UisywmzdVulhrA9gf12SSpw1Soid2uCddo8oLTcMPg7zKPBU9y024Xbg4hnwkWp
 

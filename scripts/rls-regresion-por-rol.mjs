@@ -27,8 +27,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// Guarda: solo Dev 2.0. Test está congelado por la campaña k6 y producción no se toca.
-const REFS_PERMITIDOS = ["oapgycqovzqsucliwbpu"];
+// Guarda: Dev 2.0 siempre; el proyecto vacío xcdc solo si quien ejecuta confirma
+// explícitamente el ref en su propia shell. Así no se envían contraseñas a otro origen.
+const REF_TARGET_CONTROLADO = "xcdcxtduotwgwmhxvsiz";
+const REFS_PERMITIDOS = [
+  "oapgycqovzqsucliwbpu",
+  ...(process.env.RLS_REG_ALLOW_TARGET === REF_TARGET_CONTROLADO ? [REF_TARGET_CONTROLADO] : []),
+];
 
 // Objetos a medir. `sonda` es una columna que authenticated puede leer (la clave primaria): con
 // select=* una tabla con permisos por columna, como `staff`, responde 403 aunque la fila sea

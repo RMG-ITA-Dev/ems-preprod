@@ -440,6 +440,10 @@ RESET ROLE;
 -- subir el contador a 4 sin más, la guarda compara el CONJUNTO EXACTO de nombres y fija la forma de la nueva
 -- (limitada a funcion <> 1 y a esos dos roles): cualquier otra policy de SELECT, o un alcance más amplio, sigue
 -- haciendo fallar esta suite. Su espejo en list_portfolio_engagements lo prueba rls-carril-b-b3c3-hr-administrativos.sql.
+-- D1 (20/10/2026): "engagements read" y "engagements creator read" consultan el conjunto (my_assigned_engagement_ids(),
+-- (SELECT get_my_staff_id())) en vez de llamar a la funcion por fila. La guarda sigue fijando el MISMO alcance (permiso
+-- engagement.read + scope <> assigned_engagements o pertenencia al encargo; creador = yo); solo cambia el predicado de
+-- pertenencia, cuya equivalencia con is_assigned_to_engagement() la ejercen las suites de B3c.
 DO $$
 DECLARE
   v_policies     text;
@@ -466,15 +470,15 @@ BEGIN
   SELECT qual INTO v_read_qual FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements read';
   IF v_read_qual IS NULL
-     OR v_read_qual NOT LIKE '%is_assigned_to_engagement(engagement_id)%'
-     OR v_read_qual NOT LIKE '%permission_scope(''engagement.read''::text) <> ''assigned_engagements''::text%' THEN
+     OR v_read_qual NOT LIKE '%my_assigned_engagement_ids()%'
+     OR v_read_qual NOT LIKE '%permission_scope(''engagement.read''::text)%<> ''assigned_engagements''::text%' THEN
     RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements read" cambió de forma -- 0828-185 no debe re-escoparla. qual actual: %', v_read_qual;
   END IF;
 
   SELECT qual INTO v_creator_qual FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements creator read';
   IF v_creator_qual IS NULL
-     OR v_creator_qual NOT LIKE '%created_by_staff_id = get_my_staff_id()%' THEN
+     OR v_creator_qual NOT LIKE '%created_by_staff_id = %get_my_staff_id()%' THEN
     RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements creator read" cambió de forma. qual actual: %', v_creator_qual;
   END IF;
 
