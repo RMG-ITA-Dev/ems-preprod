@@ -72,7 +72,9 @@ export function AppSidebar() {
       title: t("nav.engagements"),
       url: "/engagements",
       icon: FolderKanban,
-      show: can("engagement.read"),
+      // El Analista de Talento Humano no ve encargos de Cliente (decisión del operador
+      // 2026-10-27): trabaja solo desde Encargos Administrativos.
+      show: can("engagement.read") && roleKey !== "hr_analyst",
     },
     {
       title: t("nav.administrativeEngagements"),
@@ -107,12 +109,14 @@ export function AppSidebar() {
       icon: Grid3X3,
       show: can("timesheet.read"),
     },
-    // 0922-190: sin permiso — accesible a los 23 roles, la RLS acota los datos.
+    // 0922-190: sin permiso — accesible a todos los roles, la RLS acota los datos. Salvo el
+    // Supervisor de Riesgos (decisión del operador 2026-10-26): no se le asigna a encargos. Ni
+    // el Analista de Talento Humano (2026-10-27): no carga horas (sin timesheet.*/time_entry.*).
     {
       title: t("nav.myAssignments"),
       url: "/timesheet/assignments",
       icon: ListChecks,
-      show: true,
+      show: roleKey !== "risk_supervisor" && roleKey !== "hr_analyst",
     },
     {
       title: t("nav.timesheetApprovals"),

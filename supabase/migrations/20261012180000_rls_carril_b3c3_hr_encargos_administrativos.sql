@@ -16,6 +16,16 @@
 --      sigue siendo de admin) y la creación ya existía (política "engagements write insert" + create_engagement_with_code).
 --   3. list_portfolio_engagements gana el bucket «hr_administrative» con la misma condición, para que Encargos y
 --      EngagementEdit los abran. Es la ÚNICA modificación de la función: se copia VERBATIM de 20260902163000.
+--   4. risk_supervisor (Supervisor de Riesgos) entra al bucket firm de list_portfolio_engagements: ve TODOS los encargos,
+--      igual que risk_partner. Decisión del operador (26/10/2026): el área de Riesgos consulta los encargos pero no los
+--      edita. Ya tenía engagement.read con alcance department (Carril B, 20261009120000), así que la RLS de engagements
+--      ya le dejaba leerlos todos; solo la RPC lo dejaba en «solo lo que creé». Solo lectura porque NO tiene
+--      engagement.update: ni "engagements write update" ni "creator update" lo dejan escribir, y EngagementForm queda
+--      en readOnly (`!can("engagement.update")`).
+--   5. hr_analyst (Analista de Talento Humano) deja de ver en list_portfolio_engagements los encargos de Cliente
+--      (funcion 1/NULL) por cualquier bucket, incluido el de creador. Decisión del operador (27/10/2026): no crea ni ve
+--      encargos de Cliente; la creación la cierra enforce_engagement_profile_scope() (20260826162100). La RLS de
+--      engagements no cambia: "engagements read" (alcance assigned_engagements) sigue sirviendo a la hoja de horas.
 --
 -- El rol se resuelve con current_role_key() (SECURITY DEFINER), igual que la RPC de portafolio; los role_key van
 -- hardcodeados por el mismo motivo que allí (sin nuevo permission_key/scope_key). Se evalúa una vez por consulta
@@ -132,8 +142,8 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
     LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE public.has_permission('engagement.read')
      AND (
-       -- 1. firm: ve todos los encargos.
-       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner')
+       -- 1. firm: ve todos los encargos. risk_supervisor solo lee (sin engagement.update).
+       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner', 'risk_supervisor')
        -- 2. own_society: mismos encargos de SU sociedad, incluidos los creados por otros.
        OR (caller.role_key IN ('partner', 'sqr', 'director')
            AND e.society_id IS NOT NULL
@@ -149,9 +159,13 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
+     -- 5. hr_analyst no ve encargos de Cliente (funcion 1, o NULL legacy que se lee como Cliente) por
+     --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
+     --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
+     AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
 $$;
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 -- anon: el DROP + CREATE devuelve los privilegios por defecto de Supabase (EXECUTE a anon); la función no tiene uso
 -- sin sesión (sin auth.uid() no devuelve filas), así que se retira aquí en vez de esperar a B5.

@@ -183,3 +183,39 @@ describe("FundRequestExpenses — export report (0319-91)", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
   });
 });
+
+// El banner del plazo le habla al solicitante ("Tienes hasta…", "tus gastos"): al gerente de la OT
+// y a Contabilidad no se les muestra (2026-10-27). Abierto o vencido depende de la fecha de hoy, así
+// que se busca cualquiera de las dos claves.
+describe("FundRequestExpenses — deadline banner only for the requester", () => {
+  const WINDOW_TEXT = /fundRequestExpense\.window\.(open|closed)/;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStaff = { staff_id: STAFF_ID };
+    mockCanSettle = false;
+    mockExpenses = [];
+  });
+
+  it("shows the deadline banner to the requester", () => {
+    mockFr = makeFr({ requester_staff_id: STAFF_ID, disbursed_at: "2026-11-02T12:00:00Z" });
+    wrap();
+    expect(screen.getByText(WINDOW_TEXT)).toBeInTheDocument();
+  });
+
+  it("hides the deadline banner from the OT manager", () => {
+    mockFr = makeFr({
+      disbursed_at: "2026-11-02T12:00:00Z",
+      fund_request_work_orders: [{ wo_id: "wo-1", manager_staff_id: STAFF_ID }],
+    });
+    wrap();
+    expect(screen.queryByText(WINDOW_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("hides the deadline banner from accounting", () => {
+    mockCanSettle = true;
+    mockFr = makeFr({ disbursed_at: "2026-11-02T12:00:00Z" });
+    wrap();
+    expect(screen.queryByText(WINDOW_TEXT)).not.toBeInTheDocument();
+  });
+});

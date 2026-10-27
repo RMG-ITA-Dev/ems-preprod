@@ -3554,6 +3554,15 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Analista de Talento Humano: engagement.create es SOLO para encargos Administrativa,
+    -- Capacitación y Calidad (funcion 0/2/3); los de Cliente no los crea ni los ve (decisión del
+    -- operador, 27/10/2026). funcion NULL se lee como Cliente en todo el sistema, así que también
+    -- se rechaza. Espejo de EngagementNew.tsx, que fuerza el modo administrativo para este rol.
+    IF v_role = 'hr_analyst' AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Analista de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
     -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
     -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
@@ -3619,7 +3628,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_profile_scope(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 --
@@ -8056,7 +8065,17 @@ BEGIN
           'anio_fiscal', e.anio_fiscal,
           'start_date', e.start_date,
           'end_date', e.end_date,
-          'status', e.status
+          'status', e.status,
+          -- Insumos del estado efectivo (effectiveEngagementState en src/lib/engagementStatus.ts):
+          -- `status` es el legacy y siempre dice 'active', así que la lista mostraba "Activo"
+          -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
+          'work_order_required', e.work_order_required,
+          'engagement_state_override', e.engagement_state_override,
+          'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
+            'approval_status', wo.approval_status,
+            'approved_at', wo.approved_at,
+            'risk_status', wo.risk_status
+          ) END
         )
         ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
       )
@@ -8064,6 +8083,7 @@ BEGIN
         JOIN public.clients c ON c.client_id = e.client_id
         JOIN public.society s ON s.society_id = e.society_id
         LEFT JOIN public.practicas p ON p.code = e.practica
+        LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
     ),
@@ -8077,7 +8097,7 @@ $$;
 -- Name: FUNCTION list_administrative_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 
 --
@@ -8682,8 +8702,8 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
     LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE public.has_permission('engagement.read')
      AND (
-       -- 1. firm: ve todos los encargos.
-       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner')
+       -- 1. firm: ve todos los encargos. risk_supervisor solo lee (sin engagement.update).
+       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner', 'risk_supervisor')
        -- 2. own_society: mismos encargos de SU sociedad, incluidos los creados por otros.
        OR (caller.role_key IN ('partner', 'sqr', 'director')
            AND e.society_id IS NOT NULL
@@ -8699,6 +8719,10 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
+     -- 5. hr_analyst no ve encargos de Cliente (funcion 1, o NULL legacy que se lee como Cliente) por
+     --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
+     --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
+     AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
 $$;
 
 
@@ -8706,7 +8730,7 @@ $$;
 -- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --

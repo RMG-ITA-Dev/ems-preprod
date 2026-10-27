@@ -1874,6 +1874,7 @@
     "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft",
     "riskSavedOnSubmit": "Risk data will be saved when submitting for approval",
+    "riskOnlyAdministrative": "This work order belongs to an administrative engagement and has no risk assessment.",
     "confirmParametersTitle": "Confirm Work Order Parameters",
     "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
     "selectedCurrency": "Currency",

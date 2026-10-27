@@ -13,9 +13,10 @@ const activeEngagement = {
   engagement_code: "E-001",
   engagement_name: "Auditoria",
   client: { client_legal_name: "Cliente Demo" },
-  // BUG 0828-186 (Punto D): "creado por mí" -- debe coincidir con el staff_id del mock de
-  // useCurrentStaff de abajo para que el fixture siga apareciendo en availableEngagements.
+  // Nueva OT lista solo donde el usuario es Gerente (2026-10-27): debe coincidir con el staff_id
+  // del mock de useCurrentStaff de abajo para que el fixture siga apareciendo en availableEngagements.
   created_by_staff_id: "s1",
+  manager_id: "s1",
 };
 
 // Stable references are required: useCategories/useWorkOrders are useEffect deps in WorkOrderNew;
@@ -51,8 +52,8 @@ vi.mock("@/hooks/useWorksheetData", () => ({
   useWorksheetByEngagementId: () => ({ data: undefined }),
 }));
 
-// BUG 0828-186 (Punto D): WorkOrderNew now filters availableEngagements by
-// created_by_staff_id === current staff, which requires useCurrentStaff.
+// WorkOrderNew filters availableEngagements by manager_id === current staff (2026-10-27),
+// which requires useCurrentStaff.
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: "s1" }, isLoading: false }),
 }));

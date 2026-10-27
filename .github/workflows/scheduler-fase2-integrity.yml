@@ -78,6 +78,11 @@ jobs:
 
   consolidated-replay:
     runs-on: ubuntu-latest
+    # packages: read para el login a ghcr.io de abajo (las imágenes de Supabase son públicas; el
+    # login solo cambia el pull de anónimo a autenticado, que tiene otro límite).
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 

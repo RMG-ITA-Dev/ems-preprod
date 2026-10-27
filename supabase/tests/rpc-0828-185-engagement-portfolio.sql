@@ -7,8 +7,9 @@
 -- chequeo que pasa, marcador final "PORTFOLIO ENGAGEMENTS RPC: ALL CHECKS PASSED".
 --
 -- Qué se cubre (plan_v2 §e):
---   1. Los 4 roles firm (admin, it_security_manager, senior_partner, risk_partner) ven TODOS
---      los encargos del fixture, incluidos los de otra sociedad.
+--   1. Los 5 roles firm (admin, it_security_manager, senior_partner, risk_partner,
+--      risk_supervisor) ven TODOS los encargos del fixture, incluidos los de otra sociedad.
+--      risk_supervisor entra por engagement.read department (Carril B) + bucket firm (B3c-3).
 --   2. partner (own_society) ve los encargos de SU sociedad incluidos los creados por otros,
 --      y NO ve un encargo de otra sociedad aunque figure ahí como partner_id.
 --   3. sqr sintético (own_society, sin holder real hoy) se comporta igual que partner: ve su
@@ -16,8 +17,9 @@
 --   4. director (own_society) ve el encargo de su sociedad — mismo bucket que partner/sqr.
 --   5. manager (own_management) ve SOLO donde es manager_id + lo que creó; asignado nada más
 --      que partner_id en un encargo ajeno NO le da visibilidad (la regresión exacta del bug).
---   6. hr_analyst ve únicamente lo que creó.
---   7. senior / risk_supervisor -> vacío (sin engagement.read en la matriz real).
+--   6. hr_analyst no ve ni lo que creó si es de Cliente (E7, funcion NULL legacy = Cliente): solo
+--      crea y ve encargos Administrativa/Capacitación/Calidad (decisión del operador 27/10/2026).
+--   7. senior -> vacío (sin engagement.read en la matriz real).
 --   8. Sin impersonar (auth.uid() NULL) -> arreglo vacío, sin error.
 --   9. Forma del payload: client/society/work_order/staff anidados con los campos que la UI
 --      necesita, y los seis staff embebidos SIN PII (email/id_number/aud_reg_number/
@@ -62,8 +64,8 @@ END $$;
 -- ── Personal: un caller por rol bajo prueba ─────────────────────────────────────────────────
 -- 01 admin · 02 it_security_manager · 03 senior_partner · 04 risk_partner (todos firm-wide)
 -- 05 partner (sociedad Norte) · 06 sqr SINTÉTICO (sociedad Norte, sin holder real hoy)
--- 07 manager (sociedad Sur, own_management) · 08 hr_analyst (solo creador)
--- 09 senior · 10 risk_supervisor (sin engagement.read en la matriz real -> vacío)
+-- 07 manager (sociedad Sur, own_management) · 08 hr_analyst (creó E7 de Cliente: no lo ve)
+-- 09 senior (sin engagement.read -> vacío) · 10 risk_supervisor (firm-wide, solo lectura)
 -- 11 third party (crea encargos que ningún caller bajo prueba debe heredar por asignación)
 -- 12 director SINTÉTICO (sociedad Norte, mismo bucket que partner/sqr)
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active,
@@ -110,7 +112,8 @@ ON CONFLICT (client_id) DO NOTHING;
 -- E5: sociedad Sur, creado por un tercero, partner_id = manager (07) (NO manager_id) -- la
 --     regresión exacta: asignado nada más que como partner NO da visibilidad de portafolio.
 -- E6: sociedad Sur, creado por el manager (07) -- creator.
--- E7: sociedad Norte, creado por hr_analyst (08) -- creator, único que debe ver.
+-- E7: sociedad Norte, creado por hr_analyst (08), funcion NULL (= Cliente) -- hr_analyst NO lo ve
+--     pese a ser su creador; partner (own_society) sí.
 -- O1/O2/O3: sociedad Norte, creados por el partner (05) con created_at explícito y espaciado --
 --     fixture de orden determinístico.
 -- trg_engagements_created_by (BEFORE INSERT, set_engagement_created_by()) pisa
@@ -212,7 +215,8 @@ BEGIN
       ('admin',               pg_temp.u(1)),
       ('it_security_manager', pg_temp.u(2)),
       ('senior_partner',      pg_temp.u(3)),
-      ('risk_partner',        pg_temp.u(4))
+      ('risk_partner',        pg_temp.u(4)),
+      ('risk_supervisor',     pg_temp.u(10))
     ) t(role_key, uid)
   LOOP
     PERFORM pg_temp.impersonate(v_uid);
@@ -225,7 +229,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL: role firm % no vio E2 (otra sociedad) -- debía verlo (firm-wide)', v_role;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1: admin/it_security_manager/senior_partner/risk_partner ven los 10 encargos, incluida otra sociedad';
+  RAISE NOTICE 'OK 1: admin/it_security_manager/senior_partner/risk_partner/risk_supervisor ven los 10 encargos, incluida otra sociedad';
 END $$;
 
 -- ── 2. partner (own_society): su sociedad incluidos los creados por otros, NO la otra sociedad ─
@@ -302,20 +306,20 @@ BEGIN
   RAISE NOTICE 'OK 5: manager ve solo manager_id + lo creado; ser partner/sqr/encargado/especialista en otro encargo NO da visibilidad';
 END $$;
 
--- ── 6. hr_analyst: solo lo que creó ──────────────────────────────────────────────────────────
+-- ── 6. hr_analyst: ningún encargo de Cliente, ni el que creó ─────────────────────────────────
 DO $$
 DECLARE v_result jsonb;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(8));
   SELECT public.list_portfolio_engagements() INTO v_result;
 
-  IF jsonb_array_length(v_result) <> 1 OR NOT pg_temp.has_eng(v_result, pg_temp.s(7)) THEN
-    RAISE EXCEPTION 'FAIL: hr_analyst debía ver únicamente E7 (lo que creó), vio % fila(s)', jsonb_array_length(v_result);
+  IF jsonb_array_length(v_result) <> 0 THEN
+    RAISE EXCEPTION 'FAIL: hr_analyst no debía ver ningún encargo de Cliente (ni E7, que creó), vio % fila(s)', jsonb_array_length(v_result);
   END IF;
-  RAISE NOTICE 'OK 6: hr_analyst ve únicamente lo que creó';
+  RAISE NOTICE 'OK 6: hr_analyst no ve encargos de Cliente, ni los que creó';
 END $$;
 
--- ── 7. senior / risk_supervisor: sin engagement.read en la matriz real -> vacío ─────────────
+-- ── 7. senior: sin engagement.read en la matriz real -> vacío ─────────────────────────────────
 DO $$
 DECLARE
   v_result jsonb;
@@ -323,7 +327,7 @@ DECLARE
   v_uid    text;
 BEGIN
   FOR v_role, v_uid IN
-    SELECT * FROM (VALUES ('senior', pg_temp.u(9)), ('risk_supervisor', pg_temp.u(10))) t(role_key, uid)
+    SELECT * FROM (VALUES ('senior', pg_temp.u(9))) t(role_key, uid)
   LOOP
     PERFORM pg_temp.impersonate(v_uid);
     SELECT public.list_portfolio_engagements() INTO v_result;
@@ -332,7 +336,7 @@ BEGIN
         v_role, jsonb_array_length(v_result);
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 7: senior/risk_supervisor (sin engagement.read) ven 0 encargos';
+  RAISE NOTICE 'OK 7: senior (sin engagement.read) ve 0 encargos';
 END $$;
 
 -- ── 8. Sin impersonar: arreglo vacío, sin error ──────────────────────────────────────────────

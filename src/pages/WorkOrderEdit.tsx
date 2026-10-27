@@ -485,6 +485,12 @@ const WorkOrderEdit = () => {
   // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
   const isCollectionsRole = isCollectionsRoleKey(roleKey);
   const collectionsOnlyView = !isAdmin && isCollectionsRole;
+  // Decisión del operador 2026-10-26: el Supervisor de Riesgos abre la OT solo para la
+  // evaluación de riesgos, así que ve únicamente esa pestaña (sin Presupuesto, Plan de pagos
+  // ni Dotación) y en solo lectura, salvo sus botones de aprobar/rechazar Riesgos, que siguen
+  // por `canApproveRisk`. No escribe la OT: no es socio ni gerente del encargo
+  // (`canWriteWorkOrder`), así que la policy "wo_team_update" igual lo rechazaría.
+  const riskOnlyView = !isAdmin && roleKey === "risk_supervisor";
   // Cobranzas Fase 4 (decisión Q16): el hilo de notas lo escriben los cinco que participan de
   // él. Es un conjunto más amplio que `canEditPaymentPlan`: incluye al SOCIO del encargo, que
   // sigue sin poder tocar el plan de pagos y para quien ésta es justamente la vía de dejar
@@ -976,7 +982,7 @@ const WorkOrderEdit = () => {
               </div>
               <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
                 {/* Show linked worksheet buttons if exists - always in same position */}
-                {linkedWorksheet?.wo_id === workOrder.wo_id && (
+                {linkedWorksheet?.wo_id === workOrder.wo_id && !riskOnlyView && (
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
@@ -1073,8 +1079,10 @@ const WorkOrderEdit = () => {
           onRejectRisk={handleRejectRisk}
           onApproveEmergencyReview={handleApproveEmergencyReview}
           onApproveEmergencyPartner={handleApproveEmergencyPartner}
-          onCompleteRisk={handleCompleteRisk}
-          onClearRiskData={handleClearRiskData}
+          // Riesgos solo lee los datos de riesgo: cargarlos, limpiarlos y reenviarlos es del
+          // gerente del encargo. Sin estos callbacks WorkOrderForm deja los campos en lectura.
+          onCompleteRisk={riskOnlyView ? undefined : handleCompleteRisk}
+          onClearRiskData={riskOnlyView ? undefined : handleClearRiskData}
           riskNote={workOrder.risk_notes}
           canRevert={isAdmin}
           onRevertSocio={handleRevertSocio}
@@ -1086,7 +1094,7 @@ const WorkOrderEdit = () => {
           ceacNumber={ceacNumber}
           sanApprovalId={sanApprovalId}
           riskLevel={riskLevel}
-          onRiskAssessmentChange={isAdministrativeEngagement ? undefined : handleRiskAssessmentChange}
+          onRiskAssessmentChange={isAdministrativeEngagement || riskOnlyView ? undefined : handleRiskAssessmentChange}
           woId={workOrder.wo_id}
           paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
           paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
@@ -1108,6 +1116,7 @@ const WorkOrderEdit = () => {
           // is_collections_role().
           isStatusEditable={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
           collectionsOnly={collectionsOnlyView}
+          riskOnly={riskOnlyView}
           canWriteNotes={canWriteNotes}
           currentStaffId={staffRecord?.staff_id ?? null}
           isAdminViewer={isAdmin}

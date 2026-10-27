@@ -213,6 +213,42 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(getTabTrigger("budget")).toHaveAttribute("data-state", "active");
   });
 
+  // Decisión del operador 2026-10-26: el Supervisor de Riesgos abre la OT solo para la
+  // evaluación de riesgos. Ve esa pestaña y nada más, y no le aparecen las acciones de la OT.
+  it("T1f: la vista de Riesgos muestra solo la pestaña de Riesgos, sin Guardar ni Enviar", () => {
+    renderForm({ riskOnly: true, approvalStatus: "Draft", onSubmitForApproval: vi.fn() });
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(getTabTrigger("risk")).toHaveAttribute("data-state", "active");
+    expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.budget")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.tabs.staffing")).not.toBeInTheDocument();
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+    expect(screen.queryByText("workOrders.submitForApproval")).not.toBeInTheDocument();
+  });
+
+  it("T1g: la vista de Riesgos conserva sus botones de aprobar/rechazar Riesgos", () => {
+    renderForm({
+      riskOnly: true,
+      approvalStatus: "Pending_Approval",
+      riskStatus: "Pending",
+      canApproveRisk: true,
+      onApproveRisk: vi.fn(),
+      onRejectRisk: vi.fn(),
+      onUnsubmit: vi.fn(),
+      ...fullRisk,
+    });
+    expect(screen.getByText("workOrders.approveRisk")).toBeInTheDocument();
+    expect(screen.getByText("workOrders.rejectRisk")).toBeInTheDocument();
+    expect(screen.queryByText("workOrders.unsubmit")).not.toBeInTheDocument();
+  });
+
+  it("T1h: en una OT administrativa la vista de Riesgos solo ve un aviso, sin pestañas", () => {
+    renderForm({ riskOnly: true, isAdministrative: true, approvalStatus: "Approved" });
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.getByText("workOrders.riskOnlyAdministrative")).toBeInTheDocument();
+  });
+
   it("T2: /work-orders/new (isNew) keeps the vertical layout — no tabs rendered", () => {
     renderForm({ isNew: true });
     expect(screen.queryByText("workOrders.tabs.budget")).not.toBeInTheDocument();

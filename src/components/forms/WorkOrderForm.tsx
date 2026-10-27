@@ -147,6 +147,17 @@ interface WorkOrderFormProps {
    * is_collections_role().
    */
   collectionsOnly?: boolean;
+  /**
+   * Decisión del operador 2026-10-26: vista del Supervisor de Riesgos. Abre la OT solo para
+   * la evaluación de riesgos, así que ve únicamente la pestaña de Riesgos —nunca Presupuesto,
+   * Plan de pagos ni Dotación— y ninguna acción global de la OT (guardar, enviar, retirar).
+   * Conserva sus botones de aprobar/rechazar Riesgos, que dependen de `canApproveRisk`.
+   * En una OT administrativa no hay pista de Riesgos, así que solo ve un aviso.
+   *
+   * No reemplaza al control del servidor: la OT la escriben admin y el socio o gerente del
+   * encargo (policy "wo_team_update"), y la decisión de riesgos la gatea can_approve_wo_risk.
+   */
+  riskOnly?: boolean;
   /** Cobranzas Fase 4: quién participa del hilo de notas (gerente, socio, Contabilidad, admin). */
   canWriteNotes?: boolean;
   currentStaffId?: string | null;
@@ -434,6 +445,7 @@ export function WorkOrderForm({
   isAdminDateEditable = false,
   isStatusEditable = false,
   collectionsOnly = false,
+  riskOnly = false,
   canWriteNotes = false,
   currentStaffId = null,
   isAdminViewer = false,
@@ -473,12 +485,19 @@ export function WorkOrderForm({
     // Cobranzas Fase 2: Contabilidad entra a cobrar, así que aterriza en Plan de pagos; las
     // pistas de rechazo (Socio/Riesgos) no son suyas y además no ve esa pestaña.
     if (collectionsOnly) return "payment";
+    // Riesgos entra solo a la evaluación de riesgos: es la única pestaña que ve.
+    if (riskOnly && !isAdministrative) return "risk";
     if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
     return "budget";
   });
   const [visitedTabs, setVisitedTabs] = useState<Set<WorkOrderFormTabId>>(() => new Set([activeTab]));
+  // El rol puede resolverse después del primer render: si la vista de Riesgos llega tarde, la
+  // pestaña activa quedaría en una que no se renderiza y el panel se vería vacío.
+  useEffect(() => {
+    if (riskOnly && !isAdministrative && activeTab !== "risk") setActiveTab("risk");
+  }, [riskOnly, isAdministrative, activeTab]);
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
@@ -661,7 +680,9 @@ export function WorkOrderForm({
   const showDraftClearRiskData =
     isDraft && !riskApproved && !isRiskRejected && !!onRiskAssessmentChange && !!onClearRiskData;
   // Risk section visibility.
+  // Riesgos la ve siempre: es lo único que muestra su vista, aunque la OT siga en Draft.
   const showRiskSection =
+    riskOnly ||
     (isDraft && !!onRiskAssessmentChange) ||
     showEmergencyReason ||
     ((isPending || isApproved || isRejected) &&
@@ -2134,17 +2155,23 @@ export function WorkOrderForm({
           {staffingSection}
           {showRiskSection && riskAssessmentCard}
         </>
+      ) : riskOnly && isAdministrative ? (
+        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          {t("workOrders.riskOnlyAdministrative")}
+        </div>
       ) : (
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="flex w-full justify-start overflow-x-auto">
-            <TabsTrigger value="budget" className="shrink-0">
-              {t("workOrders.tabs.budget")}
-              {renderTabIndicator(
-                budgetIndicatorKind,
-                ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
-              )}
-            </TabsTrigger>
-            {!isAdministrative && (
+            {!riskOnly && (
+              <TabsTrigger value="budget" className="shrink-0">
+                {t("workOrders.tabs.budget")}
+                {renderTabIndicator(
+                  budgetIndicatorKind,
+                  ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
+                )}
+              </TabsTrigger>
+            )}
+            {!isAdministrative && !riskOnly && (
               <TabsTrigger value="payment" className="shrink-0">
                 {t("workOrders.tabs.payment")}
                 {renderTabIndicator(
@@ -2162,7 +2189,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {isSchedulerEnabled() && !collectionsOnly && (
+            {isSchedulerEnabled() && !collectionsOnly && !riskOnly && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
                 {renderTabIndicator(
@@ -2172,6 +2199,8 @@ export function WorkOrderForm({
               </TabsTrigger>
             )}
           </TabsList>
+          {/* Riesgos: igual que Cobranzas, se condiciona también el contenido (forceMount). */}
+          {!riskOnly && (
           <TabsContent value="budget" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
             {budgetGridCard}
             {expensesSummaryGrid}
@@ -2207,7 +2236,8 @@ export function WorkOrderForm({
               </div>
             )}
           </TabsContent>
-          {!isAdministrative && (
+          )}
+          {!isAdministrative && !riskOnly && (
             <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
               {paymentPlanSection}
             </TabsContent>
@@ -2278,7 +2308,7 @@ export function WorkOrderForm({
               )}
             </TabsContent>
           )}
-          {isSchedulerEnabled() && !collectionsOnly && (
+          {isSchedulerEnabled() && !collectionsOnly && !riskOnly && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
             </TabsContent>
@@ -2338,7 +2368,7 @@ export function WorkOrderForm({
               Contabilidad entra a cobrar; sus acciones viven dentro del Plan de pagos y se
               guardan solas. Sin esto, con la OT en Draft (que sí puede abrir, decisión Q19)
               le aparecían dos botones que el servidor le iba a rechazar. */}
-          {isDraft && !collectionsOnly && (
+          {isDraft && !collectionsOnly && !riskOnly && (
             <>
               <LoadingButton
                 onClick={onSubmit}
@@ -2402,7 +2432,7 @@ export function WorkOrderForm({
               reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
               No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
               para quien prefiera guardar sin reenviar todavía. */}
-          {socioCorrecting && (
+          {socioCorrecting && !riskOnly && (
             <>
               <LoadingButton
                 onClick={onSubmit}
@@ -2433,7 +2463,7 @@ export function WorkOrderForm({
               riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
               aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
               pendiente => no se muestra: la corrección se hace en sitio. */}
-          {showWithdraw && !collectionsOnly && (
+          {showWithdraw && !collectionsOnly && !riskOnly && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}

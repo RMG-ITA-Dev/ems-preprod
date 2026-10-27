@@ -82,16 +82,19 @@ const WorkOrderNew = () => {
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];
 
-  // Filter to active engagements, without existing work orders, created by the current
-  // user (BUG 0828-186 Punto D: "creado por mí", no responsable directo). Admin ve todos
-  // (decisión del operador, 2026-08-31): ya tiene visibilidad de firma completa vía RLS
-  // ('firm' scope en useEngagements()), así que el filtro de autor no debe limitarlo.
+  // Filter to active engagements, without existing work orders, where the current user is the
+  // assigned Gerente (`manager_id`). Decisión del operador (2026-10-27), para todos los roles
+  // gerente y para encargos de Cliente o administrativos por igual: reemplaza el "creado por mí"
+  // de BUG 0828-186 Punto D, que dejaba fuera al Gerente de un encargo creado por otro (p. ej.
+  // TH o el admin). Quien crea siendo gerente queda igual cubierto: enforce_engagement_creator_team
+  // lo pone como manager_id al crear. Admin ve todos (decisión del operador, 2026-08-31): ya
+  // tiene visibilidad de firma completa vía RLS ('firm' scope en useEngagements()).
   const staffId = staffRecord?.staff_id;
   const availableEngagements = engagements?.filter(
     (e) =>
       e.status === "active" &&
       !engagementsWithWorkOrders.includes(e.engagement_id) &&
-      (isAdmin || e.created_by_staff_id === staffId)
+      (isAdmin || (!!staffId && e.manager_id === staffId))
   );
 
   // BUG 0828-186: valida la preselección ?engagement= contra la lista ya filtrada -- un id
