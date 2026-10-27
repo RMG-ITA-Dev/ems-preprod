@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
+\restrict 6EurzbRxrb9mcgNihMQrXMkegrhAVyDVKpHnAIHWrDo9zfnZCs0BfnM3dHN2uSb
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -3554,6 +3554,15 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Analista de Talento Humano: engagement.create es SOLO para encargos Administrativa,
+    -- Capacitación y Calidad (funcion 0/2/3); los de Cliente no los crea ni los ve (decisión del
+    -- operador, 27/10/2026). funcion NULL se lee como Cliente en todo el sistema, así que también
+    -- se rechaza. Espejo de EngagementNew.tsx, que fuerza el modo administrativo para este rol.
+    IF v_role = 'hr_analyst' AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Analista de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
     -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
     -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
@@ -3619,7 +3628,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_profile_scope(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 --
@@ -8056,7 +8065,17 @@ BEGIN
           'anio_fiscal', e.anio_fiscal,
           'start_date', e.start_date,
           'end_date', e.end_date,
-          'status', e.status
+          'status', e.status,
+          -- Insumos del estado efectivo (effectiveEngagementState en src/lib/engagementStatus.ts):
+          -- `status` es el legacy y siempre dice 'active', así que la lista mostraba "Activo"
+          -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
+          'work_order_required', e.work_order_required,
+          'engagement_state_override', e.engagement_state_override,
+          'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
+            'approval_status', wo.approval_status,
+            'approved_at', wo.approved_at,
+            'risk_status', wo.risk_status
+          ) END
         )
         ORDER BY e.created_at DESC NULLS LAST, e.engagement_id
       )
@@ -8064,6 +8083,7 @@ BEGIN
         JOIN public.clients c ON c.client_id = e.client_id
         JOIN public.society s ON s.society_id = e.society_id
         LEFT JOIN public.practicas p ON p.code = e.practica
+        LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
     ),
@@ -8077,7 +8097,7 @@ $$;
 -- Name: FUNCTION list_administrative_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 
 --
@@ -8682,8 +8702,8 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
     LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE public.has_permission('engagement.read')
      AND (
-       -- 1. firm: ve todos los encargos.
-       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner')
+       -- 1. firm: ve todos los encargos. risk_supervisor solo lee (sin engagement.update).
+       caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner', 'risk_supervisor')
        -- 2. own_society: mismos encargos de SU sociedad, incluidos los creados por otros.
        OR (caller.role_key IN ('partner', 'sqr', 'director')
            AND e.society_id IS NOT NULL
@@ -8699,6 +8719,10 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
+     -- 5. hr_analyst no ve encargos de Cliente (funcion 1, o NULL legacy que se lee como Cliente) por
+     --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
+     --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
+     AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
 $$;
 
 
@@ -8706,7 +8730,7 @@ $$;
 -- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --
@@ -23221,74 +23245,74 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_22; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_22 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_23; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_23 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_24; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_24 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_10_25; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_25 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_26; Type: TABLE; Schema: realtime; Owner: -
 --
 
 CREATE TABLE realtime.messages_2026_10_26 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_27; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_27 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_28; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_28 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_29; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_29 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_30; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_30 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -23581,38 +23605,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_22; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_22 FOR VALUES FROM ('2026-10-22 00:00:00') TO ('2026-10-23 00:00:00');
-
-
---
--- Name: messages_2026_10_23; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_23 FOR VALUES FROM ('2026-10-23 00:00:00') TO ('2026-10-24 00:00:00');
-
-
---
--- Name: messages_2026_10_24; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_24 FOR VALUES FROM ('2026-10-24 00:00:00') TO ('2026-10-25 00:00:00');
-
-
---
--- Name: messages_2026_10_25; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_25 FOR VALUES FROM ('2026-10-25 00:00:00') TO ('2026-10-26 00:00:00');
-
-
---
 -- Name: messages_2026_10_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_26 FOR VALUES FROM ('2026-10-26 00:00:00') TO ('2026-10-27 00:00:00');
+
+
+--
+-- Name: messages_2026_10_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_27 FOR VALUES FROM ('2026-10-27 00:00:00') TO ('2026-10-28 00:00:00');
+
+
+--
+-- Name: messages_2026_10_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_28 FOR VALUES FROM ('2026-10-28 00:00:00') TO ('2026-10-29 00:00:00');
+
+
+--
+-- Name: messages_2026_10_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_29 FOR VALUES FROM ('2026-10-29 00:00:00') TO ('2026-10-30 00:00:00');
+
+
+--
+-- Name: messages_2026_10_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_30 FOR VALUES FROM ('2026-10-30 00:00:00') TO ('2026-10-31 00:00:00');
 
 
 --
@@ -24590,43 +24614,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_22 messages_2026_10_22_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_22
-    ADD CONSTRAINT messages_2026_10_22_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_23 messages_2026_10_23_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_23
-    ADD CONSTRAINT messages_2026_10_23_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_24 messages_2026_10_24_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_24
-    ADD CONSTRAINT messages_2026_10_24_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_10_25 messages_2026_10_25_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_25
-    ADD CONSTRAINT messages_2026_10_25_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_26 messages_2026_10_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
 ALTER TABLE ONLY realtime.messages_2026_10_26
     ADD CONSTRAINT messages_2026_10_26_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_27 messages_2026_10_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_27
+    ADD CONSTRAINT messages_2026_10_27_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_28 messages_2026_10_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_28
+    ADD CONSTRAINT messages_2026_10_28_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_29 messages_2026_10_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_29
+    ADD CONSTRAINT messages_2026_10_29_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_30 messages_2026_10_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_30
+    ADD CONSTRAINT messages_2026_10_30_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -25738,38 +25762,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_22_inserted_at_topic_idx ON realtime.messages_2026_10_22 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_23_inserted_at_topic_idx ON realtime.messages_2026_10_23 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_24_inserted_at_topic_idx ON realtime.messages_2026_10_24 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_25_inserted_at_topic_idx ON realtime.messages_2026_10_25 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
 CREATE INDEX messages_2026_10_26_inserted_at_topic_idx ON realtime.messages_2026_10_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_27_inserted_at_topic_idx ON realtime.messages_2026_10_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_28_inserted_at_topic_idx ON realtime.messages_2026_10_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_29_inserted_at_topic_idx ON realtime.messages_2026_10_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_30_inserted_at_topic_idx ON realtime.messages_2026_10_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -25871,62 +25895,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_22_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_22_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_22_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_22_pkey;
-
-
---
--- Name: messages_2026_10_23_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_23_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_23_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_23_pkey;
-
-
---
--- Name: messages_2026_10_24_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_24_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_24_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_24_pkey;
-
-
---
--- Name: messages_2026_10_25_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_25_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_25_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_25_pkey;
-
-
---
 -- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -25938,6 +25906,62 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_26_pkey;
+
+
+--
+-- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_27_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_27_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_27_pkey;
+
+
+--
+-- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_28_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_28_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_28_pkey;
+
+
+--
+-- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_29_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_29_pkey;
+
+
+--
+-- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_30_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_30_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_30_pkey;
 
 
 --
@@ -29888,5 +29912,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict QhRcvl5v4VcD1NkTVbdlbTDFg13e70MMmhnA0NdMKSbS3g5khzAeHqirIDSqKhZ
+\unrestrict 6EurzbRxrb9mcgNihMQrXMkegrhAVyDVKpHnAIHWrDo9zfnZCs0BfnM3dHN2uSb
 
