@@ -112,36 +112,33 @@ jobs:
       # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
       # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
       # aplica solo, es un regresión real, no un caso esperado.
-      # Pull autenticado (2026-10-27): el job moría acá sin llegar al gate porque los pulls
-      # ANÓNIMOS de los runners compartidos agotan los dos registries — public.ecr.aws responde
-      # `toomanyrequests: Data limit exceeded` y ghcr.io `toomanyrequests ... 44000/minute`.
-      # Con login, ghcr.io cuenta contra el token del repo y no contra la IP del runner. El CLI
-      # toma la credencial del config de Docker (GetRegistryAuth). No hace falta ningún secret:
-      # alcanza el GITHUB_TOKEN del propio job.
-      - name: Login a ghcr.io (pull autenticado de las imágenes de Supabase)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # Pre-descarga secuencial con reintentos por imagen (y respaldo en public.ecr.aws): reintentar solo
+      # `supabase start` repite las 13 descargas en paralelo y no converge cuando ghcr.io limita (2026-10-27:
+      # 4 intentos seguidos fallaron). El login es opcional: si falla, las descargas siguen anónimas.
+      - name: Pre-descargar las imágenes de Supabase (una a una, con reintentos)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || echo "::notice::docker login a ghcr.io falló; se descarga sin autenticar"
+          bash supabase/tests/local/ci-pull-supabase-images.sh
 
-      # Registry y reintentos: primero ghcr.io (autenticado, ver arriba) vía
-      # SUPABASE_INTERNAL_IMAGE_REGISTRY, que lee GetRegistry() del CLI; Supabase publica las mismas
-      # imágenes y tags ahí y en public.ecr.aws, así que el fingerprint no cambia. Si igual falla,
-      # se alterna con public.ecr.aws (el default). Solo `start` baja imágenes: el resto del job usa
-      # los contenedores ya levantados y el pg_dump del runner. Entre intentos se baja el stack
-      # (`stop --no-backup`) para que el siguiente `start` aplique las migraciones desde cero igual.
-      # Un error real de migración falla todos los intentos: no se esconde.
+      # `supabase start` baja ~13 imágenes en paralelo de ghcr.io y el registro responde
+      # `toomanyrequests` de forma intermitente (visto el 2026-10-22 y el 2026-10-27, en ramas
+      # distintas y sin cambios de código de por medio). Se reintenta SOLO ese error, con espera
+      # creciente; las capas ya bajadas quedan en caché y cada intento avanza. Cualquier otro
+      # fallo (migración que no aplica, healthcheck) sigue siendo fatal al primer intento.
       - name: supabase start (aplica el set consolidado limpio, sin preseed)
         run: |
-          registries=(ghcr.io public.ecr.aws ghcr.io public.ecr.aws)
+          set -o pipefail
           for attempt in 1 2 3 4; do
-            export SUPABASE_INTERNAL_IMAGE_REGISTRY="${registries[$((attempt - 1))]}"
-            echo "Intento ${attempt}/4 con registry ${SUPABASE_INTERNAL_IMAGE_REGISTRY}"
-            if supabase start; then
+            if supabase start 2>&1 | tee "$RUNNER_TEMP/supabase-start.log"; then
               exit 0
             fi
-            echo "::warning::supabase start falló (intento ${attempt}/4, ${SUPABASE_INTERNAL_IMAGE_REGISTRY}); reintento en $((attempt * 30))s"
+            if ! grep -q "toomanyrequests" "$RUNNER_TEMP/supabase-start.log"; then
+              exit 1
+            fi
+            echo "::warning::ghcr.io limitó las descargas (intento $attempt/4); se reintenta"
             supabase stop --no-backup || true
             sleep $((attempt * 30))
           done
-          echo "::error::supabase start falló en los 4 intentos (ghcr.io y public.ecr.aws)"
           exit 1
 
       - name: Verificar convergencia (7 migraciones aplicadas, 0 pendientes)
