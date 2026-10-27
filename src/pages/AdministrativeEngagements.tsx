@@ -9,7 +9,12 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
-import { effectiveEngagementState, engagementStateBadgeClass, engagementStateI18nKey } from "@/lib/engagementStatus";
+import {
+  EngagementState,
+  effectiveEngagementState,
+  engagementStateBadgeClass,
+  engagementStateI18nKey,
+} from "@/lib/engagementStatus";
 
 const FUNCION_LABEL_KEYS: Record<number, string> = {
   0: "engagement.funcion_adm",
@@ -66,6 +71,19 @@ export function administrativeRowsForViewer(
  * alta, clic de fila). La búsqueda no lo hacía, así que la vista de consulta seguía matcheando
  * por cliente y sociedad — campos que esa vista no muestra.
  */
+/**
+ * Estado efectivo de la fila (mismo cálculo que Engagements.tsx y el detalle), o `null` si la RPC
+ * no trae los insumos. Pasa cuando el frontend se despliega antes que la versión de
+ * `list_administrative_engagements()` que devuelve `work_order_required`: sin el campo,
+ * `deriveEngagementState` lo lee como falsy y calcula "Aprobado" para TODAS las filas, aunque
+ * el encargo exija OT y no la tenga. Con `null` la columna vuelve al `status` legacy, que es
+ * menos preciso pero no miente.
+ */
+export function administrativeEffectiveState(row: AdministrativeEngagement): EngagementState | null {
+  if (typeof row.work_order_required !== "boolean") return null;
+  return effectiveEngagementState(row, row.work_order);
+}
+
 export function administrativeSearchKeys(canCreate: boolean): string[] {
   return canCreate
     ? ["engagement_code", "engagement_name", "client_name", "society_name"]
@@ -89,7 +107,7 @@ const AdministrativeEngagements = () => {
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
     // Estado efectivo, igual que Engagements.tsx y el detalle: `status` es el legacy ('active').
-    return filteredRows.map((row) => ({ ...row, effective_state: effectiveEngagementState(row, row.work_order) }));
+    return filteredRows.map((row) => ({ ...row, effective_state: administrativeEffectiveState(row) ?? row.status }));
   }, [canCreate, data, funcionFilter]);
 
   const viewerColumns: Column<AdministrativeEngagement>[] = [
@@ -184,7 +202,14 @@ const AdministrativeEngagements = () => {
       sortable: true,
       mobilePriority: "primary",
       render: (row) => {
-        const state = effectiveEngagementState(row, row.work_order);
+        const state = administrativeEffectiveState(row);
+        if (state === null) {
+          return (
+            <Badge variant="outline" className="bg-muted text-muted-foreground">
+              {t(`status.${row.status}`)}
+            </Badge>
+          );
+        }
         return (
           <Badge variant="outline" className={engagementStateBadgeClass(state)}>
             {t(engagementStateI18nKey(state))}

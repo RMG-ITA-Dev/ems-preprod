@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { EngagementState } from "@/lib/engagementStatus";
 import {
+  administrativeEffectiveState,
   administrativeRowsForViewer,
   administrativeSearchKeys,
   currentBoliviaFiscalYear,
@@ -77,5 +79,22 @@ describe("currentBoliviaFiscalYear", () => {
 
   it("enero en Bolivia sigue en el FY que arranco en octubre", () => {
     expect(currentBoliviaFiscalYear(new Date("2027-01-15T12:00:00Z"))).toBe(2027);
+  });
+});
+
+describe("administrativeEffectiveState", () => {
+  it("returns Pendiente when the engagement requires an OT and has none", () => {
+    expect(administrativeEffectiveState({ ...row(2027), work_order_required: true })).toBe(EngagementState.Pendiente);
+  });
+
+  it("returns Aprobado when the engagement does not require an OT", () => {
+    expect(administrativeEffectiveState({ ...row(2027), work_order_required: false })).toBe(EngagementState.Aprobado);
+  });
+
+  // Frontend nuevo contra la RPC vieja (sin work_order_required): no debe inventar "Aprobado".
+  it("returns null when the RPC does not send work_order_required", () => {
+    const legacy = { ...row(2027) } as Record<string, unknown>;
+    delete legacy.work_order_required;
+    expect(administrativeEffectiveState(legacy as never)).toBeNull();
   });
 });
