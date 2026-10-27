@@ -261,13 +261,24 @@ BEGIN
   --   billing_late (los 2 de cobranza) y rescheduled (3 socios + los 2 de cobranza).
   -- + 8 de la Fase 4: las dos partes del hilo de notas (3 gerentes + 3 socios + los 2 de cobranza).
   -- + 12 de la Fase 7: los 3 gerentes y los 3 socios, por cada uno de los 2 tipos.
-  IF v_grants <> 604 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 604', v_grants;
+  -- + 22 de hr_manager como Gerente de encargos (2026-10-27): avisos 'assigned' de encargo,
+  --   fondos, envíos de horas y Socio en OT; sin Riesgos, cuotas/cobranza ni clientes.
+  IF v_grants <> 626 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 626', v_grants;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
+                  WHERE role_key = 'hr_manager' AND type_key = 'fund.request.submitted_for_approval'
+                    AND scope_key = 'assigned') THEN
+    RAISE EXCEPTION 'TEST FAIL — hr_manager, como Gerente, debe recibir fund.request.submitted_for_approval';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.notification_role_types
+              WHERE role_key = 'hr_manager' AND (type_key LIKE 'wo.installment.%' OR type_key LIKE '%risk%')) THEN
+    RAISE EXCEPTION 'TEST FAIL — hr_manager no debe recibir avisos de cuotas ni de Riesgos';
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 604 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 626 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
