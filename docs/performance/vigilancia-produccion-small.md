@@ -20,7 +20,7 @@ Lo medido, con la firma (admin y senior_partner) a un ritmo realista (`portfolio
 Se esperan unos 140 usuarios, la mayoría asistentes, semiseniors y seniors cargando horas: es la parte barata (lecturas p95 ~0,4 s, escrituras p95 ~0,3 s). Lo caro lo hacen pocas personas.
 
 **Lo que la campaña NO cubre (por eso se vigila):**
-- Cada condición se probó **una sola vez** (la Pasada 2 de repetición está pendiente).
+- Cada condición se probó **una sola vez** (la Pasada 2 de repetición se omitió: riesgo aceptado y firmado por el operador el 26/10/2026, informe de la Etapa 9, §17).
 - Las pruebas son carga **sostenida** (18–60 min), no ráfagas (todos entrando el lunes a primera hora, envíos de fin de semana o de mes).
 - Las pruebas corrieron con los **crones de envío pausados y el correo apagado**. En vivo, el correo (Microsoft Graph) y los crones (Railway) corren **como servicios externos**, fuera del alcance de la campaña k6 y de este documento; lo que hagan contra la misma base suma carga (INFERIDO) y por eso se vigila desde la base (§3.4). Son el principal factor nuevo de las primeras semanas. **Estado verificado el 27/10:** los 8 crones de `pg_cron` que envían avisos, correos y cierran timers colgados siguen **inactivos** (estaban activos el 18/10); si el servicio externo no los repone, el síntoma es funcional (sin recordatorios ni correos, timers sin cerrar), no de rendimiento (H-9-22).
 - La meseta de S3 fue de solo 18 min; en S2 el máximo de memoria llegó entre los 39 y 45 min de meseta.
@@ -140,7 +140,7 @@ No subir solo por: el Scheduler lento (es código: se corrige con la región fij
 2. **Fijar la región del Scheduler en `us-west-2`** (corrección A de H-4-01): baja su latencia 3,5–4× según las mediciones; lo mismo para `secure-signin` (H-4-03, −1,45 s por login).
 3. **Optimizar `portfolio_overview` para el alcance de la firma** (3,5–5 s): pocas personas la abren, pero es la única ruta que llegó a 8 s.
 4. **Montar las alarmas de §3** y probarlas (provocando una a propósito en un ambiente de prueba).
-5. **Ejecutar la Pasada 2** de la campaña (repetición con carga cercana a 140 usuarios) para confirmar que los resultados no fueron una sola corrida afortunada.
+5. **Pasada 2 de la campaña: omitida por decisión del operador (26/10/2026), no es un requisito de salida.** Repetirla sería una prueba nueva, con aprobación y preparación propias: las cuentas y el seed de k6 ya se retiraron en el cierre, así que habría que reconstruirlos y volver a escribir datos de prueba en producción. Mientras tanto, la vigilancia de §3 cubre el riesgo de que los resultados hayan sido una sola corrida afortunada.
 
 ---
 
