@@ -404,7 +404,7 @@ const Auth = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="pr-10"
+                    className="pr-10 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden"
                   />
                   <button
                     type="button"
