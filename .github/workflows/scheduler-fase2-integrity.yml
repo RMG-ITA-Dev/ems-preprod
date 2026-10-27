@@ -107,8 +107,24 @@ jobs:
       # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
       # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
       # aplica solo, es un regresión real, no un caso esperado.
+      # Reintentos (2026-10-27): el registry de imágenes corta las descargas con
+      # `toomanyrequests: ... allowed: 44000/minute` en horas de mucho tráfico, y el job moría acá
+      # sin llegar al gate. Entre intentos se baja el stack (`stop --no-backup`) para que el
+      # siguiente `start` aplique las migraciones desde cero igual; las capas ya bajadas quedan en
+      # caché, así que cada intento descarga menos. Un error real de migración falla los 4 intentos
+      # con el mismo mensaje: no se esconde.
       - name: supabase start (aplica el set consolidado limpio, sin preseed)
-        run: supabase start
+        run: |
+          for attempt in 1 2 3 4; do
+            if supabase start; then
+              exit 0
+            fi
+            echo "::warning::supabase start falló (intento ${attempt}/4); reintento en $((attempt * 30))s"
+            supabase stop --no-backup || true
+            sleep $((attempt * 30))
+          done
+          echo "::error::supabase start falló en los 4 intentos"
+          exit 1
 
       - name: Verificar convergencia (7 migraciones aplicadas, 0 pendientes)
         run: |
