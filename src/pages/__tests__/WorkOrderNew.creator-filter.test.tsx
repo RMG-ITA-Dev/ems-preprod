@@ -5,9 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
- * BUG 0828-186 (Punto D): the "Nueva Orden de Trabajo" engagement selector must only offer
- * engagements CREATED BY the current user ("creado por mí", not the responsable directo)
- * that are active and don't already have a work order. The `?engagement=` query param must
+ * BUG 0828-186 (Punto D), redefined 2026-10-27: the "Nueva Orden de Trabajo" engagement selector
+ * must only offer engagements where the current user is the assigned Gerente (`manager_id`) --
+ * no longer "created by me" -- that are active and don't already have a work order. The `?engagement=` query param must
  * be validated against that same filtered list -- an id belonging to someone else, an
  * inactive engagement, or one that already has a work order must never preselect (URL
  * bypass hardening).
@@ -140,6 +140,7 @@ function makeEngagement(overrides: Partial<any> = {}) {
     engagement_name: "Auditoria",
     client: { client_legal_name: "Cliente Demo" },
     created_by_staff_id: CURRENT_STAFF_ID,
+    manager_id: CURRENT_STAFF_ID,
     ...overrides,
   };
 }
@@ -172,7 +173,7 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     authRef.roleKey = "manager";
   });
 
-  it("includes an active engagement created by the current user with no existing work order", async () => {
+  it("includes an active engagement where the current user is the Gerente, with no existing work order", async () => {
     engagementsRef.current = [makeEngagement({ engagement_id: "eng-own", engagement_code: "OWN.01" })];
     await openEngagementSelect();
 
@@ -183,9 +184,9 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
   // These 3 cases leave availableEngagements empty (each fixture is the only engagement, and
   // it's excluded), so WorkOrderNew renders the empty-state Alert instead of a <Select> --
   // there's no combobox to open. Assert on the excluded code being absent and the alert.
-  it("excludes an active engagement created by someone else", () => {
+  it("excludes an active engagement managed by someone else", () => {
     engagementsRef.current = [
-      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID }),
+      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID, manager_id: OTHER_STAFF_ID }),
     ];
     renderPage();
 
@@ -222,7 +223,7 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
 
   it("rejects a ?engagement= id belonging to another user (URL bypass hardening)", async () => {
     engagementsRef.current = [
-      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID }),
+      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID, manager_id: OTHER_STAFF_ID }),
     ];
     mockSearchParams = new URLSearchParams("?engagement=eng-other");
     renderPage();
@@ -232,10 +233,44 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     expect(screen.queryByText("OTH.01")).not.toBeInTheDocument();
   });
 
-  it("admin sees an engagement created by someone else (no creator filter)", async () => {
+  it("includes an engagement created by someone else when the current user is its Gerente", async () => {
+    engagementsRef.current = [
+      makeEngagement({ engagement_id: "eng-assigned", engagement_code: "ASG.01", created_by_staff_id: OTHER_STAFF_ID }),
+    ];
+    await openEngagementSelect();
+    const options = await screen.findAllByRole("option");
+    expect(options.some((o) => o.textContent?.includes("ASG.01"))).toBe(true);
+  });
+
+  it("excludes an engagement the current user created when someone else is the Gerente", () => {
+    engagementsRef.current = [
+      makeEngagement({ engagement_id: "eng-mine", engagement_code: "MIN.01", manager_id: OTHER_STAFF_ID }),
+    ];
+    renderPage();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it.each(["partner_id", "sqr_id", "encargado_id"])(
+    "excludes an engagement where the current user is only its %s (not Gerente)",
+    (field) => {
+      engagementsRef.current = [
+        makeEngagement({
+          engagement_id: "eng-team",
+          engagement_code: "TEA.01",
+          created_by_staff_id: OTHER_STAFF_ID,
+          manager_id: OTHER_STAFF_ID,
+          [field]: CURRENT_STAFF_ID,
+        }),
+      ];
+      renderPage();
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    }
+  );
+
+  it("admin sees an engagement managed by someone else (no Gerente filter)", async () => {
     authRef.roleKey = "admin";
     engagementsRef.current = [
-      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID }),
+      makeEngagement({ engagement_id: "eng-other", engagement_code: "OTH.01", created_by_staff_id: OTHER_STAFF_ID, manager_id: OTHER_STAFF_ID }),
     ];
     await openEngagementSelect();
 
