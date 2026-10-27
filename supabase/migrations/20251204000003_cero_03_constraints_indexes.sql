@@ -189,6 +189,31 @@ ALTER TABLE ONLY public.expense_types
 
 --
 --
+-- Name: fund_request_events fund_request_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fund_request_events
+    ADD CONSTRAINT fund_request_events_pkey PRIMARY KEY (event_id);
+
+
+--
+--
+-- Name: idx_fund_request_events_fr; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fr ON public.fund_request_events USING btree (fund_request_id, seq);
+
+
+--
+--
+-- Name: idx_fund_request_events_fre; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_fund_request_events_fre ON public.fund_request_events USING btree (fre_id) WHERE (fre_id IS NOT NULL);
+
+
+--
+--
 -- Name: fund_request_expenses fund_request_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -513,6 +538,135 @@ ALTER TABLE ONLY public.wo_expense_budget
 
 --
 --
+-- Name: client_contacts client_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.client_contacts
+    ADD CONSTRAINT client_contacts_pkey PRIMARY KEY (contact_id);
+
+
+--
+--
+-- Name: idx_client_contacts_client; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: los contactos se leen siempre por cliente y casi siempre solo los activos.
+CREATE INDEX idx_client_contacts_client ON public.client_contacts USING btree (client_id, contact_type) WHERE is_active;
+
+
+--
+-- Name: wo_installment_expenses wo_installment_expenses_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7: la PK es el GASTO, no el par. Es lo que garantiza que un gasto entre en
+-- UNA sola fila de reembolso: sin esto, dos personas pulsando "Facturar gastos ejecutados" a
+-- la vez le cobrarian el mismo gasto dos veces al cliente.
+ALTER TABLE ONLY public.wo_installment_expenses
+    ADD CONSTRAINT wo_installment_expenses_pkey PRIMARY KEY (fre_id);
+
+
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_adjustments
+    ADD CONSTRAINT wo_installment_adjustments_pkey PRIMARY KEY (adjustment_id);
+
+
+--
+-- Name: idx_wo_installment_adjustments_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: los ajustes se leen SIEMPRE por cuota y casi siempre solo los vigentes --
+-- es lo que hace installment_adjustments_total(), que corre una vez por fila de la pantalla.
+CREATE INDEX idx_wo_installment_adjustments_installment
+  ON public.wo_installment_adjustments USING btree (installment_id, currency) WHERE deleted_at IS NULL;
+
+-- Y por OT, para traer de una vez todos los de un plan de pagos.
+CREATE INDEX idx_wo_installment_adjustments_wo
+  ON public.wo_installment_adjustments USING btree (wo_id);
+
+
+--
+--
+-- Name: idx_wo_installment_expenses_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_expenses_installment ON public.wo_installment_expenses USING btree (installment_id);
+
+
+--
+-- Name: wo_installment_notes wo_installment_notes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_notes
+    ADD CONSTRAINT wo_installment_notes_pkey PRIMARY KEY (note_id);
+
+
+--
+--
+-- Name: idx_wo_installment_notes_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4: el hilo se lee siempre entero por OT (el banner del plan y los contadores
+-- por cuota salen de la misma consulta). Parcial: una nota borrada no se muestra nunca.
+CREATE INDEX idx_wo_installment_notes_wo ON public.wo_installment_notes USING btree (wo_id, created_at) WHERE (deleted_at IS NULL);
+
+
+--
+--
+-- Name: idx_wo_installment_notes_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_notes_installment ON public.wo_installment_notes USING btree (installment_id) WHERE (installment_id IS NOT NULL AND deleted_at IS NULL);
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_note_versions
+    ADD CONSTRAINT wo_installment_note_versions_pkey PRIMARY KEY (version_id);
+
+
+--
+--
+-- Name: idx_wo_installment_note_versions_note; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_wo_installment_note_versions_note ON public.wo_installment_note_versions USING btree (note_id, seq);
+
+
+--
+-- Name: wo_installment_events wo_installment_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.wo_installment_events
+    ADD CONSTRAINT wo_installment_events_pkey PRIMARY KEY (event_id);
+
+
+--
+--
+-- Name: idx_wo_installment_events_installment; Type: INDEX; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: el panel de historial de una cuota lee siempre por installment_id
+-- ordenado por seq (mismo acceso que idx_fund_request_events_fr).
+CREATE INDEX idx_wo_installment_events_installment ON public.wo_installment_events USING btree (installment_id, seq);
+
+
+--
+--
+-- Name: idx_wo_installment_events_wo; Type: INDEX; Schema: public; Owner: -
+--
+
+-- La bitacora de todas las cuotas de una OT (y la RLS, que resuelve el acceso por la OT).
+CREATE INDEX idx_wo_installment_events_wo ON public.wo_installment_events USING btree (wo_id, seq);
+
+
+--
+--
 -- Name: wo_payment_installments wo_payment_installments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -743,14 +897,6 @@ CREATE INDEX idx_engagements_partner_status ON public.engagements USING btree (p
 --
 
 CREATE INDEX idx_fr_created_at ON public.fund_requests USING btree (created_at DESC);
-
-
---
---
--- Name: idx_fr_manager_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_fr_manager_status ON public.fund_requests USING btree (approver_manager_staff_id, status);
 
 
 --

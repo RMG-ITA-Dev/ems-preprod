@@ -46,13 +46,13 @@ export interface FundRequest {
   fund_request_id: string;
   request_number: string;
   requester_staff_id: string;
-  approver_manager_staff_id: string | null;
   total_requested_amount: number;
   total_disbursed_amount: number;
   currency: "BOB" | "USD";
   status: FundRequestStatus;
   purpose: string | null;
-  due_back_date: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'). Fecha fin = día 3 del mes siguiente (fundRequestCalendar). */
+  expense_period_month: string;
   submitted_at: string | null;
   manager_decided_at: string | null;
   manager_notes: string | null;
@@ -70,21 +70,35 @@ export interface FundRequest {
   settlement_notes: string | null;
   settled_at: string | null;
   settled_by_staff_id: string | null;
+  // Cierre / cancelación: el actor lo pone la RPC (fund_request_settle sin saldo,
+  // fund_request_confirm_settlement o fund_request_cancel).
+  closed_by_staff_id: string | null;
+  // Fase 4: confirmación del movimiento de dinero (reembolso pagado, devolución recibida o
+  // descuento aplicado). Fecha y hora las pone el servidor; confirmarlo cierra la solicitud.
+  settlement_confirmed_at: string | null;
+  settlement_confirmed_by_staff_id: string | null;
+  settlement_reference: string | null;
+  settlement_confirmation_notes: string | null;
+  cancelled_at: string | null;
+  cancelled_by_staff_id: string | null;
+  cancelled_from_status: FundRequestStatus | null;
   created_at: string;
   updated_at: string;
   requester?: Staff;
-  approver_manager?: Staff;
   disbursed_by?: Staff;
   settled_by?: Staff;
+  closed_by?: Staff;
+  settlement_confirmed_by?: Staff;
   fund_request_work_orders?: FundRequestWorkOrder[];
 }
 
 const fundRequestSelect = `
   *,
   requester:staff!fund_requests_requester_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
-  approver_manager:staff!fund_requests_approver_manager_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   disbursed_by:staff!fund_requests_disbursed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   settled_by:staff!fund_requests_settled_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
+  closed_by:staff!fund_requests_closed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
+  settlement_confirmed_by:staff!fund_requests_settlement_confirmed_by_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),
   fund_request_work_orders(
     *,
     manager:staff!fund_request_work_orders_manager_staff_id_fkey(staff_id, first_name, last_name, short_name, initials),

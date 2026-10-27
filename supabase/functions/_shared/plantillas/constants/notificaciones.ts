@@ -191,6 +191,37 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     boton: "Ver orden",
   },
 
+  // ── Cobranzas Fase 3 (issue #352) ──
+  // Los dos salen por campana Y correo (decisiones Q12/Q56 y Q32) porque los dos son una
+  // tarea pendiente de alguien. El tercer tipo nuevo, `wo.installment.rescheduled`, es solo
+  // campana: avisa que algo se movió, no pide acción, y por eso no tiene plantilla acá.
+  "wo.installment.confirmation_pending": {
+    asunto: "Falta confirmar una cuota con el cliente",
+    intro: "Se acerca la fecha de facturación de una cuota y todavía no se confirmó con el cliente.",
+    boton: "Ver plan de pagos",
+  },
+  "wo.installment.billing_late": {
+    asunto: "Cuota con facturación atrasada",
+    intro: "Pasó la fecha de facturación de una cuota y todavía no se facturó.",
+    boton: "Ver plan de pagos",
+  },
+  // Fase 7: el alta de la fila de gastos sale por campana Y correo al gerente del encargo
+  // (decisión Q24) — es plata que se le suma a lo que el cliente va a pagar. La corrección del
+  // monto es sólo campana, así que no tiene plantilla acá.
+  "wo.installment.expense_row_created": {
+    asunto: "Se facturaron gastos ejecutados al cliente",
+    intro: "Contabilidad agregó al plan de pagos los gastos ya aprobados de una orden de trabajo.",
+    boton: "Ver plan de pagos",
+  },
+  // Fase 9: el alta de un ajuste sale también por correo — cambia lo que el cliente termina
+  // pagando, y el socio es el dueño de la relación comercial. Retirarlo es una corrección y se
+  // queda en la campana, así que no tiene plantilla acá.
+  "wo.installment.adjustment_added": {
+    asunto: "Se registró un ajuste sobre una cuota",
+    intro: "Contabilidad registró un ajuste que cambia lo que se le va a cobrar al cliente.",
+    boton: "Ver plan de pagos",
+  },
+
   // ── Solicitud de fondos ──
   "fund.request.submitted_for_approval": {
     asunto: "Solicitud de fondos pendiente de su aprobación",
@@ -238,6 +269,113 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     intro: "Se aplicó una multa de IVA sobre uno de sus gastos.",
     boton: "Ver gasto",
   },
+
+  // ── Calendario de gastos (plan-contabilidad-gastos Fase 3.9) ──
+  // Fecha fin = día 3 del mes siguiente al mes de la solicitud; fin de revisión = día 5.
+  "fund.expense.deadline_reminder": {
+    asunto: "Tiene gastos sin enviar en una solicitud de fondos",
+    intro:
+      "Tiene gastos sin enviar o por corregir. Envíelos antes de que termine el plazo: después de esa fecha quedan vencidos y no cuentan como gastado.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.approval_reminder": {
+    asunto: "Gastos esperando su aprobación",
+    intro:
+      "Hay gastos esperando su aprobación. Si no los aprueba antes de que termine el plazo, el sistema los aprobará automáticamente.",
+    boton: "Revisar gastos",
+  },
+  "fund.expense.review_reminder": {
+    asunto: "Gastos por revisar",
+    intro:
+      "Hay gastos aprobados por el gerente esperando la revisión de Contabilidad. Lo que no se revise hasta el plazo lo aprobará el sistema como factura correcta, sin penalidad.",
+    boton: "Revisar gastos",
+  },
+  "fund.expense.review_reminder:last_day": {
+    asunto: "Hoy vence la revisión de gastos",
+    intro:
+      "Hoy es el último día para revisar los gastos pendientes. Lo que no se revise hoy lo aprobará el sistema como factura correcta, sin penalidad.",
+    boton: "Revisar gastos",
+  },
+  "fund.expense.manager_auto_approved": {
+    asunto: "El sistema aprobó gastos de una solicitud de fondos",
+    intro: "El gerente no aprobó a tiempo y el sistema aprobó los gastos pendientes.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.manager_auto_approved:requester": {
+    asunto: "Sus gastos fueron aprobados por el sistema",
+    intro:
+      "El gerente no aprobó sus gastos hasta la fecha fin, así que el sistema los aprobó. Ahora los revisa Contabilidad.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.manager_auto_approved:manager": {
+    asunto: "No aprobó a tiempo: el sistema aprobó los gastos",
+    intro:
+      "No aprobó los gastos de esta solicitud hasta la fecha fin, así que el sistema los aprobó en su lugar.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.manager_auto_approved:accounting": {
+    asunto: "El sistema aprobó gastos porque el gerente no lo hizo",
+    intro:
+      "El gerente no aprobó a tiempo y el sistema aprobó los gastos. Ya están en la revisión de Contabilidad.",
+    boton: "Revisar gastos",
+  },
+  "fund.expense.review_auto_approved": {
+    asunto: "El sistema revisó gastos de una solicitud de fondos",
+    intro:
+      "Contabilidad no revisó a tiempo y el sistema aprobó los gastos como factura correcta, sin penalidad.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.review_auto_approved:requester": {
+    asunto: "Sus gastos fueron revisados por el sistema",
+    intro:
+      "Contabilidad no revisó sus gastos hasta el plazo, así que el sistema los aprobó como factura correcta, sin penalidad.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.review_auto_approved:manager": {
+    asunto: "El sistema revisó los gastos de una solicitud",
+    intro:
+      "Contabilidad no revisó a tiempo y el sistema aprobó los gastos de esta solicitud. La solicitud queda lista para liquidar.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.review_auto_approved:accounting": {
+    asunto: "No revisó a tiempo: el sistema aprobó los gastos",
+    intro:
+      "No se revisaron los gastos hasta el día 5, así que el sistema los aprobó como factura correcta, sin penalidad. La solicitud queda lista para liquidar.",
+    boton: "Ver gastos",
+  },
+  "fund.expense.expired": {
+    asunto: "Gastos vencidos en su solicitud de fondos",
+    intro:
+      "Algunos gastos no se enviaron hasta la fecha fin y quedaron vencidos. No cuentan como gastado: ese monto se resuelve en la liquidación.",
+    boton: "Ver gastos",
+  },
+  // ── Movimiento de dinero de la liquidación (Fase 4): solo al solicitante ──
+  "fund.settlement.confirmed": {
+    asunto: "Se confirmó el movimiento de dinero de su solicitud",
+    intro: "Contabilidad confirmó el movimiento de dinero de su liquidación y la solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:reimbursement": {
+    asunto: "Su reembolso fue pagado",
+    intro: "Contabilidad confirmó el pago de su reembolso. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:return": {
+    asunto: "Contabilidad recibió su devolución",
+    intro: "Contabilidad confirmó que recibió su devolución. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.settlement.confirmed:payroll": {
+    asunto: "Se aplicó el descuento en su planilla",
+    intro: "Contabilidad confirmó el descuento en su planilla. La solicitud quedó cerrada.",
+    boton: "Ver solicitud",
+  },
+  "fund.expense.rejected_by_accounting": {
+    asunto: "Contabilidad rechazó un gasto",
+    intro:
+      "Contabilidad rechazó uno de sus gastos. Ya pasó la fecha fin, así que no se puede corregir y no cuenta como gastado.",
+    boton: "Ver gasto",
+  },
 };
 
 /**
@@ -261,6 +399,12 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
 export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fecha" | "monto" }[] = [
   { clave: "semana", etiqueta: "Semana" },
   { clave: "request_number", etiqueta: "Solicitud" },
+  // Calendario de gastos (Fase 3.9): los resúmenes dicen cuántos gastos y de cuántas solicitudes.
+  { clave: "expense_count", etiqueta: "Gastos" },
+  { clave: "request_count", etiqueta: "Solicitudes" },
+  // Movimiento de dinero confirmado (Fase 4): cuándo y con qué comprobante.
+  { clave: "confirmed_label", etiqueta: "Confirmado" },
+  { clave: "reference", etiqueta: "Referencia" },
   // El cliente encabeza al encargo porque es el dato que lo ubica: "Auditoria Externa 2026" se
   // repite entre clientes, y un correo sin boton —ver `engagement.specialist_assigned`— no
   // tiene pantalla a la que ir a averiguar de cual se trata.

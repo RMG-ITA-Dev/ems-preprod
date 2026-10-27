@@ -267,19 +267,19 @@ ON CONFLICT (wo_id) DO NOTHING;
 -- transacción, deshabilitando y restaurando tr_fund_requests_enforce_bob alrededor del INSERT
 -- (la migración NO se toca). Ejercita separación BOB/USD sin total combinado (chequeos 30/31).
 INSERT INTO public.fund_requests (fund_request_id, request_number, requester_staff_id,
-                                  total_requested_amount, currency, status, due_back_date,
+                                  total_requested_amount, currency, status, expense_period_month,
                                   submitted_at, total_disbursed_amount) VALUES
-  ('f3902150-0000-4000-8000-000000000001', 'SF-PERS-1', '50902150-0000-4000-8000-000000000001', 500, 'BOB', 'aprobado_gerente', pg_temp.today(), (pg_temp.today() - 5)::timestamptz, 500),
-  ('f3902150-0000-4000-8000-000000000002', 'SF-PERS-2', '50902150-0000-4000-8000-000000000001', 200, 'BOB', 'pendiente_aprobacion', pg_temp.today() - 3, (pg_temp.today() - 4)::timestamptz, 0),
-  ('f3902150-0000-4000-8000-000000000009', 'SF-PERS-9', '50902150-0000-4000-8000-000000000001', 80, 'BOB', 'cerrado', pg_temp.today() - 20, (pg_temp.today() - 25)::timestamptz, 80),
-  ('f3902150-0000-4000-8000-00000000000a', 'SF-PERS-A', '50902150-0000-4000-8000-000000000001', 60, 'BOB', 'cancelado', NULL, (pg_temp.today() - 25)::timestamptz, 0)
+  ('f3902150-0000-4000-8000-000000000001', 'SF-PERS-1', '50902150-0000-4000-8000-000000000001', 500, 'BOB', 'aprobado_gerente', date_trunc('month', pg_temp.today())::date, (pg_temp.today() - 5)::timestamptz, 500),
+  ('f3902150-0000-4000-8000-000000000002', 'SF-PERS-2', '50902150-0000-4000-8000-000000000001', 200, 'BOB', 'pendiente_aprobacion', date_trunc('month', pg_temp.today() - 3)::date, (pg_temp.today() - 4)::timestamptz, 0),
+  ('f3902150-0000-4000-8000-000000000009', 'SF-PERS-9', '50902150-0000-4000-8000-000000000001', 80, 'BOB', 'cerrado', date_trunc('month', pg_temp.today() - 20)::date, (pg_temp.today() - 25)::timestamptz, 80),
+  ('f3902150-0000-4000-8000-00000000000a', 'SF-PERS-A', '50902150-0000-4000-8000-000000000001', 60, 'BOB', 'cancelado', date_trunc('month', pg_temp.today())::date, (pg_temp.today() - 25)::timestamptz, 0)
 ON CONFLICT (fund_request_id) DO NOTHING;
 
 ALTER TABLE public.fund_requests DISABLE TRIGGER tr_fund_requests_enforce_bob;
 INSERT INTO public.fund_requests (fund_request_id, request_number, requester_staff_id,
-                                  total_requested_amount, currency, status, due_back_date,
+                                  total_requested_amount, currency, status, expense_period_month,
                                   submitted_at, total_disbursed_amount) VALUES
-  ('f3902150-0000-4000-8000-000000000003', 'SF-PERS-3', '50902150-0000-4000-8000-000000000001', 1000, 'USD', 'fondos_entregados', pg_temp.today() + 5, (pg_temp.today() - 10)::timestamptz, 1000)
+  ('f3902150-0000-4000-8000-000000000003', 'SF-PERS-3', '50902150-0000-4000-8000-000000000001', 1000, 'USD', 'fondos_entregados', date_trunc('month', pg_temp.today() + 5)::date, (pg_temp.today() - 10)::timestamptz, 1000)
 ON CONFLICT (fund_request_id) DO NOTHING;
 ALTER TABLE public.fund_requests ENABLE TRIGGER tr_fund_requests_enforce_bob;
 
@@ -636,8 +636,10 @@ BEGIN
 
   SELECT e INTO v_fr1 FROM jsonb_array_elements(v_frs) e WHERE (e->>'fund_request_id')::uuid = 'f3902150-0000-4000-8000-000000000001';
   IF v_fr1 IS NULL THEN RAISE EXCEPTION 'FAIL: FR1 debía estar presente'; END IF;
-  IF (v_fr1->>'due_back_date')::date <> pg_temp.today() THEN
-    RAISE EXCEPTION 'FAIL: due_back_date de FR1 debía ser hoy (chequeo 32): %', v_fr1->>'due_back_date';
+  -- Fase 3 (plan-contabilidad-gastos): el vencimiento de la rendición es la fecha fin de la
+  -- solicitud (día 3 del mes siguiente al mes elegido); la clave del payload no cambió.
+  IF (v_fr1->>'due_back_date')::date <> public.fund_request_deadline(date_trunc('month', pg_temp.today())::date) THEN
+    RAISE EXCEPTION 'FAIL: due_back_date de FR1 debía ser la fecha fin de su mes (chequeo 32): %', v_fr1->>'due_back_date';
   END IF;
 
   SELECT a INTO v_amounts_bob FROM jsonb_array_elements(v_fr1->'amounts_by_currency') a WHERE a->>'currency' = 'BOB';

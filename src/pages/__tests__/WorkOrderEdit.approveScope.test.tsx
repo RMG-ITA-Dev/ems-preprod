@@ -20,6 +20,9 @@ vi.mock("react-router-dom", async () => {
     // "useLocation() may be used only in the context of a <Router>" porque este archivo
     // no envuelve WorkOrderEdit en un MemoryRouter.
     useSearchParams: () => [new URLSearchParams()],
+    // Cancelar vuelve a donde se entro (navigate(-1)) salvo que la OT se haya abierto
+    // directamente, que es lo que dice location.key === 'default'.
+    useLocation: () => ({ key: "default", pathname: "/work-orders/wo-1", search: "" }),
   };
 });
 
@@ -137,7 +140,23 @@ vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCollectionDate:    () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+  // Cobranzas Fase 3: la sección del plan de pagos ahora también usa estos dos. Sin ellos en
+  // el mock del barrel, el componente revienta al montar.
+  useRescheduleInstallment: () => ({ mutate: vi.fn(), isPending: false }),
+  useRecordInstallmentConfirmation: () => ({ mutate: vi.fn(), isPending: false }),
+  // Cobranzas Fase 4: el hilo de notas de la sección del plan de pagos.
+  useAddInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
+  useEditInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
   useSaveWorkOrderStaffing:   () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // Cobranzas Fase 7: las dos RPC con las que Contabilidad le factura al cliente los gastos
+  // ya ejecutados.
+  useCreateExpenseReimbursementRow: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetExpenseReimbursementAmount: () => ({ mutate: vi.fn(), isPending: false }),
+  // Cobranzas Fase 9: ajustes sobre una cuota, y la moneda de la fila de gastos.
+  useAddInstallmentAdjustment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteInstallmentAdjustment: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetInstallmentCurrency: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/components/layout/AppLayout", () => ({

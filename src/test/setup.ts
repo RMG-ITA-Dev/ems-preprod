@@ -15,6 +15,27 @@ const localStorageMock = (() => {
 })();
 Object.defineProperty(window, "localStorage", { value: localStorageMock, configurable: true, writable: true });
 
+// jsdom no trae matchMedia, y useIsMobile (src/hooks/useMobile.tsx) lo llama al montar. Sin
+// esto, cualquier componente que muestre otra vista en móvil revienta en los tests que no
+// mockean el hook. Devuelve "no coincide": los tests corren en escritorio salvo que mockeen
+// useIsMobile para pedir lo contrario.
+if (typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
 // Mock sonner toast
 vi.mock("sonner", () => ({
   toast: {

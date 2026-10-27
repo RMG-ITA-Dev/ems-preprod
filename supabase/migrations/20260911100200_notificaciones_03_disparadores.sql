@@ -151,11 +151,34 @@ BEGIN
     END LOOP;
   END IF;
 
+  -- Fase 4 (plan-contabilidad-gastos): si el cierre es la confirmación del movimiento de dinero,
+  -- el solicitante recibe un aviso propio ("Tu reembolso fue pagado" / "Contabilidad recibió tu
+  -- devolución" / "Se aplicó el descuento"), con fecha y hora, EN LUGAR del genérico "Solicitud
+  -- cerrada". Los gerentes de OT siguen recibiendo el genérico (decisión de Neil, 2026-10-09).
+  IF OLD.settlement_confirmed_at IS NULL AND NEW.settlement_confirmed_at IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.settlement.confirmed',
+              NEW.requester_staff_id, NEW.fund_request_id::text,
+              v_payload || jsonb_build_object(
+                'context', CASE NEW.settlement_resolution
+                             WHEN 'pago_solicitante'   THEN 'reimbursement'
+                             WHEN 'devolucion'         THEN 'return'
+                             WHEN 'descuento_planilla' THEN 'payroll'
+                           END,
+                -- El monto del aviso es el del movimiento, no el solicitado.
+                'amount', NEW.settlement_amount,
+                'confirmed_label', to_char(NEW.settlement_confirmed_at AT TIME ZONE 'America/La_Paz',
+                                           'DD/MM/YYYY HH24:MI'),
+                'reference', NEW.settlement_reference));
+  END IF;
+
   IF OLD.closed_at IS NULL AND NEW.closed_at IS NOT NULL THEN
     FOR v_rec IN
       SELECT NEW.requester_staff_id AS staff_id
+       WHERE NEW.settlement_confirmed_at IS NULL
       UNION
       SELECT staff_id FROM public.notif_fund_request_managers(NEW.fund_request_id)
+       WHERE NEW.settlement_confirmed_at IS NULL
+          OR staff_id IS DISTINCT FROM NEW.requester_staff_id
     LOOP
       PERFORM public.notify_staff('fund.request.closed',
                 v_rec.staff_id, NEW.fund_request_id::text, v_payload);
@@ -207,6 +230,11 @@ DECLARE
   -- La bandeja de revision contable. Los dos eventos de abajo deben repartirse SIEMPRE al
   -- mismo conjunto; tenerlos como constante evita que vuelvan a separarse.
   c_contabilidad constant text[] := ARRAY['accounting_analyst', 'accounting_manager'];
+  -- Job de plazos (fund_request_run_deadlines): aprueba y vence en lote y manda UN resumen por
+  -- solicitud (notif_emit_fund_auto_approval / notif_emit_fund_expired). Los avisos de a un
+  -- gasto de abajo se callan mientras corre, para no repetir lo mismo gasto por gasto.
+  -- COALESCE: sin el GUC puesto current_setting(..., true) da NULL, y NOT NULL callaba todo.
+  v_job       constant boolean := COALESCE(current_setting('app.fund_deadlines', true), '') = 'on';
 BEGIN
   SELECT fr.requester_staff_id, COALESCE(fr.request_number, '')
     INTO v_requester, v_number
@@ -237,14 +265,15 @@ BEGIN
 
   -- Decision del gerente sobre el gasto: al solicitante.
   IF OLD.status = 'pendiente_aprobacion'
-     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado') THEN
+     AND NEW.status IN ('aprobado_gerente', 'observado', 'rechazado')
+     AND NOT v_job THEN
     PERFORM public.notify_staff('fund.expense.decided',
               v_requester, NEW.fre_id::text,
               v_payload || jsonb_build_object('decision', NEW.status::text));
   END IF;
 
   -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
-  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' THEN
+  IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' AND NOT v_job THEN
     FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
     LOOP
       PERFORM public.notify_staff('fund.expense.sent_to_support_review',
@@ -276,19 +305,23 @@ BEGIN
   -- Contabilidad aprobo ESTE gasto: solo al solicitante (uno por gasto).
   IF NEW.status = 'revisado_asistente'
      AND OLD.status IS DISTINCT FROM 'revisado_asistente' THEN
-    PERFORM public.notify_staff('fund.expense.reviewed',
-              v_requester, NEW.fre_id::text, v_payload);
+    IF NOT v_job THEN
+      PERFORM public.notify_staff('fund.expense.reviewed',
+                v_requester, NEW.fre_id::text, v_payload);
+    END IF;
 
     -- Y si con este quedaron TODOS revisados, el consolidado al gerente.
     --
-    -- 'rechazado' SI cuenta como pendiente, alineado con expensePhase() (src/lib/fundRequest.ts):
-    -- "rechazado sigue siendo corregible/reenviable -> no esta finalizado". Excluirlo
-    -- disparaba el hito "todos aprobados" mientras quedaba un gasto que el solicitante
-    -- todavia puede corregir, y la solicitud no aparecia como lista para liquidar.
+    -- Alineado con expensePhase() (src/lib/fundRequest.ts) y fund_request_settle: 'rechazado'
+    -- cuenta como pendiente mientras el solicitante todavia puede corregirlo (hasta la fecha fin);
+    -- despues es final, igual que 'vencido' (calendario, plan-contabilidad-gastos Fase 3).
     SELECT COUNT(*) INTO v_faltan
       FROM public.fund_request_expenses e
+      JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
      WHERE e.fund_request_id = NEW.fund_request_id
-       AND e.status <> 'revisado_asistente';
+       AND e.status NOT IN ('revisado_asistente', 'vencido')
+       AND NOT (e.status = 'rechazado'
+                AND public.fund_today() > public.fund_request_deadline(fr.expense_period_month));
 
     IF v_faltan = 0 THEN
       FOR v_rec IN SELECT staff_id
@@ -300,6 +333,14 @@ BEGIN
                                      'fund_request_id', NEW.fund_request_id));
       END LOOP;
     END IF;
+  END IF;
+
+  -- Contabilidad rechaza un gasto en los días 4 y 5 (calendario, Fase 3): al solicitante. Ya
+  -- no puede corregirlo, así que el aviso le explica que no cuenta como gastado.
+  IF OLD.status = 'aprobado_gerente' AND NEW.status = 'rechazado' THEN
+    PERFORM public.notify_staff('fund.expense.rejected_by_accounting',
+              v_requester, NEW.fre_id::text,
+              v_payload || jsonb_build_object('reason', COALESCE(NEW.rejection_reason, '')));
   END IF;
 
   -- Multa IVA: al solicitante.
@@ -394,6 +435,274 @@ $BODY$;
 
 COMMENT ON FUNCTION public.notif_engagement_managers(uuid) IS
   'Alcance `assigned` de la banda gerencial de un encargo: manager_id + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+
+-- ── Cobranzas Fase 3 (issue #352): aviso de reprogramación ───────────────────
+-- Lo llama reschedule_installment() en vez de un trigger, por una razón concreta: hay que
+-- EXCLUIR a quien reprogramó (decisión del operador Q45 — «esa persona ya sabe que está
+-- reprogramando»), y un trigger de fila no tiene forma limpia de saber quién fue sin volver
+-- a resolver la sesión. Acá el actor ya está resuelto.
+--
+-- Solo campana (el tipo tiene email_enabled = false): es un aviso de que algo se movió, no
+-- una tarea pendiente de nadie.
+DROP FUNCTION IF EXISTS public.notif_installment_rescheduled(public.wo_payment_installments, date, text);
+
+CREATE FUNCTION public.notif_installment_rescheduled(
+    p_row      public.wo_payment_installments,
+    p_old_date date,
+    p_reason   text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff('wo.installment.rescheduled', v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           v_curr,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'old_date',           p_old_date,
+                            'new_date',           p_row.current_invoice_date,
+                            'reason',             p_reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+-- ── Cobranzas Fase 4 (issue #352): aviso de nota nueva ──────────────────────
+-- Decisión del operador Q35: SOLO campana, y a LA OTRA PARTE. El hilo tiene dos lados —
+-- gerente/socio del encargo por uno, Contabilidad por el otro — y avisarle a todo el mundo
+-- cada vez convertiría la campana en ruido. Quién es "la otra parte" lo decide el rol
+-- congelado del autor (`author_role`), no el rol que esa persona tenga hoy.
+--
+-- La llama add_installment_note(), no un trigger, por el mismo motivo que el aviso de
+-- reprogramación: hay que excluir al autor, y acá ya está resuelto.
+DROP FUNCTION IF EXISTS public.notif_installment_note_added(public.wo_installment_notes);
+
+CREATE FUNCTION public.notif_installment_note_added(p_note public.wo_installment_notes)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_autor_es_contabilidad boolean := COALESCE(p_note.author_role IN ('accounting_manager', 'collections_analyst'), false);
+  v_code  text;
+  v_curr  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, ''), w.currency
+    INTO v_eng, v_code, v_curr
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_note.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM (
+      -- Escribió Contabilidad → se avisa al encargo (gerentes y socios).
+      -- Escribió el encargo → se avisa a Contabilidad.
+      SELECT staff_id FROM public.notif_engagement_managers(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_engagement_partners(v_eng) WHERE v_autor_es_contabilidad
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+       WHERE NOT v_autor_es_contabilidad
+    ) q
+  LOOP
+    CONTINUE WHEN p_note.author_staff_id IS NOT NULL AND v_rec.staff_id = p_note.author_staff_id;
+
+    IF public.notify_staff('wo.installment.note_added', v_rec.staff_id,
+         p_note.wo_id::text,
+         jsonb_build_object('engagement_code',  v_code,
+                            'engagement_id',    v_eng,
+                            'currency',         v_curr,
+                            'note_id',          p_note.note_id,
+                            'installment_id',   p_note.installment_id,
+                            -- Un extracto, no la nota entera: la campana no es el lugar para
+                            -- leerla, es el lugar para enterarse de que existe.
+                            'excerpt',          left(p_note.body, 140))) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+-- ── Cobranzas Fase 7 (issue #352): aviso de la fila de gastos ejecutados ────
+-- Decisión del operador Q24/Q40: al crear la fila, y también al corregir su monto, se avisa al
+-- GERENTE del encargo por campana Y correo, y al SOCIO sólo por campana. El reparto desigual es
+-- deliberado: el gerente es quien acordó el alcance con el cliente y tiene que enterarse sí o
+-- sí; el socio necesita estar al tanto, no actuar.
+DROP FUNCTION IF EXISTS public.notif_installment_expense_row(public.wo_payment_installments, text);
+
+CREATE FUNCTION public.notif_installment_expense_row(
+    p_row    public.wo_payment_installments,
+    p_evento text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'created'
+                       THEN 'wo.installment.expense_row_created'
+                       ELSE 'wo.installment.expense_row_amount_changed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'currency',           COALESCE(p_row.currency, 'BOB'),
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', p_row.installment_number,
+                            'amount',             p_row.amount,
+                            'net_amount',         p_row.net_amount)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_expense_row(public.wo_payment_installments, text) IS
+  'Cobranzas Fase 7: avisa al gerente (campana + correo) y al socio (campana) que se facturaron gastos ejecutados, o que cambio su monto. La llaman create_expense_reimbursement_row() y set_expense_reimbursement_amount().';
+
+REVOKE ALL ON FUNCTION public.notif_installment_expense_row(public.wo_payment_installments, text) FROM PUBLIC, anon, authenticated;
+
+
+-- =====================================================================
+-- Cobranzas Fase 9 — ajustes sobre una cuota
+-- =====================================================================
+-- Un ajuste lo carga Contabilidad, pero cambia lo que el cliente termina pagando, asi que el
+-- gerente y el socio del encargo se enteran: es la unica via por la que pueden objetarlo, por
+-- el hilo de notas de la Fase 4.
+DROP FUNCTION IF EXISTS public.notif_installment_adjustment(public.wo_installment_adjustments, text);
+
+CREATE FUNCTION public.notif_installment_adjustment(
+    p_row    public.wo_installment_adjustments,
+    p_evento text)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $BODY$
+DECLARE
+  v_type  text := CASE WHEN p_evento = 'added'
+                       THEN 'wo.installment.adjustment_added'
+                       ELSE 'wo.installment.adjustment_removed' END;
+  v_actor uuid := public.get_my_staff_id();
+  v_code  text;
+  v_eng   uuid;
+  v_num   integer;
+  v_rec   record;
+  v_sent  integer := 0;
+BEGIN
+  SELECT e.engagement_id, COALESCE(e.engagement_code, '')
+    INTO v_eng, v_code
+    FROM public.work_orders w
+    JOIN public.engagements e ON e.engagement_id = w.engagement_id
+   WHERE w.wo_id = p_row.wo_id;
+
+  SELECT i.installment_number INTO v_num
+    FROM public.wo_payment_installments i
+   WHERE i.installment_id = p_row.installment_id;
+
+  FOR v_rec IN
+    SELECT staff_id FROM public.notif_engagement_managers(v_eng)
+    UNION
+    SELECT staff_id FROM public.notif_engagement_partners(v_eng)
+  LOOP
+    -- Quien lo cargo no necesita que le avisen de lo que acaba de hacer.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
+    IF public.notify_staff(v_type, v_rec.staff_id,
+         p_row.wo_id::text,
+         jsonb_build_object('engagement_code',    v_code,
+                            'engagement_id',      v_eng,
+                            'installment_id',     p_row.installment_id,
+                            'installment_number', v_num,
+                            'adjustment_type',    p_row.adjustment_type,
+                            -- `context` es la clave que i18next usa para elegir variante de un
+                            -- mismo mensaje. Asi el aviso dice "Descuento de ..." o "Diferencia
+                            -- de cambio de ...", en vez de un generico "Ajuste de ..." que
+                            -- ademas arrastraba el signo pegado a la moneda ("USD -200").
+                            'context',            p_row.adjustment_type,
+                            'currency',           p_row.currency,
+                            'amount',             p_row.amount,
+                            -- Sin signo, para el texto del DESCUENTO: que siempre resta ya lo
+                            -- dice la palabra. La diferencia de cambio usa el firmado, porque
+                            -- ahi el sentido es parte del dato.
+                            'amount_abs',         abs(p_row.amount),
+                            'reason',             p_row.reason)) IS NOT NULL THEN
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_sent;
+END;
+$BODY$;
+
+COMMENT ON FUNCTION public.notif_installment_adjustment(public.wo_installment_adjustments, text) IS
+  'Cobranzas Fase 9: avisa al gerente y al socio del encargo que se registro o se retiro un ajuste sobre una cuota. La llaman add_installment_adjustment() y delete_installment_adjustment().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_adjustment(public.wo_installment_adjustments, text) FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) IS
+  'Cobranzas Fase 4: avisa por campana a la OTRA parte del hilo (encargo <-> Contabilidad) que hay una nota nueva, excluyendo al autor. La llama add_installment_note().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_note_added(public.wo_installment_notes) FROM PUBLIC, anon, authenticated;
+
+COMMENT ON FUNCTION public.notif_installment_rescheduled(public.wo_payment_installments, date, text) IS
+  'Cobranzas Fase 3: avisa por campana al socio del encargo y a Contabilidad que una cuota se reprogramo, excluyendo a quien la reprogramo. La llama reschedule_installment().';
+
+-- La llama una RPC SECURITY DEFINER, no el cliente.
+REVOKE ALL ON FUNCTION public.notif_installment_rescheduled(public.wo_payment_installments, date, text) FROM PUBLIC, anon, authenticated;
 
 -- =====================================================================
 -- B) work_orders — 11 eventos de transición
@@ -637,7 +946,12 @@ DECLARE
   v_code text;
   v_curr text;
   v_rec  record;
-  c_contabilidad constant text[] := ARRAY['accounting_manager', 'accounting_analyst'];
+  -- Cobranzas Fase 2 (Q14/Q46): el aviso de cambio de estado de una CUOTA es del circuito de
+  -- cobranza -- Gerente de Contabilidad y Analista de Cobranzas. El Analista de Contabilidad
+  -- sale (solo hace solicitudes de fondos). OJO: la otra constante con el mismo nombre, en el
+  -- disparador de FONDOS de este mismo archivo, SI sigue siendo gerente + analista contable.
+  c_contabilidad constant text[] := ARRAY['accounting_manager', 'collections_analyst'];
+  v_actor uuid := public.get_my_staff_id();
 BEGIN
   IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
     RETURN NULL;
@@ -653,6 +967,13 @@ BEGIN
   -- de la pestaña "Plan de pagos" de su OT.
   FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
   LOOP
+    -- 2026-10-21: a quien movio la cuota no se le avisa de su propio clic. El aviso sigue
+    -- siendo DEPARTAMENTAL -- su valor es que la OTRA persona del circuito se entere-- pero
+    -- quien factura treinta cuotas en una manana se comia treinta campanazos propios, y eso
+    -- enterraba lo que si importa: una nota del encargo, una reprogramacion. Es la misma regla
+    -- que ya seguian todos los avisos de las fases 3, 4, 7 y 9.
+    CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
+
     PERFORM public.notify_staff('wo.installment.status_changed', v_rec.staff_id,
               NEW.wo_id::text,
               jsonb_build_object(
@@ -702,6 +1023,8 @@ CREATE FUNCTION public.notif_wo_daily_scheduled() RETURNS integer
 DECLARE
   v_today date := (now() AT TIME ZONE 'America/La_Paz')::date;
   v_rec   record;
+  v_dest  record;
+  v_type  text;
   v_sent  integer := 0;
   c_riesgos constant text[] := ARRAY['risk_partner', 'risk_supervisor'];
 BEGIN
@@ -782,11 +1105,18 @@ BEGIN
   END LOOP;
 
   -- ── 3. Semana de facturación del cliente (D-22) ──
-  -- Una cuota entra en su semana de facturación cuando `agreed_invoice_date` cae en la semana
-  -- corriente (lunes a domingo) y todavía no se facturó. El dedup lleva installment_id porque
-  -- una OT puede tener dos cuotas facturables en la misma semana y el entity_id es la OT.
+  -- Una cuota entra en su semana de facturación cuando su fecha de facturación VIGENTE cae en
+  -- la semana corriente (lunes a domingo) y todavía no se facturó. El dedup lleva
+  -- installment_id porque una OT puede tener dos cuotas facturables en la misma semana y el
+  -- entity_id es la OT.
+  --
+  -- Cobranzas Fase 1 (issue #352): la fecha vigente es COALESCE(current_invoice_date,
+  -- agreed_invoice_date) — la reprogramada si la hubo, si no la del contrato. Contra
+  -- `agreed_invoice_date` a secas, una cuota reprogramada avisaba en su semana original (que
+  -- ya nadie va a facturar) y callaba en la nueva.
   FOR v_rec IN
-    SELECT i.installment_id, i.installment_number, i.amount, i.agreed_invoice_date,
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS agreed_invoice_date,
            w.wo_id, w.engagement_id, w.currency,
            COALESCE(e.engagement_code, '') AS engagement_code,
            r.staff_id
@@ -797,9 +1127,9 @@ BEGIN
         SELECT staff_id FROM public.notif_engagement_managers(w.engagement_id)
       ) r
      WHERE i.status = 'Pending'
-       AND i.agreed_invoice_date IS NOT NULL
-       AND i.agreed_invoice_date >= date_trunc('week', v_today)::date
-       AND i.agreed_invoice_date <= date_trunc('week', v_today)::date + 6
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) IS NOT NULL
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) >= date_trunc('week', v_today)::date
+       AND COALESCE(i.current_invoice_date, i.agreed_invoice_date) <= date_trunc('week', v_today)::date + 6
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM public.notifications n
@@ -822,12 +1152,85 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- ── 4. Cobranzas Fase 3: confirmación pendiente y facturación atrasada ──
+  -- Los dos salen de la MISMA regla de calendario que usa todo lo demás
+  -- (wo_installment_calendar_state), no de una comparación propia: ese fue el problema que
+  -- el issue #352 vino a cerrar.
+  --
+  -- El dedup contra public.notifications lleva installment_id Y la fecha vigente en el
+  -- payload. Que lleve la fecha es lo que hace que el aviso NO se repita una vez gestionada
+  -- la cuota y SÍ vuelva a salir si se reprograma a una fecha nueva: son dos hechos
+  -- distintos, no el mismo repetido.
+  FOR v_rec IN
+    SELECT i.installment_id, i.installment_number, i.amount,
+           COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date,
+           public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today) AS calendar_state,
+           w.wo_id, w.engagement_id, w.currency,
+           COALESCE(e.engagement_code, '') AS engagement_code
+      FROM public.wo_payment_installments i
+      JOIN public.work_orders w ON w.wo_id = i.wo_id
+      JOIN public.engagements e ON e.engagement_id = w.engagement_id
+     WHERE i.status = 'Pending'
+       -- Solo OT aprobadas, el mismo corte que la pantalla de Cobranzas y las RPC de cobro. Un
+       -- plan en borrador no es todavia un contrato: avisar "facturacion atrasada" sobre el le
+       -- pide a Contabilidad algo que no puede hacer (INSTALLMENT_LOCKED).
+       AND w.approval_status = 'Approved'
+       AND public.wo_installment_calendar_state(
+             i.status, i.agreed_invoice_date, i.current_invoice_date,
+             i.agreed_payment_date, i.collection_payment_date, v_today)
+           IN ('billing_due_soon', 'billing_late')
+       -- "Confirmación pendiente" es solo mientras nadie gestionó el check. Una cuota ya
+       -- confirmada no necesita recordatorio; una reprogramada vuelve a 'sin_gestionar' y
+       -- por eso vuelve a entrar acá, con su fecha nueva.
+       AND (i.confirmation_status = 'sin_gestionar'
+            OR public.wo_installment_calendar_state(
+                 i.status, i.agreed_invoice_date, i.current_invoice_date,
+                 i.agreed_payment_date, i.collection_payment_date, v_today) = 'billing_late')
+  LOOP
+    -- El gerente del encargo es quien marca el check (decisión Q11/Q56), así que el
+    -- recordatorio de confirmación le llega a él además de a Contabilidad. El de facturación
+    -- atrasada es de Contabilidad: son ellos quienes emiten.
+    FOR v_dest IN
+      SELECT staff_id FROM public.notif_engagement_managers(v_rec.engagement_id)
+      UNION
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+    LOOP
+      v_type := CASE WHEN v_rec.calendar_state = 'billing_late'
+                     THEN 'wo.installment.billing_late'
+                     ELSE 'wo.installment.confirmation_pending' END;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM public.notifications n
+         WHERE n.type_key = v_type
+           AND n.entity_id = v_rec.wo_id::text
+           AND n.recipient_staff_id = v_dest.staff_id
+           AND n.payload->>'installment_id' = v_rec.installment_id::text
+           AND n.payload->>'invoice_date' = v_rec.invoice_date::text
+      ) THEN
+        IF public.notify_staff(v_type, v_dest.staff_id,
+             v_rec.wo_id::text,
+             jsonb_build_object('engagement_code',    v_rec.engagement_code,
+                                'engagement_id',      v_rec.engagement_id,
+                                'currency',           v_rec.currency,
+                                'installment_id',     v_rec.installment_id,
+                                'installment_number', v_rec.installment_number,
+                                'amount',             v_rec.amount,
+                                'invoice_date',       v_rec.invoice_date)) IS NOT NULL THEN
+          v_sent := v_sent + 1;
+        END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+
   RETURN v_sent;
 END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_wo_daily_scheduled() IS
-  'FASE 3.b: los 3 eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
+  'FASE 3.b + Cobranzas Fase 3: los eventos del modulo OT que dependen del calendario (plazo de emergencia por vencer / vencido, semana de facturacion, confirmacion pendiente y facturacion atrasada). Idempotente por destinatario contra public.notifications: re-ejecutarla el mismo dia no duplica nada. Devuelve cuantas notificaciones emitio.';
 
 -- Sin GRANT a `authenticated`: la dispara el cron, no el cliente.
 REVOKE ALL ON FUNCTION public.notif_wo_daily_scheduled() FROM PUBLIC, anon, authenticated;
@@ -2954,8 +3357,224 @@ BEGIN
     END IF;
     PERFORM cron.schedule('notif-reminder-installment-weekly', '30 13 * * 1',
       $cron$SELECT public.notif_emit_wo_installment_reminder_weekly();$cron$);
+
+    -- Calendario de gastos (Fase 3.9): todos los días 12:00 UTC = 08:00 La Paz. Los días que
+    -- cuentan son calendario, así que también corre el fin de semana.
+    IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'notif-fund-deadline-reminders') THEN
+      PERFORM cron.unschedule('notif-fund-deadline-reminders');
+    END IF;
+    PERFORM cron.schedule('notif-fund-deadline-reminders', '0 12 * * *',
+      $cron$SELECT public.notif_emit_fund_deadline_reminders();$cron$);
   END IF;
 END $$;
+
+-- =====================================================================
+-- Calendario de gastos (docs/plan-contabilidad-gastos.md, Fase 3.9)
+-- =====================================================================
+--
+-- Todos estos tipos salen por la campana Y por correo (decisión de Neil, 2026-10-09). Fechas:
+-- fecha fin = día 3 del mes siguiente al mes de la solicitud; fin de revisión = día 5.
+
+DROP FUNCTION IF EXISTS public.notif_fund_sent_today(text, uuid, text);
+
+CREATE FUNCTION public.notif_fund_sent_today(p_type_key text, p_staff_id uuid, p_entity_id text)
+    RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- ¿Ya se le mandó hoy (día de La Paz) este aviso por esta entidad? Los recordatorios corren
+  -- una vez por día; esto evita repetirlos si el job se vuelve a correr a mano.
+  SELECT EXISTS (
+    SELECT 1 FROM public.notifications n
+     WHERE n.type_key = p_type_key
+       AND n.recipient_staff_id = p_staff_id
+       AND n.entity_id IS NOT DISTINCT FROM p_entity_id
+       AND (n.created_at AT TIME ZONE 'America/La_Paz')::date = (now() AT TIME ZONE 'America/La_Paz')::date
+  );
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_deadline_reminders(date);
+
+CREATE FUNCTION public.notif_emit_fund_deadline_reminders(p_today date DEFAULT NULL)
+    RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Recordatorios diarios de plazo:
+--   · días 1 a 3 (hasta la fecha fin): al solicitante, si tiene borradores sin enviar o gastos
+--     observados/rechazados/devueltos por corregir; y a cada gerente de OT con gastos por aprobar.
+--   · días 3 a 5 (hasta el fin de revisión): a los dos roles de Contabilidad, un solo aviso con
+--     el total de gastos por revisar. El día 5 dice que hoy vence (context = 'last_day').
+DECLARE
+  v_today   date := COALESCE(p_today, public.fund_today());
+  v_sent    integer := 0;
+  v_rec     record;
+  v_mgr     record;
+  v_payload jsonb;
+  v_count   integer;
+  v_reqs    integer;
+  v_review  date;
+BEGIN
+  FOR v_rec IN
+    SELECT fr.fund_request_id, fr.requester_staff_id, COALESCE(fr.request_number, '') AS request_number,
+           public.fund_request_deadline(fr.expense_period_month) AS deadline
+      FROM public.fund_requests fr
+     WHERE fr.status = 'fondos_entregados'
+       AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month) - 2
+                       AND public.fund_request_deadline(fr.expense_period_month)
+  LOOP
+    v_payload := jsonb_build_object(
+      'fund_request_id', v_rec.fund_request_id,
+      'request_number',  v_rec.request_number,
+      'deadline',        v_rec.deadline,
+      'deadline_label',  to_char(v_rec.deadline, 'DD/MM/YYYY'));
+
+    SELECT count(*) INTO v_count
+      FROM public.fund_request_expenses e
+     WHERE e.fund_request_id = v_rec.fund_request_id
+       AND e.status IN ('borrador', 'observado', 'rechazado');
+    IF v_count > 0 AND NOT public.notif_fund_sent_today(
+         'fund.expense.deadline_reminder', v_rec.requester_staff_id, v_rec.fund_request_id::text) THEN
+      PERFORM public.notify_staff('fund.expense.deadline_reminder', v_rec.requester_staff_id,
+                v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_count));
+      v_sent := v_sent + 1;
+    END IF;
+
+    FOR v_mgr IN
+      SELECT frw.manager_staff_id AS staff_id, count(*) AS n
+        FROM public.fund_request_expenses e
+        JOIN public.fund_request_work_orders frw
+          ON frw.fund_request_id = e.fund_request_id AND frw.wo_id = e.wo_id
+       WHERE e.fund_request_id = v_rec.fund_request_id
+         AND e.status = 'pendiente_aprobacion'
+         AND frw.manager_staff_id IS NOT NULL
+       GROUP BY frw.manager_staff_id
+    LOOP
+      IF NOT public.notif_fund_sent_today(
+           'fund.expense.approval_reminder', v_mgr.staff_id, v_rec.fund_request_id::text) THEN
+        PERFORM public.notify_staff('fund.expense.approval_reminder', v_mgr.staff_id,
+                  v_rec.fund_request_id::text, v_payload || jsonb_build_object('expense_count', v_mgr.n));
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- Contabilidad: en un día dado, todas las solicitudes en revisión comparten el mismo fin de
+  -- revisión (día 5 del mes en curso), así que un solo aviso con el total alcanza.
+  SELECT count(*), count(DISTINCT e.fund_request_id),
+         min(public.fund_request_review_deadline(fr.expense_period_month))
+    INTO v_count, v_reqs, v_review
+    FROM public.fund_request_expenses e
+    JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
+   WHERE fr.status = 'fondos_entregados'
+     AND e.status = 'aprobado_gerente'
+     AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
+                     AND public.fund_request_review_deadline(fr.expense_period_month);
+
+  IF v_count > 0 THEN
+    v_payload := jsonb_build_object(
+      'expense_count',  v_count,
+      'request_count',  v_reqs,
+      'deadline',       v_review,
+      'deadline_label', to_char(v_review, 'DD/MM/YYYY'));
+    IF v_today = v_review THEN
+      v_payload := v_payload || jsonb_build_object('context', 'last_day');
+    END IF;
+    FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+    LOOP
+      IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
+        PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
+        v_sent := v_sent + 1;
+      END IF;
+    END LOOP;
+  END IF;
+
+  RETURN v_sent;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_auto_approval(text, uuid, integer, uuid[]);
+
+CREATE FUNCTION public.notif_emit_fund_auto_approval(
+    p_type_key text, p_fund_request_id uuid, p_count integer, p_managers uuid[])
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Resumen de una aprobación automática (job de plazos) para UNA solicitud, a sus tres
+-- audiencias: el solicitante, los gerentes (los de las OT afectadas en la etapa del gerente;
+-- todos los de la solicitud en la de Contabilidad) y los dos roles de Contabilidad. Cada uno
+-- con su redacción (payload.context).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+  v_rec       record;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count)
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NULL THEN
+    RETURN;
+  END IF;
+
+  PERFORM public.notify_staff(p_type_key, v_requester, p_fund_request_id::text,
+            v_payload || jsonb_build_object('context', 'requester'));
+
+  FOR v_rec IN
+    SELECT DISTINCT m AS staff_id
+      FROM unnest(COALESCE(p_managers, ARRAY[]::uuid[])) AS m
+     WHERE m IS NOT NULL AND m IS DISTINCT FROM v_requester
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'manager'));
+  END LOOP;
+
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  LOOP
+    PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
+              v_payload || jsonb_build_object('context', 'accounting'));
+  END LOOP;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.notif_emit_fund_expired(uuid, integer);
+
+CREATE FUNCTION public.notif_emit_fund_expired(p_fund_request_id uuid, p_count integer)
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+-- Al solicitante: cuántos gastos quedaron vencidos al pasar la fecha fin (no cuentan como gastado).
+DECLARE
+  v_requester uuid;
+  v_payload   jsonb;
+BEGIN
+  SELECT fr.requester_staff_id,
+         jsonb_build_object('fund_request_id', fr.fund_request_id,
+                            'request_number',  COALESCE(fr.request_number, ''),
+                            'expense_count',   p_count,
+                            'deadline',        public.fund_request_deadline(fr.expense_period_month),
+                            'deadline_label',  to_char(public.fund_request_deadline(fr.expense_period_month), 'DD/MM/YYYY'))
+    INTO v_requester, v_payload
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF v_requester IS NOT NULL THEN
+    PERFORM public.notify_staff('fund.expense.expired', v_requester, p_fund_request_id::text, v_payload);
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.notif_fund_sent_today(text, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_deadline_reminders(date) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_auto_approval(text, uuid, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_emit_fund_expired(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.notif_emit_fund_deadline_reminders(date) TO service_role;
 
 
 -- =====================================================================

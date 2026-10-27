@@ -4,9 +4,12 @@ import {
   distributePercentages,
   computeAmount,
   computePaymentDate,
-  detectOverdue,
   isAlertDue,
-  getEffectiveInstallmentStatus,
+  installmentCalendarState,
+  getInstallmentCalendarState,
+  getInstallmentDisplay,
+  currentDueDate,
+  currentInvoiceDate,
   computeBillingIndicator,
   isInvoiceRateEditable,
   isPaymentRateEditable,
@@ -32,7 +35,7 @@ function isoDate(d: Date): string {
 // BUG preexistente (M6, bugs/scheduler/fase_5/review.md), corregido acá: esta helper
 // anclaba "hoy" a la hora local del SISTEMA que corre el test (`new Date()` +
 // `setDate`/`getDate`, reloj de pared) y lo serializaba vía `toISOString()` (UTC) — dos
-// conversiones de zona horaria que isAlertDue()/detectOverdue() nunca hacen, porque ambas
+// conversiones de zona horaria que isAlertDue()/getInstallmentCalendarState() nunca hacen, porque ambas
 // anclan "hoy" explícitamente a America/La_Paz vía Intl.DateTimeFormat. Cuando el sistema
 // que corre el test no está en America/La_Paz (typicamente UTC en GitHub Actions), o incluso
 // estando en esa zona según la hora del día, el "hoy" del test y el de producción podían
@@ -234,60 +237,6 @@ describe("computePaymentDate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// detectOverdue
-// ---------------------------------------------------------------------------
-
-describe("detectOverdue", () => {
-  it("returns true when Invoiced and agreed_payment_date is yesterday", () => {
-    const inst = baseInstallment({
-      status: "Invoiced",
-      agreed_payment_date: dayOffset(-1),
-    });
-    expect(detectOverdue(inst)).toBe(true);
-  });
-
-  it("returns false when Invoiced and agreed_payment_date is today (not yet overdue)", () => {
-    const inst = baseInstallment({
-      status: "Invoiced",
-      agreed_payment_date: dayOffset(0),
-    });
-    expect(detectOverdue(inst)).toBe(false);
-  });
-
-  it("returns false when Invoiced and agreed_payment_date is tomorrow", () => {
-    const inst = baseInstallment({
-      status: "Invoiced",
-      agreed_payment_date: dayOffset(1),
-    });
-    expect(detectOverdue(inst)).toBe(false);
-  });
-
-  it("returns false when status is Pending (even with past date)", () => {
-    const inst = baseInstallment({
-      status: "Pending",
-      agreed_payment_date: dayOffset(-10),
-    });
-    expect(detectOverdue(inst)).toBe(false);
-  });
-
-  it("returns false when status is Completed (even with past date)", () => {
-    const inst = baseInstallment({
-      status: "Completed",
-      agreed_payment_date: dayOffset(-10),
-    });
-    expect(detectOverdue(inst)).toBe(false);
-  });
-
-  it("returns false when agreed_payment_date is null", () => {
-    const inst = baseInstallment({
-      status: "Invoiced",
-      agreed_payment_date: null,
-    });
-    expect(detectOverdue(inst)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // isAlertDue
 // ---------------------------------------------------------------------------
 
@@ -324,12 +273,16 @@ describe("isAlertDue", () => {
     expect(isAlertDue(inst)).toBe(false);
   });
 
-  it("returns true for Invoiced status within window", () => {
+  // Cobranzas Fase 1: el banner dice "hay cuotas POR FACTURAR pronto". Una cuota ya
+  // facturada no está por facturar, así que dejó de dispararlo (antes sí lo hacía, porque
+  // isAlertDue sólo miraba la fecha y aceptaba también el estado Invoiced). Su riesgo real
+  // —que el cliente no pague— lo cubre la condición de calendario de la propia cuota.
+  it("una cuota YA FACTURADA no dispara el aviso de 'por facturar'", () => {
     const inst = baseInstallment({
       status: "Invoiced",
       agreed_invoice_date: dayOffset(3),
     });
-    expect(isAlertDue(inst)).toBe(true);
+    expect(isAlertDue(inst)).toBe(false);
   });
 
   it("returns false for Completed status even within window", () => {
@@ -367,30 +320,113 @@ describe("isAlertDue", () => {
 });
 
 // ---------------------------------------------------------------------------
-// getEffectiveInstallmentStatus (0817-176: extraída de WorkOrderPaymentPlanSection
-// para compartirla con computeBillingIndicator)
+// installmentCalendarState — Cobranzas Fase 1 (issue #352 / 0923-206).
+// Regla ÚNICA de mora, espejo de public.installment_calendar_state(...) en la base.
+// Cubre los escenarios que nombra el issue: cuota vencida, cliente que no paga en el
+// mes previsto, pago reprogramado al mes siguiente y pago hecho en otra fecha.
 // ---------------------------------------------------------------------------
 
-describe("getEffectiveInstallmentStatus", () => {
-  it("Pending with a past agreed_invoice_date reads as Overdue", () => {
-    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(-1) });
-    expect(getEffectiveInstallmentStatus(inst)).toBe("Overdue");
+describe("installmentCalendarState (función pura, con 'hoy' explícito)", () => {
+  const TODAY = "2026-10-15";
+
+  it("una cuota SIN FACTURAR con su fecha de facturación pasada es 'facturación atrasada', NUNCA mora", () => {
+    // El bug central de #352: antes esto se mostraba como "Mora", mezclando "no se
+    // facturó a tiempo" (nuestro atraso) con "el cliente no pagó" (deuda del cliente).
+    expect(installmentCalendarState("Pending", "2026-10-01", null, TODAY)).toBe("billing_late");
   });
 
-  it("Pending with a future agreed_invoice_date stays Pending", () => {
-    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(1) });
-    expect(getEffectiveInstallmentStatus(inst)).toBe("Pending");
+  it("una cuota sin facturar cuya fecha de facturación cae dentro de los 7 días avisa, sin ser atraso", () => {
+    expect(installmentCalendarState("Pending", "2026-10-20", null, TODAY)).toBe("billing_due_soon");
+    expect(installmentCalendarState("Pending", TODAY, null, TODAY)).toBe("billing_due_soon");
   });
 
-  it("Pending with no agreed_invoice_date stays Pending", () => {
-    const inst = baseInstallment({ status: "Pending", agreed_invoice_date: null });
-    expect(getEffectiveInstallmentStatus(inst)).toBe("Pending");
+  it("una cuota sin facturar y todavía lejos está en plazo", () => {
+    expect(installmentCalendarState("Pending", "2026-11-30", null, TODAY)).toBe("on_track");
   });
 
-  it("non-Pending statuses pass through unchanged", () => {
-    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Invoiced", agreed_invoice_date: dayOffset(-5) }))).toBe("Invoiced");
-    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Completed", agreed_invoice_date: dayOffset(-5) }))).toBe("Completed");
-    expect(getEffectiveInstallmentStatus(baseInstallment({ status: "Overdue", agreed_invoice_date: dayOffset(-5) }))).toBe("Overdue");
+  it("la mora se cuenta desde el VENCIMIENTO REAL, no desde la fecha pactada (decisión Q4)", () => {
+    // Facturada tarde: su vencimiento real cae después del pactado. Medida contra la
+    // fecha pactada, la cuota aparecía en mora antes de tiempo.
+    expect(installmentCalendarState("Invoiced", "2026-09-01", "2026-10-30", TODAY)).toBe("on_track");
+    expect(installmentCalendarState("Invoiced", "2026-09-01", "2026-10-14", TODAY)).toBe("overdue");
+  });
+
+  it("el día del vencimiento todavía no es mora; el siguiente sí", () => {
+    expect(installmentCalendarState("Invoiced", null, TODAY, TODAY)).toBe("payment_due_soon");
+    expect(installmentCalendarState("Invoiced", null, "2026-10-14", TODAY)).toBe("overdue");
+  });
+
+  it("la mora MANUAL es mora aunque su vencimiento no haya pasado (decisión Q3: se mantiene)", () => {
+    expect(installmentCalendarState("Overdue", null, "2026-12-31", TODAY)).toBe("overdue");
+  });
+
+  it("una cuota cobrada queda cerrada y no genera más alertas, ni siquiera pagada tarde", () => {
+    expect(installmentCalendarState("Completed", "2026-01-01", "2026-02-01", TODAY)).toBe("closed");
+  });
+
+  it("sin fecha aplicable no inventa un estado", () => {
+    expect(installmentCalendarState("Pending", null, null, TODAY)).toBe("on_track");
+    expect(installmentCalendarState("Invoiced", null, null, TODAY)).toBe("on_track");
+  });
+
+  it("la ventana de aviso es configurable", () => {
+    expect(installmentCalendarState("Pending", "2026-10-20", null, TODAY, 3)).toBe("on_track");
+    expect(installmentCalendarState("Pending", "2026-10-18", null, TODAY, 3)).toBe("billing_due_soon");
+  });
+});
+
+describe("fechas vigentes y reprogramación (issue #352)", () => {
+  it("currentInvoiceDate usa la reprogramada cuando existe, y si no la del contrato", () => {
+    expect(currentInvoiceDate(baseInstallment({ agreed_invoice_date: "2026-10-01" }))).toBe("2026-10-01");
+    expect(currentInvoiceDate(baseInstallment({
+      agreed_invoice_date: "2026-10-01",
+      current_invoice_date: "2026-11-01",
+    }))).toBe("2026-11-01");
+  });
+
+  it("currentDueDate prefiere el vencimiento real sobre el pactado", () => {
+    expect(currentDueDate(baseInstallment({
+      agreed_payment_date: "2026-10-10",
+      collection_payment_date: "2026-11-05",
+    }))).toBe("2026-11-05");
+  });
+
+  it("reprogramar al mes siguiente saca a la cuota de 'facturación atrasada' sin perder el contrato", () => {
+    const original = baseInstallment({ status: "Pending", agreed_invoice_date: "2026-10-01" });
+    expect(getInstallmentCalendarState(original, "2026-10-15")).toBe("billing_late");
+
+    const rescheduled = { ...original, current_invoice_date: "2026-11-01" };
+    expect(getInstallmentCalendarState(rescheduled, "2026-10-15")).toBe("on_track");
+    // La fecha pactada sigue intacta: #352 pide no perder el historial ni confundir una
+    // reprogramación autorizada con una cuota vencida.
+    expect(rescheduled.agreed_invoice_date).toBe("2026-10-01");
+  });
+
+  it("si también se incumple la fecha nueva, vuelve a estar atrasada", () => {
+    const rescheduled = baseInstallment({
+      status: "Pending",
+      agreed_invoice_date: "2026-10-01",
+      current_invoice_date: "2026-11-01",
+    });
+    expect(getInstallmentCalendarState(rescheduled, "2026-11-10")).toBe("billing_late");
+  });
+});
+
+describe("getInstallmentDisplay (etapa + calendario, para el chip)", () => {
+  it("distingue mora manual de mora por fecha, que es lo que aclara el tooltip", () => {
+    const manual = getInstallmentDisplay(
+      baseInstallment({ status: "Overdue", collection_payment_date: "2026-12-31" }), "2026-10-15");
+    expect(manual).toMatchObject({ stage: "Overdue", isOverdue: true, overdueKind: "manual" });
+
+    const byDate = getInstallmentDisplay(
+      baseInstallment({ status: "Invoiced", collection_payment_date: "2026-10-01" }), "2026-10-15");
+    expect(byDate).toMatchObject({ stage: "Invoiced", isOverdue: true, overdueKind: "payment" });
+  });
+
+  it("una cuota sin facturar y atrasada NO es mora: conserva su etapa Pendiente", () => {
+    const d = getInstallmentDisplay(
+      baseInstallment({ status: "Pending", agreed_invoice_date: "2026-10-01" }), "2026-10-15");
+    expect(d).toMatchObject({ stage: "Pending", calendar: "billing_late", isOverdue: false, overdueKind: null });
   });
 });
 
@@ -430,11 +466,21 @@ describe("computeBillingIndicator", () => {
     expect(computeBillingIndicator(installments)).toBe("red");
   });
 
-  it("stays 'red' when the payment date passed and it was never invoiced (Pending, unpaid = overdue)", () => {
+  // Cobranzas Fase 1 (decisión Q4): una cuota todavía Pendiente se juzga por su fecha de
+  // FACTURACIÓN, no por la de pago —nunca se facturó, así que no hay nada vencido que
+  // cobrar—. Sigue pintando rojo, pero por el motivo correcto: facturación atrasada.
+  it("pinta 'red' cuando una cuota sin facturar pasó su fecha de facturación", () => {
     const installments = [
-      baseInstallment({ status: "Pending", agreed_payment_date: dayOffset(-1) }),
+      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(-1), agreed_payment_date: dayOffset(29) }),
     ];
     expect(computeBillingIndicator(installments)).toBe("red");
+  });
+
+  it("una cuota sin facturar con la fecha de facturación lejana no pinta rojo por su fecha de pago", () => {
+    const installments = [
+      baseInstallment({ status: "Pending", agreed_invoice_date: dayOffset(40), agreed_payment_date: dayOffset(-1) }),
+    ];
+    expect(computeBillingIndicator(installments)).toBe("green");
   });
 
   it("returns 'green' for already-Invoiced installments with far-off payment dates (0817-176: Facturado en proceso, no rojo)", () => {

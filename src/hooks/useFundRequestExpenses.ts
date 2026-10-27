@@ -13,7 +13,9 @@ export type FundRequestExpenseStatus =
   | "aprobado_gerente"
   | "observado"
   | "rechazado"
-  | "revisado_asistente";
+  | "revisado_asistente"
+  // Final: borrador o gasto devuelto/observado que no se envió hasta la fecha fin (job de plazos).
+  | "vencido";
 
 export interface FundRequestExpense {
   fre_id: string;
@@ -41,6 +43,10 @@ export interface FundRequestExpense {
   invoice_observation_notes: string | null;
   iva_penalty_amount: number;
   returned_by_assistant: boolean;
+  /** "Aprobado por: Sistema": el gerente no decidió hasta la fecha fin. */
+  manager_auto_approved: boolean;
+  /** "Revisado por: Sistema": Contabilidad no revisó hasta el día 5. */
+  review_auto_approved: boolean;
   created_at: string;
   updated_at: string;
   work_order?: WorkOrder;

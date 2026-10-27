@@ -22,7 +22,7 @@ const baseValues: FundRequestFormValues = {
   total_requested_amount: 0,
   currency: "BOB",
   purpose: "",
-  due_back_date: "",
+  expense_period_month: "2026-11-01",
   allocations: [],
 };
 

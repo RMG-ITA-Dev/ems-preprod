@@ -20,11 +20,22 @@ import {
 import { computeExpenseDays } from "@/lib/fundRequest";
 import type { FundRequest } from "@/hooks/useFundRequests";
 import type { FundRequestExpense } from "@/hooks/useFundRequestExpenses";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import { FundRequestTimeline } from "@/components/fund-requests/FundRequestTimeline";
+import {
+  expenseDateRange,
+  formatDateDMY,
+  fundRequestDeadline,
+  isDeadlinePassed,
+  isReviewDeadlinePassed,
+  laPazToday,
+} from "@/lib/fundRequestCalendar";
 import {
   useCreateFundRequestExpense,
   useUpdateFundRequestExpense,
   useReviewFundRequestExpense,
   useReturnFundRequestExpense,
+  useAccountingRejectFundRequestExpense,
   useResendReturnedExpense,
   useDeleteFundRequestExpense,
 } from "@/hooks/mutations/useFundRequestExpenseMutations";
@@ -53,6 +64,10 @@ const formatCurrency = (n: number, currency: "BOB" | "USD") =>
 
 type SubPanel = "review" | null;
 
+// Revisión de Contabilidad (Fase 3, U2): hasta la fecha fin Aprobar / Penalidad 13% / Devolver;
+// en los días 4 y 5 Aprobar / Penalidad 13% / Rechazar (ya nadie podría corregirlo).
+type ReviewAction = "approve" | "penalty" | "return" | "reject";
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,12 +88,15 @@ export function FundRequestExpenseDialog({
   // Con `isAdmin` del enum legacy, el Gerente y el Analista de Contabilidad no
   // podían revisar aunque la matriz les da Liquidación de Gastos.
   const { can } = useAuthorization();
+  const { data: events } = useFundRequestEvents(open && expense ? fundRequest.fund_request_id : undefined);
+  const expenseEvents = (events ?? []).filter((e) => !!expense && e.fre_id === expense.fre_id);
   const canSettleExpenses = can("expense_settlement.update");
 
   const createExpense = useCreateFundRequestExpense();
   const updateExpense = useUpdateFundRequestExpense();
   const reviewExpense = useReviewFundRequestExpense();
   const returnExpense = useReturnFundRequestExpense();
+  const rejectExpense = useAccountingRejectFundRequestExpense();
   const resendReturned = useResendReturnedExpense();
   const deleteExpense = useDeleteFundRequestExpense();
 
@@ -86,9 +104,7 @@ export function FundRequestExpenseDialog({
   const [subPanel, setSubPanel] = useState<SubPanel>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // Revisión del asistente (árbol): ¿tiene factura? → ¿correcta?
-  const [hasInvoice, setHasInvoice] = useState<"yes" | "no" | null>(null);
-  const [invoiceCorrect, setInvoiceCorrect] = useState<"yes" | "no" | null>(null);
+  const [reviewAction, setReviewAction] = useState<ReviewAction | null>(null);
 
   const isCreate = !expense;
   const currency = fundRequest.currency;
@@ -96,13 +112,18 @@ export function FundRequestExpenseDialog({
   const isRequester =
     !!staffRecord && fundRequest.requester_staff_id === staffRecord.staff_id;
 
-  // El solicitante solo puede editar/registrar mientras la solicitud sigue en
-  // fase de registro de gastos. Tras en_liquidacion/cerrado queda congelado
-  // (si no, se podría editar un gasto rechazado y ensuciar la auditoría).
-  const isEntryPhase = fundRequest.status === "fondos_entregados";
+  // Calendario (Fase 3): el solicitante registra, edita y envía solo dentro de la ventana
+  // (desde el desembolso hasta la fecha fin). Después todo queda congelado. Tras
+  // en_liquidacion/cerrado también.
+  const today = laPazToday();
+  const month = fundRequest.expense_period_month;
+  const deadline = fundRequestDeadline(month);
+  const deadlinePassed = isDeadlinePassed(month, today);
+  const dateRange = expenseDateRange(fundRequest.disbursed_at, month, today);
+  const isEntryPhase = fundRequest.status === "fondos_entregados" && !!dateRange;
 
-  // Gasto devuelto por contabilidad: el solicitante SOLO adjunta el respaldo y
-  // lo reenvía directo a contabilidad (no edita el resto ni pasa por el gerente).
+  // Gasto devuelto por contabilidad: el solicitante corrige TODOS los campos (decisión S3) y lo
+  // reenvía directo a contabilidad, sin pasar por el gerente.
   const isReturnedByAssistant =
     isEntryPhase &&
     !isCreate &&
@@ -117,15 +138,24 @@ export function FundRequestExpenseDialog({
   // La decisión del gerente sobre los gastos se hace EN LOTE desde la página
   // (FundRequestExpenses), no por gasto individual: si uno está mal, se rechazan
   // todos juntos. Por eso aquí no hay botones de aprobar/observar/rechazar.
-  const canReview = !isCreate && canSettleExpenses && expense!.status === "aprobado_gerente";
+  // Contabilidad revisa hasta el día 5; después el sistema ya aprobó lo pendiente.
+  // La solicitud debe seguir viva: una cancelada desde la fase contable sigue siendo visible
+  // para Contabilidad (fr_accounting_sees), pero el RPC no admite revisar en ese estado.
+  const canReview =
+    !isCreate &&
+    canSettleExpenses &&
+    fundRequest.status === "fondos_entregados" &&
+    expense!.status === "aprobado_gerente" &&
+    !isReviewDeadlinePassed(month, today);
+  // El tercer botón de la revisión depende del calendario.
+  const closingAction: ReviewAction = deadlinePassed ? "reject" : "return";
 
   // Resetear estado al abrir / cambiar de gasto
   useEffect(() => {
     if (!open) return;
     setSubPanel(null);
     setNotes("");
-    setHasInvoice(null);
-    setInvoiceCorrect(null);
+    setReviewAction(null);
     setError(null);
     if (expense) {
       setValues({
@@ -161,6 +191,11 @@ export function FundRequestExpenseDialog({
     ) {
       return t("fundRequestExpense.errors.invalidDateRange");
     }
+    // Calendario: misma regla que el trigger fre_enforce_window. "Del" va desde el día del
+    // desembolso en adelante; "Al", desde "Del" en adelante (validado arriba).
+    if (dateRange && values.expense_date < dateRange.min) {
+      return t("fundRequestExpense.errors.dateOutOfRange", { min: formatDateDMY(dateRange.min) });
+    }
     return null;
   };
 
@@ -183,6 +218,7 @@ export function FundRequestExpenseDialog({
     updateExpense.isPending ||
     reviewExpense.isPending ||
     returnExpense.isPending ||
+    rejectExpense.isPending ||
     resendReturned.isPending ||
     deleteExpense.isPending;
 
@@ -224,64 +260,60 @@ export function FundRequestExpenseDialog({
     }
   };
 
-  // Reenvío directo a contabilidad (gasto devuelto por falta de respaldo)
+  // Reenvío directo a contabilidad de un gasto devuelto, con todo lo corregido.
   const handleResend = async () => {
     if (!expense) return;
+    const err = validate();
+    if (err) return toast.error(err);
     if (!values.attachment_url) {
       return toast.error(t("fundRequestExpense.errors.attachmentRequired"));
     }
     try {
-      await resendReturned.mutateAsync({
-        id: expense.fre_id,
-        attachmentUrl: values.attachment_url,
-      });
+      await resendReturned.mutateAsync({ id: expense.fre_id, data: payload() });
       onOpenChange(false);
     } catch {
       /* toast por mutation */
     }
   };
 
-  // ── Sub-panel: revisión de factura del asistente ────────────
+  // ── Sub-panel: revisión de Contabilidad ────────────────────
   const confirmReview = async () => {
-    if (!expense) return;
+    if (!expense || !reviewAction) return;
+    if (reviewAction !== "approve" && notes.trim().length === 0) {
+      setError(t("fundRequestExpense.errors.reviewNotesRequired"));
+      return;
+    }
     try {
-      // Sin factura → se devuelve al solicitante (con flag para que vuelva
-      // directo al asistente al reenviar).
-      if (hasInvoice === "no") {
-        if (notes.trim().length === 0) {
-          setError(t("fundRequestExpense.errors.noInvoiceNotesRequired"));
-          return;
-        }
+      if (reviewAction === "approve") {
+        await reviewExpense.mutateAsync({ id: expense.fre_id, hasObservation: false });
+      } else if (reviewAction === "penalty") {
+        // Factura con observación: se valida igual, con penalidad del 13% (la calcula el servidor).
+        await reviewExpense.mutateAsync({
+          id: expense.fre_id,
+          hasObservation: true,
+          observationNotes: notes,
+        });
+      } else if (reviewAction === "return") {
+        // Vuelve al solicitante, que lo corrige y lo reenvía directo a Contabilidad.
         await returnExpense.mutateAsync({ id: expense.fre_id, notes });
-        onOpenChange(false);
-        return;
+      } else {
+        await rejectExpense.mutateAsync({ id: expense.fre_id, notes });
       }
-      // Con factura incorrecta → validar con devolución del 13%.
-      if (invoiceCorrect === "no" && notes.trim().length === 0) {
-        setError(t("fundRequestExpense.errors.observationNotesRequired"));
-        return;
-      }
-      await reviewExpense.mutateAsync({
-        id: expense.fre_id,
-        hasObservation: invoiceCorrect === "no",
-        observationNotes: notes,
-        amount: Number(expense.amount),
-        reviewedByStaffId: staffRecord?.staff_id ?? null,
-      });
       onOpenChange(false);
     } catch {
       /* toast por mutation */
     }
   };
 
-  // ¿La elección de revisión está completa para habilitar el confirmar?
-  const reviewReady =
-    hasInvoice === "no" || (hasInvoice === "yes" && invoiceCorrect !== null);
+  const chooseReviewAction = (action: ReviewAction) => {
+    setReviewAction(action);
+    setNotes("");
+    setError(null);
+  };
 
   const openSubPanel = (panel: SubPanel) => {
     setNotes("");
-    setHasInvoice(null);
-    setInvoiceCorrect(null);
+    setReviewAction(null);
     setError(null);
     setSubPanel(panel);
   };
@@ -297,7 +329,7 @@ export function FundRequestExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !anyPending && onOpenChange(o)}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {subPanel === "review" && <FileSearch className="h-5 w-5 text-info" />}
@@ -313,127 +345,85 @@ export function FundRequestExpenseDialog({
           )}
         </DialogHeader>
 
-        {/* ── Sub-panel: revisión de factura (asistente) ── */}
+        {/* ── Sub-panel: revisión de Contabilidad ── */}
         {subPanel === "review" && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {t("fundRequestExpense.dialog.reviewBody")}
             </p>
 
-            {/* Paso 1: ¿tiene factura/respaldo? */}
             <div className="space-y-2">
-              <Label>{t("fundRequestExpense.dialog.hasInvoiceQuestion")}</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={hasInvoice === "yes" ? "default" : "outline"}
-                  onClick={() => {
-                    setHasInvoice("yes");
-                    setInvoiceCorrect(null);
-                    setNotes("");
-                    setError(null);
-                  }}
-                >
-                  {t("common.yes")}
-                </Button>
-                <Button
-                  type="button"
-                  variant={hasInvoice === "no" ? "destructive" : "outline"}
-                  onClick={() => {
-                    setHasInvoice("no");
-                    setInvoiceCorrect(null);
-                    setNotes("");
-                    setError(null);
-                  }}
-                >
-                  {t("common.no")}
-                </Button>
+              <Label>{t("fundRequestExpense.dialog.reviewQuestion")}</Label>
+              <div className="flex flex-wrap gap-2">
+                {(["approve", "penalty", closingAction] as ReviewAction[]).map((action) => (
+                  <Button
+                    key={action}
+                    type="button"
+                    variant={
+                      reviewAction === action
+                        ? action === "return" || action === "reject"
+                          ? "destructive"
+                          : "default"
+                        : "outline"
+                    }
+                    onClick={() => chooseReviewAction(action)}
+                  >
+                    {t(`fundRequestExpense.dialog.reviewActions.${action}`)}
+                  </Button>
+                ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                {deadlinePassed
+                  ? t("fundRequestExpense.dialog.reviewAfterDeadlineHint", {
+                      date: formatDateDMY(deadline),
+                    })
+                  : t("fundRequestExpense.dialog.reviewBeforeDeadlineHint", {
+                      date: formatDateDMY(deadline),
+                    })}
+              </p>
             </div>
 
-            {/* Sin factura → se devuelve al solicitante */}
-            {hasInvoice === "no" && (
+            {reviewAction && reviewAction !== "approve" && (
               <div className="space-y-2">
-                <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
-                  {t("fundRequestExpense.dialog.noInvoiceWarning")}
-                </div>
-                <Label htmlFor="exp-noinvoice-notes">
-                  {t("fundRequestExpense.dialog.returnReason")}
+                <Label htmlFor="exp-review-notes">
+                  {reviewAction === "penalty"
+                    ? t("fundRequestExpense.invoiceObservationNotes")
+                    : reviewAction === "return"
+                      ? t("fundRequestExpense.dialog.returnReason")
+                      : t("fundRequest.rejectionReason")}
                   <span className="text-destructive ml-1">*</span>
                 </Label>
                 <Textarea
-                  id="exp-noinvoice-notes"
+                  id="exp-review-notes"
                   value={notes}
                   onChange={(e) => {
                     setNotes(e.target.value);
                     if (error) setError(null);
                   }}
                   rows={3}
-                  placeholder={t("fundRequestExpense.dialog.noInvoicePlaceholder")}
+                  placeholder={t("fundRequestExpense.dialog.observationPlaceholder")}
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
             )}
 
-            {/* Paso 2: ¿la factura es correcta? */}
-            {hasInvoice === "yes" && (
-              <div className="space-y-2">
-                <Label>{t("fundRequestExpense.dialog.invoiceCorrectQuestion")}</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={invoiceCorrect === "yes" ? "default" : "outline"}
-                    onClick={() => {
-                      setInvoiceCorrect("yes");
-                      setNotes("");
-                      setError(null);
-                    }}
-                  >
-                    {t("fundRequestExpense.dialog.invoiceCorrect")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={invoiceCorrect === "no" ? "destructive" : "outline"}
-                    onClick={() => {
-                      setInvoiceCorrect("no");
-                      setError(null);
-                    }}
-                  >
-                    {t("fundRequestExpense.dialog.invoiceIncorrect")}
-                  </Button>
-                </div>
+            {reviewAction === "penalty" && (
+              <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-sm">
+                <p className="font-medium text-warning">{t("fundRequestExpense.dialog.ivaWarning")}</p>
+                <p className="font-mono mt-1">
+                  {formatCurrency(ivaPenalty, currency)} {currency}
+                </p>
               </div>
             )}
-
-            {/* Factura incorrecta → nota + devolución 13% */}
-            {hasInvoice === "yes" && invoiceCorrect === "no" && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="exp-observation-notes">
-                    {t("fundRequestExpense.invoiceObservationNotes")}
-                    <span className="text-destructive ml-1">*</span>
-                  </Label>
-                  <Textarea
-                    id="exp-observation-notes"
-                    value={notes}
-                    onChange={(e) => {
-                      setNotes(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    rows={3}
-                    placeholder={t("fundRequestExpense.dialog.observationPlaceholder")}
-                  />
-                  {error && <p className="text-sm text-destructive">{error}</p>}
-                </div>
-                <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-sm">
-                  <p className="font-medium text-warning">
-                    {t("fundRequestExpense.dialog.ivaWarning")}
-                  </p>
-                  <p className="font-mono mt-1">
-                    {formatCurrency(ivaPenalty, currency)} {currency}
-                  </p>
-                </div>
-              </>
+            {reviewAction === "return" && (
+              <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
+                {t("fundRequestExpense.dialog.returnWarning", { date: formatDateDMY(deadline) })}
+              </div>
+            )}
+            {reviewAction === "reject" && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                {t("fundRequestExpense.dialog.rejectWarning")}
+              </div>
             )}
           </div>
         )}
@@ -482,6 +472,13 @@ export function FundRequestExpenseDialog({
                 <p className="text-sm">{expense!.manager_notes}</p>
               </div>
             )}
+            {/* "Aprobado por: Sistema" (Fase 3): el plazo venció sin decisión */}
+            {!isCreate && (expense!.manager_auto_approved || expense!.review_auto_approved) && (
+              <div className="rounded-md border border-border bg-muted p-3 space-y-1 text-sm text-muted-foreground">
+                {expense!.manager_auto_approved && <p>{t("fundRequestExpense.autoApproved.manager")}</p>}
+                {expense!.review_auto_approved && <p>{t("fundRequestExpense.autoApproved.review")}</p>}
+              </div>
+            )}
             {/* Banner observación de factura + IVA */}
             {!isCreate && expense!.has_invoice_observation && (
               <div className="rounded-md border border-warning/30 bg-warning/5 p-3 space-y-1">
@@ -505,8 +502,16 @@ export function FundRequestExpenseDialog({
               workOrders={fundRequest.fund_request_work_orders ?? []}
               currency={currency}
               disabled={!isEditable}
-              onlyAttachment={isReturnedByAssistant}
+              minDate={dateRange?.min}
             />
+
+            {/* Historial del gasto (P5): quién lo envió, aprobó, devolvió o revisó. */}
+            {expenseEvents.length > 0 && (
+              <div className="space-y-3 border-t pt-4">
+                <p className="text-sm font-medium">{t("fundRequestEvent.title")}</p>
+                <FundRequestTimeline events={expenseEvents} />
+              </div>
+            )}
           </>
         )}
 
@@ -518,12 +523,14 @@ export function FundRequestExpenseDialog({
                 {t("common.cancel")}
               </Button>
               {/* Único subpanel: revisión del asistente */}
-              <Button onClick={confirmReview} disabled={anyPending || !reviewReady}>
+              <Button onClick={confirmReview} disabled={anyPending || !reviewAction}>
                 {anyPending
                   ? t("common.saving")
-                  : hasInvoice === "no"
+                  : reviewAction === "return"
                     ? t("fundRequestExpense.actions.returnToRequester")
-                    : t("fundRequestExpense.actions.validate")}
+                    : reviewAction === "reject"
+                      ? t("fundRequestExpense.actions.reject")
+                      : t("fundRequestExpense.actions.validate")}
               </Button>
             </>
           ) : (

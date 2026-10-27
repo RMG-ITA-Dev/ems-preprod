@@ -16,6 +16,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { NumericInput } from "@/components/ui/numeric-input";
 import { useExpenseTypes } from "@/hooks/useEmsData";
+import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { computeExpenseDays } from "@/lib/fundRequest";
@@ -43,8 +44,10 @@ interface Props {
   disabled?: boolean;
   /** Renderiza sin la Card contenedora (para usar dentro de un modal) */
   bare?: boolean;
-  /** Solo el Respaldo editable; el resto en solo lectura (gasto devuelto por contabilidad) */
+  /** Solo el Respaldo editable; el resto en solo lectura */
   onlyAttachment?: boolean;
+  /** Calendario (Fase 3): primer y último día válidos para la fecha del gasto ('YYYY-MM-DD'). */
+  minDate?: string;
 }
 
 export function FundRequestExpenseForm({
@@ -55,6 +58,7 @@ export function FundRequestExpenseForm({
   disabled = false,
   bare = false,
   onlyAttachment = false,
+  minDate,
 }: Props) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
@@ -175,9 +179,10 @@ export function FundRequestExpenseForm({
                 <SelectValue placeholder={t("fundRequestExpense.selectExpenseType")} />
               </SelectTrigger>
               <SelectContent>
-                {(expenseTypes ?? []).map((et) => (
+                {selectableExpenseTypes(expenseTypes, values.expense_type_id).map((et) => (
                   <SelectItem key={et.expense_type_id} value={et.expense_type_id}>
                     {et.expense_name}
+                    {et.is_active === false && ` ${t("expense.inactiveSuffix")}`}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -191,6 +196,7 @@ export function FundRequestExpenseForm({
               id="fre-date"
               type="date"
               value={values.expense_date || ""}
+              min={minDate}
               onChange={(e) => onChange({ expense_date: e.target.value })}
               disabled={fieldsDisabled}
             />
@@ -203,7 +209,7 @@ export function FundRequestExpenseForm({
               id="fre-date-end"
               type="date"
               value={values.expense_date_end || ""}
-              min={values.expense_date || undefined}
+              min={values.expense_date || minDate}
               onChange={(e) => onChange({ expense_date_end: e.target.value })}
               disabled={fieldsDisabled}
             />

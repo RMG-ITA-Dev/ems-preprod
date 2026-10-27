@@ -291,7 +291,10 @@ INSERT INTO public.wo_payment_plan (plan_id, wo_id, exchange_rate, exchange_rate
   ('e0da5c10-0000-4000-8000-000000000002', 'd0da5c10-0000-4000-8000-000000000002', 6.96, 'variable', 30)
 ON CONFLICT (plan_id) DO NOTHING;
 
--- E1 (base con IVA = (1250 + 200) / 0.87 = 1666.666...): 3 cuotas 40/30/30.
+-- E1 (base con IVA = 1250 / 0.87 = 1436.78...): 3 cuotas 40/30/30.
+-- Cobranzas Fase 7 (decision del operador Q41): la base de las cuotas son SOLO los honorarios.
+-- Los 200 de gastos presupuestados salieron de aca porque ahora los gastos se cobran por su
+-- propia fila, con lo EJECUTADO; sumarlos a la base los cobraria dos veces.
 --   i1 Completed  (cobrada, TC pago != TC factura para probar que collected usa payment_exchange_rate)
 --   i2 Invoiced   (facturada hace > 90 dias -> vencido>90d; agreed_payment_date = hoy-2 -> chip vencidas)
 --   i3 Pending    (agreed_invoice_date = hoy-1 -> en mora / Bloque C)
@@ -992,7 +995,7 @@ DECLARE v jsonb; v_base numeric;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(2));  -- partner Norte: solo E1 tiene installment_base valorizable en USD
   v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
-  v_base := (1250 + 200) / 0.87;  -- installment_base de E1
+  v_base := 1250 / 0.87;  -- installment_base de E1: solo honorarios (Fase 7, Q41)
   IF abs((v->'economic_cycle'->>'to_invoice_bob')::numeric - v_base*6.96) > 0.05 THEN
     RAISE EXCEPTION 'FAIL: to_invoice_bob esperado ~% (base c/IVA * 6.96), obtuvo %', v_base*6.96,
       v->'economic_cycle'->>'to_invoice_bob';
@@ -1008,6 +1011,44 @@ BEGIN
       v->'economic_cycle'->>'overdue_90_bob';
   END IF;
   RAISE NOTICE 'OK 15: to_invoice_bob=base c/IVA*6.96, collected_bob usa TC de pago, overdue_90_bob solo la cuota vencida';
+END $$;
+
+-- ── 15bis. Una cuota en Bs dentro de una OT en USD se valua a 1, no al TC de la OT ─────────
+-- Hallazgo de la revision previa al PR (2026-10-22): el dashboard valuaba cada cuota con el TC
+-- de la OT e ignoraba la moneda propia de la cuota. La fila de gastos ejecutados nace siempre en
+-- Bs, asi que en una OT en USD cada una entraba a los KPI multiplicada por ~7.
+DO $$
+DECLARE v_antes numeric; v_despues numeric;
+BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(2));
+  v_antes := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'economic_cycle'->>'to_invoice_bob')::numeric;
+
+  -- La fila la carga el GERENTE de E1: esta suite evalua RLS, y la policy de escritura de
+  -- cuotas esta acotada al gerente del encargo. (En produccion la crea una RPC definer.)
+  -- Va en un subbloque que se deshace solo: la fila de gastos ya no se puede borrar (guard de
+  -- borrado), asi que la limpieza es el ROLLBACK del subbloque, no un DELETE.
+  BEGIN
+  PERFORM pg_temp.impersonate(pg_temp.u(5));
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, net_amount, status,
+     installment_type, currency, agreed_invoice_date, agreed_payment_date)
+  VALUES ('e0da5c10-0000-4000-8000-000000000001', 'd0da5c10-0000-4000-8000-000000000001', 99,
+          0, 500, 500, 'Pending', 'expense_reimbursement', 'BOB',
+          (now() AT TIME ZONE 'America/La_Paz')::date + 5,
+          (now() AT TIME ZONE 'America/La_Paz')::date + 35);
+
+  PERFORM pg_temp.impersonate(pg_temp.u(2));
+  v_despues := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'economic_cycle'->>'to_invoice_bob')::numeric;
+  RAISE EXCEPTION USING ERRCODE = 'UE15B', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE15B' THEN
+    NULL;
+  END;
+
+  IF abs((v_despues - v_antes) - 500) > 0.01 THEN
+    RAISE EXCEPTION 'FAIL: una fila de Bs 500 en una OT en USD sumo % a to_invoice_bob; tenia que sumar 500 (no 500 x TC)',
+      v_despues - v_antes;
+  END IF;
+  RAISE NOTICE 'OK 15bis: una cuota en Bs se valua a 1 aunque la OT sea en USD';
 END $$;
 
 -- ── 16. next_7_days incluye agreed_payment_date=hoy+3 y NO la vencida (hoy-2, que va en overdue); in_arrears ─
@@ -1195,6 +1236,69 @@ BEGIN
 END $$;
 
 RESET ROLE;
+
+-- ── 20c. Lo cobrado de los finalizados tambien valua la cuota en SU moneda ───────────────────
+-- Revision de Codex al PR (2026-10-22): el arreglo de 15bis cubrio installments_full, pero
+-- finalized_collected calcula aparte y seguia cayendo al TC de la OT. Se pasa E12 a USD con su
+-- cuota cobrada en Bs (como nace la fila de gastos) y se mira que siga sumando 500, no
+-- 500 x 6,96. Corre como dueno, fuera del rol autenticado, para poder tocar el fixture sin los
+-- guards; los cambios se deshacen con el ROLLBACK del subbloque.
+DO $$
+DECLARE v_collected numeric;
+BEGIN
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    UPDATE public.work_orders SET currency = 'USD' WHERE wo_id = 'd0da5c10-0000-4000-8000-000000000012';
+    UPDATE public.wo_payment_plan SET exchange_rate = 6.96 WHERE plan_id = 'e0da5c10-0000-4000-8000-000000000012';
+    UPDATE public.wo_payment_installments
+       SET currency = 'BOB', invoice_exchange_rate = NULL, payment_exchange_rate = NULL
+     WHERE installment_id = 'f0da5c10-0000-4000-8000-000000000012';
+    PERFORM set_config('session_replication_role', 'origin', true);
+
+    PERFORM pg_temp.impersonate(pg_temp.u(1));
+    v_collected := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'finalized_summary'->>'collected_bob')::numeric;
+    RAISE EXCEPTION USING ERRCODE = 'UE20C', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE20C' THEN
+    NULL;
+  END;
+
+  IF v_collected IS DISTINCT FROM 500 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.collected_bob esperado 500 (cuota en Bs de una OT en USD), obtuvo %', v_collected;
+  END IF;
+  RAISE NOTICE 'OK 20c: lo cobrado de los finalizados valua la cuota en Bs a 1 aunque la OT sea en USD';
+END $$;
+
+-- ── 20d. Lo cobrado descuenta los descuentos vigentes ─────────────────────────────────────────
+-- Revision de Codex al PR (2026-10-22): i.amount es el contrato; lo cobrado es el monto mas los
+-- descuentos vigentes. Un descuento de 100 sobre la cuota cobrada de E12 (500 Bs) tiene que
+-- dejar lo cobrado de los finalizados en 400. Uno ya retirado no cuenta. Se deshace solo.
+DO $$
+DECLARE v_collected numeric;
+BEGIN
+  BEGIN
+    PERFORM set_config('session_replication_role', 'replica', true);
+    INSERT INTO public.wo_installment_adjustments
+      (installment_id, wo_id, adjustment_type, amount, currency, reason)
+    VALUES
+      ('f0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 'descuento', -100, 'BOB', 'pronto pago');
+    INSERT INTO public.wo_installment_adjustments
+      (installment_id, wo_id, adjustment_type, amount, currency, reason, deleted_at)
+    VALUES
+      ('f0da5c10-0000-4000-8000-000000000012', 'd0da5c10-0000-4000-8000-000000000012', 'descuento', -50, 'BOB', 'retirado', now());
+    PERFORM set_config('session_replication_role', 'origin', true);
+
+    PERFORM pg_temp.impersonate(pg_temp.u(1));
+    v_collected := (public.partner_overview(pg_temp.p_start(), pg_temp.p_end())->'finalized_summary'->>'collected_bob')::numeric;
+    RAISE EXCEPTION USING ERRCODE = 'UE20D', MESSAGE = 'deshacer el fixture';
+  EXCEPTION WHEN SQLSTATE 'UE20D' THEN
+    NULL;
+  END;
+
+  IF v_collected IS DISTINCT FROM 400 THEN
+    RAISE EXCEPTION 'FAIL: finalized_summary.collected_bob esperado 400 (500 - 100 de descuento vigente), obtuvo %', v_collected;
+  END IF;
+  RAISE NOTICE 'OK 20d: lo cobrado de los finalizados descuenta los descuentos vigentes';
+END $$;
 
 -- ── 21. Prerrequisito de TC: NOT NULL/CHECK/DEFAULT + fallback de latest_exchange_rate() ───
 -- Nota: SET LOCAL ROLE / RESET ROLE son comandos de sesion -- no pueden invocarse dentro de

@@ -75,7 +75,7 @@ export function TaxonomyCombobox({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-info" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="min-w-[--radix-popover-trigger-width] w-auto max-w-[600px] p-0" align="start">
+      <PopoverContent className="min-w-(--radix-popover-trigger-width) w-auto max-w-[600px] p-0" align="start">
         <Command>
           <CommandInput placeholder={t("engagement.searchTaxonomy")} />
           <CommandList>

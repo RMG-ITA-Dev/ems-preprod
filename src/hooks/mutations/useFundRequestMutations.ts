@@ -21,7 +21,8 @@ export interface FundRequestCreateInput {
   total_requested_amount: number;
   currency: "BOB" | "USD";
   purpose?: string | null;
-  due_back_date?: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'); la fecha fin es el día 3 del mes siguiente. */
+  expense_period_month?: string;
   allocations: AllocationInput[];
 }
 
@@ -29,13 +30,16 @@ export interface FundRequestUpdateInput {
   total_requested_amount?: number;
   currency?: "BOB" | "USD";
   purpose?: string | null;
-  due_back_date?: string | null;
+  /** Mes de la solicitud ('YYYY-MM-01'); la fecha fin es el día 3 del mes siguiente. */
+  expense_period_month?: string;
   allocations?: AllocationInput[];
 }
 
 const invalidateAll = (qc: ReturnType<typeof useQueryClient>, id?: string) => {
   qc.invalidateQueries({ queryKey: ["fund_requests"] });
   if (id) qc.invalidateQueries({ queryKey: ["fund_request", id] });
+  // La bitácora la escriben triggers: cualquier cambio de estado agrega eventos.
+  qc.invalidateQueries({ queryKey: ["fund_request_events"] });
 };
 
 export function useCreateFundRequest() {
@@ -153,11 +157,18 @@ export function useDecideWorkOrder() {
         manager_notes: decision === "rechazado" ? null : notes?.trim() || null,
         rejection_reason: decision === "rechazado" ? notes?.trim() || null : null,
       };
-      const { error } = await sb
+      // .select() + chequeo de filas: sin esto, una decisión que la RLS filtra (p. ej. otro
+      // gerente ya rechazó y la solicitud salió de pendiente_aprobacion) mostraba
+      // "Decisión guardada" sin haber guardado nada.
+      const { data: affected, error } = await sb
         .from("fund_request_work_orders")
         .update(update)
-        .eq("fr_wo_id", frWoId);
+        .eq("fr_wo_id", frWoId)
+        .select("fr_wo_id");
       if (error) throw error;
+      if (!Array.isArray(affected) || affected.length === 0) {
+        throw new Error(i18n.t("fundRequest.errors.otDecisionNotApplied"));
+      }
       return { fundRequestId };
     },
     onSuccess: ({ fundRequestId }) => {
@@ -168,6 +179,11 @@ export function useDecideWorkOrder() {
   });
 }
 
+// Las acciones contables (desembolsar, liquidar, cerrar, cancelar) van por RPC
+// SECURITY DEFINER: validan permiso y estado en el servidor, y el actor sale de la
+// sesión (get_my_staff_id()), nunca del cliente. No hay policy UPDATE contable,
+// así que un UPDATE directo por API no pasa.
+
 export function useDisburseFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -175,23 +191,20 @@ export function useDisburseFundRequest() {
       id,
       amount,
       notes,
-      disbursedByStaffId,
+      newMonth,
     }: {
       id: string;
       amount: number;
       notes?: string;
-      disbursedByStaffId?: string | null;
+      /** Mes nuevo de la solicitud: obligatorio si la fecha fin ya venció (el servidor lo exige). */
+      newMonth?: string | null;
     }) => {
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "fondos_entregados",
-          total_disbursed_amount: amount,
-          disbursed_at: new Date().toISOString(),
-          disbursed_by_staff_id: disbursedByStaffId ?? null,
-          accounting_notes: notes?.trim() || null,
-        })
-        .eq("fund_request_id", id);
+      const { error } = await sb.rpc("fund_request_disburse", {
+        p_fund_request_id: id,
+        p_amount: amount,
+        p_notes: notes ?? null,
+        p_new_month: newMonth ?? null,
+      });
       if (error) throw error;
       return { fund_request_id: id };
     },
@@ -203,61 +216,28 @@ export function useDisburseFundRequest() {
   });
 }
 
-export function useStartSettlementFundRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
-      const update: Record<string, unknown> = { status: "en_liquidacion" };
-      if (notes && notes.trim()) update.accounting_notes = notes.trim();
-      const { error } = await sb
-        .from("fund_requests")
-        .update(update)
-        .eq("fund_request_id", id);
-      if (error) throw error;
-      return { fund_request_id: id };
-    },
-    onSuccess: (_, { id }) => {
-      invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.settlementStartedSuccess"));
-    },
-    onError: createMutationErrorHandler("starting settlement"),
-  });
-}
-
 export interface SettlementInput {
   id: string;
-  totalSpent: number;
-  balance: number;
-  ivaTotal: number;
   resolution: "sin_saldo" | "devolucion" | "descuento_planilla" | "pago_solicitante";
   amount: number;
   notes?: string;
-  settledByStaffId?: string | null;
 }
 
 /**
- * Liquidar (Asistente de Contabilidad): guarda el snapshot del cálculo
- * (entregado − gastado), la resolución elegida y ENVÍA al encargado de
- * contabilidad (status → en_liquidacion). No cierra todavía.
+ * Liquidar (Contabilidad): el servidor calcula el snapshot (entregado − gastado
+ * validado, IVA) y valida que la resolución corresponda al saldo; pasa a
+ * en_liquidacion. No cierra todavía.
  */
 export function useSettleFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: SettlementInput) => {
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "en_liquidacion",
-          settlement_total_spent: input.totalSpent,
-          settlement_balance: input.balance,
-          settlement_iva_total: input.ivaTotal,
-          settlement_resolution: input.resolution,
-          settlement_amount: input.amount,
-          settlement_notes: input.notes?.trim() || null,
-          settled_at: new Date().toISOString(),
-          settled_by_staff_id: input.settledByStaffId ?? null,
-        })
-        .eq("fund_request_id", input.id);
+      const { error } = await sb.rpc("fund_request_settle", {
+        p_fund_request_id: input.id,
+        p_resolution: input.resolution,
+        p_amount: input.amount,
+        p_notes: input.notes ?? null,
+      });
       if (error) throw error;
       return { fund_request_id: input.id };
     },
@@ -270,30 +250,35 @@ export function useSettleFundRequest() {
 }
 
 /**
- * Cerrar (Encargado de Contabilidad): cierra el flujo una vez revisada la
- * liquidación que registró el asistente.
+ * Confirmar el movimiento de dinero (Contabilidad, Fase 4): el reembolso se pagó, la devolución
+ * se recibió o el descuento se aplicó. Cierra la solicitud. Fecha, hora y actor los pone el
+ * servidor; no se revierte.
  */
-export function useCloseFundRequest() {
+export function useConfirmSettlement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
-      const update: Record<string, unknown> = {
-        status: "cerrado",
-        closed_at: new Date().toISOString(),
-      };
-      if (notes && notes.trim()) update.accounting_notes = notes.trim();
-      const { error } = await sb
-        .from("fund_requests")
-        .update(update)
-        .eq("fund_request_id", id);
+    mutationFn: async ({
+      id,
+      reference,
+      notes,
+    }: {
+      id: string;
+      reference?: string;
+      notes?: string;
+    }) => {
+      const { error } = await sb.rpc("fund_request_confirm_settlement", {
+        p_fund_request_id: id,
+        p_reference: reference ?? null,
+        p_notes: notes ?? null,
+      });
       if (error) throw error;
       return { fund_request_id: id };
     },
     onSuccess: (_, { id }) => {
       invalidateAll(queryClient, id);
-      toast.success(i18n.t("fundRequest.messages.closedSuccess"));
+      toast.success(i18n.t("fundRequest.movement.confirmedSuccess"));
     },
-    onError: createMutationErrorHandler("closing fund request"),
+    onError: createMutationErrorHandler("confirming settlement movement"),
   });
 }
 
@@ -301,13 +286,10 @@ export function useCancelFundRequest() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await sb
-        .from("fund_requests")
-        .update({
-          status: "cancelado",
-          rejection_reason: reason.trim(),
-        })
-        .eq("fund_request_id", id);
+      const { error } = await sb.rpc("fund_request_cancel", {
+        p_fund_request_id: id,
+        p_reason: reason,
+      });
       if (error) throw error;
       return { fund_request_id: id };
     },

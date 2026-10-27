@@ -4,6 +4,8 @@
 -- Requiere la tanda 1 (20260724000000_authz_fase1_catalog.sql) aplicada antes.
 -- Idempotente. No se aplica hasta correr en el SQL Editor / Lovable.
 -- Conteos objetivo: 23 roles, 84 permisos, 737 concesiones.
+-- Ajuste manual posterior (docs/plan-contabilidad-gastos.md, Fase 1.2, 2026-10-08): +2 concesiones
+-- fund_disbursement.read/update para accounting_analyst (paridad con accounting_manager). Total 739.
 -- =====================================================================
 
 -- A) Roles (23). legacy_app_role: nivel jerárquico equivalente (drift real de Dev 2.0, nunca
@@ -124,7 +126,7 @@ insert into public.authorization_permissions (permission_key, module_key, action
   ('expense_settlement.update', 'expense_settlement', 'update', 'authz.perm.expense_settlement.update', 83)
 on conflict (permission_key) do nothing;
 
--- C) Concesiones rol×permiso con scope_key (737)
+-- C) Concesiones rol×permiso con scope_key (737 + 2, ver nota de cabecera)
 insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
   ('admin', 'staff.read', 'none'),
   ('it_security_manager', 'staff.read', 'none'),
@@ -761,8 +763,10 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('tax_manager', 'fund_approval.update', 'assigned_engagements'),
   ('admin', 'fund_disbursement.read', 'department'),
   ('accounting_manager', 'fund_disbursement.read', 'department'),
+  ('accounting_analyst', 'fund_disbursement.read', 'department'),
   ('admin', 'fund_disbursement.update', 'department'),
   ('accounting_manager', 'fund_disbursement.update', 'department'),
+  ('accounting_analyst', 'fund_disbursement.update', 'department'),
   ('admin', 'fund_expense.read', 'own'),
   ('it_security_manager', 'fund_expense.read', 'own'),
   ('senior_partner', 'fund_expense.read', 'own'),

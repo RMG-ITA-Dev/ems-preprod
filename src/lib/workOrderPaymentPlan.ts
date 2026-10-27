@@ -1,5 +1,5 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
-import type { ExchangeRateMode, PaymentInstallmentInput, PaymentInstallmentStatus, PaymentPlanInput } from '@/types/workOrderPaymentPlan';
+import type { ExchangeRateMode, InstallmentCalendarState, PaymentInstallmentInput, PaymentInstallmentStatus, PaymentPlanInput } from '@/types/workOrderPaymentPlan';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -50,6 +50,56 @@ export function computeAmount(percentage: number, feeWithTax: number): number {
   return parseFloat(((percentage / 100) * feeWithTax).toFixed(2));
 }
 
+/**
+ * Cobranzas Fase 6 (decisión Q29, UI resuelta el 2026-10-20): el monto de una cuota EN SU
+ * MONEDA.
+ *
+ * El honorario está en la moneda de la OT, así que `porcentaje × honorario` da un número en
+ * esa moneda. Cuando la cuota se cobra en otra, el cliente paga **el mismo valor convertido**,
+ * no un monto distinto: por eso se aplica el tipo de cambio del plan y el porcentaje sigue
+ * significando lo que dice. Sin esto, pasar una cuota a bolivianos dejaba el número de dólares
+ * con una etiqueta de bolivianos al lado.
+ *
+ * Solo se convierte entre la moneda de la OT y Bs, que es el único caso que la pantalla ofrece.
+ * Sin tipo de cambio no hay conversión posible, así que devuelve el monto sin tocar.
+ */
+/**
+ * Pasa un monto de una moneda a otra con el TC del plan (bolivianos por unidad de la moneda de
+ * la OT). Sólo entre Bs y otra moneda: es el único cruce que la pantalla ofrece, y entre dos
+ * monedas extranjeras no hay TC del plan que sirva.
+ *
+ * Devuelve `null` cuando no se puede convertir —falta el TC, o el cruce no pasa por Bs— para
+ * que quien llama lo rechace en vez de guardar el mismo número con otra etiqueta, que es
+ * exactamente el error que esto evita.
+ */
+export function convertAmount(
+  amount: number,
+  from: string,
+  to: string,
+  bobPerUnit: number | null | undefined,
+): number | null {
+  if (from === to) return amount;
+  if (!bobPerUnit || bobPerUnit <= 0) return null;
+  if (to === "BOB") return parseFloat((amount * bobPerUnit).toFixed(2));
+  if (from === "BOB") return parseFloat((amount / bobPerUnit).toFixed(2));
+  return null;
+}
+
+export function computeAmountInCurrency(
+  percentage: number,
+  feeWithTax: number,
+  rowCurrency: string,
+  woCurrency: string,
+  planRate: number | null | undefined,
+): number {
+  const base = computeAmount(percentage, feeWithTax);
+  if (rowCurrency === woCurrency) return base;
+  if (!planRate || planRate <= 0) return base;
+  // El TC del plan son bolivianos por unidad de la moneda de la OT.
+  const converted = rowCurrency === "BOB" ? base * planRate : base / planRate;
+  return parseFloat(converted.toFixed(2));
+}
+
 // Computes the payment date from an invoice date string (YYYY-MM-DD) and business days.
 // Returns null if invoiceDate is null.
 export function computePaymentDate(invoiceDate: string | null, paymentDays: number): string | null {
@@ -59,55 +109,107 @@ export function computePaymentDate(invoiceDate: string | null, paymentDays: numb
   return result.toISOString().slice(0, 10);
 }
 
-// Returns true when the installment should be considered Overdue:
-// status is Invoiced and agreed_payment_date has already passed.
-export function detectOverdue(installment: PaymentInstallmentInput): boolean {
-  if (installment.status !== 'Invoiced') return false;
-  if (!installment.agreed_payment_date) return false;
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
-  return installment.agreed_payment_date < today;
+// Today's date (YYYY-MM-DD) in Bolivia. The DB equivalent is public.fund_today().
+export function todayInLaPaz(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
 }
 
-// Returns true when the installment's agreed_invoice_date is within `windowDays` calendar days.
-export function isAlertDue(installment: PaymentInstallmentInput, windowDays = 7): boolean {
-  if (!installment.agreed_invoice_date) return false;
-  if (installment.status !== 'Pending' && installment.status !== 'Invoiced') return false;
-  // Normalize both to midnight local (Bolivia) to compare pure dates, not timestamps
-  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
-  const today = new Date(todayStr + "T00:00:00");
-  const invoice = new Date(installment.agreed_invoice_date + "T00:00:00");
-  const diffDays = (invoice.getTime() - today.getTime()) / 86400000;
-  return diffDays >= 0 && diffDays <= windowDays;
+// Whole days between two YYYY-MM-DD dates (b - a). Parsed at midnight UTC so the result is
+// a pure date difference, never shifted by the viewer's timezone or by DST.
+function daysBetween(a: string, b: string): number {
+  return (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000;
 }
 
-// Effective display status: a still-Pending installment whose invoice date has already
-// passed reads as Overdue, without needing a persisted status transition.
-export function getEffectiveInstallmentStatus(
-  installment: PaymentInstallmentInput,
-): PaymentInstallmentStatus {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
-  if (installment.status === 'Pending' && installment.agreed_invoice_date && installment.agreed_invoice_date < today) {
-    return 'Overdue';
-  }
-  return installment.status;
-}
-
-// Returns true when a not-yet-collected installment's agreed PAYMENT date is within
-// `windowDays` calendar days ahead OR already past (overdue) — i.e. payment due soon or
-// already overdue and still unpaid. A Completed (collected) installment never qualifies;
-// an installment already flagged Overdue always does.
-export function isPaymentDueSoonOrOverdue(
-  installment: PaymentInstallmentInput,
+// Cobranzas Fase 1 (issue #352 / 0923-206) — REGLA UNICA de la condición de calendario.
+// Espejo exacto de public.installment_calendar_state(...) en la base, con los mismos casos
+// de prueba; si una cambia, la otra también.
+//
+// Reemplaza a los CINCO criterios de mora que convivían antes, ninguno de los cuales miraba
+// la fecha de vencimiento real: getEffectiveInstallmentStatus (pantalla),
+// isPaymentDueSoonOrOverdue (indicador de la pestaña), detectOverdue (muerta), el contador
+// de avisos y los dashboards. Decisión del operador (Q4): la mora se cuenta desde la fecha
+// de facturación REAL más los días hábiles pactados. Antes de facturar NO hay mora, como
+// mucho "facturación atrasada".
+export function installmentCalendarState(
+  status: PaymentInstallmentStatus,
+  invoiceDate: string | null,
+  paymentDueDate: string | null,
+  today: string,
   windowDays = 7,
-): boolean {
-  if (installment.status === 'Completed') return false;
-  if (installment.status === 'Overdue') return true;
-  if (!installment.agreed_payment_date) return false;
-  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/La_Paz" }).format(new Date());
-  const today = new Date(todayStr + "T00:00:00");
-  const pay = new Date(installment.agreed_payment_date + "T00:00:00");
-  const diffDays = (pay.getTime() - today.getTime()) / 86400000;
-  return diffDays <= windowDays; // within the window ahead, or already past
+): InstallmentCalendarState {
+  if (status === 'Completed') return 'closed';
+  // La mora MANUAL (Invoiced -> Overdue, que el operador decidió mantener en Q3) es mora
+  // aunque su vencimiento no haya pasado.
+  if (status === 'Overdue') return 'overdue';
+
+  if (status === 'Invoiced') {
+    if (!paymentDueDate) return 'on_track';
+    if (today > paymentDueDate) return 'overdue';
+    return daysBetween(today, paymentDueDate) <= windowDays ? 'payment_due_soon' : 'on_track';
+  }
+
+  // Pending: su fecha relevante es la de FACTURACIÓN, no la de pago.
+  if (!invoiceDate) return 'on_track';
+  if (today > invoiceDate) return 'billing_late';
+  return daysBetween(today, invoiceDate) <= windowDays ? 'billing_due_soon' : 'on_track';
+}
+
+// Fecha de facturación vigente: la reprogramada si la hubo, si no la del contrato.
+export function currentInvoiceDate(installment: PaymentInstallmentInput): string | null {
+  return installment.current_invoice_date ?? installment.agreed_invoice_date;
+}
+
+// Vencimiento vigente: la fecha de facturación REAL + los días hábiles del plan. El fallback
+// a la pactada es defensivo — una cuota facturada sin collection_payment_date es una anomalía
+// (invoice_installment() siempre la exige) y dejarla sin fecha la volvería permanentemente
+// "en plazo", escondiendo mora real.
+export function currentDueDate(installment: PaymentInstallmentInput): string | null {
+  return installment.collection_payment_date ?? installment.agreed_payment_date;
+}
+
+export function getInstallmentCalendarState(
+  installment: PaymentInstallmentInput,
+  today: string = todayInLaPaz(),
+  windowDays = 7,
+): InstallmentCalendarState {
+  return installmentCalendarState(
+    installment.status,
+    currentInvoiceDate(installment),
+    currentDueDate(installment),
+    today,
+    windowDays,
+  );
+}
+
+// Lo que la fila necesita para pintarse: la etapa persistida, la condición de calendario y,
+// cuando hay mora, de cuál de las dos se trata. La pantalla muestra UN SOLO chip "En mora"
+// para los dos casos (decisión del operador Q2: priorizar la claridad) y aclara en el
+// tooltip si fue marcada a mano o la decidió la fecha.
+export function getInstallmentDisplay(
+  installment: PaymentInstallmentInput,
+  today: string = todayInLaPaz(),
+  windowDays = 7,
+): {
+  stage: PaymentInstallmentStatus;
+  calendar: InstallmentCalendarState;
+  isOverdue: boolean;
+  overdueKind: 'manual' | 'payment' | null;
+} {
+  const calendar = getInstallmentCalendarState(installment, today, windowDays);
+  const isOverdue = calendar === 'overdue';
+  return {
+    stage: installment.status,
+    calendar,
+    isOverdue,
+    overdueKind: isOverdue ? (installment.status === 'Overdue' ? 'manual' : 'payment') : null,
+  };
+}
+
+// Banner "hay cuotas por facturar pronto" de la sección: una cuota todavía sin facturar cuya
+// fecha de facturación VIGENTE cae dentro de la ventana. Antes miraba `agreed_invoice_date`,
+// así que una cuota reprogramada seguía avisando en su fecha original.
+export function isAlertDue(installment: PaymentInstallmentInput, windowDays = 7): boolean {
+  return getInstallmentCalendarState(installment, todayInLaPaz(), windowDays) === 'billing_due_soon';
 }
 
 // Billing indicator (0817-176 §Indicadores, review iteración 2 #1/#2) for a
@@ -119,11 +221,17 @@ export function isPaymentDueSoonOrOverdue(
 // - "complete": every installment is Collected (Completed) AND their percentages sum to
 //   ~100% → rendered as the green check ✓ like the other tabs (collection closed 100%
 //   of the fee, not just of the recorded rows).
-// - "red" (☼): some not-yet-Collected installment's agreed PAYMENT date is within the
-//   alert window or already overdue (payment due soon / overdue and still unpaid).
+// - "red" (☼): alguna cuota está en riesgo — en mora, por vencer, o con la facturación
+//   atrasada. Cobranzas Fase 1 (Q4): la decide la regla única installmentCalendarState, no
+//   una comparación propia contra `agreed_payment_date`. Dos cambios reales frente al
+//   criterio anterior: una cuota todavía Pendiente con la fecha de PAGO pactada ya pasada
+//   dejó de contar como riesgo de cobro (nunca se facturó: ahora cuenta como facturación
+//   atrasada, que también pinta rojo), y una cuota facturada tarde se mide contra su
+//   vencimiento real.
 // - "green" (☼): otherwise — approved and in progress with no payment at risk.
 export function computeBillingIndicator(
   installments: PaymentInstallmentInput[],
+  today: string = todayInLaPaz(),
 ): 'red' | 'green' | 'complete' | 'unconfigured' {
   if (installments.length === 0) return 'unconfigured';
   if (installments.every((i) => i.status === 'Completed')) {
@@ -132,8 +240,9 @@ export function computeBillingIndicator(
   } else if (!installments.some((i) => !!i.agreed_payment_date)) {
     return 'unconfigured';
   }
+  const atRisk: InstallmentCalendarState[] = ['overdue', 'payment_due_soon', 'billing_late', 'billing_due_soon'];
   const hasPaymentAtRisk = installments.some((installment) =>
-    isPaymentDueSoonOrOverdue(installment, 7),
+    atRisk.includes(getInstallmentCalendarState(installment, today, 7)),
   );
   return hasPaymentAtRisk ? 'red' : 'green';
 }

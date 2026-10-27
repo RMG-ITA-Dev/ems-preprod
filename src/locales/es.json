@@ -76,7 +76,10 @@
     "status": "Estado",
     "back": "Volver",
     "none": "Ninguno",
-    "confirm": "Confirmar"
+    "confirm": "Confirmar",
+    "retry": "Reintentar",
+    "previous": "Anterior",
+    "next": "Siguiente"
   },
   "nav": {
     "main": "Principal",
@@ -101,7 +104,9 @@
     "timeEntries": "Entradas de Tiempo",
     "planning": "Planificación",
     "scheduler": "Planificador GANTT",
-    "schedulerGaps": "Brechas"
+    "schedulerGaps": "Brechas",
+    "fundRequestWorkOrders": "Gastos por OT",
+    "collections": "Cobranzas"
   },
   "tracker": {
     "title": "Registros de Tiempo",
@@ -370,9 +375,9 @@
     "exchangeRateTestStatus": "Estado: {{value}}",
     "exchangeRateTestChannel": "Canal: {{value}}",
     "exchangeRateError": {
-      "unauthorized": "Tu sesión ya no es válida. Volvé a iniciar sesión e intentá de nuevo.",
-      "forbidden": "No tenés permiso para probar esta conexión.",
-      "missing_url": "Ingresá una URL antes de probar.",
+      "unauthorized": "Su sesión ya no es válida. Vuelva a iniciar sesión e inténtelo de nuevo.",
+      "forbidden": "No tiene permiso para probar esta conexión.",
+      "missing_url": "Ingrese una URL antes de probar.",
       "provider_error": "El servicio de tipo de cambio no respondió correctamente.",
       "invalid_payload": "El servicio de tipo de cambio devolvió datos inesperados.",
       "generic": "No se pudo probar la conexión. Intentá de nuevo."
@@ -406,7 +411,7 @@
     "changeRole": "Cambiar Rol",
     "noUsers": "No se encontraron usuarios.",
     "cannotChangeSelf": "No puede cambiar su propio rol",
-    "noPermissionToChangeRoles": "No tenés permiso para cambiar roles",
+    "noPermissionToChangeRoles": "No tiene permiso para cambiar roles",
     "roleUpdated": "Rol de usuario actualizado exitosamente",
     "updateError": "Error al actualizar el rol de usuario",
     "orphan": "Huérfano",
@@ -468,7 +473,7 @@
     "retry": "Reintentar",
     "accessDenied": {
       "title": "Sin acceso",
-      "description": "No tenés permiso para ver esta sección. Si crees que es un error, contactá a un administrador."
+      "description": "No tiene permiso para ver esta sección. Si cree que es un error, contacte a un administrador."
     }
   },
   "industry": {
@@ -621,7 +626,10 @@
     "newExpenseType": "Nuevo Tipo de Gasto",
     "editExpenseType": "Editar Tipo de Gasto",
     "createExpenseType": "Crear Tipo de Gasto",
-    "deleteExpenseType": "Eliminar Tipo de Gasto"
+    "deleteExpenseType": "Eliminar Tipo de Gasto",
+    "active": "Activo",
+    "activeHint": "Desactivado no se ofrece para gastos ni presupuestos nuevos; lo ya registrado lo conserva. Borrar solo funciona si nunca se usó.",
+    "inactiveSuffix": "(desactivado)"
   },
   "staff": {
     "name": "Nombre",
@@ -643,7 +651,7 @@
     "audRegNumber": "Nro. Reg. Auditor",
     "newStaff": "Nuevo Miembro del Personal",
     "editStaff": "Editar Miembro del Personal",
-    "readOnlyNoUpdatePermission": "Tenés acceso de solo lectura a este registro — no tenés permiso para guardar cambios.",
+    "readOnlyNoUpdatePermission": "Tiene acceso de solo lectura a este registro — no tiene permiso para guardar cambios.",
     "createStaff": "Crear Miembro del Personal",
     "deleteStaff": "Eliminar Miembro del Personal",
     "searchPlaceholder": "Buscar por nombre o correo...",
@@ -722,6 +730,11 @@
     }
   },
   "client": {
+    "placeholderLegalName": "Empresa S.A.",
+    "placeholderContactName": "Juan Pérez",
+    "placeholderEmail": "contacto@empresa.com",
+    "placeholderAddress": "Calle, Ciudad",
+    "placeholderAddressFull": "Calle, Ciudad, País",
     "name": "Nombre del Cliente",
     "legalName": "Razón Social",
     "nit": "NIT",
@@ -730,6 +743,12 @@
     "industry": "Industria",
     "contact": "Contacto",
     "contactName": "Nombre de Contacto",
+    "contactGeneralName": "Contacto del cliente",
+    "contactGeneralEmail": "Correo del contacto",
+    "contactGeneralPhone": "Teléfono del contacto",
+    "contactCobranzaName": "Contacto de cobranza (finanzas)",
+    "contactCobranzaEmail": "Correo de cobranza",
+    "contactCobranzaPhone": "Teléfono de cobranza",
     "contactEmail": "Correo de Contacto",
     "contactPhone": "Teléfono de Contacto",
     "address": "Dirección",
@@ -1256,7 +1275,7 @@
           "avgDays": "{{days}} días promedio de cobro",
           "collected": "cobradas",
           "invoiced": "facturadas",
-          "inArrears": "en mora",
+          "inArrears": "facturación atrasada",
           "upcoming": "por facturar",
           "next7Days": "Próximos 7 días",
           "toInvoice": "facturar"
@@ -1521,7 +1540,7 @@
           "title": "Ciclo económico y cobranza",
           "collected": "cobradas",
           "invoiced": "facturadas sin pagar",
-          "inArrears": "en mora (no facturadas)",
+          "inArrears": "facturación atrasada",
           "upcoming": "pendientes",
           "next7Days": "Próximos 7 días",
           "toCollect": "cobrar",
@@ -1582,7 +1601,7 @@
           "title": "Alertas",
           "pendingWo": "{{count}} OT por aprobar",
           "overBudget": "{{count}} sobregirados",
-          "inArrears": "{{count}} cuotas en mora",
+          "inArrears": "{{count}} cuotas con facturación atrasada",
           "overdue90": "{{count}} cartera > 90 d",
           "closingSoon": "{{count}} cierres en 30 d",
           "riskPending": "{{count}} riesgos pendientes",
@@ -1890,7 +1909,10 @@
       "paymentAmountBob": "≈ {{value}}",
       "errorExchangeRateLocked": "Este tipo de cambio ya está congelado y no puede modificarse.",
       "errorInstallmentLocked": "Esta cuota ya fue facturada y no puede modificarse ni eliminarse.",
-      "errorExchangeRateForbidden": "No tenés permiso para modificar este tipo de cambio.",
+      "errorExchangeRateForbidden": "No tiene permiso para modificar este tipo de cambio.",
+      "errorExchangeRateRequired": "Una cuota en moneda extranjera necesita el tipo de cambio para facturarse o cobrarse.",
+      "errorInstallmentStale": "Otra persona ya actualizó esta cuota. Vuelva a cargar la página para ver su estado actual.",
+      "errorInstallmentForbidden": "No tiene permiso para registrar la cobranza de esta cuota.",
       "errorExchangeRateUnavailable": "No hay tipo de cambio disponible (historial BCB vacío y sin valor por defecto configurado).",
       "validationExchangeRateRequired": "El TC inicial es obligatorio cuando existen cuotas.",
       "exchangeRateRequiredHint": "Obligatorio",
@@ -1913,6 +1935,56 @@
       "statusCompleted": "Completado",
       "statusOverdue": "Mora",
       "statusOverdueLong": "Mora de Facturación",
+      "statusBillingLate": "Facturación atrasada",
+      "invoiceRateFromDate": "o tómelo de una fecha",
+      "invoiceRateNotFound": "No hay cotización para esa fecha ni para ninguna anterior. Cárguelo a mano.",
+      "totalsByCurrency": "Totales por moneda",
+      "contactsTitle": "Contactos del cliente",
+      "contactGeneral": "Contacto del cliente",
+      "contactCobranza": "Cobranza (finanzas)",
+      "errorNoteForbidden": "No tiene permiso para esta nota.",
+      "errorNoteBodyRequired": "La nota no puede estar vacía.",
+      "notesTitle": "Notas",
+      "notesPlanTitle": "Notas del plan (todas las cuotas)",
+      "notesEmpty": "Sin notas.",
+      "notesAdd": "Agregar nota",
+      "notesPlaceholder": "Lo que Contabilidad o el equipo del encargo tienen que saber",
+      "notesSave": "Guardar nota",
+      "notesEdit": "Editar",
+      "notesDelete": "Borrar",
+      "notesEdited": "editada",
+      "notesCount_one": "{{count}} nota",
+      "notesCount_other": "{{count}} notas",
+      "notesDialogTitle": "Notas de la cuota {{number}}",
+      "notesOnInvoiceWarning": "Esta cuota tiene notas. Léalas antes de continuar.",
+      "errorReasonRequired": "Hay que registrar el motivo.",
+      "errorNewDateRequired": "Hay que registrar la nueva fecha de facturación.",
+      "confirmationPending": "Sin gestionar",
+      "confirmationConfirmed": "Confirmada",
+      "confirmationNotConfirmed": "No confirmó la fecha anterior",
+      "confirmCheckLabel": "¿El cliente pagará en esta fecha?",
+      "confirmYes": "Sí, confirma",
+      "confirmNo": "No confirma",
+      "confirmedTooltip": "Confirmada para el {{date}} por {{by}}.",
+      "notConfirmedTooltip": "El cliente no confirmó: {{reason}}",
+      "rescheduleTitle": "Reprogramar cuota",
+      "rescheduleDesc": "La fecha acordada ({{agreed}}) no cambia: queda como el contrato. Se registra una fecha de facturación nueva y el motivo.",
+      "rescheduleNewDate": "Nueva fecha de facturación",
+      "rescheduleReason": "Motivo",
+      "rescheduleReasonPlaceholder": "Por qué se mueve la fecha",
+      "rescheduleAction": "Reprogramar",
+      "currentInvoiceDateLabel": "Vigente:",
+      "rescheduleCount_one": "Reprogramada {{count}} vez",
+      "rescheduleCount_other": "Reprogramada {{count}} veces",
+      "notConfirmedTitle": "El cliente no confirma",
+      "notConfirmedDesc": "Registre por qué el cliente no puede pagar en esta fecha y para cuándo se reprograma. La cuota queda marcada como no confirmada.",
+      "collectionsNotApprovedBanner": "Esta orden de trabajo está en {{status}}. Las acciones de cobranza se habilitan cuando esté aprobada.",
+      "approvalStatusDraft": "Borrador",
+      "approvalStatusPending_Approval": "revisión",
+      "approvalStatusRejected": "Rechazada",
+      "statusOverdueManualTooltip": "Marcada en mora manualmente.",
+      "statusOverduePaymentTooltip": "Vencida: pasó la fecha de pago ({{date}}).",
+      "statusBillingLateTooltip": "Debió facturarse el {{date}} y todavía no se facturó.",
       "confirmInvoicedTitle": "Confirmar Facturación",
       "confirmInvoicedDesc": "La fecha de hoy ({{date}}) quedará registrada como fecha de facturación de cobranza.",
       "confirmInvoicedAction": "Sí, registrar facturación",
@@ -1928,7 +2000,58 @@
       "validationSavePlanFirst": "Guarda los cambios del plan de pagos antes de cambiar el estado de la cuota.",
       "confirmCollectionDateTitle": "Actualizar Fecha de Facturación de Cobranza",
       "confirmCollectionDateDesc": "La fecha de facturación de cobranza se actualizará a {{date}}. La fecha de pago de cobranza se recalculará automáticamente.",
-      "confirmCollectionDateAction": "Guardar fecha"
+      "confirmCollectionDateAction": "Guardar fecha",
+      "expenseRowsTitle": "Gastos ejecutados",
+      "expenseRowsHelp": "Los gastos ya revisados por Contabilidad se le cobran al cliente en su propia fila, aparte de las cuotas de honorarios. El monto a facturar incluye el IVA, para que la firma recupere exactamente lo que gastó.",
+      "expenseRowsBill": "Facturar gastos ejecutados (Bs {{amount}})",
+      "expenseRowsNothingToBill": "Sin gastos pendientes de facturar",
+      "expenseRowsEmpty": "Todavía no se le facturó ningún gasto al cliente.",
+      "expenseRowsSpent": "Gastado",
+      "expenseRowsBilledAmount": "Monto a facturar",
+      "errorExpenseRowForbidden": "Solo Contabilidad puede facturar los gastos ejecutados.",
+      "errorExpenseRowEmpty": "No quedan gastos aprobados pendientes de facturar en esta orden de trabajo.",
+      "errorExpenseRowInvalid": "No se pudo corregir el monto: la fila no es de gastos ejecutados o el monto no es válido.",
+      "expenseRowsCurrency": "Moneda",
+      "adjustedToCollect": "Queda por cobrar: {{amount}}",
+      "adjustmentsCount": "Ajustes ({{count}})",
+      "adjustmentsAdd": "Ajustar",
+      "adjustmentsTitle": "Ajustes de la cuota",
+      "adjustmentsDesc": "Un ajuste explica por qué lo que se cobra no coincide con lo facturado. No cambia el monto acordado: se registra aparte y queda en el historial de la cuota.",
+      "adjustmentType_descuento": "Descuento",
+      "adjustmentType_diferencia_cambio": "Diferencia de cambio",
+      "adjustmentTypeLabel": "Tipo de ajuste",
+      "adjustmentDiscountAmount": "Monto del descuento",
+      "adjustmentDifferenceAmount": "Diferencia en Bs",
+      "adjustmentDiscountHint": "Se resta de lo que queda por cobrar. Ingrese el monto en positivo.",
+      "adjustmentSuggested": "Según los tipos de cambio registrados: {{amount}} Bs.",
+      "adjustmentReason": "Motivo",
+      "adjustmentReasonPlaceholder": "Por qué se ajusta esta cuota",
+      "adjustmentAdd": "Registrar ajuste",
+      "adjustmentRemove": "Retirar",
+      "errorAdjustmentForbidden": "Solo Contabilidad puede registrar ajustes sobre una cuota.",
+      "errorAdjustmentLocked": "Un descuento se acuerda antes de cobrar, y la diferencia de cambio recién existe después.",
+      "errorAdjustmentExceeds": "El descuento supera lo que queda por cobrar de la cuota.",
+      "errorAdjustmentReasonRequired": "El ajuste necesita un motivo.",
+      "errorAdjustmentDuplicate": "La cuota ya tiene una diferencia de cambio registrada. Retírela antes de registrar otra.",
+      "notesPlanHelp": "Aplican a todo el encargo. Si la nota es sobre una cuota específica, use el botón de notas de esa fila.",
+      "historyCount": "Historial ({{count}})",
+      "historyTitle": "Historial de la cuota {{number}}",
+      "historyDesc": "Todo lo que pasó con esta cuota, en orden. Se escribe solo y nadie lo puede editar.",
+      "historyUnknownActor": "Sistema",
+      "historyStatusChange": "Cambió de {{from}} a {{to}}",
+      "historyRescheduled": "Reprogramada del {{from}} al {{to}}",
+      "historyConfirmed": "El cliente confirmó para el {{date}}",
+      "historyNotConfirmed": "El cliente no confirmó el {{date}}",
+      "historyAdjustment": "Ajuste de {{amount}}",
+      "historyAdjustmentRemoved": "Ajuste de {{amount}} retirado",
+      "historyPaymentDateCorrected": "Fecha de cobranza corregida del {{from}} al {{to}}",
+      "historyReimbursementAmount": "Monto de los gastos facturados cambiado a {{amount}}",
+      "confirmationNotConfirmedTooltip": "El cliente rechazó la fecha anterior y la cuota se reprogramó. El detalle está en el historial.",
+      "adjustmentTypeHint_descuento": "Se acordó cobrarle menos al cliente. Solo antes de cobrar: una vez que la plata entró, ya no hay nada que descontar.",
+      "adjustmentTypeHint_diferencia_cambio": "La brecha entre el tipo de cambio con el que se facturó y el del día en que se cobró. Va en bolivianos y solo existe después de cobrar, porque hasta entonces hay un solo tipo de cambio.",
+      "expenseRowsVat": "incluye IVA {{rate}}%: {{amount}}",
+      "currencyLockedByAdjustments": "La cuota tiene ajustes vigentes. Retírelos antes de cambiar la moneda.",
+      "errorCurrencyNoRate": "No se puede convertir: falta el tipo de cambio del plan."
     },
     "staffingRequirements": {
       "title": "Requisitos de Staffing",
@@ -2044,11 +2167,11 @@
     "reversalExecuted": "Reversión ejecutada",
     "reversalRejected": "Solicitud rechazada",
     "revertDialogTitle": "Revertir líneas aprobadas",
-    "revertDialogDescription": "Escribí un motivo. Las líneas aprobadas de este encargo volverán a pendiente de inmediato.",
+    "revertDialogDescription": "Escriba un motivo. Las líneas aprobadas de este encargo volverán a pendiente de inmediato.",
     "executeDialogTitle": "Ejecutar solicitud de reversión",
-    "executeDialogDescription": "Escribí un motivo. Esto ejecutará la solicitud de inmediato.",
+    "executeDialogDescription": "Escriba un motivo. Esto ejecutará la solicitud de inmediato.",
     "rejectDialogTitle": "Rechazar solicitud de reversión",
-    "rejectDialogDescription": "Escribí un motivo. Se notificará al solicitante que su solicitud fue rechazada.",
+    "rejectDialogDescription": "Escriba un motivo. Se notificará al solicitante que su solicitud fue rechazada.",
     "reversalCascadeNote": "Cerrada automáticamente: se revirtió un encargo de esta semana y la boleta ya no está completamente aprobada.",
     "reversalScope": {
       "engagement": "Encargo",
@@ -2206,6 +2329,8 @@
     "lastNameRequired": "El apellido es requerido",
     "emailRequired": "El correo electrónico es requerido",
     "emailInvalid": "Correo electrónico inválido",
+    "contactGeneralRequired": "El contacto del cliente es obligatorio",
+    "contactCobranzaRequired": "El contacto de cobranza es obligatorio",
     "societyRequired": "La sociedad es requerida",
     "practiceRequired": "La práctica es requerida",
     "categoryRequired": "La categoría es requerida",
@@ -2260,7 +2385,21 @@
           "sent_to_support_review": "Gasto a revisión de respaldo",
           "resubmitted": "Gasto corregido reenviado",
           "reviewed": "Contabilidad aprobó tu gasto de {{currency}} {{amount}}",
-          "review_pending": "Gastos por revisar"
+          "review_pending": "Gastos por revisar",
+          "deadline_reminder": "{{expense_count}} gastos sin enviar o por corregir · plazo {{deadline_label}}",
+          "approval_reminder": "{{expense_count}} gastos por aprobar · plazo {{deadline_label}}",
+          "review_reminder": "{{expense_count}} gastos por revisar · plazo {{deadline_label}}",
+          "review_reminder_last_day": "Hoy vence la revisión de {{expense_count}} gastos",
+          "manager_auto_approved": "El sistema aprobó {{expense_count}} gastos",
+          "manager_auto_approved_requester": "El sistema aprobó {{expense_count}} de tus gastos (el gerente no decidió)",
+          "manager_auto_approved_manager": "No aprobaste a tiempo: el sistema aprobó {{expense_count}} gastos",
+          "manager_auto_approved_accounting": "El sistema aprobó {{expense_count}} gastos porque el gerente no lo hizo",
+          "review_auto_approved": "El sistema revisó {{expense_count}} gastos",
+          "review_auto_approved_requester": "El sistema revisó {{expense_count}} de tus gastos (Contabilidad no revisó)",
+          "review_auto_approved_manager": "El sistema revisó {{expense_count}} gastos de la solicitud",
+          "review_auto_approved_accounting": "No revisaste a tiempo: el sistema aprobó {{expense_count}} gastos sin penalidad",
+          "expired": "{{expense_count}} gastos vencidos: no se enviaron hasta el {{deadline_label}}",
+          "rejected_by_accounting": "Contabilidad rechazó tu gasto de {{currency}} {{amount}}"
         },
         "disbursement": {
           "done": "Desembolso de {{currency}} {{disbursed}} realizado",
@@ -2268,7 +2407,11 @@
         },
         "settlement": {
           "recorded": "Liquidación registrada",
-          "pending": "Liquidaciones por registrar"
+          "pending": "Liquidaciones por registrar",
+          "confirmed": "Movimiento de dinero confirmado · {{currency}} {{amount}}",
+          "confirmed_reimbursement": "Tu reembolso de {{currency}} {{amount}} fue pagado ({{confirmed_label}})",
+          "confirmed_return": "Contabilidad recibió tu devolución de {{currency}} {{amount}} ({{confirmed_label}})",
+          "confirmed_payroll": "Se aplicó el descuento de {{currency}} {{amount}} en tu planilla ({{confirmed_label}})"
         },
         "expenses": {
           "all_reviewed": "Contabilidad aprobó todos los gastos"
@@ -2323,7 +2466,19 @@
         "installment": {
           "status_changed": "Cuota {{installment_number}} cambió de estado",
           "due_this_week": "Cuotas por vencer esta semana",
-          "overdue": "Cuotas vencidas"
+          "confirmation_pending": "Cuota {{installment_number}} de {{engagement_code}}: falta confirmar con el cliente",
+          "billing_late": "Cuota {{installment_number}} de {{engagement_code}}: facturación atrasada",
+          "rescheduled": "Cuota {{installment_number}} de {{engagement_code}} se reprogramó al {{new_date}}",
+          "note_added": "Nota nueva en la cuota {{installment_number}} de {{engagement_code}}",
+          "expense_row_created": "Se facturaron gastos ejecutados de {{engagement_code}} por {{currency}} {{amount}}",
+          "expense_row_amount_changed": "Cambió el monto de los gastos facturados de {{engagement_code}} a {{currency}} {{amount}}",
+          "overdue": "Cuotas vencidas",
+          "adjustment_added": "Ajuste de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed": "Se retiró un ajuste de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_added_descuento": "Descuento de {{currency}} {{amount_abs}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_added_diferencia_cambio": "Diferencia de cambio de {{currency}} {{amount}} en la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed_descuento": "Se retiró el descuento de {{currency}} {{amount_abs}} de la cuota {{installment_number}} de {{engagement_code}}",
+          "adjustment_removed_diferencia_cambio": "Se retiró la diferencia de cambio de {{currency}} {{amount}} de la cuota {{installment_number}} de {{engagement_code}}"
         },
         "client": {
           "billing_week": "Semana de facturación del cliente — cuota {{installment_number}}"
@@ -2384,7 +2539,7 @@
     "dismissError": "No se pudo descartar la notificación",
     "news": "Novedades",
     "allClear": "Todo al día",
-    "allClearDescription": "No tenés nada pendiente por ahora.",
+    "allClearDescription": "No tiene nada pendiente por ahora.",
     "sections": {
       "time_control": "Control de Tiempo",
       "engagement_status": "Estado de Encargos Generados",
@@ -2492,7 +2647,6 @@
     "totalRequested": "Monto Solicitado",
     "amount": "Monto",
     "currency": "Moneda",
-    "dueBackDate": "Fecha límite de devolución",
     "workOrder": "Orden de Trabajo",
     "workOrders": "Órdenes de Trabajo",
     "selectWorkOrder": "Seleccionar OT",
@@ -2520,7 +2674,7 @@
       "observado": "Observado",
       "rechazado": "Rechazado",
       "fondos_entregados": "Fondos Entregados",
-      "en_liquidacion": "En Liquidación",
+      "en_liquidacion": "Pago / cobro pendiente",
       "cerrado": "Cerrado",
       "cancelado": "Cancelado"
     },
@@ -2551,7 +2705,7 @@
       "toDisburse": "Por Desembolsar",
       "delivered": "Entregados",
       "readyToSettle": "Por Liquidar",
-      "inSettlement": "En Liquidación",
+      "inSettlement": "Pendiente de pago / cobro",
       "closed": "Cerrados",
       "pending": "Pendientes",
       "approved": "Aprobadas",
@@ -2575,7 +2729,9 @@
       "cancelTitle": "Cancelar solicitud",
       "cancelBody": "La solicitud quedará cancelada y no podrá retomarse. Indique la razón.",
       "notesPlaceholderRequired": "Detalle el motivo (obligatorio)...",
-      "notesPlaceholderOptional": "Nota opcional para el solicitante..."
+      "notesPlaceholderOptional": "Nota opcional para el solicitante...",
+      "disburseExpired": "La fecha fin de esta solicitud ({{date}}) ya venció. Elige un mes nuevo para que el solicitante tenga plazo para rendir.",
+      "newMonth": "Mes nuevo"
     },
     "confirmDelete": {
       "title": "¿Eliminar solicitud?",
@@ -2588,7 +2744,7 @@
     "settlement": {
       "action": "Liquidar",
       "title": "Liquidación de la solicitud",
-      "body": "Revisa el cálculo y registra cómo se resuelve el saldo. Al confirmar, la liquidación se envía al encargado de Contabilidad para el cierre.",
+      "body": "Revisa el cálculo y registra cómo se resuelve el saldo. Sin saldo, la solicitud se cierra; con saldo, queda pendiente hasta confirmar el pago o el cobro.",
       "confirm": "Liquidar",
       "summaryTitle": "Liquidación",
       "resolutionLabel": "Resolución",
@@ -2601,21 +2757,22 @@
       "noBalance": "sin saldo",
       "favorsFirm": "a favor de la firma",
       "favorsRequester": "a favor del solicitante",
-      "noBalanceHelp": "No hay saldo pendiente.",
-      "payRequesterHelp": "El solicitante gastó de más: Contabilidad procesará el pago del saldo a su favor.",
+      "noBalanceHelp": "No hay saldo pendiente: al liquidar, la solicitud se cierra.",
+      "payRequesterHelp": "El solicitante gastó de más: la solicitud queda pendiente hasta confirmar el reembolso.",
       "firmQuestion": "Sobró dinero. ¿Cómo se resolvió?",
       "blockedHint": "Hay {{count}} gasto(s) sin finalizar. No puedes marcar en liquidación hasta que todos estén revisados o rechazados.",
+      "awaitingExpensesHint": "Todavía no hay gastos. Se podrá liquidar cuando el solicitante los envíe y estén revisados, o al vencer la fecha fin ({{date}}).",
       "resolution": {
         "sin_saldo": "Sin saldo",
-        "devolucion": "Devolución en plazo",
+        "devolucion": "Devolución del empleado",
         "descuento_planilla": "Descuento en planilla",
-        "pago_solicitante": "Pago al solicitante"
+        "pago_solicitante": "Reembolso al empleado"
       }
     },
     "messages": {
       "submittedSuccess": "Solicitud enviada a aprobación",
       "otDecisionSaved": "Decisión registrada en la OT",
-      "settledSuccess": "Liquidación registrada y enviada para cierre",
+      "settledSuccess": "Liquidación registrada",
       "approvedSuccess": "Solicitud aprobada",
       "observedSuccess": "Solicitud observada — el solicitante puede corregirla",
       "rejectedSuccess": "Solicitud rechazada",
@@ -2626,6 +2783,9 @@
     },
     "errors": {
       "approverRequired": "Debe seleccionar un gerente aprobador",
+      "otDecisionNotApplied": "No se guardó la decisión: la OT o la solicitud ya cambiaron de estado. Recargue para ver cómo está ahora.",
+      "expenseCountsLoadFailed": "No se pudieron cargar los gastos de cada solicitud, así que las pestañas pueden no estar completas.",
+      "retry": "Reintentar",
       "amountRequired": "El monto solicitado debe ser mayor a cero",
       "allocationsRequired": "Debe agregar al menos una OT",
       "allocationIncomplete": "Complete OT y monto en todas las filas de distribución",
@@ -2633,7 +2793,128 @@
       "staffNotLinked": "Su cuenta no está vinculada a un registro de personal. Contacte al administrador.",
       "notesRequired": "Debe indicar el motivo",
       "disbursedAmountInvalid": "El monto entregado debe ser mayor a cero",
-      "disbursedAmountExceedsRequested": "El monto entregado no puede ser mayor al solicitado"
+      "disbursedAmountExceedsRequested": "El monto entregado no puede ser mayor al solicitado",
+      "newMonthRequired": "Elige un mes nuevo para desembolsar"
+    },
+    "periodMonth": "Mes de la solicitud",
+    "periodMonthPlaceholder": "Elige el mes",
+    "periodMonthHelp": "Gastos hasta el {{date}}",
+    "progress": {
+      "label": "Avance de la solicitud",
+      "steps": {
+        "requested": "Solicitada",
+        "approved": "Aprobada",
+        "disbursed": "Desembolsada",
+        "settled": "Liquidada",
+        "closed": "Cerrada"
+      }
+    },
+    "movement": {
+      "kind": {
+        "reimbursement": "Reembolso al empleado",
+        "return": "Devolución del empleado",
+        "payroll": "Descuento en planilla"
+      },
+      "type": "Movimiento",
+      "pendingBadge": {
+        "reimbursement": "Reembolso pendiente",
+        "return": "Devolución pendiente",
+        "payroll": "Descuento pendiente"
+      },
+      "doneBadge": {
+        "reimbursement": "Reembolso pagado",
+        "return": "Devolución recibida",
+        "payroll": "Descuento aplicado"
+      },
+      "pendingText": {
+        "requester": {
+          "reimbursement": "Contabilidad liquidó tu solicitud. Te corresponde un reembolso de {{amount}}. Pago pendiente.",
+          "return": "Contabilidad liquidó tu solicitud. Debes devolver {{amount}}.",
+          "payroll": "Contabilidad liquidó tu solicitud. Se descontarán {{amount}} de tu planilla."
+        },
+        "staff": {
+          "reimbursement": "Hay que pagar {{amount}} a {{name}}.",
+          "return": "{{name}} debe devolver {{amount}}.",
+          "payroll": "Hay que descontar {{amount}} de la planilla de {{name}}."
+        }
+      },
+      "doneText": {
+        "requester": {
+          "reimbursement": "Tu reembolso de {{amount}} fue pagado.",
+          "return": "Contabilidad recibió tu devolución de {{amount}}.",
+          "payroll": "Se descontaron {{amount}} de tu planilla."
+        },
+        "staff": {
+          "reimbursement": "Reembolso de {{amount}} pagado a {{name}}.",
+          "return": "Devolución de {{amount}} recibida de {{name}}.",
+          "payroll": "Descuento de {{amount}} aplicado en la planilla de {{name}}."
+        }
+      },
+      "confirmTitle": {
+        "reimbursement": "Confirmar pago del reembolso",
+        "return": "Confirmar devolución recibida",
+        "payroll": "Confirmar descuento en planilla"
+      },
+      "confirmBody": "Al confirmar, se registra la fecha y la hora y la solicitud se cierra.",
+      "confirmAction": {
+        "reimbursement": "Confirmar pago",
+        "return": "Confirmar devolución",
+        "payroll": "Confirmar descuento"
+      },
+      "ack": {
+        "reimbursement": "Confirmo que el pago fue realizado. Esta acción no se puede deshacer.",
+        "return": "Confirmo que la devolución fue recibida. Esta acción no se puede deshacer.",
+        "payroll": "Confirmo que el descuento fue aplicado en planilla. Esta acción no se puede deshacer."
+      },
+      "ackRequired": "Marca la confirmación para continuar.",
+      "reference": "Referencia",
+      "referencePlaceholder": "Nº de cheque, transferencia o recibo (opcional)",
+      "confirmedSuccess": "Movimiento confirmado: la solicitud se cerró"
+    }
+  },
+  "fundRequestEvent": {
+    "title": "Historial",
+    "empty": "Sin movimientos registrados",
+    "system": "Sistema",
+    "by": "por {{name}}",
+    "workOrder": "OT {{code}}",
+    "report": {
+      "dateTime": "Fecha y hora",
+      "action": "Acción",
+      "actor": "Realizado por",
+      "workOrder": "OT",
+      "notes": "Notas",
+      "amount": "Monto"
+    },
+    "actions": {
+      "created": "Solicitud creada",
+      "submitted": "Enviada a aprobación",
+      "approved": "Solicitud aprobada",
+      "observed": "Observada",
+      "rejected": "Rechazada",
+      "disbursed": "Fondos desembolsados",
+      "settled": "Liquidada",
+      "closed": "Cerrada",
+      "cancelled": "Cancelada",
+      "status_changed": "Cambio de estado",
+      "wo_approved": "Aprobada por el gerente de la OT",
+      "wo_observed": "Observada por el gerente de la OT",
+      "wo_rejected": "Rechazada por el gerente de la OT",
+      "wo_status_changed": "Cambio de estado de la OT",
+      "expense_submitted": "Enviado al gerente",
+      "expense_manager_approved": "Aprobado por el gerente",
+      "expense_manager_observed": "Observado por el gerente",
+      "expense_manager_rejected": "Rechazado por el gerente",
+      "expense_returned_by_accounting": "Devuelto por Contabilidad",
+      "expense_resubmitted_to_accounting": "Reenviado a Contabilidad",
+      "expense_reviewed": "Revisado por Contabilidad",
+      "expense_status_changed": "Cambio de estado del gasto",
+      "expense_expired": "Vencido: no se envió hasta la fecha fin",
+      "expense_manager_auto_approved": "Aprobado automáticamente (el gerente no decidió)",
+      "expense_review_auto_approved": "Revisado automáticamente (Contabilidad no revisó)",
+      "expense_rejected_by_accounting": "Rechazado por Contabilidad",
+      "settled_closed": "Liquidada sin saldo y cerrada",
+      "settlement_confirmed": "Movimiento de dinero confirmado y cerrada"
     }
   },
   "fundRequestExpense": {
@@ -2688,8 +2969,8 @@
     "attachmentUrl": "Respaldo",
     "fileTooLarge": "El archivo debe pesar menos de 5MB",
     "fileTypes": "JPG, PNG, WebP o PDF (máx 5MB)",
-    "pendingLockHint": "Ya hay gastos enviados o aprobados en esta solicitud, por lo que no puedes registrar nuevos. El saldo no utilizado se resolverá en la liquidación.",
-    "returnedLockHint": "Contabilidad devolvió uno o más gastos por falta de respaldo. Ábrelos, sube el adjunto / factura y reenvíalos a Contabilidad.",
+    "returnedLockHint": "Contabilidad devolvió uno o más gastos. Ábrelos, corrige lo observado y reenvíalos a Contabilidad.",
+    "pendingBatchHint": "Tu lote de gastos está esperando la decisión del gerente. Cuando lo apruebe, observe o rechace, podrás registrar y enviar otro lote.",
     "totalSpent": "Total Gastado",
     "balance": "Saldo",
     "totalIvaPenalty": "Devoluciones (13%)",
@@ -2701,7 +2982,8 @@
       "aprobado_gerente": "Aprobado Gerente",
       "observado": "Observado",
       "rechazado": "Rechazado",
-      "revisado_asistente": "Revisado"
+      "revisado_asistente": "Revisado",
+      "vencido": "Vencido"
     },
     "actions": {
       "saveDraft": "Guardar",
@@ -2713,7 +2995,8 @@
       "review": "Revisar Factura",
       "validate": "Validar",
       "returnToRequester": "Devolver al solicitante",
-      "resendToAccounting": "Reenviar a Contabilidad"
+      "resendToAccounting": "Reenviar a Contabilidad",
+      "reject": "Rechazar"
     },
     "confirmSubmitAll": {
       "title": "¿Enviar todos los gastos a aprobación?",
@@ -2736,8 +3019,19 @@
       "invoiceCorrect": "Correcta",
       "invoiceIncorrect": "Incorrecta",
       "observationPlaceholder": "Describe el problema de la factura (dañada, nombre/NIT incorrecto)...",
-      "ivaWarning": "Se aplicará una devolución del 13% (IVA):",
-      "ivaOf": "13% de {{amount}} {{currency}}"
+      "ivaWarning": "Se aplicará una penalidad del 13% (IVA):",
+      "ivaOf": "13% de {{amount}} {{currency}}",
+      "reviewQuestion": "¿Qué hacer con este gasto?",
+      "reviewActions": {
+        "approve": "Aprobar",
+        "penalty": "Aprobar con penalidad 13%",
+        "return": "Devolver para corregir",
+        "reject": "Rechazar"
+      },
+      "reviewBeforeDeadlineHint": "Hasta la fecha fin ({{date}}) puedes devolverlo para que el solicitante lo corrija.",
+      "reviewAfterDeadlineHint": "La fecha fin ({{date}}) ya pasó: el solicitante no puede corregirlo, así que solo se aprueba o se rechaza.",
+      "returnWarning": "El solicitante podrá corregir todos los datos y reenviártelo hasta el {{date}}.",
+      "rejectWarning": "El gasto no se acepta y no cuenta como gastado."
     },
     "confirmDelete": {
       "title": "¿Eliminar gasto?",
@@ -2758,7 +3052,8 @@
       "rejectedSuccess": "Gasto rechazado",
       "reviewedSuccess": "Factura revisada",
       "returnedSuccess": "Gasto devuelto al solicitante para adjuntar el respaldo",
-      "resentToAccountingSuccess": "Gasto reenviado a Contabilidad"
+      "resentToAccountingSuccess": "Gasto reenviado a Contabilidad",
+      "rejectedByAccountingSuccess": "Gasto rechazado"
     },
     "errors": {
       "workOrderRequired": "Debe seleccionar una OT",
@@ -2768,7 +3063,17 @@
       "observationNotesRequired": "Debe describir la observación de la factura",
       "noInvoiceNotesRequired": "Indique qué respaldo falta antes de devolver",
       "attachmentRequired": "Adjunte el respaldo antes de reenviar",
-      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado"
+      "notPermittedOrChanged": "No se aplicó el cambio: no tiene permiso o el gasto ya cambió de estado",
+      "dateOutOfRange": "La fecha del gasto no puede ser anterior al {{min}} (día del desembolso).",
+      "reviewNotesRequired": "Escribe el motivo."
+    },
+    "window": {
+      "open": "Tienes hasta el {{date}} para registrar y enviar tus gastos.",
+      "closed": "El plazo para registrar y enviar gastos venció el {{date}}."
+    },
+    "autoApproved": {
+      "manager": "Aprobado por: Sistema. El gerente no lo aprobó hasta la fecha fin.",
+      "review": "Revisado por: Sistema. Contabilidad no lo revisó hasta el día 5 (factura correcta, sin penalidad)."
     }
   },
   "scheduler": {
@@ -2888,7 +3193,7 @@
   },
   "myAssignments": {
     "title": "Mis Asignaciones",
-    "empty": "Todavía no tenés asignaciones.",
+    "empty": "Todavía no tiene asignaciones.",
     "deepLinkNotFound": "Esta asignación ya no es visible para vos — es posible que te hayan reasignado fuera de este encargo.",
     "loadError": "No se pudieron cargar tus asignaciones.",
     "retry": "Reintentar",
@@ -2928,5 +3233,95 @@
       "COMPLETED": "Completada",
       "CANCELLED": "Cancelada"
     }
+  },
+  "workOrderExpenses": {
+    "retry": "Reintentar",
+    "loadError": "No pudimos cargar los gastos por OT. Por favor, intente de nuevo.",
+    "title": "Gastos por OT",
+    "searchPlaceholder": "Buscar por OT, encargo o cliente...",
+    "workOrder": "OT",
+    "engagement": "Encargo",
+    "requests": "Solicitudes",
+    "request": "Solicitud",
+    "assigned": "Asignado",
+    "spent": "Gastado",
+    "inProcess": "En proceso",
+    "difference": "Diferencia",
+    "budget": "Presupuesto",
+    "budgetUsage": "Uso del presupuesto",
+    "usage": "% usado",
+    "budgetSection": "Presupuesto vs gastado por tipo",
+    "expensesSection": "Gastos de la OT",
+    "noType": "Sin tipo",
+    "groupByRequest": "Agrupar por solicitud",
+    "filteredSummary": "{{count}} gastos · gastado {{spent}} BOB · en proceso {{inProcess}} BOB",
+    "filters": {
+      "from": "Desde",
+      "to": "Hasta",
+      "all": "Todos"
+    },
+    "report": {
+      "sheetName": "Gastos por OT",
+      "filenamePrefix": "Gastos_OT"
+    }
+  },
+  "collections": {
+    "title": "Cobranzas",
+    "subtitle": "Qué hay que facturar, qué falta cobrar y qué está atrasado.",
+    "forbidden": "Esta pantalla es de Contabilidad.",
+    "roleLoadFailed": "No se pudo verificar su rol.",
+    "loadFailed": "No se pudieron cargar las cobranzas.",
+    "empty": "No hay cuotas que mostrar con estos filtros.",
+    "tab_por_facturar": "Por facturar",
+    "tab_por_cobrar": "Por cobrar",
+    "tab_en_mora": "En mora",
+    "tab_cobradas": "Cobradas",
+    "totalToBillThisMonth": "Por facturar este mes",
+    "totalBilledUncollected": "Facturado sin cobrar",
+    "totalOverdue": "En mora",
+    "search": "Buscar",
+    "searchPlaceholder": "Cliente o encargo",
+    "filterAll": "Todos",
+    "filterSociety": "Sociedad",
+    "filterPractice": "Práctica",
+    "filterManager": "Gerente",
+    "filterCurrency": "Moneda",
+    "filterDateFrom": "Desde",
+    "filterDateTo": "Hasta",
+    "groupByClient": "Cliente",
+    "includeExpenseRows": "Incluir gastos ejecutados",
+    "export": "Exportar",
+    "pageOf": "Página {{page}} de {{pages}} · {{total}} cuotas",
+    "statusOverdue": "En mora",
+    "typeFee": "Honorarios",
+    "typeExpense": "Gastos ejecutados",
+    "typeExpenseShort": "Gastos",
+    "rescheduledTooltip": "La fecha se reprogramó.",
+    "hasNotesTooltip": "Esta cuota tiene notas.",
+    "noContact": "Sin contacto de cobranza",
+    "colClient": "Cliente",
+    "colTaxId": "NIT",
+    "colEngagement": "Encargo",
+    "colManager": "Gerente",
+    "colInstallment": "Cuota",
+    "colType": "Tipo",
+    "colAmount": "Monto",
+    "colCurrency": "Moneda",
+    "colAgreedDate": "Fecha acordada",
+    "colCurrentDate": "Fecha vigente",
+    "colStatus": "Estado",
+    "colDaysOverdue": "Días de atraso",
+    "colContact": "Contacto",
+    "colContactName": "Contacto",
+    "colContactEmail": "Correo",
+    "colContactPhone": "Teléfono",
+    "colToCollect": "Por cobrar",
+    "colExchangeDifference": "Dif. de cambio",
+    "adjustedTooltip": "Esta cuota tiene ajustes registrados.",
+    "groupBy": "Agrupar por",
+    "groupByWorkOrder": "Orden de trabajo",
+    "groupByNone": "Sin agrupar",
+    "groupRowCount_one": "{{count}} cuota",
+    "groupRowCount_other": "{{count}} cuotas"
   }
 }

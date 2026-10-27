@@ -241,7 +241,7 @@ npm run test:rls             # SQL/RLS harness — requires the local Supabase s
 npm run verify:vendor        # SVAR gantt vendor bundle integrity (3 layers: origins, capability allowlist, sha256)
 ```
 
-Prerequisites: Node.js 18+ and npm.
+Prerequisites: Node.js 24.x and npm 11.21.1 (as pinned in `package.json`).
 
 `npm run typecheck` currently reports a non-zero, pinned baseline (183 errors, all pre-existing debt unrelated to the Scheduler integration — see the CI ratchet in `.github/workflows/test.yml` and `docs/scheduler/fase_7/scheduler-fase-7-verificacion.md`). The count must never grow; driving it to zero is scoped to the joint merge with `feat/roles-permisos`, not to any single phase.
 

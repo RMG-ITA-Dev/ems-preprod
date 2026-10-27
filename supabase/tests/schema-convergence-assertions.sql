@@ -34,6 +34,9 @@
 --   Compuerta relrowsecurity (A.3)         -> part 1, check 12 (lista de
 --                                            excepciones = pendiente del Carril B)
 --   Sin escritura anónima (A.4)            -> part 1, check 13 (16 tablas + 5 vistas)
+--
+-- Plan de contabilidad de gastos (objetos nuevos posteriores al Carril A):
+--   anon fuera de la bitácora y de las funciones nuevas -> part 1, check 17
 
 BEGIN;
 
@@ -498,6 +501,66 @@ BEGIN
     END IF;
   END;
   RAISE NOTICE 'PASS — BAR-016: ninguna política de lectura abierta (USING true) alcanza a anon';
+
+  -- 17. Plan de contabilidad de gastos: los objetos nuevos de las Fases 1-5 no quedan al alcance de
+  --     anon (la plataforma se los concede al crearlos; los cierra el bloque final de cero_06). La
+  --     bitácora no se escribe por la API, y el job de plazos —SECURITY DEFINER que aprueba y vence
+  --     en lote— no lo ejecuta ningún rol de API.
+  IF to_regrole('anon') IS NOT NULL THEN
+    DECLARE
+      fn text;
+      priv text;
+    BEGIN
+      FOREACH priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
+        IF has_table_privilege('anon', 'public.fund_request_events', priv) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon tiene % en public.fund_request_events', priv;
+        END IF;
+      END LOOP;
+      IF to_regrole('authenticated') IS NOT NULL THEN
+        FOREACH priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'] LOOP
+          IF has_table_privilege('authenticated', 'public.fund_request_events', priv) THEN
+            RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated tiene % en public.fund_request_events (la bitácora solo la escriben triggers)', priv;
+          END IF;
+        END LOOP;
+        IF has_function_privilege('authenticated', 'public.fund_request_run_deadlines(date)', 'EXECUTE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — authenticated ejecuta public.fund_request_run_deadlines(date)';
+        END IF;
+      END IF;
+
+      FOREACH fn IN ARRAY ARRAY[
+        'public.fund_request_cancel(uuid, text)',
+        'public.fund_request_confirm_settlement(uuid, text, text)',
+        'public.fund_request_disburse(uuid, numeric, text, date)',
+        'public.fund_request_expense_review(uuid, text, text)',
+        'public.fund_request_settle(uuid, text, numeric, text)',
+        'public.fund_work_order_expense_summary()',
+        'public.fund_work_order_expense_detail(uuid)',
+        'public.fund_request_run_deadlines(date)',
+        'public.fr_accounting_sees(public.fund_request_status, public.fund_request_status)',
+        'public.fund_today()',
+        'public.fund_request_deadline(date)',
+        'public.fund_request_review_deadline(date)',
+        'public.fund_request_month_is_selectable(date)',
+        'public.fr_log_event()',
+        'public.fr_wo_log_event()',
+        'public.fre_log_event()',
+        'public.fre_enforce_window()',
+        'public.fr_validate_period_month()',
+        'public.validate_expense_type_active()'
+      ] LOOP
+        IF has_function_privilege('anon', fn, 'EXECUTE') THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — anon ejecuta % (plan de contabilidad de gastos)', fn;
+        END IF;
+        IF EXISTS (
+          SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+           WHERE p.oid = fn::regprocedure AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+        ) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — PUBLIC ejecuta % (plan de contabilidad de gastos)', fn;
+        END IF;
+      END LOOP;
+    END;
+    RAISE NOTICE 'PASS — contabilidad de gastos: anon fuera de la bitácora y de las funciones nuevas; el job de plazos sin roles de API';
+  END IF;
 END $$;
 
 -- =====================================================================

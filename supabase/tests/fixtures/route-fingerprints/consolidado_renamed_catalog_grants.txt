@@ -309,6 +309,24 @@
  public       | service_role  | categories                                     | TRIGGER
  public       | service_role  | categories                                     | TRUNCATE
  public       | service_role  | categories                                     | UPDATE
+ public       | authenticated | client_contacts                                | DELETE
+ public       | authenticated | client_contacts                                | INSERT
+ public       | authenticated | client_contacts                                | SELECT
+ public       | authenticated | client_contacts                                | UPDATE
+ public       | postgres      | client_contacts                                | DELETE
+ public       | postgres      | client_contacts                                | INSERT
+ public       | postgres      | client_contacts                                | REFERENCES
+ public       | postgres      | client_contacts                                | SELECT
+ public       | postgres      | client_contacts                                | TRIGGER
+ public       | postgres      | client_contacts                                | TRUNCATE
+ public       | postgres      | client_contacts                                | UPDATE
+ public       | service_role  | client_contacts                                | DELETE
+ public       | service_role  | client_contacts                                | INSERT
+ public       | service_role  | client_contacts                                | REFERENCES
+ public       | service_role  | client_contacts                                | SELECT
+ public       | service_role  | client_contacts                                | TRIGGER
+ public       | service_role  | client_contacts                                | TRUNCATE
+ public       | service_role  | client_contacts                                | UPDATE
  public       | authenticated | clients                                        | DELETE
  public       | authenticated | clients                                        | INSERT
  public       | authenticated | clients                                        | SELECT
@@ -429,6 +447,21 @@
  public       | service_role  | expense_types                                  | TRIGGER
  public       | service_role  | expense_types                                  | TRUNCATE
  public       | service_role  | expense_types                                  | UPDATE
+ public       | authenticated | fund_request_events                            | SELECT
+ public       | postgres      | fund_request_events                            | DELETE
+ public       | postgres      | fund_request_events                            | INSERT
+ public       | postgres      | fund_request_events                            | REFERENCES
+ public       | postgres      | fund_request_events                            | SELECT
+ public       | postgres      | fund_request_events                            | TRIGGER
+ public       | postgres      | fund_request_events                            | TRUNCATE
+ public       | postgres      | fund_request_events                            | UPDATE
+ public       | service_role  | fund_request_events                            | DELETE
+ public       | service_role  | fund_request_events                            | INSERT
+ public       | service_role  | fund_request_events                            | REFERENCES
+ public       | service_role  | fund_request_events                            | SELECT
+ public       | service_role  | fund_request_events                            | TRIGGER
+ public       | service_role  | fund_request_events                            | TRUNCATE
+ public       | service_role  | fund_request_events                            | UPDATE
  public       | authenticated | fund_request_expenses                          | DELETE
  public       | authenticated | fund_request_expenses                          | INSERT
  public       | authenticated | fund_request_expenses                          | SELECT
@@ -1049,6 +1082,96 @@
  public       | service_role  | wo_expense_budget                              | TRIGGER
  public       | service_role  | wo_expense_budget                              | TRUNCATE
  public       | service_role  | wo_expense_budget                              | UPDATE
+ public       | authenticated | wo_installment_adjustments                     | DELETE
+ public       | authenticated | wo_installment_adjustments                     | INSERT
+ public       | authenticated | wo_installment_adjustments                     | SELECT
+ public       | authenticated | wo_installment_adjustments                     | UPDATE
+ public       | postgres      | wo_installment_adjustments                     | DELETE
+ public       | postgres      | wo_installment_adjustments                     | INSERT
+ public       | postgres      | wo_installment_adjustments                     | REFERENCES
+ public       | postgres      | wo_installment_adjustments                     | SELECT
+ public       | postgres      | wo_installment_adjustments                     | TRIGGER
+ public       | postgres      | wo_installment_adjustments                     | TRUNCATE
+ public       | postgres      | wo_installment_adjustments                     | UPDATE
+ public       | service_role  | wo_installment_adjustments                     | DELETE
+ public       | service_role  | wo_installment_adjustments                     | INSERT
+ public       | service_role  | wo_installment_adjustments                     | REFERENCES
+ public       | service_role  | wo_installment_adjustments                     | SELECT
+ public       | service_role  | wo_installment_adjustments                     | TRIGGER
+ public       | service_role  | wo_installment_adjustments                     | TRUNCATE
+ public       | service_role  | wo_installment_adjustments                     | UPDATE
+ public       | authenticated | wo_installment_events                          | DELETE
+ public       | authenticated | wo_installment_events                          | INSERT
+ public       | authenticated | wo_installment_events                          | SELECT
+ public       | authenticated | wo_installment_events                          | UPDATE
+ public       | postgres      | wo_installment_events                          | DELETE
+ public       | postgres      | wo_installment_events                          | INSERT
+ public       | postgres      | wo_installment_events                          | REFERENCES
+ public       | postgres      | wo_installment_events                          | SELECT
+ public       | postgres      | wo_installment_events                          | TRIGGER
+ public       | postgres      | wo_installment_events                          | TRUNCATE
+ public       | postgres      | wo_installment_events                          | UPDATE
+ public       | service_role  | wo_installment_events                          | DELETE
+ public       | service_role  | wo_installment_events                          | INSERT
+ public       | service_role  | wo_installment_events                          | REFERENCES
+ public       | service_role  | wo_installment_events                          | SELECT
+ public       | service_role  | wo_installment_events                          | TRIGGER
+ public       | service_role  | wo_installment_events                          | TRUNCATE
+ public       | service_role  | wo_installment_events                          | UPDATE
+ public       | authenticated | wo_installment_expenses                        | DELETE
+ public       | authenticated | wo_installment_expenses                        | INSERT
+ public       | authenticated | wo_installment_expenses                        | SELECT
+ public       | authenticated | wo_installment_expenses                        | UPDATE
+ public       | postgres      | wo_installment_expenses                        | DELETE
+ public       | postgres      | wo_installment_expenses                        | INSERT
+ public       | postgres      | wo_installment_expenses                        | REFERENCES
+ public       | postgres      | wo_installment_expenses                        | SELECT
+ public       | postgres      | wo_installment_expenses                        | TRIGGER
+ public       | postgres      | wo_installment_expenses                        | TRUNCATE
+ public       | postgres      | wo_installment_expenses                        | UPDATE
+ public       | service_role  | wo_installment_expenses                        | DELETE
+ public       | service_role  | wo_installment_expenses                        | INSERT
+ public       | service_role  | wo_installment_expenses                        | REFERENCES
+ public       | service_role  | wo_installment_expenses                        | SELECT
+ public       | service_role  | wo_installment_expenses                        | TRIGGER
+ public       | service_role  | wo_installment_expenses                        | TRUNCATE
+ public       | service_role  | wo_installment_expenses                        | UPDATE
+ public       | authenticated | wo_installment_note_versions                   | DELETE
+ public       | authenticated | wo_installment_note_versions                   | INSERT
+ public       | authenticated | wo_installment_note_versions                   | SELECT
+ public       | authenticated | wo_installment_note_versions                   | UPDATE
+ public       | postgres      | wo_installment_note_versions                   | DELETE
+ public       | postgres      | wo_installment_note_versions                   | INSERT
+ public       | postgres      | wo_installment_note_versions                   | REFERENCES
+ public       | postgres      | wo_installment_note_versions                   | SELECT
+ public       | postgres      | wo_installment_note_versions                   | TRIGGER
+ public       | postgres      | wo_installment_note_versions                   | TRUNCATE
+ public       | postgres      | wo_installment_note_versions                   | UPDATE
+ public       | service_role  | wo_installment_note_versions                   | DELETE
+ public       | service_role  | wo_installment_note_versions                   | INSERT
+ public       | service_role  | wo_installment_note_versions                   | REFERENCES
+ public       | service_role  | wo_installment_note_versions                   | SELECT
+ public       | service_role  | wo_installment_note_versions                   | TRIGGER
+ public       | service_role  | wo_installment_note_versions                   | TRUNCATE
+ public       | service_role  | wo_installment_note_versions                   | UPDATE
+ public       | authenticated | wo_installment_notes                           | DELETE
+ public       | authenticated | wo_installment_notes                           | INSERT
+ public       | authenticated | wo_installment_notes                           | SELECT
+ public       | authenticated | wo_installment_notes                           | UPDATE
+ public       | postgres      | wo_installment_notes                           | DELETE
+ public       | postgres      | wo_installment_notes                           | INSERT
+ public       | postgres      | wo_installment_notes                           | REFERENCES
+ public       | postgres      | wo_installment_notes                           | SELECT
+ public       | postgres      | wo_installment_notes                           | TRIGGER
+ public       | postgres      | wo_installment_notes                           | TRUNCATE
+ public       | postgres      | wo_installment_notes                           | UPDATE
+ public       | service_role  | wo_installment_notes                           | DELETE
+ public       | service_role  | wo_installment_notes                           | INSERT
+ public       | service_role  | wo_installment_notes                           | REFERENCES
+ public       | service_role  | wo_installment_notes                           | SELECT
+ public       | service_role  | wo_installment_notes                           | TRIGGER
+ public       | service_role  | wo_installment_notes                           | TRUNCATE
+ public       | service_role  | wo_installment_notes                           | UPDATE
  public       | authenticated | wo_payment_installments                        | DELETE
  public       | authenticated | wo_payment_installments                        | INSERT
  public       | authenticated | wo_payment_installments                        | SELECT
@@ -1273,5 +1396,5 @@
  storage      | anon          | vector_indexes                                 | SELECT
  storage      | authenticated | vector_indexes                                 | SELECT
  storage      | service_role  | vector_indexes                                 | SELECT
-(1273 rows)
+(1396 rows)
 

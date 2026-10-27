@@ -47,6 +47,7 @@ DECLARE
   v_plan_wo_id uuid;
   v_legal_transition boolean;
   v_is_accounting_or_admin boolean;
+  v_wo_currency text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     IF EXISTS (SELECT 1 FROM public.wo_payment_installments WHERE installment_id = NEW.installment_id) THEN
@@ -89,11 +90,23 @@ BEGIN
     -- lectura" segun el mismo criterio ya usado en wo_payment_plan_guard_exchange_rate
     -- (que si bloquea INSERT/DELETE del plan en ambos estados), pero el INSERT de
     -- una cuota nueva se colaba igual durante esa ventana.
-    IF NOT public.is_admin() AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
+    -- Cobranzas Fase 7: la fila de GASTOS EJECUTADOS es la excepcion. El bloqueo de arriba
+    -- protege el plan de HONORARIOS, que es un contrato cerrado antes de aprobar la OT; los
+    -- gastos ejecutados aparecen despues, por definicion, asi que exigir la OT en Draft los
+    -- dejaria sin poder facturarse nunca. La crea create_expense_reimbursement_row(), que ya
+    -- verifica que quien llama sea contabilidad o admin.
+    IF NOT public.is_admin()
+       AND NEW.installment_type <> 'expense_reimbursement'
+       AND v_approval_status IN ('Approved', 'Pending_Approval') THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: no se pueden agregar cuotas nuevas a un plan de pagos cuya orden de trabajo ya fue aprobada o esta en revision';
     END IF;
 
-    IF v_exchange_rate_mode = 'fijo' AND (
+    -- Cobranzas Fase 7: la fila de gastos ejecutados tampoco entra aca. El modo Fijo es una
+    -- garantia sobre el HONORARIO: toda cuota que lo reparte se convierte al mismo TC. Los
+    -- gastos se rinden y se cobran en BOB, asi que no hay nada que convertir, y exigirles el
+    -- TC del plan solo le pondria un numero sin sentido a una fila que no lo usa.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.installment_type <> 'expense_reimbursement' AND (
       NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
       OR NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
     ) THEN
@@ -117,6 +130,13 @@ BEGIN
     RAISE EXCEPTION 'INSTALLMENT_PLAN_IMMUTABLE: una cuota no puede reasignarse a otro plan de pagos ni a otra orden de trabajo';
   END IF;
 
+  -- Cobranzas Fase 7: una fila de honorarios no se convierte en una de gastos ni al reves.
+  -- Son cosas distintas (una reparte el 100% del fee, la otra lleva monto fijo y gastos
+  -- vinculados) y convertirla dejaria el plan sin cuadrar, sin que nada lo avise.
+  IF NEW.installment_type IS DISTINCT FROM OLD.installment_type THEN
+    RAISE EXCEPTION 'INSTALLMENT_TYPE_IMMUTABLE: el tipo de una cuota no se puede cambiar';
+  END IF;
+
   -- MUST FIX review iteracion 16 #1 (greptile + codex): la policy RLS "Accounting can
   -- update payment installments" (mas abajo en este archivo) autoriza a
   -- collections_analyst a hacer UPDATE de la fila COMPLETA -- ningun chequeo de este
@@ -137,15 +157,75 @@ BEGIN
   -- update_wo_payment_installments_updated_at en cada UPDATE), nada impedia que
   -- collections_analyst falsificara la fecha de creacion de una cuota via un UPDATE
   -- directo.
-  IF NOT public.is_admin() AND public.current_role_key() = 'collections_analyst' THEN
+  -- Cobranzas Fase 1 (2026-10-15): el literal 'collections_analyst' pasa a
+  -- is_collections_role() -- accounting_manager (Gerente de Contabilidad) tiene
+  -- EXACTAMENTE los mismos permisos de cobranza que collections_analyst (decision del
+  -- operador Q58). Sin este cambio el Gerente de Contabilidad quedaba fuera del allowlist
+  -- por columna, es decir SIN restriccion, que es lo contrario de lo que se quiere.
+  --
+  -- current_invoice_date/current_payment_date (la fecha VIGENTE tras una reprogramacion)
+  -- se suman a la lista prohibida: reprogramar es exclusivo del gerente del encargo
+  -- (decision del operador Q42), no de contabilidad.
+  IF NOT public.is_admin() AND public.is_collections_role() THEN
     IF NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
        OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+       OR NEW.current_invoice_date IS DISTINCT FROM OLD.current_invoice_date
+       OR NEW.current_payment_date IS DISTINCT FROM OLD.current_payment_date
+       -- Cobranzas Fase 3: la gestion de la confirmacion con el cliente es del gerente del
+       -- encargo (decision del operador Q11), no de contabilidad.
+       OR NEW.confirmation_status IS DISTINCT FROM OLD.confirmation_status
+       OR NEW.confirmed_for_date IS DISTINCT FROM OLD.confirmed_for_date
+       OR NEW.confirmed_by IS DISTINCT FROM OLD.confirmed_by
+       OR NEW.confirmed_at IS DISTINCT FROM OLD.confirmed_at
        OR NEW.percentage IS DISTINCT FROM OLD.percentage
-       OR NEW.amount IS DISTINCT FROM OLD.amount
+       -- Cobranzas Fase 7 (decision Q24): el monto SI lo corrige contabilidad, pero solo en
+       -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
+       -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
+       OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
     THEN
       RAISE EXCEPTION 'INSTALLMENT_FIELD_FORBIDDEN: contabilidad solo puede modificar estado, fechas de cobranza y tipo de cambio por cuota';
+    END IF;
+  END IF;
+
+  -- Cobranzas Fase 6 (decision del operador Q29): una cuota puede ir en otra moneda que la OT
+  -- ("tipo de cambio MIX" = cuotas en monedas distintas). NULL = la moneda de la OT, que es el
+  -- caso normal. Las dos restricciones que SI aplican:
+  --   * USDT no se mezcla: el proyecto no lo convierte en ningun lado (los dashboards le dan
+  --     rate_to_bob NULL y lo cuentan como no convertible), asi que una OT en USDT lleva todas
+  --     sus cuotas en USDT y una cuota USDT solo existe en una OT USDT.
+  --   * Una vez facturada, la moneda queda congelada junto con el monto y el TC: cambiarla
+  --     despues reescribiria lo que ya se le facturo al cliente.
+  IF NEW.currency IS DISTINCT FROM OLD.currency THEN
+    IF OLD.status <> 'Pending' THEN
+      RAISE EXCEPTION 'INSTALLMENT_LOCKED: la moneda de una cuota ya facturada no se puede cambiar';
+    END IF;
+
+    -- Cobranzas Fase 9: un descuento vive en la moneda que tenia la cuota cuando se cargo, y
+    -- lo que queda por cobrar solo suma los ajustes de la moneda ACTUAL. Cambiarla con un
+    -- descuento vigente lo hacia desaparecer en silencio de todos los totales -- y del tope
+    -- que impide descontar mas de lo que queda. Primero se retira el ajuste, despues se cambia
+    -- la moneda: asi el cambio queda explicito en el historial en vez de ocurrir de costado.
+    IF EXISTS (
+      SELECT 1 FROM public.wo_installment_adjustments a
+       WHERE a.installment_id = OLD.installment_id
+         AND a.deleted_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_HAS_ADJUSTMENTS: la cuota tiene ajustes vigentes; retirelos antes de cambiar la moneda';
+    END IF;
+
+    SELECT wo.currency INTO v_wo_currency
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+
+    IF v_wo_currency = 'USDT' AND COALESCE(NEW.currency, 'USDT') <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: una orden de trabajo en USDT no admite cuotas en otra moneda';
+    END IF;
+    IF NEW.currency = 'USDT' AND v_wo_currency <> 'USDT' THEN
+      RAISE EXCEPTION 'INSTALLMENT_CURRENCY_INVALID: solo una orden de trabajo en USDT puede tener cuotas en USDT';
     END IF;
   END IF;
 
@@ -179,6 +259,26 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'INSTALLMENT_LOCKED: la transicion de estado de una cuota solo puede hacerse con la orden de trabajo aprobada';
       END IF;
+    END IF;
+
+    -- Cobranzas Fase 1 (issue #352): INVARIANTES de cada etapa. El camino normal son las
+    -- RPC invoice_installment()/collect_installment()/set_installment_overdue(), que
+    -- ademas validan rol, concurrencia y fechas; esto es la red de seguridad para que
+    -- NINGUN camino (UPDATE directo de un admin, script, backfill) pueda dejar una cuota
+    -- en un estado que el calendario no sabe interpretar:
+    --   * 'Invoiced' sin collection_invoice_date/collection_payment_date deja la cuota sin
+    --     fecha de vencimiento real -- y la mora se mide justamente sobre esa fecha
+    --     (decision del operador Q4), asi que la cuota nunca entraria en mora.
+    --   * 'Completed' sin payment_date_actual pierde cuando se cobro de verdad.
+    -- No se exigen al revertir Overdue -> Invoiced: esa cuota ya venia facturada y
+    -- conserva sus fechas.
+    IF NEW.status = 'Invoiced' AND OLD.status <> 'Overdue'
+       AND (NEW.collection_invoice_date IS NULL OR NEW.collection_payment_date IS NULL) THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: facturar una cuota exige registrar la fecha de facturacion y la de vencimiento de pago';
+    END IF;
+
+    IF NEW.status = 'Completed' AND NEW.payment_date_actual IS NULL THEN
+      RAISE EXCEPTION 'INSTALLMENT_DATES_REQUIRED: marcar una cuota como cobrada exige registrar la fecha de pago';
     END IF;
   END IF;
 
@@ -233,17 +333,37 @@ BEGIN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
     END IF;
-    IF v_exchange_rate_mode = 'variable' THEN
+    -- Cobranzas Fase 6 (decision del operador Q49): el modo del plan ya no decide SI se puede
+    -- tocar el TC, solo con que valor se autocompleta. En los dos modos, quien factura puede
+    -- corregirlo -- escribirlo a mano o traerlo de una fecha del calendario.
+    --
+    -- v_capturando_al_facturar es la ventana donde eso vale: la MISMA sentencia que pasa la
+    -- cuota de Pendiente a Facturada. Fuera de esa ventana, el modo fijo sigue exigiendo que
+    -- el TC coincida con el del plan, porque mientras la cuota sigue Pendiente el trigger
+    -- trg_wo_payment_plan_sync_fixed_installments le copia el TC del plan: dejar otro valor
+    -- ahi solo duraria hasta la proxima edicion del plan.
+    -- En modo fijo, que el valor nuevo COINCIDA con el del plan no es una captura: es el
+    -- resincronizado automatico de trg_wo_payment_plan_sync_fixed_installments, que corre
+    -- cuando el gerente edita el TC del plan, con la OT todavia en Draft y sin rol de
+    -- cobranza. Ese camino no pasa por los chequeos de abajo -- si pasara, editar el plan
+    -- quedaria roto.
+    IF NOT (v_exchange_rate_mode = 'fijo'
+            AND NEW.invoice_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate) THEN
+
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de facturacion por cuota';
       END IF;
-    END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.invoice_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion de la cuota debe coincidir con el del plan';
+
+      -- Y en modo fijo, apartarse del TC del plan solo vale en la MISMA sentencia que factura
+      -- la cuota: mientras sigue Pendiente, el resincronizado se lo volveria a pisar.
+      IF v_exchange_rate_mode = 'fijo'
+         AND NOT (OLD.status = 'Pending' AND NEW.status = 'Invoiced') THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de facturacion solo se puede apartar del TC del plan al facturar la cuota';
+      END IF;
     END IF;
   END IF;
 
@@ -258,13 +378,20 @@ BEGIN
       IF v_approval_status IS DISTINCT FROM 'Approved' THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de pago solo puede capturarse una vez que la orden de trabajo fue aprobada';
       END IF;
-      SELECT is_admin() OR COALESCE(current_role_key() = 'collections_analyst', false) INTO v_is_accounting_or_admin;
+      SELECT is_admin() OR public.is_collections_role() INTO v_is_accounting_or_admin;
       IF NOT v_is_accounting_or_admin THEN
         RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede capturar el tipo de cambio de pago por cuota';
       END IF;
     END IF;
-    IF v_exchange_rate_mode = 'fijo' AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate THEN
-      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago de la cuota debe coincidir con el del plan';
+    -- Cobranzas Fase 6 (Q49), extendida al TC de PAGO el 2026-10-21: el modo decide con que
+    -- valor se autocompleta, no si se puede corregir. En modo fijo, apartarse del TC del plan
+    -- vale solo en la MISMA sentencia que cobra la cuota -- la misma ventana que ya tenia el
+    -- TC de facturacion. Antes el dialogo de cobro ofrecia un TC editable y, en fijo, cobrar
+    -- con otro valor revento con EXCHANGE_RATE_LOCKED: la cuota quedaba sin poder cobrarse.
+    IF v_exchange_rate_mode = 'fijo'
+       AND NEW.payment_exchange_rate IS DISTINCT FROM v_plan_exchange_rate
+       AND NOT (OLD.status IN ('Invoiced', 'Overdue') AND NEW.status = 'Completed') THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: en modo fijo, el tipo de cambio de pago solo se puede apartar del TC del plan al cobrar la cuota';
     END IF;
   END IF;
 
@@ -294,8 +421,15 @@ $$;
 -- prototipo manual previo en Dev 2.0.
 DROP POLICY IF EXISTS "Accounting can update payment installments" ON public.wo_payment_installments;
 
+-- Cobranzas Fase 1 (2026-10-15, decision del operador Q58): la policy se abre a
+-- is_collections_role() -- accounting_manager ademas de collections_analyst. Hasta ahora el
+-- Gerente de Contabilidad veia en pantalla las acciones de cobranza (isStatusEditable las
+-- habilita para su rol) pero su UPDATE no pasaba ninguna policy: fallaba en silencio,
+-- exactamente el mismo desfase que esta policy habia venido a corregir para
+-- collections_analyst. accounting_analyst (Analista de Contabilidad) sigue fuera: solo
+-- trabaja solicitudes de fondos.
 CREATE POLICY "Accounting can update payment installments" ON public.wo_payment_installments
   FOR UPDATE
   TO authenticated
-  USING (public.current_role_key() = 'collections_analyst')
-  WITH CHECK (public.current_role_key() = 'collections_analyst');
+  USING (public.is_collections_role())
+  WITH CHECK (public.is_collections_role());

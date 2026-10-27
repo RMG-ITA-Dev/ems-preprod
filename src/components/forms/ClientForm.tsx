@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -42,15 +42,37 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ClientFull, useIndustries } from "@/hooks/useEmsData";
-import { useCreateClient, useUpdateClient, useDeleteClient } from "@/hooks/mutations";
+import { useDeleteClient, useSaveClientWithContacts } from "@/hooks/mutations";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useClientContacts, firstContactOfType } from "@/hooks/useClientContacts";
 
-export const formSchema = z.object({
+export // Antes era z.string() sin validar: aceptaba cualquier texto. Se permiten dígitos y los
+// separadores de uso corriente (+ espacio guion paréntesis) y se exigen al menos 7 dígitos
+// reales, para que ni "abc" ni "(( ))" pasen. Vacío sigue siendo válido porque el teléfono es
+// opcional. Cobranzas Fase 5: se extrae para reutilizarlo en los dos contactos.
+const phoneSchema = z
+  .string()
+  .trim()
+  .max(20, "Phone cannot exceed 20 characters")
+  .refine((v) => v === "" || /^\+?[\d\s()-]+$/.test(v), {
+    message: "Phone can only contain digits and + - ( ) or spaces",
+  })
+  .refine((v) => v === "" || (v.match(/\d/g)?.length ?? 0) >= 7, {
+    message: "Phone must contain at least 7 digits",
+  })
+  .optional();
+
+// Los mensajes de los contactos pasan por i18n: eran texto fijo en español (y el de formato de
+// correo en inglés), así que según qué fallara el formulario mezclaba idiomas. `t` por defecto
+// devuelve la clave, que es lo que ven los tests del schema.
+type Translate = (key: string) => string;
+
+export const buildFormSchema = (t: Translate = (k) => k) => z.object({
   client_legal_name: z.string().min(1, "Client name is required"),
   unique_tax_id: z
     .string()
@@ -58,26 +80,23 @@ export const formSchema = z.object({
     .max(15, "NIT cannot exceed 15 digits")
     .regex(/^\d+$/, "NIT must contain only digits (0–9)"),
   industry_id: z.string().optional(),
-  contact_name: z.string().optional(),
-  contact_email: z.string().email("Invalid email").optional().or(z.literal("")),
-  // Antes era z.string() sin validar: aceptaba cualquier texto. Se permiten
-  // dígitos y los separadores de uso corriente (+ espacio guion paréntesis) y se
-  // exigen al menos 7 dígitos reales, para que ni "abc" ni "(( ))" pasen. Vacío
-  // sigue siendo válido porque el teléfono es opcional.
-  contact_phone: z
-    .string()
-    .trim()
-    .max(20, "Phone cannot exceed 20 characters")
-    .refine((v) => v === "" || /^\+?[\d\s()-]+$/.test(v), {
-      message: "Phone can only contain digits and + - ( ) or spaces",
-    })
-    .refine((v) => v === "" || (v.match(/\d/g)?.length ?? 0) >= 7, {
-      message: "Phone must contain at least 7 digits",
-    })
-    .optional(),
+  // Cobranzas Fase 5 (issue #352, decisiones Q20/Q52): el cliente pasa de UN contacto suelto a
+  // dos CONTACTOS con tipo, los dos obligatorios. El de cobranza (finanzas) es a quien se le
+  // reclama una factura, y casi nunca es el mismo que el contacto del encargo.
+  // El CORREO tambien es obligatorio en los dos (decision del operador 2026-10-20): el cobro se
+  // reclama por correo, asi que un contacto sin correo no sirve para lo unico que tiene que
+  // servir. El telefono sigue siendo opcional.
+  contact_general_name: z.string().trim().min(1, t("validation.contactGeneralRequired")),
+  contact_general_email: z.string().trim().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
+  contact_general_phone: phoneSchema,
+  contact_cobranza_name: z.string().trim().min(1, t("validation.contactCobranzaRequired")),
+  contact_cobranza_email: z.string().trim().min(1, t("validation.emailRequired")).email(t("validation.emailInvalid")),
+  contact_cobranza_phone: phoneSchema,
   address: z.string().optional(),
   is_active: z.boolean(),
 });
+
+export const formSchema = buildFormSchema();
 
 type FormData = z.infer<typeof formSchema>;
 
@@ -97,8 +116,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
   const canSave = !isEdit || can("client.update");
   const { data: industries } = useIndustries();
-  const createMutation = useCreateClient();
-  const updateMutation = useUpdateClient();
+  // Cobranzas Fase 5: los contactos ya no son columnas de la ficha; se leen y se guardan
+  // aparte, y la RPC valida que haya al menos uno de cada tipo.
+  // La ficha y los contactos se guardan JUNTOS, en una transacción: si los contactos fallan,
+  // no queda una ficha a medias (ver save_client_with_contacts).
+  const saveClient = useSaveClientWithContacts();
+  const { data: clientContacts, isFetched: contactsFetched } = useClientContacts(client?.client_id);
+  const generalContact = firstContactOfType(clientContacts, "general");
+  const cobranzaContact = firstContactOfType(clientContacts, "cobranza");
   const deleteMutation = useDeleteClient();
 
   const { data: engagementCount } = useQuery({
@@ -115,34 +140,51 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
 
   const hasEngagements = isEdit && (engagementCount || 0) > 0;
 
+  const schema = useMemo(() => buildFormSchema(t), [t]);
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       client_legal_name: "",
       unique_tax_id: "",
       industry_id: "",
-      contact_name: "",
-      contact_email: "",
-      contact_phone: "",
+      contact_general_name: "",
+      contact_general_email: "",
+      contact_general_phone: "",
+      contact_cobranza_name: "",
+      contact_cobranza_email: "",
+      contact_cobranza_phone: "",
       address: "",
       is_active: true,
     },
   });
 
+  // Se carga la ficha cuando llegaron el cliente Y sus contactos. Los contactos vienen en otra
+  // consulta que casi siempre llega después: antes el formulario se reseteaba dos veces, y si en
+  // el medio se empezaba a escribir, el segundo reset borraba lo tecleado. Hasta esa primera
+  // carga los campos quedan deshabilitados (`loaded`), así que no hay nada que perder; después,
+  // una consulta repetida en segundo plano no pisa un formulario con cambios.
+  const [loaded, setLoaded] = useState(!client);
   useEffect(() => {
-    if (client) {
+    if (client && contactsFetched && (!loaded || !form.formState.isDirty)) {
       form.reset({
         client_legal_name: client.client_legal_name,
         unique_tax_id: client.unique_tax_id,
         industry_id: client.industry_id || "",
-        contact_name: client.contact_name || "",
-        contact_email: client.contact_email || "",
-        contact_phone: client.contact_phone || "",
+        // Cobranzas Fase 5: los contactos ya no son columnas de `clients`, llegan de
+        // client_contacts. Se toma el primer activo de cada tipo: puede haber varios (Q52),
+        // pero el formulario edita el principal de cada uno.
+        contact_general_name: generalContact?.full_name ?? "",
+        contact_general_email: generalContact?.email ?? "",
+        contact_general_phone: generalContact?.phone ?? "",
+        contact_cobranza_name: cobranzaContact?.full_name ?? "",
+        contact_cobranza_email: cobranzaContact?.email ?? "",
+        contact_cobranza_phone: cobranzaContact?.phone ?? "",
         address: client.address || "",
         is_active: client.is_active,
       });
+      setLoaded(true);
     }
-  }, [client, form]);
+  }, [client, form, contactsFetched, loaded, generalContact, cobranzaContact]);
 
   // Report dirty state to parent
   const { isDirty } = form.formState;
@@ -197,16 +239,61 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       client_legal_name: trimmedName,
       unique_tax_id: data.unique_tax_id,
       industry_id: data.industry_id || undefined,
-      contact_name: data.contact_name || undefined,
-      contact_email: data.contact_email || undefined,
-      contact_phone: data.contact_phone || undefined,
       address: data.address || undefined,
       is_active: data.is_active,
     };
-    if (isEdit && client) {
-      await updateMutation.mutateAsync({ id: client.client_id, data: payload });
-    } else {
-      await createMutation.mutateAsync(payload);
+
+    // Cobranzas Fase 5: los contactos se guardan aparte, con su propia RPC, que valida el
+    // mínimo de uno activo por tipo. Van DESPUÉS de la ficha porque al crear hace falta el
+    // client_id que devuelve el alta.
+    const contactsPayload = [
+      {
+        contact_id: generalContact?.contact_id,
+        contact_type: "general" as const,
+        full_name: data.contact_general_name,
+        email: data.contact_general_email,
+        phone: data.contact_general_phone,
+      },
+      {
+        contact_id: cobranzaContact?.contact_id,
+        contact_type: "cobranza" as const,
+        full_name: data.contact_cobranza_name,
+        email: data.contact_cobranza_email,
+        phone: data.contact_cobranza_phone,
+      },
+      // El resto de los contactos activos viaja SIN TOCAR. El formulario edita uno de cada
+      // tipo, pero el modelo admite varios (Q52), y la RPC desactiva todo contacto activo que
+      // no venga en la lista: sin esto, guardar la ficha —para corregir una dirección, por
+      // ejemplo— borraba en silencio un segundo contacto de cobranza.
+      ...(clientContacts ?? [])
+        .filter(
+          (c) =>
+            c.is_active &&
+            c.contact_id !== generalContact?.contact_id &&
+            c.contact_id !== cobranzaContact?.contact_id,
+        )
+        .map((c) => ({
+          contact_id: c.contact_id,
+          contact_type: c.contact_type,
+          full_name: c.full_name,
+          email: c.email,
+          phone: c.phone,
+        })),
+    ];
+
+    // El alta no puede devolver la fila creada: el RETURNING la haría pasar por la policy de
+    // LECTURA de clients, que varios roles no pasan (ver useCreateClient). Así que el id se
+    // genera acá y los contactos se guardan contra ese mismo id.
+    const isNew = !(isEdit && client);
+    try {
+      await saveClient.mutateAsync({
+        clientId: isNew ? crypto.randomUUID() : client!.client_id,
+        isNew,
+        client: payload,
+        contacts: contactsPayload,
+      });
+    } catch {
+      return; // el toast lo pone la mutación; la ficha no quedó grabada a medias
     }
     if (onSaveSuccess) {
       onSaveSuccess();
@@ -245,6 +332,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       <div className="bg-card rounded-lg border border-border p-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+            <fieldset disabled={!loaded} className="contents">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <FormField
                 control={form.control}
@@ -253,7 +341,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.legalName")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="Company Name S.A." {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderLegalName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -328,14 +416,17 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              {/* Cobranzas Fase 5 (issue #352): dos contactos con tipo, los dos
+                  obligatorios. El de cobranza es el de finanzas — a quien se le reclama
+                  una factura — y casi nunca es el mismo que el contacto del encargo. */}
               <FormField
                 control={form.control}
-                name="contact_name"
+                name="contact_general_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactName")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactGeneralName")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="John Doe" {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderContactName")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -343,12 +434,12 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               />
               <FormField
                 control={form.control}
-                name="contact_email"
+                name="contact_general_email"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactEmail")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactGeneralEmail")} *</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" type="email" placeholder="contact@company.com" {...field} />
+                      <Input className="h-8 text-sm" type="email" placeholder={t("client.placeholderEmail")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -356,10 +447,49 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               />
               <FormField
                 control={form.control}
-                name="contact_phone"
+                name="contact_general_phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">{t("client.contactPhone")}</FormLabel>
+                    <FormLabel className="text-xs">{t("client.contactGeneralPhone")}</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" inputMode="tel" placeholder="+591 12345678" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactCobranzaName")} *</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderContactName")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactCobranzaEmail")} *</FormLabel>
+                    <FormControl>
+                      <Input className="h-8 text-sm" type="email" placeholder={t("client.placeholderEmail")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs">{t("client.contactCobranzaPhone")}</FormLabel>
                     <FormControl>
                       <Input className="h-8 text-sm" inputMode="tel" placeholder="+591 12345678" {...field} />
                     </FormControl>
@@ -374,7 +504,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.address")}</FormLabel>
                     <FormControl>
-                      <Input className="h-8 text-sm" placeholder="Street, City" {...field} />
+                      <Input className="h-8 text-sm" placeholder={t("client.placeholderAddress")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -391,12 +521,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   type="submit"
                   size="sm"
                   variant="default"
-                  loading={createMutation.isPending || updateMutation.isPending}
+                  loading={saveClient.isPending}
                 >
                   {t("common.saveChanges")}
                 </LoadingButton>
               )}
             </div>
+            </fieldset>
           </form>
         </Form>
       </div>
@@ -456,6 +587,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       <div className="bg-card rounded-xl border border-border p-6">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <fieldset disabled={!loaded} className="contents">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -466,7 +598,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                     <FormItem>
                       <FormLabel>{t("client.legalName")} *</FormLabel>
                       <FormControl>
-                        <Input placeholder="Company Name S.A." {...field} />
+                        <Input placeholder={t("client.placeholderLegalName")} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -553,47 +685,87 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.contactInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <FormField
-                  control={form.control}
-                  name="contact_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("client.contactName")}</FormLabel>
-                      <FormControl>
-                        <Input placeholder="John Doe" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="contact_email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("client.contactEmail")}</FormLabel>
-                      <FormControl>
-                        <Input type="email" placeholder="contact@company.com" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="contact_phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("client.contactPhone")}</FormLabel>
-                      <FormControl>
-                        <Input inputMode="tel" placeholder="+591 12345678" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              {/* Cobranzas Fase 5 (issue #352): dos contactos con tipo, los dos
+                  obligatorios. El de cobranza es el de finanzas — a quien se le reclama
+                  una factura — y casi nunca es el mismo que el contacto del encargo. */}
+              <FormField
+                control={form.control}
+                name="contact_general_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactGeneralName")} *</FormLabel>
+                    <FormControl>
+                      <Input placeholder={t("client.placeholderContactName")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_general_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactGeneralEmail")} *</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder={t("client.placeholderEmail")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_general_phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactGeneralPhone")}</FormLabel>
+                    <FormControl>
+                      <Input inputMode="tel" placeholder="+591 12345678" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactCobranzaName")} *</FormLabel>
+                    <FormControl>
+                      <Input placeholder={t("client.placeholderContactName")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactCobranzaEmail")} *</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder={t("client.placeholderEmail")} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="contact_cobranza_phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("client.contactCobranzaPhone")}</FormLabel>
+                    <FormControl>
+                      <Input inputMode="tel" placeholder="+591 12345678" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               </div>
 
               <FormField
@@ -603,7 +775,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   <FormItem>
                     <FormLabel>{t("client.address")}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Street, City, Country" {...field} />
+                      <Textarea placeholder={t("client.placeholderAddressFull")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -620,12 +792,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   type="submit"
                   variant="default"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
-                  loading={createMutation.isPending || updateMutation.isPending}
+                  loading={saveClient.isPending}
                 >
                   {isEdit ? t("common.saveChanges") : t("client.createClient")}
                 </LoadingButton>
               )}
             </div>
+            </fieldset>
           </form>
         </Form>
       </div>

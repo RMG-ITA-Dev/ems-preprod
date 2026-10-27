@@ -171,7 +171,7 @@ export interface AlarmSpec {
    * No es paranoia: la matriz de notificaciones y la de permisos son independientes, y hoy
    * se contradicen en dos lugares. `wo.installment.*` va a Contabilidad y Cobranzas, que no
    * tienen `work_order.read`; `fund.*.pending` va también al Analista de Contabilidad, que
-   * no tiene `fund_disbursement.read`. Sin este campo, esas personas hacían click en su
+   * no tenía `fund_disbursement.read` (hoy sí lo tiene). Sin este campo, esas personas hacían click en su
    * propio contador y aterrizaban en la pantalla "Sin acceso" — peor que no poder navegar.
    */
   permission: string;
@@ -193,11 +193,11 @@ export const PENDING_ALARMS: readonly AlarmSpec[] = [
   // FASE 3.a — Fondos. Alcance `department`: son la cola de trabajo del area de
   // Contabilidad, no algo del usuario, asi que la ruta lleva a la bandeja del area.
   // Cada contador lleva a SU bandeja del modulo de desembolsos, no a la primera pestania:
-  // aprobado_gerente -> to_disburse, en_liquidacion -> in_settlement (mapeo de
-  // FundRequestDisbursements.tsx).
+  // aprobado_gerente -> to_disburse, listas para liquidar -> ready_to_settle, en_liquidacion
+  // (pago/cobro pendiente) -> in_settlement (mapeo de FundRequestDisbursements.tsx).
   { typeKey: "fund.disbursement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=to_disburse", permission: "fund_disbursement.read" },
   { typeKey: "fund.expense.review_pending", section: "fund_request", route: "/fund-requests/disbursements?tab=expenses_review", permission: "fund_disbursement.read" },
-  { typeKey: "fund.settlement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=in_settlement", permission: "fund_disbursement.read" },
+  { typeKey: "fund.settlement.pending", section: "fund_request", route: "/fund-requests/disbursements?tab=ready_to_settle", permission: "fund_disbursement.read" },
   { typeKey: "fund.request.closure_pending", section: "fund_request", route: "/fund-requests/disbursements?tab=in_settlement", permission: "fund_disbursement.read" },
   // FASE 3.b — cuotas del plan de pagos. No se solapan: "por vencer" cuenta de hoy al
   // domingo, "vencida" cuenta lo anterior a hoy. La vencida va primero por criticidad.
@@ -528,6 +528,8 @@ const TYPE_ROUTE_PERMISSION: Record<string, string> = {
   // por alcance en notificationRoute (review iteración 12, hallazgo #2).
   "approval.reversal_requested": "timesheet_approval.read",
   "approval.reversal_executed": "timesheet_approval.read",
+  // Calendario de gastos (Fase 3.9): el recordatorio de revisión va a la bandeja de Contabilidad.
+  "fund.expense.review_reminder": "fund_disbursement.read",
 };
 
 /**
@@ -584,6 +586,10 @@ export function notificationRoute(
       // un gasto: va al detalle, no a la pantalla de gastos.
       if (event.type_key === "fund.expenses.all_reviewed") {
         return event.entity_id ? `/fund-requests/${event.entity_id}/expenses` : null;
+      }
+      // Calendario de gastos (Fase 3.9): resume todas las solicitudes en revisión.
+      if (event.type_key === "fund.expense.review_reminder") {
+        return "/fund-requests/disbursements?tab=expenses_review";
       }
       if (event.type_key.startsWith("fund.expense.")) {
         const requestId = event.payload?.fund_request_id;

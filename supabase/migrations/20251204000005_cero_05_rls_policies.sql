@@ -989,7 +989,7 @@ CREATE POLICY fr_insert_requester ON public.fund_requests FOR INSERT TO authenti
 -- Name: fund_requests fr_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY fr_select_accounting ON public.fund_requests FOR SELECT TO authenticated USING (((public.has_permission('fund_disbursement.read'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.read'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))));
+CREATE POLICY fr_select_accounting ON public.fund_requests FOR SELECT TO authenticated USING (public.fr_accounting_sees(status, cancelled_from_status));
 
 
 --
@@ -1014,14 +1014,6 @@ CREATE POLICY fr_select_manager ON public.fund_requests FOR SELECT TO authentica
 --
 
 CREATE POLICY fr_select_requester ON public.fund_requests FOR SELECT TO authenticated USING ((requester_staff_id = public.get_my_staff_id()));
-
-
---
---
--- Name: fund_requests fr_update_accounting; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY fr_update_accounting ON public.fund_requests FOR UPDATE TO authenticated USING (((public.has_permission('fund_disbursement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))) WITH CHECK (((public.has_permission('fund_disbursement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status]))) OR (public.has_permission('expense_settlement.update'::text) AND (status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))));
 
 
 --
@@ -1141,25 +1133,9 @@ CREATE POLICY fre_select ON public.fund_request_expenses FOR SELECT TO authentic
 -- Name: fund_request_expenses fre_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY fre_select_accounting ON public.fund_request_expenses FOR SELECT TO authenticated USING ((public.has_permission('expense_settlement.read'::text) AND (EXISTS ( SELECT 1
+CREATE POLICY fre_select_accounting ON public.fund_request_expenses FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))));
-
-
---
---
--- Name: fund_request_expenses fre_update_accounting; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY fre_update_accounting ON public.fund_request_expenses FOR UPDATE TO authenticated USING (((public.has_permission('fund_disbursement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status])))))))) WITH CHECK (((public.has_permission('fund_disbursement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.update'::text) AND (EXISTS ( SELECT 1
-   FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))))));
+  WHERE ((fr.fund_request_id = fund_request_expenses.fund_request_id) AND public.fr_accounting_sees(fr.status, fr.cancelled_from_status)))));
 
 
 --
@@ -1201,11 +1177,31 @@ CREATE POLICY fre_update_requester ON public.fund_request_expenses FOR UPDATE TO
 -- Name: fund_request_work_orders frwo_select_accounting; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY frwo_select_accounting ON public.fund_request_work_orders FOR SELECT TO authenticated USING (((public.has_permission('fund_disbursement.read'::text) AND (EXISTS ( SELECT 1
+CREATE POLICY frwo_select_accounting ON public.fund_request_work_orders FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status, 'en_liquidacion'::public.fund_request_status, 'cerrado'::public.fund_request_status])))))) OR (public.has_permission('expense_settlement.read'::text) AND (EXISTS ( SELECT 1
+  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND public.fr_accounting_sees(fr.status, fr.cancelled_from_status)))));
+
+
+--
+--
+-- Name: fund_request_events fr_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY fr_events_select ON public.fund_request_events FOR SELECT TO authenticated USING (((EXISTS ( SELECT 1
    FROM public.fund_requests fr
-  WHERE ((fr.fund_request_id = fund_request_work_orders.fund_request_id) AND (fr.status = ANY (ARRAY['aprobado_gerente'::public.fund_request_status, 'fondos_entregados'::public.fund_request_status]))))))));
+  WHERE (fr.fund_request_id = fund_request_events.fund_request_id))) AND ((fr_wo_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_work_orders frwo
+  WHERE (frwo.fr_wo_id = fund_request_events.fr_wo_id)))) AND ((fre_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM public.fund_request_expenses fre
+  WHERE (fre.fre_id = fund_request_events.fre_id))))));
+
+
+--
+--
+-- Name: fund_request_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.fund_request_events ENABLE ROW LEVEL SECURITY;
 
 
 --
@@ -1329,6 +1325,159 @@ CREATE POLICY "industries write update" ON public.industries FOR UPDATE TO authe
 --
 
 ALTER TABLE public.parametro ENABLE ROW LEVEL SECURITY;
+
+--
+--
+-- Name: client_contacts client_contacts_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 5: los contactos se leen con el mismo corte que el cliente al que pertenecen.
+-- El corte vive en client_contacts_visible() y no en un EXISTS inline sobre clients: el
+-- Carril B / etapa B3c prohibe esa forma en policies nuevas (su subconsulta se evaluaria con
+-- la RLS del usuario, encadenando una policy dentro de otra) y su suite lo verifica.
+--
+-- Contabilidad NO entra por aca: `accounting_manager` no tiene `client.read` (Carril B / B3p).
+-- Ve los contactos por get_wo_client_contacts(), acotado a la OT que esta cobrando -- esa fue
+-- la decision del operador Q57, en vez de abrirle la ficha entera del cliente.
+--
+-- Sin policy de escritura para nadie: se escribe por save_client_contacts(), que es la que
+-- valida el minimo de un contacto activo por tipo.
+CREATE POLICY client_contacts_select ON public.client_contacts FOR SELECT TO authenticated USING (public.client_contacts_visible(client_id));
+
+
+--
+--
+-- Name: client_contacts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.client_contacts ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_expenses wo_installment_expenses_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 7: que gastos entraron en una fila de reembolso se lee igual que la cuota a
+-- la que pertenecen. El EXISTS referencia wo_payment_installments, cuya RLS se evalua para el
+-- mismo usuario -- no repite el criterio, lo hereda. (Carril B / B3c solo prohibe nombrar
+-- clients o engagements inline; esta tabla no es ninguna de las dos.)
+--
+-- Sin policy de escritura: las filas las crea create_expense_reimbursement_row(), que es la
+-- que garantiza, con el UNIQUE de fre_id, que un gasto no se cobre dos veces.
+CREATE POLICY wo_installment_expenses_select ON public.wo_installment_expenses FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_expenses.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_expenses; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_expenses ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_adjustments wo_installment_adjustments_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 9: un ajuste se lee igual que la cuota a la que pertenece -- hereda el
+-- criterio en vez de repetirlo. Los retirados tambien se ven: la pantalla los muestra tachados,
+-- porque un descuento que estuvo vigente explica por que la cuota cambio de monto a cobrar.
+--
+-- Sin policy de escritura: los crea y los retira add/delete_installment_adjustment(), que son
+-- las que verifican el rol y los momentos en que cada tipo tiene sentido.
+CREATE POLICY wo_installment_adjustments_select ON public.wo_installment_adjustments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_adjustments.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_adjustments; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_adjustments ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_notes wo_installment_notes_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 4 (decision del operador Q16): el hilo de notas lo leen los cinco que
+-- participan de el -- gerente y socio del encargo, Gerente de Contabilidad, Analista de
+-- Cobranzas y admin. wo_notes_participant() es la MISMA funcion que usan las RPC de escritura:
+-- leer y escribir son el mismo conjunto, porque una nota es una conversacion entre las dos
+-- partes, no un aviso de una a la otra.
+--
+-- Una nota borrada no se muestra: el borrado es logico justamente para que la fila sobreviva
+-- (alguien pudo facturar leyendola), no para seguir mostrandola.
+--
+-- Sin policy de INSERT/UPDATE/DELETE para nadie: se escribe solo por las RPC
+-- add/edit/delete_installment_note, que son las que verifican autoria y guardan la version
+-- anterior. Una nota editable por UPDATE directo haria inutil el versionado.
+CREATE POLICY wo_installment_notes_select ON public.wo_installment_notes FOR SELECT TO authenticated USING (((deleted_at IS NULL) AND public.wo_notes_participant(wo_id)));
+
+
+--
+--
+-- Name: wo_installment_notes; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_notes ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_note_versions wo_installment_note_versions_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- El historial de ediciones lo leen los mismos que participan del hilo de la nota, AUNQUE la
+-- nota este borrada: ese historial sigue siendo evidencia. Por eso la OT se busca con
+-- wo_note_wo_id() (definer) y no con un EXISTS sobre wo_installment_notes: el EXISTS evaluaba
+-- la RLS de notas, que esconde las borradas, y el historial de una nota borrada desaparecia.
+CREATE POLICY wo_installment_note_versions_select ON public.wo_installment_note_versions FOR SELECT TO authenticated USING (public.wo_notes_participant(public.wo_note_wo_id(note_id)));
+
+
+--
+--
+-- Name: wo_installment_note_versions; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_note_versions ENABLE ROW LEVEL SECURITY;
+
+
+--
+--
+-- Name: wo_installment_events wo_installment_events_select; Type: POLICY; Schema: public; Owner: -
+--
+
+-- Cobranzas Fase 1: la bitacora se lee exactamente igual que la cuota a la que pertenece.
+-- El EXISTS no repite el criterio de acceso: al referenciar wo_payment_installments desde
+-- la expresion de la policy, Postgres evalua la RLS de ESA tabla para el mismo usuario, asi
+-- que las tres politicas de lectura de cuotas (admin, equipo del encargo, y firm/department
+-- por work_order.payment_plan.approve) se aplican solas. Si manana cambia quien ve una
+-- cuota, el historial la sigue sin tocar este archivo.
+--
+-- No hay policy de INSERT, UPDATE ni DELETE para NADIE (tampoco admin): la bitacora se
+-- escribe solo desde el trigger y las RPC SECURITY DEFINER. Un historial que el propio
+-- actor puede editar o borrar no sirve como evidencia, que es justo lo que pide el
+-- issue #352.
+CREATE POLICY wo_installment_events_select ON public.wo_installment_events FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.wo_payment_installments i
+  WHERE (i.installment_id = wo_installment_events.installment_id))));
+
+
+--
+--
+-- Name: wo_installment_events; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.wo_installment_events ENABLE ROW LEVEL SECURITY;
+
 
 --
 --

@@ -237,20 +237,37 @@ BEGIN
   -- de asignacion a los gerentes especialistas (D-43) + los 3 de BUG 0923-209
   -- (approval.reversal_requested/executed/rejected, fuera del seed generado a proposito -- ver
   -- la cabecera de 20260929160000_0923-209_timesheet_reversal_requests.sql).
-  IF v_types <> 79 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 79 (¿corriste el parser?)', v_types;
+  -- + 7 del calendario de gastos (Fase 3 plan-contabilidad-gastos, 2026-10-09): recordatorios de
+  -- plazo, aprobaciones automáticas, vencidos y rechazo de Contabilidad.
+  -- + 1 de la Fase 4 (fund.settlement.confirmed).
+  -- + 3 de Cobranzas Fase 3 (issue #352): confirmation_pending, billing_late y rescheduled.
+  -- + 1 de la Fase 4: note_added.
+  -- + 2 de la Fase 7: expense_row_created y expense_row_amount_changed.
+  IF v_types <> 95 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 95 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
   -- todos los roles que timesheet.reverted ya notifica cuando el admin revierte su semana, no
-  -- sólo a los 7 que reportan horas de base.
-  IF v_grants <> 492 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 492', v_grants;
+  -- sólo a los 7 que reportan horas de base. + 3 de la paridad contable (2026-10-08): el
+  -- Analista de Contabilidad recibe fund.disbursement/settlement/closure pending, igual que el
+  -- Gerente (docs/matriz-notificaciones.md).
+  -- + 58 de los 7 tipos del calendario de gastos.
+  -- + 9 de fund.settlement.confirmed (los solicitantes de fund.request.decided).
+  -- - 2 de Cobranzas Fase 2 (decisión del operador Q14/Q46): los cuatro avisos de CUOTAS
+  --   pasan a los dos roles de cobranza. El Analista de Contabilidad sale de los cuatro
+  --   (-4) y el Analista de Cobranzas entra en los dos que le faltaban (+2).
+  -- + 12 de Cobranzas Fase 3: confirmation_pending (3 gerentes + los 2 de cobranza),
+  --   billing_late (los 2 de cobranza) y rescheduled (3 socios + los 2 de cobranza).
+  -- + 8 de la Fase 4: las dos partes del hilo de notas (3 gerentes + 3 socios + los 2 de cobranza).
+  -- + 12 de la Fase 7: los 3 gerentes y los 3 socios, por cada uno de los 2 tipos.
+  IF v_grants <> 604 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 604', v_grants;
   END IF;
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 79 tipos, 492 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 604 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -1638,7 +1655,17 @@ BEGIN
   -- sus condiciones mira ese salto (Draft/Pending_Approval -> Approved sin firma).
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = v_wo;
 
-  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst;
+  -- Cobranzas Fase 1: facturar exige registrar la fecha de facturacion REAL y la de
+  -- vencimiento (INSTALLMENT_DATES_REQUIRED), y la mora se mide sobre esa segunda fecha
+  -- (decision del operador Q4), ya no sobre agreed_payment_date. Esta cuota tiene que
+  -- quedar genuinamente vencida para lo que sigue (9.c cuenta 1 cuota en mora), asi que se
+  -- factura CON FECHAS PASADAS: facturada hace 37 dias y vencida hace 7 -- justo el mismo
+  -- dia que ya decia su agreed_payment_date en el fixture.
+  UPDATE public.wo_payment_installments
+     SET status = 'Invoiced',
+         collection_invoice_date = (now() AT TIME ZONE 'America/La_Paz')::date - 37,
+         collection_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date - 7
+   WHERE installment_id = v_inst;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'wo.installment.status_changed' AND recipient_staff_id = c_acct
@@ -1659,6 +1686,23 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - editar una fecha de la cuota notifico (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - la cuota avisa al cambiar de estado, y solo entonces';
+
+  -- 2026-10-21: a quien movio la cuota NO se le avisa de su propio clic. El aviso sigue siendo
+  -- departamental -- su valor es que se entere la otra persona del circuito-- pero quien
+  -- factura treinta cuotas en una manana se comia treinta campanazos propios, y eso enterraba
+  -- lo que si importa. Misma regla que todos los demas avisos de cobranzas.
+  -- Se usa Invoiced -> Overdue -> Invoiced y no el cobro, porque la cuota tiene que seguir
+  -- vencida para el chequeo de mora que viene abajo. Las dos transiciones las hace el propio
+  -- destinatario, asi que ninguna deberia dejarle un aviso.
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000003');
+  UPDATE public.wo_payment_installments SET status = 'Overdue'  WHERE installment_id = v_inst;
+  UPDATE public.wo_payment_installments SET status = 'Invoiced' WHERE installment_id = v_inst;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.installment.status_changed' AND recipient_staff_id = c_acct;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad recibio el aviso de su propio cambio de estado (hay %)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - a quien mueve la cuota no se le avisa de su propio cambio';
 
   -- 9.c El contador de mora respeta el scope. El GERENTE lo tiene en `assigned`: cuenta su
   -- encargo y trae el COT como item.
@@ -1702,8 +1746,12 @@ BEGIN
   -- semana porque el contador cuenta de hoy al domingo: con "viernes" fijo, la suite fallaria
   -- los sabados y domingos. Solo se mueve la FECHA: el estado ya es 'Invoiced' y volver a
   -- escribirlo no aportaria nada (y las fechas no las congela el guard).
+  -- Cobranzas Fase 1: lo que mueve de contador es el vencimiento VIGENTE, o sea
+  -- collection_payment_date; agreed_payment_date se mueve junto solo para que el fixture
+  -- no quede contradictorio.
   UPDATE public.wo_payment_installments
-     SET agreed_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date
+     SET agreed_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date,
+         collection_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date
    WHERE installment_id = v_inst;
 
   IF (public.notif_agg_wo_installment_due_this_week()->>'count')::int <> 1 THEN
@@ -3166,7 +3214,10 @@ BEGIN
 
   -- 14.b Edicion sin encargos: nadie esta asignado todavia, asi que no hay a quien avisar.
   DELETE FROM public.notifications;
-  UPDATE public.clients SET contact_phone = '77712345' WHERE client_id = v_cli;
+  -- Cobranzas Fase 5: los contact_* salieron de `clients` (ahora viven en
+  -- client_contacts). Este caso prueba el disparador de `client.updated`, no esa columna:
+  -- se edita `address`, que sigue en la ficha.
+  UPDATE public.clients SET address = 'Av. Siempre Viva 742' WHERE client_id = v_cli;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
   IF v_n <> 0 THEN
@@ -3186,7 +3237,7 @@ BEGIN
           (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
   DELETE FROM public.notifications;
-  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+  UPDATE public.clients SET address = 'Calle Nueva 100' WHERE client_id = v_cli;
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
    WHERE type_key = 'client.updated' AND recipient_staff_id = c_mgr;
@@ -3203,7 +3254,7 @@ BEGIN
 
   -- 14.c Un UPDATE que no cambia nada no avisa.
   SELECT COUNT(*) INTO v_prev FROM public.notifications WHERE type_key = 'client.updated';
-  UPDATE public.clients SET contact_email = 'nuevo@cliente.com' WHERE client_id = v_cli;
+  UPDATE public.clients SET address = 'Calle Nueva 100' WHERE client_id = v_cli;
   SELECT COUNT(*) INTO v_n FROM public.notifications WHERE type_key = 'client.updated';
   IF v_n <> v_prev THEN
     RAISE EXCEPTION 'TEST FAIL - guardar sin cambiar nada conto como edicion (% -> %)', v_prev, v_n;

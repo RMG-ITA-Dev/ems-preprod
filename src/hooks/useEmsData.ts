@@ -100,9 +100,15 @@ export interface Client {
   client_legal_name: string;
   unique_tax_id: string;
   industry_id: string | null;
-  contact_name: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
+  // Cobranzas Fase 5: los contactos viven en client_contacts, con tipo.
+  contacts?: Array<{
+    contact_id: string;
+    contact_type: 'general' | 'cobranza';
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+    is_active: boolean;
+  }>;
   address: string | null;
   is_active: boolean;
   industry?: Industry;
@@ -197,6 +203,23 @@ export interface WOPaymentInstallment {
   status: string;
   invoice_exchange_rate: number | null;
   payment_exchange_rate: number | null;
+  // Cobranzas Fase 3: fechas VIGENTES tras una reprogramacion. NULL = nunca se reprogramo y
+  // vale la acordada; las agreed_* no se tocan nunca, son el contrato.
+  current_invoice_date: string | null;
+  current_payment_date: string | null;
+  // Fase 3: la gestion de la confirmacion con el cliente, que es una dimension aparte del
+  // estado -- una cuota puede estar Pendiente y confirmada, o Pendiente y sin gestionar.
+  confirmation_status: 'sin_gestionar' | 'confirmada' | 'no_confirmada' | null;
+  confirmed_for_date: string | null;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  // Fase 6: la cuota puede ir en otra moneda que la OT, y se registra de que fecha salio el TC.
+  currency: 'BOB' | 'USD' | 'USDT' | null;
+  invoice_exchange_rate_date: string | null;
+  // Fase 7: 'fee' reparte honorarios; 'expense_reimbursement' es la fila con la que
+  // Contabilidad le cobra al cliente los gastos ya ejecutados.
+  installment_type: 'fee' | 'expense_reimbursement';
+  net_amount: number | null;
 }
 
 export interface WOPaymentPlan {
@@ -317,6 +340,8 @@ export interface ExpenseType {
   expense_type_id: string;
   expense_name: string;
   default_unit_cost: number;
+  /** Fase 1.7: desactivado = no se ofrece para gastos ni presupuestos nuevos (ver selectableExpenseTypes). */
+  is_active: boolean;
 }
 
 export interface GlobalSetting {
@@ -705,6 +730,8 @@ export function useActiveStaffWithSkills() {
 
 // useClients returns client data including NIT (unique_tax_id is public tax ID, not sensitive)
 // Queries base table with explicit columns to allow embedded joins
+// Cobranzas Fase 5: el contacto dejó de ser una columna de la ficha; viene embebido desde
+// client_contacts, con su tipo. La lista de Clientes muestra el general.
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
@@ -716,16 +743,16 @@ export function useClients() {
           client_legal_name,
           unique_tax_id,
           industry_id,
-          contact_name,
-          contact_email,
-          contact_phone,
           address,
           is_active,
-          industry:industries(*)
+          industry:industries(*),
+          contacts:client_contacts(contact_id, contact_type, full_name, email, phone, is_active)
         `)
         .order('client_legal_name');
       if (error) throw error;
-      return data as Client[];
+      // `as unknown as`: types.ts está desactualizado y no conoce client_contacts, así que el
+      // embed resuelve a SelectQueryError. Se va al regenerar los tipos contra el proyecto.
+      return data as unknown as Client[];
     },
   });
 }
@@ -965,7 +992,8 @@ export function useExpenseTypes() {
         .select('*')
         .order('expense_name');
       if (error) throw error;
-      return data as ExpenseType[];
+      // `unknown` hasta que Lovable regenere types.ts con expense_types.is_active (Fase 1.7).
+      return data as unknown as ExpenseType[];
     },
   });
 }

@@ -323,6 +323,9 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- permiso. `accounting_analyst` recibe el recordatorio y NO lo tiene, asi que sin esta
     -- excepcion el correo le ofrecia un boton a "Sin acceso".
     WHEN p_type_key = 'fund.reminder.weekly' THEN 'fund_disbursement.read'
+    -- Calendario de gastos (Fase 3): el recordatorio de revisión no es de una solicitud sino de
+    -- la bandeja de Contabilidad.
+    WHEN p_type_key = 'fund.expense.review_reminder' THEN 'fund_disbursement.read'
     WHEN p_module_key = 'fund_request'       THEN 'fund_request.read'
     WHEN p_module_key = 'work_order'         THEN 'work_order.read'
     WHEN p_module_key = 'engagement'         THEN 'engagement.read'
@@ -712,11 +715,23 @@ DROP FUNCTION IF EXISTS public.notif_agg_fund_settlement_pending();
 CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     AS $$
-  -- En liquidación y sin liquidación registrada. La liquidación es de dos pasos manuales,
-  -- así que `en_liquidacion` con settled_at NULL es exactamente "falta registrarla".
+  -- Solicitudes listas para liquidar: fondos entregados, ningún gasto en curso ni esperando
+  -- revisión, y con gastos o con la fecha fin ya pasada (una solicitud sin gastos al vencer se
+  -- liquida igual: devolución total). Mismo criterio que expensePhase() 'ready' en la bandeja
+  -- de Desembolsos y que fund_request_settle (plan-contabilidad-gastos Fases 3 y 4). Antes
+  -- contaba `en_liquidacion` sin settled_at, que desde las RPC contables no existe.
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE status = 'en_liquidacion' AND settled_at IS NULL;
+    FROM public.fund_requests fr
+   WHERE fr.status = 'fondos_entregados'
+     AND (EXISTS (SELECT 1 FROM public.fund_request_expenses e
+                   WHERE e.fund_request_id = fr.fund_request_id)
+          OR public.fund_today() > public.fund_request_deadline(fr.expense_period_month))
+     AND NOT EXISTS (
+       SELECT 1 FROM public.fund_request_expenses e
+        WHERE e.fund_request_id = fr.fund_request_id
+          AND (e.status IN ('borrador', 'pendiente_aprobacion', 'aprobado_gerente', 'observado')
+               OR (e.status = 'rechazado'
+                   AND public.fund_today() <= public.fund_request_deadline(fr.expense_period_month))));
 $$;
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_closure_pending();
@@ -779,15 +794,26 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
    --
    -- Gana el estado más específico, mismo criterio que usa este módulo cuando
    -- `client.deactivated` le gana a `client.updated`: si ya está vencida, no está por vencer.
-   WHERE i.status NOT IN ('Completed', 'Overdue')
-     AND i.agreed_payment_date IS NOT NULL
-     AND i.agreed_payment_date >= (now() AT TIME ZONE 'America/La_Paz')::date
-     AND i.agreed_payment_date <=
-         (date_trunc('week', (now() AT TIME ZONE 'America/La_Paz')::date)::date + 6);
+   --
+   -- Cobranzas Fase 1 (issue #352, decision del operador Q4): el contador pasa de
+   -- `agreed_payment_date` (la fecha PACTADA) a la fecha de vencimiento VIGENTE
+   -- -- COALESCE(collection_payment_date, agreed_payment_date), o sea la fecha de
+   -- facturacion REAL mas los dias habiles del plan. Una cuota facturada tarde vencia
+   -- tarde, y contra la fecha pactada aparecia vencida antes de tiempo.
+   --
+   -- El filtro de estado pasa de "NOT IN (Completed, Overdue)" a "= Invoiced": una cuota
+   -- todavia Pendiente no tiene vencimiento de PAGO, tiene fecha de FACTURACION. Su caso
+   -- (no se facturo a tiempo) es "facturacion atrasada", con su propio aviso en la Fase 3,
+   -- no "por vencer".
+   WHERE i.status = 'Invoiced'
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) IS NOT NULL
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) >= public.fund_today()
+     AND COALESCE(i.collection_payment_date, i.agreed_payment_date) <=
+         (date_trunc('week', public.fund_today())::date + 6);
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS
-  'Contador "Cuotas por vencer esta semana": cuotas cuya fecha de pago acordada cae entre hoy y el domingo, excluyendo Completed y tambien Overdue. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
+  'Contador "Cuotas por vencer esta semana": cuotas FACTURADAS cuya fecha de vencimiento vigente (facturacion real + dias habiles) cae entre hoy y el domingo. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
 
 DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_overdue(uuid, text);
 
@@ -816,17 +842,25 @@ CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope
         FROM public.wo_payment_installments i
         JOIN public.work_orders w  ON w.wo_id = i.wo_id
         JOIN public.engagements e  ON e.engagement_id = w.engagement_id
-       WHERE i.status <> 'Completed'
-         AND (i.status = 'Overdue'
-              OR (i.agreed_payment_date IS NOT NULL
-                  AND i.agreed_payment_date < (now() AT TIME ZONE 'America/La_Paz')::date))
+       -- Cobranzas Fase 1 (issue #352): la mora deja de calcularse aqui y pasa a la regla
+       -- unica wo_installment_calendar_state() -- el mismo criterio que usan la pantalla,
+       -- el indicador de la pestana y los dashboards. Cambia respecto del criterio
+       -- anterior en dos casos reales:
+       --   * una cuota todavia Pendiente con la fecha de pago pactada ya pasada YA NO
+       --     cuenta como mora (nunca se facturo: es facturacion atrasada, Fase 3);
+       --   * una cuota facturada tarde se mide contra su vencimiento REAL
+       --     (collection_payment_date), no contra el pactado.
+       -- La mora MANUAL (status 'Overdue') la sigue contando la propia funcion.
+       WHERE public.wo_installment_calendar_state(
+               i.status, i.agreed_invoice_date, i.current_invoice_date,
+               i.agreed_payment_date, i.collection_payment_date) = 'overdue'
          AND (p_scope <> 'assigned'
               OR p_staff_id IN (e.manager_id, e.specialist_it_id, e.specialist_tax_id))
     ) q;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text) IS
-  'Contador "Cuotas vencidas". Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
+  'Contador "Cuotas vencidas" (mora segun wo_installment_calendar_state: manual, o facturada y pasada su fecha de vencimiento vigente). Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
 
 -- =====================================================================
 -- G.3) Contador de capacitación (módulo Aprobaciones de Timesheet)

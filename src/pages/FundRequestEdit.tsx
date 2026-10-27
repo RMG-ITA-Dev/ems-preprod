@@ -23,6 +23,11 @@ import {
   type FundRequestFormValues,
 } from "@/components/fund-requests/FundRequestForm";
 import { OtApprovalList } from "@/components/fund-requests/OtApprovalList";
+import { FundRequestTimeline } from "@/components/fund-requests/FundRequestTimeline";
+import { FundRequestProgress } from "@/components/fund-requests/FundRequestProgress";
+import { SettlementMovementCard } from "@/components/fund-requests/SettlementMovementCard";
+import { ConfirmSettlementDialog } from "@/components/fund-requests/ConfirmSettlementDialog";
+import { settlementMovement } from "@/lib/fundRequest";
 import { DisbursementDialog } from "@/components/fund-requests/DisbursementDialog";
 import { LiquidationDialog } from "@/components/fund-requests/LiquidationDialog";
 import { SimpleConfirmDialog } from "@/components/fund-requests/SimpleConfirmDialog";
@@ -30,13 +35,20 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info, Receipt } from "lucide-react";
 import { useFundRequestById } from "@/hooks/useFundRequests";
 import { useFundRequestExpenses } from "@/hooks/useFundRequestExpenses";
+import { useFundRequestEvents } from "@/hooks/useFundRequestEvents";
+import {
+  formatDateDMY,
+  fundRequestDeadline,
+  isDeadlinePassed,
+  laPazToday,
+} from "@/lib/fundRequestCalendar";
 import {
   useUpdateFundRequest,
   useSubmitFundRequest,
   useDeleteFundRequest,
   useDisburseFundRequest,
   useSettleFundRequest,
-  useCloseFundRequest,
+  useConfirmSettlement,
   useCancelFundRequest,
 } from "@/hooks/mutations/useFundRequestMutations";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -53,6 +65,20 @@ const FundRequestEdit = () => {
 
   const { data: fr, isLoading } = useFundRequestById(id);
   const { data: expenses } = useFundRequestExpenses(id);
+  const { data: events } = useFundRequestEvents(id);
+  // Historial de la solicitud y sus OTs; los eventos de cada gasto van en su diálogo. Con una
+  // sola OT, la aprobación de esa OT ES la aprobación de la solicitud: se muestra una sola línea.
+  const singleWorkOrder = (fr?.fund_request_work_orders ?? []).length <= 1;
+  const requestEvents = useMemo(
+    () =>
+      (events ?? []).filter(
+        (e) => e.entity !== "expense" && !(singleWorkOrder && e.action === "wo_approved"),
+      ),
+    [events, singleWorkOrder],
+  );
+  const workOrderLabel = (woId: string) =>
+    (fr?.fund_request_work_orders ?? []).find((o) => o.wo_id === woId)?.work_order?.engagement
+      ?.engagement_code;
   // Los gastos cargaron (data !== undefined). Mientras cargan, los totales de
   // liquidación dan 0 y no se debe permitir liquidar (condición de carrera).
   const expensesLoaded = expenses !== undefined;
@@ -64,7 +90,7 @@ const FundRequestEdit = () => {
   const deleteFr = useDeleteFundRequest();
   const disburseFr = useDisburseFundRequest();
   const settleFr = useSettleFundRequest();
-  const closeFr = useCloseFundRequest();
+  const confirmMovement = useConfirmSettlement();
   const cancelFr = useCancelFundRequest();
 
   const [values, setValues] = useState<FundRequestFormValues | null>(null);
@@ -73,7 +99,7 @@ const FundRequestEdit = () => {
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [showDisburseDialog, setShowDisburseDialog] = useState(false);
   const [showLiquidationDialog, setShowLiquidationDialog] = useState(false);
-  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [showConfirmMovement, setShowConfirmMovement] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   // Cargar valores cuando llega la data
@@ -83,7 +109,7 @@ const FundRequestEdit = () => {
       total_requested_amount: Number(fr.total_requested_amount),
       currency: fr.currency,
       purpose: fr.purpose || "",
-      due_back_date: fr.due_back_date || "",
+      expense_period_month: fr.expense_period_month,
       allocations: (fr.fund_request_work_orders || []).map((a) => ({
         wo_id: a.wo_id,
         allocated_amount: Number(a.allocated_amount),
@@ -117,17 +143,18 @@ const FundRequestEdit = () => {
     () => (expenses ?? []).reduce((s, e) => s + Number(e.iva_penalty_amount || 0), 0),
     [expenses],
   );
-  // Gastos a medio camino impiden liquidar (datos incompletos).
+  // Gastos a medio camino impiden liquidar (datos incompletos). Mismo criterio que
+  // fund_request_settle: `vencido` es final; `rechazado` entra solo hasta la fecha fin,
+  // mientras el solicitante todavía puede corregirlo y reenviarlo.
+  const deadlinePassed = !!fr && isDeadlinePassed(fr.expense_period_month, laPazToday());
   const unfinishedExpenses = useMemo(
     () =>
-      (expenses ?? []).filter((e) =>
-        // rechazado entra: el solicitante aún puede corregirlo y reenviarlo, así
-        // que liquidar antes lo dejaría sin resolver y sin contar en el snapshot.
-        ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado", "rechazado"].includes(
-          e.status,
-        ),
+      (expenses ?? []).filter(
+        (e) =>
+          ["borrador", "pendiente_aprobacion", "aprobado_gerente", "observado"].includes(e.status) ||
+          (e.status === "rechazado" && !deadlinePassed),
       ),
-    [expenses],
+    [expenses, deadlinePassed],
   );
 
   // Contabilidad / Asistente lo hace admin por ahora
@@ -135,20 +162,48 @@ const FundRequestEdit = () => {
   const settlementBlocked = unfinishedExpenses.length > 0;
   // Asistente liquida (calcula + resuelve) cuando hay fondos entregados y no
   // quedan gastos a medio camino → envía al encargado (en_liquidacion).
+  // Sin gastos todavía no se liquida: hasta la fecha fin el solicitante puede registrarlos. Mismo
+  // criterio que expensePhase (pestaña "Listas para liquidar") y que fund_request_settle.
+  const awaitingExpenses = expensesLoaded && (expenses ?? []).length === 0 && !deadlinePassed;
   const canLiquidate =
-    can("expense_settlement.update") && fr?.status === "fondos_entregados" && expensesLoaded && !settlementBlocked;
+    can("expense_settlement.update") &&
+    fr?.status === "fondos_entregados" &&
+    expensesLoaded &&
+    !settlementBlocked &&
+    !awaitingExpenses;
   // Encargado cierra (o cancela) una vez recibida la liquidación.
-  const canCloseSettlement = can("fund_disbursement.update") && fr?.status === "en_liquidacion";
+  // Fase 4: ya no hay "Cerrar" manual. Con saldo, la solicitud espera en en_liquidacion hasta que
+  // Contabilidad confirma el movimiento de dinero; confirmarlo la cierra.
+  const movement = fr ? settlementMovement(fr) : null;
+  const canConfirmMovement =
+    can("fund_disbursement.update") && fr?.status === "en_liquidacion" && !!movement?.pending;
+  // Cancelar: admin en cualquier estado no terminal; Contabilidad (los dos roles)
+  // solo en la fase contable. Mismo criterio que la RPC fund_request_cancel.
   const canCancel =
-    isAdmin &&
     !!fr &&
-    !["borrador", "cerrado", "cancelado"].includes(fr.status);
-  // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante),
-  // para solicitante, gerente de la FR o admin.
+    (isAdmin
+      ? !["borrador", "cerrado", "cancelado"].includes(fr.status)
+      : can("fund_disbursement.update") &&
+        ["aprobado_gerente", "fondos_entregados", "en_liquidacion"].includes(fr.status));
+  // Gastos: visibles desde que se entregan los fondos (Fase 4 en adelante) para el solicitante,
+  // el gerente de la FR y admin. Contabilidad entra cuando algún gasto ya le llegó (aprobado por
+  // el gerente o revisado por ella), al vencer la fecha fin o con la solicitud ya liquidada: recién
+  // desembolsada no tiene nada que hacer ahí. Es una decisión de pantalla; la RLS no cambia.
+  // Con la lista a medio cargar esto da false y el acceso a gastos aparecería de golpe: se
+  // espera a que `expenses` llegue (expensesLoaded), igual que la liquidación.
+  const expensesReachedAccounting =
+    expensesLoaded &&
+    (expenses ?? []).some(
+      (e) => ["aprobado_gerente", "revisado_asistente"].includes(e.status) || !!e.reviewed_at,
+    );
   const canViewExpenses =
     !!fr &&
-    ["fondos_entregados", "en_liquidacion", "cerrado"].includes(fr.status) &&
-    (isRequester || isManagerOfThisFr || isAdmin);
+    ["fondos_entregados", "en_liquidacion", "cerrado", "cancelado"].includes(fr.status) &&
+    (isRequester ||
+      isManagerOfThisFr ||
+      isAdmin ||
+      (can("expense_settlement.read") &&
+        (fr.status !== "fondos_entregados" || deadlinePassed || expensesReachedAccounting)));
 
   const isDirty = useMemo(() => {
     if (!values || !original) return false;
@@ -192,7 +247,7 @@ const FundRequestEdit = () => {
           total_requested_amount: values.total_requested_amount,
           currency: values.currency,
           purpose: values.purpose || null,
-          due_back_date: values.due_back_date || null,
+          expense_period_month: values.expense_period_month,
           allocations: values.allocations,
         },
       });
@@ -217,7 +272,7 @@ const FundRequestEdit = () => {
           total_requested_amount: values.total_requested_amount,
           currency: values.currency,
           purpose: values.purpose || null,
-          due_back_date: values.due_back_date || null,
+          expense_period_month: values.expense_period_month,
           allocations: values.allocations,
         },
       });
@@ -236,29 +291,32 @@ const FundRequestEdit = () => {
   const accountingPending =
     disburseFr.isPending ||
     settleFr.isPending ||
-    closeFr.isPending ||
+    confirmMovement.isPending ||
     cancelFr.isPending;
 
-  const handleDisburse = async ({ amount, notes }: { amount: number; notes: string }) => {
+  const handleDisburse = async ({
+    amount,
+    notes,
+    newMonth,
+  }: {
+    amount: number;
+    notes: string;
+    newMonth: string | null;
+  }) => {
     if (!fr) return;
     try {
-      await disburseFr.mutateAsync({
-        id: fr.fund_request_id,
-        amount,
-        notes,
-        disbursedByStaffId: staffRecord?.staff_id ?? null,
-      });
+      await disburseFr.mutateAsync({ id: fr.fund_request_id, amount, notes, newMonth });
       setShowDisburseDialog(false);
     } catch {
       // toast por mutation
     }
   };
 
-  const handleClose = async (notes: string) => {
+  const handleConfirmMovement = async ({ reference, notes }: { reference: string; notes: string }) => {
     if (!fr) return;
     try {
-      await closeFr.mutateAsync({ id: fr.fund_request_id, notes });
-      setShowCloseDialog(false);
+      await confirmMovement.mutateAsync({ id: fr.fund_request_id, reference, notes });
+      setShowConfirmMovement(false);
     } catch {
       // toast por mutation
     }
@@ -274,18 +332,9 @@ const FundRequestEdit = () => {
     notes: string;
   }) => {
     if (!fr) return;
-    const disbursed = Number(fr.total_disbursed_amount);
     try {
-      await settleFr.mutateAsync({
-        id: fr.fund_request_id,
-        totalSpent: settlementSpent,
-        balance: Math.round((disbursed - settlementSpent) * 100) / 100,
-        ivaTotal: settlementIvaTotal,
-        resolution,
-        amount,
-        notes,
-        settledByStaffId: staffRecord?.staff_id ?? null,
-      });
+      // El snapshot (gastado, saldo, IVA) lo calcula el servidor.
+      await settleFr.mutateAsync({ id: fr.fund_request_id, resolution, amount, notes });
       setShowLiquidationDialog(false);
     } catch {
       // toast por mutation
@@ -412,22 +461,30 @@ const FundRequestEdit = () => {
                   </Button>
                 )}
 
-                {canCloseSettlement && (
-                  <Button onClick={() => setShowCloseDialog(true)} disabled={accountingPending}>
-                    {t("fundRequest.actions.close")}
-                  </Button>
-                )}
               </div>
             </div>
           </CardContent>
         </Card>
 
+        {/* Dónde está la solicitud (Fase 4.4) */}
+        <FundRequestProgress status={fr.status} />
+
         {/* Guard: no se puede liquidar con gastos sin finalizar */}
-        {isAdmin && fr.status === "fondos_entregados" && settlementBlocked && (
+        {can("expense_settlement.update") && fr.status === "fondos_entregados" && settlementBlocked && (
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
               {t("fundRequest.settlement.blockedHint", { count: unfinishedExpenses.length })}
+            </AlertDescription>
+          </Alert>
+        )}
+        {can("expense_settlement.update") && fr.status === "fondos_entregados" && awaitingExpenses && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {t("fundRequest.settlement.awaitingExpensesHint", {
+                date: formatDateDMY(fundRequestDeadline(fr.expense_period_month)),
+              })}
             </AlertDescription>
           </Alert>
         )}
@@ -474,6 +531,21 @@ const FundRequestEdit = () => {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Movimiento de dinero de la liquidación (Fase 4, P3/P8): pendiente o confirmado */}
+        {movement && (
+          <SettlementMovementCard
+            movement={movement}
+            currency={fr.currency}
+            employeeName={staffName(fr.requester)}
+            confirmedByName={fr.settlement_confirmed_by ? staffName(fr.settlement_confirmed_by) : undefined}
+            reference={fr.settlement_reference}
+            isRequester={isRequester}
+            canConfirm={canConfirmMovement}
+            disabled={accountingPending}
+            onConfirmClick={() => setShowConfirmMovement(true)}
+          />
         )}
 
         {fr.status === "cancelado" && fr.rejection_reason && (
@@ -586,6 +658,17 @@ const FundRequestEdit = () => {
         {isReadOnly && fr.status !== "borrador" && (
           <OtApprovalList fr={fr} myStaffId={staffRecord?.staff_id} />
         )}
+
+        {/* Historial (P5): quién aprobó, desembolsó, liquidó, cerró o rechazó, y cuándo.
+            Los eventos de cada gasto se ven en su propio diálogo. */}
+        {requestEvents.length > 0 && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <p className="text-sm font-medium">{t("fundRequestEvent.title")}</p>
+              <FundRequestTimeline events={requestEvents} workOrderLabel={workOrderLabel} />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Disbursement dialog */}
@@ -594,22 +677,24 @@ const FundRequestEdit = () => {
         onOpenChange={setShowDisburseDialog}
         requestedAmount={Number(fr.total_requested_amount)}
         currency={fr.currency}
+        periodMonth={fr.expense_period_month}
         isSubmitting={disburseFr.isPending}
         onConfirm={handleDisburse}
       />
 
-      {/* Close dialog (encargado cierra el flujo tras la liquidación) */}
-      <SimpleConfirmDialog
-        open={showCloseDialog}
-        onOpenChange={setShowCloseDialog}
-        title={t("fundRequest.dialog.closeTitle")}
-        body={t("fundRequest.dialog.closeBody")}
-        confirmLabel={t("fundRequest.actions.close")}
-        notesLabel={t("fundRequest.accountingNotes")}
-        notesRequired={false}
-        isSubmitting={closeFr.isPending}
-        onConfirm={handleClose}
-      />
+      {/* Confirmar el movimiento de dinero (cierra la solicitud; con doble confirmación) */}
+      {movement && (
+        <ConfirmSettlementDialog
+          open={showConfirmMovement}
+          onOpenChange={setShowConfirmMovement}
+          kind={movement.kind}
+          amount={movement.amount}
+          currency={fr.currency}
+          employeeName={staffName(fr.requester)}
+          isSubmitting={confirmMovement.isPending}
+          onConfirm={handleConfirmMovement}
+        />
+      )}
 
       {/* Liquidation dialog */}
       <LiquidationDialog

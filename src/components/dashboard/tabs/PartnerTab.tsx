@@ -86,7 +86,7 @@ const SECTOR_COLORS = [
  * src/hooks/useContainerWidth.ts) -- sin este guard, cualquier gráfico
  * crashea al montar bajo test. En navegadores reales (ResizeObserver siempre
  * presente) este wrapper es un passthrough transparente. */
-function ChartContainer({ children, height = "100%" }: { children: ReactElement; height?: number | string }) {
+function ChartContainer({ children, height = "100%" }: { children: ReactElement; height?: number | `${number}%` }) {
   if (typeof ResizeObserver === "undefined") {
     return <div style={{ width: "100%", height }} />;
   }

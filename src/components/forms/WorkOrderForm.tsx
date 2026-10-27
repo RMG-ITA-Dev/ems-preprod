@@ -57,6 +57,7 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
+import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import {
   STAFFING_PROFICIENCY_LEVELS,
   createEmptyRequirement,
@@ -124,8 +125,32 @@ interface WorkOrderFormProps {
   woId?: string;
   paymentPlan?: import("@/types/workOrderPaymentPlan").PaymentPlanInput | null;
   paymentInstallments?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
+  /**
+   * Cobranzas Fase 7: las filas con las que Contabilidad le cobra al cliente los gastos ya
+   * ejecutados. Llegan aparte de `paymentInstallments` a propósito: no reparten el honorario,
+   * no entran en la validación del 100% y la pantalla del plan nunca las manda al guardar.
+   */
+  paymentExpenseRows?: import("@/types/workOrderPaymentPlan").PaymentInstallmentInput[];
+  /** Cobranzas Fase 7 (decisión Q24): sólo Contabilidad factura los gastos ejecutados. */
+  canBillExpenses?: boolean;
   isAdminDateEditable?: boolean;
   isStatusEditable?: boolean;
+  /**
+   * Cobranzas Fase 2 (decisión del operador Q17): vista de Contabilidad. El Gerente de
+   * Contabilidad y el Analista de Cobranzas abren la OT solo para cobrar, así que ven
+   * únicamente las pestañas de Plan de pagos y Presupuesto —nunca Riesgos ni Dotación— y
+   * ninguna acción de la OT (enviar, aprobar, rechazar). Arranca en Plan de pagos, que es
+   * a lo que vienen.
+   *
+   * No reemplaza al control del servidor: lo que pueden escribir lo deciden la policy
+   * "Accounting can update payment installments" y el guard de cuotas, ambos por
+   * is_collections_role().
+   */
+  collectionsOnly?: boolean;
+  /** Cobranzas Fase 4: quién participa del hilo de notas (gerente, socio, Contabilidad, admin). */
+  canWriteNotes?: boolean;
+  currentStaffId?: string | null;
+  isAdminViewer?: boolean;
   canEditPaymentPlan?: boolean;
   isPaymentPlanDirty?: boolean;
   onPaymentPlanChange?: (plan: import("@/types/workOrderPaymentPlan").PaymentPlanInput) => void;
@@ -404,8 +429,14 @@ export function WorkOrderForm({
   woId = "",
   paymentPlan = null,
   paymentInstallments = [],
+  paymentExpenseRows = [],
+  canBillExpenses = false,
   isAdminDateEditable = false,
   isStatusEditable = false,
+  collectionsOnly = false,
+  canWriteNotes = false,
+  currentStaffId = null,
+  isAdminViewer = false,
   canEditPaymentPlan = false,
   isPaymentPlanDirty = false,
   onPaymentPlanChange,
@@ -439,6 +470,9 @@ export function WorkOrderForm({
   // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
   // rechazado -> pest.3; si no, pest.1 por defecto.
   const [activeTab, setActiveTab] = useState<WorkOrderFormTabId>(() => {
+    // Cobranzas Fase 2: Contabilidad entra a cobrar, así que aterriza en Plan de pagos; las
+    // pistas de rechazo (Socio/Riesgos) no son suyas y además no ve esa pestaña.
+    if (collectionsOnly) return "payment";
     if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
@@ -482,7 +516,11 @@ export function WorkOrderForm({
     return expenseBudget.reduce((sum, exp) => sum + exp.budgeted_amount, 0);
   }, [expenseBudget]);
 
-  const feeWithTax = (totalAdjustedFee + totalExpenses) / (1 - taxRate);
+  // Cobranzas Fase 7 (decision del operador Q41): la base que reparten las cuotas son SOLO
+  // los honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se le
+  // cobran al cliente por su propia fila del plan, con lo que REALMENTE se ejecuto; dejarlo
+  // aca tambien los cobraria dentro de las cuotas, o sea dos veces.
+  const feeWithTax = totalAdjustedFee / (1 - taxRate);
 
   // Average rates for subtotal row
   const avgStandardRate = useMemo(() => {
@@ -717,7 +755,10 @@ export function WorkOrderForm({
   }, [paymentPlan, paymentInstallments]);
   const paymentIndicatorKind: TabIndicatorKind | null = otFullyApproved
     ? ((): TabIndicatorKind => {
-        const billing = computeBillingIndicator(paymentInstallments);
+        // Cobranzas Fase 7: el indicador mira TAMBIÉN las filas de gastos ejecutados. Son
+        // plata que el cliente debe igual que una cuota de honorarios, y una en mora tiene
+        // que encender la pestaña.
+        const billing = computeBillingIndicator([...paymentInstallments, ...paymentExpenseRows]);
         return billing === "red"
           ? "billing-red"
           : billing === "complete"
@@ -1153,7 +1194,8 @@ export function WorkOrderForm({
                     .map((e) => e.expense_type_id)
                     .filter(Boolean),
                 );
-                const expenseTypeOptions = (expenseTypes ?? []).filter(
+                // Fase 1.7: solo tipos activos, más el que ya tiene esta línea.
+                const expenseTypeOptions = selectableExpenseTypes(expenseTypes, exp.expense_type_id).filter(
                   (type) =>
                     type.expense_type_id === exp.expense_type_id ||
                     !usedByOtherExpenses.has(type.expense_type_id),
@@ -1179,6 +1221,7 @@ export function WorkOrderForm({
                             value={type.expense_type_id}
                           >
                             {type.expense_name}
+                            {type.is_active === false && ` ${t("expense.inactiveSuffix")}`}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1339,9 +1382,7 @@ export function WorkOrderForm({
                   </span>
                   <span className="font-mono">
                     <span className="text-sm mr-2">{currency}</span>
-                    {formatNumber(
-                      feeWithTax - totalAdjustedFee - totalExpenses,
-                    )}
+                    {formatNumber(feeWithTax - totalAdjustedFee)}
                   </span>
                 </div>
               </div>
@@ -1375,8 +1416,15 @@ export function WorkOrderForm({
           feeWithTax={feeWithTax}
           plan={paymentPlan ?? null}
           installments={paymentInstallments}
+          expenseRows={paymentExpenseRows}
+          canBillExpenses={canBillExpenses}
+          taxRate={taxRate}
           isEditable={isEditable}
           isStatusEditable={isStatusEditable}
+          collectionsApprovalStatus={collectionsOnly ? approvalStatus : null}
+          canWriteNotes={canWriteNotes}
+          currentStaffId={currentStaffId}
+          isAdminViewer={isAdminViewer}
           isAdminDateEditable={isAdminDateEditable}
           canEditPaymentPlan={canEditPaymentPlan}
           isPaymentPlanDirty={isPaymentPlanDirty}
@@ -2105,7 +2153,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {!isAdministrative && (
+            {!isAdministrative && !collectionsOnly && (
               <TabsTrigger value="risk" className="shrink-0">
                 {t("workOrders.tabs.risk")}
                 {renderTabIndicator(
@@ -2114,7 +2162,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {isSchedulerEnabled() && (
+            {isSchedulerEnabled() && !collectionsOnly && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
                 {renderTabIndicator(
@@ -2127,7 +2175,7 @@ export function WorkOrderForm({
           <TabsContent value="budget" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
             {budgetGridCard}
             {expensesSummaryGrid}
-            {socioCanAct && (
+            {socioCanAct && !collectionsOnly && (
               <div className="flex justify-end">
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
@@ -2164,7 +2212,10 @@ export function WorkOrderForm({
               {paymentPlanSection}
             </TabsContent>
           )}
-          {!isAdministrative && (
+          {/* Cobranzas Fase 2: el contenido también se condiciona, no solo el disparador.
+              Estas pestañas usan forceMount, así que dejar el TabsContent montaría Riesgos y
+              Dotación (y sus consultas) para alguien que no debe verlos. */}
+          {!isAdministrative && !collectionsOnly && (
             <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
               {riskAssessmentCard}
               {showRiskActions && hasRiskAction && (
@@ -2227,7 +2278,7 @@ export function WorkOrderForm({
               )}
             </TabsContent>
           )}
-          {isSchedulerEnabled() && (
+          {isSchedulerEnabled() && !collectionsOnly && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
             </TabsContent>
@@ -2283,7 +2334,11 @@ export function WorkOrderForm({
               {t("common.cancel")}
             </Button>
           )}
-          {isDraft && (
+          {/* Cobranzas Fase 2: Guardar y Enviar para Aprobación son del gerente del encargo.
+              Contabilidad entra a cobrar; sus acciones viven dentro del Plan de pagos y se
+              guardan solas. Sin esto, con la OT en Draft (que sí puede abrir, decisión Q19)
+              le aparecían dos botones que el servidor le iba a rechazar. */}
+          {isDraft && !collectionsOnly && (
             <>
               <LoadingButton
                 onClick={onSubmit}
@@ -2378,7 +2433,7 @@ export function WorkOrderForm({
               riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
               aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
               pendiente => no se muestra: la corrección se hace en sitio. */}
-          {showWithdraw && (
+          {showWithdraw && !collectionsOnly && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}

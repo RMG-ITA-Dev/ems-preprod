@@ -736,6 +736,20 @@ const Settings = () => {
       mobilePriority: 'primary',
       render: (row) => Math.round(row.default_unit_cost).toLocaleString("es-BO", { maximumFractionDigits: 0 }),
     },
+    {
+      // Fase 1.7: un tipo desactivado no se ofrece para gastos ni presupuestos nuevos.
+      key: "is_active",
+      label: t("common.status"),
+      sortable: true,
+      className: "text-center",
+      mobilePriority: 'secondary',
+      render: (row) =>
+        row.is_active ? (
+          <Badge className="bg-success/10 text-success border-success/20">{t("common.active")}</Badge>
+        ) : (
+          <Badge variant="secondary" className="bg-muted text-muted-foreground">{t("common.inactive")}</Badge>
+        ),
+    },
   ];
 
   const handleSaveSettings = async () => {
