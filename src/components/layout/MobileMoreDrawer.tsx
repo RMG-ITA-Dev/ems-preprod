@@ -97,7 +97,7 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
 
   const operationsItems: DrawerNavItem[] = [
     // 0922-190: sin permiso — mismo criterio que AppSidebar.tsx.
-    { path: "/timesheet/assignments", icon: ListChecks, labelKey: "nav.myAssignments", show: roleKey !== "risk_supervisor" },
+    { path: "/timesheet/assignments", icon: ListChecks, labelKey: "nav.myAssignments", show: roleKey !== "risk_supervisor" && roleKey !== "hr_analyst" },
     { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals", show: can("timesheet_approval.read") },
     { path: "/fund-requests", icon: Wallet, labelKey: "nav.fundRequests", show: can("fund_request.read") },
     { path: "/fund-requests/approvals", icon: CheckSquare, labelKey: "nav.fundRequestApprovals", show: can("fund_approval.read") || !!managesAnyOt },

@@ -75,4 +75,17 @@ describe("AppSidebar — Mis asignaciones (0922-190)", () => {
     renderSidebar();
     expect(screen.queryByText("nav.myAssignments")).not.toBeInTheDocument();
   });
+
+  // Decisión del operador 2026-10-27: el Analista de Talento Humano no carga horas.
+  it("no aparece para el Analista de Talento Humano", () => {
+    Object.assign(authState, { can: () => true, roleKey: "hr_analyst" });
+    renderSidebar();
+    expect(screen.queryByText("nav.myAssignments")).not.toBeInTheDocument();
+  });
+
+  it("sigue apareciendo para el Gerente de Talento Humano", () => {
+    Object.assign(authState, { can: () => true, roleKey: "hr_manager" });
+    renderSidebar();
+    expect(screen.getByText("nav.myAssignments")).toBeInTheDocument();
+  });
 });
