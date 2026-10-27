@@ -107,6 +107,14 @@ jobs:
       # esconder supabase/migrations/: no hay ninguna migración fail-fast que espere un parche
       # ad-hoc (la muerte del preseed es criterio de éxito, informe §2.1). Si `start` no las
       # aplica solo, es un regresión real, no un caso esperado.
+      # Pre-descarga secuencial con reintentos por imagen (y respaldo en public.ecr.aws): reintentar solo
+      # `supabase start` repite las 13 descargas en paralelo y no converge cuando ghcr.io limita (2026-10-27:
+      # 4 intentos seguidos fallaron). El login es opcional: si falla, las descargas siguen anónimas.
+      - name: Pre-descargar las imágenes de Supabase (una a una, con reintentos)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || echo "::notice::docker login a ghcr.io falló; se descarga sin autenticar"
+          bash supabase/tests/local/ci-pull-supabase-images.sh
+
       # `supabase start` baja ~13 imágenes en paralelo de ghcr.io y el registro responde
       # `toomanyrequests` de forma intermitente (visto el 2026-10-22 y el 2026-10-27, en ramas
       # distintas y sin cambios de código de por medio). Se reintenta SOLO ese error, con espera
