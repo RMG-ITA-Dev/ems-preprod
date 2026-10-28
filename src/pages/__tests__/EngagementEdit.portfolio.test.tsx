@@ -199,3 +199,50 @@ describe("EngagementEdit — remonta EngagementForm al cambiar de encargo por la
     expect(instanceIdOnB).not.toBe(instanceIdOnA);
   });
 });
+
+/**
+ * Encargos administrativos (función ≠ Cliente): sin `returnTo` en el state (deep-link, recarga,
+ * campanita) Guardar/Cancelar deben volver a Encargos Administrativos, no a Encargos. Con
+ * `returnTo` explícito, ese gana.
+ */
+describe("EngagementEdit — retorno de encargos administrativos", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsLoading = false;
+    mockIsError = false;
+    mockEngagements = [
+      { engagement_id: "eng-adm", funcion: 0 },
+      { engagement_id: "eng-cli", funcion: 1 },
+    ] as any;
+  });
+
+  function lastFormProps() {
+    return mockEngagementFormProps.mock.calls.at(-1)![0];
+  }
+
+  it("encargo administrativo sin state: cancelar y guardar vuelven a /administrative-engagements", () => {
+    renderAt("eng-adm");
+    lastFormProps().onCancel();
+    expect(mockNavigate).toHaveBeenLastCalledWith("/administrative-engagements");
+    lastFormProps().onSaveSuccess();
+    expect(mockNavigate).toHaveBeenLastCalledWith("/administrative-engagements");
+  });
+
+  it("encargo de Cliente sin state: sigue volviendo a /engagements", () => {
+    renderAt("eng-cli");
+    lastFormProps().onCancel();
+    expect(mockNavigate).toHaveBeenLastCalledWith("/engagements");
+  });
+
+  it("returnTo explícito en el state tiene prioridad sobre la función", () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: "/engagements/eng-adm", state: { returnTo: "/clients/c1" } }]}>
+        <Routes>
+          <Route path="/engagements/:id" element={<EngagementEdit />} />
+        </Routes>
+      </MemoryRouter>
+    );
+    lastFormProps().onSaveSuccess();
+    expect(mockNavigate).toHaveBeenLastCalledWith("/clients/c1");
+  });
+});
