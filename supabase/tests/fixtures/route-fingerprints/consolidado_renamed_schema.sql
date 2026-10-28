@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UisywmzdVulhrA9gf12SSpw1Soid2uCddo8oLTcMPg7zKPBU9y024Xbg4hnwkWp
+\restrict m1gfctixJ0GSRavfF2GYk0upE8JG3BMl94zFFWCvHhtP2yen4p2lMf9w4kKYcP6
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -875,6 +875,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_inst.wo_id);
 
   SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_inst.wo_id;
   v_currency := COALESCE(v_inst.currency, v_wo_currency);
@@ -1195,6 +1197,49 @@ BEGIN
   WHERE email_normalized = v_email;
 
   RETURN jsonb_build_object('ok', true, 'email', v_email);
+END;
+$$;
+
+
+--
+-- Name: assert_fund_request_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.assert_fund_request_society_scope(p_fund_request_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.is_society_scoped_role() THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.fund_request_work_orders frwo WHERE frwo.fund_request_id = p_fund_request_id)
+     OR EXISTS (SELECT 1
+                  FROM public.fund_request_work_orders frwo
+                  JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                  JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                 WHERE frwo.fund_request_id = p_fund_request_id
+                   AND e.society_id IS DISTINCT FROM public.my_society_id()) THEN
+    RAISE EXCEPTION 'SOCIETY_SCOPE_FORBIDDEN: la solicitud de fondos no pertenece a su sociedad'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: assert_wo_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.assert_wo_society_scope(p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.wo_in_my_society_scope(p_wo_id) THEN
+    RAISE EXCEPTION 'SOCIETY_SCOPE_FORBIDDEN: la orden de trabajo no pertenece a su sociedad'
+      USING ERRCODE = '42501';
+  END IF;
 END;
 $$;
 
@@ -2038,7 +2083,9 @@ CREATE FUNCTION public.client_contacts_visible(p_client_id uuid) RETURNS boolean
                    WHERE c.client_id = p_client_id
                      AND c.created_by_staff_id IS NOT NULL
                      AND c.created_by_staff_id = public.get_my_staff_id())
-     );
+     )
+     -- Alcance por sociedad (2026-10-28): Cobranza solo ve contactos de clientes con encargos de su sociedad.
+     AND (NOT public.is_society_scoped_role() OR p_client_id IN (SELECT public.my_society_client_ids()));
 $$;
 
 
@@ -2154,6 +2201,10 @@ CREATE FUNCTION public.collections_filter_options() RETURNS jsonb
     SET search_path TO 'public'
     AS $$
 DECLARE
+  -- Alcance por sociedad (2026-10-28): mismo universo que list_collections_installments, en
+  -- cobrables Y en monedas (que tiene su propia consulta).
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society uuid := public.my_society_id();
   v_result jsonb;
 BEGIN
   IF NOT (public.is_admin() OR public.is_collections_role()) THEN
@@ -2167,6 +2218,7 @@ BEGIN
       JOIN public.engagements e ON e.engagement_id = wo.engagement_id
      WHERE wo.approval_status = 'Approved'
        AND (e.funcion IS NULL OR e.funcion = 1)
+       AND (NOT v_soc_scoped OR e.society_id = v_society)
   )
   SELECT jsonb_build_object(
     'societies', COALESCE((
@@ -2194,6 +2246,7 @@ BEGIN
         JOIN public.engagements e ON e.engagement_id = wo.engagement_id
        WHERE wo.approval_status = 'Approved'
          AND (e.funcion IS NULL OR e.funcion = 1)
+         AND (NOT v_soc_scoped OR e.society_id = v_society)
     ), '[]'::jsonb)
   ) INTO v_result;
 
@@ -2620,6 +2673,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(p_wo_id);
   -- Solo una OT APROBADA factura gastos ejecutados. La pantalla ya lo exige, pero una pestana
   -- vieja (la OT se devolvio a borrador despues) o una llamada directa a la RPC se lo saltaban.
   -- Se mira con la fila bloqueada, para que nadie la cambie entre el chequeo y el alta.
@@ -2913,6 +2968,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND: el ajuste no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
   END IF;
@@ -2965,6 +3022,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ver edit_installment_note.
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -3044,6 +3103,9 @@ BEGIN
   IF NOT FOUND OR v_note.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe o fue borrada';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ademas de ser el autor, la OT tiene que ser de su sociedad (un
+  -- autor trasladado de sociedad ya no edita las notas que dejo en la anterior).
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -4493,6 +4555,29 @@ COMMENT ON FUNCTION public.engagement_overview(p_engagement_id uuid, p_start dat
 
 
 --
+-- Name: engagements_guard_society_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagements_guard_society_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.society_id IS DISTINCT FROM OLD.society_id
+     AND EXISTS (SELECT 1
+                   FROM public.work_orders wo
+                   JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+                   JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+                  WHERE wo.engagement_id = NEW.engagement_id
+                    AND fr.status NOT IN ('borrador', 'cerrado', 'cancelado')) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_SOCIETY_LOCKED: el encargo tiene solicitudes de fondos abiertas; cierrelas o cancelelas antes de cambiar su sociedad';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4873,6 +4958,33 @@ $$;
 
 
 --
+-- Name: fr_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.requester_staff_id IS DISTINCT FROM OLD.requester_staff_id THEN
+    -- La funcion lee el solicitante de la tabla (todavia el viejo en un BEFORE): se valida contra el nuevo.
+    IF EXISTS (SELECT 1
+                 FROM public.fund_request_work_orders frwo
+                 JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                 JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                WHERE frwo.fund_request_id = NEW.fund_request_id
+                  AND e.society_id IS DISTINCT FROM (SELECT s.society_id FROM public.staff s
+                                                      WHERE s.staff_id = NEW.requester_staff_id)) THEN
+      RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: el nuevo solicitante es de otra sociedad que las ordenes de trabajo de la solicitud'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: fr_guard_accounting_cols(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5063,6 +5175,21 @@ BEGIN
     RAISE EXCEPTION 'El mes de la solicitud (%) debe ser el actual o hasta 5 meses adelante',
       NEW.expense_period_month;
   END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fr_wo_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fr_wo_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.fund_request_assert_requester_society(NEW.fund_request_id, NEW.wo_id);
   RETURN NEW;
 END;
 $$;
@@ -5651,6 +5778,36 @@ $$;
 
 
 --
+-- Name: fund_request_assert_requester_society(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_assert_requester_society(p_fund_request_id uuid, p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_society uuid;
+BEGIN
+  SELECT s.society_id INTO v_society
+    FROM public.fund_requests fr
+    JOIN public.staff s ON s.staff_id = fr.requester_staff_id
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF EXISTS (SELECT 1
+               FROM public.work_orders wo
+               JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+              WHERE (p_wo_id IS NOT NULL AND wo.wo_id = p_wo_id
+                     OR p_wo_id IS NULL AND wo.wo_id IN (SELECT frwo.wo_id FROM public.fund_request_work_orders frwo
+                                                          WHERE frwo.fund_request_id = p_fund_request_id))
+                AND e.society_id IS DISTINCT FROM v_society) THEN
+    RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: solo se pueden pedir fondos contra ordenes de trabajo de la sociedad del solicitante'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
 -- Name: fund_request_cancel(uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5673,6 +5830,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   -- Admin: cualquier estado no terminal. Contabilidad (los dos roles): solo la fase contable,
   -- que es lo que ve (fr_accounting_sees).
@@ -5728,6 +5887,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'en_liquidacion' THEN
     RAISE EXCEPTION 'La solicitud no tiene un movimiento de dinero pendiente (estado %)', v_status;
@@ -5789,6 +5950,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'aprobado_gerente' THEN
     RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
@@ -5853,6 +6016,9 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Gasto % no encontrado', p_fre_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(
+    (SELECT fre.fund_request_id FROM public.fund_request_expenses fre WHERE fre.fre_id = p_fre_id));
 
   IF v_fr_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no admite revisión de gastos en su estado actual (%)', v_fr_status;
@@ -6163,6 +6329,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no se puede liquidar en su estado actual (%)', v_status;
@@ -6245,6 +6413,23 @@ $$;
 
 
 --
+-- Name: fund_request_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fund_request_society_id(p_fund_request_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE WHEN count(DISTINCT e.society_id) = 1 AND bool_and(e.society_id IS NOT NULL)
+              THEN (array_agg(e.society_id))[1] END
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE frwo.fund_request_id = p_fund_request_id
+$$;
+
+
+--
 -- Name: fund_request_submit(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6276,6 +6461,24 @@ BEGIN
   IF v_status NOT IN ('borrador', 'observado', 'rechazado') THEN
     RAISE EXCEPTION 'La solicitud no se puede enviar en su estado actual (%)', v_status;
   END IF;
+
+  -- Alcance por sociedad (2026-10-28): todas las OT de la solicitud deben ser de la sociedad del
+  -- SOLICITANTE (no del que envia: un admin puede actuar por el). El trigger de la relacion OT-solicitud
+  -- lo exige al armarla; aqui se revalida por si algo cambio despues del alta.
+  --
+  -- Carrera con un cambio de sociedad del encargo (review del PR, 2026-10-28): antes de revisar se
+  -- bloquean en modo compartido los encargos de sus OT. El UPDATE de society_id toma el bloqueo de fila
+  -- del encargo, que choca con FOR SHARE. Si el admin cambio primero, este envio espera y revisa la
+  -- sociedad NUEVA; si el envio va primero, el cambio espera y engagements_guard_society_change ya ve la
+  -- solicitud enviada y lo rechaza. Orden fijo por engagement_id para no cruzar bloqueos.
+  PERFORM 1
+    FROM public.engagements e
+    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+   WHERE frwo.fund_request_id = p_fund_request_id
+   ORDER BY e.engagement_id
+     FOR SHARE OF e;
+  PERFORM public.fund_request_assert_requester_society(p_fund_request_id, NULL);
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.
   SELECT COALESCE(SUM(allocated_amount), 0)
@@ -6425,11 +6628,14 @@ BEGIN
   IF NOT public.has_permission('expense_settlement.read') THEN
     RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
   END IF;
+  -- Alcance por sociedad (2026-10-28): corta ANTES de armar el JSON (ni metadatos de una OT ajena).
+  PERFORM public.assert_wo_society_scope(p_wo_id);
 
   WITH frs AS (
     SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND fr.fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids())
        AND EXISTS (SELECT 1 FROM public.fund_request_work_orders frw
                     WHERE frw.fund_request_id = fr.fund_request_id AND frw.wo_id = p_wo_id)
   ),
@@ -6549,6 +6755,8 @@ CREATE FUNCTION public.fund_work_order_expense_summary() RETURNS TABLE(wo_id uui
 --   budget     = presupuesto de gastos de la OT (wo_expense_budget), para comparar.
 -- Solicitudes consideradas: aprobado_gerente, fondos_entregados, en_liquidacion, cerrado
 -- (canceladas fuera).
+-- Alcance por sociedad (2026-10-28): para Contabilidad, solo OT de su sociedad y solo solicitudes
+-- sin OT de otra sociedad (una mixta no suma en ninguna fila, igual que en la RLS).
 BEGIN
   IF NOT public.has_permission('expense_settlement.read') THEN
     RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
@@ -6559,6 +6767,7 @@ BEGIN
     SELECT fr.fund_request_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND fr.fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids())
   ),
   alloc AS (
     SELECT frw.wo_id,
@@ -6598,6 +6807,7 @@ BEGIN
     LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
     LEFT JOIN exp x ON x.wo_id = a.wo_id
     LEFT JOIN bud bu ON bu.wo_id = a.wo_id
+   WHERE public.wo_in_my_society_scope(a.wo_id)
    ORDER BY eng.engagement_code;
 END;
 $$;
@@ -6773,6 +6983,7 @@ DECLARE
   v_from     date;
   v_scope_overdue text;
   v_scope_gap     text;
+  v_society       uuid;
 BEGIN
   IF v_staff IS NULL THEN
     RETURN v_out;
@@ -6834,27 +7045,29 @@ BEGIN
   END IF;
 
   -- ── Solicitudes de Fondos: cola de trabajo de Contabilidad ──
+  -- Alcance por sociedad (2026-10-28): para Contabilidad y Cobranzas, solo su sociedad (NULL para el resto).
+  v_society := public.staff_society_scope(v_staff);
   IF 'fund.disbursement.pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.disbursement.pending',
-                        public.notif_agg_fund_disbursement_pending());
+                        public.notif_agg_fund_disbursement_pending(v_society));
   END IF;
   IF 'fund.expense.review_pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.expense.review_pending',
-                        public.notif_agg_fund_expense_review_pending());
+                        public.notif_agg_fund_expense_review_pending(v_society));
   END IF;
   IF 'fund.settlement.pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.settlement.pending',
-                        public.notif_agg_fund_settlement_pending());
+                        public.notif_agg_fund_settlement_pending(v_society));
   END IF;
   IF 'fund.request.closure_pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.request.closure_pending',
-                        public.notif_agg_fund_closure_pending());
+                        public.notif_agg_fund_closure_pending(v_society));
   END IF;
 
   -- ── Órdenes de Trabajo: cuotas del plan de pagos (FASE 3.b) ──
   IF 'wo.installment.due_this_week' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('wo.installment.due_this_week',
-                        public.notif_agg_wo_installment_due_this_week());
+                        public.notif_agg_wo_installment_due_this_week(v_society));
   END IF;
   IF 'wo.installment.overdue' = ANY (v_types) THEN
     -- El scope viene de la matriz, no de una constante: el mismo contador vale `assigned`
@@ -6865,7 +7078,7 @@ BEGIN
        AND nrt.type_key = 'wo.installment.overdue';
 
     v_out := v_out || jsonb_build_object('wo.installment.overdue',
-                        public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue));
+                        public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue, v_society));
   END IF;
 
   -- ── Aprobaciones de Timesheet: capacitación (FASE 3.d) ──
@@ -7930,6 +8143,30 @@ $$;
 
 
 --
+-- Name: is_society_scoped_role(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_society_scoped_role() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select public.is_society_scoped_role_key(public.current_role_key());
+$$;
+
+
+--
+-- Name: is_society_scoped_role_key(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_society_scoped_role_key(p_role_key text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(p_role_key in ('accounting_manager', 'accounting_analyst', 'collections_analyst'), false);
+$$;
+
+
+--
 -- Name: latest_exchange_rate(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8086,6 +8323,8 @@ BEGIN
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
+         AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),
     '[]'::jsonb
   );
@@ -8149,6 +8388,10 @@ DECLARE
   v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
   v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
   v_search text := NULLIF(btrim(COALESCE(p_search, '')), '');
+  -- Alcance por sociedad (2026-10-28): Gerente de Contabilidad y Analista de Cobranzas solo ven
+  -- cuotas de encargos de SU sociedad. p_society_id solo puede restringir mas, nunca ampliar.
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society uuid := public.my_society_id();
   v_result jsonb;
 BEGIN
   -- Misma puerta que el resto de cobranzas (decision Q58): Gerente de Contabilidad y Analista
@@ -8219,6 +8462,7 @@ BEGIN
       AND (e.funcion IS NULL OR e.funcion = 1)
       AND (p_include_expense_rows OR i.installment_type = 'fee')
       AND (p_society_id IS NULL OR e.society_id = p_society_id)
+      AND (NOT v_soc_scoped OR e.society_id = v_society)
       AND (p_practica IS NULL OR e.practica = p_practica)
       AND (p_manager_id IS NULL OR e.manager_id = p_manager_id)
       AND (p_client_id IS NULL OR c.client_id = p_client_id)
@@ -8723,6 +8967,9 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
      --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
      --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
      AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
+     -- 6. Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven encargos de su sociedad, por cualquier bucket
+     --    (hoy solo les aplica el de creador). Espejo de la RESTRICTIVE "society scope" de engagements (d1).
+     AND (NOT public.is_society_scoped_role() OR e.society_id = cs.society_id)
 $$;
 
 
@@ -8993,6 +9240,26 @@ $$;
 
 
 --
+-- Name: my_foreign_fund_request_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_foreign_fund_request_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Solicitudes con AL MENOS UNA OT de otra sociedad. Se expresa por exclusion (NOT IN) y no como "solicitudes de mi sociedad" por
+  -- dos motivos: una solicitud mixta nunca se muestra a medias (basta una OT ajena para excluirla entera) y el WITH CHECK de un INSERT
+  -- nuevo (borrador aun sin OT, que no existe en la foto de esta funcion) pasa sin tener que estar en un conjunto.
+  SELECT DISTINCT frwo.fund_request_id
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE (SELECT public.is_society_scoped_role())
+     AND e.society_id IS DISTINCT FROM (SELECT public.my_society_id())
+$$;
+
+
+--
 -- Name: my_fund_request_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9108,6 +9375,80 @@ $$;
 
 
 --
+-- Name: my_society_client_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
+  SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+
+--
+-- Name: my_society_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE (SELECT public.is_society_scoped_role()) AND e.society_id = (SELECT public.my_society_id())
+$$;
+
+
+--
+-- Name: my_society_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_id() RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id FROM public.staff s WHERE s.staff_id = public.get_my_staff_id()
+$$;
+
+
+--
+-- Name: my_society_installment_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_installment_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT i.installment_id FROM public.wo_payment_installments i WHERE i.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+
+--
+-- Name: my_society_note_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_note_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT n.note_id FROM public.wo_installment_notes n WHERE n.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+
+--
+-- Name: my_society_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.wo_id FROM public.work_orders wo WHERE wo.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+
+--
 -- Name: my_sqr_visible_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9190,11 +9531,15 @@ DECLARE
   v_scope text    := public.permission_scope('engagement.read');
   v_role  text    := public.current_role_key();
   v_acct  boolean := public.has_permission('fund_disbursement.read') OR public.has_permission('expense_settlement.read');
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society    uuid    := public.my_society_id();
 BEGIN
   RETURN QUERY
   SELECT e.engagement_id
     FROM public.engagements e
-   WHERE (v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
+   -- e) Política RESTRICTIVE "society scope" (d1, 2026-10-28): para los roles con alcance por sociedad, AND con todo lo demás.
+   WHERE (NOT v_soc_scoped OR e.society_id = v_society)
+     AND ((v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
       OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
@@ -9218,7 +9563,7 @@ BEGIN
               JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
               JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
              WHERE fr.status <> 'borrador')
-          AND public.engagement_in_my_fund_request(e.engagement_id));
+          AND public.engagement_in_my_fund_request(e.engagement_id)));
 END $$;
 
 
@@ -9255,46 +9600,69 @@ COMMENT ON FUNCTION public.notif_agg_approval_training_pending() IS 'Contador "S
 
 
 --
--- Name: notif_agg_fund_closure_pending(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_fund_closure_pending(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_fund_closure_pending() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_fund_closure_pending(p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
   -- Liquidada pero sin cerrar: el segundo paso manual pendiente.
+  -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo solicitudes cuyas OT son
+  -- TODAS de esa sociedad (una mixta no cuenta para nadie con alcance por sociedad, igual que en la RLS).
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE settled_at IS NOT NULL AND closed_at IS NULL AND status <> 'cancelado';
+    FROM public.fund_requests fr
+   WHERE fr.settled_at IS NOT NULL AND fr.closed_at IS NULL AND fr.status <> 'cancelado'
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id));
 $$;
 
 
 --
--- Name: notif_agg_fund_disbursement_pending(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_fund_disbursement_pending(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_fund_disbursement_pending() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_fund_disbursement_pending(p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
   -- Aprobadas por el gerente y todavía sin desembolsar.
+  -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo solicitudes cuyas OT son
+  -- TODAS de esa sociedad (una mixta no cuenta para nadie con alcance por sociedad, igual que en la RLS).
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE status = 'aprobado_gerente' AND disbursed_at IS NULL;
+    FROM public.fund_requests fr
+   WHERE fr.status = 'aprobado_gerente' AND fr.disbursed_at IS NULL
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id));
 $$;
 
 
 --
--- Name: notif_agg_fund_expense_review_pending(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_fund_expense_review_pending(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_fund_expense_review_pending() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_fund_expense_review_pending(p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
     FROM public.fund_requests fr
    WHERE fr.status = 'fondos_entregados'
+     -- Alcance por sociedad (2026-10-28): ver notif_agg_fund_disbursement_pending.
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id))
      AND EXISTS (
        SELECT 1 FROM public.fund_request_expenses e
         WHERE e.fund_request_id = fr.fund_request_id
@@ -9304,17 +9672,17 @@ $$;
 
 
 --
--- Name: FUNCTION notif_agg_fund_expense_review_pending(); Type: COMMENT; Schema: public; Owner: -
+-- Name: FUNCTION notif_agg_fund_expense_review_pending(p_society_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending() IS 'Contador "Gastos por revisar": solicitudes en fondos_entregados con algun gasto en aprobado_gerente. Mismo predicado que el tab expenses_review de FundRequestDisbursements (tabOf + expensePhase).';
+COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending(p_society_id uuid) IS 'Contador "Gastos por revisar": solicitudes en fondos_entregados con algun gasto en aprobado_gerente. Mismo predicado que el tab expenses_review de FundRequestDisbursements (tabOf + expensePhase).';
 
 
 --
--- Name: notif_agg_fund_settlement_pending(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_fund_settlement_pending(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_fund_settlement_pending(p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9326,6 +9694,13 @@ CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
     FROM public.fund_requests fr
    WHERE fr.status = 'fondos_entregados'
+     -- Alcance por sociedad (2026-10-28): ver notif_agg_fund_disbursement_pending.
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id))
      AND (EXISTS (SELECT 1 FROM public.fund_request_expenses e
                    WHERE e.fund_request_id = fr.fund_request_id)
           OR public.fund_today() > public.fund_request_deadline(fr.expense_period_month))
@@ -9513,10 +9888,10 @@ COMMENT ON FUNCTION public.notif_agg_timesheet_reverted(p_weeks jsonb) IS 'Seman
 
 
 --
--- Name: notif_agg_wo_installment_due_this_week(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_wo_installment_due_this_week(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_wo_installment_due_this_week(p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9544,6 +9919,8 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
    -- (no se facturo a tiempo) es "facturacion atrasada", con su propio aviso en la Fase 3,
    -- no "por vencer".
    WHERE i.status = 'Invoiced'
+     -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo cuotas de esa sociedad.
+     AND (p_society_id IS NULL OR public.wo_society_id(i.wo_id) = p_society_id)
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) IS NOT NULL
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) >= public.fund_today()
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) <=
@@ -9552,17 +9929,17 @@ $$;
 
 
 --
--- Name: FUNCTION notif_agg_wo_installment_due_this_week(); Type: COMMENT; Schema: public; Owner: -
+-- Name: FUNCTION notif_agg_wo_installment_due_this_week(p_society_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS 'Contador "Cuotas por vencer esta semana": cuotas FACTURADAS cuya fecha de vencimiento vigente (facturacion real + dias habiles) cae entre hoy y el domingo. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
+COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week(p_society_id uuid) IS 'Contador "Cuotas por vencer esta semana": cuotas FACTURADAS cuya fecha de vencimiento vigente (facturacion real + dias habiles) cae entre hoy y el domingo. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
 
 
 --
--- Name: notif_agg_wo_installment_overdue(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+-- Name: notif_agg_wo_installment_overdue(uuid, text, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) RETURNS jsonb
+CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text, p_society_id uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9600,15 +9977,17 @@ CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope
                i.agreed_payment_date, i.collection_payment_date) = 'overdue'
          AND (p_scope <> 'assigned'
               OR p_staff_id IN (e.manager_id, e.specialist_it_id, e.specialist_tax_id))
+         -- Alcance por sociedad (2026-10-28): p_society_id NULL = sin limite; con valor, solo esa sociedad.
+         AND (p_society_id IS NULL OR e.society_id = p_society_id)
     ) q;
 $$;
 
 
 --
--- Name: FUNCTION notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text); Type: COMMENT; Schema: public; Owner: -
+-- Name: FUNCTION notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text, p_society_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text) IS 'Contador "Cuotas vencidas" (mora segun wo_installment_calendar_state: manual, o facturada y pasada su fecha de vencimiento vigente). Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
+COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text, p_society_id uuid) IS 'Contador "Cuotas vencidas" (mora segun wo_installment_calendar_state: manual, o facturada y pasada su fecha de vencimiento vigente). Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
 
 
 --
@@ -9780,7 +10159,8 @@ BEGIN
               v_payload || jsonb_build_object('context', 'manager'));
   END LOOP;
 
-  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_analyst', 'accounting_manager'],
+                                                                   public.fund_request_society_id(p_fund_request_id))
   LOOP
     PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
               v_payload || jsonb_build_object('context', 'accounting'));
@@ -9858,17 +10238,23 @@ BEGIN
 
   -- Contabilidad: en un día dado, todas las solicitudes en revisión comparten el mismo fin de
   -- revisión (día 5 del mes en curso), así que un solo aviso con el total alcanza.
-  SELECT count(*), count(DISTINCT e.fund_request_id),
-         min(public.fund_request_review_deadline(fr.expense_period_month))
-    INTO v_count, v_reqs, v_review
-    FROM public.fund_request_expenses e
-    JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
-   WHERE fr.status = 'fondos_entregados'
-     AND e.status = 'aprobado_gerente'
-     AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
-                     AND public.fund_request_review_deadline(fr.expense_period_month);
+  -- Alcance por sociedad (2026-10-28): el resumen se arma POR destinatario, con los gastos de las solicitudes de SU
+  -- sociedad (staff_society_scope; NULL = sin limite). Contabilidad de otra sociedad no recibe un conteo ajeno.
+  FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  LOOP
+    SELECT count(*), count(DISTINCT e.fund_request_id),
+           min(public.fund_request_review_deadline(fr.expense_period_month))
+      INTO v_count, v_reqs, v_review
+      FROM public.fund_request_expenses e
+      JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
+     WHERE fr.status = 'fondos_entregados'
+       AND e.status = 'aprobado_gerente'
+       AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
+                       AND public.fund_request_review_deadline(fr.expense_period_month)
+       AND (public.staff_society_scope(v_mgr.staff_id) IS NULL
+            OR public.fund_request_society_id(fr.fund_request_id) = public.staff_society_scope(v_mgr.staff_id));
 
-  IF v_count > 0 THEN
+    CONTINUE WHEN v_count = 0;
     v_payload := jsonb_build_object(
       'expense_count',  v_count,
       'request_count',  v_reqs,
@@ -9877,14 +10263,11 @@ BEGIN
     IF v_today = v_review THEN
       v_payload := v_payload || jsonb_build_object('context', 'last_day');
     END IF;
-    FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
-    LOOP
-      IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
-        PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
-        v_sent := v_sent + 1;
-      END IF;
-    END LOOP;
-  END IF;
+    IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
+      PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
 
   RETURN v_sent;
 END;
@@ -9943,14 +10326,8 @@ DECLARE
   v_total    integer;
   v_avisados integer := 0;
   v_rec      record;
+  v_soc      uuid;
 BEGIN
-  -- Los cuatro contadores de fondos no reciben staff: son de toda la firma, y la matriz se los
-  -- concede a Contabilidad con alcance `department`. Se calculan una sola vez.
-  v_revision := public.notif_agg_fund_expense_review_pending();
-  v_desemb   := public.notif_agg_fund_disbursement_pending();
-  v_liquid   := public.notif_agg_fund_settlement_pending();
-  v_cierre   := public.notif_agg_fund_closure_pending();
-
   FOR v_rec IN
     SELECT s.staff_id, ur.role_key
       FROM public.staff s
@@ -9962,6 +10339,21 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
+    -- Alcance por sociedad (2026-10-28): Contabilidad recibe los contadores de SU sociedad. Se calculan aparte solo para
+    -- ellos (pocos destinatarios); el resto reusa los de toda la firma calculados arriba.
+    v_soc := public.staff_society_scope(v_rec.staff_id);
+    IF v_soc IS NOT NULL THEN
+      v_revision := public.notif_agg_fund_expense_review_pending(v_soc);
+      v_desemb   := public.notif_agg_fund_disbursement_pending(v_soc);
+      v_liquid   := public.notif_agg_fund_settlement_pending(v_soc);
+      v_cierre   := public.notif_agg_fund_closure_pending(v_soc);
+    ELSE
+      v_revision := public.notif_agg_fund_expense_review_pending();
+      v_desemb   := public.notif_agg_fund_disbursement_pending();
+      v_liquid   := public.notif_agg_fund_settlement_pending();
+      v_cierre   := public.notif_agg_fund_closure_pending();
+    END IF;
+
     -- El recorte por rol tiene que pasar ANTES de armar el payload y no sólo dentro de v_total:
     -- gatear el total decide bien a quién se le manda y mal qué lee. `detallesDeRecordatorio()`
     -- (plantillas/notificaciones.ts) renderiza todo bucket con count > 0, así que un
@@ -10073,6 +10465,7 @@ CREATE FUNCTION public.notif_emit_wo_installment_reminder_weekly() RETURNS integ
 DECLARE
   v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
   v_semana_actual jsonb := public.notif_agg_wo_installment_due_this_week();
+  v_soc      uuid;
   v_mora     jsonb;
   -- `v_semana_actual` es de toda la firma; esta es su version recortada al destinatario.
   v_por_venc jsonb;
@@ -10097,16 +10490,19 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
+    -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas, solo cuotas de su sociedad.
+    v_soc := public.staff_society_scope(v_rec.staff_id);
     v_mora := CASE WHEN v_rec.scope_mora IS NOT NULL
-                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora)
+                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora, v_soc)
                    ELSE NULL END;
 
     -- Igual que la mora de arriba: el contador entra al payload sólo si la matriz se lo concede.
     -- `wo.installment.due_this_week` es de Contabilidad (alcance `department`) y los gerentes no
     -- lo tienen, así que mandárselo les entregaba las cuotas por vencer de toda la firma —
     -- exactamente lo que `scope_mora` se cuida de no hacer con las vencidas.
-    v_por_venc := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
-                       THEN v_semana_actual ELSE NULL END;
+    v_por_venc := CASE WHEN NOT public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week') THEN NULL
+                       WHEN v_soc IS NOT NULL THEN public.notif_agg_wo_installment_due_this_week(v_soc)
+                       ELSE v_semana_actual END;
 
     v_total := COALESCE((v_mora->>'count')::integer, 0)
              + COALESCE((v_por_venc->>'count')::integer, 0);
@@ -10528,7 +10924,7 @@ BEGIN
       UNION
       SELECT staff_id FROM public.notif_engagement_partners(v_eng) WHERE v_autor_es_contabilidad
       UNION
-      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+      SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'], public.wo_society_id(p_note.wo_id))
        WHERE NOT v_autor_es_contabilidad
     ) q
   LOOP
@@ -10585,7 +10981,7 @@ BEGIN
   FOR v_rec IN
     SELECT staff_id FROM public.notif_engagement_partners(v_eng)
     UNION
-    SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+    SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'], public.wo_society_id(p_row.wo_id))
   LOOP
     CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
 
@@ -10809,6 +11205,24 @@ $$;
 --
 
 COMMENT ON FUNCTION public.notif_staff_by_roles(p_role_keys text[]) IS 'Traduce una lista de role_key a los staff_id activos que los tienen. Lo usan los disparadores para los alcances firm/department de la matriz de notificaciones.';
+
+
+--
+-- Name: notif_staff_by_roles_in_society(text[], uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_staff_by_roles_in_society(p_role_keys text[], p_society_id uuid) RETURNS TABLE(staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT DISTINCT s.staff_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE ur.role_key = ANY (p_role_keys)
+     AND s.is_active
+     AND s.deleted_at IS NULL
+     AND (NOT public.is_society_scoped_role_key(ur.role_key) OR s.society_id = p_society_id)
+$$;
 
 
 --
@@ -11109,7 +11523,8 @@ BEGIN
     FOR v_dest IN
       SELECT staff_id FROM public.notif_engagement_managers(v_rec.engagement_id)
       UNION
-      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+      SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'],
+               (SELECT e2.society_id FROM public.engagements e2 WHERE e2.engagement_id = v_rec.engagement_id))
     LOOP
       v_type := CASE WHEN v_rec.calendar_state = 'billing_late'
                      THEN 'wo.installment.billing_late'
@@ -11593,7 +12008,7 @@ BEGIN
 
   -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
   IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' AND NOT v_job THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.fund_request_society_id(NEW.fund_request_id))
     LOOP
       PERFORM public.notify_staff('fund.expense.sent_to_support_review',
                                   v_rec.staff_id, NEW.fre_id::text, v_payload);
@@ -11614,7 +12029,7 @@ BEGIN
   -- el gerente. La senal es el flag apagandose y no un cambio de status, porque
   -- useResendReturnedExpense() devuelve el status a 'aprobado_gerente' (de donde salio).
   IF OLD.returned_by_assistant = true AND NEW.returned_by_assistant = false THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.fund_request_society_id(NEW.fund_request_id))
     LOOP
       PERFORM public.notify_staff('fund.expense.resubmitted',
                                   v_rec.staff_id, NEW.fre_id::text, v_payload);
@@ -12521,7 +12936,7 @@ BEGIN
 
   -- entity_id = wo_id, no installment_id: la cuota no tiene pantalla propia, se edita dentro
   -- de la pestaña "Plan de pagos" de su OT.
-  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.wo_society_id(NEW.wo_id))
   LOOP
     -- 2026-10-21: a quien movio la cuota no se le avisa de su propio clic. El aviso sigue
     -- siendo DEPARTAMENTAL -- su valor es que la OTRA persona del circuito se entere-- pero
@@ -12663,7 +13078,8 @@ BEGIN
       FOR v_rec IN
         SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
         UNION
-        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_cobranzas,
+                 (SELECT e2.society_id FROM public.engagements e2 WHERE e2.engagement_id = NEW.engagement_id))
       LOOP
         PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
                   NEW.wo_id::text, v_base);
@@ -17390,6 +17806,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.installment_type <> 'expense_reimbursement' THEN
     RAISE EXCEPTION 'EXPENSE_ROW_INVALID: esta cuota no es una fila de gastos ejecutados';
   END IF;
@@ -17541,6 +17959,23 @@ END $$;
 --
 
 COMMENT ON FUNCTION public.staff_release_auth_user_on_delete() IS 'B6: al dar de baja (deleted_at NULL -> valor) la ficha suelta su auth_user_id. Evita dos fichas con el mismo usuario tras un reingreso, que get_my_staff_id() y otras 20 piezas resolverian a la ficha borrada.';
+
+
+--
+-- Name: staff_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.staff_society_scope(p_staff_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE s.staff_id = p_staff_id
+     AND public.is_society_scoped_role_key(ur.role_key)
+   LIMIT 1
+$$;
 
 
 --
@@ -17989,6 +18424,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_row.wo_id;
   v_currency := COALESCE(v_row.currency, v_wo_currency);
@@ -18686,6 +19123,8 @@ BEGIN
   IF NOT (public.is_admin() OR public.is_collections_role()) THEN
     RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede ver los gastos por facturar';
   END IF;
+  -- Alcance por sociedad (2026-10-28): el id de una OT de otra sociedad no devuelve sus gastos.
+  PERFORM public.assert_wo_society_scope(p_wo_id);
 
   RETURN QUERY
   SELECT e.fre_id, e.amount
@@ -18844,6 +19283,23 @@ COMMENT ON FUNCTION public.wo_in_my_fund_request(p_wo_id uuid) IS 'True si la OT
 
 
 --
+-- Name: wo_in_my_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_in_my_society_scope(p_wo_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT NOT public.is_society_scoped_role()
+      OR EXISTS (SELECT 1
+                   FROM public.work_orders wo
+                   JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                  WHERE wo.wo_id = p_wo_id
+                    AND e.society_id = public.my_society_id());
+$$;
+
+
+--
 -- Name: wo_installment_assert_actionable(uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -18867,6 +19323,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT wo.approval_status INTO v_approval_status
@@ -18908,6 +19366,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT e.manager_id INTO v_manager
@@ -19010,13 +19470,16 @@ CREATE FUNCTION public.wo_notes_participant(p_wo_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  SELECT public.is_admin()
-      OR public.is_collections_role()
-      OR EXISTS (
-           SELECT 1 FROM public.work_orders w
-            WHERE w.wo_id = p_wo_id
-              AND public.is_engagement_team_member(w.engagement_id)
-         );
+  -- Alcance por sociedad (2026-10-28): para Contabilidad/Cobranzas, ademas, la OT tiene que ser de su
+  -- sociedad (cubre add_installment_note, get_wo_client_contacts y la lectura de notas).
+  SELECT (public.is_admin()
+          OR public.is_collections_role()
+          OR EXISTS (
+               SELECT 1 FROM public.work_orders w
+                WHERE w.wo_id = p_wo_id
+                  AND public.is_engagement_team_member(w.engagement_id)
+             ))
+     AND public.wo_in_my_society_scope(p_wo_id);
 $$;
 
 
@@ -19554,6 +20017,21 @@ BEGIN
   END IF;
   RETURN NULL;
 END;
+$$;
+
+
+--
+-- Name: wo_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_society_id(p_wo_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.society_id
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
 $$;
 
 
@@ -22153,7 +22631,7 @@ CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
     client_legal_name,
     is_active
    FROM public.clients c
-  WHERE (public.get_my_staff_id() IS NOT NULL);
+  WHERE ((public.get_my_staff_id() IS NOT NULL) AND ((NOT public.is_society_scoped_role()) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids))));
 
 
 --
@@ -22452,14 +22930,14 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
    FROM ((public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
+  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id) AND (e.society_id = public.my_society_id()));
 
 
 --
 -- Name: VIEW fund_request_selectable_work_orders; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON VIEW public.fund_request_selectable_work_orders IS 'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada (fr_wo_insert no mira alcance; el gerente de la OT aprueba), asi que debe verlas todas. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
+COMMENT ON VIEW public.fund_request_selectable_work_orders IS 'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada de SU sociedad (alcance por sociedad 2026-10-28; fr_wo_insert no mira alcance, el trigger tr_fr_wo_enforce_requester_society exige la sociedad del solicitante y el gerente de la OT aprueba), asi que debe ver todas las de su sociedad. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
 
 
 --
@@ -23477,22 +23955,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_26; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_26 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_27; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -23545,6 +24007,22 @@ CREATE TABLE realtime.messages_2026_10_29 (
 --
 
 CREATE TABLE realtime.messages_2026_10_30 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_10_31; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_10_31 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -23837,13 +24315,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_26; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_26 FOR VALUES FROM ('2026-10-26 00:00:00') TO ('2026-10-27 00:00:00');
-
-
---
 -- Name: messages_2026_10_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -23869,6 +24340,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_29
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_30 FOR VALUES FROM ('2026-10-30 00:00:00') TO ('2026-10-31 00:00:00');
+
+
+--
+-- Name: messages_2026_10_31; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_31 FOR VALUES FROM ('2026-10-31 00:00:00') TO ('2026-11-01 00:00:00');
 
 
 --
@@ -24846,14 +25324,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_26 messages_2026_10_26_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_26
-    ADD CONSTRAINT messages_2026_10_26_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_27 messages_2026_10_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -24883,6 +25353,14 @@ ALTER TABLE ONLY realtime.messages_2026_10_29
 
 ALTER TABLE ONLY realtime.messages_2026_10_30
     ADD CONSTRAINT messages_2026_10_30_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_10_31 messages_2026_10_31_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_10_31
+    ADD CONSTRAINT messages_2026_10_31_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -25994,13 +26472,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_26_inserted_at_topic_idx ON realtime.messages_2026_10_26 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -26026,6 +26497,13 @@ CREATE INDEX messages_2026_10_29_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_10_30_inserted_at_topic_idx ON realtime.messages_2026_10_30 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_10_31_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_10_31_inserted_at_topic_idx ON realtime.messages_2026_10_31 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -26127,20 +26605,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_26_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_26_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_26_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_26_pkey;
-
-
---
 -- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26194,6 +26658,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_30_pkey;
+
+
+--
+-- Name: messages_2026_10_31_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_31_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_10_31_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_31_pkey;
 
 
 --
@@ -26260,6 +26738,13 @@ CREATE TRIGGER engagements_fiscal_year_invariant BEFORE UPDATE ON public.engagem
 
 
 --
+-- Name: fund_requests tr_fr_enforce_requester_society; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_enforce_requester_society BEFORE UPDATE OF requester_staff_id ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_enforce_requester_society();
+
+
+--
 -- Name: fund_requests tr_fr_guard_accounting_cols; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -26278,6 +26763,13 @@ CREATE TRIGGER tr_fr_log_event AFTER INSERT OR UPDATE OF status ON public.fund_r
 --
 
 CREATE TRIGGER tr_fr_validate_period_month BEFORE INSERT OR UPDATE OF expense_period_month ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_validate_period_month();
+
+
+--
+-- Name: fund_request_work_orders tr_fr_wo_enforce_requester_society; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_fr_wo_enforce_requester_society BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_enforce_requester_society();
 
 
 --
@@ -26635,6 +27127,13 @@ CREATE TRIGGER trg_engagements_created_by BEFORE INSERT OR UPDATE ON public.enga
 --
 
 CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_creator_team();
+
+
+--
+-- Name: engagements trg_engagements_guard_society_change; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_society_change();
 
 
 --
@@ -29478,6 +29977,125 @@ CREATE POLICY "skills write update" ON public.skills FOR UPDATE TO authenticated
 ALTER TABLE public.society ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: client_contacts society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.client_contacts AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids))));
+
+
+--
+-- Name: clients society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.clients AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids))));
+
+
+--
+-- Name: engagements society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.engagements AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (society_id = ( SELECT public.my_society_id() AS my_society_id)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (society_id = ( SELECT public.my_society_id() AS my_society_id))));
+
+
+--
+-- Name: fund_request_events society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.fund_request_events AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids))))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids)))));
+
+
+--
+-- Name: fund_request_expenses society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.fund_request_expenses AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR ((wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)) AND (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids)))))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR ((wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)) AND (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids))))));
+
+
+--
+-- Name: fund_request_work_orders society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.fund_request_work_orders AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR ((wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)) AND (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids)))))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR ((wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)) AND (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids))))));
+
+
+--
+-- Name: fund_requests society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.fund_requests AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids))))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (NOT (fund_request_id IN ( SELECT public.my_foreign_fund_request_ids() AS my_foreign_fund_request_ids)))));
+
+
+--
+-- Name: wo_budget_lines society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_budget_lines AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_expense_budget society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_expense_budget AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_installment_adjustments society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_installment_adjustments AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_installment_events society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_installment_events AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_installment_expenses society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_installment_expenses AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (installment_id IN ( SELECT public.my_society_installment_ids() AS my_society_installment_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (installment_id IN ( SELECT public.my_society_installment_ids() AS my_society_installment_ids))));
+
+
+--
+-- Name: wo_installment_note_versions society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_installment_note_versions AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (note_id IN ( SELECT public.my_society_note_ids() AS my_society_note_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (note_id IN ( SELECT public.my_society_note_ids() AS my_society_note_ids))));
+
+
+--
+-- Name: wo_installment_notes society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_installment_notes AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_payment_installments society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_payment_installments AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: wo_payment_plan society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.wo_payment_plan AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (wo_id IN ( SELECT public.my_society_wo_ids() AS my_society_wo_ids))));
+
+
+--
+-- Name: work_orders society scope; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "society scope" ON public.work_orders AS RESTRICTIVE TO authenticated USING (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (engagement_id IN ( SELECT public.my_society_engagement_ids() AS my_society_engagement_ids)))) WITH CHECK (((NOT ( SELECT public.is_society_scoped_role() AS is_society_scoped_role)) OR (engagement_id IN ( SELECT public.my_society_engagement_ids() AS my_society_engagement_ids))));
+
+
+--
 -- Name: staff; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -30107,5 +30725,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UisywmzdVulhrA9gf12SSpw1Soid2uCddo8oLTcMPg7zKPBU9y024Xbg4hnwkWp
+\unrestrict m1gfctixJ0GSRavfF2GYk0upE8JG3BMl94zFFWCvHhtP2yen4p2lMf9w4kKYcP6
 
