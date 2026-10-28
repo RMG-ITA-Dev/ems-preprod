@@ -1,5 +1,5 @@
 -- Alcance por sociedad de Contabilidad y Cobranzas (2026-10-28) — Fase 1: politicas RLS y vistas; Fase 2: RPC de lectura;
--- Fase 3: escrituras, regla de armado de solicitudes y cambio de sociedad del encargo.
+-- Fase 3: escrituras, regla de armado de solicitudes y cambio de sociedad del encargo; Fase 4: notificaciones.
 -- Plan: docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md. Corre desde supabase/tests/local/run-rls-tests.sh.
 -- Transaccion unica, SIEMPRE hace ROLLBACK. Salida de exito: "SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)".
 --
@@ -18,6 +18,8 @@
 --      solicitud se juzga entera). Regla de armado: una solicitud solo lleva OT de la sociedad de su solicitante, en alta,
 --      cambio de OT, cambio de solicitud padre, cambio de solicitante y envio. Un encargo con solicitudes abiertas no
 --      cambia de sociedad.
+--   9. (Fase 4) Notificaciones: el reparto a Contabilidad/Cobranzas sigue la sociedad del objeto (una solicitud mixta no le
+--      llega a ningun contable), y los contadores de la campana y de los recordatorios cuentan solo su sociedad.
 --
 -- Mundo (prefijo 5c):
 --   Sociedad A = Ruizmier Pelaez, B = Ruizmier Jauregui (seed).
@@ -470,6 +472,76 @@ BEGIN
     pg_temp.owner_error(format($q$UPDATE public.engagements SET society_id = %L WHERE engagement_id = 'e05c0000-0000-4000-8000-00000000001a'$q$, soc_b)), NULL);
 
   RAISE NOTICE 'SOCIETY SCOPE FASE 3: write checks passed';
+END $$;
+
+-- ══ Fase 4: notificaciones ═══════════════════════════════════════════════════════════════════════
+
+-- Las dos cuotas pasan a facturadas con vencimiento hoy (por vencer esta semana), sin pasar por los guards.
+SET LOCAL session_replication_role = replica;
+UPDATE public.wo_payment_installments
+   SET status = 'Invoiced', agreed_payment_date = current_date, collection_payment_date = current_date
+ WHERE installment_id IN ('115c0000-0000-4000-8000-00000000000a', '115c0000-0000-4000-8000-00000000000b');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  u2 constant text := 'a05c0000-0000-4000-8000-000000000002';  -- gerente contable A
+  u4 constant text := 'a05c0000-0000-4000-8000-000000000004';  -- gerente (control)
+  u5 constant text := 'a05c0000-0000-4000-8000-000000000005';  -- gerente contable B
+  s1 constant uuid := '505c0000-0000-4000-8000-000000000001';
+  s2 constant uuid := '505c0000-0000-4000-8000-000000000002';
+  s4 constant uuid := '505c0000-0000-4000-8000-000000000004';
+  s5 constant uuid := '505c0000-0000-4000-8000-000000000005';
+  wb constant text := 'd05c0000-0000-4000-8000-00000000000b';
+  soc_a uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.');
+  soc_b uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  v_ids text;
+BEGIN
+  -- Reparto de destinatarios ────────────────────────────────────────────────────────────────────
+  SELECT string_agg(staff_id::text, ',' ORDER BY staff_id::text) INTO v_ids
+    FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst', 'manager'], soc_a)
+   WHERE staff_id IN (s1, s2, s4, s5);
+  PERFORM pg_temp.expect('destinatarios de A: cobranza y contable de A, y el gerente (sin limite); no el contable de B',
+    v_ids, s1::text || ',' || s2::text || ',' || s4::text);
+  SELECT string_agg(staff_id::text, ',' ORDER BY staff_id::text) INTO v_ids
+    FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'], NULL)
+   WHERE staff_id IN (s1, s2, s5);
+  PERFORM pg_temp.expect('destinatarios de una solicitud mixta (sociedad NULL): ningun contable', COALESCE(v_ids, ''), '');
+
+  -- Un aviso real: el gerente anota en WB → solo Contabilidad/Cobranzas de B ─────────────────────────
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', u4, 'role', 'authenticated')::text, true);
+  PERFORM public.add_installment_note(wb::uuid, NULL, 'nota del gerente en B');
+  PERFORM set_config('request.jwt.claims', '', true);
+  SELECT string_agg(recipient_staff_id::text, ',' ORDER BY recipient_staff_id::text) INTO v_ids
+    FROM public.notifications
+   WHERE type_key = 'wo.installment.note_added' AND recipient_staff_id IN (s1, s2, s5);
+  PERFORM pg_temp.expect('wo.installment.note_added sobre WB: le llega al contable de B, no a cobranza ni al contable de A',
+    COALESCE(v_ids, ''), s5::text);
+
+  -- Contadores por sociedad ────────────────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect('cuotas por vencer: sociedad A cuenta 1',
+    public.notif_agg_wo_installment_due_this_week(soc_a)->>'count', '1');
+  PERFORM pg_temp.expect('cuotas por vencer: sociedad B cuenta 1',
+    public.notif_agg_wo_installment_due_this_week(soc_b)->>'count', '1');
+  -- FA ya se desembolso (Fase 3); FB sigue por desembolsar; FM (mixta) no cuenta para ninguna sociedad.
+  PERFORM pg_temp.expect('por desembolsar: sociedad A cuenta 0 (FM mixta fuera)',
+    public.notif_agg_fund_disbursement_pending(soc_a)->>'count', '0');
+  PERFORM pg_temp.expect('por desembolsar: sociedad B cuenta 1 (FB)',
+    public.notif_agg_fund_disbursement_pending(soc_b)->>'count', '1');
+  IF (public.notif_agg_fund_disbursement_pending()->>'count')::int < 2 THEN
+    RAISE EXCEPTION 'SOCIETY SCOPE FAIL — sin sociedad, por desembolsar debia contar al menos FB y FM';
+  END IF;
+  RAISE NOTICE 'PASS — sin sociedad (admin) el contador sigue siendo de toda la firma';
+
+  -- La campana: cada contable ve el contador de SU sociedad ─────────────────────────────────────────
+  PERFORM pg_temp.expect('campana del contable de A: por desembolsar 0',
+    pg_temp.rpc_text(u2, $q$SELECT public.get_my_notification_aggregates()->'fund.disbursement.pending'->>'count'$q$), '0');
+  PERFORM pg_temp.expect('campana del contable de B: por desembolsar 1',
+    pg_temp.rpc_text(u5, $q$SELECT public.get_my_notification_aggregates()->'fund.disbursement.pending'->>'count'$q$), '1');
+  PERFORM pg_temp.expect('campana del contable de B: por vencer 1',
+    pg_temp.rpc_text(u5, $q$SELECT public.get_my_notification_aggregates()->'wo.installment.due_this_week'->>'count'$q$), '1');
+
+  RAISE NOTICE 'SOCIETY SCOPE FASE 4: notification checks passed';
 END $$;
 
 DO $$ BEGIN RAISE NOTICE 'SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)'; END $$;

@@ -345,7 +345,8 @@ BEGIN
       FOR v_rec IN
         SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
         UNION
-        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_cobranzas,
+                 (SELECT e2.society_id FROM public.engagements e2 WHERE e2.engagement_id = NEW.engagement_id))
       LOOP
         PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
                   NEW.wo_id::text, v_base);

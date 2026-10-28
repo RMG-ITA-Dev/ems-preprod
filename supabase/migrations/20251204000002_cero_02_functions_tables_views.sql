@@ -1230,7 +1230,74 @@ CREATE FUNCTION public.is_society_scoped_role() RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  select coalesce(public.current_role_key() in ('accounting_manager', 'accounting_analyst', 'collections_analyst'), false);
+  select public.is_society_scoped_role_key(public.current_role_key());
+$$;
+
+
+--
+-- Name: is_society_scoped_role_key(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- La lista unica de roles con alcance por sociedad, por role_key. La usan is_society_scoped_role() (el
+-- llamador) y las notificaciones, que deciden por el rol de OTRO (el destinatario, a veces desde un cron sin sesion).
+CREATE FUNCTION public.is_society_scoped_role_key(p_role_key text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(p_role_key in ('accounting_manager', 'accounting_analyst', 'collections_analyst'), false);
+$$;
+
+
+--
+-- Name: staff_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad que limita a un staff dado: la suya si su rol tiene alcance por sociedad, NULL si no tiene limite.
+-- Para notificaciones y contadores calculados por destinatario (no por el llamador).
+CREATE FUNCTION public.staff_society_scope(p_staff_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE s.staff_id = p_staff_id
+     AND public.is_society_scoped_role_key(ur.role_key)
+   LIMIT 1
+$$;
+
+
+--
+-- Name: wo_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_society_id(p_wo_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.society_id
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+$$;
+
+
+--
+-- Name: fund_request_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad de una solicitud de fondos: la de sus OT si todas son de UNA misma sociedad; NULL si es mixta o no
+-- tiene OT (entonces ningun rol con alcance por sociedad la recibe, igual que en la RLS).
+CREATE FUNCTION public.fund_request_society_id(p_fund_request_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE WHEN count(DISTINCT e.society_id) = 1 AND bool_and(e.society_id IS NOT NULL)
+              THEN (array_agg(e.society_id))[1] END
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE frwo.fund_request_id = p_fund_request_id
 $$;
 
 

@@ -702,17 +702,27 @@ COMMENT ON FUNCTION public.engagement_approval_bucket(uuid, text) IS
   'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status, excluyendo Cancelado (6) y Finalizado (7).';
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending();
-CREATE FUNCTION public.notif_agg_fund_disbursement_pending() RETURNS jsonb
+DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending(uuid);
+CREATE FUNCTION public.notif_agg_fund_disbursement_pending(p_society_id uuid DEFAULT NULL) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     AS $$
   -- Aprobadas por el gerente y todavía sin desembolsar.
+  -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo solicitudes cuyas OT son
+  -- TODAS de esa sociedad (una mixta no cuenta para nadie con alcance por sociedad, igual que en la RLS).
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE status = 'aprobado_gerente' AND disbursed_at IS NULL;
+    FROM public.fund_requests fr
+   WHERE fr.status = 'aprobado_gerente' AND fr.disbursed_at IS NULL
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id));
 $$;
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_settlement_pending();
-CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
+DROP FUNCTION IF EXISTS public.notif_agg_fund_settlement_pending(uuid);
+CREATE FUNCTION public.notif_agg_fund_settlement_pending(p_society_id uuid DEFAULT NULL) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     AS $$
   -- Solicitudes listas para liquidar: fondos entregados, ningún gasto en curso ni esperando
@@ -723,6 +733,13 @@ CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
     FROM public.fund_requests fr
    WHERE fr.status = 'fondos_entregados'
+     -- Alcance por sociedad (2026-10-28): ver notif_agg_fund_disbursement_pending.
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id))
      AND (EXISTS (SELECT 1 FROM public.fund_request_expenses e
                    WHERE e.fund_request_id = fr.fund_request_id)
           OR public.fund_today() > public.fund_request_deadline(fr.expense_period_month))
@@ -735,24 +752,41 @@ CREATE FUNCTION public.notif_agg_fund_settlement_pending() RETURNS jsonb
 $$;
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_closure_pending();
-CREATE FUNCTION public.notif_agg_fund_closure_pending() RETURNS jsonb
+DROP FUNCTION IF EXISTS public.notif_agg_fund_closure_pending(uuid);
+CREATE FUNCTION public.notif_agg_fund_closure_pending(p_society_id uuid DEFAULT NULL) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     AS $$
   -- Liquidada pero sin cerrar: el segundo paso manual pendiente.
+  -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo solicitudes cuyas OT son
+  -- TODAS de esa sociedad (una mixta no cuenta para nadie con alcance por sociedad, igual que en la RLS).
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
-    FROM public.fund_requests
-   WHERE settled_at IS NOT NULL AND closed_at IS NULL AND status <> 'cancelado';
+    FROM public.fund_requests fr
+   WHERE fr.settled_at IS NOT NULL AND fr.closed_at IS NULL AND fr.status <> 'cancelado'
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id));
 $$;
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_expense_review_pending();
+DROP FUNCTION IF EXISTS public.notif_agg_fund_expense_review_pending(uuid);
 
-CREATE FUNCTION public.notif_agg_fund_expense_review_pending() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_fund_expense_review_pending(p_society_id uuid DEFAULT NULL) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
   SELECT jsonb_build_object('count', COUNT(*), 'items', '[]'::jsonb)
     FROM public.fund_requests fr
    WHERE fr.status = 'fondos_entregados'
+     -- Alcance por sociedad (2026-10-28): ver notif_agg_fund_disbursement_pending.
+     AND (p_society_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM public.fund_request_work_orders frwo
+             JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+             JOIN public.engagements eng ON eng.engagement_id = wo.engagement_id
+            WHERE frwo.fund_request_id = fr.fund_request_id
+              AND eng.society_id IS DISTINCT FROM p_society_id))
      AND EXISTS (
        SELECT 1 FROM public.fund_request_expenses e
         WHERE e.fund_request_id = fr.fund_request_id
@@ -760,7 +794,7 @@ CREATE FUNCTION public.notif_agg_fund_expense_review_pending() RETURNS jsonb
      );
 $BODY$;
 
-COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending() IS
+COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending(uuid) IS
   'Contador "Gastos por revisar": solicitudes en fondos_entregados con algun gasto en aprobado_gerente. Mismo predicado que el tab expenses_review de FundRequestDisbursements (tabOf + expensePhase).';
 
 -- =====================================================================
@@ -777,8 +811,9 @@ COMMENT ON FUNCTION public.notif_agg_fund_expense_review_pending() IS
 --
 
 DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_due_this_week();
+DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_due_this_week(uuid);
 
-CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
+CREATE FUNCTION public.notif_agg_wo_installment_due_this_week(p_society_id uuid DEFAULT NULL) RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
@@ -806,18 +841,21 @@ CREATE FUNCTION public.notif_agg_wo_installment_due_this_week() RETURNS jsonb
    -- (no se facturo a tiempo) es "facturacion atrasada", con su propio aviso en la Fase 3,
    -- no "por vencer".
    WHERE i.status = 'Invoiced'
+     -- Alcance por sociedad (2026-10-28): p_society_id NULL = toda la firma; con valor, solo cuotas de esa sociedad.
+     AND (p_society_id IS NULL OR public.wo_society_id(i.wo_id) = p_society_id)
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) IS NOT NULL
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) >= public.fund_today()
      AND COALESCE(i.collection_payment_date, i.agreed_payment_date) <=
          (date_trunc('week', public.fund_today())::date + 6);
 $BODY$;
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week() IS
+COMMENT ON FUNCTION public.notif_agg_wo_installment_due_this_week(uuid) IS
   'Contador "Cuotas por vencer esta semana": cuotas FACTURADAS cuya fecha de vencimiento vigente (facturacion real + dias habiles) cae entre hoy y el domingo. Lo segundo mantiene los dos contadores disjuntos: Overdue se marca a mano sin mirar fechas, asi que una cuota vencida con fecha de pago esta semana entraba en los dos. Solo la matriz de Contabilidad lo recibe (alcance department), asi que no filtra por staff.';
 
 DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_overdue(uuid, text);
+DROP FUNCTION IF EXISTS public.notif_agg_wo_installment_overdue(uuid, text, uuid);
 
-CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text)
+CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope text, p_society_id uuid DEFAULT NULL)
     RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
@@ -856,10 +894,12 @@ CREATE FUNCTION public.notif_agg_wo_installment_overdue(p_staff_id uuid, p_scope
                i.agreed_payment_date, i.collection_payment_date) = 'overdue'
          AND (p_scope <> 'assigned'
               OR p_staff_id IN (e.manager_id, e.specialist_it_id, e.specialist_tax_id))
+         -- Alcance por sociedad (2026-10-28): p_society_id NULL = sin limite; con valor, solo esa sociedad.
+         AND (p_society_id IS NULL OR e.society_id = p_society_id)
     ) q;
 $BODY$;
 
-COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text) IS
+COMMENT ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text, uuid) IS
   'Contador "Cuotas vencidas" (mora segun wo_installment_calendar_state: manual, o facturada y pasada su fecha de vencimiento vigente). Respeta el scope_key de la matriz: `assigned` limita a los encargos donde el staff es gerente (general o especialista); cualquier otro alcance cuenta toda la firma.';
 
 -- =====================================================================
@@ -1170,12 +1210,12 @@ COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
 -- Solo salen a `authenticated` las cuatro que derivan el staff de `get_my_staff_id()`.
 
 REVOKE ALL ON FUNCTION public.engagement_approval_bucket(uuid, text)            FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_fund_disbursement_pending()             FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_fund_settlement_pending()               FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_fund_closure_pending()                  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_fund_expense_review_pending()           FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_due_this_week()          FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_disbursement_pending(uuid)         FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_settlement_pending(uuid)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_closure_pending(uuid)              FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_fund_expense_review_pending(uuid)       FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_due_this_week(uuid)      FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_approval_training_pending()             FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text)      FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_timesheet_window_start()                    FROM PUBLIC, anon, authenticated;
@@ -1184,12 +1224,12 @@ REVOKE ALL ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)               
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date)  FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.engagement_approval_bucket(uuid, text)           TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_fund_disbursement_pending()            TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_fund_settlement_pending()              TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_fund_closure_pending()                 TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_fund_expense_review_pending()          TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_due_this_week()         TO service_role;
-GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text)     TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_disbursement_pending(uuid)        TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_settlement_pending(uuid)          TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_closure_pending(uuid)             TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_fund_expense_review_pending(uuid)      TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_due_this_week(uuid)     TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_wo_installment_overdue(uuid, text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_approval_training_pending()            TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_scheduler_coverage_gap(uuid, text)     TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_timesheet_window_start()                   TO service_role;
@@ -1213,6 +1253,7 @@ DECLARE
   v_from     date;
   v_scope_overdue text;
   v_scope_gap     text;
+  v_society       uuid;
 BEGIN
   IF v_staff IS NULL THEN
     RETURN v_out;
@@ -1274,27 +1315,29 @@ BEGIN
   END IF;
 
   -- ── Solicitudes de Fondos: cola de trabajo de Contabilidad ──
+  -- Alcance por sociedad (2026-10-28): para Contabilidad y Cobranzas, solo su sociedad (NULL para el resto).
+  v_society := public.staff_society_scope(v_staff);
   IF 'fund.disbursement.pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.disbursement.pending',
-                        public.notif_agg_fund_disbursement_pending());
+                        public.notif_agg_fund_disbursement_pending(v_society));
   END IF;
   IF 'fund.expense.review_pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.expense.review_pending',
-                        public.notif_agg_fund_expense_review_pending());
+                        public.notif_agg_fund_expense_review_pending(v_society));
   END IF;
   IF 'fund.settlement.pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.settlement.pending',
-                        public.notif_agg_fund_settlement_pending());
+                        public.notif_agg_fund_settlement_pending(v_society));
   END IF;
   IF 'fund.request.closure_pending' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('fund.request.closure_pending',
-                        public.notif_agg_fund_closure_pending());
+                        public.notif_agg_fund_closure_pending(v_society));
   END IF;
 
   -- ── Órdenes de Trabajo: cuotas del plan de pagos (FASE 3.b) ──
   IF 'wo.installment.due_this_week' = ANY (v_types) THEN
     v_out := v_out || jsonb_build_object('wo.installment.due_this_week',
-                        public.notif_agg_wo_installment_due_this_week());
+                        public.notif_agg_wo_installment_due_this_week(v_society));
   END IF;
   IF 'wo.installment.overdue' = ANY (v_types) THEN
     -- El scope viene de la matriz, no de una constante: el mismo contador vale `assigned`
@@ -1305,7 +1348,7 @@ BEGIN
        AND nrt.type_key = 'wo.installment.overdue';
 
     v_out := v_out || jsonb_build_object('wo.installment.overdue',
-                        public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue));
+                        public.notif_agg_wo_installment_overdue(v_staff, v_scope_overdue, v_society));
   END IF;
 
   -- ── Aprobaciones de Timesheet: capacitación (FASE 3.d) ──
