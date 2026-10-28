@@ -1798,6 +1798,17 @@
  service_role  | public       | clients                                        | address                          | REFERENCES
  service_role  | public       | clients                                        | address                          | SELECT
  service_role  | public       | clients                                        | address                          | UPDATE
+ authenticated | public       | clients                                        | billing_tax_treatment            | INSERT
+ authenticated | public       | clients                                        | billing_tax_treatment            | SELECT
+ authenticated | public       | clients                                        | billing_tax_treatment            | UPDATE
+ postgres      | public       | clients                                        | billing_tax_treatment            | INSERT
+ postgres      | public       | clients                                        | billing_tax_treatment            | REFERENCES
+ postgres      | public       | clients                                        | billing_tax_treatment            | SELECT
+ postgres      | public       | clients                                        | billing_tax_treatment            | UPDATE
+ service_role  | public       | clients                                        | billing_tax_treatment            | INSERT
+ service_role  | public       | clients                                        | billing_tax_treatment            | REFERENCES
+ service_role  | public       | clients                                        | billing_tax_treatment            | SELECT
+ service_role  | public       | clients                                        | billing_tax_treatment            | UPDATE
  authenticated | public       | clients                                        | client_id                        | INSERT
  authenticated | public       | clients                                        | client_id                        | SELECT
  authenticated | public       | clients                                        | client_id                        | UPDATE
@@ -1820,6 +1831,28 @@
  service_role  | public       | clients                                        | client_legal_name                | REFERENCES
  service_role  | public       | clients                                        | client_legal_name                | SELECT
  service_role  | public       | clients                                        | client_legal_name                | UPDATE
+ authenticated | public       | clients                                        | client_origin                    | INSERT
+ authenticated | public       | clients                                        | client_origin                    | SELECT
+ authenticated | public       | clients                                        | client_origin                    | UPDATE
+ postgres      | public       | clients                                        | client_origin                    | INSERT
+ postgres      | public       | clients                                        | client_origin                    | REFERENCES
+ postgres      | public       | clients                                        | client_origin                    | SELECT
+ postgres      | public       | clients                                        | client_origin                    | UPDATE
+ service_role  | public       | clients                                        | client_origin                    | INSERT
+ service_role  | public       | clients                                        | client_origin                    | REFERENCES
+ service_role  | public       | clients                                        | client_origin                    | SELECT
+ service_role  | public       | clients                                        | client_origin                    | UPDATE
+ authenticated | public       | clients                                        | client_type                      | INSERT
+ authenticated | public       | clients                                        | client_type                      | SELECT
+ authenticated | public       | clients                                        | client_type                      | UPDATE
+ postgres      | public       | clients                                        | client_type                      | INSERT
+ postgres      | public       | clients                                        | client_type                      | REFERENCES
+ postgres      | public       | clients                                        | client_type                      | SELECT
+ postgres      | public       | clients                                        | client_type                      | UPDATE
+ service_role  | public       | clients                                        | client_type                      | INSERT
+ service_role  | public       | clients                                        | client_type                      | REFERENCES
+ service_role  | public       | clients                                        | client_type                      | SELECT
+ service_role  | public       | clients                                        | client_type                      | UPDATE
  authenticated | public       | clients                                        | created_at                       | INSERT
  authenticated | public       | clients                                        | created_at                       | SELECT
  authenticated | public       | clients                                        | created_at                       | UPDATE
@@ -1864,17 +1897,50 @@
  service_role  | public       | clients                                        | is_active                        | REFERENCES
  service_role  | public       | clients                                        | is_active                        | SELECT
  service_role  | public       | clients                                        | is_active                        | UPDATE
- authenticated | public       | clients                                        | unique_tax_id                    | INSERT
- authenticated | public       | clients                                        | unique_tax_id                    | SELECT
- authenticated | public       | clients                                        | unique_tax_id                    | UPDATE
- postgres      | public       | clients                                        | unique_tax_id                    | INSERT
- postgres      | public       | clients                                        | unique_tax_id                    | REFERENCES
- postgres      | public       | clients                                        | unique_tax_id                    | SELECT
- postgres      | public       | clients                                        | unique_tax_id                    | UPDATE
- service_role  | public       | clients                                        | unique_tax_id                    | INSERT
- service_role  | public       | clients                                        | unique_tax_id                    | REFERENCES
- service_role  | public       | clients                                        | unique_tax_id                    | SELECT
- service_role  | public       | clients                                        | unique_tax_id                    | UPDATE
+ authenticated | public       | clients                                        | operating_name                   | INSERT
+ authenticated | public       | clients                                        | operating_name                   | SELECT
+ authenticated | public       | clients                                        | operating_name                   | UPDATE
+ postgres      | public       | clients                                        | operating_name                   | INSERT
+ postgres      | public       | clients                                        | operating_name                   | REFERENCES
+ postgres      | public       | clients                                        | operating_name                   | SELECT
+ postgres      | public       | clients                                        | operating_name                   | UPDATE
+ service_role  | public       | clients                                        | operating_name                   | INSERT
+ service_role  | public       | clients                                        | operating_name                   | REFERENCES
+ service_role  | public       | clients                                        | operating_name                   | SELECT
+ service_role  | public       | clients                                        | operating_name                   | UPDATE
+ authenticated | public       | clients                                        | parent_client_id                 | INSERT
+ authenticated | public       | clients                                        | parent_client_id                 | SELECT
+ authenticated | public       | clients                                        | parent_client_id                 | UPDATE
+ postgres      | public       | clients                                        | parent_client_id                 | INSERT
+ postgres      | public       | clients                                        | parent_client_id                 | REFERENCES
+ postgres      | public       | clients                                        | parent_client_id                 | SELECT
+ postgres      | public       | clients                                        | parent_client_id                 | UPDATE
+ service_role  | public       | clients                                        | parent_client_id                 | INSERT
+ service_role  | public       | clients                                        | parent_client_id                 | REFERENCES
+ service_role  | public       | clients                                        | parent_client_id                 | SELECT
+ service_role  | public       | clients                                        | parent_client_id                 | UPDATE
+ authenticated | public       | clients                                        | parent_relationship              | INSERT
+ authenticated | public       | clients                                        | parent_relationship              | SELECT
+ authenticated | public       | clients                                        | parent_relationship              | UPDATE
+ postgres      | public       | clients                                        | parent_relationship              | INSERT
+ postgres      | public       | clients                                        | parent_relationship              | REFERENCES
+ postgres      | public       | clients                                        | parent_relationship              | SELECT
+ postgres      | public       | clients                                        | parent_relationship              | UPDATE
+ service_role  | public       | clients                                        | parent_relationship              | INSERT
+ service_role  | public       | clients                                        | parent_relationship              | REFERENCES
+ service_role  | public       | clients                                        | parent_relationship              | SELECT
+ service_role  | public       | clients                                        | parent_relationship              | UPDATE
+ authenticated | public       | clients                                        | tax_id                           | INSERT
+ authenticated | public       | clients                                        | tax_id                           | SELECT
+ authenticated | public       | clients                                        | tax_id                           | UPDATE
+ postgres      | public       | clients                                        | tax_id                           | INSERT
+ postgres      | public       | clients                                        | tax_id                           | REFERENCES
+ postgres      | public       | clients                                        | tax_id                           | SELECT
+ postgres      | public       | clients                                        | tax_id                           | UPDATE
+ service_role  | public       | clients                                        | tax_id                           | INSERT
+ service_role  | public       | clients                                        | tax_id                           | REFERENCES
+ service_role  | public       | clients                                        | tax_id                           | SELECT
+ service_role  | public       | clients                                        | tax_id                           | UPDATE
  authenticated | public       | clients                                        | updated_at                       | INSERT
  authenticated | public       | clients                                        | updated_at                       | SELECT
  authenticated | public       | clients                                        | updated_at                       | UPDATE
@@ -3873,6 +3939,17 @@
  service_role  | public       | industries                                     | industry_name                    | REFERENCES
  service_role  | public       | industries                                     | industry_name                    | SELECT
  service_role  | public       | industries                                     | industry_name                    | UPDATE
+ authenticated | public       | industries                                     | status                           | INSERT
+ authenticated | public       | industries                                     | status                           | SELECT
+ authenticated | public       | industries                                     | status                           | UPDATE
+ postgres      | public       | industries                                     | status                           | INSERT
+ postgres      | public       | industries                                     | status                           | REFERENCES
+ postgres      | public       | industries                                     | status                           | SELECT
+ postgres      | public       | industries                                     | status                           | UPDATE
+ service_role  | public       | industries                                     | status                           | INSERT
+ service_role  | public       | industries                                     | status                           | REFERENCES
+ service_role  | public       | industries                                     | status                           | SELECT
+ service_role  | public       | industries                                     | status                           | UPDATE
  authenticated | public       | industries                                     | updated_at                       | INSERT
  authenticated | public       | industries                                     | updated_at                       | SELECT
  authenticated | public       | industries                                     | updated_at                       | UPDATE
@@ -8681,5 +8758,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                       | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                       | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                       | SELECT
-(8681 rows)
+(8758 rows)
 
