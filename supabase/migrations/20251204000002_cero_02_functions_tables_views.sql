@@ -4001,6 +4001,19 @@ BEGIN
   -- Alcance por sociedad (2026-10-28): todas las OT de la solicitud deben ser de la sociedad del
   -- SOLICITANTE (no del que envia: un admin puede actuar por el). El trigger de la relacion OT-solicitud
   -- lo exige al armarla; aqui se revalida por si algo cambio despues del alta.
+  --
+  -- Carrera con un cambio de sociedad del encargo (review del PR, 2026-10-28): antes de revisar se
+  -- bloquean en modo compartido los encargos de sus OT. El UPDATE de society_id toma el bloqueo de fila
+  -- del encargo, que choca con FOR SHARE. Si el admin cambio primero, este envio espera y revisa la
+  -- sociedad NUEVA; si el envio va primero, el cambio espera y engagements_guard_society_change ya ve la
+  -- solicitud enviada y lo rechaza. Orden fijo por engagement_id para no cruzar bloqueos.
+  PERFORM 1
+    FROM public.engagements e
+    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+   WHERE frwo.fund_request_id = p_fund_request_id
+   ORDER BY e.engagement_id
+     FOR SHARE OF e;
   PERFORM public.fund_request_assert_requester_society(p_fund_request_id, NULL);
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.

@@ -374,6 +374,12 @@ describe("Collections — alcance por sociedad", () => {
     expect(screen.getByTestId("location-search").textContent).toBe("?tab=en_mora");
   });
 
+  it("al limpiar la sociedad también vuelve a la primera página: la del enlace puede no existir", () => {
+    renderPage("/collections?sociedad=s1&page=3&tab=en_mora");
+    expect(screen.getByTestId("location-search").textContent).toBe("?tab=en_mora");
+    expect(lastFilters?.offset).toBe(0);
+  });
+
   it("el Gerente de Contabilidad tampoco ve el selector", () => {
     authState.roleKey = "accounting_manager";
     renderPage();

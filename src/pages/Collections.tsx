@@ -105,11 +105,13 @@ export default function Collections() {
   };
 
   // Un enlace compartido por admin puede traer `sociedad`: para estos roles se limpia de la URL, para
-  // que no quede un filtro que la pantalla no muestra.
+  // que no quede un filtro que la pantalla no muestra. La página también: la del enlace era sobre el
+  // resultado de admin, y en el de la propia sociedad puede no existir (tabla vacía y sin paginador).
   useEffect(() => {
     if (!societyLocked || !params.has("sociedad")) return;
     const next = new URLSearchParams(params);
     next.delete("sociedad");
+    next.delete("page");
     setParams(next, { replace: true });
   }, [societyLocked, params, setParams]);
 
