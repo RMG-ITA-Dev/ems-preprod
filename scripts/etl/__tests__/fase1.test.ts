@@ -58,7 +58,7 @@ const INVENTORY = {
 // Mundo simulado: Postgres + Auth con los triggers relevantes (enlace por correo, primer rol = admin).
 
 function makeWorld() {
-  return { staff: null as any, authUsers: [] as any[], roles: [] as any[], holidays: [] as any[], clients: 0, writes: 0, holidayConflict: false };
+  return { staff: null as any, authUsers: [] as any[], roles: [] as any[], holidays: [] as any[], clients: 0, ops: { client_contacts: 0, engagements: 0, work_orders: 0, time_entries: 0, skills: 0 } as Record<string, number>, writes: 0, holidayConflict: false };
 }
 
 function makeHooks() {
@@ -83,7 +83,7 @@ function makeDb(world: any, hooks: any) {
       return null;
     },
     async preconditions() {
-      return { auth_users: world.authUsers.length, staff: world.staff ? 1 : 0, user_roles: world.roles.length, clients: world.clients, engagements: 0, work_orders: 0, holidays: world.holidays.length };
+      return { auth_users: world.authUsers.length, staff: world.staff ? 1 : 0, user_roles: world.roles.length, clients: world.clients, ...world.ops, holidays: world.holidays.length };
     },
     async catalogCheck() {
       return { society: 1, practice: 1, category: 1 };
@@ -150,14 +150,13 @@ function makeDb(world: any, hooks: any) {
         holidays_md5: JSON.stringify(world.holidays),
         auth_users: world.authUsers.length,
         clients: world.clients,
-        engagements: 0,
-        work_orders: 0,
+        ...world.ops,
         notifications: 0,
         notification_emails: 0,
       };
     },
     async countsForVerify() {
-      return { staff: world.staff ? 1 : 0, auth_users: world.authUsers.length, user_roles: world.roles.length, clients: world.clients, engagements: 0, work_orders: 0, notifications: 0, notification_emails: 0, notification_emails_pending: 0 };
+      return { staff: world.staff ? 1 : 0, auth_users: world.authUsers.length, user_roles: world.roles.length, clients: world.clients, ...world.ops, notifications: 0, notification_emails: 0, notification_emails_pending: 0 };
     },
     async findStaffByEmail(email: string) {
       return world.staff && world.staff.email === email ? [world.staff.staff_id] : [];
@@ -397,6 +396,34 @@ describe("inicialización feliz y repetición", () => {
 });
 
 describe("casos de ambigüedad: ninguno genera una identidad nueva", () => {
+  // El contrato de «instalación limpia» es el de verify-seed.sql: cero clientes, contactos, encargos, OT, horas y
+  // skills. Una fila en CUALQUIERA de estas tablas es un dato ajeno: initialize debe bloquear antes de crear nada.
+  it.each(["client_contacts", "engagements", "work_orders", "time_entries", "skills"])(
+    "una fila en %s: preflight falla y initialize bloquea antes de crear ficha o cuenta, sin escribir nada",
+    async (tabla) => {
+      const t = setup();
+      t.world.ops[tabla] = 1;
+      t.logs.length = 0;
+      expect((await preflight(t.mk())).ok).toBe(false);
+      expect(t.logs.join("\n")).toContain(`${tabla}=1`);
+      t.logs.length = 0;
+      await expect(initialize(t.mk())).rejects.toMatchObject({ code: "BLOQUEADO", message: expect.stringContaining("el preflight falló") });
+      expect(t.logs.join("\n")).toContain(`${tabla}=1`); // el detalle va en el registro del preflight
+      expect(t.world.staff).toBeNull();
+      expect(t.world.authUsers).toHaveLength(0);
+      expect(t.world.holidays).toHaveLength(0);
+      expect(t.world.writes).toBe(0);
+      expect(t.hooks.createCalls).toBe(0);
+    },
+  );
+
+  it("el mensaje de estado limpio nombra exactamente lo que se comprobó", async () => {
+    const t = setup();
+    t.logs.length = 0;
+    expect((await preflight(t.mk())).ok).toBe(true);
+    expect(t.logs.join("\n")).toContain("cero cuentas, fichas, roles, feriados, clientes, contactos, encargos, OT, horas y skills");
+  });
+
   it("cuenta ajena previa: no se crea nada y el journal no se bloquea", async () => {
     const t = setup();
     t.world.authUsers.push({ id: randomUUID(), email: "otra@ruizmier.com", user_metadata: {} });
@@ -572,6 +599,20 @@ describe("verify", () => {
     };
     await expect(initialize(t.mk({ db }))).rejects.toMatchObject({ code: "BLOQUEADO" });
   });
+
+  it.each(["clients", "client_contacts", "engagements", "work_orders", "time_entries", "skills"])(
+    "falla si aparece una fila en %s tras inicializar",
+    async (tabla) => {
+      const t = setup();
+      await initialize(t.mk());
+      expect((await verify(t.mk())).ok).toBe(true);
+      if (tabla === "clients") t.world.clients = 1;
+      else t.world.ops[tabla] = 1;
+      t.logs.length = 0;
+      expect((await verify(t.mk())).ok).toBe(false);
+      expect(t.logs.join("\n")).toContain("cero clientes, contactos y operaciones");
+    },
+  );
 
   it("sin journal, localiza la ficha por correo", async () => {
     const t = setup();

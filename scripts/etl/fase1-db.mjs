@@ -20,6 +20,12 @@ export const ADMIN_DEFAULTS = Object.freeze({ weeklyCapacityHours: 40, targetUti
 export const EXPECTED_HOLIDAYS = 28;
 
 /**
+ * Tablas que deben estar VACÍAS en una instalación nueva (y seguir vacías tras inicializar): las mismas que
+ * comprueba verify-seed.sql. La consola no carga clientes ni operaciones; cualquier fila ahí es un dato ajeno.
+ */
+export const CLEAN_TABLES = Object.freeze(["clients", "client_contacts", "engagements", "work_orders", "time_entries", "skills"]);
+
+/**
  * Calendario esperado, como "fecha|oficina|nombre". Es la MISMA lista literal que declara
  * public.seed_initial_holidays (cero_15) y que verifica verify-seed.sql: la prueba
  * "el calendario esperado coincide con cero_15" impide que se desalineen. `verify` la usa para
@@ -234,8 +240,11 @@ const TABLE_ALLOWLIST = new Set([
   "public.staff",
   "public.user_roles",
   "public.clients",
+  "public.client_contacts",
   "public.engagements",
   "public.work_orders",
+  "public.time_entries",
+  "public.skills",
   "public.holidays",
   "public.notifications",
   "public.notification_emails",
@@ -309,8 +318,11 @@ export function createDbAdapter({ env = process.env, execFileImpl } = {}) {
           'staff', ${countExpr("public.staff")},
           'user_roles', ${countExpr("public.user_roles")},
           'clients', ${countExpr("public.clients")},
+          'client_contacts', ${countExpr("public.client_contacts")},
           'engagements', ${countExpr("public.engagements")},
           'work_orders', ${countExpr("public.work_orders")},
+          'time_entries', ${countExpr("public.time_entries")},
+          'skills', ${countExpr("public.skills")},
           'holidays', ${countExpr("public.holidays")})::text;`);
     },
 
@@ -446,8 +458,11 @@ export function createDbAdapter({ env = process.env, execFileImpl } = {}) {
           'holidays_md5', COALESCE((SELECT md5(string_agg(t::text, ';' ORDER BY t.holiday_date, t.oficina)) FROM public.holidays t), ''),
           'auth_users', ${countExpr("auth.users")},
           'clients', ${countExpr("public.clients")},
+          'client_contacts', ${countExpr("public.client_contacts")},
           'engagements', ${countExpr("public.engagements")},
           'work_orders', ${countExpr("public.work_orders")},
+          'time_entries', ${countExpr("public.time_entries")},
+          'skills', ${countExpr("public.skills")},
           'notifications', ${countExpr("public.notifications")},
           'notification_emails', ${countExpr("public.notification_emails")})::text;`);
     },
@@ -459,8 +474,11 @@ export function createDbAdapter({ env = process.env, execFileImpl } = {}) {
           'auth_users', ${countExpr("auth.users")},
           'user_roles', ${countExpr("public.user_roles")},
           'clients', ${countExpr("public.clients")},
+          'client_contacts', ${countExpr("public.client_contacts")},
           'engagements', ${countExpr("public.engagements")},
           'work_orders', ${countExpr("public.work_orders")},
+          'time_entries', ${countExpr("public.time_entries")},
+          'skills', ${countExpr("public.skills")},
           'notifications', ${countExpr("public.notifications")},
           'notification_emails', ${countExpr("public.notification_emails")},
           'notification_emails_pending', CASE WHEN to_regclass('public.notification_emails') IS NULL THEN NULL

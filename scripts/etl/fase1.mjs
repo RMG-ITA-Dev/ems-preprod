@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import {
   ADMIN_DEFAULTS,
   EXPECTED_HOLIDAYS,
+  CLEAN_TABLES,
   Fase1Error,
   REPO_ROOT,
   connectionGuardProblems,
@@ -472,7 +473,7 @@ export async function runPreflight(ctx, { strictClean = true } = {}) {
       owned = false;
     }
   }
-  if (dirty.length === 0) add("estado previo limpio (preinit)", true, "cero cuentas, fichas, roles, clientes, operaciones y feriados");
+  if (dirty.length === 0) add("estado previo limpio (preinit)", true, "cero cuentas, fichas, roles, feriados, clientes, contactos, encargos, OT, horas y skills");
   else if (owned) add("estado previo", true, `instalación con journal propio (${dirty.join(", ")})`, "warn");
   else add("estado previo limpio (preinit)", !strictClean, `existen datos sin journal propio: ${dirty.join(", ")}`);
 
@@ -518,7 +519,9 @@ export async function verifyPersisted(ctx, { staffId, authUserId }) {
   add(`los ${EXPECTED_HOLIDAYS} feriados coinciden con el calendario esperado (fecha, oficina y nombre)`, Number(holidays.matching) === EXPECTED_HOLIDAYS, `coinciden=${holidays.matching} de ${EXPECTED_HOLIDAYS}`);
 
   const counts = await ctx.db.countsForVerify();
-  add("cero clientes y cero operaciones", [counts.clients, counts.engagements, counts.work_orders].every((n) => Number(n) === 0), `clientes=${counts.clients} encargos=${counts.engagements} OT=${counts.work_orders}`);
+  // Mismo conjunto que verify-seed.sql (modo initialized): ninguna fila de cliente, contacto ni operación.
+  add("cero clientes, contactos y operaciones", CLEAN_TABLES.every((k) => Number(counts[k] ?? 0) === 0),
+    `clientes=${counts.clients} contactos=${counts.client_contacts} encargos=${counts.engagements} OT=${counts.work_orders} horas=${counts.time_entries} skills=${counts.skills}`);
   ctx.log(`INFO — cola de correo: notification_emails=${counts.notification_emails} pendientes=${counts.notification_emails_pending} · notifications=${counts.notifications} (concilie antes de habilitar MAIL_ENABLED)`);
   return checks;
 }
