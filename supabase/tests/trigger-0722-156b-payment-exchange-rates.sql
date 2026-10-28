@@ -48,7 +48,7 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000c1', 'PER Test Society');
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'PER Test Client', 'PER-TAX-001');
 
 -- ══════════════════════════════════════════════════════════════════════

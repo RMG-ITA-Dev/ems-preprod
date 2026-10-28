@@ -72,8 +72,9 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
 1. Carga las credenciales **públicas** del proyecto objetivo desde un archivo `.env` que le
    indiques (nunca lee ni imprime su contenido — solo verifica por *nombre* que las
    variables existan).
-2. Pide por prompt oculto las **2 credenciales secretas** (connection string, service_role
-   key) — salvo que ya estén exportadas en tu shell.
+2. Pide por prompt oculto el **connection string** de Postgres (Session pooler) — salvo que ya
+   esté exportado en tu shell. La service_role/secret key ya no se pide acá: la necesita la
+   consola de inicialización (§5).
 3. Verificación no-secreta: que el project-ref aparezca dentro del connection string (evita
    apuntar por error a otro ambiente).
 4. `supabase link --project-ref <REF>` si todavía no está linkeado a ese proyecto.
@@ -81,16 +82,15 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
    que el script continúe. No hay flag para saltarla.
 6. `supabase db reset --linked` — borra todo y reaplica las 14 migraciones.
 7. Verifica convergencia (`migration list --linked`, `db push --dry-run --linked`).
-8. Corre `verify-seed.sql` contra la base real (24 chequeos: conteos, ADM/is_system,
-   `ADM_ACTIVITY_ID`, 61/61 `default_app_role`, feriados vs generador, cero datos demo,
-   bootstrap completo, cron jobs `finalize-stale-timers`/`finalize-engagements` activos,
-   `LANGUAGE`/`ALLOW_WEEKEND_TRACKING` presentes).
-9. Corre `verify-auth-bootstrap.sh` (Admin API → login por password → `get_my_staff_id()` →
-   1 fila admin) — el gate real del INSERT en `auth.users`/`auth.identities`. **Este paso fija
-   por Admin API una contraseña temporal de patrón conocido en la cuenta admin real** (ver
-   advertencia en §5) — se acepta esa exposición a cambio de probar el login real contra el
-   ambiente real, no solo el esquema. Se mitiga fijando una contraseña real inmediatamente
-   después (§5), paso que ya era obligatorio.
+8. Corre `verify-seed.sql` en modo **`preinit`** (`-v etl_f1_mode=preinit`) contra la base real:
+   catálogos y configuración definitivos (industrias, gastos, prácticas/categorías, RBAC, ajustes,
+   `ADM_ACTIVITY_ID`, `default_app_role`/`default_role_key`, cron jobs) y **cero** clientes, staff,
+   cuentas de usuario, roles y feriados.
+9. **No inicializa.** Informa «INICIALIZACIÓN PENDIENTE» y termina: ya no existe una cuenta fija
+   en el seed (`cero_14` quedó como no-op) ni se llama automáticamente a
+   `verify-auth-bootstrap.sh`. El primer administrador y el calendario los crea la consola
+   específica (§5), con su propia autorización. Este script reconstruye; no declara operativo el
+   ambiente.
 
 Si cualquier paso falla, el script se detiene ahí (`set -euo pipefail`) — no sigue a ciegas.
 
@@ -115,7 +115,7 @@ lista completa de alias).
 Vas a ver, en orden:
 
 1. `PASS — SUPABASE_DB_URL de '<archivo>' referencia el project-ref esperado.` — antes de
-   esto, si faltan las públicas te dice cuáles, y te pide las 2 secretas por prompt oculto
+   esto, si faltan las públicas te dice cuáles, y te pide el connection string por prompt oculto
    (pegá y Enter, sin ver nada en pantalla — es lo esperado, no un error).
 2. El check/creación del link.
 3. La advertencia destructiva, terminando en `Escribí exactamente el project-ref para
@@ -123,49 +123,49 @@ Vas a ver, en orden:
    cosa aborta sin tocar nada.
 4. `supabase db reset --linked` — vas a ver "Applying migration..." × 14.
 5. `migration list --linked` + `db push --dry-run` → debería decir 0 pendientes.
-6. `verify-seed.sql` → 22 líneas `NOTICE: PASS — ...` terminando en
+6. `verify-seed.sql` en modo preinit → líneas `NOTICE: PASS — ...` terminando en
    `VERIFY-SEED: ALL CHECKS PASSED`. (Los acentos/ñ pueden verse como `â?"`/`A-` en Windows —
    es solo encoding del cliente `psql`, cosmético, ver §6.)
-7. `verify-auth-bootstrap.sh` → termina en `VERIFY-AUTH-BOOTSTRAP: ALL CHECKS PASSED`.
-8. `RESET-DESDE-CERO: proyecto '<ref>' reconstruido y verificado end-to-end.`
+7. `RESET-DESDE-CERO: proyecto '<ref>' reconstruido y verificado en modo preinit.`, seguido de
+   `INICIALIZACIÓN PENDIENTE`: el ambiente todavía **no** es operativo (§5).
 
 Si algo falla, pegá el error completo a quien te esté ayudando — no reintentes por tu cuenta
 si falla a mitad del `db reset` (ver troubleshooting, §6).
 
-## 5. Después del script: activar al admin y probar la app — PASO NO OPCIONAL
+## 5. Después del script: inicializar con la consola — PASO APARTE
 
-**Advertencia (fuga aceptada y ya mitigada por este mismo paso):** el seed (`cero_14`) inserta
-al admin con una contraseña aleatoria e inutilizable — hasta ahí, nadie la conoce. Pero el
-paso 9 del script (`verify-auth-bootstrap.sh`, §3) la **sobreescribe** con una contraseña
-temporal de patrón conocido (`verify-bootstrap-<epoch>-<pid>!Aa1`) para probar el login real
-contra el ambiente real. Al terminar el script, la cuenta admin **ya no tiene** la contraseña
-inutilizable del seed — tiene esa temporal, reconstruible por cualquiera que sepa
-aproximadamente cuándo corrió el script. Esto es un compromiso aceptado (el mismo camino que
-recorre un usuario real, no solo el esquema), y su mitigación es este paso: no es una
-recomendación, es **obligatorio ejecutarlo inmediatamente** después de que el script termine —
-mientras no se haga, el ambiente recién reseteado tiene un admin con contraseña conocida activa.
+`reset-desde-cero.sh` deja el ambiente **sin cuentas**: no hay administrador, ni ficha de personal,
+ni feriados (`cero_14` es un no-op y `cero_15` solo declara la función `seed_initial_holidays`).
+El primer administrador — la cuenta **genérica** `admin@ruizmier.com` (`Admin EMS`, categoría
+Socio de Auditoría, `is_schedulable = false`) — y los 28 feriados los crea la consola específica de
+fase 1 (`scripts/etl/README.md`). Es un paso **separado y con su propia autorización**: reconstruir
+no autoriza inicializar, y la inicialización remota no la autoriza este documento.
 
-**a) Fijar la contraseña real** (necesita la service_role/secret key otra vez — Settings → API):
+Antes de ejecutarla (resumen; el detalle está en el README de la consola):
+
+- El registro público (Bootstrap y `register-user`) debe estar **cerrado**: el único alta es el
+  administrador por consola. `handle_new_user` convierte en admin al primer usuario que se registre.
+- Variables de entorno, nunca en archivos versionados ni en el chat: `PG*` (pooler, usuario
+  `postgres.<ref>`), `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_TEMP_PASSWORD`,
+  `ETL_F1_STATE_DIR` (ruta absoluta fuera del repositorio), `ETL_F1_SIGNUP_CLOSED=1` y
+  `ETL_F1_WINDOW_CONFIRMED=<ref>`.
+- Correo: `MAIL_ENABLED=false` en el ensayo; concilie la cola `notification_emails` antes de
+  habilitar cualquier envío.
+- Un reset de base **no** elimina por sí solo las cuentas de Auth de ensayo: controle y trate
+  `auth.users` por separado antes de reinicializar (la consola se niega a trabajar sobre cuentas
+  ajenas a su journal).
 
 ```bash
-read -s -p "service_role/secret key: " SUPABASE_SERVICE_ROLE_KEY
-export SUPABASE_SERVICE_ROLE_KEY
-
-curl -s -X PUT "https://<REF>.supabase.co/auth/v1/admin/users/c32c03fd-ddfb-4ae2-9176-664982d4621e" \
-  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"password": "<elegí una contraseña real, la vas a usar para loguearte>"}'
+node scripts/etl/fase1.mjs preflight  --config <configuración privada>
+node scripts/etl/fase1.mjs initialize --config <configuración privada>
+node scripts/etl/fase1.mjs verify     --config <configuración privada>
 ```
 
-Una respuesta con el JSON del usuario (email, id, `updated_at` reciente) confirma que
-funcionó. `c32c03fd-ddfb-4ae2-9176-664982d4621e` es el UUID fijo del admin del seed —
-siempre el mismo en cualquier ambiente reseteado con este set (está declarado en
-`supabase/migrations/*_cero_14_seed_admin_bootstrap.sql`).
+La contraseña de `admin@ruizmier.com` es la temporal `ADMIN_TEMP_PASSWORD` con la que la consola crea
+la cuenta; es una cuenta de acceso inicial que **se elimina en el reset de producción**. No la pegue en
+chats ni la guarde en archivos versionados.
 
-**b) Levantar la app apuntada a este proyecto:**
-
-En la raíz de `aurora-engage-pro-908f8234` (rama `refactor/bd-migracion-cero`), creá/editá
+**Levantar la app apuntada a este proyecto:** en la raíz de `aurora-engage-pro-908f8234`, cree/edite
 `.env.local` (gitignored, nunca se commitea):
 
 ```
@@ -173,15 +173,8 @@ VITE_SUPABASE_URL=https://<REF>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<la publishable/anon key — no la secreta>
 ```
 
-Después:
-
-```bash
-npm run dev
-```
-
-**c) Login:** correo `neilgraneros@ruizmier.com`, la contraseña que fijaste en (a). Si te da
-`400 Bad Request` en `/auth/v1/token`, es la contraseña equivocada (no la del connection
-string, no una que hayas probado "al boleo" — la que realmente pusiste en el curl de (a)).
+Después `npm run dev` y login con `admin@ruizmier.com` y la contraseña temporal. Si da `400 Bad
+Request` en `/auth/v1/token`, es la contraseña equivocada (no la del connection string).
 
 ## 6. Troubleshooting (hallazgos reales de la ejecución contra "Test")
 
@@ -264,10 +257,10 @@ que todavía no fue reseteado con el set consolidado.
 
 ## 7. Checklist manual post-reset (plan §7.3 — no lo hace el script, es criterio humano)
 
-- [ ] **Activar al admin del seed** (§5 de este documento) — hecho vía Admin API, contraseña
-      real fijada.
-- [ ] Login con ese admin en la app apuntada al proyecto reseteado; verificar que
-      `get_my_staff_id()` resuelve (ya lo probó el script, pero confirmarlo desde la UI real).
+- [ ] **Inicialización pendiente resuelta** (§5): consola `preflight` / `initialize` / `verify`
+      ejecutada con su autorización propia; sin ella el ambiente NO es operativo.
+- [ ] Login con `admin@ruizmier.com` en la app apuntada al proyecto reseteado; verificar que
+      `get_my_staff_id()` resuelve (ya lo probó la consola, pero confirmarlo desde la UI real).
 - [ ] `HOLIDAY_ENGAGEMENT_ID` vacío por diseño — completar a mano cuando exista el encargo de
       feriados/no facturable.
 - [ ] Alta de un equipo/asignación de prueba con `skills` vacío — debe funcionar.

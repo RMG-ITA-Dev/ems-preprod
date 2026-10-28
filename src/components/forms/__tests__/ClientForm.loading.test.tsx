@@ -44,7 +44,7 @@ import type { ClientFull } from "@/hooks/useEmsData";
 const client = {
   client_id: "c-1",
   client_legal_name: "Cliente Uno",
-  unique_tax_id: "123456",
+  tax_id: "123456",
   industry_id: null,
   address: "Calle 1",
   is_active: true,

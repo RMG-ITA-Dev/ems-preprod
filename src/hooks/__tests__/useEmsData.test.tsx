@@ -205,7 +205,7 @@ describe("useEmsData hooks", () => {
         {
           client_id: "1",
           client_legal_name: "Acme Corp",
-          // Note: unique_tax_id is NOT in the directory view for security
+          // Note: tax_id is NOT in the directory view for security
           industry: { industry_id: "1", industry_name: "Tech" },
         },
       ];

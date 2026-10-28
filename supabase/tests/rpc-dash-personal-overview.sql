@@ -41,7 +41,7 @@ BEGIN
 END $$;
 
 -- ── Cliente / categoría / actividades / tipo de gasto ────────────────────────────────────
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('60902150-0000-4000-8000-000000000001', 'Cliente 902150', 'NIT-902150-1')
 ON CONFLICT (client_id) DO NOTHING;
 

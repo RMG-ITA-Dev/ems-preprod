@@ -836,6 +836,11 @@ CREATE TABLE public.categories (
     can_approve_timesheets boolean DEFAULT false,
     default_app_role public.app_role,
     practica_id uuid NOT NULL,
+    -- BUG 0820-182 (ETL fase 1, plan_v2.md §3): rol del catálogo authorization_roles que la
+    -- categoría SUGIERE al vincular un usuario. Nace aquí para que forme parte de la estructura
+    -- inicial; el check "no admin" va en cero_03 y la FK en cero_04. cero_11 no asigna valores
+    -- (authorization_roles todavía está vacía): las 61 sugerencias se completan al final de cero_13.
+    default_role_key text,
     CONSTRAINT categories_display_order_positive CHECK ((display_order >= 1))
 );
 
@@ -6934,7 +6939,7 @@ COMMENT ON COLUMN public.authorization_roles.legacy_app_role IS 'Valor del enum 
 CREATE TABLE public.clients (
     client_id uuid DEFAULT gen_random_uuid() NOT NULL,
     client_legal_name character varying(255) NOT NULL,
-    unique_tax_id character varying(50) NOT NULL,
+    tax_id character varying(50) NOT NULL,
     industry_id uuid,
     -- Cobranzas Fase 5 (issue #352, decisiones del operador Q20/Q52): los tres contact_* que
     -- vivian aca se retiran. Un solo contacto por cliente no alcanzaba: Cobranzas necesita el
@@ -6944,8 +6949,25 @@ CREATE TABLE public.clients (
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    created_by_staff_id uuid
+    created_by_staff_id uuid,
+    -- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md §3, modelo de clientes de ETL 02): todos
+    -- nullable y SIN default; dominios, par padre/relación y FK en cero_03 / cero_04. El
+    -- guardado operativo (save_client_with_contacts) no los envía: INSERT deja NULL, UPDATE los conserva.
+    operating_name character varying(255),
+    client_type text,
+    parent_client_id uuid,
+    parent_relationship text,
+    client_origin text,
+    billing_tax_treatment text
 );
+
+
+--
+--
+-- Name: COLUMN clients.tax_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.tax_id IS 'NIT del cliente. NO es único: proyectos, sucursales y fideicomisos comparten NIT (p. ej. 99001, NIT genérico). La identidad técnica es client_id.';
 
 
 --
@@ -7365,6 +7387,9 @@ CREATE TABLE public.industries (
     industry_id uuid DEFAULT gen_random_uuid() NOT NULL,
     industry_name character varying(100) NOT NULL,
     fiscal_year_end character varying(50) NOT NULL,
+    -- ETL fase 1 (ETL 01): una industria retirada se conserva para las referencias históricas
+    -- pero no se ofrece para asignaciones nuevas. Dominio en cero_03 (industries_status_check).
+    status text DEFAULT 'active' NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now()
 );
@@ -9125,7 +9150,7 @@ $$;
 -- El id lo genera el formulario (mismo motivo que useCreateClient: el alta desde el cliente no
 -- puede leer la fila que acaba de crear).
 --
--- p_client: {client_legal_name, unique_tax_id, industry_id?, address?, is_active?}. En la
+-- p_client: {client_legal_name, tax_id, industry_id?, address?, is_active?}. En la
 -- edicion, una clave ausente deja el valor como esta (igual que el UPDATE parcial de antes).
 CREATE FUNCTION public.save_client_with_contacts(
   p_client_id uuid,
@@ -9155,11 +9180,11 @@ BEGIN
   END IF;
 
   IF p_is_new THEN
-    INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id, address, is_active)
+    INSERT INTO public.clients (client_id, client_legal_name, tax_id, industry_id, address, is_active)
     VALUES (
       p_client_id,
       p_client->>'client_legal_name',
-      p_client->>'unique_tax_id',
+      p_client->>'tax_id',
       NULLIF(p_client->>'industry_id', '')::uuid,
       NULLIF(p_client->>'address', ''),
       COALESCE((p_client->>'is_active')::boolean, true)
@@ -9167,7 +9192,7 @@ BEGIN
   ELSE
     UPDATE public.clients c
        SET client_legal_name = CASE WHEN p_client ? 'client_legal_name' THEN p_client->>'client_legal_name' ELSE c.client_legal_name END,
-           unique_tax_id     = CASE WHEN p_client ? 'unique_tax_id' THEN p_client->>'unique_tax_id' ELSE c.unique_tax_id END,
+           tax_id            = CASE WHEN p_client ? 'tax_id' THEN p_client->>'tax_id' ELSE c.tax_id END,
            industry_id       = CASE WHEN p_client ? 'industry_id' THEN NULLIF(p_client->>'industry_id', '')::uuid ELSE c.industry_id END,
            address           = CASE WHEN p_client ? 'address' THEN NULLIF(p_client->>'address', '') ELSE c.address END,
            is_active         = CASE WHEN p_client ? 'is_active' THEN (p_client->>'is_active')::boolean ELSE c.is_active END
@@ -9551,7 +9576,8 @@ BEGIN
       e.manager_id,
       c.client_id,
       c.client_legal_name,
-      c.unique_tax_id,
+      -- ETL fase 1: la columna se llama tax_id; el alias conserva la clave JSON histórica unique_tax_id.
+      c.tax_id AS unique_tax_id,
       COALESCE(i.currency, wo.currency) AS row_currency,
       -- La fecha que la pantalla llama "vigente": la reprogramada si la hubo.
       COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date_vigente,

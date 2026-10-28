@@ -50,52 +50,14 @@ BEGIN
         WHERE canonical.name = 'Ruizmier Jauregui S.R.L.'
      );
 
-  -- El mirror conserva un cliente histórico con el NIT correcto y el sufijo
-  -- "ADMIN". Se conserva su id (y por tanto sus relaciones) y se normaliza al
-  -- nombre oficial de su sociedad antes de validar/sembrar el catálogo.
-  -- Review fix (Greptile): reactivar (is_active=true) es una condición del SET, no del WHERE —
-  -- si el nombre ya coincidía pero la fila estaba inactiva, el WHERE original (solo por nombre)
-  -- la dejaba afuera y list_administrative_internal_clients() nunca la habría reactivado.
-  UPDATE public.clients c
-     SET client_legal_name = s.name,
-         is_active = true
-    FROM (VALUES
-      ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
-      ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
-    ) AS v(society_name, nit)
-    JOIN public.society s ON s.name = v.society_name
-   WHERE c.unique_tax_id = v.nit
-     AND (lower(trim(c.client_legal_name)) <> lower(trim(s.name)) OR c.is_active = false);
-
-  INSERT INTO public.clients (client_legal_name, unique_tax_id, is_active)
-  SELECT s.name, v.nit, true
-    FROM (VALUES
-      ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
-      ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
-    ) AS v(society_name, nit)
-    JOIN public.society s ON s.name = v.society_name
-   WHERE NOT EXISTS (
-     SELECT 1
-       FROM public.clients c
-      WHERE c.unique_tax_id = v.nit
-         OR lower(trim(c.client_legal_name)) = lower(trim(s.name))
-   );
-
-  IF NOT EXISTS (
-    SELECT 1
-      FROM public.clients c
-      JOIN public.society s ON s.name = 'Ruizmier Pelaez S.R.L.'
-     WHERE lower(trim(c.client_legal_name)) = lower(trim(s.name))
-       AND c.unique_tax_id = '1006979026'
-  ) OR NOT EXISTS (
-    SELECT 1
-      FROM public.clients c
-      JOIN public.society s ON s.name = 'Ruizmier Jauregui S.R.L.'
-     WHERE lower(trim(c.client_legal_name)) = lower(trim(s.name))
-       AND c.unique_tax_id = '184046021'
-  ) THEN
-    RAISE EXCEPTION '0722-160: los clientes internos de sociedad ya existen con un nombre o NIT incompatible';
-  END IF;
+  -- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md F1-M09, F1-CA08/F1-CA17): esta migración ya NO
+  -- normaliza, siembra ni exige los dos clientes internos. Los clientes internos canónicos
+  -- (NEW-RP / NEW-RJ) forman parte de la población de 268 clientes de ETL 02 y los carga la
+  -- fase 2; una instalación nueva nace con CERO clientes y no debe fallar por su ausencia.
+  -- Las sociedades, la corrección Juaregui→Jauregui y las reglas administrativas se conservan.
+  -- Identidad canónica de un cliente interno = sociedad + NIT + nombre normalizado igual al de la
+  -- sociedad (el NIT ya no es único, así que el NIT solo no identifica): ver la guarda y
+  -- list_administrative_internal_clients() más abajo.
 END
 $$;
 
@@ -107,6 +69,7 @@ SET search_path TO public
 AS $$
 DECLARE
   v_client_nit text;
+  v_client_name text;
   v_society_name text;
 BEGIN
   -- Review fix (Codex, 3ra vuelta): `funcion` es inmutable despues de crear. EngagementForm
@@ -145,14 +108,17 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT c.unique_tax_id, s.name
-    INTO v_client_nit, v_society_name
+  SELECT c.tax_id, c.client_legal_name, s.name
+    INTO v_client_nit, v_client_name, v_society_name
     FROM public.clients c
     JOIN public.society s ON s.society_id = NEW.society_id
    WHERE c.client_id = NEW.client_id;
 
-  IF (v_society_name = 'Ruizmier Pelaez S.R.L.' AND v_client_nit = '1006979026')
-     OR (v_society_name = 'Ruizmier Jauregui S.R.L.' AND v_client_nit = '184046021') THEN
+  -- ETL fase 1: el NIT ya no es único, así que un tercero con NIT interno NO califica: el nombre
+  -- normalizado del cliente debe además coincidir con el de la sociedad canónica del encargo.
+  IF lower(trim(v_client_name)) = lower(trim(v_society_name))
+     AND ((v_society_name = 'Ruizmier Pelaez S.R.L.' AND v_client_nit = '1006979026')
+          OR (v_society_name = 'Ruizmier Jauregui S.R.L.' AND v_client_nit = '184046021')) THEN
     NEW.is_internal := true;
     NEW.activity_required := false;
     RETURN NEW;
@@ -769,31 +735,70 @@ GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO service_ro
 -- engagement.create -- evita ademas otorgar client.read de alcance amplio solo para esto.
 CREATE OR REPLACE FUNCTION public.list_administrative_internal_clients()
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path TO public
 AS $$
+DECLARE
+  v_conflict text;
+  v_result jsonb;
+BEGIN
+  IF NOT public.has_permission('engagement.create') THEN
+    RETURN '[]'::jsonb;
+  END IF;
+
+  -- ETL fase 1: identidad canónica = NIT + nombre normalizado igual al de la sociedad. Un cliente
+  -- ajeno con NIT interno compartido (el NIT ya no es único) no se expone. Dos candidatos activos
+  -- indistinguibles para la misma sociedad son un conflicto de instalación/carga: se señala, no se
+  -- resuelve elegiendo uno con LIMIT 1.
+  SELECT string_agg(g.society_name, ', ' ORDER BY g.society_name)
+    INTO v_conflict
+    FROM (
+      SELECT v.society_name
+        FROM public.clients c
+        JOIN (VALUES
+          ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
+          ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
+        ) AS v(society_name, nit)
+          ON c.tax_id = v.nit
+         AND lower(trim(c.client_legal_name)) = lower(trim(v.society_name))
+       WHERE c.is_active
+       GROUP BY v.society_name
+      HAVING count(*) > 1
+    ) g;
+  IF v_conflict IS NOT NULL THEN
+    RAISE EXCEPTION '0722-160: conflicto de identidad: más de un cliente interno canónico activo para %', v_conflict;
+  END IF;
+
   SELECT COALESCE(
     jsonb_agg(
       jsonb_build_object(
         'client_id', c.client_id,
         'client_legal_name', c.client_legal_name,
-        'unique_tax_id', c.unique_tax_id,
+        'unique_tax_id', c.tax_id,
         'is_active', c.is_active
       )
       ORDER BY c.client_legal_name
     ),
     '[]'::jsonb
   )
+    INTO v_result
     FROM public.clients c
-   WHERE c.unique_tax_id IN ('1006979026', '184046021')
-     AND c.is_active
-     AND public.has_permission('engagement.create');
+    JOIN (VALUES
+      ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
+      ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
+    ) AS v(society_name, nit)
+      ON c.tax_id = v.nit
+     AND lower(trim(c.client_legal_name)) = lower(trim(v.society_name))
+   WHERE c.is_active;
+
+  RETURN v_result;
+END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_internal_clients() IS
-  '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT -- defensa en profundidad, independiente de que el DO block de arriba ya deba haber reactivado ambas filas canonicas.';
+  '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT. ETL fase 1: el NIT ya no es unico, asi que la identidad canonica exige tambien el nombre normalizado de la sociedad; un tercero con NIT interno no se expone y dos candidatos activos para una misma sociedad lanzan conflicto en vez de elegirse con LIMIT 1. Alias JSON unique_tax_id conservado. Sin clientes cargados devuelve [].';
 
 REVOKE ALL ON FUNCTION public.list_administrative_internal_clients() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_internal_clients() TO authenticated;

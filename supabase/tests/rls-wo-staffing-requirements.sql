@@ -52,7 +52,7 @@ INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
   ('c0000000-0000-4000-8000-0000000000a1', 'WR Test Category',
    (SELECT practica_id FROM public.practicas WHERE code = 1));
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000a1', 'WR Test Client', 'WR-TAX-001');
 
 -- staff.auth_user_id carries a real FK to auth.users on a live Supabase (the local shim has no

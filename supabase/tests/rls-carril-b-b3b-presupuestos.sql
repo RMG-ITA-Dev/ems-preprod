@@ -21,7 +21,7 @@ BEGIN;
 
 -- ── Fixtures (como owner) ─────────────────────────────────────────────────────────────────────
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1b3c000-0000-4000-8000-000000000001', 'B3b Test Client', 'B3B-TAX-001');
 
 INSERT INTO auth.users (id) VALUES

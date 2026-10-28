@@ -158,7 +158,7 @@ VALUES
    (SELECT practica_id FROM public.practicas WHERE code = 1),
    (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz');
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c9f00000-0000-4000-8000-000000000001', 'NOTIF Cliente SA', 'NOTIF-9F01');
 
 -- Una categoria: `engagement_assignments.category_id` es NOT NULL y el harness arranca con
@@ -2558,7 +2558,7 @@ BEGIN
   -- controlado que siembra esa misma migracion. El contador solo filtra por e.funcion = 2, asi
   -- que el cambio de cliente/sociedad no toca lo que esta asercion mide.
   VALUES (v_eng,
-          (SELECT client_id FROM public.clients WHERE unique_tax_id = '1006979026'),
+          (SELECT client_id FROM public.clients WHERE tax_id = '1006979026'),
           'NOTIF Capacitacion', '9F07',
           c_mgr, c_mgr, '2026-12-31',
           (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'), 2, false);
@@ -3207,7 +3207,7 @@ BEGIN
 
   -- 14.a Alta: Senior Partner (global) + el creador (D-37). El Gerente lo recibe por CREADOR,
   -- no por asignado: el cliente todavia no tiene ningun encargo suyo.
-  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
   VALUES (v_cli, 'NOTIF Cliente Dos', 'NOTIF-9F02');
 
   SELECT COUNT(*) INTO v_n FROM public.notifications
@@ -3814,7 +3814,7 @@ BEGIN
   --      asercion no aislaria nada.
   PERFORM set_config('request.jwt.claims', '', true);
 
-  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
   VALUES (c_cli, 'NOTIF Cliente Once', 'NOTIF-9F0B');
 
   -- `chk_engagements_manager_not_specialist` (0828-185) prohibe que el gerente general sea

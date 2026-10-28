@@ -584,7 +584,7 @@ DECLARE
 BEGIN
   INSERT INTO public.categories (category_id, category_name, practica_id) VALUES
     (v_cat, 'Convergence Behavior Category', (SELECT practica_id FROM public.practicas WHERE code = 1));
-  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
     (v_client, 'Convergence Behavior Client', 'CONV-TAX-001');
   -- fecha_cierre is NOT NULL with no DEFAULT on a live Supabase (20260702000000) — the local shim
   -- has no such column at all, so this must be supplied explicitly to work in both environments.

@@ -225,6 +225,24 @@ supabase gen types typescript --project-ref <ref> > src/integrations/supabase/ty
 Needed after any migration that adds or changes an RPC. Until it is regenerated, new RPCs have to be
 called through an `as never` cast, and there are several of those waiting to be removed.
 
+### ETL phase 1: first administrator (console)
+
+A fresh install has **no accounts**: `cero_14` is a no-op and there is no fixed seed admin. The first
+administrator and the holiday calendar are created by a dedicated console, not by a migration:
+
+```bash
+node scripts/etl/fase1.mjs preflight  --config <file>   # read-only: connection guard + pre-state
+node scripts/etl/fase1.mjs initialize --config <file>   # generic admin (admin@ruizmier.com) + 28 holidays
+node scripts/etl/fase1.mjs verify     --config <file>
+```
+
+SQL goes through `psql` (remote = the Supabase pooler, user `postgres.<ref>`) and Auth through the Admin
+API. Credentials come only from the environment (`PG*`, `SUPABASE_SERVICE_ROLE_KEY`,
+`SUPABASE_ANON_KEY`, `ADMIN_TEMP_PASSWORD`, `ETL_F1_STATE_DIR`); the durable journal lives outside Git.
+Public sign-up (Bootstrap, `register-user`) must be closed while it runs. It is a separate step from
+`supabase/tests/local/reset-desde-cero.sh`, which only rebuilds and verifies the `preinit` state, and a
+remote run needs its own authorization. Full reference: `scripts/etl/README.md`.
+
 ---
 
 ## Running Locally

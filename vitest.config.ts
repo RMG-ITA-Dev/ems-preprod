@@ -17,16 +17,6 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
-    include: [
-      "src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
-      // Los módulos compartidos de las edge functions que no tocan APIs de Deno ni importan
-      // por URL — plantillas y firma de webhook — se prueban acá y no con `deno test`, para
-      // no sumar un segundo corredor de tests al proyecto. Los archivos que sí usan Deno
-      // (index.ts de cada función, mail-graph.ts) quedan fuera a propósito.
-      "supabase/functions/_shared/__tests__/**/*.{test,spec}.ts",
-    ],
     // jsdom rendering of the heavier forms (EngagementForm/WorkOrderForm) plus multiple
     // Radix Select interactions runs slower than Vitest's 5s default here, so give tests
     // and hooks more headroom to avoid false "Test timed out in 5000ms" failures.
@@ -43,6 +33,36 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
       exclude: ["node_modules/", "src/test/"],
     },
+    // Dos proyectos: la app (jsdom + setup de RTL, igual que antes) y la consola ETL fase 1
+    // (Node puro: el setup de jsdom referencia `window` y no aplica a scripts/etl).
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "app",
+          environment: "jsdom",
+          setupFiles: ["./src/test/setup.ts"],
+          include: [
+            "src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
+            // Los módulos compartidos de las edge functions que no tocan APIs de Deno ni importan
+            // por URL — plantillas y firma de webhook — se prueban acá y no con `deno test`, para
+            // no sumar un segundo corredor de tests al proyecto. Los archivos que sí usan Deno
+            // (index.ts de cada función, mail-graph.ts) quedan fuera a propósito.
+            "supabase/functions/_shared/__tests__/**/*.{test,spec}.ts",
+          ],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "etl",
+          environment: "node",
+          setupFiles: [],
+          // La integración (fase1.integration.test.ts) se autoomite salvo ETL_F1_INTEGRATION=1.
+          include: ["scripts/etl/__tests__/*.test.ts"],
+        },
+      },
+    ],
   },
   resolve: {
     alias: {

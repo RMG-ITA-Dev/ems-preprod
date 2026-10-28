@@ -56,7 +56,7 @@ SELECT ('57d00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'
   FROM generate_series(1, 3) n;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c7d00000-0000-4000-8000-000000000001', 'FCAL Cliente SA', 'FCAL-7D01');
 
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,

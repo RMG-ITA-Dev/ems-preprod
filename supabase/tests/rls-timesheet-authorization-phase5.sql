@@ -99,7 +99,7 @@ INSERT INTO public.categories (category_id, category_name, display_order, can_ap
 -- and implicit defaults would make approver.display_order < submitter's
 -- unsatisfiable (check 5 would fail mysteriously).
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1000000-0000-4000-8000-000000000101', 'P5 Test Client', 'P5-TAX-001');
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES

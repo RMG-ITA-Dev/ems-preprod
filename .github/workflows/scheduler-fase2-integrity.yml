@@ -26,6 +26,12 @@ name: Scheduler Integrity — Fase 2
 #     informe de consolidación §2.1). Necesita el Supabase CLI real + Docker. Desde Fase 4
 #     (plan §4.3), también aplica los 7 seeds _cero_1x_ (no tocan DDL, el gate de fingerprint
 #     no cambia) y corre verify-seed.sql + verify-auth-bootstrap.sh como pasos finales.
+#
+#     ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md): el replay termina en modo PREINIT (verify-seed.sql
+#     con etl_f1_mode=preinit). El administrador genérico y el calendario los crea la consola
+#     scripts/etl/fase1.mjs, que se ensaya con credenciales ficticias (integración: inicialización,
+#     recuperación, login y repetición), y todo el ciclo se repite en una SEGUNDA instalación local desde
+#     limpio comprobando mismos hashes de migraciones, estado nuevo y generación nueva de journal.
 
 on:
   push:
@@ -33,12 +39,14 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
+      - 'scripts/etl/**'
       - '.github/workflows/scheduler-fase2-integrity.yml'
   pull_request:
     branches: ['main', 'development']
     paths:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
+      - 'scripts/etl/**'
       - '.github/workflows/scheduler-fase2-integrity.yml'
   workflow_dispatch: {}
 
@@ -85,6 +93,20 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+
+      # La consola ETL fase 1 y su integración usan el SDK de supabase-js del lockfile: instalación
+      # reproducible con el mismo Node/npm del resto del CI (test.yml).
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.21.1
+
+      - name: Install dependencies (reproducible)
+        run: npm ci
 
       # Versión pineada (nunca `version: latest`): los fixtures de fingerprint son
       # sensibles a la versión exacta del CLI (formato de pg_dump, imagen de Postgres,
@@ -194,18 +216,181 @@ jobs:
           [[ "$fail" -eq 0 ]] || exit 1
           echo "Gate de replay consolidado (renombrado, Fase 3): OK (schema, policies, grants, column_grants, routine_grants, storage_buckets)."
 
-      # Fase 4 (plan §4.3): los 7 archivos _cero_1x_seed_* no tocan DDL — el gate de arriba ya
-      # prueba que el fingerprint no cambió. Esto verifica los DATOS: conteos, ADM/is_system,
-      # ADM_ACTIVITY_ID, default_app_role 61/61, cero datos demo, feriados vs generador.
-      - name: Verificar datos del seed de Fase 4 (verify-seed.sql)
+      # ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md §3, §9): el replay termina en modo PREINIT (catálogos y
+      # configuración definitivos; cero clientes, staff, cuentas, roles y feriados). El administrador
+      # genérico y el calendario NO los siembra una migración: los crea la consola específica
+      # `scripts/etl/fase1.mjs`, que acá se ensaya con credenciales ficticias y de un solo uso.
+      - name: Verificar datos del seed (verify-seed.sql, modo preinit)
         run: |
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
+            -v etl_f1_mode=preinit -f supabase/tests/local/verify-seed.sql
+
+      - name: Preparar el entorno de la consola ETL fase 1 (stack local, credenciales de ensayo)
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          ADMIN_PW="Ens-$(openssl rand -hex 12)-Aa1"
+          echo "::add-mask::${SERVICE_ROLE_KEY}"
+          echo "::add-mask::${ANON_KEY}"
+          echo "::add-mask::${ADMIN_PW}"
+          {
+            echo "PGHOST=127.0.0.1"
+            echo "PGPORT=54322"
+            echo "PGUSER=postgres"
+            echo "PGPASSWORD=postgres"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+            echo "SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "ADMIN_TEMP_PASSWORD=${ADMIN_PW}"
+            echo "ETL_F1_SIGNUP_CLOSED=1"
+            echo "ETL_F1_STATE_DIR=${RUNNER_TEMP}/etl-f1-state-a"
+            echo "MAIL_ENABLED=false"
+          } >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/etl-f1-state-a"
+
+      - name: Consola ETL fase 1 — preflight (guarda de conexión y estado preinit)
+        run: node scripts/etl/fase1.mjs preflight --config scripts/etl/fase1.config.example.json
+
+      # Inicialización ficticia + recuperación (interrupciones tras ficha, Auth y calendario) + login +
+      # repetición sin escrituras de negocio + ejecutor duplicado. Es la prueba T05/T06; NO debe correr
+      # después de una inicialización manual que invalide sus precondiciones.
+      - name: Consola ETL fase 1 — inicialización ficticia, recuperación, login y repetición
+        env:
+          ETL_F1_INTEGRATION: '1'
+        run: npx vitest run scripts/etl/__tests__/fase1.integration.test.ts
+
+      - name: Consola ETL fase 1 — verify (estado persistido y login)
+        run: node scripts/etl/fase1.mjs verify --config scripts/etl/fase1.config.example.json
+
+      - name: Verificar datos del seed (verify-seed.sql, modo initialized)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 \
+            -v etl_f1_mode=initialized -v etl_f1_admin_email=admin@ruizmier.com \
             -f supabase/tests/local/verify-seed.sql
 
-      # Fase 4 (plan §4.3.4ter): el bootstrap admin escribe directo en auth.*, esquema
-      # gestionado por GoTrue — el replay + verify-seed.sql solo prueban que las filas existen
-      # con las columnas declaradas, no que GoTrue pueda autenticar contra ellas. Este es el
-      # gate real: Admin API set-password -> login por password -> get_my_staff_id() con el
-      # access_token real -> exactamente 1 fila admin en user_roles.
-      - name: Verificar bootstrap de Auth end-to-end (verify-auth-bootstrap.sh)
+      # El login real contra la cuenta creada por la consola (GoTrue autentica, get_my_staff_id() resuelve
+      # con el access_token real, exactamente 1 admin en user_roles). No cambia contraseñas.
+      - name: Verificar login real del administrador (verify-auth-bootstrap.sh)
         run: bash supabase/tests/local/verify-auth-bootstrap.sh
+
+      - name: Sin residuos operativos ni cambios históricos atribuibles al inicializador
+        run: |
+          set -euo pipefail
+          for t in clients engagements work_orders timesheet_periods; do
+            n="$(psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -t -A -c "SELECT count(*) FROM public.${t}")"
+            [[ "$n" == "0" ]] || { echo "::error::public.${t} tiene ${n} filas tras la inicialización (se esperaban 0)"; exit 1; }
+          done
+          echo "OK: cero clientes, encargos, OT y períodos de hoja de tiempo"
+
+      # --- Segunda instalación local, desde limpio (F1-CA21) -----------------------------------------
+      # Mismos archivos de migración (mismos hashes), estado nuevo, generación nueva de journal/mapas, y
+      # un journal de la instalación anterior debe rechazarse. `supabase stop --no-backup` destruye los
+      # volúmenes locales: es el mismo stack efímero del job, nunca un ambiente real.
+      - name: Segunda instalación — registrar hashes, journal, inventario de Auth y catálogos de la primera
+        run: |
+          set -euo pipefail
+          DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          sha256sum supabase/migrations/*.sql > "${RUNNER_TEMP}/migrations-sha-1.txt"
+          cp "${ETL_F1_STATE_DIR}"/fase1-*.journal.json "${RUNNER_TEMP}/journal-1.json"
+          psql "$DB" -t -A -c "SELECT id FROM auth.users ORDER BY id" > "${RUNNER_TEMP}/auth-1.txt"
+          # Huella de catálogos/configuración por CLAVES NATURALES (los UUID generados difieren por instalación).
+          cat > "${RUNNER_TEMP}/catalog-fingerprint.sql" <<'SQL'
+          SELECT md5(concat_ws('#',
+            (SELECT string_agg(industry_name || '|' || fiscal_year_end, ';' ORDER BY industry_name) FROM public.industries),
+            (SELECT string_agg(expense_name || '|' || default_unit_cost::text || '|' || is_active::text, ';' ORDER BY expense_name) FROM public.expense_types),
+            (SELECT string_agg(p.abbreviation || '|' || c.category_name || '|' || c.rate_high_bob::text || '|' || c.rate_low_bob::text || '|'
+                               || c.rate_high_usd::text || '|' || c.rate_low_usd::text || '|' || COALESCE(c.default_app_role::text, ''),
+                               ';' ORDER BY p.abbreviation, c.category_name)
+               FROM public.categories c JOIN public.practicas p ON p.practica_id = c.practica_id),
+            (SELECT string_agg(code || '|' || name, ';' ORDER BY code) FROM public.servicios),
+            (SELECT string_agg(name, ';' ORDER BY name) FROM public.society),
+            (SELECT string_agg(setting_key || '=' || setting_value, ';' ORDER BY setting_key)
+               FROM public.global_settings WHERE setting_key <> 'ADM_ACTIVITY_ID')));
+          SQL
+          psql "$DB" -t -A -f "${RUNNER_TEMP}/catalog-fingerprint.sql" > "${RUNNER_TEMP}/catalog-1.txt"
+          test -s "${RUNNER_TEMP}/auth-1.txt" && test -s "${RUNNER_TEMP}/catalog-1.txt"
+
+      - name: Segunda instalación — reconstruir el stack desde limpio
+        run: |
+          set -o pipefail
+          supabase stop --no-backup
+          for attempt in 1 2 3 4; do
+            if supabase start 2>&1 | tee "$RUNNER_TEMP/supabase-start-2.log"; then
+              exit 0
+            fi
+            if ! grep -q "toomanyrequests" "$RUNNER_TEMP/supabase-start-2.log"; then
+              exit 1
+            fi
+            echo "::warning::ghcr.io limitó las descargas (intento $attempt/4); se reintenta"
+            supabase stop --no-backup || true
+            sleep $((attempt * 30))
+          done
+          exit 1
+
+      - name: Segunda instalación — mismos hashes, estado nuevo y mismos catálogos
+        run: |
+          set -euo pipefail
+          DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          sha256sum supabase/migrations/*.sql | diff - "${RUNNER_TEMP}/migrations-sha-1.txt"
+          psql "$DB" -v ON_ERROR_STOP=1 -v etl_f1_mode=preinit -f supabase/tests/local/verify-seed.sql
+          n="$(psql "$DB" -t -A -c "SELECT count(*) FROM auth.users")"
+          [[ "$n" == "0" ]] || { echo "::error::la segunda instalación no empezó limpia (auth.users=${n})"; exit 1; }
+          psql "$DB" -t -A -f "${RUNNER_TEMP}/catalog-fingerprint.sql" | diff - "${RUNNER_TEMP}/catalog-1.txt"
+
+      - name: Segunda instalación — entorno propio (generación nueva de journal y mapas)
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          ADMIN_PW="Ens-$(openssl rand -hex 12)-Aa1"
+          echo "::add-mask::${SERVICE_ROLE_KEY}"
+          echo "::add-mask::${ANON_KEY}"
+          echo "::add-mask::${ADMIN_PW}"
+          {
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+            echo "SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "ADMIN_TEMP_PASSWORD=${ADMIN_PW}"
+            echo "ETL_F1_STATE_DIR=${RUNNER_TEMP}/etl-f1-state-b"
+            echo "ETL_F1_INSTALLATION_ID=f1-ensayo-local-0002"
+          } >> "$GITHUB_ENV"
+          mkdir -p "${RUNNER_TEMP}/etl-f1-state-b"
+          node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('scripts/etl/fase1.config.example.json','utf8'));c.installationId='f1-ensayo-local-0002';fs.writeFileSync(process.env.RUNNER_TEMP+'/fase1.config.2.json',JSON.stringify(c))"
+
+      - name: Segunda instalación — un journal de otra generación se rechaza (BLOQUEADO)
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/journal-1.json" "${ETL_F1_STATE_DIR}/fase1-f1-ensayo-local-0002.journal.json"
+          set +e
+          node scripts/etl/fase1.mjs initialize --config "${RUNNER_TEMP}/fase1.config.2.json"
+          code=$?
+          set -e
+          [[ "$code" -eq 2 ]] || { echo "::error::se esperaba salida 2 (BLOQUEADO) al reanudar con un journal de otra generación, fue ${code}"; exit 1; }
+          rm -f "${ETL_F1_STATE_DIR}/fase1-f1-ensayo-local-0002.journal.json"
+
+      - name: Segunda instalación — consola, inicialización ficticia, recuperación, login y repetición
+        env:
+          ETL_F1_INTEGRATION: '1'
+        run: npx vitest run scripts/etl/__tests__/fase1.integration.test.ts
+
+      - name: Segunda instalación — generaciones distintas, Auth distinto y verificación final
+        run: |
+          set -euo pipefail
+          DB="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          node -e "
+            const fs=require('fs');
+            const a=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/journal-1.json','utf8'));
+            const dir=process.env.ETL_F1_STATE_DIR;
+            const f=fs.readdirSync(dir).find(n=>n.endsWith('.journal.json'));
+            const b=JSON.parse(fs.readFileSync(dir+'/'+f,'utf8'));
+            for (const k of ['installationId','staffId','correlation','authUserId']) {
+              if (a[k]===b[k]) { console.error('la generación nueva repite '+k); process.exit(1); }
+            }
+            if (a.migrations.inventoryHash!==b.migrations.inventoryHash) { console.error('inventario de migraciones distinto'); process.exit(1); }
+            console.log('OK: journals de generaciones distintas con el mismo inventario de migraciones');
+          "
+          psql "$DB" -t -A -c "SELECT id FROM auth.users ORDER BY id" > "${RUNNER_TEMP}/auth-2.txt"
+          if grep -qxFf "${RUNNER_TEMP}/auth-1.txt" "${RUNNER_TEMP}/auth-2.txt"; then
+            echo "::error::la segunda instalación reutiliza una cuenta de Auth de la primera"; exit 1
+          fi
+          node scripts/etl/fase1.mjs verify --config "${RUNNER_TEMP}/fase1.config.2.json"
+          psql "$DB" -v ON_ERROR_STOP=1 -v etl_f1_mode=initialized -v etl_f1_admin_email=admin@ruizmier.com \
+            -f supabase/tests/local/verify-seed.sql
+          bash supabase/tests/local/verify-auth-bootstrap.sh

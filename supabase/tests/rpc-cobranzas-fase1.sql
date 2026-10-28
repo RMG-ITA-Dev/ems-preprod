@@ -30,7 +30,7 @@ ON CONFLICT (code) DO NOTHING;
 INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000f1', 'CF1 Society');
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1000000-0000-4000-8000-0000000000f1', 'CF1 Client', 'CF1-TAX-001');
 
 CREATE FUNCTION pg_temp.impersonate(p_sub uuid) RETURNS void
@@ -969,7 +969,7 @@ BEGIN
   -- no tiene encargo, asi que sin esta via el gerente que creaba un cliente recibia
   -- CONTACT_FORBIDDEN con la ficha ya grabada, y el NIT tomado no lo dejaba reintentar.
   PERFORM pg_temp.impersonate(c_manager);
-  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
   VALUES ('c1000000-0000-4000-8000-0000000000f2', 'CF1 Client Nuevo', 'CF1-TAX-002');
   PERFORM public.save_client_contacts('c1000000-0000-4000-8000-0000000000f2', jsonb_build_array(
     jsonb_build_object('contact_type', 'general',  'full_name', 'Eva Nueva',  'email', 'eva@nuevo.com'),
@@ -1022,7 +1022,7 @@ BEGIN
   denied := false;
   BEGIN
     PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', true,
-      jsonb_build_object('client_legal_name', 'CF1 Atomico', 'unique_tax_id', 'CF1-TAX-003'),
+      jsonb_build_object('client_legal_name', 'CF1 Atomico', 'tax_id', 'CF1-TAX-003'),
       jsonb_build_array(
         jsonb_build_object('contact_type', 'general',  'full_name', 'Sin Correo'),
         jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
@@ -1038,7 +1038,7 @@ BEGIN
 
   -- Con contactos validos quedan las dos cosas; el que la crea queda como creador.
   PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f3', true,
-    jsonb_build_object('client_legal_name', 'CF1 Atomico', 'unique_tax_id', 'CF1-TAX-003'),
+    jsonb_build_object('client_legal_name', 'CF1 Atomico', 'tax_id', 'CF1-TAX-003'),
     jsonb_build_array(
       jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
       jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
@@ -1112,7 +1112,7 @@ BEGIN
   denied := false;
   BEGIN
     PERFORM public.save_client_with_contacts('c1000000-0000-4000-8000-0000000000f4', true,
-      jsonb_build_object('client_legal_name', 'CF1 Intruso', 'unique_tax_id', 'CF1-TAX-004'),
+      jsonb_build_object('client_legal_name', 'CF1 Intruso', 'tax_id', 'CF1-TAX-004'),
       jsonb_build_array(
         jsonb_build_object('contact_type', 'general',  'full_name', 'Eva', 'email', 'eva@x.com'),
         jsonb_build_object('contact_type', 'cobranza', 'full_name', 'Pia', 'email', 'pia@x.com')));
