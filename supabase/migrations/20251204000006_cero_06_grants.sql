@@ -2132,6 +2132,8 @@ REVOKE EXECUTE ON FUNCTION public.my_society_client_ids() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.my_society_installment_ids() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.my_society_note_ids() FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.my_foreign_fund_request_ids() FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.assert_wo_society_scope(p_wo_id uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.wo_in_my_society_scope(p_wo_id uuid) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) FROM PUBLIC, anon;
@@ -2147,6 +2149,8 @@ GRANT EXECUTE ON FUNCTION public.my_society_client_ids() TO authenticated, servi
 GRANT EXECUTE ON FUNCTION public.my_society_installment_ids() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.my_society_note_ids() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.my_foreign_fund_request_ids() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.assert_wo_society_scope(p_wo_id uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.wo_in_my_society_scope(p_wo_id uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) TO authenticated, service_role;

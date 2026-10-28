@@ -746,6 +746,8 @@ BEGIN
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
+         AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),
     '[]'::jsonb
   );

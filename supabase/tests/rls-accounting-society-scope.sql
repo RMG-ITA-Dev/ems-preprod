@@ -1,4 +1,4 @@
--- Alcance por sociedad de Contabilidad y Cobranzas (2026-10-28) — Fase 1: politicas RLS y vistas.
+-- Alcance por sociedad de Contabilidad y Cobranzas (2026-10-28) — Fase 1: politicas RLS y vistas; Fase 2: RPC de lectura.
 -- Plan: docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md. Corre desde supabase/tests/local/run-rls-tests.sh.
 -- Transaccion unica, SIEMPRE hace ROLLBACK. Salida de exito: "SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)".
 --
@@ -10,14 +10,19 @@
 --   4. Un rol con alcance por sociedad SIN ficha no ve nada.
 --   5. Control: un gerente (sin alcance por sociedad) sigue viendo lo de ambas sociedades.
 --   6. clients_directory aplica el mismo corte; my_visible_engagement_ids() coincide con la RLS real.
+--   7. (Fase 2) RPC SECURITY DEFINER de lectura: Cobranzas (lista y opciones), gastos por OT (resumen y detalle),
+--      gastos facturables, contactos de la OT, diferencia de cambio, Encargos Administrativos y portafolio.
+--      Una OT ajena por id corta con SOCIETY_SCOPE_FORBIDDEN (o el porton propio de la RPC); los listados solo traen lo propio.
 --
 -- Mundo (prefijo 5c):
 --   Sociedad A = Ruizmier Pelaez, B = Ruizmier Jauregui (seed).
 --   U1 collections_analyst A · U2 accounting_manager A · U3 accounting_analyst A · U4 manager A (control)
 --   U5 accounting_manager B · U6 collections_analyst sin ficha
 --   CA cliente solo A · CB solo B · CS compartido (encargo en A y en B) · CN sin encargos
---   EA (A, CA) · EB (B, CB, creado por U2) · ESA (A, CS) · ESB (B, CS) — U4 es gerente de los cuatro
---   WA OT de EA · WB OT de EB · FA solicitud sobre WA · FB sobre WB · FM mixta (WA + WB)
+--   EA (A, CA) · EB (B, CB, creado por U2) · ESA (A, CS, creado por U2) · ESB (B, CS) — U4 es gerente de los cuatro
+--   EAA / EAB: encargos administrativos (funcion 0) de A y de B
+--   WA OT de EA · WB OT de EB, cada una con plan y una cuota por facturar
+--   FA solicitud sobre WA · FB sobre WB · FM mixta (WA + WB); un gasto revisado en FA y otro en FB
 
 BEGIN;
 
@@ -61,7 +66,9 @@ INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
   ('c05c0000-0000-4000-8000-00000000000a', 'SOCSCOPE Cliente A',          'SOCSCOPE-A'),
   ('c05c0000-0000-4000-8000-00000000000b', 'SOCSCOPE Cliente B',          'SOCSCOPE-B'),
   ('c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE Cliente Compartido', 'SOCSCOPE-C'),
-  ('c05c0000-0000-4000-8000-00000000000d', 'SOCSCOPE Cliente Sin Encargo','SOCSCOPE-D');
+  ('c05c0000-0000-4000-8000-00000000000d', 'SOCSCOPE Cliente Sin Encargo','SOCSCOPE-D'),
+  -- Cliente de los encargos administrativos (fuera de las consultas de clientes de la Fase 1).
+  ('c05c0000-0000-4000-8000-00000000000e', 'ADMSCOPE Cliente Interno',   'ADMSCOPE-E');
 
 INSERT INTO public.client_contacts (client_id, contact_type, full_name) VALUES
   ('c05c0000-0000-4000-8000-00000000000a', 'cobranza', 'Contacto A'),
@@ -75,7 +82,7 @@ SELECT e.id::uuid, e.client::uuid, e.name, e.code,
   FROM (VALUES
     ('e05c0000-0000-4000-8000-00000000000a', 'c05c0000-0000-4000-8000-00000000000a', 'SOCSCOPE EA',  '5C0A', '505c0000-0000-4000-8000-000000000004', 'Ruizmier Pelaez S.R.L.'),
     ('e05c0000-0000-4000-8000-00000000000b', 'c05c0000-0000-4000-8000-00000000000b', 'SOCSCOPE EB',  '5C0B', '505c0000-0000-4000-8000-000000000002', 'Ruizmier Jauregui S.R.L.'),
-    ('e05c0000-0000-4000-8000-00000000001a', 'c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE ESA', '5C1A', '505c0000-0000-4000-8000-000000000004', 'Ruizmier Pelaez S.R.L.'),
+    ('e05c0000-0000-4000-8000-00000000001a', 'c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE ESA', '5C1A', '505c0000-0000-4000-8000-000000000002', 'Ruizmier Pelaez S.R.L.'),
     ('e05c0000-0000-4000-8000-00000000001b', 'c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE ESB', '5C1B', '505c0000-0000-4000-8000-000000000004', 'Ruizmier Jauregui S.R.L.')
   ) AS e(id, client, name, code, creator, soc);
 
@@ -97,6 +104,34 @@ INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_a
   ('f05c0000-0000-4000-8000-00000000000b', 'd05c0000-0000-4000-8000-00000000000b', 100, 'aprobado'),
   ('f05c0000-0000-4000-8000-00000000000c', 'd05c0000-0000-4000-8000-00000000000a', 100, 'aprobado'),
   ('f05c0000-0000-4000-8000-00000000000c', 'd05c0000-0000-4000-8000-00000000000b', 100, 'aprobado');
+-- El trigger de auditoria pone created_by_staff_id = sesion (vacia aqui): el creador se fija con los triggers apagados.
+UPDATE public.engagements SET created_by_staff_id = '505c0000-0000-4000-8000-000000000002'
+ WHERE engagement_id IN ('e05c0000-0000-4000-8000-00000000000b', 'e05c0000-0000-4000-8000-00000000001a');
+-- Encargos administrativos (el trigger 0722-160 exige el cliente interno de la sociedad: fuera de lo que se prueba aqui).
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, manager_id, fecha_cierre,
+                                society_id, funcion, anio_fiscal)
+SELECT e.id::uuid, 'c05c0000-0000-4000-8000-00000000000e', e.name, e.code, '505c0000-0000-4000-8000-000000000004',
+       '2027-12-31', (SELECT society_id FROM public.society WHERE name = e.soc), 0, 2099
+  FROM (VALUES
+    ('e05d0000-0000-4000-8000-00000000002a', 'ADMSCOPE EAA', '5C2A', 'Ruizmier Pelaez S.R.L.'),
+    ('e05d0000-0000-4000-8000-00000000002b', 'ADMSCOPE EAB', '5C2B', 'Ruizmier Jauregui S.R.L.')
+  ) AS e(id, name, code, soc);
+-- Plan y cuota por facturar en cada OT (los guards de plan bloquean un plan sobre una OT ya aprobada).
+INSERT INTO public.wo_payment_plan (plan_id, wo_id, payment_days, exchange_rate, exchange_rate_mode) VALUES
+  ('105c0000-0000-4000-8000-00000000000a', 'd05c0000-0000-4000-8000-00000000000a', 30, 6.96, 'variable'),
+  ('105c0000-0000-4000-8000-00000000000b', 'd05c0000-0000-4000-8000-00000000000b', 30, 6.96, 'variable');
+INSERT INTO public.wo_payment_installments (installment_id, plan_id, wo_id, installment_number, percentage, amount, status,
+                                            agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate) VALUES
+  ('115c0000-0000-4000-8000-00000000000a', '105c0000-0000-4000-8000-00000000000a', 'd05c0000-0000-4000-8000-00000000000a',
+   1, 100, 1000, 'Pending', current_date + 5, current_date + 35, 6.96, 6.96),
+  ('115c0000-0000-4000-8000-00000000000b', '105c0000-0000-4000-8000-00000000000b', 'd05c0000-0000-4000-8000-00000000000b',
+   1, 100, 2000, 'Pending', current_date + 5, current_date + 35, 6.96, 6.96);
+-- Un gasto ya revisado por Contabilidad en FA y otro en FB (facturables).
+INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_date, amount, currency, status) VALUES
+  ('b05c0000-0000-4000-8000-00000000000a', 'f05c0000-0000-4000-8000-00000000000a', 'd05c0000-0000-4000-8000-00000000000a',
+   current_date, 50, 'BOB', 'revisado_asistente'),
+  ('b05c0000-0000-4000-8000-00000000000b', 'f05c0000-0000-4000-8000-00000000000b', 'd05c0000-0000-4000-8000-00000000000b',
+   current_date, 70, 'BOB', 'revisado_asistente');
 SET LOCAL session_replication_role = origin;
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────────────────────
@@ -204,7 +239,107 @@ BEGIN
   PERFORM pg_temp.expect('my_society_engagement_ids vacio para el gerente',
     pg_temp.seen(u4, 'SELECT id FROM public.my_society_engagement_ids() id'), '');
 
-  RAISE NOTICE 'SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)';
 END $$;
+
+-- ══ Fase 2: RPC SECURITY DEFINER de lectura ════════════════════════════════════════════════════
+
+-- Llama a la RPC como p_sub (las DEFINER deciden por auth.uid(), no por el rol de la sesion) y devuelve el
+-- mensaje de error, o NULL si no hubo error.
+CREATE FUNCTION pg_temp.rpc_error(p_sub text, p_sql text) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', p_sub, 'role', 'authenticated')::text, true);
+  BEGIN
+    EXECUTE p_sql;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('request.jwt.claims', '', true);
+    RETURN SQLERRM;
+  END;
+  PERFORM set_config('request.jwt.claims', '', true);
+  RETURN NULL;
+END $$;
+
+CREATE FUNCTION pg_temp.rpc_text(p_sub text, p_sql text) RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE v text;
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', p_sub, 'role', 'authenticated')::text, true);
+  EXECUTE p_sql INTO v;
+  PERFORM set_config('request.jwt.claims', '', true);
+  RETURN COALESCE(v, '');
+END $$;
+
+CREATE FUNCTION pg_temp.expect_forbidden(p_label text, p_sub text, p_sql text, p_marker text) RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE v_err text := pg_temp.rpc_error(p_sub, p_sql);
+BEGIN
+  IF v_err IS NULL OR v_err NOT LIKE '%' || p_marker || '%' THEN
+    RAISE EXCEPTION 'SOCIETY SCOPE FAIL — %: se esperaba un error con [%] y se obtuvo [%]', p_label, p_marker, COALESCE(v_err, 'sin error');
+  END IF;
+  RAISE NOTICE 'PASS — %', p_label;
+END $$;
+
+DO $$
+DECLARE
+  u1 constant text := 'a05c0000-0000-4000-8000-000000000001';  -- cobranza A
+  u2 constant text := 'a05c0000-0000-4000-8000-000000000002';  -- gerente contable A
+  u3 constant text := 'a05c0000-0000-4000-8000-000000000003';  -- analista contable A
+  u4 constant text := 'a05c0000-0000-4000-8000-000000000004';  -- gerente (control)
+  u5 constant text := 'a05c0000-0000-4000-8000-000000000005';  -- gerente contable B
+  wa constant text := 'd05c0000-0000-4000-8000-00000000000a';
+  wb constant text := 'd05c0000-0000-4000-8000-00000000000b';
+  ib constant text := '115c0000-0000-4000-8000-00000000000b';
+  soc_b uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  q_coll constant text := $q$SELECT string_agg(r->>'engagement_code', ',' ORDER BY r->>'engagement_code')
+                               FROM jsonb_array_elements(public.list_collections_installments('por_facturar')->'rows') r
+                              WHERE r->>'engagement_code' LIKE '5C%'$q$;
+BEGIN
+  -- Cobranzas ───────────────────────────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect('Cobranzas: cobranza A solo trae la cuota de A', pg_temp.rpc_text(u1, q_coll), '5C0A');
+  PERFORM pg_temp.expect('Cobranzas: gerente contable B solo trae la cuota de B', pg_temp.rpc_text(u5, q_coll), '5C0B');
+  PERFORM pg_temp.expect('Cobranzas: filtrar por la sociedad B no amplia el alcance de cobranza A',
+    pg_temp.rpc_text(u1, format($q$SELECT (public.list_collections_installments('por_facturar', %L::uuid)->>'total_count')$q$, soc_b)), '0');
+  PERFORM pg_temp.expect('Cobranzas: las opciones de cobranza A solo ofrecen su sociedad',
+    pg_temp.rpc_text(u1, $q$SELECT string_agg(x->>'name', ',') FROM jsonb_array_elements(public.collections_filter_options()->'societies') x$q$),
+    'Ruizmier Pelaez S.R.L.');
+
+  -- Gastos facturables, contactos, diferencia de cambio ───────────────────────────────────────
+  PERFORM pg_temp.expect('wo_billable_expenses: cobranza A ve el gasto de WA',
+    pg_temp.rpc_text(u1, format('SELECT string_agg(amount::text, '','') FROM public.wo_billable_expenses(%L::uuid)', wa)), '50');
+  PERFORM pg_temp.expect_forbidden('wo_billable_expenses: cobranza A no ve los gastos de WB por id', u1,
+    format('SELECT 1 FROM public.wo_billable_expenses(%L::uuid)', wb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect('get_wo_client_contacts: cobranza A ve el contacto de WA',
+    pg_temp.rpc_text(u1, format('SELECT string_agg(full_name, '','') FROM public.get_wo_client_contacts(%L::uuid)', wa)), 'Contacto A');
+  PERFORM pg_temp.expect_forbidden('get_wo_client_contacts: cobranza A no ve el contacto de WB', u1,
+    format('SELECT 1 FROM public.get_wo_client_contacts(%L::uuid)', wb), 'CONTACT_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('suggest_exchange_difference: cobranza A no consulta una cuota de B', u1,
+    format('SELECT public.suggest_exchange_difference(%L::uuid)', ib), 'SOCIETY_SCOPE_FORBIDDEN');
+
+  -- Gastos por OT (Contabilidad) ─────────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect('fund_work_order_expense_summary: analista contable A solo ve WA (FM mixta no suma)',
+    pg_temp.rpc_text(u3, $q$SELECT string_agg(engagement_code || ':' || request_count || ':' || assigned, ',' ORDER BY engagement_code)
+                              FROM public.fund_work_order_expense_summary() WHERE engagement_code LIKE '5C%'$q$), '5C0A:1:100');
+  PERFORM pg_temp.expect('fund_work_order_expense_summary: gerente contable B solo ve WB',
+    pg_temp.rpc_text(u5, $q$SELECT string_agg(engagement_code, ',') FROM public.fund_work_order_expense_summary() WHERE engagement_code LIKE '5C%'$q$), '5C0B');
+  PERFORM pg_temp.expect_forbidden('fund_work_order_expense_detail: gerente contable A no abre WB', u2,
+    format('SELECT public.fund_work_order_expense_detail(%L::uuid)', wb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect('fund_work_order_expense_detail: gerente contable A abre WA',
+    pg_temp.rpc_error(u2, format('SELECT public.fund_work_order_expense_detail(%L::uuid)', wa)), NULL);
+
+  -- Encargos Administrativos y portafolio ─────────────────────────────────────────────────────
+  PERFORM pg_temp.expect('list_administrative_engagements: gerente contable A solo ve el de A',
+    pg_temp.rpc_text(u2, $q$SELECT string_agg(x->>'engagement_code', ',') FROM jsonb_array_elements(public.list_administrative_engagements()) x
+                              WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C2A');
+  PERFORM pg_temp.expect('list_administrative_engagements: control, el gerente ve los dos',
+    pg_temp.rpc_text(u4, $q$SELECT string_agg(x->>'engagement_code', ',' ORDER BY x->>'engagement_code') FROM jsonb_array_elements(public.list_administrative_engagements()) x
+                              WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C2A,5C2B');
+  PERFORM pg_temp.expect('list_portfolio_engagements: gerente contable A ve lo que creo en A, no EB (creado por el en B)',
+    pg_temp.rpc_text(u2, $q$SELECT string_agg(x->>'engagement_code', ',') FROM jsonb_array_elements(public.list_portfolio_engagements()) x
+                              WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C1A');
+
+  RAISE NOTICE 'SOCIETY SCOPE FASE 2: RPC checks passed';
+END $$;
+
+DO $$ BEGIN RAISE NOTICE 'SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;
