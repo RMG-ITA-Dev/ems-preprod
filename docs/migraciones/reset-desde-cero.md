@@ -151,9 +151,11 @@ Antes de ejecutarla (resumen; el detalle está en el README de la consola):
   `ETL_F1_WINDOW_CONFIRMED=<ref>`.
 - Correo: `MAIL_ENABLED=false` en el ensayo; concilie la cola `notification_emails` antes de
   habilitar cualquier envío.
-- Un reset de base **no** elimina por sí solo las cuentas de Auth de ensayo: controle y trate
-  `auth.users` por separado antes de reinicializar (la consola se niega a trabajar sobre cuentas
-  ajenas a su journal).
+- `supabase db reset --linked` **no** elimina por sí solo las cuentas de Auth, pero
+  `reset-desde-cero.sh` sí las borra (paso 4b: `auth.users` con sus identidades, sesiones y tokens,
+  y la bitácora `auth.audit_log_entries`) y lo anuncia en la confirmación. Los archivos de Storage
+  no se tocan. Si se reinicializa **sin** pasar por el script, hay que tratar `auth.users` a mano: la
+  consola se niega a trabajar sobre cuentas ajenas a su journal.
 
 ```bash
 node scripts/etl/fase1.mjs preflight  --config <configuración privada>

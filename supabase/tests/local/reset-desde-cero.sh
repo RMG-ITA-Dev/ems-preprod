@@ -8,9 +8,12 @@
 # `preinit` (catálogos y configuración definitivos; cero clientes, staff, cuentas de usuario, roles
 # y feriados). NO inicializa ni declara operativo el ambiente: el primer administrador
 # (admin@ruizmier.com) y el calendario los crea después la consola específica
-# `scripts/etl/fase1.mjs initialize`, un paso aparte con su propia autorización. El tratamiento de
-# las cuentas de Auth de ensayo de un reset previo se controla fuera de este script (un reset de
-# base no elimina por sí solo las cuentas de Auth): ver docs/migraciones/reset-desde-cero.md.
+# `scripts/etl/fase1.mjs initialize`, un paso aparte con su propia autorización.
+#
+# El reset borra TODO, incluidas las cuentas de Auth: `db reset --linked` no las elimina por sí solo,
+# así que el paso 4b las borra (auth.users y todo lo que cuelga: identidades, sesiones, tokens y la
+# bitácora de autenticación). Los archivos de Storage no se tocan (Supabase prohíbe borrar
+# storage.objects por SQL y esta fase no los usa). Ver docs/migraciones/reset-desde-cero.md.
 #
 # NUNCA lee el CONTENIDO de un .env* con este script mismo ni lo imprime: solo hace `source`
 # del archivo indicado (en un subproceso) y verifica por NOMBRE que las variables necesarias
@@ -212,7 +215,8 @@ fi
 # --- 3. Confirmación interactiva explícita (nunca se salta) ------------------------------
 echo ""
 echo "⚠️  Vas a BORRAR TODO el contenido del proyecto Supabase '${PROJECT_REF}' y reconstruirlo"
-echo "    desde cero con el set consolidado de ${REPO_ROOT}/supabase/migrations/."
+echo "    desde cero con el set consolidado de ${REPO_ROOT}/supabase/migrations/. Se borran también"
+echo "    TODAS las cuentas de Auth (usuarios, identidades, sesiones y bitácora de autenticación)."
 echo "    Esto es IRREVERSIBLE. Escribí exactamente el project-ref para confirmar:"
 read -r -p "> " CONFIRM
 if [[ "$CONFIRM" != "$PROJECT_REF" ]]; then
@@ -238,6 +242,32 @@ if ! supabase db reset --linked; then
   echo "manual antes de reintentar. No reintentar 'db reset' a ciegas." >&2
   exit 1
 fi
+
+# --- 4b. Cuentas de Auth: se borran también -------------------------------------------------
+# `db reset --linked` reconstruye el esquema pero deja las cuentas de Auth de ensayo. Quedarían
+# usuarios sin ficha, y tanto verify-seed (preinit) como la consola se niegan a trabajar con ellos.
+# Con el rol de la conexión (postgres.<ref>), un DELETE sobre auth.users arrastra por cascada las
+# identidades, sesiones, refresh tokens, factores MFA y one_time_tokens; la bitácora
+# auth.audit_log_entries no tiene clave foránea y se vacía aparte. Es parte del mismo borrado que el
+# operador ya confirmó arriba escribiendo el project-ref.
+echo "── borrando las cuentas de Auth (auth.users y todo lo que cuelga de ellas)"
+auth_before="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "select count(*) from auth.users")"
+psql "$SUPABASE_DB_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
+DELETE FROM auth.users;
+DO $$
+BEGIN
+  IF to_regclass('auth.audit_log_entries') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM auth.audit_log_entries';
+  END IF;
+END
+$$;
+SQL
+auth_left="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "select (select count(*) from auth.users) + (select count(*) from auth.identities) + (select count(*) from auth.sessions) + (select count(*) from auth.refresh_tokens)")"
+if [[ "$auth_left" != "0" ]]; then
+  echo "FATAL: tras borrar las cuentas de Auth quedan ${auth_left} filas entre users, identities, sessions y refresh_tokens." >&2
+  exit 1
+fi
+echo "PASS — cuentas de Auth borradas (había ${auth_before}; ahora 0 en users, identities, sessions y refresh_tokens)."
 
 # --- 5. Verificar convergencia -------------------------------------------------------------
 echo "── supabase migration list --linked"
