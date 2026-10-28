@@ -17,6 +17,8 @@ node scripts/etl/fase1.mjs verify     --config <archivo> [--skip-login]   # rele
 
 Códigos de salida: `0` correcto · `1` error · `2` BLOQUEADO · `3` RECONCILIACION_REQUERIDA.
 
+`verify` no solo cuenta los feriados: compara los 28 contra el calendario esperado (`EXPECTED_CALENDAR` en `fase1-db.mjs`: fecha, oficina y nombre, la misma lista de `cero_15` y `verify-seed.sql`). Un feriado alterado sin cambiar el conteo hace fallar la verificación. A SQL se envían los MD5 de cada entrada y no los nombres: en Windows `psql` recibe mal los acentos de una variable `-v` («Año», «Día»). Si el calendario cambia, hay que actualizar `cero_15`, `verify-seed.sql` y `EXPECTED_CALENDAR`; una prueba comprueba que la consola y la migración coincidan.
+
 `scripts/etl/fase1.config.example.json` es una configuración **ficticia y local**. Para Test o
 producción se crea una copia privada `scripts/etl/<nombre>.config.json` (ignorada por Git) con
 `environment`, `expectedProjectRef` y `supabaseUrl` del ambiente. Nunca se versionan identidades

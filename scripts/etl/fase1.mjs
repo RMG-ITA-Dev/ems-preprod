@@ -513,6 +513,9 @@ export async function verifyPersisted(ctx, { staffId, authUserId }) {
 
   const holidays = await ctx.db.holidaysSummary(staffId);
   add(`${EXPECTED_HOLIDAYS} feriados con autoría del administrador`, Number(holidays.total) === EXPECTED_HOLIDAYS && Number(holidays.by_admin) === EXPECTED_HOLIDAYS, `total=${holidays.total} propios=${holidays.by_admin}`);
+  // No basta con contar: cada feriado debe tener la fecha, la oficina y el nombre del catálogo (el mismo
+  // contenido que verify-seed.sql). Un feriado alterado sin cambiar el conteo no pasa.
+  add(`los ${EXPECTED_HOLIDAYS} feriados coinciden con el calendario esperado (fecha, oficina y nombre)`, Number(holidays.matching) === EXPECTED_HOLIDAYS, `coinciden=${holidays.matching} de ${EXPECTED_HOLIDAYS}`);
 
   const counts = await ctx.db.countsForVerify();
   add("cero clientes y cero operaciones", [counts.clients, counts.engagements, counts.work_orders].every((n) => Number(n) === 0), `clientes=${counts.clients} encargos=${counts.engagements} OT=${counts.work_orders}`);
@@ -656,8 +659,8 @@ async function ensureCalendar(ctx) {
   const n = await ctx.db.seedHolidays(staffId);
   if (n !== EXPECTED_HOLIDAYS) throw new Fase1Error("BLOQUEADO", `seed_initial_holidays devolvió ${n}, se esperaban ${EXPECTED_HOLIDAYS}`, { returned: n });
   const after = await ctx.db.holidaysSummary(staffId);
-  if (Number(after.total) !== EXPECTED_HOLIDAYS || Number(after.by_admin) !== EXPECTED_HOLIDAYS) {
-    throw new Fase1Error("BLOQUEADO", `el calendario no quedó completo (total=${after.total}, propios=${after.by_admin})`, after);
+  if (Number(after.total) !== EXPECTED_HOLIDAYS || Number(after.by_admin) !== EXPECTED_HOLIDAYS || Number(after.matching) !== EXPECTED_HOLIDAYS) {
+    throw new Fase1Error("BLOQUEADO", `el calendario no quedó completo ni coincide con el esperado (total=${after.total}, propios=${after.by_admin}, coinciden=${after.matching})`, after);
   }
   if (Number(before.total) === EXPECTED_HOLIDAYS && before.fingerprint !== after.fingerprint) {
     throw new Fase1Error("BLOQUEADO", "el calendario completo fue modificado por una repetición", { before: before.fingerprint, after: after.fingerprint });

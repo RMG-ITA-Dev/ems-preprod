@@ -21,13 +21,28 @@ import {
   verify,
   writeJournal,
 } from "../fase1.mjs";
-import { classifySqlFailure, connectionGuardProblems, loadMigrationInventory, makeRedactor, runPsql } from "../fase1-db.mjs";
+import {
+  EXPECTED_CALENDAR,
+  EXPECTED_CALENDAR_MD5,
+  classifySqlFailure,
+  connectionGuardProblems,
+  loadMigrationInventory,
+  makeRedactor,
+  runPsql,
+} from "../fase1-db.mjs";
 
 const PASSWORD = "Temp-Passw0rd-ensayo!";
 const SERVICE_KEY = "service-role-key-super-secreta";
 const ANON_KEY = "anon-key-publicable-123";
 const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const EXAMPLE_CONFIG = path.resolve(HERE, "..", "fase1.config.example.json");
+
+/** Fila del calendario esperado (índice 0..27), con el mismo contenido que public.seed_initial_holidays. */
+const calendarRow = (i: number, createdBy: string) => {
+  const [holiday_date, oficina, ...name] = EXPECTED_CALENDAR[i].split("|");
+  return { holiday_date, oficina: Number(oficina), holiday_name: name.join("|"), created_by: createdBy };
+};
+const calendarKey = (h: any) => `${h.holiday_date}|${h.oficina}|${h.holiday_name}`;
 
 const baseConfig = () => JSON.parse(fs.readFileSync(EXAMPLE_CONFIG, "utf8"));
 const INVENTORY = {
@@ -113,14 +128,20 @@ function makeDb(world: any, hooks: any) {
       hooks.seedCalls += 1;
       if (world.holidayConflict) throw new Fase1Error("BLOQUEADO", "feriado contradictorio: no se sobrescribe");
       if (world.holidays.length === 0) {
-        for (let i = 0; i < 28; i += 1) world.holidays.push({ holiday_date: `2026-01-${String(i + 1).padStart(2, "0")}`, oficina: 0, created_by: world.staff.staff_id });
+        for (let i = 0; i < 28; i += 1) world.holidays.push(calendarRow(i, world.staff.staff_id));
         world.writes += 1;
       }
       afterEffect("seedHolidays");
       return 28;
     },
     async holidaysSummary(staffId: string) {
-      return { total: world.holidays.length, by_admin: world.holidays.filter((h: any) => h.created_by === staffId).length, fingerprint: JSON.stringify(world.holidays) };
+      const expected = new Set(EXPECTED_CALENDAR);
+      return {
+        total: world.holidays.length,
+        by_admin: world.holidays.filter((h: any) => h.created_by === staffId).length,
+        matching: world.holidays.filter((h: any) => expected.has(calendarKey(h))).length,
+        fingerprint: JSON.stringify(world.holidays),
+      };
     },
     async snapshot() {
       return {
@@ -485,11 +506,11 @@ describe("interrupciones (T06): administrador y calendario", () => {
     db.seedHolidays = async () => {
       calls += 1;
       if (calls === 1) {
-        for (let i = 0; i < 10; i += 1) t.world.holidays.push({ holiday_date: `2026-01-${String(i + 1).padStart(2, "0")}`, oficina: 0, created_by: t.world.staff.staff_id });
+        for (let i = 0; i < 10; i += 1) t.world.holidays.push(calendarRow(i, t.world.staff.staff_id));
         throw new Error("crash:seedCalendar");
       }
       // Segunda llamada: inserta solo faltantes compatibles.
-      for (let i = t.world.holidays.length; i < 28; i += 1) t.world.holidays.push({ holiday_date: `2026-01-${String(i + 1).padStart(2, "0")}`, oficina: 0, created_by: t.world.staff.staff_id });
+      for (let i = t.world.holidays.length; i < 28; i += 1) t.world.holidays.push(calendarRow(i, t.world.staff.staff_id));
       return 28;
     };
     void original;
@@ -527,11 +548,51 @@ describe("verify", () => {
     expect((await verify(t.mk())).ok).toBe(false);
   });
 
+  it.each([
+    ["nombre", (h: any) => ({ ...h, holiday_name: "Nombre alterado" })],
+    ["fecha", (h: any) => ({ ...h, holiday_date: "2030-05-05" })],
+    ["oficina", (h: any) => ({ ...h, oficina: (h.oficina + 1) % 3 })],
+  ])("falla si un feriado cambia de %s aunque sigan siendo 28 con la autoría correcta", async (_campo, alter) => {
+    const t = setup();
+    await initialize(t.mk());
+    expect((await verify(t.mk())).ok).toBe(true);
+    t.world.holidays[5] = alter(t.world.holidays[5]);
+    expect(t.world.holidays).toHaveLength(28);
+    t.logs.length = 0;
+    expect((await verify(t.mk())).ok).toBe(false);
+    expect(t.logs.join("\n")).toContain("coinciden con el calendario esperado");
+  });
+
+  it("initialize se bloquea si el calendario materializado no coincide con el esperado", async () => {
+    const t = setup();
+    const db = t.mk().db;
+    db.seedHolidays = async () => {
+      for (let i = 0; i < 28; i += 1) t.world.holidays.push({ ...calendarRow(i, t.world.staff.staff_id), holiday_name: i === 3 ? "Otro nombre" : calendarRow(i, "x").holiday_name });
+      return 28;
+    };
+    await expect(initialize(t.mk({ db }))).rejects.toMatchObject({ code: "BLOQUEADO" });
+  });
+
   it("sin journal, localiza la ficha por correo", async () => {
     const t = setup();
     await initialize(t.mk());
     fs.rmSync(journalPathFor(t.stateDir, t.config.installationId));
     expect((await verify(t.mk({ journalFile: null }))).ok).toBe(true);
+  });
+});
+
+describe("calendario esperado", () => {
+  it("coincide con el catálogo literal de la migración cero_15 (consola y migración no se desalinean)", () => {
+    const sql = fs.readFileSync(path.resolve(HERE, "..", "..", "..", "supabase", "migrations", "20251204001006_cero_15_seed_holidays.sql"), "utf-8");
+    const rows = [...sql.matchAll(/^\s*\('(\d{4}-\d{2}-\d{2})',\s*'([^']+)',\s*(\d)\)/gm)].map((m) => `${m[1]}|${m[3]}|${m[2]}`);
+    expect(rows).toHaveLength(28);
+    expect([...EXPECTED_CALENDAR].sort()).toEqual([...rows].sort());
+  });
+
+  it("envía a SQL solo hashes ASCII (los acentos de una variable -v se corrompen en Windows)", () => {
+    expect(EXPECTED_CALENDAR_MD5).toHaveLength(28);
+    for (const h of EXPECTED_CALENDAR_MD5) expect(h).toMatch(/^[0-9a-f]{32}$/);
+    expect(new Set(EXPECTED_CALENDAR_MD5).size).toBe(28);
   });
 });
 

@@ -19,6 +19,49 @@ export const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 export const ADMIN_DEFAULTS = Object.freeze({ weeklyCapacityHours: 40, targetUtilizationPercent: 85 });
 export const EXPECTED_HOLIDAYS = 28;
 
+/**
+ * Calendario esperado, como "fecha|oficina|nombre". Es la MISMA lista literal que declara
+ * public.seed_initial_holidays (cero_15) y que verifica verify-seed.sql: la prueba
+ * "el calendario esperado coincide con cero_15" impide que se desalineen. `verify` la usa para
+ * comparar el contenido real (no solo el conteo y la autoría): un feriado con fecha, oficina o nombre
+ * distintos no pasa aunque sigan existiendo 28 filas.
+ */
+export const EXPECTED_CALENDAR = Object.freeze([
+  "2026-01-01|0|Año Nuevo",
+  "2026-01-22|0|Día del Estado Plurinacional",
+  "2026-02-16|0|Lunes de Carnaval",
+  "2026-02-17|0|Martes de Carnaval",
+  "2026-04-03|0|Viernes Santo",
+  "2026-05-01|0|Día del Trabajo",
+  "2026-06-04|0|Corpus Christi",
+  "2026-06-22|0|Año Nuevo Andino Amazónico",
+  "2026-07-16|1|Aniversario del Departamento de La Paz",
+  "2026-08-06|0|Día de la Independencia",
+  "2026-09-24|2|Aniversario del Departamento de Santa Cruz",
+  "2026-11-02|0|Día de los Difuntos",
+  "2026-12-25|0|Navidad",
+  "2026-06-05|0|Puente (Adicional)",
+  "2026-08-07|0|Puente (Adicional)",
+  "2027-01-01|0|Año Nuevo",
+  "2027-01-22|0|Día del Estado Plurinacional",
+  "2027-02-08|0|Lunes de Carnaval",
+  "2027-02-09|0|Martes de Carnaval",
+  "2027-03-26|0|Viernes Santo",
+  "2027-05-01|0|Día del Trabajo",
+  "2027-05-27|0|Corpus Christi",
+  "2027-06-21|0|Año Nuevo Andino Amazónico",
+  "2027-07-16|1|Aniversario del Departamento de La Paz",
+  "2027-08-06|0|Día de la Independencia",
+  "2027-09-24|2|Aniversario del Departamento de Santa Cruz",
+  "2027-11-02|0|Día de los Difuntos",
+  "2027-12-25|0|Navidad",
+]);
+
+/** MD5 (UTF-8) de cada entrada: lo que se envía a SQL, que calcula md5() sobre su propio texto UTF-8. */
+export const EXPECTED_CALENDAR_MD5 = Object.freeze(
+  EXPECTED_CALENDAR.map((entry) => createHash("md5").update(entry, "utf8").digest("hex")),
+);
+
 // Refs reales (decisiones.md §4.16). Un ambiente declarado no puede apuntar al ref de otro, y el
 // proyecto Lovable queda fuera de uso.
 export const KNOWN_REFS = Object.freeze({
@@ -382,10 +425,15 @@ export function createDbAdapter({ env = process.env, execFileImpl } = {}) {
         `SELECT json_build_object(
            'total', count(*),
            'by_admin', count(*) FILTER (WHERE created_by = :'staff_id'::uuid),
+           -- filas cuyo (fecha|oficina|nombre) es exactamente uno de los 28 esperados; se comparan por MD5
+           'matching', count(*) FILTER (WHERE md5(holiday_date::text || '|' || oficina::text || '|' || holiday_name)
+                                               = ANY (string_to_array(:'expected', '~'))),
            'fingerprint', COALESCE(md5(string_agg(holiday_date::text || '|' || holiday_name || '|' || oficina::text || '|' || created_by::text, ';'
                                                    ORDER BY holiday_date, oficina)), ''))::text
            FROM public.holidays;`,
-        { staff_id: staffId },
+        // Se envían los MD5 (texto ASCII), no los nombres: en Windows psql recibe mal los acentos de una
+        // variable -v («Año», «Día») por la codificación de la línea de comandos. Separador "~".
+        { staff_id: staffId, expected: EXPECTED_CALENDAR_MD5.join("~") },
       );
     },
 
