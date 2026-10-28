@@ -305,6 +305,14 @@ CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE OF email ON p
 
 --
 --
+-- Name: staff trg_apply_category_role_on_staff_link; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_apply_category_role_on_staff_link AFTER INSERT ON public.staff FOR EACH ROW WHEN (((new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
+
+
+--
+--
 -- Name: timer_entries trg_prevent_imported_timer_delete; Type: TRIGGER; Schema: public; Owner: -
 --
 

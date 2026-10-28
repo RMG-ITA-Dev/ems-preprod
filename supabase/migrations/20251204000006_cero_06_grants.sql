@@ -892,6 +892,15 @@ GRANT ALL ON FUNCTION public.link_staff_to_auth_user() TO service_role;
 
 --
 --
+-- Name: FUNCTION apply_category_role_on_staff_link(); Type: ACL; Schema: public; Owner: -
+--
+
+-- Solo la invoca el trigger; un trigger dispara aunque quien escribe no tenga EXECUTE.
+REVOKE ALL ON FUNCTION public.apply_category_role_on_staff_link() FROM PUBLIC, anon, authenticated;
+
+
+--
+--
 -- Name: FUNCTION move_category(p_category_id uuid, p_new_position integer); Type: ACL; Schema: public; Owner: -
 --
 

@@ -4449,6 +4449,8 @@ CREATE FUNCTION public.handle_new_user() RETURNS trigger
     AS $$
 declare
   v_role_count integer;
+  v_role_key   text;
+  v_role       public.app_role;
 begin
   -- Guard de reentrada: si otra vía ya asignó el rol, no se toca.
   if exists (select 1 from public.user_roles where user_id = new.id) then
@@ -4462,8 +4464,26 @@ begin
     insert into public.user_roles (user_id, role, role_key)
     values (new.id, 'admin', 'admin');
   else
+    -- Si el admin ya creó la ficha, la cuenta nace con el rol que sugiere su categoría
+    -- (categories.default_role_key). Misma ficha que va a vincular link_auth_user_to_staff,
+    -- que corre después (on_auth_user_created_link_staff). Nunca `admin` (el CHECK de
+    -- categories ya lo impide; se repite porque acá el rol se aplica sin confirmación).
+    -- Sin ficha, sin sugerencia o sin mapeo legacy: `assistant`, como siempre.
+    select c.default_role_key, ar.legacy_app_role
+      into v_role_key, v_role
+      from public.staff s
+      join public.categories c on c.category_id = s.category_id
+      join public.authorization_roles ar on ar.role_key = c.default_role_key
+     where lower(trim(s.email)) = lower(trim(new.email))
+       and s.auth_user_id is null
+       and s.deleted_at is null
+       and c.default_role_key <> 'admin'
+       and ar.legacy_app_role is not null
+     order by s.created_at desc
+     limit 1;
+
     insert into public.user_roles (user_id, role, role_key)
-    values (new.id, 'staff', 'assistant');
+    values (new.id, coalesce(v_role, 'staff'), coalesce(v_role_key, 'assistant'));
   end if;
 
   return new;
@@ -4717,6 +4737,45 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: apply_category_role_on_staff_link(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.apply_category_role_on_staff_link() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role_key text;
+  v_role     public.app_role;
+BEGIN
+  -- La ficha nace vinculada a una cuenta que ya existía (el usuario ingresó antes de tener
+  -- ficha y quedó huérfano con `assistant`). Se le aplica el rol que sugiere la categoría
+  -- elegida, igual que handle_new_user() cuando la ficha existe antes de la cuenta.
+  -- Solo pisa el `assistant` con que nace toda cuenta: un rol puesto a mano no se toca y un
+  -- admin nunca se degrada. Nunca asigna `admin` (CHECK de categories, repetido acá).
+  SELECT c.default_role_key, ar.legacy_app_role
+    INTO v_role_key, v_role
+    FROM public.categories c
+    JOIN public.authorization_roles ar ON ar.role_key = c.default_role_key
+   WHERE c.category_id = NEW.category_id
+     AND c.default_role_key <> 'admin'
+     AND ar.legacy_app_role IS NOT NULL;
+
+  IF v_role_key IS NOT NULL THEN
+    UPDATE public.user_roles
+       SET role_key = v_role_key, role = v_role
+     WHERE user_id = NEW.auth_user_id
+       AND role_key = 'assistant'
+       AND role <> 'admin';
+  END IF;
+
+  RETURN NULL;
 END;
 $$;
 
