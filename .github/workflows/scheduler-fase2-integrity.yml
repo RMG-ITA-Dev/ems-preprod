@@ -86,6 +86,9 @@ jobs:
 
   consolidated-replay:
     runs-on: ubuntu-latest
+    # Tope global: un run sano dura ~5 min y uno con reintentos por limitación de registros llegó a ~31 min
+    # (2026-10-28). Sin este tope, el límite por omisión de GitHub son 6 horas de runner bloqueado.
+    timeout-minutes: 45
     # packages: read para el login a ghcr.io de abajo (las imágenes de Supabase son públicas; el
     # login solo cambia el pull de anónimo a autenticado, que tiene otro límite).
     permissions:
@@ -137,7 +140,13 @@ jobs:
       # Pre-descarga secuencial con reintentos por imagen (y respaldo en public.ecr.aws): reintentar solo
       # `supabase start` repite las 13 descargas en paralelo y no converge cuando ghcr.io limita (2026-10-27:
       # 4 intentos seguidos fallaron). El login es opcional: si falla, las descargas siguen anónimas.
+      # Tope de la pre-descarga: con ghcr.io y public.ecr.aws limitando a la vez, el script espera ~14 min POR
+      # IMAGEN (13 imágenes) y el paso se quedó más de 15 min el 2026-10-28. Es de mejor esfuerzo (el script sale
+      # con 0 aunque queden imágenes pendientes), así que agotar el tiempo NO es fatal: el paso siguiente,
+      # `supabase start`, baja lo que falte con su propio reintento y su propio límite.
       - name: Pre-descargar las imágenes de Supabase (una a una, con reintentos)
+        timeout-minutes: 20
+        continue-on-error: true
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || echo "::notice::docker login a ghcr.io falló; se descarga sin autenticar"
           bash supabase/tests/local/ci-pull-supabase-images.sh
