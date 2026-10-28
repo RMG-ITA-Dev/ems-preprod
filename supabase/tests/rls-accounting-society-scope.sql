@@ -1,4 +1,5 @@
--- Alcance por sociedad de Contabilidad y Cobranzas (2026-10-28) — Fase 1: politicas RLS y vistas; Fase 2: RPC de lectura.
+-- Alcance por sociedad de Contabilidad y Cobranzas (2026-10-28) — Fase 1: politicas RLS y vistas; Fase 2: RPC de lectura;
+-- Fase 3: escrituras, regla de armado de solicitudes y cambio de sociedad del encargo.
 -- Plan: docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md. Corre desde supabase/tests/local/run-rls-tests.sh.
 -- Transaccion unica, SIEMPRE hace ROLLBACK. Salida de exito: "SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)".
 --
@@ -13,6 +14,10 @@
 --   7. (Fase 2) RPC SECURITY DEFINER de lectura: Cobranzas (lista y opciones), gastos por OT (resumen y detalle),
 --      gastos facturables, contactos de la OT, diferencia de cambio, Encargos Administrativos y portafolio.
 --      Una OT ajena por id corta con SOCIETY_SCOPE_FORBIDDEN (o el porton propio de la RPC); los listados solo traen lo propio.
+--   8. (Fase 3) Escrituras contables sobre cuotas, ajustes, reembolsos, notas (autor trasladado incluido) y fondos (la
+--      solicitud se juzga entera). Regla de armado: una solicitud solo lleva OT de la sociedad de su solicitante, en alta,
+--      cambio de OT, cambio de solicitud padre, cambio de solicitante y envio. Un encargo con solicitudes abiertas no
+--      cambia de sociedad.
 --
 -- Mundo (prefijo 5c):
 --   Sociedad A = Ruizmier Pelaez, B = Ruizmier Jauregui (seed).
@@ -338,6 +343,133 @@ BEGIN
                               WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C1A');
 
   RAISE NOTICE 'SOCIETY SCOPE FASE 2: RPC checks passed';
+END $$;
+
+-- ══ Fase 3: escrituras, regla de armado de solicitudes y cambio de sociedad del encargo ═════════════
+
+-- Borrador FD del gerente U4 (sociedad A) que quedo con una OT de B: dato historico, anterior a la regla.
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.fund_requests (fund_request_id, requester_staff_id, total_requested_amount, currency, status) VALUES
+  ('f05c0000-0000-4000-8000-00000000000d', '505c0000-0000-4000-8000-000000000004', 100, 'BOB', 'borrador');
+INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount, approval_status) VALUES
+  ('f05c0000-0000-4000-8000-00000000000d', 'd05c0000-0000-4000-8000-00000000000b', 100, 'pendiente');
+SET LOCAL session_replication_role = origin;
+
+-- Error (o NULL) de un DML ejecutado como dueno y sin sesion: los triggers aplican igual a todos.
+CREATE FUNCTION pg_temp.owner_error(p_sql text) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  BEGIN
+    EXECUTE p_sql;
+  EXCEPTION WHEN OTHERS THEN
+    RETURN SQLERRM;
+  END;
+  RETURN NULL;
+END $$;
+
+CREATE FUNCTION pg_temp.expect_owner_forbidden(p_label text, p_sql text, p_marker text) RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE v_err text := pg_temp.owner_error(p_sql);
+BEGIN
+  IF v_err IS NULL OR v_err NOT LIKE '%' || p_marker || '%' THEN
+    RAISE EXCEPTION 'SOCIETY SCOPE FAIL — %: se esperaba un error con [%] y se obtuvo [%]', p_label, p_marker, COALESCE(v_err, 'sin error');
+  END IF;
+  RAISE NOTICE 'PASS — %', p_label;
+END $$;
+
+DO $$
+DECLARE
+  u1 constant text := 'a05c0000-0000-4000-8000-000000000001';  -- cobranza A
+  u2 constant text := 'a05c0000-0000-4000-8000-000000000002';  -- gerente contable A
+  u3 constant text := 'a05c0000-0000-4000-8000-000000000003';  -- analista contable A
+  u4 constant text := 'a05c0000-0000-4000-8000-000000000004';  -- gerente (control)
+  u5 constant text := 'a05c0000-0000-4000-8000-000000000005';  -- gerente contable B
+  wa constant text := 'd05c0000-0000-4000-8000-00000000000a';
+  wb constant text := 'd05c0000-0000-4000-8000-00000000000b';
+  ia constant text := '115c0000-0000-4000-8000-00000000000a';
+  ib constant text := '115c0000-0000-4000-8000-00000000000b';
+  fa constant text := 'f05c0000-0000-4000-8000-00000000000a';
+  fb constant text := 'f05c0000-0000-4000-8000-00000000000b';
+  fm constant text := 'f05c0000-0000-4000-8000-00000000000c';
+  fd constant text := 'f05c0000-0000-4000-8000-00000000000d';
+  soc_b uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  v_adj_b uuid;
+  v_note uuid;
+BEGIN
+  -- Cuotas ───────────────────────────────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect_forbidden('invoice_installment: cobranza A no factura una cuota de B', u1,
+    format($q$SELECT public.invoice_installment(%L::uuid, 'Pending', current_date + 30, current_date, NULL::numeric, NULL::date)$q$, ib), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('add_installment_adjustment: cobranza A no ajusta una cuota de B', u1,
+    format($q$SELECT public.add_installment_adjustment(%L::uuid, 'descuento', -10, 'x')$q$, ib), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect('add_installment_adjustment: cobranza A si ajusta una cuota de A',
+    pg_temp.rpc_error(u1, format($q$SELECT public.add_installment_adjustment(%L::uuid, 'descuento', -10, 'x')$q$, ia)), NULL);
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', u5, 'role', 'authenticated')::text, true);
+  v_adj_b := (public.add_installment_adjustment(ib::uuid, 'descuento', -10, 'de B')).adjustment_id;
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM pg_temp.expect_forbidden('delete_installment_adjustment: cobranza A no retira un ajuste de B', u1,
+    format('SELECT public.delete_installment_adjustment(%L::uuid)', v_adj_b), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('create_expense_reimbursement_row: cobranza A no factura gastos de WB', u1,
+    format('SELECT public.create_expense_reimbursement_row(%L::uuid)', wb), 'SOCIETY_SCOPE_FORBIDDEN');
+
+  -- Notas: un autor trasladado de sociedad ya no edita ni borra lo que dejo en la anterior ───────────
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', u1, 'role', 'authenticated')::text, true);
+  v_note := (public.add_installment_note(wa::uuid, NULL, 'nota de A')).note_id;
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM pg_temp.expect_forbidden('add_installment_note: cobranza A no anota en WB', u1,
+    format($q$SELECT public.add_installment_note(%L::uuid, NULL, 'x')$q$, wb), 'NOTE');
+  UPDATE public.staff SET society_id = soc_b WHERE staff_id = '505c0000-0000-4000-8000-000000000001';
+  PERFORM pg_temp.expect_forbidden('edit_installment_note: el autor trasladado a B no edita su nota de A', u1,
+    format($q$SELECT public.edit_installment_note(%L::uuid, 'editada')$q$, v_note), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('delete_installment_note: el autor trasladado a B no borra su nota de A', u1,
+    format('SELECT public.delete_installment_note(%L::uuid)', v_note), 'SOCIETY_SCOPE_FORBIDDEN');
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+   WHERE staff_id = '505c0000-0000-4000-8000-000000000001';
+  PERFORM pg_temp.expect('edit_installment_note: de vuelta en A, el autor si edita',
+    pg_temp.rpc_error(u1, format($q$SELECT public.edit_installment_note(%L::uuid, 'editada')$q$, v_note)), NULL);
+
+  -- Fondos: la solicitud se juzga entera ────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect_forbidden('fund_request_disburse: gerente contable A no desembolsa FB', u2,
+    format('SELECT public.fund_request_disburse(%L::uuid, 100)', fb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('fund_request_disburse: gerente contable A no desembolsa la mixta FM', u2,
+    format('SELECT public.fund_request_disburse(%L::uuid, 200)', fm), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('fund_request_cancel: analista contable A no cancela FB', u3,
+    format($q$SELECT public.fund_request_cancel(%L::uuid, 'x')$q$, fb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('fund_request_expense_review: gerente contable A no revisa un gasto de FB', u2,
+    $q$SELECT public.fund_request_expense_review('b05c0000-0000-4000-8000-00000000000b'::uuid, 'aprobar')$q$, 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('fund_request_settle: gerente contable A no liquida FB', u2,
+    format($q$SELECT public.fund_request_settle(%L::uuid, 'sin_saldo', 0)$q$, fb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect_forbidden('fund_request_confirm_settlement: gerente contable A no confirma FB', u2,
+    format('SELECT public.fund_request_confirm_settlement(%L::uuid)', fb), 'SOCIETY_SCOPE_FORBIDDEN');
+  PERFORM pg_temp.expect('fund_request_disburse: gerente contable A si desembolsa FA',
+    pg_temp.rpc_error(u2, format('SELECT public.fund_request_disburse(%L::uuid, 100)', fa)), NULL);
+
+  -- Regla de armado: OT de la sociedad del SOLICITANTE (todos los empleados, admin incluido) ──────────
+  PERFORM pg_temp.expect('selector de OT para fondos: el gerente de A solo ve WA',
+    pg_temp.seen(u4, $q$SELECT wo_id FROM public.fund_request_selectable_work_orders WHERE wo_id::text LIKE 'd05c%'$q$), wa);
+  PERFORM pg_temp.expect('selector de OT para fondos: el gerente contable de B solo ve WB',
+    pg_temp.seen(u5, $q$SELECT wo_id FROM public.fund_request_selectable_work_orders WHERE wo_id::text LIKE 'd05c%'$q$), wb);
+  PERFORM pg_temp.expect_owner_forbidden('alta: no se agrega WB a una solicitud de un solicitante de A (aunque lo haga el dueno)',
+    format('INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount) VALUES (%L, %L, 10)', fa, wb),
+    'FUND_REQUEST_SOCIETY_MISMATCH');
+  PERFORM pg_temp.expect_owner_forbidden('cambio de OT: FA no pasa a WB',
+    format('UPDATE public.fund_request_work_orders SET wo_id = %L WHERE fund_request_id = %L', wb, fa), 'FUND_REQUEST_SOCIETY_MISMATCH');
+  PERFORM pg_temp.expect_owner_forbidden('cambio de solicitud padre: la fila de WB no pasa a FA',
+    format('UPDATE public.fund_request_work_orders SET fund_request_id = %L WHERE fund_request_id = %L', fa, fb), 'FUND_REQUEST_SOCIETY_MISMATCH');
+  PERFORM pg_temp.expect_owner_forbidden('cambio de solicitante: FA no pasa a uno de B',
+    format($q$UPDATE public.fund_requests SET requester_staff_id = '505c0000-0000-4000-8000-000000000005' WHERE fund_request_id = %L$q$, fa),
+    'FUND_REQUEST_SOCIETY_MISMATCH');
+  PERFORM pg_temp.expect_forbidden('fund_request_submit: el borrador historico FD (OT de B) no se envia', u4,
+    format('SELECT public.fund_request_submit(%L::uuid)', fd), 'FUND_REQUEST_SOCIETY_MISMATCH');
+
+  -- Cambio de sociedad del encargo ──────────────────────────────────────────────────────────────
+  PERFORM pg_temp.expect_owner_forbidden('EA (con FA abierta) no cambia de sociedad',
+    format($q$UPDATE public.engagements SET society_id = %L WHERE engagement_id = 'e05c0000-0000-4000-8000-00000000000a'$q$, soc_b),
+    'ENGAGEMENT_SOCIETY_LOCKED');
+  PERFORM pg_temp.expect('ESA (sin solicitudes) si cambia de sociedad',
+    pg_temp.owner_error(format($q$UPDATE public.engagements SET society_id = %L WHERE engagement_id = 'e05c0000-0000-4000-8000-00000000001a'$q$, soc_b)), NULL);
+
+  RAISE NOTICE 'SOCIETY SCOPE FASE 3: write checks passed';
 END $$;
 
 DO $$ BEGIN RAISE NOTICE 'SOCIETY SCOPE: ALL CHECKS PASSED (rolled back)'; END $$;

@@ -1373,6 +1373,140 @@ $$;
 
 
 --
+-- Name: assert_fund_request_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Guarda por solicitud de fondos para las RPC contables. Para Contabilidad la solicitud se juzga ENTERA:
+-- tiene que tener al menos una OT y todas de su sociedad. Una mixta no se opera (nunca un desembolso global
+-- porque una sola OT coincide). No-op para quien no tiene alcance por sociedad.
+CREATE FUNCTION public.assert_fund_request_society_scope(p_fund_request_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.is_society_scoped_role() THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.fund_request_work_orders frwo WHERE frwo.fund_request_id = p_fund_request_id)
+     OR EXISTS (SELECT 1
+                  FROM public.fund_request_work_orders frwo
+                  JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                  JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                 WHERE frwo.fund_request_id = p_fund_request_id
+                   AND e.society_id IS DISTINCT FROM public.my_society_id()) THEN
+    RAISE EXCEPTION 'SOCIETY_SCOPE_FORBIDDEN: la solicitud de fondos no pertenece a su sociedad'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: fund_request_assert_requester_society(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Regla de armado de solicitudes (decision del operador 2026-10-28, aplica a TODOS los empleados): una
+-- solicitud solo lleva OT de la sociedad de su SOLICITANTE (si soy de Pelaez, solo pido fondos contra OT de
+-- encargos de Pelaez). p_wo_id NULL revisa todas las OT de la solicitud; con valor, solo esa (la fila que se
+-- esta insertando todavia no existe). Sin excepcion para admin ni para las RPC DEFINER.
+CREATE FUNCTION public.fund_request_assert_requester_society(p_fund_request_id uuid, p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_society uuid;
+BEGIN
+  SELECT s.society_id INTO v_society
+    FROM public.fund_requests fr
+    JOIN public.staff s ON s.staff_id = fr.requester_staff_id
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF EXISTS (SELECT 1
+               FROM public.work_orders wo
+               JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+              WHERE (p_wo_id IS NOT NULL AND wo.wo_id = p_wo_id
+                     OR p_wo_id IS NULL AND wo.wo_id IN (SELECT frwo.wo_id FROM public.fund_request_work_orders frwo
+                                                          WHERE frwo.fund_request_id = p_fund_request_id))
+                AND e.society_id IS DISTINCT FROM v_society) THEN
+    RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: solo se pueden pedir fondos contra ordenes de trabajo de la sociedad del solicitante'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: fr_wo_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Trigger de fund_request_work_orders: cubre el alta, el cambio de OT y el cambio de solicitud padre.
+CREATE FUNCTION public.fr_wo_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.fund_request_assert_requester_society(NEW.fund_request_id, NEW.wo_id);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fr_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Trigger de fund_requests: si cambia el solicitante, todas las OT ya asignadas tienen que ser de su sociedad.
+CREATE FUNCTION public.fr_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.requester_staff_id IS DISTINCT FROM OLD.requester_staff_id THEN
+    -- La funcion lee el solicitante de la tabla (todavia el viejo en un BEFORE): se valida contra el nuevo.
+    IF EXISTS (SELECT 1
+                 FROM public.fund_request_work_orders frwo
+                 JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                 JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                WHERE frwo.fund_request_id = NEW.fund_request_id
+                  AND e.society_id IS DISTINCT FROM (SELECT s.society_id FROM public.staff s
+                                                      WHERE s.staff_id = NEW.requester_staff_id)) THEN
+      RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: el nuevo solicitante es de otra sociedad que las ordenes de trabajo de la solicitud'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: engagements_guard_society_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cambiar la sociedad de un encargo (solo admin, 0722-157) con solicitudes de fondos ENVIADAS y abiertas sobre sus
+-- OT las dejaria de otra sociedad que su solicitante y fuera del alcance de la Contabilidad que las opera. Se
+-- bloquea hasta que esas solicitudes se cierren o cancelen. Los borradores no bloquean: fund_request_submit los
+-- revalida al enviar.
+CREATE FUNCTION public.engagements_guard_society_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.society_id IS DISTINCT FROM OLD.society_id
+     AND EXISTS (SELECT 1
+                   FROM public.work_orders wo
+                   JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+                   JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+                  WHERE wo.engagement_id = NEW.engagement_id
+                    AND fr.status NOT IN ('borrador', 'cerrado', 'cancelado')) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_SOCIETY_LOCKED: el encargo tiene solicitudes de fondos abiertas; cierrelas o cancelelas antes de cambiar su sociedad';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 --
 -- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -3160,6 +3294,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'en_liquidacion' THEN
     RAISE EXCEPTION 'La solicitud no tiene un movimiento de dinero pendiente (estado %)', v_status;
@@ -3269,6 +3405,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   -- Admin: cualquier estado no terminal. Contabilidad (los dos roles): solo la fase contable,
   -- que es lo que ve (fr_accounting_sees).
@@ -3321,6 +3459,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'aprobado_gerente' THEN
     RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
@@ -3386,6 +3526,9 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Gasto % no encontrado', p_fre_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(
+    (SELECT fre.fund_request_id FROM public.fund_request_expenses fre WHERE fre.fre_id = p_fre_id));
 
   IF v_fr_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no admite revisión de gastos en su estado actual (%)', v_fr_status;
@@ -3671,6 +3814,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no se puede liquidar en su estado actual (%)', v_status;
@@ -3785,6 +3930,11 @@ BEGIN
   IF v_status NOT IN ('borrador', 'observado', 'rechazado') THEN
     RAISE EXCEPTION 'La solicitud no se puede enviar en su estado actual (%)', v_status;
   END IF;
+
+  -- Alcance por sociedad (2026-10-28): todas las OT de la solicitud deben ser de la sociedad del
+  -- SOLICITANTE (no del que envia: un admin puede actuar por el). El trigger de la relacion OT-solicitud
+  -- lo exige al armarla; aqui se revalida por si algo cambio despues del alta.
+  PERFORM public.fund_request_assert_requester_society(p_fund_request_id, NULL);
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.
   SELECT COALESCE(SUM(allocated_amount), 0)
@@ -7417,7 +7567,9 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
    FROM ((public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
+  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id)
+         -- Alcance por sociedad (2026-10-28): solo OT de la sociedad de quien pide (regla de armado de solicitudes).
+         AND (e.society_id = public.my_society_id()));
 
 
 --
@@ -8463,6 +8615,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT wo.approval_status INTO v_approval_status
@@ -8688,6 +8842,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT e.manager_id INTO v_manager
@@ -9000,6 +9156,9 @@ BEGIN
   IF NOT FOUND OR v_note.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe o fue borrada';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ademas de ser el autor, la OT tiene que ser de su sociedad (un
+  -- autor trasladado de sociedad ya no edita las notas que dejo en la anterior).
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -9048,6 +9207,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ver edit_installment_note.
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -9494,6 +9655,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(p_wo_id);
   -- Solo una OT APROBADA factura gastos ejecutados. La pantalla ya lo exige, pero una pestana
   -- vieja (la OT se devolvio a borrador despues) o una llamada directa a la RPC se lo saltaban.
   -- Se mira con la fila bloqueada, para que nadie la cambie entre el chequeo y el alta.
@@ -9596,6 +9759,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.installment_type <> 'expense_reimbursement' THEN
     RAISE EXCEPTION 'EXPENSE_ROW_INVALID: esta cuota no es una fila de gastos ejecutados';
   END IF;
@@ -10126,6 +10291,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_inst.wo_id);
 
   SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_inst.wo_id;
   v_currency := COALESCE(v_inst.currency, v_wo_currency);
@@ -10224,6 +10391,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND: el ajuste no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
   END IF;

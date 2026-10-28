@@ -140,4 +140,4 @@ GRANT ALL ON public.engagement_wo_state TO service_role;
 
 -- 5. Documentación en el catálogo de la otra vista del dueño que se conserva ───────────────────────────────────────
 COMMENT ON VIEW public.fund_request_selectable_work_orders IS
-  'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada (fr_wo_insert no mira alcance; el gerente de la OT aprueba), asi que debe verlas todas. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
+  'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada de SU sociedad (alcance por sociedad 2026-10-28; fr_wo_insert no mira alcance, el trigger tr_fr_wo_enforce_requester_society exige la sociedad del solicitante y el gerente de la OT aprueba), asi que debe ver todas las de su sociedad. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';

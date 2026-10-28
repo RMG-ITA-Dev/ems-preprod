@@ -63,6 +63,15 @@ CREATE TRIGGER tr_fr_wo_set_manager BEFORE INSERT OR UPDATE OF wo_id ON public.f
 CREATE TRIGGER tr_fr_wo_validate_approved BEFORE INSERT OR UPDATE OF wo_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_validate_approved();
 
 
+-- Alcance por sociedad (2026-10-28): la OT tiene que ser de la sociedad del solicitante (alta, cambio de OT y
+-- cambio de solicitud padre), y el solicitante no puede cambiar a otra sociedad que la de sus OT.
+CREATE TRIGGER tr_fr_wo_enforce_requester_society BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_enforce_requester_society();
+
+CREATE TRIGGER tr_fr_enforce_requester_society BEFORE UPDATE OF requester_staff_id ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_enforce_requester_society();
+
+CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_society_change();
+
+
 --
 --
 -- Name: fund_requests tr_fr_log_event; Type: TRIGGER; Schema: public; Owner: -
