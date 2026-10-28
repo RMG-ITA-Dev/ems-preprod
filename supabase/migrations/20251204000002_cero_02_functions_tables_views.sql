@@ -1216,6 +1216,125 @@ $$;
 
 
 --
+-- Name: is_society_scoped_role(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Alcance por sociedad (decision del operador 2026-10-28, plan en
+-- docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md): Gerente de Contabilidad, Analista de
+-- Contabilidad y Analista de Cobranzas solo ven y operan encargos/OT de SU sociedad. Su
+-- engagement.read/work_order.read/client.read tiene alcance 'department', que las politicas leen como
+-- firma completa; el corte se aplica encima con politicas AS RESTRICTIVE (d1) y en las RPC DEFINER.
+-- Lista unica de roles, mismo patron que is_collections_role() (que NO cambia: accounting_analyst sigue
+-- fuera de Cobranzas). Admin, socios y el resto de roles no estan sujetos a este limite.
+CREATE FUNCTION public.is_society_scoped_role() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(public.current_role_key() in ('accounting_manager', 'accounting_analyst', 'collections_analyst'), false);
+$$;
+
+
+--
+-- Name: my_society_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad del llamador (staff.society_id, NOT NULL). Sin ficha devuelve NULL, y NULL nunca iguala a
+-- ninguna sociedad: un rol con alcance por sociedad sin ficha no ve nada por estas vias.
+CREATE FUNCTION public.my_society_id() RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id FROM public.staff s WHERE s.staff_id = public.get_my_staff_id()
+$$;
+
+
+--
+-- Alcance por sociedad: conjuntos de lo que pertenece a MI sociedad (2026-10-28).
+--
+
+-- Solo devuelven filas a los roles con alcance por sociedad (is_society_scoped_role()); para el resto salen
+-- vacios, asi no enumeran ids de una sociedad a quien no los veia. Las politicas RESTRICTIVE "society scope"
+-- (d1, seccion 3), clients_directory (B3c) y my_visible_engagement_ids (B4) los usan detras de
+-- `NOT is_society_scoped_role() OR ...`, de modo que para los demas roles nunca se consultan.
+
+--
+-- Name: my_society_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE (SELECT public.is_society_scoped_role()) AND e.society_id = (SELECT public.my_society_id())
+$$;
+
+--
+-- Name: my_society_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.wo_id FROM public.work_orders wo WHERE wo.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+--
+-- Name: my_society_client_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
+  SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+--
+-- Name: my_society_installment_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_installment_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT i.installment_id FROM public.wo_payment_installments i WHERE i.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+--
+-- Name: my_society_note_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_note_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT n.note_id FROM public.wo_installment_notes n WHERE n.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+--
+-- Name: my_foreign_fund_request_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_foreign_fund_request_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Solicitudes con AL MENOS UNA OT de otra sociedad. Se expresa por exclusion (NOT IN) y no como "solicitudes de mi sociedad" por
+  -- dos motivos: una solicitud mixta nunca se muestra a medias (basta una OT ajena para excluirla entera) y el WITH CHECK de un INSERT
+  -- nuevo (borrador aun sin OT, que no existe en la foto de esta funcion) pasa sin tener que estar en un conjunto.
+  SELECT DISTINCT frwo.fund_request_id
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE (SELECT public.is_society_scoped_role())
+     AND e.society_id IS DISTINCT FROM (SELECT public.my_society_id())
+$$;
+
+
+--
 --
 -- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --

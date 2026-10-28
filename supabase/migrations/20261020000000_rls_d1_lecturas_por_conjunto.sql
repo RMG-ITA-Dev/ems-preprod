@@ -299,3 +299,82 @@ DROP POLICY IF EXISTS "Approvers can view assigned line approvals" ON public.tim
 CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT
   USING ((SELECT public.my_line_approval_mode()) = 'all'
          OR ((SELECT public.my_line_approval_mode()) = 'engagements' AND engagement_id IN (SELECT public.my_team_engagement_ids())));
+
+-- ============ 3. Alcance por sociedad: politicas AS RESTRICTIVE (2026-10-28) ============
+-- Decision del operador: Gerente de Contabilidad, Analista de Contabilidad y Analista de Cobranzas (is_society_scoped_role()) solo ven y
+-- operan lo de SU sociedad (staff.society_id; la de una OT es la de su encargo). Plan: docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md.
+-- Por que RESTRICTIVE y no editar cada politica permisiva: las permisivas se suman por OR (firm read, creador, equipo, solicitud de fondos,
+-- autor...) y cortar solo una deja abiertas las otras. Una RESTRICTIVE se combina por AND con la UNION de todas, en lectura y escritura, asi
+-- que ninguna via (tampoco ser creador o solicitante) levanta el limite. Para los demas roles el predicado es `NOT false OR ...` = true y
+-- el conjunto ni se calcula. FOR ALL con el mismo predicado en USING y WITH CHECK: un UPDATE no puede mover una fila a otra sociedad.
+-- Las RPC SECURITY DEFINER no pasan por aca (corren como el dueno): llevan su propia guarda.
+
+DROP POLICY IF EXISTS "society scope" ON public.engagements;
+CREATE POLICY "society scope" ON public.engagements AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR society_id = (SELECT public.my_society_id()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR society_id = (SELECT public.my_society_id()));
+
+DROP POLICY IF EXISTS "society scope" ON public.clients;
+CREATE POLICY "society scope" ON public.clients AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR client_id IN (SELECT public.my_society_client_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR client_id IN (SELECT public.my_society_client_ids()));
+
+DROP POLICY IF EXISTS "society scope" ON public.client_contacts;
+CREATE POLICY "society scope" ON public.client_contacts AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR client_id IN (SELECT public.my_society_client_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR client_id IN (SELECT public.my_society_client_ids()));
+
+DROP POLICY IF EXISTS "society scope" ON public.work_orders;
+CREATE POLICY "society scope" ON public.work_orders AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR engagement_id IN (SELECT public.my_society_engagement_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR engagement_id IN (SELECT public.my_society_engagement_ids()));
+
+-- Tablas colgadas de una OT por wo_id.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['wo_budget_lines','wo_expense_budget','wo_payment_plan','wo_payment_installments',
+                           'wo_installment_adjustments','wo_installment_events','wo_installment_notes']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "society scope" ON public.%I', t);
+    EXECUTE format('CREATE POLICY "society scope" ON public.%I AS RESTRICTIVE FOR ALL TO authenticated '
+                   'USING (NOT (SELECT public.is_society_scoped_role()) OR wo_id IN (SELECT public.my_society_wo_ids())) '
+                   'WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR wo_id IN (SELECT public.my_society_wo_ids()))', t);
+  END LOOP;
+END $$;
+
+DROP POLICY IF EXISTS "society scope" ON public.wo_installment_expenses;
+CREATE POLICY "society scope" ON public.wo_installment_expenses AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR installment_id IN (SELECT public.my_society_installment_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR installment_id IN (SELECT public.my_society_installment_ids()));
+
+DROP POLICY IF EXISTS "society scope" ON public.wo_installment_note_versions;
+CREATE POLICY "society scope" ON public.wo_installment_note_versions AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR note_id IN (SELECT public.my_society_note_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR note_id IN (SELECT public.my_society_note_ids()));
+
+-- Fondos: la solicitud se juzga entera (una OT ajena la excluye completa, nunca se ve a medias). La relacion OT-solicitud y los gastos
+-- exigen ademas que su propia OT sea de mi sociedad.
+DROP POLICY IF EXISTS "society scope" ON public.fund_requests;
+CREATE POLICY "society scope" ON public.fund_requests AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids()));
+
+DROP POLICY IF EXISTS "society scope" ON public.fund_request_events;
+CREATE POLICY "society scope" ON public.fund_request_events AS RESTRICTIVE FOR ALL TO authenticated
+  USING (NOT (SELECT public.is_society_scoped_role()) OR fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids()))
+  WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids()));
+
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['fund_request_work_orders','fund_request_expenses']
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "society scope" ON public.%I', t);
+    EXECUTE format('CREATE POLICY "society scope" ON public.%I AS RESTRICTIVE FOR ALL TO authenticated '
+                   'USING (NOT (SELECT public.is_society_scoped_role()) OR (wo_id IN (SELECT public.my_society_wo_ids()) '
+                   'AND fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids()))) '
+                   'WITH CHECK (NOT (SELECT public.is_society_scoped_role()) OR (wo_id IN (SELECT public.my_society_wo_ids()) '
+                   'AND fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids())))', t);
+  END LOOP;
+END $$;

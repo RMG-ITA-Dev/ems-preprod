@@ -56,6 +56,7 @@ END $$;
 --   d) el encargo figura en una solicitud de fondos YA ENVIADA del llamador (como solicitante, gerente de la OT o contabilidad):
 --      solicitante y gerente de la OT por conjuntos; contabilidad la decide la propia engagement_in_my_fund_request (la de la
 --      política), no una copia de su cuerpo.
+--   e) RESTRICTIVE "society scope" (d1): los roles con alcance por sociedad solo ven encargos de su sociedad, por cualquiera de a)-d).
 -- `v_scope IS NOT NULL AND ...` replica la semántica de `permission_scope(...) <> '...'` con NULL (no visible).
 CREATE OR REPLACE FUNCTION public.my_visible_engagement_ids()
 RETURNS SETOF uuid
@@ -70,11 +71,15 @@ DECLARE
   v_scope text    := public.permission_scope('engagement.read');
   v_role  text    := public.current_role_key();
   v_acct  boolean := public.has_permission('fund_disbursement.read') OR public.has_permission('expense_settlement.read');
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society    uuid    := public.my_society_id();
 BEGIN
   RETURN QUERY
   SELECT e.engagement_id
     FROM public.engagements e
-   WHERE (v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
+   -- e) Política RESTRICTIVE "society scope" (d1, 2026-10-28): para los roles con alcance por sociedad, AND con todo lo demás.
+   WHERE (NOT v_soc_scoped OR e.society_id = v_society)
+     AND ((v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
       OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
@@ -98,7 +103,7 @@ BEGIN
               JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
               JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
              WHERE fr.status <> 'borrador')
-          AND public.engagement_in_my_fund_request(e.engagement_id));
+          AND public.engagement_in_my_fund_request(e.engagement_id)));
 END $$;
 COMMENT ON FUNCTION public.my_visible_engagement_ids() IS
   'B4: ids de los encargos que el llamador (auth.uid()) puede ver segun las 4 politicas SELECT de engagements, como conjunto. Solo la usa engagement_wo_state; la suite rls-carril-b-b4-vistas.sql la compara con la RLS real.';
