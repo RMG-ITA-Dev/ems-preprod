@@ -25,30 +25,30 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   useInactivityTimeout(timeoutMinutes);
 
   // Compute derived state — no side effects during render
-  const { shouldSignOut, redirectTo } = useMemo(() => {
+  const { shouldSignOut, redirectTo, rejectionReason } = useMemo(() => {
     // Still loading — no decisions yet
     if (loading || (user && (staffLoading || roleLoading))) {
-      return { shouldSignOut: false, redirectTo: null };
+      return { shouldSignOut: false, redirectTo: null, rejectionReason: null };
     }
 
     if (!user) {
-      return { shouldSignOut: false, redirectTo: "/auth" };
+      return { shouldSignOut: false, redirectTo: "/auth", rejectionReason: null };
     }
 
     // Gate 1: No staff record
     if (!staffRecord) {
       if (isAdmin) {
-        return { shouldSignOut: false, redirectTo: "/bootstrap" };
+        return { shouldSignOut: false, redirectTo: "/bootstrap", rejectionReason: null };
       }
-      return { shouldSignOut: true, redirectTo: "/auth" };
+      return { shouldSignOut: true, redirectTo: "/auth", rejectionReason: "NO_STAFF_RECORD" };
     }
 
     // Gate 2: Staff inactive
     if (staffRecord.is_active === false) {
-      return { shouldSignOut: true, redirectTo: "/auth" };
+      return { shouldSignOut: true, redirectTo: "/auth", rejectionReason: "ACCOUNT_INACTIVE" };
     }
 
-    return { shouldSignOut: false, redirectTo: null };
+    return { shouldSignOut: false, redirectTo: null, rejectionReason: null };
   }, [loading, user, staffLoading, roleLoading, staffRecord, isAdmin]);
 
   // Side effect: sign out once when needed (MC #1 — never during render)
@@ -86,11 +86,15 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     // lets the form render instead of bouncing the session straight back here —
     // otherwise the two routes ping-pong until sign-out resolves, and forever
     // if it never does.
+    //
+    // `reason` le dice a Auth por qué se rechazó la sesión. El ingreso con contraseña ya lo avisó
+    // en signIn(), pero el de Microsoft llega acá sin pasar por ahí: sin el motivo, la persona
+    // volvía al botón sin saber qué pasó.
     return (
       <Navigate
         to={redirectTo}
         replace
-        state={shouldSignOut ? { signingOut: true } : undefined}
+        state={shouldSignOut ? { signingOut: true, reason: rejectionReason } : undefined}
       />
     );
   }

@@ -102,10 +102,10 @@ BEGIN
   -- 20 claves vigentes antes de notificaciones/correo y dash_*, mas 5 que notificaciones/correo
   -- requieren (TS_ALERT_WINDOW_WEEKS, TS_TRACKING_START_DATE, las dos retenciones y el tope
   -- global auth) y 2 de dash_socio/dash_encargo (default_exchange_rate,
-  -- DASH_ENGAGEMENT_PENDING_ALERT_WEEKS) = 27.
+  -- DASH_ENGAGEMENT_PENDING_ALERT_WEEKS) + AUTH_MODE (login con Microsoft) = 28.
   SELECT count(*) INTO n FROM public.global_settings;
-  IF n <> 27 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 27 claves, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — global_settings: 27 claves';
+  IF n <> 28 THEN RAISE EXCEPTION 'FAIL — global_settings: esperado 28 claves, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — global_settings: 28 claves';
 
   -- EXCHANGE_RATE_API_URL (0722-156 Fase 1, 20260905070913_0722-156_add_exchange_rate_history.sql):
   -- endpoint del microservicio TC Ruizmier, seedeado en global_settings (no env var) para que sea

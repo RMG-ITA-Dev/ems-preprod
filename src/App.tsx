@@ -114,6 +114,9 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       { path: "/auth", element: <Auth /> },
+      // Ingreso con contraseña aunque AUTH_MODE sea `entra` (admin de bootstrap, TI, salida si
+      // Microsoft falla). Sin enlaces desde la app; no es secreta, el bundle la contiene.
+      { path: "/login-rm", element: <Auth forcePasswordLogin /> },
       { path: "/reset-password", element: <ResetPassword /> },
       { path: "/bootstrap", element: <BootstrapRoute><Bootstrap /></BootstrapRoute> },
       { path: "/", element: <ProtectedRoute><Index /></ProtectedRoute> },

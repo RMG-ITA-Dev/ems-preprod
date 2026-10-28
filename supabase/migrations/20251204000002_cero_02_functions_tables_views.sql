@@ -4421,11 +4421,17 @@ CREATE FUNCTION public.guard_auth_lockout_settings() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 BEGIN
-  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES', 'AUTH_MODE')
      AND auth.uid() IS NOT NULL          -- not service_role / postgres
      AND NOT public.is_admin() THEN      -- not an administrator
     RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
       USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- AUTH_MODE decide qué pantalla de ingreso ve todo el personal: un valor fuera de la lista
+  -- deja /auth en "configuración inválida" (src/lib/authMode.ts), así que no se acepta.
+  IF NEW.setting_key = 'AUTH_MODE' AND NEW.setting_value NOT IN ('password', 'entra') THEN
+    RAISE EXCEPTION 'INVALID_AUTH_MODE: % (expected password or entra)', NEW.setting_value
+      USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;

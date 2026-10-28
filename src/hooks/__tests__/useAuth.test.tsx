@@ -4,11 +4,19 @@ import { renderHook, act } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { rearmSessionRecovery } from "@/lib/sessionRecovery";
+import { cacheMicrosoftPhoto, clearProfilePhotos } from "@/lib/profilePhoto";
 
 // Fase 7 (plan v2 §A.3, "Tests to Update"): useAuth's only change this phase
 // is re-arming session recovery inside the existing onAuthStateChange
 // callback. Mocked so this file asserts the wiring, not sessionRecovery's own
 // behavior (covered by src/lib/__tests__/sessionRecovery.test.tsx).
+// Foto del avatar (Entrega 3 de Entra): se verifica el cableado en onAuthStateChange; la lógica
+// de Graph y localStorage está en src/lib/__tests__/profilePhoto.test.ts.
+vi.mock("@/lib/profilePhoto", () => ({
+  cacheMicrosoftPhoto: vi.fn(),
+  clearProfilePhotos: vi.fn(),
+}));
+
 vi.mock("@/lib/sessionRecovery", () => ({
   rearmSessionRecovery: vi.fn(),
 }));
@@ -25,6 +33,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       updateUser: vi.fn(),
       resetPasswordForEmail: vi.fn(),
       setSession: vi.fn(),
+      signInWithOAuth: vi.fn(),
     },
     functions: {
       invoke: vi.fn(),
@@ -727,5 +736,67 @@ describe("useAuth — session recovery re-arm (Fase 7, plan v2 §A.3)", () => {
     expect(supabase.rpc).toHaveBeenCalledWith("reset_login_attempts", {
       p_email: "user@example.com",
     });
+  });
+
+  it("signInWithMicrosoft: provider azure, vuelve a /auth y siempre pide elegir cuenta", async () => {
+    vi.mocked(supabase.auth.signInWithOAuth).mockResolvedValue({ data: { provider: "azure", url: "x" }, error: null } as never);
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() });
+
+    await act(async () => {
+      const response = await result.current.signInWithMicrosoft();
+      expect(response.error).toBe(null);
+    });
+
+    expect(supabase.auth.signInWithOAuth).toHaveBeenCalledWith({
+      provider: "azure",
+      options: {
+        scopes: "openid email profile offline_access User.Read",
+        redirectTo: `${window.location.origin}/auth`,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+  });
+
+  it("sesión de Microsoft (con provider_token): pide la foto una sola vez por token", async () => {
+    vi.useFakeTimers();
+    try {
+      const getCallback = captureAuthStateCallback();
+      const session = { user: { id: "u1" }, provider_token: "graph-token" };
+      act(() => {
+        getCallback()("SIGNED_IN", session);
+        getCallback()("INITIAL_SESSION", session);
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      expect(cacheMicrosoftPhoto).toHaveBeenCalledTimes(1);
+      expect(cacheMicrosoftPhoto).toHaveBeenCalledWith("u1", "graph-token");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sesión con contraseña (sin provider_token): no pide foto", async () => {
+    vi.useFakeTimers();
+    try {
+      const getCallback = captureAuthStateCallback();
+      act(() => {
+        getCallback()("SIGNED_IN", { user: { id: "u1" } });
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      expect(cacheMicrosoftPhoto).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("SIGNED_OUT borra la foto guardada", () => {
+    const getCallback = captureAuthStateCallback();
+    act(() => {
+      getCallback()("SIGNED_OUT", null);
+    });
+    expect(clearProfilePhotos).toHaveBeenCalledTimes(1);
   });
 });

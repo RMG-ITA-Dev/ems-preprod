@@ -136,8 +136,8 @@ BEGIN
   --     restaurado, una función nueva nacería ejecutable por PUBLIC y la prueba no sería la de producción.)
 
   -- 6. anon real ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-  -- global_settings: SOLO las tres claves del login (oráculo: filas con esas claves, calculadas como dueño)
-  SELECT count(*) INTO v_owner FROM public.global_settings WHERE setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN');
+  -- global_settings: SOLO las cuatro claves del login (oráculo: filas con esas claves, calculadas como dueño)
+  SELECT count(*) INTO v_owner FROM public.global_settings WHERE setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN', 'AUTH_MODE');
   PERFORM set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
   EXECUTE 'SET LOCAL ROLE anon';
   SELECT count(*) INTO v_anon FROM public.global_settings;

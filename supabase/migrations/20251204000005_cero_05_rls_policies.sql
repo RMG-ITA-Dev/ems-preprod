@@ -1261,7 +1261,9 @@ CREATE POLICY "global_settings write" ON public.global_settings TO authenticated
 
 ALTER TABLE public.global_settings ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon USING (setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN'));
+-- AUTH_MODE se suma porque /auth necesita saber, antes de que exista sesión, si muestra el
+-- formulario de contraseña o solo el botón de Microsoft (docs/plan-entra-id-consolidado.md).
+CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon USING (setting_key IN ('LANGUAGE', 'COMPACT_FONT', 'ALLOWED_EMAIL_DOMAIN', 'AUTH_MODE'));
 
 
 --

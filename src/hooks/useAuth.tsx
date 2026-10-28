@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { rearmSessionRecovery } from '@/lib/sessionRecovery';
+import { cacheMicrosoftPhoto, clearProfilePhotos } from '@/lib/profilePhoto';
 
 // Fase 7 (plan v2 §A.3): events that carry a genuinely authenticated session.
 // A 401-triggered recovery cycle stays disarmed until one of these fires
@@ -22,6 +23,7 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
+  signInWithMicrosoft: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastPhotoToken = useRef<string | null>(null);
 
   useEffect(() => {
     // Set up auth state listener FIRST
@@ -62,6 +65,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         if (session && REARM_EVENTS.has(event)) {
           rearmSessionRecovery();
+        }
+        // Foto del avatar (Entrega 3). `provider_token` solo viene en la sesión recién llegada de
+        // Microsoft; el primer refresh lo pierde, así que se pide una vez por token. Fuera del
+        // callback (setTimeout) porque supabase-js puede trabarse si se espera algo adentro.
+        if (session?.provider_token && session.provider_token !== lastPhotoToken.current) {
+          lastPhotoToken.current = session.provider_token;
+          const { user: sessionUser, provider_token: providerToken } = session;
+          setTimeout(() => void cacheMicrosoftPhoto(sessionUser.id, providerToken), 0);
+        }
+        if (event === "SIGNED_OUT") {
+          lastPhotoToken.current = null;
+          clearProfilePhotos();
         }
       }
     );
@@ -270,8 +285,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
+  // Ingreso con Microsoft (Entra ID) por el provider `azure` de Supabase Auth. El navegador se va a
+  // Microsoft y vuelve a /auth con la sesión; supabase-js la toma de la URL y `onAuthStateChange`
+  // la publica como en cualquier otro ingreso. Los chequeos de ficha (sin ficha, inactiva) los
+  // hace ProtectedRoute, que corre igual para este camino.
+  //
+  // `offline_access` lo pide Supabase de todos modos; va explícito para que coincida con los
+  // permisos consentidos en Entra (docs/configuracion-entra-id.md, paso 4). `User.Read` es para
+  // la foto del avatar.
+  //
+  // `prompt: select_account`: cerrar sesión en EMS no cierra la sesión de Microsoft del navegador
+  // (la misma de Outlook y Teams web). Sin esto, en una PC compartida el siguiente que presiona el
+  // botón entra directo con la cuenta del anterior; así Microsoft siempre pregunta con qué cuenta.
+  const signInWithMicrosoft = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "azure",
+      options: {
+        scopes: "openid email profile offline_access User.Read",
+        redirectTo: `${window.location.origin}/auth`,
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    return { error: error as Error | null };
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, updatePassword, resetPasswordForEmail }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, updatePassword, resetPasswordForEmail, signInWithMicrosoft }}>
       {children}
     </AuthContext.Provider>
   );

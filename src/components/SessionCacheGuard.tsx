@@ -34,7 +34,7 @@ export function SessionCacheGuard(): null {
     } else if (previousId === null && currentId !== null) {
       // A.5b: `global_settings` es la única tabla que la app consulta sin sesión (LanguageSync,
       // montado en toda la app, y Auth.tsx). Con RLS encendida la política de `anon` devuelve solo
-      // LANGUAGE / COMPACT_FONT / ALLOWED_EMAIL_DOMAIN, no las 27 claves. La queryKey no lleva
+      // LANGUAGE / COMPACT_FONT / ALLOWED_EMAIL_DOMAIN / AUTH_MODE, no las 28 claves. La queryKey no lleva
       // identidad y el staleTime global es de 60 s (App.tsx), así que sin esta invalidación los
       // consumidores que ya corren con sesión seguirían leyendo esa respuesta recortada durante
       // hasta un minuto y caerían a sus valores por defecto: TAX_RATE -> 0.13 en WorkOrderNew /
