@@ -163,6 +163,9 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
      --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
      --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
      AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
+     -- 6. Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven encargos de su sociedad, por cualquier bucket
+     --    (hoy solo les aplica el de creador). Espejo de la RESTRICTIVE "society scope" de engagements (d1).
+     AND (NOT public.is_society_scoped_role() OR e.society_id = cs.society_id)
 $$;
 
 COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';

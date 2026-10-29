@@ -993,7 +993,10 @@
     "noReingreso": "No se permite reingreso. Para reincorporar a esta persona, elimine el registro anterior y cree uno nuevo.",
     "terminationDateImmutable": "No se puede borrar la fecha de salida en un registro inactivo. Para corregirla, ingrese una fecha diferente.",
     "deletedAtImmutable": "Este registro está marcado como eliminado y no puede restaurarse. Para reincorporar a esta persona, cree un nuevo registro.",
-    "onlyRuizmierEmail": "Solo se permiten correos @{{domain}}."
+    "onlyRuizmierEmail": "Solo se permiten correos @{{domain}}.",
+    "societyScopeForbidden": "Este registro es de otra sociedad; solo puede trabajar con encargos y órdenes de trabajo de su sociedad.",
+    "fundRequestSocietyMismatch": "Una solicitud de fondos solo puede incluir órdenes de trabajo de la sociedad del solicitante.",
+    "engagementSocietyLocked": "El encargo tiene solicitudes de fondos abiertas; ciérrelas o cancélelas antes de cambiar su sociedad."
   },
   "form": {
     "required": "Requerido",

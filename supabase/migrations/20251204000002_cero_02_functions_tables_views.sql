@@ -1216,6 +1216,364 @@ $$;
 
 
 --
+-- Name: is_society_scoped_role(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Alcance por sociedad (decision del operador 2026-10-28, plan en
+-- docs/plan-alcance-sociedad-contabilidad-cobranzas-v1.md): Gerente de Contabilidad, Analista de
+-- Contabilidad y Analista de Cobranzas solo ven y operan encargos/OT de SU sociedad. Su
+-- engagement.read/work_order.read/client.read tiene alcance 'department', que las politicas leen como
+-- firma completa; el corte se aplica encima con politicas AS RESTRICTIVE (d1) y en las RPC DEFINER.
+-- Lista unica de roles, mismo patron que is_collections_role() (que NO cambia: accounting_analyst sigue
+-- fuera de Cobranzas). Admin, socios y el resto de roles no estan sujetos a este limite.
+CREATE FUNCTION public.is_society_scoped_role() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select public.is_society_scoped_role_key(public.current_role_key());
+$$;
+
+
+--
+-- Name: is_society_scoped_role_key(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- La lista unica de roles con alcance por sociedad, por role_key. La usan is_society_scoped_role() (el
+-- llamador) y las notificaciones, que deciden por el rol de OTRO (el destinatario, a veces desde un cron sin sesion).
+CREATE FUNCTION public.is_society_scoped_role_key(p_role_key text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  select coalesce(p_role_key in ('accounting_manager', 'accounting_analyst', 'collections_analyst'), false);
+$$;
+
+
+--
+-- Name: staff_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad que limita a un staff dado: la suya si su rol tiene alcance por sociedad, NULL si no tiene limite.
+-- Para notificaciones y contadores calculados por destinatario (no por el llamador).
+CREATE FUNCTION public.staff_society_scope(p_staff_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE s.staff_id = p_staff_id
+     AND public.is_society_scoped_role_key(ur.role_key)
+   LIMIT 1
+$$;
+
+
+--
+-- Name: wo_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.wo_society_id(p_wo_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.society_id
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+$$;
+
+
+--
+-- Name: fund_request_society_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad de una solicitud de fondos: la de sus OT si todas son de UNA misma sociedad; NULL si es mixta o no
+-- tiene OT (entonces ningun rol con alcance por sociedad la recibe, igual que en la RLS).
+CREATE FUNCTION public.fund_request_society_id(p_fund_request_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE WHEN count(DISTINCT e.society_id) = 1 AND bool_and(e.society_id IS NOT NULL)
+              THEN (array_agg(e.society_id))[1] END
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE frwo.fund_request_id = p_fund_request_id
+$$;
+
+
+--
+-- Name: my_society_id(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Sociedad del llamador (staff.society_id, NOT NULL). Sin ficha devuelve NULL, y NULL nunca iguala a
+-- ninguna sociedad: un rol con alcance por sociedad sin ficha no ve nada por estas vias.
+CREATE FUNCTION public.my_society_id() RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.society_id FROM public.staff s WHERE s.staff_id = public.get_my_staff_id()
+$$;
+
+
+--
+-- Alcance por sociedad: conjuntos de lo que pertenece a MI sociedad (2026-10-28).
+--
+
+-- Solo devuelven filas a los roles con alcance por sociedad (is_society_scoped_role()); para el resto salen
+-- vacios, asi no enumeran ids de una sociedad a quien no los veia. Las politicas RESTRICTIVE "society scope"
+-- (d1, seccion 3), clients_directory (B3c) y my_visible_engagement_ids (B4) los usan detras de
+-- `NOT is_society_scoped_role() OR ...`, de modo que para los demas roles nunca se consultan.
+
+--
+-- Name: my_society_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE (SELECT public.is_society_scoped_role()) AND e.society_id = (SELECT public.my_society_id())
+$$;
+
+--
+-- Name: my_society_wo_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_wo_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT wo.wo_id FROM public.work_orders wo WHERE wo.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+--
+-- Name: my_society_client_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
+  SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+$$;
+
+--
+-- Name: my_society_installment_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_installment_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT i.installment_id FROM public.wo_payment_installments i WHERE i.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+--
+-- Name: my_society_note_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_society_note_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT n.note_id FROM public.wo_installment_notes n WHERE n.wo_id IN (SELECT public.my_society_wo_ids())
+$$;
+
+--
+-- Name: my_foreign_fund_request_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_foreign_fund_request_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- Solicitudes con AL MENOS UNA OT de otra sociedad. Se expresa por exclusion (NOT IN) y no como "solicitudes de mi sociedad" por
+  -- dos motivos: una solicitud mixta nunca se muestra a medias (basta una OT ajena para excluirla entera) y el WITH CHECK de un INSERT
+  -- nuevo (borrador aun sin OT, que no existe en la foto de esta funcion) pasa sin tener que estar en un conjunto.
+  SELECT DISTINCT frwo.fund_request_id
+    FROM public.fund_request_work_orders frwo
+    JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE (SELECT public.is_society_scoped_role())
+     AND e.society_id IS DISTINCT FROM (SELECT public.my_society_id())
+$$;
+
+
+--
+-- Name: wo_in_my_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Guarda por OT para las RPC SECURITY DEFINER, que no pasan por las politicas RESTRICTIVE.
+-- true para quien no tiene alcance por sociedad (no cambia nada para el resto de roles); para los
+-- roles con alcance, true solo si la OT existe y su encargo es de mi sociedad.
+CREATE FUNCTION public.wo_in_my_society_scope(p_wo_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT NOT public.is_society_scoped_role()
+      OR EXISTS (SELECT 1
+                   FROM public.work_orders wo
+                   JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                  WHERE wo.wo_id = p_wo_id
+                    AND e.society_id = public.my_society_id());
+$$;
+
+
+--
+-- Name: assert_wo_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- La version que corta: SQLSTATE 42501 con un prefijo estable que la pantalla reconoce.
+CREATE FUNCTION public.assert_wo_society_scope(p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.wo_in_my_society_scope(p_wo_id) THEN
+    RAISE EXCEPTION 'SOCIETY_SCOPE_FORBIDDEN: la orden de trabajo no pertenece a su sociedad'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: assert_fund_request_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Guarda por solicitud de fondos para las RPC contables. Para Contabilidad la solicitud se juzga ENTERA:
+-- tiene que tener al menos una OT y todas de su sociedad. Una mixta no se opera (nunca un desembolso global
+-- porque una sola OT coincide). No-op para quien no tiene alcance por sociedad.
+CREATE FUNCTION public.assert_fund_request_society_scope(p_fund_request_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NOT public.is_society_scoped_role() THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.fund_request_work_orders frwo WHERE frwo.fund_request_id = p_fund_request_id)
+     OR EXISTS (SELECT 1
+                  FROM public.fund_request_work_orders frwo
+                  JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                  JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                 WHERE frwo.fund_request_id = p_fund_request_id
+                   AND e.society_id IS DISTINCT FROM public.my_society_id()) THEN
+    RAISE EXCEPTION 'SOCIETY_SCOPE_FORBIDDEN: la solicitud de fondos no pertenece a su sociedad'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: fund_request_assert_requester_society(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Regla de armado de solicitudes (decision del operador 2026-10-28, aplica a TODOS los empleados): una
+-- solicitud solo lleva OT de la sociedad de su SOLICITANTE (si soy de Pelaez, solo pido fondos contra OT de
+-- encargos de Pelaez). p_wo_id NULL revisa todas las OT de la solicitud; con valor, solo esa (la fila que se
+-- esta insertando todavia no existe). Sin excepcion para admin ni para las RPC DEFINER.
+CREATE FUNCTION public.fund_request_assert_requester_society(p_fund_request_id uuid, p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_society uuid;
+BEGIN
+  SELECT s.society_id INTO v_society
+    FROM public.fund_requests fr
+    JOIN public.staff s ON s.staff_id = fr.requester_staff_id
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF EXISTS (SELECT 1
+               FROM public.work_orders wo
+               JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+              WHERE (p_wo_id IS NOT NULL AND wo.wo_id = p_wo_id
+                     OR p_wo_id IS NULL AND wo.wo_id IN (SELECT frwo.wo_id FROM public.fund_request_work_orders frwo
+                                                          WHERE frwo.fund_request_id = p_fund_request_id))
+                AND e.society_id IS DISTINCT FROM v_society) THEN
+    RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: solo se pueden pedir fondos contra ordenes de trabajo de la sociedad del solicitante'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: fr_wo_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Trigger de fund_request_work_orders: cubre el alta, el cambio de OT y el cambio de solicitud padre.
+CREATE FUNCTION public.fr_wo_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.fund_request_assert_requester_society(NEW.fund_request_id, NEW.wo_id);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fr_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Trigger de fund_requests: si cambia el solicitante, todas las OT ya asignadas tienen que ser de su sociedad.
+CREATE FUNCTION public.fr_enforce_requester_society() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.requester_staff_id IS DISTINCT FROM OLD.requester_staff_id THEN
+    -- La funcion lee el solicitante de la tabla (todavia el viejo en un BEFORE): se valida contra el nuevo.
+    IF EXISTS (SELECT 1
+                 FROM public.fund_request_work_orders frwo
+                 JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
+                 JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+                WHERE frwo.fund_request_id = NEW.fund_request_id
+                  AND e.society_id IS DISTINCT FROM (SELECT s.society_id FROM public.staff s
+                                                      WHERE s.staff_id = NEW.requester_staff_id)) THEN
+      RAISE EXCEPTION 'FUND_REQUEST_SOCIETY_MISMATCH: el nuevo solicitante es de otra sociedad que las ordenes de trabajo de la solicitud'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: engagements_guard_society_change(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Cambiar la sociedad de un encargo (solo admin, 0722-157) con solicitudes de fondos ENVIADAS y abiertas sobre sus
+-- OT las dejaria de otra sociedad que su solicitante y fuera del alcance de la Contabilidad que las opera. Se
+-- bloquea hasta que esas solicitudes se cierren o cancelen. Los borradores no bloquean: fund_request_submit los
+-- revalida al enviar.
+CREATE FUNCTION public.engagements_guard_society_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.society_id IS DISTINCT FROM OLD.society_id
+     AND EXISTS (SELECT 1
+                   FROM public.work_orders wo
+                   JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+                   JOIN public.fund_requests fr ON fr.fund_request_id = frwo.fund_request_id
+                  WHERE wo.engagement_id = NEW.engagement_id
+                    AND fr.status NOT IN ('borrador', 'cerrado', 'cancelado')) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_SOCIETY_LOCKED: el encargo tiene solicitudes de fondos abiertas; cierrelas o cancelelas antes de cambiar su sociedad';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 --
 -- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -2767,6 +3125,8 @@ CREATE FUNCTION public.fund_work_order_expense_summary() RETURNS TABLE(wo_id uui
 --   budget     = presupuesto de gastos de la OT (wo_expense_budget), para comparar.
 -- Solicitudes consideradas: aprobado_gerente, fondos_entregados, en_liquidacion, cerrado
 -- (canceladas fuera).
+-- Alcance por sociedad (2026-10-28): para Contabilidad, solo OT de su sociedad y solo solicitudes
+-- sin OT de otra sociedad (una mixta no suma en ninguna fila, igual que en la RLS).
 BEGIN
   IF NOT public.has_permission('expense_settlement.read') THEN
     RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
@@ -2777,6 +3137,7 @@ BEGIN
     SELECT fr.fund_request_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND fr.fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids())
   ),
   alloc AS (
     SELECT frw.wo_id,
@@ -2816,6 +3177,7 @@ BEGIN
     LEFT JOIN public.clients cl ON cl.client_id = eng.client_id
     LEFT JOIN exp x ON x.wo_id = a.wo_id
     LEFT JOIN bud bu ON bu.wo_id = a.wo_id
+   WHERE public.wo_in_my_society_scope(a.wo_id)
    ORDER BY eng.engagement_code;
 END;
 $$;
@@ -2840,11 +3202,14 @@ BEGIN
   IF NOT public.has_permission('expense_settlement.read') THEN
     RAISE EXCEPTION 'No autorizado a ver los gastos por OT' USING ERRCODE = '42501';
   END IF;
+  -- Alcance por sociedad (2026-10-28): corta ANTES de armar el JSON (ni metadatos de una OT ajena).
+  PERFORM public.assert_wo_society_scope(p_wo_id);
 
   WITH frs AS (
     SELECT fr.fund_request_id, fr.request_number, fr.status, fr.requester_staff_id, fr.expense_period_month
       FROM public.fund_requests fr
      WHERE fr.status IN ('aprobado_gerente', 'fondos_entregados', 'en_liquidacion', 'cerrado')
+       AND fr.fund_request_id NOT IN (SELECT public.my_foreign_fund_request_ids())
        AND EXISTS (SELECT 1 FROM public.fund_request_work_orders frw
                     WHERE frw.fund_request_id = fr.fund_request_id AND frw.wo_id = p_wo_id)
   ),
@@ -2996,6 +3361,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'en_liquidacion' THEN
     RAISE EXCEPTION 'La solicitud no tiene un movimiento de dinero pendiente (estado %)', v_status;
@@ -3105,6 +3472,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   -- Admin: cualquier estado no terminal. Contabilidad (los dos roles): solo la fase contable,
   -- que es lo que ve (fr_accounting_sees).
@@ -3157,6 +3526,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'aprobado_gerente' THEN
     RAISE EXCEPTION 'La solicitud no se puede desembolsar en su estado actual (%)', v_status;
@@ -3222,6 +3593,9 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Gasto % no encontrado', p_fre_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(
+    (SELECT fre.fund_request_id FROM public.fund_request_expenses fre WHERE fre.fre_id = p_fre_id));
 
   IF v_fr_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no admite revisión de gastos en su estado actual (%)', v_fr_status;
@@ -3507,6 +3881,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitud de fondos % no encontrada', p_fund_request_id;
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_fund_request_society_scope(p_fund_request_id);
 
   IF v_status <> 'fondos_entregados' THEN
     RAISE EXCEPTION 'La solicitud no se puede liquidar en su estado actual (%)', v_status;
@@ -3621,6 +3997,24 @@ BEGIN
   IF v_status NOT IN ('borrador', 'observado', 'rechazado') THEN
     RAISE EXCEPTION 'La solicitud no se puede enviar en su estado actual (%)', v_status;
   END IF;
+
+  -- Alcance por sociedad (2026-10-28): todas las OT de la solicitud deben ser de la sociedad del
+  -- SOLICITANTE (no del que envia: un admin puede actuar por el). El trigger de la relacion OT-solicitud
+  -- lo exige al armarla; aqui se revalida por si algo cambio despues del alta.
+  --
+  -- Carrera con un cambio de sociedad del encargo (review del PR, 2026-10-28): antes de revisar se
+  -- bloquean en modo compartido los encargos de sus OT. El UPDATE de society_id toma el bloqueo de fila
+  -- del encargo, que choca con FOR SHARE. Si el admin cambio primero, este envio espera y revisa la
+  -- sociedad NUEVA; si el envio va primero, el cambio espera y engagements_guard_society_change ya ve la
+  -- solicitud enviada y lo rechaza. Orden fijo por engagement_id para no cruzar bloqueos.
+  PERFORM 1
+    FROM public.engagements e
+    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    JOIN public.fund_request_work_orders frwo ON frwo.wo_id = wo.wo_id
+   WHERE frwo.fund_request_id = p_fund_request_id
+   ORDER BY e.engagement_id
+     FOR SHARE OF e;
+  PERFORM public.fund_request_assert_requester_society(p_fund_request_id, NULL);
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.
   SELECT COALESCE(SUM(allocated_amount), 0)
@@ -7279,7 +7673,9 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
    FROM ((public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id));
+  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id)
+         -- Alcance por sociedad (2026-10-28): solo OT de la sociedad de quien pide (regla de armado de solicitudes).
+         AND (e.society_id = public.my_society_id()));
 
 
 --
@@ -8325,6 +8721,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT wo.approval_status INTO v_approval_status
@@ -8550,6 +8948,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   IF NOT public.is_admin() THEN
     SELECT e.manager_id INTO v_manager
@@ -8772,13 +9172,16 @@ CREATE FUNCTION public.wo_notes_participant(p_wo_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  SELECT public.is_admin()
-      OR public.is_collections_role()
-      OR EXISTS (
-           SELECT 1 FROM public.work_orders w
-            WHERE w.wo_id = p_wo_id
-              AND public.is_engagement_team_member(w.engagement_id)
-         );
+  -- Alcance por sociedad (2026-10-28): para Contabilidad/Cobranzas, ademas, la OT tiene que ser de su
+  -- sociedad (cubre add_installment_note, get_wo_client_contacts y la lectura de notas).
+  SELECT (public.is_admin()
+          OR public.is_collections_role()
+          OR EXISTS (
+               SELECT 1 FROM public.work_orders w
+                WHERE w.wo_id = p_wo_id
+                  AND public.is_engagement_team_member(w.engagement_id)
+             ))
+     AND public.wo_in_my_society_scope(p_wo_id);
 $$;
 
 
@@ -8859,6 +9262,9 @@ BEGIN
   IF NOT FOUND OR v_note.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe o fue borrada';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ademas de ser el autor, la OT tiene que ser de su sociedad (un
+  -- autor trasladado de sociedad ya no edita las notas que dejo en la anterior).
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -8907,6 +9313,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOTE_NOT_FOUND: la nota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28): ver edit_installment_note.
+  PERFORM public.assert_wo_society_scope(v_note.wo_id);
 
   IF NOT (public.is_admin()
           OR (v_note.author_staff_id IS NOT NULL
@@ -8984,7 +9392,9 @@ CREATE FUNCTION public.client_contacts_visible(p_client_id uuid) RETURNS boolean
                    WHERE c.client_id = p_client_id
                      AND c.created_by_staff_id IS NOT NULL
                      AND c.created_by_staff_id = public.get_my_staff_id())
-     );
+     )
+     -- Alcance por sociedad (2026-10-28): Cobranza solo ve contactos de clientes con encargos de su sociedad.
+     AND (NOT public.is_society_scoped_role() OR p_client_id IN (SELECT public.my_society_client_ids()));
 $$;
 
 
@@ -9287,6 +9697,8 @@ BEGIN
   IF NOT (public.is_admin() OR public.is_collections_role()) THEN
     RAISE EXCEPTION 'EXPENSE_ROW_FORBIDDEN: solo contabilidad (o un administrador) puede ver los gastos por facturar';
   END IF;
+  -- Alcance por sociedad (2026-10-28): el id de una OT de otra sociedad no devuelve sus gastos.
+  PERFORM public.assert_wo_society_scope(p_wo_id);
 
   RETURN QUERY
   SELECT e.fre_id, e.amount
@@ -9349,6 +9761,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND: la orden de trabajo no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(p_wo_id);
   -- Solo una OT APROBADA factura gastos ejecutados. La pantalla ya lo exige, pero una pestana
   -- vieja (la OT se devolvio a borrador despues) o una llamada directa a la RPC se lo saltaban.
   -- Se mira con la fila bloqueada, para que nadie la cambie entre el chequeo y el alta.
@@ -9451,6 +9865,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.installment_type <> 'expense_reimbursement' THEN
     RAISE EXCEPTION 'EXPENSE_ROW_INVALID: esta cuota no es una fila de gastos ejecutados';
   END IF;
@@ -9538,6 +9954,10 @@ DECLARE
   v_limit integer := LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
   v_offset integer := GREATEST(COALESCE(p_offset, 0), 0);
   v_search text := NULLIF(btrim(COALESCE(p_search, '')), '');
+  -- Alcance por sociedad (2026-10-28): Gerente de Contabilidad y Analista de Cobranzas solo ven
+  -- cuotas de encargos de SU sociedad. p_society_id solo puede restringir mas, nunca ampliar.
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society uuid := public.my_society_id();
   v_result jsonb;
 BEGIN
   -- Misma puerta que el resto de cobranzas (decision Q58): Gerente de Contabilidad y Analista
@@ -9608,6 +10028,7 @@ BEGIN
       AND (e.funcion IS NULL OR e.funcion = 1)
       AND (p_include_expense_rows OR i.installment_type = 'fee')
       AND (p_society_id IS NULL OR e.society_id = p_society_id)
+      AND (NOT v_soc_scoped OR e.society_id = v_society)
       AND (p_practica IS NULL OR e.practica = p_practica)
       AND (p_manager_id IS NULL OR e.manager_id = p_manager_id)
       AND (p_client_id IS NULL OR c.client_id = p_client_id)
@@ -9790,6 +10211,10 @@ CREATE FUNCTION public.collections_filter_options() RETURNS jsonb
     SET search_path TO 'public'
     AS $$
 DECLARE
+  -- Alcance por sociedad (2026-10-28): mismo universo que list_collections_installments, en
+  -- cobrables Y en monedas (que tiene su propia consulta).
+  v_soc_scoped boolean := public.is_society_scoped_role();
+  v_society uuid := public.my_society_id();
   v_result jsonb;
 BEGIN
   IF NOT (public.is_admin() OR public.is_collections_role()) THEN
@@ -9803,6 +10228,7 @@ BEGIN
       JOIN public.engagements e ON e.engagement_id = wo.engagement_id
      WHERE wo.approval_status = 'Approved'
        AND (e.funcion IS NULL OR e.funcion = 1)
+       AND (NOT v_soc_scoped OR e.society_id = v_society)
   )
   SELECT jsonb_build_object(
     'societies', COALESCE((
@@ -9830,6 +10256,7 @@ BEGIN
         JOIN public.engagements e ON e.engagement_id = wo.engagement_id
        WHERE wo.approval_status = 'Approved'
          AND (e.funcion IS NULL OR e.funcion = 1)
+         AND (NOT v_soc_scoped OR e.society_id = v_society)
     ), '[]'::jsonb)
   ) INTO v_result;
 
@@ -9892,6 +10319,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
 
   SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_row.wo_id;
   v_currency := COALESCE(v_row.currency, v_wo_currency);
@@ -9968,6 +10397,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'INSTALLMENT_NOT_FOUND: la cuota no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_inst.wo_id);
 
   SELECT w.currency INTO v_wo_currency FROM public.work_orders w WHERE w.wo_id = v_inst.wo_id;
   v_currency := COALESCE(v_inst.currency, v_wo_currency);
@@ -10066,6 +10497,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND: el ajuste no existe';
   END IF;
+  -- Alcance por sociedad (2026-10-28).
+  PERFORM public.assert_wo_society_scope(v_row.wo_id);
   IF v_row.deleted_at IS NOT NULL THEN
     RAISE EXCEPTION 'ADJUSTMENT_ALREADY_DELETED: el ajuste ya estaba retirado';
   END IF;

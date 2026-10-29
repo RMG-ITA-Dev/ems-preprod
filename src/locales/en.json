@@ -993,7 +993,10 @@
     "noReingreso": "Reactivation is not allowed. To rehire this person, delete the previous record and create a new one.",
     "terminationDateImmutable": "Cannot clear the termination date on an inactive staff record. To correct it, enter a different date instead.",
     "deletedAtImmutable": "This record is marked as deleted and cannot be restored. To rehire this person, create a new record.",
-    "onlyRuizmierEmail": "Only @{{domain}} emails are allowed."
+    "onlyRuizmierEmail": "Only @{{domain}} emails are allowed.",
+    "societyScopeForbidden": "This record belongs to another company; you can only work with your own company's engagements and work orders.",
+    "fundRequestSocietyMismatch": "A fund request can only include work orders from the requester's company.",
+    "engagementSocietyLocked": "This engagement has open fund requests; close or cancel them before changing its company."
   },
   "form": {
     "required": "Required",

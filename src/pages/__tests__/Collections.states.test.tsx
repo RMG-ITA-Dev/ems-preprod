@@ -9,7 +9,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import type { CollectionsFilters, CollectionsResult } from "@/hooks/useCollections";
 
 vi.mock("react-i18next", () => ({
@@ -98,12 +98,19 @@ vi.mock("@/hooks/useCollections", async (importOriginal) => {
 
 import Collections from "@/pages/Collections";
 
-const renderPage = () =>
+const renderPage = (url = "/collections") =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <Collections />
+      <LocationProbe />
     </MemoryRouter>,
   );
+
+// La URL actual, para ver qué filtros quedan en ella.
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-search">{location.search}</div>;
+}
 
 beforeEach(() => {
   authState.roleKey = "collections_analyst";
@@ -209,7 +216,8 @@ describe("Collections — lo que le pide al servidor", () => {
 
   it("un filtro nuevo devuelve a la primera página", () => {
     // Quedarse en la página 4 de un resultado que ahora tiene una sola deja la tabla vacía
-    // sin explicar por qué.
+    // sin explicar por qué. Como admin: es quien ve el selector de sociedad.
+    authState.roleKey = "admin";
     result = { ...emptyResult, total_count: 300, page_rows: 300 };
     const { container } = renderPage();
     fireEvent.click(screen.getByText("common.next"));
@@ -349,5 +357,39 @@ describe("Collections — móvil", () => {
     const { container } = renderPage();
     expect(container.querySelector("table")).not.toBeNull();
     expect(screen.queryByTestId("collections-card")).toBeNull();
+  });
+});
+
+
+describe("Collections — alcance por sociedad", () => {
+  it("Cobranzas no ve el selector de sociedad: la RPC ya lo limita a la suya", () => {
+    renderPage();
+    expect(screen.queryByText("collections.filterSociety")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sociedad A")).not.toBeInTheDocument();
+  });
+
+  it("un enlace con ?sociedad= no filtra para Cobranzas y el parámetro se limpia de la URL", () => {
+    renderPage("/collections?sociedad=s1&tab=en_mora");
+    expect(lastFilters?.societyId).toBeNull();
+    expect(screen.getByTestId("location-search").textContent).toBe("?tab=en_mora");
+  });
+
+  it("al limpiar la sociedad también vuelve a la primera página: la del enlace puede no existir", () => {
+    renderPage("/collections?sociedad=s1&page=3&tab=en_mora");
+    expect(screen.getByTestId("location-search").textContent).toBe("?tab=en_mora");
+    expect(lastFilters?.offset).toBe(0);
+  });
+
+  it("el Gerente de Contabilidad tampoco ve el selector", () => {
+    authState.roleKey = "accounting_manager";
+    renderPage();
+    expect(screen.queryByText("collections.filterSociety")).not.toBeInTheDocument();
+  });
+
+  it("admin sí ve el selector y su filtro viaja al servidor", () => {
+    authState.roleKey = "admin";
+    renderPage("/collections?sociedad=s1");
+    expect(screen.getByText("collections.filterSociety")).toBeInTheDocument();
+    expect(lastFilters?.societyId).toBe("s1");
   });
 });

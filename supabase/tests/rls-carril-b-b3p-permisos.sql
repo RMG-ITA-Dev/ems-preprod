@@ -39,10 +39,15 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0b3b000-0000-4000-8000-000000000004', 'staff',   'assistant'),
   ('a0b3b000-0000-4000-8000-000000000005', 'manager', 'manager');
 
+-- Cobranza y contabilidad necesitan ficha en la sociedad del encargo: desde el alcance por sociedad (2026-10-28, RESTRICTIVE
+-- "society scope" de d1) sin ficha no ven nada. Ese corte tiene su propia suite (rls-accounting-society-scope.sql).
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id)
-VALUES ('50b3b000-0000-4000-8000-000000000005', 'a0b3b000-0000-4000-8000-000000000005', 'Manager', 'B3p',
-        (SELECT practica_id FROM public.practicas WHERE code = 1),
-        (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+SELECT ('50b3b000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+       ('a0b3b000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+       CASE WHEN n = 5 THEN 'Manager' ELSE 'Contab' || n END, 'B3p',
+       (SELECT practica_id FROM public.practicas WHERE code = 1),
+       (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
+  FROM unnest(ARRAY[1, 2, 3, 5]) n;
 
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, practica, fecha_cierre,
                                 work_order_required, approval_required, society_id)
