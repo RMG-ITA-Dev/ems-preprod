@@ -55,12 +55,22 @@ function blobToDataUrl(blob: Blob): Promise<string> {
  * Pide la foto a Graph y la guarda para `userId`. Devuelve lo que quedó guardado (o null).
  * 404 = la persona no tiene foto en Microsoft: se borra la anterior para no mostrar una vieja.
  * Cualquier otro error conserva lo que hubiera.
+ *
+ * `isCurrent` se consulta justo antes de escribir: si la sesión que pidió la foto ya no es la
+ * actual (se cerró sesión mientras Graph o el FileReader respondían), no se escribe nada. Sin
+ * esto, la descarga en curso volvía a guardar la foto que SIGNED_OUT acababa de borrar, y en una
+ * PC compartida quedaba visible para el siguiente.
  */
-export async function cacheMicrosoftPhoto(userId: string, providerToken: string): Promise<string | null> {
+export async function cacheMicrosoftPhoto(
+  userId: string,
+  providerToken: string,
+  isCurrent: () => boolean = () => true,
+): Promise<string | null> {
   try {
     const response = await fetch(GRAPH_PHOTO_URL, {
       headers: { Authorization: `Bearer ${providerToken}` },
     });
+    if (!isCurrent()) return null;
     if (response.status === 404) {
       try {
         localStorage.removeItem(keyFor(userId));
@@ -80,6 +90,7 @@ export async function cacheMicrosoftPhoto(userId: string, providerToken: string)
       return readProfilePhoto(userId);
     }
     const dataUrl = await blobToDataUrl(blob);
+    if (!isCurrent()) return null;
     localStorage.setItem(keyFor(userId), dataUrl);
     notify();
     return dataUrl;

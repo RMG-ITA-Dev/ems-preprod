@@ -120,6 +120,24 @@ INSERT INTO auth.users (id, email) VALUES (pg_temp.uid(10), 'signup-huerfano-sin
 SELECT pg_temp.mk_staff(10, 'signup-huerfano-sinrol@ruizmier.com', 'c51c0000-0000-4000-8000-000000000002');
 SELECT pg_temp.must(pg_temp.role_of(10) = 'staff/assistant', '10 huérfano con categoría sin rol -> staff/assistant');
 
+-- ── trg_apply_category_role_on_staff_relink: una ficha que YA existía se vincula después ──
+
+-- 11) ficha con otro correo + huérfano; al corregir el correo de la ficha se vincula (UPDATE)
+--     y toma el rol de la categoría
+SELECT pg_temp.mk_staff(11, 'signup-alias@ruizmier.com', 'c51c0000-0000-4000-8000-000000000001');
+INSERT INTO auth.users (id, email) VALUES (pg_temp.uid(11), 'signup-real@ruizmier.com');
+SELECT pg_temp.must(pg_temp.role_of(11) = 'staff/assistant', '11a la cuenta nace sin ficha que coincida -> staff/assistant');
+UPDATE public.staff SET email = 'signup-real@ruizmier.com' WHERE staff_id = pg_temp.sid(11);
+SELECT pg_temp.must((SELECT auth_user_id = pg_temp.uid(11) FROM public.staff WHERE staff_id = pg_temp.sid(11)),
+                    '11b corregir el correo vincula la ficha existente');
+SELECT pg_temp.must(pg_temp.role_of(11) = 'manager/ita_manager', '11c ficha vinculada por UPDATE -> manager/ita_manager');
+
+-- 12) un UPDATE cualquiera sobre una ficha ya vinculada no vuelve a aplicar el rol: el admin la
+--     dejó en assistant a mano y editar la ficha no se lo pisa
+UPDATE public.user_roles SET role = 'staff', role_key = 'assistant' WHERE user_id = pg_temp.uid(11);
+UPDATE public.staff SET first_name = 'F11b' WHERE staff_id = pg_temp.sid(11);
+SELECT pg_temp.must(pg_temp.role_of(11) = 'staff/assistant', '12 UPDATE sin cambio de vínculo -> no reaplica el rol');
+
 DO $$ BEGIN RAISE NOTICE 'SIGNUP ROLE FROM CATEGORY: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

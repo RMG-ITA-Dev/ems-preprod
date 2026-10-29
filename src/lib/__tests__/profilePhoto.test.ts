@@ -47,6 +47,24 @@ describe("profilePhoto", () => {
     expect(listener).toHaveBeenCalled();
   });
 
+  it("si la sesión dejó de ser la actual mientras llegaba la foto, no la guarda", async () => {
+    mockFetch({ status: 200, body: jpeg() });
+    let current = true;
+    const pending = cacheMicrosoftPhoto("u1", "graph-token", () => current);
+    current = false; // SIGNED_OUT mientras Graph respondía
+
+    expect(await pending).toBeNull();
+    expect(readProfilePhoto("u1")).toBeNull();
+  });
+
+  it("tampoco borra nada si la sesión cambió antes de procesar un 404", async () => {
+    localStorage.setItem(KEY, "data:image/jpeg;base64,de-otra-sesion");
+    mockFetch({ status: 404 });
+
+    expect(await cacheMicrosoftPhoto("u1", "t", () => false)).toBeNull();
+    expect(readProfilePhoto("u1")).toBe("data:image/jpeg;base64,de-otra-sesion");
+  });
+
   it("404 (sin foto en Microsoft) borra la foto anterior", async () => {
     localStorage.setItem(KEY, "data:image/jpeg;base64,viejo");
     mockFetch({ status: 404 });

@@ -72,7 +72,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.provider_token && session.provider_token !== lastPhotoToken.current) {
           lastPhotoToken.current = session.provider_token;
           const { user: sessionUser, provider_token: providerToken } = session;
-          setTimeout(() => void cacheMicrosoftPhoto(sessionUser.id, providerToken), 0);
+          // SIGNED_OUT pone el ref en null: si se cierra sesión mientras se descarga la foto,
+          // la descarga ya no es "la actual" y no la guarda.
+          const isCurrent = () => lastPhotoToken.current === providerToken;
+          setTimeout(() => void cacheMicrosoftPhoto(sessionUser.id, providerToken, isCurrent), 0);
         }
         if (event === "SIGNED_OUT") {
           lastPhotoToken.current = null;

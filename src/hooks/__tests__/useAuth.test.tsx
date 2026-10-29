@@ -770,7 +770,7 @@ describe("useAuth — session recovery re-arm (Fase 7, plan v2 §A.3)", () => {
         vi.runAllTimers();
       });
       expect(cacheMicrosoftPhoto).toHaveBeenCalledTimes(1);
-      expect(cacheMicrosoftPhoto).toHaveBeenCalledWith("u1", "graph-token");
+      expect(cacheMicrosoftPhoto).toHaveBeenCalledWith("u1", "graph-token", expect.any(Function));
     } finally {
       vi.useRealTimers();
     }
@@ -798,5 +798,27 @@ describe("useAuth — session recovery re-arm (Fase 7, plan v2 §A.3)", () => {
       getCallback()("SIGNED_OUT", null);
     });
     expect(clearProfilePhotos).toHaveBeenCalledTimes(1);
+  });
+
+  it("cerrar sesión durante la descarga invalida la foto en curso", async () => {
+    vi.useFakeTimers();
+    try {
+      const getCallback = captureAuthStateCallback();
+      act(() => {
+        getCallback()("SIGNED_IN", { user: { id: "u1" }, provider_token: "graph-token" });
+      });
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      const isCurrent = vi.mocked(cacheMicrosoftPhoto).mock.calls[0][2] as () => boolean;
+      expect(isCurrent()).toBe(true);
+
+      act(() => {
+        getCallback()("SIGNED_OUT", null);
+      });
+      expect(isCurrent()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
