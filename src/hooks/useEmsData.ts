@@ -351,7 +351,9 @@ export interface GlobalSetting {
 }
 
 // Hooks
-export function useServices() {
+// `options.enabled` (default true) on the catalog hooks below lets Settings hold
+// off each tab's query until that tab is visited (1028-215).
+export function useServices(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['services'],
     queryFn: async () => {
@@ -362,6 +364,7 @@ export function useServices() {
       if (error) throw error;
       return data as Service[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -383,7 +386,7 @@ export function useSocieties() {
   });
 }
 
-export function useTaxonomies() {
+export function useTaxonomies(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['taxonomies'],
     queryFn: async () => {
@@ -394,6 +397,7 @@ export function useTaxonomies() {
       if (error) throw error;
       return data as Taxonomy[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -419,7 +423,7 @@ export function useCategories(serviceId?: string, options?: { enabled?: boolean 
   });
 }
 
-export function useIndustries() {
+export function useIndustries(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['industries'],
     queryFn: async () => {
@@ -430,6 +434,7 @@ export function useIndustries() {
       if (error) throw error;
       return data as Industry[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -797,7 +802,7 @@ export function useClientsFull() {
   });
 }
 
-export function useEngagements() {
+export function useEngagements(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['engagements'],
     queryFn: async () => {
@@ -839,6 +844,7 @@ export function useEngagements() {
       }));
       return rows as unknown as Engagement[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -930,7 +936,7 @@ export function useActivityCodes() {
   });
 }
 
-export function useAllActivityCodes() {
+export function useAllActivityCodes(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['activity_codes', 'all'],
     queryFn: async () => {
@@ -946,10 +952,11 @@ export function useAllActivityCodes() {
         return suffix(a.activity_code) - suffix(b.activity_code);
       });
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
-export function useSkills() {
+export function useSkills(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['skills'],
     queryFn: async () => {
@@ -960,6 +967,7 @@ export function useSkills() {
       if (error) throw error;
       return data as Skill[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -983,7 +991,7 @@ export function useTimeEntries() {
   });
 }
 
-export function useExpenseTypes() {
+export function useExpenseTypes(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['expense_types'],
     queryFn: async () => {
@@ -995,6 +1003,7 @@ export function useExpenseTypes() {
       // `unknown` hasta que Lovable regenere types.ts con expense_types.is_active (Fase 1.7).
       return data as unknown as ExpenseType[];
     },
+    enabled: options?.enabled ?? true,
   });
 }
 

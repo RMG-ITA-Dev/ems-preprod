@@ -258,7 +258,9 @@ describe("Settings category-rates (0702-152 / BUG 0306-73)", () => {
     const user = userEvent.setup();
     await goToRates(user);
 
-    expect(screen.getByText("Socio")).toBeInTheDocument();
+    // 1028-215: the table now shows its loader until prácticas load, so the
+    // warm "all services" rows never render at all.
+    expect(screen.queryByText("Socio")).not.toBeInTheDocument();
     expect(screen.queryAllByLabelText("category.moveUp")).toHaveLength(0);
     expect(screen.queryAllByLabelText("category.moveDown")).toHaveLength(0);
   });

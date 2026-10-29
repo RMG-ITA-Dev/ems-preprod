@@ -26,7 +26,13 @@ vi.mock("react-i18next", () => ({
 
 // Hoisted so the reference is available inside the vi.mock factory
 const updateMutateAsync = vi.hoisted(() => vi.fn());
-const mockAllActivities = vi.hoisted(() => ({ current: [] as any[] }));
+const mockAllActivities = vi.hoisted(() => ({ current: [] as any[], loading: false }));
+const useAllActivityCodesSpy = vi.hoisted(() =>
+  vi.fn((_options?: { enabled?: boolean }) => ({
+    data: mockAllActivities.loading ? undefined : mockAllActivities.current,
+    isLoading: mockAllActivities.loading,
+  }))
+);
 
 vi.mock("@/hooks/mutations", () => ({
   useCreateService: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -34,7 +40,7 @@ vi.mock("@/hooks/mutations", () => ({
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
-  useAllActivityCodes: () => ({ data: mockAllActivities.current }),
+  useAllActivityCodes: useAllActivityCodesSpy,
 }));
 
 import { ServiceForm } from "@/components/forms/ServiceForm";
@@ -283,5 +289,39 @@ describe("ServiceForm — abbreviation field (0513-114)", () => {
         expect.objectContaining({ data: expect.objectContaining({ abbreviation: null }) })
       )
     );
+  });
+});
+
+describe("ServiceForm — linked activities load only when editing (1028-215)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAllActivities.current = [];
+    mockAllActivities.loading = false;
+  });
+
+  const lastEnabled = () => {
+    const calls = useAllActivityCodesSpy.mock.calls;
+    return calls[calls.length - 1]?.[0]?.enabled;
+  };
+
+  it("does not request activities while the sheet is closed", () => {
+    render(<ServiceForm open={false} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />);
+    expect(lastEnabled()).toBe(false);
+  });
+
+  it("does not request activities in create mode", () => {
+    render(<ServiceForm open={true} onOpenChange={vi.fn()} service={null} usedCodes={usedCodes_0_to_4} />);
+    expect(lastEnabled()).toBe(false);
+  });
+
+  it("requests activities when the sheet opens in edit mode", () => {
+    render(<ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />);
+    expect(lastEnabled()).toBe(true);
+  });
+
+  it("disables save in edit mode until linked activities have loaded", () => {
+    mockAllActivities.loading = true;
+    render(<ServiceForm open={true} onOpenChange={vi.fn()} service={editService} usedCodes={usedCodes_0_to_4} />);
+    expect(screen.getByRole("button", { name: "common.saveChanges" })).toBeDisabled();
   });
 });
