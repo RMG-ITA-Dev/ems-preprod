@@ -696,9 +696,17 @@ export function TimesheetGrid({
     return rows.reduce((sum, row) => sum + calculateRowTotal(row), 0);
   };
 
+  // Un total está bien si cae dentro de [mín, máx] -- misma regla que getDailyHourViolations.
+  // Antes se exigía igualdad con el mínimo: con DAILY_MIN 7 / DAILY_MAX 9, un día de 8 h salía en rojo.
+  // Se compara en centésimas para no depender de errores de punto flotante (0.1 + 0.2).
+  const isWithinLimits = (total: number, min: number, max: number) => {
+    const cents = Math.round(total * 100);
+    return cents >= Math.round(min * 100) && cents <= Math.round(max * 100);
+  };
+
   const isWeeklyAtTarget = () => {
     const total = calculateGrandTotal();
-    return total > 0 && Math.round(total * 100) === Math.round(weeklyMin * 100);
+    return total > 0 && isWithinLimits(total, weeklyMin, weeklyMax);
   };
 
   // Track used activities per engagement for dropdown filtering
@@ -1085,7 +1093,7 @@ export function TimesheetGrid({
               {weekDates.map((date) => {
                 const total = calculateColumnTotal(date);
                 const hasHours = total > 0;
-                const atTarget = hasHours && Math.round(total * 100) === Math.round(dailyMin * 100);
+                const atTarget = hasHours && isWithinLimits(total, dailyMin, dailyMax);
                 return (
                   <td
                     key={toISODateString(date)}
