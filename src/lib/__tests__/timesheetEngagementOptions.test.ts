@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sortEngagements } from "../timesheetEngagementOptions";
+import { sortEngagements, engagementCoversDate } from "../timesheetEngagementOptions";
 import type { ApprovedEngagement } from "@/hooks/useTimesheetWeek";
 
 function eng(
@@ -73,5 +73,22 @@ describe("sortEngagements (BUG 0220-57)", () => {
     sortEngagements(input);
     expect(input[0].engagement_id).toBe(original[0].engagement_id);
     expect(input[1].engagement_id).toBe(original[1].engagement_id);
+  });
+});
+
+describe("engagementCoversDate (BUG 1028-217)", () => {
+  const D = "2026-10-27";
+
+  it("same-day engagement covers only its date", () => {
+    const e = { start_date: D, end_date: D };
+    expect(engagementCoversDate(e, D)).toBe(true);
+    expect(engagementCoversDate(e, "2026-10-26")).toBe(false);
+    expect(engagementCoversDate(e, "2026-10-28")).toBe(false);
+  });
+
+  it("null bounds are open", () => {
+    expect(engagementCoversDate({ start_date: null, end_date: null }, D)).toBe(true);
+    expect(engagementCoversDate({ start_date: null, end_date: D }, "2026-01-01")).toBe(true);
+    expect(engagementCoversDate({ start_date: D, end_date: null }, "2027-01-01")).toBe(true);
   });
 });

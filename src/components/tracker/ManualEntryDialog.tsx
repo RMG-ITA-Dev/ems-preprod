@@ -31,6 +31,7 @@ import { useActivityCodes } from "@/hooks/useEmsData";
 import { useManualEntryEngagements } from "@/hooks/useManualEntryEngagements";
 import { useAdminActivityId } from "@/hooks/useAdminActivity";
 import { filterActivitiesForEngagement } from "@/lib/activityFilters";
+import { engagementCoversDate } from "@/lib/timesheetEngagementOptions";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -73,14 +74,16 @@ export function ManualEntryDialog({
   onSubmit,
 }: ManualEntryDialogProps) {
   const { t } = useTranslation();
-  const { data: engagements = [] } = useManualEntryEngagements();
+  const [date, setDate] = useState<Date>(new Date());
+  // BUG 1028-217: la lista depende de la fecha elegida (solo encargos cuyo rango la incluye,
+  // Finalizados incluidos) -- misma regla que la Hoja de Tiempo.
+  const { data: engagements = [] } = useManualEntryEngagements(format(date, "yyyy-MM-dd"));
   const { data: activityCodes = [] } = useActivityCodes();
   const adminActivityId = useAdminActivityId();
 
   const [engagementId, setEngagementId] = useState("");
   const [activityId, setActivityId] = useState("");
   const [description, setDescription] = useState("");
-  const [date, setDate] = useState<Date>(new Date());
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [hours, setHours] = useState<number>(1);
@@ -98,6 +101,16 @@ export function ManualEntryDialog({
       // Deactivate times: clear
       setStartTime("");
       setEndTime("");
+    }
+  };
+
+  // BUG 1028-217: si el encargo elegido no cubre la fecha nueva, se limpia la selección.
+  const handleDateChange = (newDate: Date) => {
+    setDate(newDate);
+    const current = engagements.find((e) => e.engagement_id === engagementId);
+    if (current && !engagementCoversDate(current, format(newDate, "yyyy-MM-dd"))) {
+      setEngagementId("");
+      setActivityId("");
     }
   };
 
@@ -229,7 +242,7 @@ export function ManualEntryDialog({
                 <Calendar
                   mode="single"
                   selected={date}
-                  onSelect={(d) => d && setDate(d)}
+                  onSelect={(d) => d && handleDateChange(d)}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
                 />

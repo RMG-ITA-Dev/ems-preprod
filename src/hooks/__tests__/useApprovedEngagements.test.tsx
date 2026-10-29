@@ -114,6 +114,21 @@ describe("useApprovedEngagements", () => {
     expect(result.current.data).toEqual([]);
   });
 
+  // BUG 1028-217: el cronómetro pasa hoy como fecha de referencia; misma regla de rango que la
+  // Hoja de Tiempo, sin dejar de excluir internos.
+  it("with refDate: passes p_ref_date, keeps a same-day Finalizado and drops out-of-range/internal", async () => {
+    const REF = "2026-10-27";
+    setupMocks([
+      makeRow({ engagement_id: "eng-fin", engagement_state_override: 7, start_date: REF, end_date: REF }),
+      makeRow({ engagement_id: "eng-future", start_date: "2026-11-02", end_date: "2026-12-31" }),
+      makeRow({ engagement_id: "eng-internal", is_internal: true, start_date: REF, end_date: REF }),
+    ]);
+    const { result } = renderHook(() => useApprovedEngagements(REF), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements", { p_ref_date: REF });
+    expect(result.current.data!.map((e) => e.engagement_id)).toEqual(["eng-fin"]);
+  });
+
   it("surfaces RPC errors", async () => {
     mockRpc.mockResolvedValue({ data: null, error: new Error("boom") });
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });

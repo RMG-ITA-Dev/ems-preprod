@@ -127,7 +127,10 @@ export function useTimesheetWeek(weekStartDate: Date, workDays: number = 5): Tim
 
   // BUG 0828-186: encargos elegibles para cargar horas, vía el RPC list_loggable_engagements
   // (SECURITY DEFINER, gateado por time_entry.create) -- sin filtro de asignación por diseño.
-  const engagementsQuery = useLoggableEngagements(["approved-engagements", staffId], {
+  // BUG 1028-217: refDate = inicio de semana -- también vuelven los Finalizados que terminaron
+  // en esta semana o después; TimesheetGrid recorta por solapamiento y bloquea por celda.
+  const engagementsQuery = useLoggableEngagements(["approved-engagements", staffId, weekStartStr], {
+    refDate: weekStartStr,
     enabled: !!staffId,
     staleTime: 5 * 60 * 1000,
   });

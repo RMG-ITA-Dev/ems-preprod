@@ -12,3 +12,11 @@ export function sortEngagements(
     return ea.localeCompare(eb);
   });
 }
+
+// BUG 1028-217: rango inclusivo del encargo (fechas civiles yyyy-MM-dd, sin construir Date).
+export function engagementCoversDate(
+  eng: Pick<ApprovedEngagement, "start_date" | "end_date">,
+  dateStr: string
+): boolean {
+  return (!eng.start_date || eng.start_date <= dateStr) && (!eng.end_date || eng.end_date >= dateStr);
+}

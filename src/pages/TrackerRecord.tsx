@@ -34,7 +34,8 @@ const TrackerRecord = () => {
   const { staffRecord, isLoading: staffLoading } = useCurrentStaff();
   const { data: entries } = useTimerEntries();
   const { data: globalSettings } = useGlobalSettings();
-  const { data: approvedEngagements = [] } = useApprovedEngagements();
+  // BUG 1028-217: el cronómetro carga hoy -- solo encargos cuyo rango incluye hoy.
+  const { data: approvedEngagements = [] } = useApprovedEngagements(format(new Date(), "yyyy-MM-dd"));
 
   // DB-first hooks
   const { data: runningEntry, isLoading: runningLoading } = useRunningTimerEntry();
