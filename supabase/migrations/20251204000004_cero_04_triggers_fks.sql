@@ -305,26 +305,6 @@ CREATE TRIGGER trg_link_staff_to_auth_user BEFORE INSERT OR UPDATE OF email ON p
 
 --
 --
--- Name: staff trg_apply_category_role_on_staff_link; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_apply_category_role_on_staff_link AFTER INSERT ON public.staff FOR EACH ROW WHEN (((new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
-
-
---
---
--- Name: staff trg_apply_category_role_on_staff_relink; Type: TRIGGER; Schema: public; Owner: -
---
--- Misma regla cuando una ficha que YA existía se vincula después (al corregirle el email,
--- trg_link_staff_to_auth_user le pone auth_user_id en un UPDATE). No sirve `UPDATE OF
--- auth_user_id`: la columna la llena un trigger BEFORE, no el SET, así que se filtra por la
--- transición NULL -> valor.
-
-CREATE TRIGGER trg_apply_category_role_on_staff_relink AFTER UPDATE ON public.staff FOR EACH ROW WHEN (((old.auth_user_id IS NULL) AND (new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
-
-
---
---
 -- Name: timer_entries trg_prevent_imported_timer_delete; Type: TRIGGER; Schema: public; Owner: -
 --
 
