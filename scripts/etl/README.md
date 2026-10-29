@@ -26,8 +26,8 @@ reales ni credenciales: la consola rechaza claves que parecen credenciales dentr
 
 ## Administrador genérico
 
-La cuenta es **genérica** (`admin@ruizmier.com`, `Admin EMS`, `short_name` `adminems`), no una de
-las 192 personas, y sirve para entrar al sistema tras migrar. Su ficha: sociedad
+La cuenta es **genérica** (`admin@ruizmier.com`, `Admin EMS`, `short_name` `adminems`), no forma parte de
+las 138 fichas/cuentas migradas, y sirve para entrar al sistema tras migrar. Su ficha: sociedad
 `Ruizmier Pelaez S.R.L.`, práctica `AUD`, categoría `Socio` (la FK compuesta
 `staff(practica_id, category_id)` exige que la categoría pertenezca a la práctica; ADM no tiene
 categorías), ciudad La Paz, documento y fecha de ingreso ficticios, `weekly_capacity_hours = 40`,
@@ -133,3 +133,25 @@ identidad y estado efectivos del ambiente verificados, responsables, ventana exc
 credenciales, respaldo y tratamiento de las cuentas Auth de ensayo, y una autorización de ejecución
 propia (Test primero; producción tras las tres fases). Producción se reconstruye con un reset total y
 reaplicación de las migraciones, con configuración y mapas propios por proyecto.
+
+## Consola ETL fase 2
+
+Fase 2 carga clientes, contactos y fichas/cuentas desde CSV privados después de que Fase 1 haya
+quedado verificada. No aplica migraciones, no cambia RLS y no ejecuta contra un Supabase remoto sin
+una orden independiente del operador. Usa Admin API únicamente para inventario, altas y rotación de
+contraseña; nunca invita usuarios ni envía enlaces de correo.
+
+```bash
+node scripts/etl/fase2.mjs validate     --config <archivo>
+node scripts/etl/fase2.mjs preflight    --config <archivo>
+node scripts/etl/fase2.mjs load         --config <archivo>
+node scripts/etl/fase2.mjs verify       --config <archivo>
+node scripts/etl/fase2.mjs report       --config <archivo>
+node scripts/etl/fase2.mjs probe-access --config <archivo> --staff-ref <ref> [--manual]
+node scripts/etl/fase2.mjs probe-close  --config <archivo> --staff-ref <ref>
+```
+
+La configuración F2 es privada y contiene rutas absolutas de los seis CSV; use
+`fase2.config.example.json` solo como plantilla. `ETL_F2_STATE_DIR` debe ser absoluto, estar fuera
+del repositorio incluso tras resolver enlaces, y conservarse como respaldo privado. El journal no
+guarda nombres, NIT, correos, claves ni tokens: solo huellas, UUID y estados.

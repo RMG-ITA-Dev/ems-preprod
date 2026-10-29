@@ -1,0 +1,7 @@
+source_ref,client_legal_name,operating_name,tax_id,client_type,parent_ref,parent_relationship,client_origin,billing_tax_treatment,industry_ref,address,is_active,note
+legacy:89,Cliente Álamo,,001,entidad,,,nacional,nit_propio,Misceláneo,Calle Uno,true,
+legacy:90,Cliente Niño,,002,sucursal,legacy:89,sucursal_de,nacional,nit_propio,Misceláneo,Calle Dos,true,
+NEW-RJ,Ruizmier Jauregui S.R.L.,,184046021,entidad,,,nacional,nit_propio,Administrativo,Calle Tres,true,
+NEW-CAINCO,CAINCO,,004,entidad,,,nacional,nit_propio,,Calle Cuatro,true,
+NEW-AEV,AEV,,005,entidad,,,nacional,nit_propio,,Calle Cinco,true,
+NEW-RP,Ruizmier Pelaez S.R.L.,,1006979026,entidad,,,nacional,nit_propio,Administrativo,Calle Seis,true,

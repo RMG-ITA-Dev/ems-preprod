@@ -38,5 +38,6 @@ supabase/.branches/
 # El ejemplo ficticio (fase1.config.example.json) SÍ se versiona; el journal vive fuera del repo.
 scripts/etl/*.config.json
 !scripts/etl/fase1.config.example.json
+!scripts/etl/fase2.config.example.json
 scripts/etl/*.report.*
 scripts/etl/.tmp/

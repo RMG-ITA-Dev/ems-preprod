@@ -90,8 +90,8 @@ export class Fase1Error extends Error {
   }
 }
 
-export function makeRedactor(env) {
-  const secrets = [...SECRET_ENV_NAMES, "PGPASSWORD"]
+export function makeRedactor(env, extraNames = []) {
+  const secrets = [...SECRET_ENV_NAMES, "PGPASSWORD", ...extraNames]
     .map((name) => env[name])
     .filter((value) => typeof value === "string" && value.length >= 6);
   return (text) => {
@@ -160,7 +160,7 @@ function psqlEnv(env) {
  * No lanza: devuelve { ok, stdout, stderr, code, signal, killed, spawnError }.
  */
 export function runPsql(sql, vars = {}, options = {}) {
-  const { env = process.env, singleTransaction = false, timeoutMs = SQL_TIMEOUT_MS, execFileImpl = execFile } = options;
+  const { env = process.env, singleTransaction = false, timeoutMs = SQL_TIMEOUT_MS, execFileImpl = execFile, extraSecretNames = [] } = options;
   const psqlBin = env.ETL_F1_PSQL || "psql";
   const args = ["-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"];
   if (singleTransaction) args.push("-1");
@@ -174,7 +174,11 @@ export function runPsql(sql, vars = {}, options = {}) {
     const child = execFileImpl(
       psqlBin,
       args,
-      { env: psqlEnv(env), timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024, encoding: "utf8" },
+      { env: (() => {
+          const clean = psqlEnv(env);
+          for (const name of extraSecretNames) delete clean[name];
+          return clean;
+        })(), timeout: timeoutMs, windowsHide: true, maxBuffer: 16 * 1024 * 1024, encoding: "utf8" },
       (error, stdout, stderr) => {
         if (!error) return resolve({ ok: true, stdout: stdout ?? "", stderr: stderr ?? "", code: 0, signal: null, killed: false, spawnError: false });
         resolve({

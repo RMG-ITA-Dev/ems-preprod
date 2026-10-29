@@ -234,6 +234,10 @@ administrator and the holiday calendar are created by a dedicated console, not b
 node scripts/etl/fase1.mjs preflight  --config <file>   # read-only: connection guard + pre-state
 node scripts/etl/fase1.mjs initialize --config <file>   # generic admin (admin@ruizmier.com) + 28 holidays
 node scripts/etl/fase1.mjs verify     --config <file>
+node scripts/etl/fase2.mjs validate   --config <file>   # offline: CSV, contrato y jerarquía
+node scripts/etl/fase2.mjs preflight  --config <file>   # lectura del destino después de fase 1
+node scripts/etl/fase2.mjs load       --config <file>   # journal externo; sin migraciones
+node scripts/etl/fase2.mjs verify     --config <file>
 ```
 
 SQL goes through `psql` (remote = the Supabase pooler, user `postgres.<ref>`) and Auth through the Admin

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Consola específica ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md §3–§4).
 //
 //   node scripts/etl/fase1.mjs preflight  --config <archivo>
@@ -131,15 +130,16 @@ export function loadConfig(file) {
   return parseConfig(raw);
 }
 
-export function resolveStateDir(env, repoRoot = REPO_ROOT) {
-  const dir = env.ETL_F1_STATE_DIR;
-  if (!dir) throw new Fase1Error("CONFIG", "falta ETL_F1_STATE_DIR (ruta absoluta del journal, fuera de Git)");
-  if (!path.isAbsolute(dir)) throw new Fase1Error("CONFIG", "ETL_F1_STATE_DIR debe ser una ruta absoluta");
-  const rel = path.relative(repoRoot, path.resolve(dir));
+export function resolveStateDir(env, repoRoot = REPO_ROOT, { varName = "ETL_F1_STATE_DIR" } = {}) {
+  const dir = env[varName];
+  if (!dir) throw new Fase1Error("CONFIG", `falta ${varName} (ruta absoluta del journal, fuera de Git)`);
+  if (!path.isAbsolute(dir)) throw new Fase1Error("CONFIG", `${varName} debe ser una ruta absoluta`);
+  const resolved = path.resolve(dir);
+  const rel = path.relative(repoRoot, resolved);
   if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
-    throw new Fase1Error("CONFIG", "ETL_F1_STATE_DIR no puede estar dentro del repositorio (el journal va fuera de Git)");
+    throw new Fase1Error("CONFIG", `${varName} no puede estar dentro del repositorio (el journal va fuera de Git)`);
   }
-  return path.resolve(dir);
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -153,7 +153,7 @@ function journalChecksum(journal) {
   return sha256(JSON.stringify(rest));
 }
 
-export function readJournal(file) {
+export function readJournal(file, { states = STATES } = {}) {
   if (!existsSync(file)) return null;
   let parsed;
   try {
@@ -164,7 +164,7 @@ export function readJournal(file) {
   if (!parsed || typeof parsed !== "object" || parsed.checksum !== journalChecksum(parsed)) {
     throw new Fase1Error("BLOQUEADO", `journal inconsistente (checksum) en ${path.basename(file)}: bloquea la reanudación`);
   }
-  if (!STATES.includes(parsed.state)) throw new Fase1Error("BLOQUEADO", `journal con estado desconocido '${parsed.state}'`);
+  if (!states.includes(parsed.state)) throw new Fase1Error("BLOQUEADO", `journal con estado desconocido '${parsed.state}'`);
   return parsed;
 }
 
@@ -197,9 +197,9 @@ export function writeJournal(file, journal) {
 }
 
 /** Bloqueo de creación exclusiva: impide dos ejecuciones sobre el mismo journal en la misma máquina. */
-export function acquireLock(stateDir, installationId) {
+export function acquireLock(stateDir, installationId, { prefix = "fase1" } = {}) {
   mkdirSync(stateDir, { recursive: true });
-  const file = lockPathFor(stateDir, installationId);
+  const file = path.join(stateDir, `${prefix}-${installationId}.lock`);
   let fd;
   try {
     fd = openSync(file, "wx", 0o600);
@@ -255,6 +255,19 @@ export function createAuthAdapter({ url, serviceKey, anonKey, fetchImpl = global
     async createUser(attrs) {
       try {
         const { data, error } = await admin.auth.admin.createUser(attrs);
+        if (error) {
+          const status = Number(error.status);
+          return { ok: false, uncertain: !(status >= 400 && status < 500), message: error.message };
+        }
+        return { ok: true, user: data.user };
+      } catch (error) {
+        return { ok: false, uncertain: true, message: error?.message ?? String(error) };
+      }
+    },
+
+    async updateUserById(id, attrs) {
+      try {
+        const { data, error } = await admin.auth.admin.updateUserById(id, attrs);
         if (error) {
           const status = Number(error.status);
           return { ok: false, uncertain: !(status >= 400 && status < 500), message: error.message };

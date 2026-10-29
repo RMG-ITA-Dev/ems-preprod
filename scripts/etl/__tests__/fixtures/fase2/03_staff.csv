@@ -1,0 +1,5 @@
+staff_source_ref,legacy_profile_ids,legacy_user_codes,first_name,last_name,id_number,email,short_name,initials,hire_date,termination_date,city,practica_abbreviation,category_name,society_name,is_active,is_schedulable,is_blocked,source_note
+legacy:16,"16,62",U16,Ana,Álvarez,1001,etl-f2-ficticio-16@ruizmier.com,anaalvarez,AA,2024-01-01,,La Paz,AUD,Asistente,Ruizmier Pelaez S.R.L.,true,true,false,fixture
+legacy:17,17,U17,Beto,Bravo,1002,etl-f2-ficticio-17@ruizmier.com,betobravo,BB,2024-01-01,,La Paz,AUD,Supervisor,Ruizmier Pelaez S.R.L.,true,true,false,fixture
+legacy:18,18,U18,Cora,Cruz,1003,etl-f2-ficticio-18@ruizmier.com,coracruz,CC,2024-01-01,,Santa Cruz,AUD,Senior,Ruizmier Pelaez S.R.L.,true,true,false,fixture
+legacy:19,19,U19,Diego,Díaz,1004,etl-f2-ficticio-19@ruizmier.com,diegodiaz,DD,2024-01-01,2026-10-01,La Paz,AUD,Asistente,Ruizmier Pelaez S.R.L.,false,false,false,fixture
