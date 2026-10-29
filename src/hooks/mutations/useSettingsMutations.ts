@@ -1,8 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
-import i18n from "@/i18n";
 
 export function useUpdateGlobalSetting() {
   const queryClient = useQueryClient();
@@ -22,7 +20,8 @@ export function useUpdateGlobalSetting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["global_settings"] });
-      toast.success(i18n.t("messages.settingsSaved"));
+      // No toast here (1028-215): Settings saves one key per call, so a per-key toast
+      // stacked N copies. The caller shows a single "settingsSaved" when it finishes.
     },
     onError: createMutationErrorHandler("updating setting"),
   });
