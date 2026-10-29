@@ -17,14 +17,19 @@ const EngagementEdit = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-  // Vuelve a la lista de origen: Encargos Administrativos manda `returnTo` al abrir la fila.
-  // Sin estado (deep-link, recarga, campanita) se vuelve a Encargos como siempre.
-  const returnTo = captureReturnNav(location.state)?.returnTo ?? "/engagements";
   const { data: engagements, isLoading, isError, refetch } = usePortfolioEngagements();
   const [isDirty, setIsDirty] = useState(false);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   const engagement = engagements?.find((e) => e.engagement_id === id);
+  // Vuelve a la lista de origen: Encargos Administrativos manda `returnTo` al abrir la fila.
+  // Sin estado (deep-link, recarga, campanita) se decide por la función del encargo: un
+  // encargo no-Cliente vuelve a Encargos Administrativos, no a Encargos.
+  const isAdministrative = engagement?.funcion != null && engagement.funcion !== 1;
+  const returnTo =
+    captureReturnNav(location.state)?.returnTo ??
+    (isAdministrative ? "/administrative-engagements" : "/engagements");
+  const title = t(isAdministrative ? "nav.administrativeEngagements" : "nav.engagements");
 
   const handleCancel = () => {
     allowNextNavigation();
@@ -93,7 +98,7 @@ const EngagementEdit = () => {
   }
 
   return (
-    <AppLayout title={t("nav.engagements")} focusMode>
+    <AppLayout title={title} focusMode>
       {/* BUG 0922-195 (review H13): sin `key`, React Router reutiliza esta misma instancia de
           EngagementForm cuando solo cambia `:id` (p. ej. desde la campanita de notificaciones, que
           está siempre montada en AppHeader) — la política es que salir de un formulario sin

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, Download, MessageSquare, CalendarClock, Search, Receipt } from "lucide-react";
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { canDoCollections } from "@/lib/collectionsAccess";
+import { isSocietyScopedRole } from "@/lib/societyScope";
 import {
   useCollections,
   useCollectionsFilterOptions,
@@ -77,7 +78,10 @@ export default function Collections() {
     : "por_facturar") as CollectionsTab;
   const page = Math.max(Number(params.get("page") ?? 0), 0);
   const search = params.get("q") ?? "";
-  const societyId = params.get("sociedad") ?? ALL;
+  // Alcance por sociedad: Gerente de Contabilidad y Analista de Cobranzas solo ven su sociedad (lo
+  // impone la RPC), así que el filtro no aplica para ellos y se ignora aunque venga en la URL.
+  const societyLocked = isSocietyScopedRole(roleKey);
+  const societyId = societyLocked ? ALL : (params.get("sociedad") ?? ALL);
   const practica = params.get("practica") ?? ALL;
   const managerId = params.get("gerente") ?? ALL;
   const currency = params.get("moneda") ?? ALL;
@@ -99,6 +103,17 @@ export default function Collections() {
     if (resetPage) next.delete("page");
     setParams(next, { replace: true });
   };
+
+  // Un enlace compartido por admin puede traer `sociedad`: para estos roles se limpia de la URL, para
+  // que no quede un filtro que la pantalla no muestra. La página también: la del enlace era sobre el
+  // resultado de admin, y en el de la propia sociedad puede no existir (tabla vacía y sin paginador).
+  useEffect(() => {
+    if (!societyLocked || !params.has("sociedad")) return;
+    const next = new URLSearchParams(params);
+    next.delete("sociedad");
+    next.delete("page");
+    setParams(next, { replace: true });
+  }, [societyLocked, params, setParams]);
 
   const filters = useMemo(
     () => ({
@@ -451,18 +466,20 @@ export default function Collections() {
                 </div>
               </div>
 
-              <div>
-                <Label className="text-xs">{t("collections.filterSociety")}</Label>
-                <Select value={societyId} onValueChange={(v) => setParam("sociedad", v === ALL ? null : v)}>
-                  <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
-                    {(options?.societies ?? []).map((s) => (
-                      <SelectItem key={s.society_id} value={s.society_id}>{s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!societyLocked && (
+                <div>
+                  <Label className="text-xs">{t("collections.filterSociety")}</Label>
+                  <Select value={societyId} onValueChange={(v) => setParam("sociedad", v === ALL ? null : v)}>
+                    <SelectTrigger className="h-9 w-44"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>{t("collections.filterAll")}</SelectItem>
+                      {(options?.societies ?? []).map((s) => (
+                        <SelectItem key={s.society_id} value={s.society_id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div>
                 <Label className="text-xs">{t("collections.filterPractice")}</Label>

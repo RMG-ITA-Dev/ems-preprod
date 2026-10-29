@@ -345,7 +345,8 @@ BEGIN
       FOR v_rec IN
         SELECT staff_id FROM public.notif_engagement_partners(NEW.engagement_id)
         UNION
-        SELECT staff_id FROM public.notif_staff_by_roles(c_cobranzas)
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_cobranzas,
+                 (SELECT e2.society_id FROM public.engagements e2 WHERE e2.engagement_id = NEW.engagement_id))
       LOOP
         PERFORM public.notify_staff('wo.payment_plan.pending_approval', v_rec.staff_id,
                   NEW.wo_id::text, v_base);
@@ -746,6 +747,8 @@ BEGIN
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
          AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
+         AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),
     '[]'::jsonb
   );

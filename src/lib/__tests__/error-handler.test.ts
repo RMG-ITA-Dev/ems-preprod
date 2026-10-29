@@ -69,6 +69,24 @@ describe("handleError", () => {
     expect(result).toBeInstanceOf(AppError);
   });
 
+  it("traduce los rechazos por sociedad en vez del mensaje genérico de permisos", () => {
+    // Alcance por sociedad (2026-10-28): 42501 con prefijo estable. El código sigue siendo FORBIDDEN;
+    // lo que cambia es que la persona lee POR QUÉ (otra sociedad), no "no tiene permiso". El setup mockea
+    // i18n con la clave como texto; que la clave exista en en/es lo cubre societyScope.test.ts.
+    const error = { code: "42501", message: "SOCIETY_SCOPE_FORBIDDEN: la orden de trabajo no pertenece a su sociedad" };
+    const result = handleError(error, { showToast: false });
+    expect(result.code).toBe(ErrorCode.AUTH_FORBIDDEN);
+    expect(result.message).toBe("errors.societyScopeForbidden");
+
+    const mismatch = { code: "42501", message: "FUND_REQUEST_SOCIETY_MISMATCH: ..." };
+    expect(handleError(mismatch, { showToast: false }).message).toBe("errors.fundRequestSocietyMismatch");
+  });
+
+  it("un 42501 cualquiera sigue siendo el mensaje genérico de permisos", () => {
+    const error = { code: "42501", message: "new row violates row-level security policy" };
+    expect(handleError(error, { showToast: false }).message).toBe("You don't have permission to perform this action.");
+  });
+
   it("parses 401 as unauthorized", () => {
     const error = { status: 401, message: "Unauthorized" };
     const result = handleError(error, { showToast: false });
