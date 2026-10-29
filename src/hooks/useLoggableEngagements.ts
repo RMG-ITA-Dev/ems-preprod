@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { canLogHours, type EngagementState } from "@/lib/engagementStatus";
+import { canLogHours, EngagementState } from "@/lib/engagementStatus";
+import { engagementCoversDate } from "@/lib/timesheetEngagementOptions";
 
 /**
  * BUG 0828-186: forma compartida de los encargos elegibles para cargar horas (Hoja de
@@ -68,12 +69,30 @@ function toLoggableEngagement(row: LoggableEngagementRow): LoggableEngagement {
 // FEAT 0602-135: excluye encargos cuyo override manual (6 Cancelado, 7 Finalizado, 8
 // Rechazado, 9 Congelado) impide cargar horas. El RPC ya los excluye en el WHERE; se
 // reaplica en JS para que las 3 pantallas queden consistentes con engagementStatus.ts.
-function isLoggable(e: LoggableEngagement): boolean {
+// BUG 1028-217: con fecha de referencia, un Finalizado (7) sigue siendo cargable si su fin cae
+// en esa fecha o después -- la fecha manda, no el estado (mismo criterio que el RPC).
+function isLoggable(e: LoggableEngagement, refDate?: string): boolean {
   const override = e.engagement_state_override;
-  return override == null || canLogHours(override as EngagementState);
+  if (override == null || canLogHours(override as EngagementState)) return true;
+  return (
+    override === EngagementState.Finalizado &&
+    !!refDate &&
+    !!e.end_date &&
+    e.end_date >= refDate
+  );
 }
 
 export interface UseLoggableEngagementsOptions {
+  /**
+   * BUG 1028-217: fecha (yyyy-MM-dd) desde la que se quiere cargar. Con ella también vuelven
+   * los Finalizados cuyo end_date >= refDate. Sin ella, la lista es la de siempre.
+   */
+  refDate?: string;
+  /**
+   * BUG 1028-217: deja solo los encargos cuyo rango incluye refDate (pantallas de un solo día:
+   * Tracker, Carga Manual, Edición). La Hoja de Tiempo no lo usa: recorta por semana en la grilla.
+   */
+  onlyCoveringRefDate?: boolean;
   /** Tracker: excluye encargos internos/administrativos de la lista. */
   excludeInternal?: boolean;
   enabled?: boolean;
@@ -90,16 +109,21 @@ export function useLoggableEngagements(
   queryKey: readonly unknown[],
   options: UseLoggableEngagementsOptions = {},
 ) {
-  const { excludeInternal = false, enabled = true, staleTime } = options;
+  const { refDate, onlyCoveringRefDate = false, excludeInternal = false, enabled = true, staleTime } = options;
 
   return useQuery({
     queryKey,
     staleTime,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("list_loggable_engagements" as never);
+      const { data, error } = refDate
+        ? await supabase.rpc("list_loggable_engagements" as never, { p_ref_date: refDate } as never)
+        : await supabase.rpc("list_loggable_engagements" as never);
       if (error) throw error;
       const rows = ((data || []) as unknown) as LoggableEngagementRow[];
-      let engagements = rows.map(toLoggableEngagement).filter(isLoggable);
+      let engagements = rows.map(toLoggableEngagement).filter((e) => isLoggable(e, refDate));
+      if (onlyCoveringRefDate && refDate) {
+        engagements = engagements.filter((e) => engagementCoversDate(e, refDate));
+      }
       if (excludeInternal) {
         engagements = engagements.filter((e) => !e.is_internal);
       }

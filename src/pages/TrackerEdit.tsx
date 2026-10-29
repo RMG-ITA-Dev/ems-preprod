@@ -72,7 +72,6 @@ const TrackerEdit = () => {
   const { currentLanguage } = useLanguage();
   const { data: entries, isFetched } = useTimerEntries();
   const { data: engagements } = useEngagements();
-  const { data: approvedEngagements = [] } = useApprovedEngagements();
   const { data: activityCodes } = useActivityCodes();
   const updateEntry = useUpdateTimerEntry();
   const deleteEntry = useDeleteTimerEntry();
@@ -91,6 +90,10 @@ const TrackerEdit = () => {
   const [description, setDescription] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [useExplicitTimes, setUseExplicitTimes] = useState(true);
+
+  // BUG 1028-217: la lista depende de la fecha del registro (solo encargos cuyo rango la incluye,
+  // Finalizados incluidos) -- misma regla que la Hoja de Tiempo.
+  const { data: approvedEngagements = [] } = useApprovedEngagements(date ? format(date, "yyyy-MM-dd") : undefined);
 
   // Dirty tracking: compare current form values against initial entry values
   const isDirty = useMemo(() => {

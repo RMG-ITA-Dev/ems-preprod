@@ -679,20 +679,25 @@ CREATE FUNCTION public.check_wo_approved() RETURNS trigger
 DECLARE
   v_wo_required boolean;
   v_override    smallint;
+  v_end         date;
 BEGIN
-  SELECT work_order_required, engagement_state_override
-    INTO v_wo_required, v_override
+  SELECT work_order_required, engagement_state_override, end_date
+    INTO v_wo_required, v_override, v_end
   FROM engagements WHERE engagement_id = NEW.engagement_id;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
   IF v_override IS NOT NULL THEN
-    IF v_override NOT IN (4, 5) THEN
+    IF v_override IN (4, 5) THEN
+      RETURN NEW;  -- override 4/5: aprobado manualmente, salta el chequeo de OT
+    END IF;
+    -- BUG 1028-217: Finalizado (7) admite horas dentro de su rango; check_time_entry_engagement_dates
+    -- valida las fechas y el chequeo de OT de abajo exige que haya estado aprobado.
+    IF v_override <> 7 OR v_end IS NULL THEN
       RAISE EXCEPTION 'Cannot log time: engagement state (override %) does not allow logging', v_override;
     END IF;
-    RETURN NEW;  -- override 4/5: aprobado manualmente, salta el chequeo de OT
   END IF;
 
-  -- Sin override → estado derivado de la OT.
+  -- Sin override (o Finalizado 7) → estado derivado de la OT.
   -- Non-WO-required engagements bypass the WO approval check
   IF v_wo_required IS DISTINCT FROM true THEN
     RETURN NEW;

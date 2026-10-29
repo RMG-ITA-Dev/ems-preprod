@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { format } from "date-fns";
 import { Play, Save, X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -57,7 +58,8 @@ export function TrackerBar({
   onActivityChange,
 }: TrackerBarProps) {
   const { t } = useTranslation();
-  const { data: engagements = [] } = useApprovedEngagements();
+  // BUG 1028-217: el cronómetro carga hoy -- solo encargos cuyo rango incluye hoy.
+  const { data: engagements = [] } = useApprovedEngagements(format(new Date(), "yyyy-MM-dd"));
   const { data: activityCodes = [] } = useActivityCodes();
   const adminActivityId = useAdminActivityId();
 

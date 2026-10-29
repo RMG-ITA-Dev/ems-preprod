@@ -27,6 +27,7 @@ vi.mock("../useCurrentStaff", () => ({
 }));
 
 import { useTimesheetWeek } from "../useTimesheetWeek";
+import { toISODateString } from "@/lib/timesheetUtils";
 
 function createWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -100,7 +101,10 @@ describe("useTimesheetWeek — engagement visibility (BUG 0828-186)", () => {
       wrapper: createWrapper(),
     });
     await waitFor(() => expect(result.current.engagements).toHaveLength(1));
-    expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements");
+    // BUG 1028-217: la Hoja de Tiempo pasa el inicio de la semana como fecha de referencia.
+    expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements", {
+      p_ref_date: toISODateString(new Date("2026-08-24")),
+    });
   });
 
   it("does not call is_admin/get_my_staff_id -- no client-side assignment filter", async () => {
@@ -126,6 +130,40 @@ describe("useTimesheetWeek — engagement visibility (BUG 0828-186)", () => {
   it("excludes engagements with a terminal override (6/7/8)", async () => {
     setupMocks([makeRow({ engagement_id: "eng-terminal", engagement_state_override: 7 })]);
     const { result } = renderHook(() => useTimesheetWeek(new Date("2026-08-24")), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.engagements).toEqual([]);
+  });
+
+  // BUG 1028-217: un Finalizado (7) que termina en la semana o después sigue cargable; la fecha
+  // manda, no el estado. Semana local lun 24/08/2026.
+  it("includes a Finalizado (7) whose end_date falls in the week", async () => {
+    setupMocks([
+      makeRow({
+        engagement_id: "eng-fin",
+        engagement_state_override: 7,
+        start_date: "2026-08-25",
+        end_date: "2026-08-25",
+      }),
+    ]);
+    const { result } = renderHook(() => useTimesheetWeek(new Date(2026, 7, 24)), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.engagements).toHaveLength(1));
+    expect(result.current.engagements[0].engagement_id).toBe("eng-fin");
+  });
+
+  it("excludes a Finalizado (7) that ended before the week", async () => {
+    setupMocks([
+      makeRow({
+        engagement_id: "eng-fin-old",
+        engagement_state_override: 7,
+        start_date: "2026-08-21",
+        end_date: "2026-08-21",
+      }),
+    ]);
+    const { result } = renderHook(() => useTimesheetWeek(new Date(2026, 7, 24)), {
       wrapper: createWrapper(),
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
