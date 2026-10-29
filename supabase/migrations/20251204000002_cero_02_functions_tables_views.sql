@@ -4815,11 +4815,17 @@ CREATE FUNCTION public.guard_auth_lockout_settings() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 BEGIN
-  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES', 'AUTH_MODE')
      AND auth.uid() IS NOT NULL          -- not service_role / postgres
      AND NOT public.is_admin() THEN      -- not an administrator
     RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
       USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- AUTH_MODE decide qué pantalla de ingreso ve todo el personal: un valor fuera de la lista
+  -- deja /auth en "configuración inválida" (src/lib/authMode.ts), así que no se acepta.
+  IF NEW.setting_key = 'AUTH_MODE' AND NEW.setting_value NOT IN ('password', 'entra') THEN
+    RAISE EXCEPTION 'INVALID_AUTH_MODE: % (expected password or entra)', NEW.setting_value
+      USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
@@ -4837,6 +4843,8 @@ CREATE FUNCTION public.handle_new_user() RETURNS trigger
     AS $$
 declare
   v_role_count integer;
+  v_role_key   text;
+  v_role       public.app_role;
 begin
   -- Guard de reentrada: si otra vía ya asignó el rol, no se toca.
   if exists (select 1 from public.user_roles where user_id = new.id) then
@@ -4850,8 +4858,26 @@ begin
     insert into public.user_roles (user_id, role, role_key)
     values (new.id, 'admin', 'admin');
   else
+    -- Si el admin ya creó la ficha, la cuenta nace con el rol que sugiere su categoría
+    -- (categories.default_role_key). Misma ficha que va a vincular link_auth_user_to_staff,
+    -- que corre después (on_auth_user_created_link_staff). Nunca `admin` (el CHECK de
+    -- categories ya lo impide; se repite porque acá el rol se aplica sin confirmación).
+    -- Sin ficha, sin sugerencia o sin mapeo legacy: `assistant`, como siempre.
+    select c.default_role_key, ar.legacy_app_role
+      into v_role_key, v_role
+      from public.staff s
+      join public.categories c on c.category_id = s.category_id
+      join public.authorization_roles ar on ar.role_key = c.default_role_key
+     where lower(trim(s.email)) = lower(trim(new.email))
+       and s.auth_user_id is null
+       and s.deleted_at is null
+       and c.default_role_key <> 'admin'
+       and ar.legacy_app_role is not null
+     order by s.created_at desc
+     limit 1;
+
     insert into public.user_roles (user_id, role, role_key)
-    values (new.id, 'staff', 'assistant');
+    values (new.id, coalesce(v_role, 'staff'), coalesce(v_role_key, 'assistant'));
   end if;
 
   return new;

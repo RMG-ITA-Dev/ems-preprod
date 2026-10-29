@@ -526,3 +526,58 @@ REVOKE ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) FRO
 GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO anon;
 GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO authenticated;
 GRANT ALL ON FUNCTION public.sync_user_role_from_category(uuid, text, text) TO service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────────────────────
+-- Rol de la categoría cuando una cuenta que ya existía se vincula a su ficha.
+--
+-- Va en esta migración, y no en las cero, porque lee `categories.default_role_key`, que nace
+-- arriba. En las cero el trigger quedaba instalado antes de que cero_14 (bootstrap) insertara la
+-- ficha del admin con `auth_user_id`: se disparaba, la columna todavía no existía y el `db push`
+-- desde cero se abortaba con "column c.default_role_key does not exist".
+-- ─────────────────────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.apply_category_role_on_staff_link() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role_key text;
+  v_role     public.app_role;
+BEGIN
+  -- La ficha nace vinculada a una cuenta que ya existía (el usuario ingresó antes de tener
+  -- ficha y quedó huérfano con `assistant`). Se le aplica el rol que sugiere la categoría
+  -- elegida, igual que handle_new_user() cuando la ficha existe antes de la cuenta.
+  -- Solo pisa el `assistant` con que nace toda cuenta: un rol puesto a mano no se toca y un
+  -- admin nunca se degrada. Nunca asigna `admin` (CHECK de categories, repetido acá).
+  SELECT c.default_role_key, ar.legacy_app_role
+    INTO v_role_key, v_role
+    FROM public.categories c
+    JOIN public.authorization_roles ar ON ar.role_key = c.default_role_key
+   WHERE c.category_id = NEW.category_id
+     AND c.default_role_key <> 'admin'
+     AND ar.legacy_app_role IS NOT NULL;
+
+  IF v_role_key IS NOT NULL THEN
+    UPDATE public.user_roles
+       SET role_key = v_role_key, role = v_role
+     WHERE user_id = NEW.auth_user_id
+       AND role_key = 'assistant'
+       AND role <> 'admin';
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+-- Solo la invoca el trigger; un trigger dispara aunque quien escribe no tenga EXECUTE.
+REVOKE ALL ON FUNCTION public.apply_category_role_on_staff_link() FROM PUBLIC, anon, authenticated;
+
+-- La ficha se crea ya vinculada (trg_link_staff_to_auth_user encontró la cuenta por email).
+DROP TRIGGER IF EXISTS trg_apply_category_role_on_staff_link ON public.staff;
+CREATE TRIGGER trg_apply_category_role_on_staff_link AFTER INSERT ON public.staff FOR EACH ROW WHEN (((new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
+
+-- Una ficha que YA existía se vincula después (al corregirle el email, trg_link_staff_to_auth_user
+-- le pone auth_user_id en un UPDATE). No sirve `UPDATE OF auth_user_id`: la columna la llena un
+-- trigger BEFORE, no el SET, así que se filtra por la transición NULL -> valor.
+DROP TRIGGER IF EXISTS trg_apply_category_role_on_staff_relink ON public.staff;
+CREATE TRIGGER trg_apply_category_role_on_staff_relink AFTER UPDATE ON public.staff FOR EACH ROW WHEN (((old.auth_user_id IS NULL) AND (new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();

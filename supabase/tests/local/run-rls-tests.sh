@@ -526,6 +526,7 @@ assert_suite supabase/tests/rls-carril-b-b3e-staff.sql 'B3e STAFF Y FIRMA DE OT:
 assert_suite supabase/tests/rls-carril-b-b4-vistas.sql 'B4 VISTAS Y SUELTAS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b5-privilegios.sql 'B5 PRIVILEGIOS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-carril-b-b6-staff-unique.sql 'B6 STAFF UNIQUE: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-signup-role-from-category.sql 'SIGNUP ROLE FROM CATEGORY: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-fund-accounting-parity.sql 'FUND ACCOUNTING PARITY RLS: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-cobranzas-fase1.sql 'COBRANZAS FASES 1 A 7: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-cobranzas-fase8.sql 'COBRANZAS FASES 8 Y 9: ALL CHECKS PASSED'

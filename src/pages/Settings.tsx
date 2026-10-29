@@ -77,6 +77,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy, Calendar as CalendarIcon } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
+import { AUTH_MODE_SETTING_KEY } from "@/lib/authMode";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -309,6 +310,7 @@ const Settings = () => {
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
   const [compactFont, setCompactFont] = useState<boolean>(false);
   const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
+  const [authMode, setAuthMode] = useState<string>("password");
   const [realizationLimit, setRealizationLimit] = useState<string>("");
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
@@ -357,6 +359,10 @@ const Settings = () => {
       if (emailDomainSetting) {
         setAllowedEmailDomain(emailDomainSetting.setting_value);
       }
+      // Sin la fila (proyecto sin el seed de bugs/entra-id/01_auth_mode.sql) /auth se comporta
+      // como "password" (src/lib/authMode.ts), así que el selector arranca igual.
+      const authModeSetting = settings.find((s) => s.setting_key === AUTH_MODE_SETTING_KEY);
+      setAuthMode(authModeSetting?.setting_value ?? "password");
       const realizationSetting = settings.find((s) => s.setting_key === "REALIZATION_LIMIT");
       if (realizationSetting) {
         setRealizationLimit(realizationSetting.setting_value);
@@ -379,6 +385,7 @@ const Settings = () => {
     const persistedWeekend = getSetting("ALLOW_WEEKEND_TRACKING") === "true";
     const persistedCompact = getSetting("COMPACT_FONT") === "true";
     const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
+    const persistedAuthMode = getSetting(AUTH_MODE_SETTING_KEY) || "password";
     const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
     const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
     const persistedDailyMin = getSetting("DAILY_MIN") || "8";
@@ -397,6 +404,7 @@ const Settings = () => {
       allowWeekendTracking !== persistedWeekend ||
       compactFont !== persistedCompact ||
       allowedEmailDomain !== persistedDomain ||
+      authMode !== persistedAuthMode ||
       holidayEngagementId !== persistedHolidayEngagement ||
       exchangeRateApiUrl !== persistedExchangeRateApiUrl ||
       (taxRate !== "" && taxRate !== persistedTax) ||
@@ -416,7 +424,7 @@ const Settings = () => {
       (alertWindowWeeks !== "" && alertWindowWeeks !== persistedAlertWindow) ||
       trackingStartDate !== persistedTrackingStart
     );
-  }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
+  }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain, authMode,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
       maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl, alertWindowWeeks, trackingStartDate]);
 
@@ -436,6 +444,7 @@ const Settings = () => {
     document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
 
     setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
+    setAuthMode(getSetting(AUTH_MODE_SETTING_KEY) || "password");
     setHolidayEngagementId(getSetting("HOLIDAY_ENGAGEMENT_ID") || "");
     setTaxRate("");
     setRealizationLimit("");
@@ -860,6 +869,11 @@ const Settings = () => {
       await updateSettingMutation.mutateAsync({ key: "COMPACT_FONT", value: compactFont.toString() });
       if (allowedEmailDomain) {
         await updateSettingMutation.mutateAsync({ key: "ALLOWED_EMAIL_DOMAIN", value: allowedEmailDomain.trim() });
+      }
+      // Solo si cambió: la mutación es update-only y un proyecto sin la fila fallaría en cada
+      // guardado. Solo admin (guard_auth_lockout_settings rechaza a cualquier otro).
+      if (isAdmin && authMode !== (getSetting(AUTH_MODE_SETTING_KEY) || "password")) {
+        await updateSettingMutation.mutateAsync({ key: AUTH_MODE_SETTING_KEY, value: authMode });
       }
       if (realizationLimit) {
         await updateSettingMutation.mutateAsync({ key: "REALIZATION_LIMIT", value: realizationLimit });
@@ -1388,6 +1402,29 @@ const Settings = () => {
                       />
                       <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
                     </div>
+
+                    {/* Sign-in method (AUTH_MODE) — docs/plan-entra-id-consolidado.md */}
+                    {isAdmin && (
+                      <div className="space-y-2 py-4 border-b border-border">
+                        <Label htmlFor="authMode">{t("settings.authMode")}</Label>
+                        <Select value={authMode} onValueChange={setAuthMode}>
+                          <SelectTrigger id="authMode" className="max-w-[300px]" data-testid="auth-mode-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="password">{t("settings.authModePassword")}</SelectItem>
+                            <SelectItem value="entra">{t("settings.authModeEntra")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-sm text-muted-foreground">{t("settings.authModeHelp")}</p>
+                        {authMode === "entra" && (
+                          <Alert>
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>{t("settings.authModeEntraWarning")}</AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
 
                     {/* Exchange Rate Microservice URL Setting (BUG 0722-156, Fase 1) */}
                     <div className="space-y-2 py-4 border-b border-border">

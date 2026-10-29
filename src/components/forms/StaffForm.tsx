@@ -363,6 +363,16 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   const currentShortName = form.watch("short_name");
   const currentInitials = form.watch("initials");
 
+  // Alta desde una cuenta huérfana (Roles de Usuario → crear ficha, ?email=): la cuenta ya
+  // existe, así que la ficha se vincula y activa al guardar, con el rol de su categoría
+  // (link_staff_to_auth_user + apply_category_role_on_staff_link). Si el admin cambia el
+  // correo, vuelve el texto del alta normal.
+  const watchedEmail = form.watch("email");
+  const linksExistingAccount =
+    !isEdit &&
+    !!prefillEmail &&
+    (watchedEmail ?? "").trim().toLowerCase() === prefillEmail.trim().toLowerCase();
+
   useEffect(() => {
     // Only auto-suggest if fields are empty (don't override user edits)
     if (!isEdit && firstName && lastName) {
@@ -1022,7 +1032,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">{t("common.active")}</FormLabel>
                       <FormDescription>
-                        {isEdit ? t("staff.activeDescription") : t("staff.activeDescriptionNew")}
+                        {isEdit
+                          ? t("staff.activeDescription")
+                          : linksExistingAccount
+                            ? t("staff.activeDescriptionExistingAccount")
+                            : t("staff.activeDescriptionNew")}
                       </FormDescription>
                     </div>
                     <FormControl>

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict m1gfctixJ0GSRavfF2GYk0upE8JG3BMl94zFFWCvHhtP2yen4p2lMf9w4kKYcP6
+\restrict zrgpXCCK7TXnhaAIQocvpWy9kaj6rYLGn6s2BUbepwcC3E2LHC9ARcR2zdXGsJc
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1197,6 +1197,44 @@ BEGIN
   WHERE email_normalized = v_email;
 
   RETURN jsonb_build_object('ok', true, 'email', v_email);
+END;
+$$;
+
+
+--
+-- Name: apply_category_role_on_staff_link(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.apply_category_role_on_staff_link() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_role_key text;
+  v_role     public.app_role;
+BEGIN
+  -- La ficha nace vinculada a una cuenta que ya existía (el usuario ingresó antes de tener
+  -- ficha y quedó huérfano con `assistant`). Se le aplica el rol que sugiere la categoría
+  -- elegida, igual que handle_new_user() cuando la ficha existe antes de la cuenta.
+  -- Solo pisa el `assistant` con que nace toda cuenta: un rol puesto a mano no se toca y un
+  -- admin nunca se degrada. Nunca asigna `admin` (CHECK de categories, repetido acá).
+  SELECT c.default_role_key, ar.legacy_app_role
+    INTO v_role_key, v_role
+    FROM public.categories c
+    JOIN public.authorization_roles ar ON ar.role_key = c.default_role_key
+   WHERE c.category_id = NEW.category_id
+     AND c.default_role_key <> 'admin'
+     AND ar.legacy_app_role IS NOT NULL;
+
+  IF v_role_key IS NOT NULL THEN
+    UPDATE public.user_roles
+       SET role_key = v_role_key, role = v_role
+     WHERE user_id = NEW.auth_user_id
+       AND role_key = 'assistant'
+       AND role <> 'admin';
+  END IF;
+
+  RETURN NULL;
 END;
 $$;
 
@@ -7779,11 +7817,17 @@ CREATE FUNCTION public.guard_auth_lockout_settings() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 BEGIN
-  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES')
+  IF NEW.setting_key IN ('AUTH_MAX_FAILED_ATTEMPTS', 'AUTH_LOCKOUT_MINUTES', 'AUTH_MODE')
      AND auth.uid() IS NOT NULL          -- not service_role / postgres
      AND NOT public.is_admin() THEN      -- not an administrator
     RAISE EXCEPTION 'FORBIDDEN: % can only be changed by an administrator', NEW.setting_key
       USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- AUTH_MODE decide qué pantalla de ingreso ve todo el personal: un valor fuera de la lista
+  -- deja /auth en "configuración inválida" (src/lib/authMode.ts), así que no se acepta.
+  IF NEW.setting_key = 'AUTH_MODE' AND NEW.setting_value NOT IN ('password', 'entra') THEN
+    RAISE EXCEPTION 'INVALID_AUTH_MODE: % (expected password or entra)', NEW.setting_value
+      USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
@@ -7800,6 +7844,8 @@ CREATE FUNCTION public.handle_new_user() RETURNS trigger
     AS $$
 declare
   v_role_count integer;
+  v_role_key   text;
+  v_role       public.app_role;
 begin
   -- Guard de reentrada: si otra vía ya asignó el rol, no se toca.
   if exists (select 1 from public.user_roles where user_id = new.id) then
@@ -7813,8 +7859,26 @@ begin
     insert into public.user_roles (user_id, role, role_key)
     values (new.id, 'admin', 'admin');
   else
+    -- Si el admin ya creó la ficha, la cuenta nace con el rol que sugiere su categoría
+    -- (categories.default_role_key). Misma ficha que va a vincular link_auth_user_to_staff,
+    -- que corre después (on_auth_user_created_link_staff). Nunca `admin` (el CHECK de
+    -- categories ya lo impide; se repite porque acá el rol se aplica sin confirmación).
+    -- Sin ficha, sin sugerencia o sin mapeo legacy: `assistant`, como siempre.
+    select c.default_role_key, ar.legacy_app_role
+      into v_role_key, v_role
+      from public.staff s
+      join public.categories c on c.category_id = s.category_id
+      join public.authorization_roles ar on ar.role_key = c.default_role_key
+     where lower(trim(s.email)) = lower(trim(new.email))
+       and s.auth_user_id is null
+       and s.deleted_at is null
+       and c.default_role_key <> 'admin'
+       and ar.legacy_app_role is not null
+     order by s.created_at desc
+     limit 1;
+
     insert into public.user_roles (user_id, role, role_key)
-    values (new.id, 'staff', 'assistant');
+    values (new.id, coalesce(v_role, 'staff'), coalesce(v_role_key, 'assistant'));
   end if;
 
   return new;
@@ -23955,22 +24019,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_27; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_27 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_28; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -24023,6 +24071,22 @@ CREATE TABLE realtime.messages_2026_10_30 (
 --
 
 CREATE TABLE realtime.messages_2026_10_31 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_01; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_01 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -24315,13 +24379,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_27; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_27 FOR VALUES FROM ('2026-10-27 00:00:00') TO ('2026-10-28 00:00:00');
-
-
---
 -- Name: messages_2026_10_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -24347,6 +24404,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_30
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_31 FOR VALUES FROM ('2026-10-31 00:00:00') TO ('2026-11-01 00:00:00');
+
+
+--
+-- Name: messages_2026_11_01; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_01 FOR VALUES FROM ('2026-11-01 00:00:00') TO ('2026-11-02 00:00:00');
 
 
 --
@@ -25324,14 +25388,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_27 messages_2026_10_27_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_27
-    ADD CONSTRAINT messages_2026_10_27_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_28 messages_2026_10_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -25361,6 +25417,14 @@ ALTER TABLE ONLY realtime.messages_2026_10_30
 
 ALTER TABLE ONLY realtime.messages_2026_10_31
     ADD CONSTRAINT messages_2026_10_31_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_01 messages_2026_11_01_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_01
+    ADD CONSTRAINT messages_2026_11_01_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -26472,13 +26536,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_27_inserted_at_topic_idx ON realtime.messages_2026_10_27 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -26504,6 +26561,13 @@ CREATE INDEX messages_2026_10_30_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_10_31_inserted_at_topic_idx ON realtime.messages_2026_10_31 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_01_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_01_inserted_at_topic_idx ON realtime.messages_2026_11_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -26605,20 +26669,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_27_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_27_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_27_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_27_pkey;
-
-
---
 -- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26672,6 +26722,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_31_pkey;
+
+
+--
+-- Name: messages_2026_11_01_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_01_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_01_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_01_pkey;
 
 
 --
@@ -27001,6 +27065,20 @@ CREATE TRIGGER tr_wo_guard_risk_approval BEFORE UPDATE ON public.work_orders FOR
 --
 
 CREATE TRIGGER tr_wo_installment_log_event AFTER UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.wo_installment_log_event();
+
+
+--
+-- Name: staff trg_apply_category_role_on_staff_link; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_apply_category_role_on_staff_link AFTER INSERT ON public.staff FOR EACH ROW WHEN (((new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
+
+
+--
+-- Name: staff trg_apply_category_role_on_staff_relink; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_apply_category_role_on_staff_relink AFTER UPDATE ON public.staff FOR EACH ROW WHEN (((old.auth_user_id IS NULL) AND (new.auth_user_id IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION public.apply_category_role_on_staff_link();
 
 
 --
@@ -29216,7 +29294,7 @@ ALTER TABLE public.activity_worksheets ENABLE ROW LEVEL SECURITY;
 -- Name: global_settings anon reads login settings; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon USING (((setting_key)::text = ANY ((ARRAY['LANGUAGE'::character varying, 'COMPACT_FONT'::character varying, 'ALLOWED_EMAIL_DOMAIN'::character varying])::text[])));
+CREATE POLICY "anon reads login settings" ON public.global_settings FOR SELECT TO anon USING (((setting_key)::text = ANY ((ARRAY['LANGUAGE'::character varying, 'COMPACT_FONT'::character varying, 'ALLOWED_EMAIL_DOMAIN'::character varying, 'AUTH_MODE'::character varying])::text[])));
 
 
 --
@@ -30725,5 +30803,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict m1gfctixJ0GSRavfF2GYk0upE8JG3BMl94zFFWCvHhtP2yen4p2lMf9w4kKYcP6
+\unrestrict zrgpXCCK7TXnhaAIQocvpWy9kaj6rYLGn6s2BUbepwcC3E2LHC9ARcR2zdXGsJc
 

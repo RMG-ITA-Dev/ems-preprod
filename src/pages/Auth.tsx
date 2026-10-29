@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { useGlobalSettings } from "@/hooks/useEmsData";
 import { toast } from "sonner";
-import { Briefcase, TrendingUp, Users, Shield, Loader2, Mail, Eye, EyeOff } from "lucide-react";
+import { Briefcase, TrendingUp, Users, Shield, ShieldCheck, Loader2, Mail, Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { z } from "zod";
 import { ForgotPasswordDialog } from "@/components/auth/ForgotPasswordDialog";
+import { readOAuthReturnError, resolveAuthMode } from "@/lib/authMode";
 
 // Fase 7 (plan v2 §C): schema `message`s are i18n KEYS, not prose — the single
 // catch block below (handleSubmit) resolves whichever key survives via
@@ -32,7 +33,13 @@ const createCompanyEmailSchema = (allowedDomain: string) => z.string()
     { message: allowedDomain ? "auth.validation.emailDomainOnly" : "auth.invalidDomain" }
   );
 
-const Auth = () => {
+interface AuthProps {
+  // /login-rm: la pantalla de contraseña de siempre, sea cual sea AUTH_MODE. Es la entrada del
+  // admin de bootstrap y de TI, y la salida si Microsoft falla. No hay enlaces a ella en la app.
+  forcePasswordLogin?: boolean;
+}
+
+const Auth = ({ forcePasswordLogin = false }: AuthProps) => {
   const { t } = useTranslation();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -43,7 +50,8 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [sentToEmail, setSentToEmail] = useState("");
-  const { signIn, signUp, user, loading: authLoading } = useAuth();
+  const [microsoftLoading, setMicrosoftLoading] = useState(false);
+  const { signIn, signUp, signInWithMicrosoft, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // BUG 0723-170: ProtectedRoute flags this entry when it redirects a rejected
@@ -60,7 +68,20 @@ const Auth = () => {
   const [isSigningOut] = useState(
     () => (location.state as { signingOut?: boolean } | null)?.signingOut === true
   );
-  const { data: settings } = useGlobalSettings();
+  // Motivo del rechazo que manda ProtectedRoute junto con el flag. Se congela igual que el flag
+  // porque el efecto de abajo limpia el state de la entrada.
+  const [rejectionReason] = useState(
+    () => (location.state as { reason?: string } | null)?.reason ?? null
+  );
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    isError: settingsError,
+    refetch: refetchSettings,
+  } = useGlobalSettings();
+  const authMode = forcePasswordLogin
+    ? "password"
+    : resolveAuthMode(settings, { isLoading: settingsLoading, isError: settingsError });
 
   // Review R3-01: consume the flag — same path, `replace`, no state — so the
   // entry is clean if the user ever navigates back to it with a live session.
@@ -72,6 +93,36 @@ const Auth = () => {
     // only writer of that history entry's state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSigningOut]);
+
+  // Sesión rechazada por ProtectedRoute (sobre todo el ingreso con Microsoft, que no pasa por
+  // signIn()): mismos textos que signIn(). No se duplica con el aviso de signIn(), que cierra la
+  // sesión antes de navegar y nunca llega con este state. El `id` es por StrictMode, que en
+  // desarrollo corre el efecto dos veces.
+  useEffect(() => {
+    if (rejectionReason === "NO_STAFF_RECORD") {
+      toast.error(t("messages.noStaffRecord"), { id: "session-rejected" });
+    } else if (rejectionReason === "ACCOUNT_INACTIVE") {
+      toast.error(t("messages.accountInactive"), { id: "session-rejected" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rejectionReason]);
+
+  // Regreso de Microsoft sin sesión: se avisa y se limpia la URL, para que recargar no repita el
+  // aviso ni deje el detalle del error a la vista. El aviso es el mismo para cualquier causa
+  // (cancelación, falta de consentimiento del admin, app sin asignar): el motivo es configuración
+  // interna y no es para la persona; el código AADSTS queda en la consola para soporte.
+  //
+  // El `id` fijo deduplica el toast: StrictMode corre este efecto dos veces en desarrollo, antes
+  // de que el navigate limpie la URL.
+  useEffect(() => {
+    const oauthError = readOAuthReturnError(location.search, location.hash);
+    if (!oauthError) return;
+    console.error("[Auth] el ingreso con Microsoft volvió con error:", oauthError.code, oauthError.description);
+    toast.error(t("auth.microsoftSignInFailed"), { id: "microsoft-sign-in-return" });
+    navigate(location.pathname, { replace: true });
+    // Solo al montar: la URL de regreso se lee una vez y se limpia acá mismo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Get allowed domain from settings
   const allowedDomain = settings?.find(s => s.setting_key === 'ALLOWED_EMAIL_DOMAIN')?.setting_value || '';
@@ -160,6 +211,18 @@ const Auth = () => {
     }
   };
 
+  const handleMicrosoftSignIn = async () => {
+    setMicrosoftLoading(true);
+    // Si sale bien, el navegador se va a Microsoft y esta pantalla no vuelve a renderizar: el
+    // spinner queda puesto a propósito hasta que la página se descarga.
+    const { error } = await signInWithMicrosoft();
+    if (error) {
+      console.error("[Auth] no se pudo iniciar el ingreso con Microsoft:", error.message);
+      toast.error(t("auth.microsoftSignInFailed"));
+      setMicrosoftLoading(false);
+    }
+  };
+
 
   const features = [
     {
@@ -184,7 +247,9 @@ const Auth = () => {
     },
   ];
 
-  if (authLoading) {
+  // Sin saber el modo no se muestra ninguna pantalla: mostrar el formulario mientras carga lo haría
+  // aparecer un instante en modo `entra`.
+  if (authLoading || authMode === "loading") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -276,7 +341,60 @@ const Auth = () => {
               />
             </div>
           </div>
-          {emailSent ? (
+          {authMode === "entra" ? (
+            // El personal conoce "su correo de Ruizmier", no "Microsoft": el botón habla del correo
+            // corporativo y Microsoft se nombra solo en la nota de abajo, para que la página de
+            // inicio de sesión de Microsoft no sorprenda. Sin el logo de Microsoft a propósito: su
+            // guía de marca lo reserva para el texto "Ingresar con Microsoft".
+            <div className="bg-card rounded-2xl border border-border shadow-xl px-8 pt-10 pb-8 text-center">
+              {/* Ícono con doble anillo: diseño plano, sin degradados, como el resto del sistema. */}
+              <div className="mx-auto mb-6 h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center">
+                <div className="h-14 w-14 rounded-full bg-primary/10 ring-1 ring-primary/20 flex items-center justify-center">
+                  <ShieldCheck className="h-7 w-7 text-primary" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-foreground">{t("auth.welcomeBack")}</h2>
+              <p className="text-muted-foreground mt-2 mb-8">
+                {allowedDomain ? (
+                  <>
+                    {t("auth.corporateSignInWithDomainPrefix")}{" "}
+                    <span className="font-semibold text-foreground">@{allowedDomain}</span>
+                  </>
+                ) : (
+                  t("auth.corporateSignInDescription")
+                )}
+              </p>
+              <Button
+                type="button"
+                size="lg"
+                className="w-full gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-transform hover:-translate-y-px active:translate-y-px"
+                onClick={handleMicrosoftSignIn}
+                disabled={microsoftLoading}
+              >
+                {microsoftLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                {t("auth.signInWithCorporateEmail")}
+              </Button>
+              <p className="text-xs text-muted-foreground mt-3">{t("auth.microsoftRedirectNotice")}</p>
+              <p className="text-xs text-muted-foreground/80 mt-6">{t("auth.signInHelp")}</p>
+            </div>
+          ) : authMode === "invalid" || authMode === "error" ? (
+            <div className="bg-card rounded-2xl border border-border shadow-xl p-8 text-center">
+              <div className="mx-auto h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
+                <AlertTriangle className="h-8 w-8 text-destructive" />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground mb-2">
+                {authMode === "error" ? t("auth.settingsLoadFailedTitle") : t("auth.invalidAuthModeTitle")}
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                {authMode === "error" ? t("auth.settingsLoadFailed") : t("auth.invalidAuthMode")}
+              </p>
+              {authMode === "error" && (
+                <Button variant="outline" className="w-full" onClick={() => refetchSettings()}>
+                  {t("common.retry")}
+                </Button>
+              )}
+            </div>
+          ) : emailSent ? (
             <div className="bg-card rounded-2xl border border-border shadow-xl p-8 text-center">
               <div className="mx-auto h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
                 <Mail className="h-8 w-8 text-primary" />

@@ -34,6 +34,8 @@ import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { accountDisplayName, accountInitials } from "@/lib/userDisplay";
+import { useProfilePhoto } from "@/hooks/useProfilePhoto";
 
 interface MobileMoreDrawerProps {
   open: boolean;
@@ -51,6 +53,8 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
+  // Foto de Microsoft (solo si se ingresó con Microsoft); si no hay, las iniciales.
+  const profilePhoto = useProfilePhoto(user?.id);
   const { data: staffRecord } = useCurrentStaff();
   const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
@@ -66,15 +70,11 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
     ? staffRecord.initials
     : staffRecord
       ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
-      : user?.user_metadata?.first_name && user?.user_metadata?.last_name
-        ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
-        : user?.email?.substring(0, 2).toUpperCase() || "U";
+      : accountInitials(user?.user_metadata, user?.email);
 
   const displayName = staffRecord
     ? `${staffRecord.first_name} ${staffRecord.last_name}`
-    : user?.user_metadata?.first_name
-      ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
-      : null;
+    : accountDisplayName(user?.user_metadata);
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -166,7 +166,11 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
         <div className="px-4 pb-4 mb-2 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
-              <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+              {profilePhoto ? (
+                <img src={profilePhoto} alt={displayName ?? ""} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+              )}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{displayName || t("common.user")}</p>
