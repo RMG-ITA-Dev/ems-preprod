@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict zrgpXCCK7TXnhaAIQocvpWy9kaj6rYLGn6s2BUbepwcC3E2LHC9ARcR2zdXGsJc
+\restrict LdNQpzHIfbbMakFhwyEEUoqn1IZccbyhAgyVpClPjIWZPh2btgoFKmBFgyEMoCA
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1873,20 +1873,25 @@ CREATE FUNCTION public.check_wo_approved() RETURNS trigger
 DECLARE
   v_wo_required boolean;
   v_override    smallint;
+  v_end         date;
 BEGIN
-  SELECT work_order_required, engagement_state_override
-    INTO v_wo_required, v_override
+  SELECT work_order_required, engagement_state_override, end_date
+    INTO v_wo_required, v_override, v_end
   FROM engagements WHERE engagement_id = NEW.engagement_id;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
   IF v_override IS NOT NULL THEN
-    IF v_override NOT IN (4, 5) THEN
+    IF v_override IN (4, 5) THEN
+      RETURN NEW;  -- override 4/5: aprobado manualmente, salta el chequeo de OT
+    END IF;
+    -- BUG 1028-217: Finalizado (7) admite horas dentro de su rango; check_time_entry_engagement_dates
+    -- valida las fechas y el chequeo de OT de abajo exige que haya estado aprobado.
+    IF v_override <> 7 OR v_end IS NULL THEN
       RAISE EXCEPTION 'Cannot log time: engagement state (override %) does not allow logging', v_override;
     END IF;
-    RETURN NEW;  -- override 4/5: aprobado manualmente, salta el chequeo de OT
   END IF;
 
-  -- Sin override → estado derivado de la OT.
+  -- Sin override (o Finalizado 7) → estado derivado de la OT.
   -- Non-WO-required engagements bypass the WO approval check
   IF v_wo_required IS DISTINCT FROM true THEN
     RETURN NEW;
@@ -8761,10 +8766,10 @@ COMMENT ON FUNCTION public.list_dashboard_engagements() IS 'dash_encargo (plan_v
 
 
 --
--- Name: list_loggable_engagements(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: list_loggable_engagements(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.list_loggable_engagements() RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
+CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::date) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -8782,8 +8787,17 @@ CREATE FUNCTION public.list_loggable_engagements() RETURNS TABLE(engagement_id u
      AND e.status = 'active'
      -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
      -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
-     -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/7/8/9) bloquea, sin importar OT.
-     AND (e.engagement_state_override IS NULL OR e.engagement_state_override IN (4, 5))
+     -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/8) bloquea, sin importar OT.
+     AND (
+       e.engagement_state_override IS NULL
+       OR e.engagement_state_override IN (4, 5)
+       -- BUG 1028-217: un encargo Finalizado (manual o por cron) sigue siendo cargable en las
+       -- fechas de su rango; se incluye si su fin cae en la fecha de referencia o después.
+       OR (e.engagement_state_override = 7
+           AND p_ref_date IS NOT NULL
+           AND e.end_date IS NOT NULL
+           AND e.end_date >= p_ref_date)
+     )
      AND (
        -- Group A: encargo con Orden de Trabajo Aprobada (y Riesgos no Rechazado).
        EXISTS (
@@ -8803,10 +8817,10 @@ $$;
 
 
 --
--- Name: FUNCTION list_loggable_engagements(); Type: COMMENT; Schema: public; Owner: -
+-- Name: FUNCTION list_loggable_engagements(p_ref_date date); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_loggable_engagements() IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue).';
+COMMENT ON FUNCTION public.list_loggable_engagements(p_ref_date date) IS 'BUG 0828-186: encargos elegibles para cargar horas (Hoja de Tiempo/Tracker/Carga Manual), sin filtrar por asignación -- alcance decidido por el operador. Gateado por time_entry.create. No sustituye is_assigned_to_engagement/is_assigned_to_client (fuera de alcance de este issue). BUG 1028-217: con p_ref_date suma los Finalizados (7) cuyo end_date >= p_ref_date.';
 
 
 --
@@ -30803,5 +30817,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict zrgpXCCK7TXnhaAIQocvpWy9kaj6rYLGn6s2BUbepwcC3E2LHC9ARcR2zdXGsJc
+\unrestrict LdNQpzHIfbbMakFhwyEEUoqn1IZccbyhAgyVpClPjIWZPh2btgoFKmBFgyEMoCA
 
