@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict LdNQpzHIfbbMakFhwyEEUoqn1IZccbyhAgyVpClPjIWZPh2btgoFKmBFgyEMoCA
+\restrict CbFj5jLxKP5orlsrSeQGsjPCPp5tEqEVKflbIHYDXOfLeL6GneNLSzW6neCOgNQ
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -13315,6 +13315,11 @@ DECLARE
   v_base jsonb;
   v_rec  record;
 BEGIN
+  -- 1028-216: la sincronización automática desde la OT no es un envío a revisión de calidad.
+  IF COALESCE(current_setting('ems.worksheet_status_sync', true), '') = 'on' THEN
+    RETURN NULL;
+  END IF;
+
   -- La transición, y sólo esa. `archived` no es una revisión y volver a `draft` tampoco.
   IF NOT (NEW.status = 'approved' AND OLD.status IS DISTINCT FROM 'approved') THEN
     RETURN NULL;
@@ -13355,7 +13360,7 @@ $$;
 -- Name: FUNCTION notify_worksheet_events(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notify_worksheet_events() IS 'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy ninguna via del producto escribe ese status: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
+COMMENT ON FUNCTION public.notify_worksheet_events() IS 'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy solo mueve ese status la sincronizacion con las aprobaciones de la OT (1028-216), que marca ems.worksheet_status_sync y no avisa: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
 
 
 --
@@ -18757,6 +18762,52 @@ $$;
 
 
 --
+-- Name: sync_worksheet_status_from_work_order(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_worksheet_status_from_work_order() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_target text;
+BEGIN
+  IF NEW.approval_status IS NOT DISTINCT FROM OLD.approval_status
+     AND NEW.approved_at IS NOT DISTINCT FROM OLD.approved_at
+     AND NEW.risk_status IS NOT DISTINCT FROM OLD.risk_status
+     AND NEW.emergency_partner_at IS NOT DISTINCT FROM OLD.emergency_partner_at THEN
+    RETURN NULL;
+  END IF;
+
+  v_target := CASE
+    WHEN NEW.approval_status = 'Approved'
+     AND NEW.approved_at IS NOT NULL
+     AND (COALESCE(NEW.risk_status, '') IN ('Approved', 'Emergency_Approved')
+          OR (NEW.risk_status = 'Pending' AND NEW.emergency_partner_at IS NOT NULL))
+    THEN 'approved' ELSE 'draft' END;
+
+  PERFORM set_config('ems.worksheet_status_sync', 'on', true);
+
+  UPDATE public.activity_worksheets
+     SET status = v_target, updated_at = now()
+   WHERE wo_id = NEW.wo_id
+     AND status <> 'archived'
+     AND status IS DISTINCT FROM v_target;
+
+  PERFORM set_config('ems.worksheet_status_sync', '', true);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION sync_worksheet_status_from_work_order(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.sync_worksheet_status_from_work_order() IS '1028-216: deriva activity_worksheets.status (approved/draft) de las dos pistas de aprobación de la OT (Riesgos vigente = Approved | Emergency_Approved | Pending tras completar datos de emergencia, con emergency_partner_at). No toca archived ni matrices sin wo_id. No dispara worksheet.sent_to_quality.';
+
+
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -24033,22 +24084,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_28; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_28 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_29; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -24101,6 +24136,22 @@ CREATE TABLE realtime.messages_2026_10_31 (
 --
 
 CREATE TABLE realtime.messages_2026_11_01 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_02; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_02 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -24393,13 +24444,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_28; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_28 FOR VALUES FROM ('2026-10-28 00:00:00') TO ('2026-10-29 00:00:00');
-
-
---
 -- Name: messages_2026_10_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -24425,6 +24469,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_31
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_01 FOR VALUES FROM ('2026-11-01 00:00:00') TO ('2026-11-02 00:00:00');
+
+
+--
+-- Name: messages_2026_11_02; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_02 FOR VALUES FROM ('2026-11-02 00:00:00') TO ('2026-11-03 00:00:00');
 
 
 --
@@ -25402,14 +25453,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_28 messages_2026_10_28_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_28
-    ADD CONSTRAINT messages_2026_10_28_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_29 messages_2026_10_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -25439,6 +25482,14 @@ ALTER TABLE ONLY realtime.messages_2026_10_31
 
 ALTER TABLE ONLY realtime.messages_2026_11_01
     ADD CONSTRAINT messages_2026_11_01_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_02 messages_2026_11_02_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_02
+    ADD CONSTRAINT messages_2026_11_02_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -26550,13 +26601,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_28_inserted_at_topic_idx ON realtime.messages_2026_10_28 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -26582,6 +26626,13 @@ CREATE INDEX messages_2026_10_31_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_01_inserted_at_topic_idx ON realtime.messages_2026_11_01 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_02_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_02_inserted_at_topic_idx ON realtime.messages_2026_11_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -26683,20 +26734,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_28_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_28_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_28_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_28_pkey;
-
-
---
 -- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26750,6 +26787,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_01_pkey;
+
+
+--
+-- Name: messages_2026_11_02_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_02_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_02_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_02_pkey;
 
 
 --
@@ -27058,6 +27109,13 @@ CREATE TRIGGER tr_reject_engagement_assignment_move BEFORE UPDATE ON public.enga
 --
 
 CREATE TRIGGER tr_reject_work_order_engagement_move BEFORE UPDATE OF engagement_id ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.reject_work_order_engagement_move();
+
+
+--
+-- Name: work_orders tr_sync_worksheet_status_from_wo; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER tr_sync_worksheet_status_from_wo AFTER UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.sync_worksheet_status_from_work_order();
 
 
 --
@@ -30817,5 +30875,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict LdNQpzHIfbbMakFhwyEEUoqn1IZccbyhAgyVpClPjIWZPh2btgoFKmBFgyEMoCA
+\unrestrict CbFj5jLxKP5orlsrSeQGsjPCPp5tEqEVKflbIHYDXOfLeL6GneNLSzW6neCOgNQ
 
