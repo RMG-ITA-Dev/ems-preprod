@@ -2850,7 +2850,12 @@ CREATE TRIGGER tr_notify_client
 -- EL ÚNICO DISPARADOR DEL CATÁLOGO QUE HOY NO SE EJERCITA, y es a propósito (D-38).
 -- `activity_worksheets.status` admite `draft | approved | archived` desde el esquema, pero
 -- el producto todavía no tiene el paso "enviar a revisión de calidad": la hoja nace en
--- `draft` y `useUpdateWorksheet()` sólo escribe `notes`. Nadie mueve `status`.
+-- `draft` y `useUpdateWorksheet()` sólo escribe `notes`.
+--
+-- 1028-216: ahora `status` SÍ se mueve, pero lo mueve la sincronización con las
+-- aprobaciones de la OT (sync_worksheet_status_from_work_order), y eso no es un envío a
+-- revisión de calidad. Esa vía marca la transacción con `ems.worksheet_status_sync` y este
+-- disparador la ignora: el aviso sigue reservado para el paso explícito de D-38.
 --
 -- Se deja el disparador montado sobre la transición que el esquema ya admite —
 -- `draft -> approved`— en vez de inventar una señal que signifique otra cosa. El día que se
@@ -2873,6 +2878,11 @@ DECLARE
   v_base jsonb;
   v_rec  record;
 BEGIN
+  -- 1028-216: la sincronización automática desde la OT no es un envío a revisión de calidad.
+  IF COALESCE(current_setting('ems.worksheet_status_sync', true), '') = 'on' THEN
+    RETURN NULL;
+  END IF;
+
   -- La transición, y sólo esa. `archived` no es una revisión y volver a `draft` tampoco.
   IF NOT (NEW.status = 'approved' AND OLD.status IS DISTINCT FROM 'approved') THEN
     RETURN NULL;
@@ -2909,7 +2919,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_worksheet_events() IS
-  'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy ninguna via del producto escribe ese status: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
+  'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy solo mueve ese status la sincronizacion con las aprobaciones de la OT (1028-216), que marca ems.worksheet_status_sync y no avisa: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_worksheet ON public.activity_worksheets;
 CREATE TRIGGER tr_notify_worksheet

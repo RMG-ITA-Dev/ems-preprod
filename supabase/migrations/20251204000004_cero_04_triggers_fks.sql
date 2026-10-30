@@ -533,6 +533,16 @@ CREATE TRIGGER update_wo_staffing_requirements_updated_at BEFORE UPDATE ON publi
 
 --
 --
+-- Name: work_orders tr_sync_worksheet_status_from_wo; Type: TRIGGER; Schema: public; Owner: -
+--
+-- 1028-216: AFTER UPDATE sin `OF` -- los BEFORE normalizan columnas que no están en el SET. La función
+-- (cero_02) explica la regla.
+
+CREATE TRIGGER tr_sync_worksheet_status_from_wo AFTER UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.sync_worksheet_status_from_work_order();
+
+
+--
+--
 -- Name: work_orders update_work_orders_updated_at; Type: TRIGGER; Schema: public; Owner: -
 --
 

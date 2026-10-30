@@ -535,5 +535,6 @@ assert_suite supabase/tests/rpc-fund-expense-calendar.sql 'FUND EXPENSE CALENDAR
 assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-accounting-society-scope.sql 'SOCIETY SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-217-horas-encargo-finalizado.sql 'HORAS ENCARGO FINALIZADO: ALL CHECKS PASSED'
+assert_suite supabase/tests/trigger-1028-216-worksheet-status-sync.sql 'WORKSHEET STATUS SYNC 1028-216: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 27 suites de RLS/RPC/schema-convergence/trigger pasaron"
