@@ -82,7 +82,7 @@ Activation order: migrate the target Supabase → verify schema/RLS contract →
   `supabase functions delete <nombre> --project-ref <ref>`. Estado por proyecto: Test, borradas el
   02/10/2026; Dev 2.0, las dos estaban ACTIVE (desplegadas en julio) y se retiraron el 08/10/2026;
   producción nunca tuvo funciones; Lovable está fuera de uso.
-- Migrations in `supabase/migrations/` (run `ls supabase/migrations | sort` for the current count/list — it grows with every incremental bug/feature branch, so it's not tracked as a fixed number here): 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. Everything else is an incremental migration applied on top of that set, one per bug/feature ID (e.g. `20260825120000_0825-183_worksheet_activity_practice_scope.sql`).
+- Migrations in `supabase/migrations/` (run `ls supabase/migrations | sort` for the current count/list — it's not tracked as a fixed number here): 14 are the consolidated "migración cero" set (`bugs/migracion_cero/plan_v2.md`), which replaced the prior 184-migration history: 7 schema files (`20251204000001..7_cero_01..07_*.sql`, renamed `services→practicas` / `taxonomies→servicios`) + 7 production-seed files (`20251204001001..7_cero_10..16_*.sql`, no demo data). Verified against the pre-consolidation baseline fingerprint — see `docs/migraciones/legado-consolidacion.md` and `docs/migraciones/DIFF-INTENCIONAL-consolidacion.md` for the accepted diff and rationale. The incremental files on top of that set (e.g. `20260825120000_0825-183_worksheet_activity_practice_scope.sql`) predate the from-zero decision; new changes are **edited into the existing files**, not added as new migrations — see [Migration policy](#migration-policy-from-zero-deployment).
 - Key RPC functions: `submit_timesheet_safe(p_period_id uuid, p_staff_id uuid, p_engagement_ids uuid[], p_activity_ids uuid[], p_is_auto_approved boolean) returns jsonb` (5-arg signature; the old 4-arg overload was dropped in `20260716000000`; errors include `EMPTY_ENGAGEMENTS` and `ARRAY_LENGTH_MISMATCH`), `get_staff_assignment_segments(p_staff_id uuid, p_week_start date, p_week_end date) returns table(engagement_id uuid, start_date date, end_date date)` (Scheduler Fase 2/5/6 — canonical Monday `week_start`, span ≤ 6 days, `SECURITY DEFINER`), `assign_user_role_atomic()`, `update_timesheet_minmax_settings()`
 
 ### Edge Function Inventory
@@ -140,7 +140,30 @@ supabase functions deploy <name> --project-ref <ref> # one per function
 
 `supabase db push` records what it applied in `supabase_migrations.schema_migrations`, so a second
 run is a no-op. Projects populated by pasting SQL into the Studio editor have no such ledger and
-re-run everything — see the migration-order rule in `AGENTS.md`.
+re-run everything — see [Migration policy](#migration-policy-from-zero-deployment).
+
+### Migration policy (from-zero deployment)
+
+**Decided 2026-10-08, reconfirmed 2026-10-28 and 2026-10-30.** Target Supabase projects are brought
+up **from zero**: there is no production data to migrate and no in-flight records at deploy time.
+That changes the usual rules:
+
+- **Edit migrations in place.** Change the file that holds the *last* definition of the object
+  (`grep` first — several objects are redefined in later files). New objects go into the
+  consolidated set too: functions in `cero_02`, triggers in `cero_04`, grants/`REVOKE` at the end of
+  `cero_06`, seed rows in the matching `cero_1x` file. A new migration file is the exception, only
+  for something with no natural home — ask before creating one.
+- **No transition logic.** No backfills, no "rows that predate this trigger", no compatibility
+  shims for legacy columns: a fresh project never has those rows.
+- **Projects that already have the ledger** (EMS-Test, the sample/mirror projects) skip edited files
+  on `db push`. They get the change from an idempotent paste script in `bugs/<ID>/NN_*.sql`
+  (gitignored), run in the Studio SQL editor. Any backfill those projects need goes there too, never
+  into a migration.
+- **CI:** any schema change turns `consolidated-replay` red; re-accept the route fingerprints from
+  the CI artifact (`gh run download`), never from a local recapture.
+
+Reviewers (human or bot): editing an existing migration and the absence of a backfill are expected
+under this policy, not defects.
 
 Function deploys read `[functions.<name>]` from `supabase/config.toml`, so `verify_jwt` travels with
 the repo. Setting it by hand in the dashboard is only needed for functions pasted into the web
