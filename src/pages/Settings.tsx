@@ -164,15 +164,41 @@ const Settings = () => {
   const canActivitiesWrite = can("activity_code.create");
   const canExpenseWrite = can("expense_type.create");
   const { currentLanguage } = useLanguage();
-  
-  const { data: industries, isLoading: industriesLoading } = useIndustries();
+
+  // Controlled tab state
+  const [activeTab, setActiveTab] = useState("account");
+  const isGlobalTabActive = activeTab === "global";
+
+  // Prácticas: sub-tab under the unified "services" tab, gated by each
+  // catalog's own read permission.
+  const [servicesSubTab, setServicesSubTab] = useState<"categories" | "activities">(
+    canRatesTab ? "categories" : "activities"
+  );
+  useEffect(() => {
+    if (servicesSubTab === "categories" && !canRatesTab && canActivitiesTab) setServicesSubTab("activities");
+    if (servicesSubTab === "activities" && !canActivitiesTab && canRatesTab) setServicesSubTab("categories");
+  }, [canRatesTab, canActivitiesTab, servicesSubTab]);
+
+  // 1028-215: each catalog is fetched only while its tab (or Prácticas sub-tab) is
+  // active, so entering Configuración no longer loads every tab up front. Revisits
+  // reuse the in-memory query cache (staleTime 60s, App.tsx).
+  const isIndustriesTab = activeTab === "industries";
+  const isSkillsTab = activeTab === "skills";
+  const isExpenseTypesTab = activeTab === "expense-types";
+  const isServicesTab = activeTab === "services";
+  const isTaxonomiesTab = activeTab === "taxonomies";
+  const isCategoriesSubTab = isServicesTab && servicesSubTab === "categories";
+  const isActivitiesSubTab = isServicesTab && servicesSubTab === "activities";
+
+  const { data: industries, isLoading: industriesLoading } = useIndustries({ enabled: isIndustriesTab });
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
-  const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes();
-  const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
-  const { data: skills, isLoading: skillsLoading } = useSkills();
-  const { data: services } = useServices();
-  const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies();
-  const { data: engagements } = useEngagements();
+  const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes({ enabled: isActivitiesSubTab });
+  const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes({ enabled: isExpenseTypesTab });
+  const { data: skills, isLoading: skillsLoading } = useSkills({ enabled: isSkillsTab });
+  // Servicios (taxonomies) also needs prácticas: its column resolves the práctica name.
+  const { data: services, isLoading: servicesLoading } = useServices({ enabled: isServicesTab || isTaxonomiesTab });
+  const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies({ enabled: isTaxonomiesTab });
+  const { data: engagements } = useEngagements({ enabled: isGlobalTabActive });
   // BUG 0828-186 (Punto C): el encargo de Feriados debe ser administrativo/interno de la
   // firma -- el selector solo ofrece candidatos con is_internal=true. El lookup del
   // encargo ya configurado (línea ~1188, advertencia approval_required) sigue usando la
@@ -217,9 +243,11 @@ const Settings = () => {
 
   // Hold off the query entirely while no práctica is selected — passing a
   // falsy serviceId to useCategories() reads as "all", which would leak
-  // categories from every práctica into this scoped view (0817-177).
+  // categories from every práctica into this scoped view (0817-177). It also waits
+  // for the Categorías sub-tab: prácticas cached by another screen would otherwise
+  // auto-select one and fire this while Cuenta is active (1028-215).
   const { data: categories, isLoading: categoriesLoading } = useCategories(selectedServiceId || undefined, {
-    enabled: !!selectedServiceId,
+    enabled: isCategoriesSubTab && !!selectedServiceId,
   });
 
   // Copy-categories dialog state.
@@ -257,10 +285,6 @@ const Settings = () => {
     [activityCodes, selectedServiceId]
   );
 
-  // Controlled tab state
-  const [activeTab, setActiveTab] = useState("account");
-  const isGlobalTabActive = activeTab === "global";
-
   // Form states
   const [industryFormOpen, setIndustryFormOpen] = useState(false);
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
@@ -282,16 +306,6 @@ const Settings = () => {
 
   const [taxonomyFormOpen, setTaxonomyFormOpen] = useState(false);
   const [selectedTaxonomy, setSelectedTaxonomy] = useState<Taxonomy | null>(null);
-
-  // Prácticas: sub-tab under the unified "services" tab, gated by each
-  // catalog's own read permission.
-  const [servicesSubTab, setServicesSubTab] = useState<"categories" | "activities">(
-    canRatesTab ? "categories" : "activities"
-  );
-  useEffect(() => {
-    if (servicesSubTab === "categories" && !canRatesTab && canActivitiesTab) setServicesSubTab("activities");
-    if (servicesSubTab === "activities" && !canActivitiesTab && canRatesTab) setServicesSubTab("categories");
-  }, [canRatesTab, canActivitiesTab, servicesSubTab]);
 
   // Switching práctica invalidates whatever category/activity form was mid-edit
   // for the previous one.
@@ -1162,7 +1176,7 @@ const Settings = () => {
                     columns={categoryColumns}
                     searchPlaceholder={t("common.search")}
                     searchKeys={["category_name"]}
-                    isLoading={categoriesLoading}
+                    isLoading={categoriesLoading || servicesLoading}
                     newButtonLabel={canRatesWrite && canManageChildren ? t("category.newCategory") : undefined}
                     onNewClick={canRatesWrite && canManageChildren ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
                     onRowClick={canRatesWrite && canManageChildren ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
@@ -1267,7 +1281,7 @@ const Settings = () => {
                     columns={activityColumns}
                     searchPlaceholder={t("common.search")}
                     searchKeys={["activity_code", "description"]}
-                    isLoading={activitiesLoading}
+                    isLoading={activitiesLoading || servicesLoading}
                     newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
                     onNewClick={canActivitiesWrite && canCreateActivities ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
                     onRowClick={canActivitiesWrite && canManageChildren ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
@@ -1698,7 +1712,7 @@ const Settings = () => {
               columns={taxonomyColumns}
               searchPlaceholder={t("common.search")}
               searchKeys={["name", "code"]}
-              isLoading={taxonomiesLoading}
+              isLoading={taxonomiesLoading || servicesLoading}
               newButtonLabel={t("taxonomy.newTaxonomy")}
               onNewClick={() => { setSelectedTaxonomy(null); setTaxonomyFormOpen(true); }}
               onRowClick={(row) => { setSelectedTaxonomy(row); setTaxonomyFormOpen(true); }}

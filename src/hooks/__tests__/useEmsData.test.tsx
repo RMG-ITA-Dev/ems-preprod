@@ -257,6 +257,44 @@ describe("useEmsData hooks", () => {
       expect(supabase.from).toHaveBeenCalledWith("engagements");
       expect(result.current.data?.[0].client?.client_legal_name).toBe("Acme");
     });
+
+    it("with enabled: false requests neither engagements nor engagement_wo_state (1028-215)", async () => {
+      const { result } = renderHook(() => useEngagements({ enabled: false }), {
+        wrapper: createWrapper(),
+      });
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(supabase.from).not.toHaveBeenCalled();
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.data).toBeUndefined();
+    });
+  });
+
+  describe("catalog hooks gated by options.enabled (1028-215)", () => {
+    it("useIndustries waits while disabled and fetches once enabled", async () => {
+      const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+      const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+      vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any);
+
+      const { result, rerender } = renderHook(
+        ({ enabled }: { enabled: boolean }) => useIndustries({ enabled }),
+        { wrapper: createWrapper(), initialProps: { enabled: false } },
+      );
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(supabase.from).not.toHaveBeenCalled();
+
+      rerender({ enabled: true });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.from).toHaveBeenCalledWith("industries");
+    });
+
+    it("useExpenseTypes with enabled: false makes no request", async () => {
+      renderHook(() => useExpenseTypes({ enabled: false }), { wrapper: createWrapper() });
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(supabase.from).not.toHaveBeenCalled();
+    });
   });
 
   describe("useActivityCodes", () => {
