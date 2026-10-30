@@ -1,8 +1,17 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
+
+// 1028-216: tr_sync_worksheet_status_from_wo mueve activity_worksheets.status cuando cambian las
+// pistas de aprobación de la OT. Va en onSettled (no onSuccess): estas acciones escriben en dos
+// sentencias y la primera pudo confirmarse aunque la segunda falle.
+function invalidateWorksheetQueries(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["worksheets"] });
+  queryClient.invalidateQueries({ queryKey: ["worksheet"] });
+  queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
+}
 
 export function useCreateWorkOrder() {
   const queryClient = useQueryClient();
@@ -143,6 +152,7 @@ export function useSubmitWorkOrder() {
       toast.success(i18n.t("workOrders.submittedForApproval"));
     },
     onError: createMutationErrorHandler("submitting work order"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -194,6 +204,7 @@ export function useApproveWorkOrder() {
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving work order"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -239,6 +250,7 @@ export function useApproveRisk() {
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving risk"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -333,6 +345,7 @@ export function useApproveEmergencyPartner() {
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving emergency risk"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -379,6 +392,7 @@ export function useRejectRisk() {
       toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting risk"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -413,6 +427,7 @@ export function useRevertSocioApproval() {
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
     onError: createMutationErrorHandler("reverting socio approval"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -455,6 +470,7 @@ export function useRevertRiskApproval() {
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
     onError: createMutationErrorHandler("reverting risk approval"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -530,6 +546,7 @@ export function useCompleteRiskAssessment() {
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("completing risk assessment"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -556,6 +573,7 @@ export function useRejectWorkOrder() {
       toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting work order"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }
 
@@ -600,5 +618,6 @@ export function useUnsubmitWorkOrder() {
       toast.success(i18n.t("workOrders.unsubmitted"));
     },
     onError: createMutationErrorHandler("unsubmitting work order"),
+    onSettled: () => invalidateWorksheetQueries(queryClient),
   });
 }

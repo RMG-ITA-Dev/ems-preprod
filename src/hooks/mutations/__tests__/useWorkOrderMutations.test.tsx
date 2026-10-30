@@ -702,4 +702,96 @@ describe("useWorkOrderMutations", () => {
       expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Rejected", notes: null });
     });
   });
+
+  // 1028-216: tr_sync_worksheet_status_from_wo mueve activity_worksheets.status en la misma
+  // transacción que cada escritura de la OT. El hook solo tiene que refrescar las consultas de la
+  // matriz, y en onSettled: la primera de las dos sentencias pudo confirmarse aunque la segunda falle.
+  describe("invalidación de la Matriz de Trabajo (1028-216)", () => {
+    const WORKSHEET_KEYS = [["worksheets"], ["worksheet"], ["worksheet-by-engagement"]];
+    const WORK_ORDER_KEYS = [["work_orders"], ["dashboard"], ["work_order"]];
+
+    // Cadena de PostgREST que acepta cualquier filtro y se resuelve (await) con `res`.
+    function chainResolving(res: { data?: unknown; error: unknown }) {
+      const chain: Record<string, unknown> = {};
+      for (const m of ["update", "eq", "in", "not", "is", "select", "single"]) {
+        chain[m] = vi.fn(() => chain);
+      }
+      chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+        Promise.resolve(res).then(resolve, reject);
+      return chain;
+    }
+
+    // Cada supabase.from() consume el siguiente resultado; el último se repite.
+    function mockFromSequence(results: Array<{ data?: unknown; error: unknown }>) {
+      let i = 0;
+      vi.mocked(supabase.from).mockImplementation(
+        () => chainResolving(results[Math.min(i++, results.length - 1)]) as any
+      );
+    }
+
+    function renderWithSpy<T>(hook: () => T) {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const spy = vi.spyOn(queryClient, "invalidateQueries");
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      );
+      return { ...renderHook(hook, { wrapper }), spy };
+    }
+
+    function invalidatedKeys(spy: ReturnType<typeof vi.spyOn>) {
+      return spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+    }
+
+    const OK = { data: { wo_id: "wo-1" }, error: null };
+
+    it.each([
+      ["useSubmitWorkOrder", useSubmitWorkOrder, { woId: "wo-1" }],
+      ["useApproveWorkOrder", useApproveWorkOrder, { woId: "wo-1", staffId: "staff-1" }],
+      ["useApproveRisk", useApproveRisk, { woId: "wo-1", staffId: "staff-1" }],
+      ["useApproveEmergencyPartner", useApproveEmergencyPartner, { woId: "wo-1", staffId: "staff-1" }],
+      ["useRejectRisk", useRejectRisk, { woId: "wo-1" }],
+      ["useRevertSocioApproval", useRevertSocioApproval, { woId: "wo-1" }],
+      ["useRevertRiskApproval", useRevertRiskApproval, { woId: "wo-1" }],
+      ["useCompleteRiskAssessment", useCompleteRiskAssessment, { woId: "wo-1" }],
+      ["useRejectWorkOrder", useRejectWorkOrder, { woId: "wo-1" }],
+      ["useUnsubmitWorkOrder", useUnsubmitWorkOrder, { woId: "wo-1" }],
+    ] as const)(
+      "%s invalida la matriz y conserva las invalidaciones de la OT",
+      async (_name, useHook, vars) => {
+        mockFromSequence([OK]);
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
+
+        result.current.mutate(vars);
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = invalidatedKeys(spy);
+        for (const k of [...WORKSHEET_KEYS, ...WORK_ORDER_KEYS]) {
+          expect(keys).toContainEqual(k);
+        }
+        // La matriz la escribe el trigger: el hook nunca toca activity_worksheets.
+        expect(supabase.from).not.toHaveBeenCalledWith("activity_worksheets");
+      }
+    );
+
+    it.each([
+      ["useApproveWorkOrder", useApproveWorkOrder, { woId: "wo-1", staffId: "staff-1" }],
+      ["useRevertSocioApproval", useRevertSocioApproval, { woId: "wo-1" }],
+    ] as const)(
+      "%s: si la segunda sentencia falla, termina en error e invalida la matriz igual",
+      async (_name, useHook, vars) => {
+        mockFromSequence([OK, { error: { message: "boom" } }]);
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
+
+        result.current.mutate(vars);
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        const keys = invalidatedKeys(spy);
+        for (const k of WORKSHEET_KEYS) {
+          expect(keys).toContainEqual(k);
+        }
+      }
+    );
+  });
 });

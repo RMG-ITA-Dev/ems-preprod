@@ -643,8 +643,9 @@ export function notificationRoute(
     case "worksheet": {
       // entity_id = el id de la hoja, que es el parametro de /worksheets/:id (WorksheetEdit).
       //
-      // Hoy este case no corre: ninguna via del producto escribe `activity_worksheets.status
-      // = 'approved'`, que es lo unico que dispara `worksheet.sent_to_quality` (D-38). Se
+      // Hoy este case no corre: `worksheet.sent_to_quality` (D-38) sale de `activity_worksheets.status
+      // = 'approved'`, y la unica via que hoy lo escribe -- la sincronizacion con las aprobaciones
+      // de la OT (1028-216) -- no emite ese aviso porque no es un envio a revision. Se
       // agrega igual porque la pantalla YA existe y el permiso que exige YA esta en el
       // catalogo: dejarlo caer al `default` hacia que el dia que exista el paso, quien revisa
       // calidad viera una fila de campana que no se puede abrir.

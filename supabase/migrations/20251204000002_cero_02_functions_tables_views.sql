@@ -6748,6 +6748,89 @@ $$;
 
 --
 --
+-- Name: sync_worksheet_status_from_work_order(); Type: FUNCTION; Schema: public; Owner: -
+--
+-- BUG 1028-216 — el estado de la Matriz de Trabajo (activity_worksheets.status) sigue a las
+-- aprobaciones de su Orden de Trabajo (bugs/1028-216/plan_v2.md). El trigger está en cero_04
+-- (tr_sync_worksheet_status_from_wo) y el REVOKE en cero_06.
+--
+-- Hasta acá nadie movía `status`: la matriz nacía en `draft` y ahí quedaba, aunque su OT estuviera
+-- aprobada por el Socio y por Riesgos. Las aprobaciones las escribe el navegador directo sobre
+-- work_orders (useWorkOrderMutations, dos sentencias por acción), así que la sincronización va en la
+-- base: corre en la misma transacción que cada escritura de la OT y cubre a todos los llamadores.
+--
+-- REGLA (decisión de negocio, Neil 2026-10-30). Aprobada <=> OT cerrada (approval_status='Approved')
+-- + firma del Socio (approved_at) + pista de Riesgos vigente, que es una de:
+--   · risk_status = 'Approved'            (flujo normal);
+--   · risk_status = 'Emergency_Approved'  (emergencia: Riesgo + Socio de Riesgos);
+--   · risk_status = 'Pending' con emergency_partner_at conservado: el Gerente completó los datos de
+--     una OT aprobada por emergencia (useCompleteRiskAssessment) y Riesgos todavía no hizo la
+--     revisión posterior. La aprobación de emergencia sigue en pie y la OT sigue cargable, así que la
+--     matriz no baja. emergency_partner_at es lo que distingue este Pending de un retiro:
+--     useRejectRisk y useRevertRiskApproval lo limpian, la compleción no.
+--     INVARIANTE: toda vía que retire o rechace la pista de Riesgos debe limpiar
+--     emergency_partner_at, o la matriz quedaría Aprobada.
+-- Cualquier otro caso es Borrador (falta una pista, se deshace, Riesgos rechaza, OT en
+-- Draft/Rejected/Pending_Approval). approval_status solo no alcanza: useRejectRisk lo deja en
+-- 'Approved' con Riesgos 'Rejected' (pistas independientes, ver wo_guard_partner_signature).
+--
+-- No toca las matrices `archived` ni las que no tienen wo_id. Solo escribe si el estado cambia.
+--
+-- SECURITY DEFINER: quien aprueba Riesgos (risk_partner, SQR) no pasa worksheet_team_update, y la
+-- sincronización no puede depender de esa política. No atrapa excepciones: si falla, la escritura de
+-- la OT se revierte con ella y las dos nunca divergen.
+--
+-- AFTER UPDATE sin `OF`: los BEFORE (enforce_administrative_work_order_rules, guardas) cambian
+-- columnas que no están en el SET de la sentencia; la guarda de abajo mira la fila ya normalizada.
+--
+-- Notificación: notify_worksheet_events() (20260911100200) avisa `worksheet.sent_to_quality` en
+-- draft -> approved. Esta sincronización no es un envío a revisión de calidad (D-38): marca la
+-- transacción con `ems.worksheet_status_sync` y aquella función la respeta. La marca se restaura
+-- apenas termina el UPDATE (los AFTER ROW de activity_worksheets corren al cerrar la sentencia).
+
+
+CREATE FUNCTION public.sync_worksheet_status_from_work_order()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_target text;
+BEGIN
+  IF NEW.approval_status IS NOT DISTINCT FROM OLD.approval_status
+     AND NEW.approved_at IS NOT DISTINCT FROM OLD.approved_at
+     AND NEW.risk_status IS NOT DISTINCT FROM OLD.risk_status
+     AND NEW.emergency_partner_at IS NOT DISTINCT FROM OLD.emergency_partner_at THEN
+    RETURN NULL;
+  END IF;
+
+  v_target := CASE
+    WHEN NEW.approval_status = 'Approved'
+     AND NEW.approved_at IS NOT NULL
+     AND (COALESCE(NEW.risk_status, '') IN ('Approved', 'Emergency_Approved')
+          OR (NEW.risk_status = 'Pending' AND NEW.emergency_partner_at IS NOT NULL))
+    THEN 'approved' ELSE 'draft' END;
+
+  PERFORM set_config('ems.worksheet_status_sync', 'on', true);
+
+  UPDATE public.activity_worksheets
+     SET status = v_target, updated_at = now()
+   WHERE wo_id = NEW.wo_id
+     AND status <> 'archived'
+     AND status IS DISTINCT FROM v_target;
+
+  PERFORM set_config('ems.worksheet_status_sync', '', true);
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.sync_worksheet_status_from_work_order() IS
+  '1028-216: deriva activity_worksheets.status (approved/draft) de las dos pistas de aprobación de la OT (Riesgos vigente = Approved | Emergency_Approved | Pending tras completar datos de emergencia, con emergency_partner_at). No toca archived ni matrices sin wo_id. No dispara worksheet.sent_to_quality.';
+
+
+--
+--
 -- Name: sync_worksheet_to_wo_budget(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 

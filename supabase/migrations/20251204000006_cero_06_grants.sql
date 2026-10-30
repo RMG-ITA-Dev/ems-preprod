@@ -2271,3 +2271,7 @@ GRANT EXECUTE ON FUNCTION public.installment_adjustments_total(p_installment_id 
 GRANT EXECUTE ON FUNCTION public.suggest_exchange_difference(p_installment_id uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.add_installment_adjustment(p_installment_id uuid, p_type text, p_amount numeric, p_reason text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id uuid) TO authenticated, service_role;
+
+-- 1028-216: función de trigger SECURITY DEFINER (sincroniza la Matriz de Trabajo con la OT). Nadie la llama
+-- directo; se cierra a PUBLIC, anon y authenticated porque una función nace ejecutable por PUBLIC.
+REVOKE ALL ON FUNCTION public.sync_worksheet_status_from_work_order() FROM PUBLIC, anon, authenticated;
