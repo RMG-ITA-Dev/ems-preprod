@@ -1,0 +1,56 @@
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { KNOWN_REFS } from "../fase1-db.mjs";
+
+const dir = path.resolve(__dirname, "../runbook");
+const scripts = readdirSync(dir).filter((name) => name.endsWith(".sh")).sort();
+const read = (name: string) => readFileSync(path.join(dir, name), "utf8");
+const hasBash = (() => { try { execFileSync("bash", ["-c", "true"], { stdio: "ignore" }); return true; } catch { return false; } })();
+
+describe("runbook ETL F1→F3: guardas estáticas", () => {
+  it("existen los pasos 00–50, la biblioteca y el orquestador", () => {
+    expect(scripts).toEqual(["00-preflight.sh", "10-reset.sh", "11-recover-reset.sh", "20-f1.sh", "30-f2.sh", "35-bajas.sh", "40-f3.sh", "50-reconcile.sh", "lib.sh", "run.sh"]);
+  });
+  it.skipIf(!hasBash)("todos los scripts pasan bash -n", () => {
+    for (const name of scripts) expect(() => execFileSync("bash", ["-n", path.join(dir, name)], { stdio: "pipe" }), name).not.toThrow();
+  });
+  it("el ref de Test del runbook es el de la consola y producción/Lovable están vetados", () => {
+    const lib = read("lib.sh");
+    expect(lib).toContain(`TEST_REF="${KNOWN_REFS.test}"`);
+    expect(lib).toContain(`"${KNOWN_REFS.production}"`);
+    expect(lib).toContain("ugqxfnrxvksiltwxzist");
+    expect(lib).toMatch(/--env debe ser local o test/);
+    for (const name of scripts.filter((s) => s !== "lib.sh")) expect(read(name), name).not.toContain(KNOWN_REFS.production);
+  });
+  it("ninguna credencial se imprime ni se pasa por argv; no hay trazas ni bypass", () => {
+    for (const name of scripts) {
+      const text = read(name);
+      expect(text, name).not.toMatch(/set -[a-z]*x/);
+      expect(text, name).not.toMatch(/(echo|printf)[^\n]*\$\{?(PGPASSWORD|SUPABASE_DB_URL|SUPABASE_SERVICE_ROLE_KEY|ADMIN_TEMP_PASSWORD)/);
+      expect(text, name).not.toMatch(/--force|--no-verify/);
+      expect(text, name).not.toMatch(/(-p|--password)[ =]\$/);
+    }
+  });
+  it("en Test las confirmaciones humanas no se pueden saltar y las bajas/reset exigen frase", () => {
+    const lib = read("lib.sh");
+    expect(lib).toMatch(/--yes-local solo existe para el ensayo local/);
+    expect(lib).toMatch(/\[\[ "\$ENV_NAME" == "local" && "\$ASSUME_LOCAL_YES" == "1" \]\]/);
+    expect(read("35-bajas.sh")).toContain('rb_confirm "APLICAR 8 BAJAS"');
+    expect(read("11-recover-reset.sh")).toContain('rb_confirm "DROP fund_request_number_seq"');
+    expect(read("40-f3.sh")).toContain('rb_confirm "ACEPTO ${block}"');
+    expect(read("lib.sh")).toContain('rb_confirm "VENTANA ${PROJECT_REF}"');
+  });
+  it("F3 corre después de las bajas y los bloques respetan el orden de dependencias", () => {
+    const f3 = read("40-f3.sh");
+    expect(f3).toContain('"$inactive" == "8"');
+    const order = ["load --block client-engagements", "load --block administrative-engagements", "load --block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
+    expect(order.every((index) => index > 0)).toBe(true);
+    expect([...order]).toEqual([...order].sort((a, b) => a - b));
+  });
+  it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
+    expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
+    for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);
+  });
+});

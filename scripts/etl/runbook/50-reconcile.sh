@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Paso 50 — Conciliación contra el legacy y segunda pasada sin cambios (SOLO LECTURA + relecturas idempotentes).
+#   bash scripts/etl/runbook/50-reconcile.sh --env test|local [--run-id 0001] [--skip-second-pass] [--dry-run]
+#  1. `fase3 reconcile-legacy` (L1–L8): lo cargado frente a los seis CSV legacy; BLOQUEADO ante cualquier diferencia.
+#  2. Segunda pasada de F3: se repite cada `load` y no debe cambiar NINGUNA fila (huella md5 de las tablas del lote
+#     antes y después, incluida la cola de correo). La segunda pasada de F2 ya corrió en el paso 30 (antes de las
+#     bajas): no se repite aquí porque no está probado `fase2 load` después del paso manual.
+#  3. Resumen para el reporte: conteos, horas por práctica, correos por estado (sin datos personales).
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+RB_NEED_AUTH=0
+rb_init "$@"
+rb_confirm_window
+SKIP_SECOND=0; for a in "${RB_EXTRA_ARGS[@]:-}"; do [[ "$a" == "--skip-second-pass" ]] && SKIP_SECOND=1; done
+[[ -f "$(rb_config_path 3)" ]] || rb_die "falta la configuración F3 de esta corrida: ejecute antes el paso 40"
+
+fingerprint() {
+  rb_scalar "select md5(concat_ws('|',
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.clients t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.client_contacts t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.staff t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.user_roles t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.engagements t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.activity_worksheets t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.activity_worksheet_cells t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.work_orders t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_budget_lines t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_expense_budget t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_payment_plan t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_payment_installments t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_installment_notes t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.time_entries t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.notification_emails t),
+    (select count(*) from auth.users)::text))"
+}
+
+rb_info "1. Conciliación contra el legacy (L1–L8)"
+rb_etl 3 reconcile-legacy
+
+if [[ "$SKIP_SECOND" == "0" ]]; then
+  rb_info "2. Segunda pasada de F3 (cada carga debe ser un no-op)"
+  before="$(fingerprint)"; echo "huella antes:   $before" >&2
+  for block in client-engagements administrative-engagements matrices; do rb_etl_mut 3 load --block "$block"; done
+  rb_etl_mut 3 load --block work-orders
+  for op in sync-work-orders expenses payments risks contain-emails; do rb_etl_mut 3 load --block work-orders --operation "$op"; done
+  rb_etl_mut 3 load --block hours --operation hours
+  after="$(fingerprint)"; echo "huella después: $after" >&2
+  [[ "$before" == "$after" ]] || rb_die "la segunda pasada MODIFICÓ filas del lote (las huellas difieren): no es un no-op. Revise antes de continuar"
+  rb_pass "segunda pasada de F3: cero escrituras (huella idéntica)"
+  rb_etl 3 reconcile-legacy
+fi
+
+rb_info "3. Resumen para el reporte (sin datos personales)"
+rb_counts
+echo "── horas por práctica (ejecutadas)" >&2
+rb_psql -F ' | ' -c "select p.abbreviation, sum(te.hours_logged) from public.time_entries te join public.engagements e on e.engagement_id=te.engagement_id join public.practicas p on p.code=e.practica where te.is_forecast=false and te.period_id is null group by 1 order by 1" >&2
+echo "── cola de correo por estado y motivo" >&2
+rb_psql -F ' | ' -c "select status, coalesce(last_error,'-') as motivo, count(*) from public.notification_emails group by 1,2 order by 1,2" >&2
+echo "── TC efectivo de los planes BOB (P-02, no es TC legacy)" >&2
+rb_psql -F ' | ' -c "select w.currency, p.exchange_rate_mode, p.exchange_rate, count(*) from public.wo_payment_plan p join public.work_orders w on w.wo_id=p.wo_id group by 1,2,3 order by 1,2,3" >&2
+rb_pass "CONCILIACIÓN COMPLETA en ${ENV_NAME}. Reportes en ${STATE_BASE_POSIX}/f3 (legacy-reconciliation.json) y f2 (report)"
