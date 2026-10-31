@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict CbFj5jLxKP5orlsrSeQGsjPCPp5tEqEVKflbIHYDXOfLeL6GneNLSzW6neCOgNQ
+\restrict o6lwr4JrR9B59aNAInIDoXsfRnbh8fyKvcqAbzx0PIsmCpOAHpSf2ORGITcqD6F
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -23706,6 +23706,8 @@ CREATE TABLE public.time_entries (
     updated_at timestamp with time zone DEFAULT now(),
     period_id uuid,
     is_forecast boolean DEFAULT false,
+    etl_split_index smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT time_entries_etl_split_index_check CHECK ((etl_split_index > 0)),
     CONSTRAINT time_entries_hours_logged_check CHECK ((hours_logged >= (0)::numeric))
 );
 
@@ -24275,22 +24277,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_10_29; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_10_29 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_10_30; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -24343,6 +24329,22 @@ CREATE TABLE realtime.messages_2026_11_01 (
 --
 
 CREATE TABLE realtime.messages_2026_11_02 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_03; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_03 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -24635,13 +24637,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_10_29; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_10_29 FOR VALUES FROM ('2026-10-29 00:00:00') TO ('2026-10-30 00:00:00');
-
-
---
 -- Name: messages_2026_10_30; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -24667,6 +24662,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_01
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_02 FOR VALUES FROM ('2026-11-02 00:00:00') TO ('2026-11-03 00:00:00');
+
+
+--
+-- Name: messages_2026_11_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_03 FOR VALUES FROM ('2026-11-03 00:00:00') TO ('2026-11-04 00:00:00');
 
 
 --
@@ -25636,14 +25638,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_10_29 messages_2026_10_29_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_10_29
-    ADD CONSTRAINT messages_2026_10_29_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_10_30 messages_2026_10_30_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -25673,6 +25667,14 @@ ALTER TABLE ONLY realtime.messages_2026_11_01
 
 ALTER TABLE ONLY realtime.messages_2026_11_02
     ADD CONSTRAINT messages_2026_11_02_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_03 messages_2026_11_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_03
+    ADD CONSTRAINT messages_2026_11_03_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -26577,7 +26579,7 @@ CREATE INDEX idx_time_entries_staff_date ON public.time_entries USING btree (sta
 -- Name: idx_time_entries_unique_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast);
+CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast, etl_split_index);
 
 
 --
@@ -26798,13 +26800,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_10_29_inserted_at_topic_idx ON realtime.messages_2026_10_29 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -26830,6 +26825,13 @@ CREATE INDEX messages_2026_11_01_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_02_inserted_at_topic_idx ON realtime.messages_2026_11_02 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_03_inserted_at_topic_idx ON realtime.messages_2026_11_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -26931,20 +26933,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_10_29_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_10_29_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_10_29_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_10_29_pkey;
-
-
---
 -- Name: messages_2026_10_30_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26998,6 +26986,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_02_pkey;
+
+
+--
+-- Name: messages_2026_11_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_03_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_03_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_03_pkey;
 
 
 --
@@ -31080,5 +31082,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict CbFj5jLxKP5orlsrSeQGsjPCPp5tEqEVKflbIHYDXOfLeL6GneNLSzW6neCOgNQ
+\unrestrict o6lwr4JrR9B59aNAInIDoXsfRnbh8fyKvcqAbzx0PIsmCpOAHpSf2ORGITcqD6F
 

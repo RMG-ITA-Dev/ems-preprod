@@ -5306,6 +5306,17 @@
  service_role  | public       | time_entries                                   | engagement_id                    | REFERENCES
  service_role  | public       | time_entries                                   | engagement_id                    | SELECT
  service_role  | public       | time_entries                                   | engagement_id                    | UPDATE
+ authenticated | public       | time_entries                                   | etl_split_index                  | INSERT
+ authenticated | public       | time_entries                                   | etl_split_index                  | SELECT
+ authenticated | public       | time_entries                                   | etl_split_index                  | UPDATE
+ postgres      | public       | time_entries                                   | etl_split_index                  | INSERT
+ postgres      | public       | time_entries                                   | etl_split_index                  | REFERENCES
+ postgres      | public       | time_entries                                   | etl_split_index                  | SELECT
+ postgres      | public       | time_entries                                   | etl_split_index                  | UPDATE
+ service_role  | public       | time_entries                                   | etl_split_index                  | INSERT
+ service_role  | public       | time_entries                                   | etl_split_index                  | REFERENCES
+ service_role  | public       | time_entries                                   | etl_split_index                  | SELECT
+ service_role  | public       | time_entries                                   | etl_split_index                  | UPDATE
  authenticated | public       | time_entries                                   | hours_logged                     | INSERT
  authenticated | public       | time_entries                                   | hours_logged                     | SELECT
  authenticated | public       | time_entries                                   | hours_logged                     | UPDATE
@@ -8758,5 +8769,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                       | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                       | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                       | SELECT
-(8758 rows)
+(8769 rows)
 
