@@ -55,3 +55,13 @@ bash scripts/etl/runbook/run.sh --env test --run-id 0001 --from 10 --to 50
   `reconcile-legacy` (paso 50).
 - Los pagos se cargan en una sola transacción de 124 OT: mida su duración en el ensayo local antes de Test.
 - La contención de correo es posterior a la creación y se invoca desde el paso 40 (idempotente).
+
+## Medido en el ensayo E1 (31/10/2026, local)
+
+- **Reanudación:** el paso 40 omite lo que el journal ya marca como completado. Repetir la creación de OT, las
+  matrices o los pagos con la carga avanzada falla cerrado (la consola exige OT en `Draft`; «OT ambigua», «falta o
+  cambió evidencia persistida», «precondición de ajuste») sin escribir nada. Un paso interrumpido sin marca sí se repite.
+- **Segunda pasada (paso 50):** solo se repiten las operaciones medidas como no-op (clientes, administrativos,
+  sincronización, gastos, riesgos, contención de correos y horas); la huella md5 de las tablas debe quedar idéntica.
+- **Tiempos locales:** F1 ≈ 8 s · F2 ≈ 2 min · F3 ≈ 3 min (pagos ≈ 2 s en una sola transacción).
+- Resultado completo y defectos corregidos: `bugs/ETL/carga/fase4/plan_v1.md`, «E1: resultado».

@@ -21,6 +21,15 @@ describe("ETL fase 3: adaptador SQL", () => {
     await expect(db.createPayments({ technicalAdminId: "actor", payment: { woId: "wo", installments: [] } })).rejects.toThrow(/pagos F3 inválidos/);
     await expect(db.findPaymentMatches({ payment: { woId: "wo", planId: "plan", installments: [] } })).rejects.toThrow(/relectura de pagos F3 inválida/);
   });
+  // Hallazgo de E1 (31/10): el CTE `updated` no es visible para el resto de la misma sentencia, así que `remaining`
+  // contaba las filas recién contenidas y la primera llamada fallaba con «no conciliable».
+  it("la contención de correos descuenta de `remaining` las filas que ella misma contiene", () => {
+    const source = readFileSync(new URL("../fase3-db.mjs", import.meta.url), "utf8");
+    const sql = source.slice(source.indexOf("async containOwnEmails"), source.indexOf("async engagementCatalog"));
+    expect(sql).toContain("UPDATE public.notification_emails");
+    expect(sql).toContain("'remaining',(SELECT count(*) FROM public.notification_emails n WHERE n.entity_id IN (SELECT entity_id FROM ids) AND n.status <> 'failed' AND n.email_id NOT IN (SELECT email_id FROM updated))");
+    expect(sql).toContain("last_error='ETL_F3_NO_DELIVERY'");
+  });
   // P-02 (fase3/plan_v2 §3): un plan BOB toma el DEFAULT efectivo del esquema; no hay migración que relaje NOT NULL.
   it("el plan BOB toma el DEFAULT del TC y sus cuotas heredan ese TC, sin escribir NULL", () => {
     const source = readFileSync(new URL("../fase3-db.mjs", import.meta.url), "utf8");

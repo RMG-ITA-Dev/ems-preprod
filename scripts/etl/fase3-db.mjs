@@ -48,7 +48,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), ids AS (SELECT jsonb_array_elements_text(x->'engagementIds') entity_id FROM p), updated AS (
           UPDATE public.notification_emails n SET status='failed',attempts=0,sent_at=NULL,last_error='ETL_F3_NO_DELIVERY',claimed_at=NULL
           WHERE n.status='pending' AND n.entity_id IN (SELECT entity_id FROM ids) RETURNING n.email_id
-        ) SELECT json_build_object('contained',(SELECT count(*) FROM updated),'remaining',(SELECT count(*) FROM public.notification_emails n WHERE n.entity_id IN (SELECT entity_id FROM ids) AND n.status <> 'failed'),'sent',(SELECT count(*) FROM public.notification_emails n WHERE n.entity_id IN (SELECT entity_id FROM ids) AND n.sent_at IS NOT NULL))::text;`, { engagementIds });
+        ) SELECT json_build_object('contained',(SELECT count(*) FROM updated),'remaining',(SELECT count(*) FROM public.notification_emails n WHERE n.entity_id IN (SELECT entity_id FROM ids) AND n.status <> 'failed' AND n.email_id NOT IN (SELECT email_id FROM updated)),'sent',(SELECT count(*) FROM public.notification_emails n WHERE n.entity_id IN (SELECT entity_id FROM ids) AND n.sent_at IS NOT NULL))::text;`, { engagementIds });
     },
     async engagementCatalog() {
       return query(`SELECT json_build_object(

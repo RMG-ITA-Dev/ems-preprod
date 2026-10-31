@@ -45,9 +45,23 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
   it("F3 corre después de las bajas y los bloques respetan el orden de dependencias", () => {
     const f3 = read("40-f3.sh");
     expect(f3).toContain('"$inactive" == "8"');
-    const order = ["load --block client-engagements", "load --block administrative-engagements", "load --block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
+    const order = ["engagement_block client-engagements", "engagement_block administrative-engagements", "engagement_block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
     expect(order.every((index) => index > 0)).toBe(true);
     expect([...order]).toEqual([...order].sort((a, b) => a - b));
+  });
+  // Hallazgo de E1 (31/10): repetir la creación de OT, matrices o pagos con la carga avanzada falla cerrado («OT ambigua»,
+  // «falta o cambió evidencia», «precondición de ajuste») porque la consola exige el estado Draft. El runbook debe
+  // reanudar por marcas del journal y la segunda pasada solo repetir lo medido como no-op.
+  it("la reanudación omite lo ya completado por marcas del journal, y la segunda pasada no repite matrices, OT ni pagos", () => {
+    const f3 = read("40-f3.sh");
+    for (const mark of ["wo.state === 'CONFIRMADA'", "wo.syncCompletedAt", "wo.expensesCompletedAt", "wo.paymentsCompletedAt", "wo.risksCompletedAt", "wo.emailsContainedAt"]) expect(f3, mark).toContain(mark);
+    expect(f3).toContain("acceptedAt");
+    const second = read("50-reconcile.sh").split('rb_info "2. Segunda pasada de F3')[1] ?? "";
+    for (const op of ["sync-work-orders expenses risks contain-emails", "--operation hours", "client-engagements", "administrative-engagements"]) expect(second, op).toContain(op);
+    expect(second).not.toMatch(/--block matrices/);
+    expect(second).not.toMatch(/--operation payments/);
+    expect(second).not.toMatch(/load --block work-orders\s*$/m);
+    expect(second).toContain('[[ "$before" == "$after" ]]');
   });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");

@@ -53,21 +53,44 @@ accept_block() {
   rb_etl 3 accept --block "$block" --evidence-hash "$hash"
 }
 
-if run_block client-engagements;         then rb_etl_mut 3 load --block client-engagements; accept_block client-engagements; fi
-if run_block administrative-engagements; then rb_etl_mut 3 load --block administrative-engagements; accept_block administrative-engagements; fi
-if run_block matrices;                   then rb_etl_mut 3 load --block matrices; accept_block matrices; fi
+# Reanudación por marcas del journal: la consola solo es no-op para lo que aún no terminó. Repetir la creación de OT
+# cuando ya pasaron los pagos o el riesgo se lee como «OT ambigua» (la OT ya no está en Draft): por diseño, esas
+# operaciones se saltan si su marca de «completada» ya existe. Un paso interrumpido SIN marca sí se repite: la consola
+# lo recupera por relectura.
+done_mark() {   # done_mark '<expresión JS sobre j, wo>'
+  [[ -f "$JOURNAL3" ]] || return 1
+  JOURNAL="$(rb_win_path "$JOURNAL3")" EXPR="$1" node -e '
+    const j = JSON.parse(require("fs").readFileSync(process.env.JOURNAL, "utf8")); const wo = j.units?.["work-orders"] ?? {};
+    process.exit(new Function("j", "wo", "return Boolean(" + process.env.EXPR + ")")(j, wo) ? 0 : 1);'
+}
+step() {        # step <descripción> <expresión de «ya hecho»> <comando…>
+  local label="$1" mark="$2"; shift 2
+  if done_mark "$mark"; then rb_pass "ya completado, se omite: $label"; else rb_etl_mut "$@"; fi
+}
+engagement_block() {  # create + verify + acta; si el bloque ya está aceptado no se repite
+  local block="$1"
+  if done_mark "j.blocks?.['$block']?.acceptedAt"; then rb_pass "bloque $block ya aceptado, se omite"; return 0; fi
+  rb_etl_mut 3 load --block "$block"; accept_block "$block"
+}
+
+if run_block client-engagements;         then engagement_block client-engagements; fi
+if run_block administrative-engagements; then engagement_block administrative-engagements; fi
+if run_block matrices;                   then engagement_block matrices; fi
 if run_block work-orders; then
-  rb_etl_mut 3 load --block work-orders                                          # 124 OT en Draft
-  rb_etl_mut 3 load --block work-orders --operation sync-work-orders             # sincroniza cada OT con su matriz (una vez)
-  rb_etl_mut 3 load --block work-orders --operation expenses                     # 75 presupuestos de gasto positivos
-  rb_etl_mut 3 load --block work-orders --operation payments                     # 124 planes, 277 cuotas, 4 notas (BOB: TC por DEFAULT, P-02)
-  rb_etl_mut 3 load --block work-orders --operation risks                        # riesgo y aprobación Approved/Approved
-  rb_etl_mut 3 load --block work-orders --operation contain-emails               # correos propios → failed (ETL_F3_NO_DELIVERY)
-  accept_block work-orders
+  if done_mark "j.blocks?.['work-orders']?.acceptedAt"; then rb_pass "bloque work-orders ya aceptado, se omite"
+  else
+    step "124 OT en Draft"                      "wo.state === 'CONFIRMADA'"  3 load --block work-orders
+    step "sincronización OT↔matriz"             "wo.syncCompletedAt"         3 load --block work-orders --operation sync-work-orders
+    step "75 presupuestos de gasto"             "wo.expensesCompletedAt"     3 load --block work-orders --operation expenses
+    step "124 planes, 277 cuotas, 4 notas (BOB: TC por DEFAULT, P-02)" "wo.paymentsCompletedAt" 3 load --block work-orders --operation payments
+    step "riesgo y aprobación Approved/Approved" "wo.risksCompletedAt"       3 load --block work-orders --operation risks
+    step "contención de correos propios"        "wo.emailsContainedAt"       3 load --block work-orders --operation contain-emails
+    accept_block work-orders
+  fi
 fi
 if run_block hours; then
-  rb_etl_mut 3 load --block hours --operation hours
-  rb_etl_mut 3 load --block work-orders --operation contain-emails               # idempotente: cierra también lo que generen las horas
+  step "horas (24.968,00 h)"                    "j.units?.hours?.state === 'CONFIRMADA'"  3 load --block hours --operation hours
+  rb_etl_mut 3 load --block work-orders --operation contain-emails   # idempotente: cierra también lo que generen las horas
   rb_etl 3 verify --block hours
 fi
 rb_etl 3 report

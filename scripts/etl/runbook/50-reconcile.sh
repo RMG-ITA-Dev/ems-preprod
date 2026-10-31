@@ -37,11 +37,17 @@ rb_info "1. Conciliación contra el legacy (L1–L8)"
 rb_etl 3 reconcile-legacy
 
 if [[ "$SKIP_SECOND" == "0" ]]; then
-  rb_info "2. Segunda pasada de F3 (cada carga debe ser un no-op)"
+  rb_info "2. Segunda pasada de F3 (cada carga repetible debe ser un no-op)"
+  # Medido en E1 (31/10): con la carga completa, estas siete operaciones terminan en exit 0 sin cambiar ninguna fila.
+  # NO se repiten tres, porque fallan cerrado (exit 1, también sin escribir nada: huella igual) por diseño de la consola:
+  #   · matrices          «falta o cambió evidencia persistida»: la sincronización posterior modifica las hojas;
+  #   · work-orders crear «OT ambigua»: ya no están en Draft (ajuste, aprobación, notas);
+  #   · payments          «no es seguro reparar la precondición de ajuste»: las OT ya están aprobadas.
+  # Su idempotencia queda acreditada por la huella y por reconcile-legacy, no repitiéndolas.
   before="$(fingerprint)"; echo "huella antes:   $before" >&2
-  for block in client-engagements administrative-engagements matrices; do rb_etl_mut 3 load --block "$block"; done
-  rb_etl_mut 3 load --block work-orders
-  for op in sync-work-orders expenses payments risks contain-emails; do rb_etl_mut 3 load --block work-orders --operation "$op"; done
+  rb_etl_mut 3 load --block client-engagements
+  rb_etl_mut 3 load --block administrative-engagements
+  for op in sync-work-orders expenses risks contain-emails; do rb_etl_mut 3 load --block work-orders --operation "$op"; done
   rb_etl_mut 3 load --block hours --operation hours
   after="$(fingerprint)"; echo "huella después: $after" >&2
   [[ "$before" == "$after" ]] || rb_die "la segunda pasada MODIFICÓ filas del lote (las huellas difieren): no es un no-op. Revise antes de continuar"
