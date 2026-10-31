@@ -150,12 +150,18 @@ BEGIN
   RAISE NOTICE 'PASS — RLS activa en clients y engagements';
 
   -- 2. Clientes: lectura por rol ───────────────────────────────────────────────────────────────────
-  -- Ven todos: admin, cobranza y socio de riesgos (client.read de alcance firma/departamento).
-  FOREACH v_who IN ARRAY ARRAY[u1, u8, u10] LOOP
+  -- Ven todos: admin y socio de riesgos (client.read de alcance firma/departamento).
+  FOREACH v_who IN ARRAY ARRAY[u1, u10] LOOP
     IF pg_temp.count_as(v_who, 'clients') <> v_cli THEN
       RAISE EXCEPTION 'B3c FAIL — % debía ver los % clientes y ve %', v_who, v_cli, pg_temp.count_as(v_who, 'clients');
     END IF;
   END LOOP;
+  -- Cobranza (client.read departamento) desde el alcance por sociedad (2026-10-28): solo clientes con algún encargo de su sociedad.
+  -- El corte completo se prueba en rls-accounting-society-scope.sql.
+  IF pg_temp.count_as(u8, 'clients') <> (SELECT count(DISTINCT e.client_id) FROM public.engagements e
+                                          WHERE e.society_id = (SELECT society_id FROM public.society ORDER BY name LIMIT 1)) THEN
+    RAISE EXCEPTION 'B3c FAIL — cobranza debía ver los clientes con encargos de su sociedad y ve %', pg_temp.count_as(u8, 'clients');
+  END IF;
   -- Cada gerente, el cliente de su encargo; el socio, el de los dos (socio de E1 y SQR de E2).
   IF pg_temp.count_as(u2, 'clients') <> 1 OR pg_temp.count_as(u3, 'clients') <> 1 THEN
     RAISE EXCEPTION 'B3c FAIL — cada gerente debía ver 1 cliente (U2 %, U3 %)', pg_temp.count_as(u2, 'clients'), pg_temp.count_as(u3, 'clients');

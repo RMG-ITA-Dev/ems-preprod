@@ -33,7 +33,10 @@ INSERT INTO public.global_settings (setting_key, setting_value, description) VAL
   ('TS_AUTO_SAVE_SECONDS',      '3',                      'Debounce delay for auto-saving time entries in seconds'),
   ('HOLIDAY_ENGAGEMENT_ID',     '',                       'Engagement ID allowed for time entries on holiday dates'),
   ('LANGUAGE',                  'en',                     'UI language (en/es)'),
-  ('ALLOW_WEEKEND_TRACKING',    'false',                  'Whether Saturday/Sunday count as work days for timesheet limits')
+  ('ALLOW_WEEKEND_TRACKING',    'false',                  'Whether Saturday/Sunday count as work days for timesheet limits'),
+  -- Inicio de sesión con Microsoft (docs/plan-entra-id-consolidado.md). Nace en 'password' = la
+  -- pantalla de siempre; el admin de bootstrap entra con su contraseña y lo pasa a 'entra'.
+  ('AUTH_MODE',                 'password',               'Login screen at /auth: password (email + password) or entra (Microsoft only)')
 ON CONFLICT (setting_key) DO NOTHING;
 
 -- ADM_ACTIVITY_ID vía sub-select de la fila ADM (is_system=true) sembrada en cero_11 — nunca

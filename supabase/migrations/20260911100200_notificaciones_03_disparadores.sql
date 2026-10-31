@@ -64,6 +64,25 @@ $$;
 COMMENT ON FUNCTION public.notif_staff_by_roles(text[]) IS
   'Traduce una lista de role_key a los staff_id activos que los tienen. Lo usan los disparadores para los alcances firm/department de la matriz de notificaciones.';
 
+-- Alcance por sociedad (2026-10-28): mismo reparto, pero los roles con alcance por sociedad (Contabilidad y Cobranzas)
+-- solo reciben si son de la sociedad del objeto (OT, cuota o solicitud). Los demas roles de la lista no cambian.
+-- p_society_id NULL (solicitud mixta o sin OT) deja fuera a todos los de alcance por sociedad.
+DROP FUNCTION IF EXISTS public.notif_staff_by_roles_in_society(text[], uuid);
+
+CREATE FUNCTION public.notif_staff_by_roles_in_society(p_role_keys text[], p_society_id uuid)
+    RETURNS TABLE (staff_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT DISTINCT s.staff_id
+    FROM public.staff s
+    JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+   WHERE ur.role_key = ANY (p_role_keys)
+     AND s.is_active
+     AND s.deleted_at IS NULL
+     AND (NOT public.is_society_scoped_role_key(ur.role_key) OR s.society_id = p_society_id)
+$$;
+
 DROP FUNCTION IF EXISTS public.notif_fund_request_managers(uuid);
 
 CREATE FUNCTION public.notif_fund_request_managers(p_fund_request_id uuid)
@@ -274,7 +293,7 @@ BEGIN
 
   -- El gerente aprobo: el gasto entra a la bandeja de revision de contabilidad.
   IF OLD.status = 'pendiente_aprobacion' AND NEW.status = 'aprobado_gerente' AND NOT v_job THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.fund_request_society_id(NEW.fund_request_id))
     LOOP
       PERFORM public.notify_staff('fund.expense.sent_to_support_review',
                                   v_rec.staff_id, NEW.fre_id::text, v_payload);
@@ -295,7 +314,7 @@ BEGIN
   -- el gerente. La senal es el flag apagandose y no un cambio de status, porque
   -- useResendReturnedExpense() devuelve el status a 'aprobado_gerente' (de donde salio).
   IF OLD.returned_by_assistant = true AND NEW.returned_by_assistant = false THEN
-    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+    FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.fund_request_society_id(NEW.fund_request_id))
     LOOP
       PERFORM public.notify_staff('fund.expense.resubmitted',
                                   v_rec.staff_id, NEW.fre_id::text, v_payload);
@@ -471,7 +490,7 @@ BEGIN
   FOR v_rec IN
     SELECT staff_id FROM public.notif_engagement_partners(v_eng)
     UNION
-    SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+    SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'], public.wo_society_id(p_row.wo_id))
   LOOP
     CONTINUE WHEN v_actor IS NOT NULL AND v_rec.staff_id = v_actor;
 
@@ -531,7 +550,7 @@ BEGIN
       UNION
       SELECT staff_id FROM public.notif_engagement_partners(v_eng) WHERE v_autor_es_contabilidad
       UNION
-      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+      SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'], public.wo_society_id(p_note.wo_id))
        WHERE NOT v_autor_es_contabilidad
     ) q
   LOOP
@@ -965,7 +984,7 @@ BEGIN
 
   -- entity_id = wo_id, no installment_id: la cuota no tiene pantalla propia, se edita dentro
   -- de la pestaña "Plan de pagos" de su OT.
-  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(c_contabilidad)
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_contabilidad, public.wo_society_id(NEW.wo_id))
   LOOP
     -- 2026-10-21: a quien movio la cuota no se le avisa de su propio clic. El aviso sigue
     -- siendo DEPARTAMENTAL -- su valor es que la OTRA persona del circuito se entere-- pero
@@ -1195,7 +1214,8 @@ BEGIN
     FOR v_dest IN
       SELECT staff_id FROM public.notif_engagement_managers(v_rec.engagement_id)
       UNION
-      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_manager', 'collections_analyst'])
+      SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_manager', 'collections_analyst'],
+               (SELECT e2.society_id FROM public.engagements e2 WHERE e2.engagement_id = v_rec.engagement_id))
     LOOP
       v_type := CASE WHEN v_rec.calendar_state = 'billing_late'
                      THEN 'wo.installment.billing_late'
@@ -2832,7 +2852,12 @@ CREATE TRIGGER tr_notify_client
 -- EL ÚNICO DISPARADOR DEL CATÁLOGO QUE HOY NO SE EJERCITA, y es a propósito (D-38).
 -- `activity_worksheets.status` admite `draft | approved | archived` desde el esquema, pero
 -- el producto todavía no tiene el paso "enviar a revisión de calidad": la hoja nace en
--- `draft` y `useUpdateWorksheet()` sólo escribe `notes`. Nadie mueve `status`.
+-- `draft` y `useUpdateWorksheet()` sólo escribe `notes`.
+--
+-- 1028-216: ahora `status` SÍ se mueve, pero lo mueve la sincronización con las
+-- aprobaciones de la OT (sync_worksheet_status_from_work_order), y eso no es un envío a
+-- revisión de calidad. Esa vía marca la transacción con `ems.worksheet_status_sync` y este
+-- disparador la ignora: el aviso sigue reservado para el paso explícito de D-38.
 --
 -- Se deja el disparador montado sobre la transición que el esquema ya admite —
 -- `draft -> approved`— en vez de inventar una señal que signifique otra cosa. El día que se
@@ -2855,6 +2880,11 @@ DECLARE
   v_base jsonb;
   v_rec  record;
 BEGIN
+  -- 1028-216: la sincronización automática desde la OT no es un envío a revisión de calidad.
+  IF COALESCE(current_setting('ems.worksheet_status_sync', true), '') = 'on' THEN
+    RETURN NULL;
+  END IF;
+
   -- La transición, y sólo esa. `archived` no es una revisión y volver a `draft` tampoco.
   IF NOT (NEW.status = 'approved' AND OLD.status IS DISTINCT FROM 'approved') THEN
     RETURN NULL;
@@ -2891,7 +2921,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_worksheet_events() IS
-  'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy ninguna via del producto escribe ese status: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
+  'FASE 3.g: hoja de trabajo enviada a revision de calidad (activity_worksheets.status draft -> approved), a la conduccion del encargo. Hoy solo mueve ese status la sincronizacion con las aprobaciones de la OT (1028-216), que marca ems.worksheet_status_sync y no avisa: el disparador queda montado para cuando exista el paso (D-38). Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_worksheet ON public.activity_worksheets;
 CREATE TRIGGER tr_notify_worksheet
@@ -3160,14 +3190,8 @@ DECLARE
   v_total    integer;
   v_avisados integer := 0;
   v_rec      record;
+  v_soc      uuid;
 BEGIN
-  -- Los cuatro contadores de fondos no reciben staff: son de toda la firma, y la matriz se los
-  -- concede a Contabilidad con alcance `department`. Se calculan una sola vez.
-  v_revision := public.notif_agg_fund_expense_review_pending();
-  v_desemb   := public.notif_agg_fund_disbursement_pending();
-  v_liquid   := public.notif_agg_fund_settlement_pending();
-  v_cierre   := public.notif_agg_fund_closure_pending();
-
   FOR v_rec IN
     SELECT s.staff_id, ur.role_key
       FROM public.staff s
@@ -3179,6 +3203,21 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
+    -- Alcance por sociedad (2026-10-28): Contabilidad recibe los contadores de SU sociedad. Se calculan aparte solo para
+    -- ellos (pocos destinatarios); el resto reusa los de toda la firma calculados arriba.
+    v_soc := public.staff_society_scope(v_rec.staff_id);
+    IF v_soc IS NOT NULL THEN
+      v_revision := public.notif_agg_fund_expense_review_pending(v_soc);
+      v_desemb   := public.notif_agg_fund_disbursement_pending(v_soc);
+      v_liquid   := public.notif_agg_fund_settlement_pending(v_soc);
+      v_cierre   := public.notif_agg_fund_closure_pending(v_soc);
+    ELSE
+      v_revision := public.notif_agg_fund_expense_review_pending();
+      v_desemb   := public.notif_agg_fund_disbursement_pending();
+      v_liquid   := public.notif_agg_fund_settlement_pending();
+      v_cierre   := public.notif_agg_fund_closure_pending();
+    END IF;
+
     -- El recorte por rol tiene que pasar ANTES de armar el payload y no sólo dentro de v_total:
     -- gatear el total decide bien a quién se le manda y mal qué lee. `detallesDeRecordatorio()`
     -- (plantillas/notificaciones.ts) renderiza todo bucket con count > 0, así que un
@@ -3226,6 +3265,7 @@ RETURNS integer
 DECLARE
   v_semana   text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
   v_semana_actual jsonb := public.notif_agg_wo_installment_due_this_week();
+  v_soc      uuid;
   v_mora     jsonb;
   -- `v_semana_actual` es de toda la firma; esta es su version recortada al destinatario.
   v_por_venc jsonb;
@@ -3250,16 +3290,19 @@ BEGIN
        AND s.email IS NOT NULL
        AND btrim(s.email) <> ''
   LOOP
+    -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas, solo cuotas de su sociedad.
+    v_soc := public.staff_society_scope(v_rec.staff_id);
     v_mora := CASE WHEN v_rec.scope_mora IS NOT NULL
-                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora)
+                   THEN public.notif_agg_wo_installment_overdue(v_rec.staff_id, v_rec.scope_mora, v_soc)
                    ELSE NULL END;
 
     -- Igual que la mora de arriba: el contador entra al payload sólo si la matriz se lo concede.
     -- `wo.installment.due_this_week` es de Contabilidad (alcance `department`) y los gerentes no
     -- lo tienen, así que mandárselo les entregaba las cuotas por vencer de toda la firma —
     -- exactamente lo que `scope_mora` se cuida de no hacer con las vencidas.
-    v_por_venc := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week')
-                       THEN v_semana_actual ELSE NULL END;
+    v_por_venc := CASE WHEN NOT public.notif_role_tiene(v_rec.role_key, 'wo.installment.due_this_week') THEN NULL
+                       WHEN v_soc IS NOT NULL THEN public.notif_agg_wo_installment_due_this_week(v_soc)
+                       ELSE v_semana_actual END;
 
     v_total := COALESCE((v_mora->>'count')::integer, 0)
              + COALESCE((v_por_venc->>'count')::integer, 0);
@@ -3306,6 +3349,7 @@ GRANT EXECUTE ON FUNCTION public.notif_emit_wo_installment_reminder_weekly() TO 
 -- del cron, todos SECURITY DEFINER, o sea que corren como el dueño y conservan su EXECUTE.
 
 REVOKE ALL ON FUNCTION public.notif_staff_by_roles(text[])                FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_staff_by_roles_in_society(text[], uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_staff_by_practice(uuid, text[])       FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_fund_request_managers(uuid)           FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_engagement_partners(uuid)             FROM PUBLIC, anon, authenticated;
@@ -3318,6 +3362,7 @@ REVOKE ALL ON FUNCTION public.notif_scope_of(text, uuid)                  FROM P
 REVOKE ALL ON FUNCTION public.notif_role_tiene(text, text)                FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.notif_staff_by_roles(text[])             TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_staff_by_roles_in_society(text[], uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_staff_by_practice(uuid, text[])    TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_fund_request_managers(uuid)        TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_engagement_partners(uuid)          TO service_role;
@@ -3463,17 +3508,23 @@ BEGIN
 
   -- Contabilidad: en un día dado, todas las solicitudes en revisión comparten el mismo fin de
   -- revisión (día 5 del mes en curso), así que un solo aviso con el total alcanza.
-  SELECT count(*), count(DISTINCT e.fund_request_id),
-         min(public.fund_request_review_deadline(fr.expense_period_month))
-    INTO v_count, v_reqs, v_review
-    FROM public.fund_request_expenses e
-    JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
-   WHERE fr.status = 'fondos_entregados'
-     AND e.status = 'aprobado_gerente'
-     AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
-                     AND public.fund_request_review_deadline(fr.expense_period_month);
+  -- Alcance por sociedad (2026-10-28): el resumen se arma POR destinatario, con los gastos de las solicitudes de SU
+  -- sociedad (staff_society_scope; NULL = sin limite). Contabilidad de otra sociedad no recibe un conteo ajeno.
+  FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  LOOP
+    SELECT count(*), count(DISTINCT e.fund_request_id),
+           min(public.fund_request_review_deadline(fr.expense_period_month))
+      INTO v_count, v_reqs, v_review
+      FROM public.fund_request_expenses e
+      JOIN public.fund_requests fr ON fr.fund_request_id = e.fund_request_id
+     WHERE fr.status = 'fondos_entregados'
+       AND e.status = 'aprobado_gerente'
+       AND v_today BETWEEN public.fund_request_deadline(fr.expense_period_month)
+                       AND public.fund_request_review_deadline(fr.expense_period_month)
+       AND (public.staff_society_scope(v_mgr.staff_id) IS NULL
+            OR public.fund_request_society_id(fr.fund_request_id) = public.staff_society_scope(v_mgr.staff_id));
 
-  IF v_count > 0 THEN
+    CONTINUE WHEN v_count = 0;
     v_payload := jsonb_build_object(
       'expense_count',  v_count,
       'request_count',  v_reqs,
@@ -3482,14 +3533,11 @@ BEGIN
     IF v_today = v_review THEN
       v_payload := v_payload || jsonb_build_object('context', 'last_day');
     END IF;
-    FOR v_mgr IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
-    LOOP
-      IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
-        PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
-        v_sent := v_sent + 1;
-      END IF;
-    END LOOP;
-  END IF;
+    IF NOT public.notif_fund_sent_today('fund.expense.review_reminder', v_mgr.staff_id, NULL) THEN
+      PERFORM public.notify_staff('fund.expense.review_reminder', v_mgr.staff_id, NULL, v_payload);
+      v_sent := v_sent + 1;
+    END IF;
+  END LOOP;
 
   RETURN v_sent;
 END;
@@ -3536,7 +3584,8 @@ BEGIN
               v_payload || jsonb_build_object('context', 'manager'));
   END LOOP;
 
-  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['accounting_analyst', 'accounting_manager'])
+  FOR v_rec IN SELECT staff_id FROM public.notif_staff_by_roles_in_society(ARRAY['accounting_analyst', 'accounting_manager'],
+                                                                   public.fund_request_society_id(p_fund_request_id))
   LOOP
     PERFORM public.notify_staff(p_type_key, v_rec.staff_id, p_fund_request_id::text,
               v_payload || jsonb_build_object('context', 'accounting'));

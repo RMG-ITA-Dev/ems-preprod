@@ -444,9 +444,10 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - la reprogramacion deja la fecha anterior y la nueva';
 
-  -- Nadie tiene policy de escritura sobre la bitacora: ni INSERT, ni UPDATE, ni DELETE.
+  -- Nadie tiene policy de escritura sobre la bitacora: ni INSERT, ni UPDATE, ni DELETE. Solo cuentan las PERMISSIVE: la
+  -- RESTRICTIVE "society scope" (FOR ALL, alcance por sociedad 2026-10-28) solo recorta, nunca concede.
   SELECT COUNT(*) INTO v_n FROM pg_policies
-   WHERE schemaname = 'public' AND tablename = 'wo_installment_events' AND cmd <> 'SELECT';
+   WHERE schemaname = 'public' AND tablename = 'wo_installment_events' AND cmd <> 'SELECT' AND permissive = 'PERMISSIVE';
   IF v_n <> 0 THEN
     RAISE EXCEPTION 'TEST FAIL - la bitacora tiene % policies de escritura; deberia ser inmutable', v_n;
   END IF;

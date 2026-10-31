@@ -17,6 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { RunningTimerChip } from "@/components/tracker/RunningTimerChip";
 import { ExchangeRateIndicator } from "@/components/layout/ExchangeRateIndicator";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { accountDisplayName, accountInitials } from "@/lib/userDisplay";
+import { useProfilePhoto } from "@/hooks/useProfilePhoto";
 
 interface AppHeaderProps {
   title?: string;
@@ -26,22 +28,20 @@ interface AppHeaderProps {
 export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
+  // Foto de Microsoft (solo si se ingresó con Microsoft); si no hay, las iniciales.
+  const profilePhoto = useProfilePhoto(user?.id);
   const { data: staffRecord } = useCurrentStaff();
   const navigate = useNavigate();
 
-  const displayName = staffRecord 
+  const displayName = staffRecord
     ? (staffRecord.short_name || `${staffRecord.first_name} ${staffRecord.last_name}`)
-    : user?.user_metadata?.first_name 
-      ? `${user.user_metadata.first_name} ${user.user_metadata.last_name || ''}`
-      : null;
+    : accountDisplayName(user?.user_metadata);
 
   const userInitials = staffRecord?.initials
     ? staffRecord.initials
     : staffRecord
       ? `${staffRecord.first_name[0]}${staffRecord.last_name[0]}`.toUpperCase()
-      : user?.user_metadata?.first_name && user?.user_metadata?.last_name
-        ? `${user.user_metadata.first_name[0]}${user.user_metadata.last_name[0]}`.toUpperCase()
-        : user?.email?.substring(0, 2).toUpperCase() || "U";
+      : accountInitials(user?.user_metadata, user?.email);
 
   const handleSignOut = async () => {
     await signOut();
@@ -99,7 +99,11 @@ export function AppHeader({ title = "Dashboard", focusMode }: AppHeaderProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="h-9 w-9 rounded-full bg-accent flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity flex-shrink-0">
-              <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+              {profilePhoto ? (
+                <img src={profilePhoto} alt={displayName ?? ""} className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <span className="text-accent-foreground font-medium text-sm">{userInitials}</span>
+              )}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64">

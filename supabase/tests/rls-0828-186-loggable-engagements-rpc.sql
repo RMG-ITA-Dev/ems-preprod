@@ -110,6 +110,22 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
    'Override AprobadoRiesgos sobre Administrativo 0828186', 'LE-10', 'active', false, 3, '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1))
 ON CONFLICT (engagement_id) DO NOTHING;
 
+-- BUG 1028-217: encargos Finalizados (7) de un solo día (10/03/2026) para p_ref_date.
+--   LE-11 administrativo; LE-12 con OT Aprobada; LE-13 con OT Pendiente (nunca aprobado);
+--   LE-14 Cancelado (6) en el mismo día -- este nunca vuelve.
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
+                                 status, work_order_required, engagement_state_override,
+                                 start_date, end_date, fecha_cierre, society_id) VALUES
+  ('70828186-0000-4000-8000-000000000011', '60828186-0000-4000-8000-000000000001',
+   'Finalizado Administrativo 1028217', 'LE-11', 'active', false, 7, '2026-03-10', '2026-03-10', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('70828186-0000-4000-8000-000000000012', '60828186-0000-4000-8000-000000000001',
+   'Finalizado OT Aprobada 1028217', 'LE-12', 'active', true, 7, '2026-03-10', '2026-03-10', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('70828186-0000-4000-8000-000000000013', '60828186-0000-4000-8000-000000000001',
+   'Finalizado OT Pendiente 1028217', 'LE-13', 'active', true, 7, '2026-03-10', '2026-03-10', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('70828186-0000-4000-8000-000000000014', '60828186-0000-4000-8000-000000000001',
+   'Cancelado Administrativo 1028217', 'LE-14', 'active', false, 6, '2026-03-10', '2026-03-10', '2026-12-31', (SELECT society_id FROM public.society ORDER BY name LIMIT 1))
+ON CONFLICT (engagement_id) DO NOTHING;
+
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode,
                                 approval_status, risk_status) VALUES
   ('80828186-0000-4000-8000-000000000001', '70828186-0000-4000-8000-000000000001',
@@ -117,7 +133,11 @@ INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode,
   ('80828186-0000-4000-8000-000000000002', '70828186-0000-4000-8000-000000000004',
    'BOB', 'High', 'Pending_Approval', 'Pending'),
   ('80828186-0000-4000-8000-000000000003', '70828186-0000-4000-8000-000000000009',
-   'BOB', 'High', 'Approved', 'Approved')
+   'BOB', 'High', 'Approved', 'Approved'),
+  ('80828186-0000-4000-8000-000000000012', '70828186-0000-4000-8000-000000000012',
+   'BOB', 'High', 'Approved', 'Approved'),
+  ('80828186-0000-4000-8000-000000000013', '70828186-0000-4000-8000-000000000013',
+   'BOB', 'High', 'Pending_Approval', 'Pending')
 ON CONFLICT (wo_id) DO NOTHING;
 
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
@@ -191,6 +211,50 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK (f): overrides 1/2/3 quedan excluidos aunque OT esté aprobada o el encargo sea administrativo';
 
+  -- ── (g) BUG 1028-217: Finalizado (7) vuelve con p_ref_date <= su fin ─────────────────────
+  -- Inicio de la semana (09/03) y el propio día (10/03) lo incluyen; el día siguiente no.
+  FOR v_override IN SELECT unnest(ARRAY[11, 12])
+  LOOP
+    PERFORM 1 FROM public.list_loggable_engagements('2026-03-09') e
+     WHERE e.engagement_id = ('70828186-0000-4000-8000-0000000000' || v_override)::uuid;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'FAIL (g): Finalizado LE-% no apareció con p_ref_date = inicio de semana', v_override;
+    END IF;
+    PERFORM 1 FROM public.list_loggable_engagements('2026-03-10') e
+     WHERE e.engagement_id = ('70828186-0000-4000-8000-0000000000' || v_override)::uuid;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'FAIL (g): Finalizado LE-% no apareció con p_ref_date = su propio día', v_override;
+    END IF;
+    PERFORM 1 FROM public.list_loggable_engagements('2026-03-11') e
+     WHERE e.engagement_id = ('70828186-0000-4000-8000-0000000000' || v_override)::uuid;
+    IF FOUND THEN
+      RAISE EXCEPTION 'FAIL (g): Finalizado LE-% apareció con p_ref_date posterior a su fin', v_override;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK (g): Finalizado administrativo y con OT Aprobada vuelven solo si su fin >= p_ref_date';
+
+  -- ── (h) BUG 1028-217: sin p_ref_date el 7 sigue fuera; tampoco sin end_date ─────────────
+  PERFORM 1 FROM public.list_loggable_engagements() e
+   WHERE e.engagement_id = '70828186-0000-4000-8000-000000000011';
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (h): Finalizado apareció sin p_ref_date (debía mantenerse la lista anterior)';
+  END IF;
+  PERFORM 1 FROM public.list_loggable_engagements('2026-03-09') e
+   WHERE e.engagement_id = '70828186-0000-4000-8000-000000000006';  -- LE-06: 7 sin end_date
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (h): Finalizado sin end_date apareció con p_ref_date';
+  END IF;
+  RAISE NOTICE 'OK (h): sin p_ref_date (o sin end_date) el Finalizado sigue excluido';
+
+  -- ── (i) BUG 1028-217: 7 nunca aprobado y Cancelado (6) siguen fuera con p_ref_date ──────
+  PERFORM 1 FROM public.list_loggable_engagements('2026-03-09') e
+   WHERE e.engagement_id IN ('70828186-0000-4000-8000-000000000013',
+                             '70828186-0000-4000-8000-000000000014');
+  IF FOUND THEN
+    RAISE EXCEPTION 'FAIL (i): un Finalizado con OT Pendiente o un Cancelado apareció con p_ref_date';
+  END IF;
+  RAISE NOTICE 'OK (i): Finalizado sin OT aprobada y Cancelado siguen excluidos';
+
   -- ── (e) Sin time_entry.create -- lista vacía aunque existan encargos elegibles ───────────
   PERFORM pg_temp.impersonate('a0828186-0000-4000-8000-000000000002');  -- hr_analyst, SIN time_entry.create
   SELECT count(*) INTO v_count FROM public.list_loggable_engagements();
@@ -198,6 +262,20 @@ BEGIN
     RAISE EXCEPTION 'FAIL (e): un caller sin time_entry.create debía ver 0 filas, vio %', v_count;
   END IF;
   RAISE NOTICE 'OK (e): sin time_entry.create, la lista es vacía (fail-closed)';
+  SELECT count(*) INTO v_count FROM public.list_loggable_engagements('2026-03-09');
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FAIL (e): sin time_entry.create y con p_ref_date debía ver 0 filas, vio %', v_count;
+  END IF;
+  RAISE NOTICE 'OK (e): sin time_entry.create, también vacía con p_ref_date';
+
+  -- ── (j) BUG 1028-217: privilegios de la firma nueva ──────────────────────────────────────
+  IF has_function_privilege('anon', 'public.list_loggable_engagements(date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL (j): anon puede ejecutar list_loggable_engagements(date)';
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.list_loggable_engagements(date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL (j): authenticated no puede ejecutar list_loggable_engagements(date)';
+  END IF;
+  RAISE NOTICE 'OK (j): sin EXECUTE para anon, authenticated sí';
 
   RAISE NOTICE 'LOGGABLE ENGAGEMENTS RPC: ALL CHECKS PASSED (rolled back)';
 END $$;

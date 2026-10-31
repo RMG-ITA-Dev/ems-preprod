@@ -79,12 +79,14 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a1c00000-0000-4000-8000-0000000000c5', 'staff', 'accounting_analyst'),
   ('a1c00000-0000-4000-8000-0000000000c6', 'staff', 'manager');
 
--- E1/E2: encargos normales de dos sociedades y practicas distintas, para los filtros.
+-- E1/E2: encargos normales de practicas distintas, para los filtros. Los dos son de la sociedad A, la del Analista de
+-- Cobranzas: desde el alcance por sociedad (2026-10-28) Cobranzas solo ve cuotas de su sociedad, y esta suite prueba la
+-- mecanica de la lista CON ese rol. El corte entre sociedades se prueba en rls-accounting-society-scope.sql.
 -- E3: ADMINISTRATIVO (funcion <> 1). No deberia aparecer nunca, ni aunque le colguemos
 -- cuotas a mano, que es justamente lo que hace esta prueba.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, practica, funcion, fecha_cierre, society_id, manager_id) VALUES
   ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'CF8 Auditoria Uno', 'CF8-E1', 1, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c2'),
-  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c2', 'CF8 Impuestos Dos', 'CF8-E2', 2, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c2', '51c00000-0000-4000-8000-0000000000c6'),
+  ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c2', 'CF8 Impuestos Dos', 'CF8-E2', 2, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c6'),
   ('e0000000-0000-4000-8000-0000000000c3',
    (SELECT client_id FROM public.clients WHERE tax_id = '1006979026'),
    'CF8 Administrativo', 'CF8-E3', 1, 2, '2026-12-31',
@@ -366,13 +368,17 @@ BEGIN
   -- ══════════════════════════════════════════════════════════════════
   -- 4. Filtros y busqueda
   -- ══════════════════════════════════════════════════════════════════
-  -- Sociedad: la OT en USD es de la sociedad B.
+  -- Sociedad: las dos vencidas son de la sociedad A. Filtrar por A las deja; filtrar por otra sociedad no deja nada.
   v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
-  IF (v_res->>'total_count')::int <> 1 OR (v_res->'rows'->0->>'currency') <> 'BOB' THEN
-    RAISE EXCEPTION 'TEST FAIL - el filtro por sociedad no dejo solo la cuota de la sociedad A';
+  IF (v_res->>'total_count')::int <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por la propia sociedad debia dejar las 2 vencidas, dejo %', v_res->>'total_count';
   END IF;
-  -- Y el total de la cabecera sigue al filtro: ya no hay USD a la vista.
-  IF v_res->'totals'->'en_mora'->>'USD' IS NOT NULL THEN
+  v_res := public.list_collections_installments('en_mora', p_society_id := '50c00000-0000-4000-8000-0000000000c2');
+  IF (v_res->>'total_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - el filtro por otra sociedad no excluyo las cuotas de A';
+  END IF;
+  -- Y el total de la cabecera sigue al filtro: no queda nada a la vista.
+  IF v_res->'totals'->'en_mora'->>'USD' IS NOT NULL OR v_res->'totals'->'en_mora'->>'BOB' IS NOT NULL THEN
     RAISE EXCEPTION 'TEST FAIL - los totales no siguieron al filtro por sociedad';
   END IF;
 
@@ -417,7 +423,7 @@ BEGIN
   -- ══════════════════════════════════════════════════════════════════
   -- 5. Contacto de cobranza en la fila
   -- ══════════════════════════════════════════════════════════════════
-  v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
+  v_res := public.list_collections_installments('en_mora', p_practica := 1);
   IF v_res->'rows'->0->'contact'->>'full_name' <> 'Contacto Cobranza Uno' THEN
     RAISE EXCEPTION 'TEST FAIL - deberia venir el contacto de COBRANZA, vino %', v_res->'rows'->0->'contact'->>'full_name';
   END IF;
@@ -503,7 +509,7 @@ BEGIN
   v_res := public.list_collections_installments('por_cobrar');
   v_txt := v_res->'rows'->0->>'installment_id';
   PERFORM public.set_installment_overdue(v_txt::uuid, 'Invoiced', true);
-  v_res := public.list_collections_installments('en_mora', p_society_id := c_soc_a);
+  v_res := public.list_collections_installments('en_mora', p_practica := 1);
   IF (v_res->>'total_count')::int <> 2 THEN
     RAISE EXCEPTION 'TEST FAIL - la mora manual no aparecio en la pestana en_mora';
   END IF;
@@ -632,9 +638,9 @@ BEGIN
 
   PERFORM pg_temp.impersonate(c_collections);
   v_res := public.collections_filter_options();
-  -- Las dos sociedades con cuotas; la del encargo administrativo no tiene ninguna.
-  IF jsonb_array_length(v_res->'societies') <> 2 THEN
-    RAISE EXCEPTION 'TEST FAIL - deberian venir 2 sociedades con cuotas, vinieron %', jsonb_array_length(v_res->'societies');
+  -- Solo la sociedad con cuotas (la de Cobranzas); la del encargo administrativo no tiene ninguna.
+  IF jsonb_array_length(v_res->'societies') <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - deberia venir 1 sociedad con cuotas, vinieron %', jsonb_array_length(v_res->'societies');
   END IF;
   IF jsonb_array_length(v_res->'practicas') <> 2 THEN
     RAISE EXCEPTION 'TEST FAIL - deberian venir 2 practicas, vinieron %', jsonb_array_length(v_res->'practicas');

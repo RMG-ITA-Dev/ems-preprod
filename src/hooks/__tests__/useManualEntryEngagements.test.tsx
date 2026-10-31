@@ -87,6 +87,48 @@ describe("useManualEntryEngagements", () => {
     expect(result.current.data).toEqual([]);
   });
 
+  // BUG 1028-217: con fecha de referencia, la lista sigue la regla de la Hoja de Tiempo -- solo
+  // encargos cuyo rango incluye la fecha, Finalizados (7) incluidos.
+  describe("with refDate (BUG 1028-217)", () => {
+    const REF = "2026-10-27";
+
+    it("passes p_ref_date to the RPC", async () => {
+      setupMocks([]);
+      const { result } = renderHook(() => useManualEntryEngagements(REF), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements", { p_ref_date: REF });
+    });
+
+    it("keeps a same-day Finalizado (7) on its date", async () => {
+      setupMocks([
+        makeRow({ engagement_id: "eng-fin", engagement_state_override: 7, start_date: REF, end_date: REF }),
+      ]);
+      const { result } = renderHook(() => useManualEntryEngagements(REF), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data!.map((e) => e.engagement_id)).toEqual(["eng-fin"]);
+    });
+
+    it("drops engagements whose range does not include the date, approved ones included", async () => {
+      setupMocks([
+        makeRow({ engagement_id: "eng-fin-other", engagement_state_override: 7, start_date: "2026-10-28", end_date: "2026-10-28" }),
+        makeRow({ engagement_id: "eng-future", start_date: "2026-10-28", end_date: "2026-12-31" }),
+        makeRow({ engagement_id: "eng-open" }),
+      ]);
+      const { result } = renderHook(() => useManualEntryEngagements(REF), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data!.map((e) => e.engagement_id)).toEqual(["eng-open"]);
+    });
+
+    it("still excludes Cancelado (6) within its range", async () => {
+      setupMocks([
+        makeRow({ engagement_id: "eng-cancel", engagement_state_override: 6, start_date: REF, end_date: REF }),
+      ]);
+      const { result } = renderHook(() => useManualEntryEngagements(REF), { wrapper: createWrapper() });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data).toEqual([]);
+    });
+  });
+
   it("returns empty array when the RPC returns no rows", async () => {
     setupMocks([]);
     const { result } = renderHook(() => useManualEntryEngagements(), { wrapper: createWrapper() });

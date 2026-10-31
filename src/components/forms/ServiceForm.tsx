@@ -81,7 +81,9 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
 
   // A service with linked activities cannot have its abbreviation cleared: the
   // activity codes keep their prefix and the RPCs would build a NULL code.
-  const { data: allActivities } = useAllActivityCodes();
+  // Fetched only when editing (1028-215): the form stays mounted inside Settings'
+  // Prácticas tab, and loading activities there broke the per-sub-tab lazy loading.
+  const { data: allActivities, isLoading: allActivitiesLoading } = useAllActivityCodes({ enabled: open && isEdit });
   const hasLinkedActivities =
     isEdit && (allActivities ?? []).some((a) => a.practica_id === service?.practica_id);
 
@@ -308,7 +310,7 @@ export function ServiceForm({ open, onOpenChange, service, usedCodes }: ServiceF
                   type="submit"
                   className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                   loading={createMutation.isPending || updateMutation.isPending}
-                  disabled={noDigitsLeft}
+                  disabled={noDigitsLeft || (isEdit && allActivitiesLoading)}
                 >
                   {isEdit ? t("common.saveChanges") : t("service.createService")}
                 </LoadingButton>

@@ -92,6 +92,12 @@ VALUES
    (SELECT society_id FROM public.society ORDER BY name LIMIT 1),
    'c5c00000-0000-4000-8000-000000000001');
 
+-- trg_apply_category_role_on_staff_link ya le aplicó a U_TARGET (assistant) el rol de la
+-- categoría al insertar S_TARGET vinculado. Este suite prueba el SYNC desde assistant, así
+-- que se vuelve al estado de partida.
+UPDATE public.user_roles SET role = 'staff', role_key = 'assistant'
+ WHERE user_id = 'a5c00000-0000-4000-8000-000000000003';
+
 CREATE FUNCTION pg_temp.impersonate(p_sub text) RETURNS void
 LANGUAGE sql AS $$
   SELECT set_config('request.jwt.claims', json_build_object('sub', p_sub, 'role', 'authenticated')::text, true)

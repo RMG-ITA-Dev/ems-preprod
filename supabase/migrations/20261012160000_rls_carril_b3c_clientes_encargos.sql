@@ -60,7 +60,10 @@ DROP VIEW IF EXISTS public.clients_directory;
 CREATE VIEW public.clients_directory WITH (security_invoker = false) AS
   SELECT c.client_id, c.client_legal_name, c.is_active
     FROM public.clients c
-   WHERE public.get_my_staff_id() IS NOT NULL;
+   WHERE public.get_my_staff_id() IS NOT NULL
+     -- Alcance por sociedad (2026-10-28): la vista es del dueño y no pasa por la RESTRICTIVE "society scope" de clients (d1), así
+     -- que repite el corte. Los conjuntos viven en d1 (posterior); la vista solo se consulta con todas las migraciones aplicadas.
+     AND (NOT public.is_society_scoped_role() OR c.client_id IN (SELECT public.my_society_client_ids()));
 
 COMMENT ON VIEW public.clients_directory IS
   'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por '

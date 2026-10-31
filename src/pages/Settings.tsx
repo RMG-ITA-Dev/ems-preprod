@@ -77,6 +77,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Lock, CheckCircle, AlertTriangle, ArrowUp, ArrowDown, Plus, Edit2, Copy, Calendar as CalendarIcon } from "lucide-react";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
+import { AUTH_MODE_SETTING_KEY } from "@/lib/authMode";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
@@ -163,15 +164,41 @@ const Settings = () => {
   const canActivitiesWrite = can("activity_code.create");
   const canExpenseWrite = can("expense_type.create");
   const { currentLanguage } = useLanguage();
-  
-  const { data: industries, isLoading: industriesLoading } = useIndustries();
+
+  // Controlled tab state
+  const [activeTab, setActiveTab] = useState("account");
+  const isGlobalTabActive = activeTab === "global";
+
+  // Prácticas: sub-tab under the unified "services" tab, gated by each
+  // catalog's own read permission.
+  const [servicesSubTab, setServicesSubTab] = useState<"categories" | "activities">(
+    canRatesTab ? "categories" : "activities"
+  );
+  useEffect(() => {
+    if (servicesSubTab === "categories" && !canRatesTab && canActivitiesTab) setServicesSubTab("activities");
+    if (servicesSubTab === "activities" && !canActivitiesTab && canRatesTab) setServicesSubTab("categories");
+  }, [canRatesTab, canActivitiesTab, servicesSubTab]);
+
+  // 1028-215: each catalog is fetched only while its tab (or Prácticas sub-tab) is
+  // active, so entering Configuración no longer loads every tab up front. Revisits
+  // reuse the in-memory query cache (staleTime 60s, App.tsx).
+  const isIndustriesTab = activeTab === "industries";
+  const isSkillsTab = activeTab === "skills";
+  const isExpenseTypesTab = activeTab === "expense-types";
+  const isServicesTab = activeTab === "services";
+  const isTaxonomiesTab = activeTab === "taxonomies";
+  const isCategoriesSubTab = isServicesTab && servicesSubTab === "categories";
+  const isActivitiesSubTab = isServicesTab && servicesSubTab === "activities";
+
+  const { data: industries, isLoading: industriesLoading } = useIndustries({ enabled: isIndustriesTab });
   const { data: settings, isLoading: settingsLoading } = useGlobalSettings();
-  const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes();
-  const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes();
-  const { data: skills, isLoading: skillsLoading } = useSkills();
-  const { data: services } = useServices();
-  const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies();
-  const { data: engagements } = useEngagements();
+  const { data: activityCodes, isLoading: activitiesLoading } = useAllActivityCodes({ enabled: isActivitiesSubTab });
+  const { data: expenseTypes, isLoading: expenseTypesLoading } = useExpenseTypes({ enabled: isExpenseTypesTab });
+  const { data: skills, isLoading: skillsLoading } = useSkills({ enabled: isSkillsTab });
+  // Servicios (taxonomies) also needs prácticas: its column resolves the práctica name.
+  const { data: services, isLoading: servicesLoading } = useServices({ enabled: isServicesTab || isTaxonomiesTab });
+  const { data: taxonomies, isLoading: taxonomiesLoading } = useTaxonomies({ enabled: isTaxonomiesTab });
+  const { data: engagements } = useEngagements({ enabled: isGlobalTabActive });
   // BUG 0828-186 (Punto C): el encargo de Feriados debe ser administrativo/interno de la
   // firma -- el selector solo ofrece candidatos con is_internal=true. El lookup del
   // encargo ya configurado (línea ~1188, advertencia approval_required) sigue usando la
@@ -216,9 +243,11 @@ const Settings = () => {
 
   // Hold off the query entirely while no práctica is selected — passing a
   // falsy serviceId to useCategories() reads as "all", which would leak
-  // categories from every práctica into this scoped view (0817-177).
+  // categories from every práctica into this scoped view (0817-177). It also waits
+  // for the Categorías sub-tab: prácticas cached by another screen would otherwise
+  // auto-select one and fire this while Cuenta is active (1028-215).
   const { data: categories, isLoading: categoriesLoading } = useCategories(selectedServiceId || undefined, {
-    enabled: !!selectedServiceId,
+    enabled: isCategoriesSubTab && !!selectedServiceId,
   });
 
   // Copy-categories dialog state.
@@ -256,10 +285,6 @@ const Settings = () => {
     [activityCodes, selectedServiceId]
   );
 
-  // Controlled tab state
-  const [activeTab, setActiveTab] = useState("account");
-  const isGlobalTabActive = activeTab === "global";
-
   // Form states
   const [industryFormOpen, setIndustryFormOpen] = useState(false);
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
@@ -282,16 +307,6 @@ const Settings = () => {
   const [taxonomyFormOpen, setTaxonomyFormOpen] = useState(false);
   const [selectedTaxonomy, setSelectedTaxonomy] = useState<Taxonomy | null>(null);
 
-  // Prácticas: sub-tab under the unified "services" tab, gated by each
-  // catalog's own read permission.
-  const [servicesSubTab, setServicesSubTab] = useState<"categories" | "activities">(
-    canRatesTab ? "categories" : "activities"
-  );
-  useEffect(() => {
-    if (servicesSubTab === "categories" && !canRatesTab && canActivitiesTab) setServicesSubTab("activities");
-    if (servicesSubTab === "activities" && !canActivitiesTab && canRatesTab) setServicesSubTab("categories");
-  }, [canRatesTab, canActivitiesTab, servicesSubTab]);
-
   // Switching práctica invalidates whatever category/activity form was mid-edit
   // for the previous one.
   useEffect(() => {
@@ -309,6 +324,7 @@ const Settings = () => {
   const [allowWeekendTracking, setAllowWeekendTracking] = useState<boolean>(false);
   const [compactFont, setCompactFont] = useState<boolean>(false);
   const [allowedEmailDomain, setAllowedEmailDomain] = useState<string>("");
+  const [authMode, setAuthMode] = useState<string>("password");
   const [realizationLimit, setRealizationLimit] = useState<string>("");
   const [holidayEngagementId, setHolidayEngagementId] = useState<string>("");
   const [maxFailedAttempts, setMaxFailedAttempts] = useState<string>("");
@@ -357,6 +373,10 @@ const Settings = () => {
       if (emailDomainSetting) {
         setAllowedEmailDomain(emailDomainSetting.setting_value);
       }
+      // Sin la fila (proyecto sin el seed de bugs/entra-id/01_auth_mode.sql) /auth se comporta
+      // como "password" (src/lib/authMode.ts), así que el selector arranca igual.
+      const authModeSetting = settings.find((s) => s.setting_key === AUTH_MODE_SETTING_KEY);
+      setAuthMode(authModeSetting?.setting_value ?? "password");
       const realizationSetting = settings.find((s) => s.setting_key === "REALIZATION_LIMIT");
       if (realizationSetting) {
         setRealizationLimit(realizationSetting.setting_value);
@@ -379,6 +399,7 @@ const Settings = () => {
     const persistedWeekend = getSetting("ALLOW_WEEKEND_TRACKING") === "true";
     const persistedCompact = getSetting("COMPACT_FONT") === "true";
     const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
+    const persistedAuthMode = getSetting(AUTH_MODE_SETTING_KEY) || "password";
     const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
     const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
     const persistedDailyMin = getSetting("DAILY_MIN") || "8";
@@ -397,6 +418,7 @@ const Settings = () => {
       allowWeekendTracking !== persistedWeekend ||
       compactFont !== persistedCompact ||
       allowedEmailDomain !== persistedDomain ||
+      authMode !== persistedAuthMode ||
       holidayEngagementId !== persistedHolidayEngagement ||
       exchangeRateApiUrl !== persistedExchangeRateApiUrl ||
       (taxRate !== "" && taxRate !== persistedTax) ||
@@ -416,7 +438,7 @@ const Settings = () => {
       (alertWindowWeeks !== "" && alertWindowWeeks !== persistedAlertWindow) ||
       trackingStartDate !== persistedTrackingStart
     );
-  }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain,
+  }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain, authMode,
       holidayEngagementId, taxRate, realizationLimit, dailyMin, dailyMax, weeklyMin, weeklyMax,
       maxFailedAttempts, lockoutMinutes, exchangeRateApiUrl, alertWindowWeeks, trackingStartDate]);
 
@@ -436,6 +458,7 @@ const Settings = () => {
     document.documentElement.dataset.compactFont = persistedCompact ? "true" : "false";
 
     setAllowedEmailDomain(getSetting("ALLOWED_EMAIL_DOMAIN") || "");
+    setAuthMode(getSetting(AUTH_MODE_SETTING_KEY) || "password");
     setHolidayEngagementId(getSetting("HOLIDAY_ENGAGEMENT_ID") || "");
     setTaxRate("");
     setRealizationLimit("");
@@ -861,6 +884,11 @@ const Settings = () => {
       if (allowedEmailDomain) {
         await updateSettingMutation.mutateAsync({ key: "ALLOWED_EMAIL_DOMAIN", value: allowedEmailDomain.trim() });
       }
+      // Solo si cambió: la mutación es update-only y un proyecto sin la fila fallaría en cada
+      // guardado. Solo admin (guard_auth_lockout_settings rechaza a cualquier otro).
+      if (isAdmin && authMode !== (getSetting(AUTH_MODE_SETTING_KEY) || "password")) {
+        await updateSettingMutation.mutateAsync({ key: AUTH_MODE_SETTING_KEY, value: authMode });
+      }
       if (realizationLimit) {
         await updateSettingMutation.mutateAsync({ key: "REALIZATION_LIMIT", value: realizationLimit });
       }
@@ -1148,7 +1176,7 @@ const Settings = () => {
                     columns={categoryColumns}
                     searchPlaceholder={t("common.search")}
                     searchKeys={["category_name"]}
-                    isLoading={categoriesLoading}
+                    isLoading={categoriesLoading || servicesLoading}
                     newButtonLabel={canRatesWrite && canManageChildren ? t("category.newCategory") : undefined}
                     onNewClick={canRatesWrite && canManageChildren ? () => { setSelectedCategory(null); setCategoryFormOpen(true); } : undefined}
                     onRowClick={canRatesWrite && canManageChildren ? (row) => { setSelectedCategory(row); setCategoryFormOpen(true); } : undefined}
@@ -1253,7 +1281,7 @@ const Settings = () => {
                     columns={activityColumns}
                     searchPlaceholder={t("common.search")}
                     searchKeys={["activity_code", "description"]}
-                    isLoading={activitiesLoading}
+                    isLoading={activitiesLoading || servicesLoading}
                     newButtonLabel={canActivitiesWrite ? t("activity.newActivity") : undefined}
                     onNewClick={canActivitiesWrite && canCreateActivities ? () => { setSelectedActivity(null); setActivityFormOpen(true); } : undefined}
                     onRowClick={canActivitiesWrite && canManageChildren ? (row) => { setSelectedActivity(row); setActivityFormOpen(true); } : undefined}
@@ -1388,6 +1416,29 @@ const Settings = () => {
                       />
                       <p className="text-sm text-muted-foreground">{t("settings.allowedEmailDomainHelp")}</p>
                     </div>
+
+                    {/* Sign-in method (AUTH_MODE) — docs/plan-entra-id-consolidado.md */}
+                    {isAdmin && (
+                      <div className="space-y-2 py-4 border-b border-border">
+                        <Label htmlFor="authMode">{t("settings.authMode")}</Label>
+                        <Select value={authMode} onValueChange={setAuthMode}>
+                          <SelectTrigger id="authMode" className="max-w-[300px]" data-testid="auth-mode-select">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="password">{t("settings.authModePassword")}</SelectItem>
+                            <SelectItem value="entra">{t("settings.authModeEntra")}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-sm text-muted-foreground">{t("settings.authModeHelp")}</p>
+                        {authMode === "entra" && (
+                          <Alert>
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertDescription>{t("settings.authModeEntraWarning")}</AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
 
                     {/* Exchange Rate Microservice URL Setting (BUG 0722-156, Fase 1) */}
                     <div className="space-y-2 py-4 border-b border-border">
@@ -1661,7 +1712,7 @@ const Settings = () => {
               columns={taxonomyColumns}
               searchPlaceholder={t("common.search")}
               searchKeys={["name", "code"]}
-              isLoading={taxonomiesLoading}
+              isLoading={taxonomiesLoading || servicesLoading}
               newButtonLabel={t("taxonomy.newTaxonomy")}
               onNewClick={() => { setSelectedTaxonomy(null); setTaxonomyFormOpen(true); }}
               onRowClick={(row) => { setSelectedTaxonomy(row); setTaxonomyFormOpen(true); }}

@@ -63,6 +63,15 @@ CREATE TRIGGER tr_fr_wo_set_manager BEFORE INSERT OR UPDATE OF wo_id ON public.f
 CREATE TRIGGER tr_fr_wo_validate_approved BEFORE INSERT OR UPDATE OF wo_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_validate_approved();
 
 
+-- Alcance por sociedad (2026-10-28): la OT tiene que ser de la sociedad del solicitante (alta, cambio de OT y
+-- cambio de solicitud padre), y el solicitante no puede cambiar a otra sociedad que la de sus OT.
+CREATE TRIGGER tr_fr_wo_enforce_requester_society BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_enforce_requester_society();
+
+CREATE TRIGGER tr_fr_enforce_requester_society BEFORE UPDATE OF requester_staff_id ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_enforce_requester_society();
+
+CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_society_change();
+
+
 --
 --
 -- Name: fund_requests tr_fr_log_event; Type: TRIGGER; Schema: public; Owner: -
@@ -520,6 +529,16 @@ CREATE TRIGGER update_wo_payment_plan_updated_at BEFORE UPDATE ON public.wo_paym
 --
 
 CREATE TRIGGER update_wo_staffing_requirements_updated_at BEFORE UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+
+--
+--
+-- Name: work_orders tr_sync_worksheet_status_from_wo; Type: TRIGGER; Schema: public; Owner: -
+--
+-- 1028-216: AFTER UPDATE sin `OF` -- los BEFORE normalizan columnas que no están en el SET. La función
+-- (cero_02) explica la regla.
+
+CREATE TRIGGER tr_sync_worksheet_status_from_wo AFTER UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.sync_worksheet_status_from_work_order();
 
 
 --

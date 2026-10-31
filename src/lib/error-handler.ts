@@ -1,5 +1,7 @@
 import { toast } from "sonner";
 import { logger } from "@/lib/logger";
+import i18n from "@/i18n";
+import { societyScopeErrorKey } from "@/lib/societyScope";
 
 /**
  * Error codes for categorizing errors
@@ -144,8 +146,11 @@ export function handleError(
     : (typeof error === "object" && error !== null && "message" in error)
       ? String((error as { message: unknown }).message)
       : String(error);
-  const userMessage = getUserFriendlyMessage(errorCode, originalMessage);
-  
+  // Alcance por sociedad: el servidor rechaza con un prefijo estable que merece su propio mensaje
+  // ("no pertenece a su sociedad") en vez del genérico de permisos.
+  const societyKey = societyScopeErrorKey(originalMessage);
+  const userMessage = societyKey ? i18n.t(societyKey) : getUserFriendlyMessage(errorCode, originalMessage);
+
   // Create structured error
   const appError = new AppError(
     userMessage,

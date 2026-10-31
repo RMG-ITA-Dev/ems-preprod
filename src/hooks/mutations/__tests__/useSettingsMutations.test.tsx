@@ -44,7 +44,8 @@ describe("useSettingsMutations", () => {
         { setting_key: "language", setting_value: "es" },
         { onConflict: "setting_key" }
       );
-      expect(toast.success).toHaveBeenCalled();
+      // 1028-215: the caller shows one toast for the whole save, not one per key.
+      expect(toast.success).not.toHaveBeenCalled();
     });
 
     it("updates different setting keys", async () => {

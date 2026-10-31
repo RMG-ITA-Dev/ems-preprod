@@ -45,7 +45,10 @@ SELECT s.staff_id, s.auth_user_id, s.first_name, s.last_name,
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
 FROM (VALUES
   ('50b3c000-0000-4000-8000-000000000002'::uuid, 'a0b3c000-0000-4000-8000-000000000002'::uuid, 'Manager', 'Uno'),
-  ('50b3c000-0000-4000-8000-000000000003'::uuid, 'a0b3c000-0000-4000-8000-000000000003'::uuid, 'Manager', 'Dos')
+  ('50b3c000-0000-4000-8000-000000000003'::uuid, 'a0b3c000-0000-4000-8000-000000000003'::uuid, 'Manager', 'Dos'),
+  -- Cobranza y contabilidad con ficha en la sociedad de los encargos: desde el alcance por sociedad (2026-10-28) sin ficha no ven nada.
+  ('50b3c000-0000-4000-8000-000000000004'::uuid, 'a0b3c000-0000-4000-8000-000000000004'::uuid, 'Cobranza', 'B3b'),
+  ('50b3c000-0000-4000-8000-000000000007'::uuid, 'a0b3c000-0000-4000-8000-000000000007'::uuid, 'Contab', 'B3b')
 ) AS s(staff_id, auth_user_id, first_name, last_name);
 
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, practica, fecha_cierre,
