@@ -24,7 +24,7 @@
 
 BEGIN;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c1028216-0000-4000-8000-000000000001', 'Cliente 1028-216', 'NIT-1028216');
 
 INSERT INTO auth.users (id) VALUES

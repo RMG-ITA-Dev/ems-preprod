@@ -69,7 +69,7 @@ SELECT ('505c0000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        40, '2020-01-01', 'La Paz'
   FROM generate_series(1, 5) n;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c05c0000-0000-4000-8000-00000000000a', 'SOCSCOPE Cliente A',          'SOCSCOPE-A'),
   ('c05c0000-0000-4000-8000-00000000000b', 'SOCSCOPE Cliente B',          'SOCSCOPE-B'),
   ('c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE Cliente Compartido', 'SOCSCOPE-C'),

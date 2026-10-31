@@ -13,7 +13,7 @@
 
 BEGIN;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('61028217-0000-4000-8000-000000000001', 'Cliente 1028-217', 'NIT-1028217');
 
 INSERT INTO auth.users (id) VALUES ('a1028217-0000-4000-8000-000000000001');
