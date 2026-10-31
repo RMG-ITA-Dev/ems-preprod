@@ -168,6 +168,18 @@ export function readJournal(file, { states = STATES } = {}) {
   return parsed;
 }
 
+const journalRenameRetry = (tmp, file) => {
+  let lastError;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try { renameSync(tmp, file); return; } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || attempt === 7) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+    }
+  }
+  throw lastError;
+};
+
 // Checkpoint atómico: archivo temporal, sincronización y reemplazo.
 export function writeJournal(file, journal) {
   const body = { ...journal };
@@ -182,7 +194,7 @@ export function writeJournal(file, journal) {
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, file);
+  journalRenameRetry(tmp, file);
   try {
     const dirFd = openSync(path.dirname(file), "r");
     try {

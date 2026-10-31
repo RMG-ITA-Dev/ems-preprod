@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "environment": "local",
+  "expectedProjectRef": "local",
+  "supabaseUrl": "http://127.0.0.1:54321",
+  "installationId": "f3-ensayo-local-0001",
+  "snapshot": "TimeControlDB_20261023_1200",
+  "technicalAdminId": "00000000-0000-4000-8000-000000000001",
+  "inputs": {
+    "clientEngagements": "C:\\ruta\\privada\\alcance_202610291139_OT_clientes.csv",
+    "planHours": "C:\\ruta\\privada\\202610291232_OT_planificacion_horas.csv",
+    "expenses": "C:\\ruta\\privada\\2026102913_OT_planificacion_gastos.csv",
+    "payments": "C:\\ruta\\privada\\2026102914_OT_plan_pagos.csv",
+    "administrativeEngagements": "C:\\ruta\\privada\\202610291512_OTs_adminitrativas.csv",
+    "executions": "C:\\ruta\\privada\\202610291534_horas_ejecutadas.csv"
+  }
+}

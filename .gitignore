@@ -39,5 +39,6 @@ supabase/.branches/
 scripts/etl/*.config.json
 !scripts/etl/fase1.config.example.json
 !scripts/etl/fase2.config.example.json
+!scripts/etl/fase3.config.example.json
 scripts/etl/*.report.*
 scripts/etl/.tmp/

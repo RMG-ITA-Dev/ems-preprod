@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAuthAdapter, acquireLock, createContext as createFase1Context, Fase1Error, readJournal, sha256, writeJournal } from "./fase1.mjs";
 import { FORBIDDEN_REFS, KNOWN_REFS, REPO_ROOT, connectionGuardProblems, makeRedactor } from "./fase1-db.mjs";
-import { EXPECTED, Fase2InputError, loadInputs, normalizeEmail, resolveIndustryRef, rowSourceHash } from "./fase2-input.mjs";
+import { EXPECTED, Fase2InputError, loadInputs, normalizeEmail, resolveIndustryRef, rowSourceHash, validateRoleAssignment } from "./fase2-input.mjs";
 import { createFase2DbAdapter } from "./fase2-db.mjs";
 
 export const STATES = ["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "CLIENTES_CONFIRMADOS", "STAFF_CONFIRMADO", "CUENTAS_CONFIRMADAS", "ENLACE_Y_ROL_CONFIRMADOS", "VERIFICADO"];
@@ -66,13 +66,18 @@ export async function runPreflight(ctx) {
   const problems = connectionGuardProblems(ctx.config, ctx.env); if (problems.length) throw new Fase1Error("BLOQUEADO", problems.join("; "));
   requireWindow(ctx); const input = ctx.input ?? (await cmdValidate(ctx)).input; const state = await ctx.db.readTargetState(); const catalogs = await ctx.db.readCatalogs();
   const bootstrap = state.bootstrap ?? []; if (bootstrap.length < 1 || !bootstrap.some((x) => normalizeEmail(x.email) === ctx.config.bootstrapAdminEmail && x.role === "admin" && x.role_key === "admin")) throw new Fase1Error("BLOQUEADO", "bootstrap admin/admin de fase 1 ausente");
-  const maps = catalogMaps(catalogs); for (const client of input.clients) if (client.industry_ref) { try { resolveIndustryRef(client.industry_ref, catalogs.industries ?? []); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } } for (const row of input.staff) { const category = maps.category.get(`${row.practica_abbreviation}|${row.category_name}`); if (!maps.society.has(row.society_name) || !category || !category.default_role_key) throw new Fase1Error("BLOQUEADO", `catálogo no resuelto para ${row.staff_source_ref}`); const user = input.users.find((x) => x.staff_source_ref === row.staff_source_ref); if (user.expected_role_key !== category.default_role_key || user.expected_legacy_role === "admin") throw new Fase1Error("BLOQUEADO", `rol esperado no coincide para ${row.staff_source_ref}`); }
+  const maps = catalogMaps(catalogs); for (const client of input.clients) if (client.industry_ref) { try { resolveIndustryRef(client.industry_ref, catalogs.industries ?? []); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } } for (const row of input.staff) { const category = maps.category.get(`${row.practica_abbreviation}|${row.category_name}`); if (!maps.society.has(row.society_name) || !category || !category.default_role_key) throw new Fase1Error("BLOQUEADO", `catálogo no resuelto para ${row.staff_source_ref}`); const user = input.users.find((x) => x.staff_source_ref === row.staff_source_ref); try { validateRoleAssignment(row, user, category.default_role_key); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } }
   if (ctx.stateDir) { ctx.journal = ctx.journal ?? ensureJournal(ctx) ?? journalFor(ctx, input); checkpoint(ctx, { state: "PREFLIGHT_VALIDADO" }); }
   return { ok: true, input, state, catalogs, maps };
 }
 function securePassword() { return randomBytes(32).toString("base64url"); }
 function sourceInactive(staff) { return staff.is_active === "false"; }
 function findContact(input, ref) { return input.contacts.find((row) => row.client_source_ref === ref) ?? null; }
+export function reservedClientMatches(persisted, client, contact, parentClientId, industryId) {
+  if (!persisted || persisted.client_legal_name !== client.client_legal_name || persisted.tax_id !== client.tax_id || persisted.parent_client_id !== parentClientId || persisted.industry_id !== industryId || Boolean(persisted.is_active) !== true) return false;
+  if (!contact) return persisted.contacts?.length === 0;
+  return persisted.contacts?.length === 1 && persisted.contacts[0].full_name === contact.full_name && persisted.contacts[0].email === contact.email && persisted.contacts[0].phone === contact.phone;
+}
 
 export async function load(ctx) {
   const release = acquireLock(ctx.stateDir, ctx.config.installationId, { prefix: "fase2" });
@@ -80,16 +85,25 @@ export async function load(ctx) {
     const pre = await runPreflight(ctx); const { input, maps } = pre; const journal = ctx.journal;
     const clientIds = new Map(Object.entries(journal.clients).map(([ref, item]) => [ref, item.clientId]));
     for (const client of input.clients) {
-      if (journal.clients[client.source_ref]?.state === "confirmado") continue;
+      const existingEntry = journal.clients[client.source_ref];
+      if (existingEntry?.state === "confirmado") continue;
       const clientId = clientIds.get(client.source_ref) ?? randomUUID(); const parentClientId = client.parent_ref ? clientIds.get(client.parent_ref) : null;
       if (client.parent_ref && !parentClientId) throw new Fase1Error("BLOQUEADO", `cliente padre sin confirmar ${client.parent_ref}`);
       let industryId = null; if (client.industry_ref) { try { industryId = resolveIndustryRef(client.industry_ref, pre.catalogs.industries ?? []).industry_id; } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } }
+      const contact = findContact(input, client.source_ref);
+      if (existingEntry?.state === "reservado") {
+        const persisted = await ctx.db.readClientUnit(clientId);
+        if (persisted) {
+          if (!reservedClientMatches(persisted, client, contact, parentClientId, industryId)) throw new Fase1Error("BLOQUEADO", `cliente reservado no coincide con el destino: ${client.source_ref}`);
+          clientIds.set(client.source_ref, clientId); checkpoint(ctx, { clients: { ...ctx.journal.clients, [client.source_ref]: { ...existingEntry, state: "confirmado" } } }); continue;
+        }
+      }
       checkpoint(ctx, { clients: { ...ctx.journal.clients, [client.source_ref]: { clientId, state: "reservado", sourceHash: rowSourceHash(client) } } });
-      await ctx.db.insertClientUnit({ client, contact: findContact(input, client.source_ref), clientId, parentClientId, industryId });
+      await ctx.db.insertClientUnit({ client, contact, clientId, parentClientId, industryId });
       clientIds.set(client.source_ref, clientId); checkpoint(ctx, { clients: { ...ctx.journal.clients, [client.source_ref]: { ...ctx.journal.clients[client.source_ref], state: "confirmado" } } });
     }
     checkpoint(ctx, { state: "CLIENTES_CONFIRMADOS" });
-    const bootstrap = pre.state.bootstrap.find((x) => normalizeEmail(x.email) === ctx.config.bootstrapAdminEmail);
+    const bootstrap = pre.state.bootstrap.find((x) => normalizeEmail(x.email) === ctx.config.bootstrapAdminEmail); let authUsers;
     for (const staff of input.staff) {
       const user = input.users.find((x) => x.staff_source_ref === staff.staff_source_ref); const category = maps.category.get(`${staff.practica_abbreviation}|${staff.category_name}`); const staffId = ctx.journal.staff[staff.staff_source_ref]?.staffId ?? randomUUID();
       if (ctx.journal.staff[staff.staff_source_ref]?.state === "enlace_rol_confirmado") continue;
@@ -97,21 +111,24 @@ export async function load(ctx) {
       if (ctx.journal.staff[staff.staff_source_ref].state === "reservado") { await ctx.db.insertStaff({ staff, staffId, societyId: maps.society.get(staff.society_name), practicaId: category.practica_id, categoryId: category.category_id }); checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...ctx.journal.staff[staff.staff_source_ref], state: "staff_confirmado" } } }); }
       let entry = ctx.journal.staff[staff.staff_source_ref]; let authUserId = entry.authUserId;
       if (!authUserId) {
-        const auth = authFor(ctx); const users = await auth.listAllUsers(); const email = normalizeEmail(user.email); const mine = users.filter((x) => normalizeEmail(x.email) === email);
+        const auth = authFor(ctx); authUsers ??= await auth.listAllUsers(); const email = normalizeEmail(user.email); const mine = authUsers.filter((x) => normalizeEmail(x.email) === email);
         const correlation = entry.correlation ?? randomUUID(); const adopted = mine.find((x) => x.app_metadata?.etl_f2?.installation_id === ctx.config.installationId && x.app_metadata?.etl_f2?.correlation === correlation);
         if (mine.length && !adopted) throw new Fase1Error("BLOQUEADO", `correo Auth existente sin correlación para ${staff.staff_source_ref}`);
         if (adopted) authUserId = adopted.id;
-        else { checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...entry, correlation, state: "auth_intentado" } } }); const created = await auth.createUser({ email, password: securePassword(), email_confirm: true, app_metadata: { etl_f2: { installation_id: ctx.config.installationId, staff_ref_hash: sha256(staff.staff_source_ref), correlation } } }); if (!created.ok) throw new Fase1Error(created.uncertain ? "RECONCILIACION" : "BLOQUEADO", `alta Auth fallida: ${created.message}`); authUserId = created.user.id; }
+        else { checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...entry, correlation, state: "auth_intentado" } } }); const created = await auth.createUser({ email, password: securePassword(), email_confirm: true, app_metadata: { etl_f2: { installation_id: ctx.config.installationId, staff_ref_hash: sha256(staff.staff_source_ref), correlation } } }); if (!created.ok) throw new Fase1Error(created.uncertain ? "RECONCILIACION" : "BLOQUEADO", `alta Auth fallida: ${created.message}`); authUserId = created.user.id; authUsers.push(created.user); }
         checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...ctx.journal.staff[staff.staff_source_ref], authUserId, state: "auth_confirmado" } } });
       }
-      await ctx.db.linkAndRole({ staffId, authUserId, expectedRoleKey: user.expected_role_key, expectedLegacyRole: user.expected_legacy_role, bootstrapUserId: bootstrap.auth_user_id, installationId: ctx.config.installationId }); checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...ctx.journal.staff[staff.staff_source_ref], authUserId, state: "enlace_rol_confirmado" } } });
+      const persisted = await ctx.db.linkAndRole({ staffId, authUserId, expectedRoleKey: user.expected_role_key, expectedLegacyRole: user.expected_legacy_role, bootstrapUserId: bootstrap.auth_user_id, installationId: ctx.config.installationId });
+      if (persisted.auth_user_id !== authUserId || persisted.role_key !== user.expected_role_key || persisted.role !== user.expected_legacy_role) throw new Fase1Error("BLOQUEADO", `enlace/rol no persistido para ${staff.staff_source_ref}`);
+      checkpoint(ctx, { staff: { ...ctx.journal.staff, [staff.staff_source_ref]: { ...ctx.journal.staff[staff.staff_source_ref], authUserId, state: "enlace_rol_confirmado" } } });
     }
     checkpoint(ctx, { state: "ENLACE_Y_ROL_CONFIRMADOS" }); return verify(ctx);
   } finally { release(); }
 }
 export async function verify(ctx) {
   const journal = ctx.journal ?? ensureJournal(ctx); if (!journal) throw new Fase1Error("BLOQUEADO", "verify requiere el journal de fase 2"); ctx.journal = journal; const phase3 = await ctx.db.countPhase3Tables(); if (Object.values(phase3).some((value) => Number(value) !== 0)) throw new Fase1Error("BLOQUEADO", "CA14: hay datos de fase 3");
-  const states = Object.values(journal.staff); if (states.length !== ctx.config.expectations.staff || states.some((entry) => entry.state !== "enlace_rol_confirmado")) throw new Fase1Error("BLOQUEADO", "journal no confirma las 138 fichas/cuentas/roles");
+  const states = Object.values(journal.staff); if (states.length !== ctx.config.expectations.staff || states.some((entry) => entry.state !== "enlace_rol_confirmado")) throw new Fase1Error("BLOQUEADO", `journal no confirma las ${ctx.config.expectations.staff} fichas/cuentas/roles`);
+  const persisted = await ctx.db.readStaffByIds(states.map((entry) => entry.staffId)); if (persisted.length !== states.length || persisted.some((row) => !row.auth_user_id || !row.role_key || !row.role)) throw new Fase1Error("BLOQUEADO", "el destino no confirma fichas/cuentas/roles del journal");
   if (Object.values(journal.probes ?? {}).some((probe) => probe.state === "rotacion_pendiente")) throw new Fase1Error("BLOQUEADO", "hay una sonda de acceso abierta");
   checkpoint(ctx, { state: "VERIFICADO" }); return { ok: true, staffActivityState: "PENDIENTE_CAMBIO_MANUAL", phase3 };
 }

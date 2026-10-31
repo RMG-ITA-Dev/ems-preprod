@@ -7562,6 +7562,8 @@ CREATE TABLE public.time_entries (
     updated_at timestamp with time zone DEFAULT now(),
     period_id uuid,
     is_forecast boolean DEFAULT false,
+    etl_split_index smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT time_entries_etl_split_index_check CHECK ((etl_split_index > 0)),
     CONSTRAINT time_entries_hours_logged_check CHECK ((hours_logged >= (0)::numeric))
 );
 

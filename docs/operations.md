@@ -238,6 +238,8 @@ node scripts/etl/fase2.mjs validate   --config <file>   # offline: CSV, contrato
 node scripts/etl/fase2.mjs preflight  --config <file>   # lectura del destino después de fase 1
 node scripts/etl/fase2.mjs load       --config <file>   # journal externo; sin migraciones
 node scripts/etl/fase2.mjs verify     --config <file>
+node scripts/etl/fase3.mjs validate   --config <file>   # offline: seis CSV F3 y conciliación
+node scripts/etl/fase3.mjs reconcile-legacy --config <file>   # solo lectura: lo cargado contra los CSV legacy (local o Test)
 ```
 
 SQL goes through `psql` (remote = the Supabase pooler, user `postgres.<ref>`) and Auth through the Admin

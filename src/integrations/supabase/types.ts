@@ -2403,6 +2403,7 @@ export type Database = {
           date_worked: string
           description: string | null
           engagement_id: string
+          etl_split_index: number
           hours_logged: number
           is_forecast: boolean | null
           period_id: string | null
@@ -2416,6 +2417,7 @@ export type Database = {
           date_worked: string
           description?: string | null
           engagement_id: string
+          etl_split_index?: number
           hours_logged: number
           is_forecast?: boolean | null
           period_id?: string | null
@@ -2429,6 +2431,7 @@ export type Database = {
           date_worked?: string
           description?: string | null
           engagement_id?: string
+          etl_split_index?: number
           hours_logged?: number
           is_forecast?: boolean | null
           period_id?: string | null

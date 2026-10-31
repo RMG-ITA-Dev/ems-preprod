@@ -1116,7 +1116,7 @@ CREATE INDEX idx_time_entries_staff_date ON public.time_entries USING btree (sta
 -- Name: idx_time_entries_unique_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast);
+CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast, etl_split_index);
 
 
 --

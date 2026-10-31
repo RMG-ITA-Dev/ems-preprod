@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients } from "../fase2-input.mjs";
-import { parseConfig } from "../fase2.mjs";
+import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRoleAssignment } from "../fase2-input.mjs";
+import { parseConfig, reservedClientMatches } from "../fase2.mjs";
 
 const header = (name: keyof typeof HEADERS) => HEADERS[name].join(",");
 const client = (ref: string, parent = "", relation = "") => `${ref},Cliente ${ref},,001,entidad,${parent},${relation},nacional,nit_propio,Industria,Dirección,true,`;
 
 describe("ETL fase 2: entrada offline", () => {
+  it("declara el alcance ampliado de F2 aprobado por el operador", () => {
+    expect(EXPECTED).toMatchObject({ staff: 153, users: 153, activeStaff: 145, inactiveStaff: 8, schedulableStaff: 145 });
+  });
+
+  it("admite sólo los roles especiales aprobados para cada perfil", () => {
+    const staff: any = { staff_source_ref: "legacy:112", category_name: "Asistente" };
+    expect(() => validateRoleAssignment(staff, { expected_role_key: "risk_supervisor", expected_legacy_role: "manager" }, "assistant")).not.toThrow();
+    expect(() => validateRoleAssignment(staff, { expected_role_key: "risk_partner", expected_legacy_role: "partner" }, "assistant")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment({ staff_source_ref: "legacy:999", category_name: "Asistente" }, { expected_role_key: "risk_supervisor", expected_legacy_role: "manager" }, "assistant")).toThrow(/categoría/);
+  });
+
   it("acepta BOM, RFC4180 y conserva un NIT con cero inicial", () => {
     const rows = parseCsv(`\uFEFF${header("clients")}\r\nlegacy:89,"Nombre, S.A.",,001,empresa,,,nacional,nit_propio,Industria,"una\nlínea",true,`, HEADERS.clients, "clientes");
     expect(rows[0].tax_id).toBe("001");
@@ -51,6 +62,12 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => parseConfig(base)).toThrow(/desconocida|credenciales/);
     delete base.apiKey;
     expect(() => parseConfig(base)).toThrow(/alterar expectations/);
+  });
+
+  it("reconcilia una unidad cliente reservada sólo cuando coincide exactamente", () => {
+    const row: any = { client_legal_name: "Cliente", tax_id: "123", industry_ref: "", parent_ref: "" };
+    expect(reservedClientMatches({ client_legal_name: "Cliente", tax_id: "123", parent_client_id: null, industry_id: null, is_active: true, contacts: [] }, row, null, null, null)).toBe(true);
+    expect(reservedClientMatches({ client_legal_name: "Ajeno", tax_id: "123", parent_client_id: null, industry_id: null, is_active: true, contacts: [] }, row, null, null, null)).toBe(false);
   });
 
 });

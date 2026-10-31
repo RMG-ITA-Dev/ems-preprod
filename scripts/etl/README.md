@@ -134,6 +134,47 @@ credenciales, respaldo y tratamiento de las cuentas Auth de ensayo, y una autori
 propia (Test primero; producción tras las tres fases). Producción se reconstruye con un reset total y
 reaplicación de las migraciones, con configuración y mapas propios por proyecto.
 
+## Consola ETL fase 3
+
+Fase 3 prepara y carga por bloques los encargos, matrices, OTs y horas aprobadas definidos en
+`bugs/ETL/carga/fase3/plan_v2.md`. Admite dos destinos y ninguno más (`bugs/ETL/carga/fase4/plan_v1.md`):
+
+- `environment=local`: `expectedProjectRef=local`, `supabaseUrl` loopback y `PGHOST` loopback.
+- `environment=test`: el ref queda fijo en el código (`KNOWN_REFS.test`), `supabaseUrl` debe ser
+  `https://<ref>.supabase.co`, `PGHOST` el pooler (`*.pooler.supabase.com`), `PGUSER=postgres.<ref>` y
+  `ETL_F3_WINDOW_CONFIRMED` (ventana exclusiva). `preflight` comprueba además que `technicalAdminId` sea el
+  administrador bootstrap de F1 (ficha enlazada, rol `admin/admin`). Un journal pertenece a un único ref.
+
+Producción, Dev 2.0 y Lovable siguen rechazados, sin bandera para saltarse la guarda. `ETL_F3_STATE_DIR` es
+absoluto y externo al repositorio. La consola no ejecuta migraciones. Un plan de pago BOB toma el DEFAULT
+efectivo de `wo_payment_plan.exchange_rate` (P-02), que queda registrado en R4 y no es un TC legacy.
+
+```bash
+node scripts/etl/fase3.mjs validate --config scripts/etl/fase3.local.config.json
+node scripts/etl/fase3.mjs preflight --config scripts/etl/fase3.local.config.json
+node scripts/etl/fase3.mjs load --config scripts/etl/fase3.local.config.json --block client-engagements
+node scripts/etl/fase3.mjs verify --config scripts/etl/fase3.local.config.json --block client-engagements
+node scripts/etl/fase3.mjs report --config scripts/etl/fase3.local.config.json
+```
+
+Los bloques son `client-engagements`, `administrative-engagements`, `matrices`, `work-orders` y
+`hours`. Antes de un bloque dependiente debe existir un acta externa con hash de aceptación del
+anterior. Ante resultado incierto se usa `reconcile --resolution <archivo>`: no vuelve a ejecutar
+una RPC mutante a ciegas. `rollback-plan` sólo enumera candidatos propios para revisión; nunca borra
+datos automáticamente. `fase3.config.example.json` es ficticio y no contiene credenciales.
+
+`reconcile-legacy` (solo lectura) concilia lo cargado contra los seis CSV legacy: los totales esperados se
+recalculan desde los CSV y los reales salen de consultas agregadas; el journal solo aporta qué UUID
+corresponde a cada COT. Controla conjuntos, horas presupuestadas, gastos, honorarios y cuotas por COT, horas
+por COT y por persona (descontados los feriados aplicables) y que no existan períodos, aprobaciones ni correos
+enviados. Escribe `fase3-<installationId>.legacy-reconciliation.json` (conteos y sumas, sin PII) y termina en
+`BLOQUEADO` ante cualquier diferencia. El `verify` de la consola solo inventaría períodos, aprobaciones y cola de
+correo; la conciliación de contenido es este comando.
+
+La validación es offline y usa los seis CSV privados, aritmética decimal exacta, la matriz de
+contribuciones y el journal externo. La carga local y `npm run test:rls` requieren un stack local
+separado; no se ejecutan contra un proyecto remoto.
+
 ## Consola ETL fase 2
 
 Fase 2 carga clientes, contactos y fichas/cuentas desde CSV privados después de que Fase 1 haya

@@ -12,11 +12,23 @@ export const HEADERS = Object.freeze({
   services: ["legacy_service_id", "ems_service_name", "equivalence_basis"],
 });
 
-export const EXPECTED = Object.freeze({ clients: 268, contacts: 111, staff: 138, users: 138, rates: 15, services: 46, activeStaff: 130, inactiveStaff: 8, schedulableStaff: 136 });
+export const EXPECTED = Object.freeze({ clients: 268, contacts: 111, staff: 153, users: 153, rates: 15, services: 46, activeStaff: 145, inactiveStaff: 8, schedulableStaff: 145 });
 export const EXCLUDED_CLIENT_REFS = Object.freeze(["legacy:1", "legacy:2", "legacy:3", "legacy:65", "legacy:199"]);
 export const REQUIRED_CLIENT_REFS = Object.freeze(["legacy:89", "NEW-CAINCO", "NEW-AEV", "NEW-RP", "NEW-RJ"]);
 const CLIENT_TYPES = new Set(["entidad", "sucursal", "proyecto", "fideicomiso"]);
 const PARENT_RELATIONSHIPS = new Set(["proyecto_de", "sucursal_de", "administrado_por"]);
+
+export const APPROVED_ROLE_OVERRIDES = Object.freeze({
+  "legacy:3": Object.freeze({ roleKey: "collections_analyst", legacyRole: "senior", categoryName: "Asistente" }),
+  "legacy:4": Object.freeze({ roleKey: "it_security_manager", legacyRole: "manager", categoryName: "Gerente" }),
+  "legacy:7": Object.freeze({ roleKey: "accounting_analyst", legacyRole: "senior", categoryName: "Asistente" }),
+  "legacy:9": Object.freeze({ roleKey: "accounting_manager", legacyRole: "manager", categoryName: "Gerente" }),
+  "legacy:16": Object.freeze({ roleKey: "risk_partner", legacyRole: "partner", categoryName: "Socio" }),
+  "legacy:94": Object.freeze({ roleKey: "hr_manager", legacyRole: "manager", categoryName: "Gerente" }),
+  "legacy:112": Object.freeze({ roleKey: "risk_supervisor", legacyRole: "manager", categoryName: "Asistente" }),
+  "legacy:176": Object.freeze({ roleKey: "hr_analyst", legacyRole: "senior", categoryName: "Asistente" }),
+  "legacy:270": Object.freeze({ roleKey: "hr_analyst", legacyRole: "senior", categoryName: "Asistente" }),
+});
 
 export class Fase2InputError extends Error {
   constructor(message, code = "BLOQUEADO") { super(message); this.name = "Fase2InputError"; this.code = code; }
@@ -152,6 +164,19 @@ export function validateUsers(rows, staff, { expected = EXPECTED, allowedDomain 
   }
   if (seen.size !== staffByRef.size || (enforceExpected && rows.length !== expected.users)) throw new Fase2InputError("usuarios: cobertura o conteo inválido");
   return rows;
+}
+
+export function validateRoleAssignment(staff, user, categoryDefaultRoleKey) {
+  const override = APPROVED_ROLE_OVERRIDES[staff.staff_source_ref];
+  if (override) {
+    if (staff.category_name !== override.categoryName || user.expected_role_key !== override.roleKey || user.expected_legacy_role !== override.legacyRole) {
+      throw new Fase2InputError(`rol especial no coincide con la enmienda aprobada (${staff.staff_source_ref})`);
+    }
+    return;
+  }
+  if (user.expected_role_key !== categoryDefaultRoleKey || user.expected_legacy_role === "admin") {
+    throw new Fase2InputError(`rol esperado no coincide con la categoría (${staff.staff_source_ref})`);
+  }
 }
 
 export function resolveIndustryRef(ref, industries) {

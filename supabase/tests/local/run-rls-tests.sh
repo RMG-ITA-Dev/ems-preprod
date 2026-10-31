@@ -561,5 +561,6 @@ assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES B
 # privilegios con el estado definitivo (después de B5/B6/D1).
 assert_suite supabase/tests/etl-f1-contracts.sql 'ETL F1 CONTRACTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/etl-f2-contracts.sql 'ETL F2 CONTRACTS: ALL CHECKS PASSED'
+assert_suite supabase/tests/etl-f3-contracts.sql 'ETL F3 CONTRACTS: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las suites de RLS/RPC/schema-convergence/trigger y la contractual ETL fase 1 pasaron"

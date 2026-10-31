@@ -2,6 +2,7 @@
 // payload JSON UTF-8 codificado en base64; así no se pasan nombres/accentos por -v en Windows.
 import { randomUUID } from "node:crypto";
 import { Fase1Error, classifySqlFailure, runPsql } from "./fase1-db.mjs";
+import { APPROVED_ROLE_OVERRIDES } from "./fase2-input.mjs";
 
 const LOCK = "ems:etl:fase2";
 export const toPayloadB64 = (value) => Buffer.from(JSON.stringify(value), "utf8").toString("base64");
@@ -62,13 +63,23 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         ON CONFLICT (staff_id) DO NOTHING;`, { staff, staffId, societyId, practicaId, categoryId });
     },
     async linkAndRole({ staffId, authUserId, expectedRoleKey, expectedLegacyRole, bootstrapUserId, installationId }) {
+      const special = Object.values(APPROVED_ROLE_OVERRIDES).some((override) => override.roleKey === expectedRoleKey && override.legacyRole === expectedLegacyRole);
       await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         SELECT set_config('request.jwt.claims', json_build_object('sub',x->>'bootstrapUserId','role','authenticated')::text,true) FROM p;
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
-        SELECT public.sync_user_role_from_category((x->>'staffId')::uuid,x->>'expectedRoleKey','ETL fase 2 ' || (x->>'installationId')) FROM p;`, { staffId, authUserId, expectedRoleKey, expectedLegacyRole, bootstrapUserId, installationId });
+        SELECT CASE WHEN (x->>'special')::boolean
+          THEN public.admin_set_user_role_key((x->>'authUserId')::uuid,x->>'expectedRoleKey','ETL fase 2 ' || (x->>'installationId'))
+          ELSE public.sync_user_role_from_category((x->>'staffId')::uuid,x->>'expectedRoleKey','ETL fase 2 ' || (x->>'installationId')) END FROM p;`, { staffId, authUserId, expectedRoleKey, expectedLegacyRole, bootstrapUserId, installationId, special });
+      const persisted = await query(`SELECT COALESCE((SELECT json_build_object('staff_id',s.staff_id,'auth_user_id',s.auth_user_id,'role',ur.role,'role_key',ur.role_key) FROM public.staff s LEFT JOIN public.user_roles ur ON ur.user_id=s.auth_user_id WHERE s.staff_id=:'staff_id'::uuid),'null'::json)::text;`, { staff_id: staffId });
+      if (!persisted || persisted.auth_user_id !== authUserId || persisted.role_key !== expectedRoleKey || persisted.role !== expectedLegacyRole) throw new Fase1Error("BLOQUEADO", "enlace o rol F2 no quedó persistido con el contrato esperado");
+      return persisted;
     },
     async readClientsByIds(ids) { return query(`SELECT COALESCE(json_agg(row_to_json(x)),'[]'::json)::text FROM (SELECT client_id,client_legal_name,tax_id,parent_client_id,industry_id,is_active FROM public.clients WHERE client_id = ANY(string_to_array(:'ids',',')::uuid[])) x;`, { ids: ids.join(",") }); },
+    async readClientUnit(clientId) { return query(`SELECT COALESCE((SELECT json_build_object(
+      'client_legal_name',c.client_legal_name,'tax_id',c.tax_id,'parent_client_id',c.parent_client_id,'industry_id',c.industry_id,'is_active',c.is_active,
+      'contacts',(SELECT COALESCE(json_agg(json_build_object('full_name',cc.full_name,'email',cc.email,'phone',cc.phone) ORDER BY cc.contact_id),'[]'::json) FROM public.client_contacts cc WHERE cc.client_id=c.client_id)
+    ) FROM public.clients c WHERE c.client_id=:'client_id'::uuid),'null'::json)::text;`, { client_id: clientId }); },
     async readStaffByIds(ids) { return query(`SELECT COALESCE(json_agg(row_to_json(x)),'[]'::json)::text FROM (SELECT s.staff_id,s.auth_user_id,s.termination_date,s.is_active,s.is_schedulable,ur.role,ur.role_key FROM public.staff s LEFT JOIN public.user_roles ur ON ur.user_id=s.auth_user_id WHERE s.staff_id = ANY(string_to_array(:'ids',',')::uuid[])) x;`, { ids: ids.join(",") }); },
     async masterFingerprint() { return query(`SELECT json_build_object('fingerprint',md5(concat_ws('|',(SELECT string_agg(client_id::text||updated_at::text,';' ORDER BY client_id) FROM public.clients),(SELECT string_agg(staff_id::text||auth_user_id::text||termination_date::text,';' ORDER BY staff_id) FROM public.staff))) )::text;`); },
     async countPhase3Tables() { return query(`SELECT json_build_object('engagements',(SELECT count(*) FROM public.engagements),'work_orders',(SELECT count(*) FROM public.work_orders),'time_entries',(SELECT count(*) FROM public.time_entries),'skills',(SELECT count(*) FROM public.skills))::text;`); },
