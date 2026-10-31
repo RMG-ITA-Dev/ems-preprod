@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRoleAssignment } from "../fase2-input.mjs";
 import { parseConfig, reservedClientMatches } from "../fase2.mjs";
@@ -56,7 +57,7 @@ describe("ETL fase 2: entrada offline", () => {
       schemaVersion: 1, environment: "test", expectedProjectRef: "slkqdcwwvmjtcbakajib",
       supabaseUrl: "https://slkqdcwwvmjtcbakajib.supabase.co", installationId: "f2-ensayo-test-0001",
       bootstrapAdminEmail: "admin@ruizmier.com", snapshot: "TimeControlDB_20261023_1200",
-      inputs: Object.fromEntries(["clients", "contacts", "staff", "users", "rates", "services"].map((name) => [name, "C:\\tmp\\x.csv"])),
+      inputs: Object.fromEntries(["clients", "contacts", "staff", "users", "rates", "services"].map((name) => [name, path.resolve(path.sep, "tmp", "x.csv")])),
       expectations: { clients: 1 }, apiKey: "never",
     };
     expect(() => parseConfig(base)).toThrow(/desconocida|credenciales/);

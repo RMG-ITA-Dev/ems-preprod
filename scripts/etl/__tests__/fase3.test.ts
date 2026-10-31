@@ -5,8 +5,10 @@ import path from "node:path";
 import { acceptBlock, assertTarget, createContext, parseConfig, STATES } from "../fase3.mjs";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
+// Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
+const abs = (...parts: string[]) => path.resolve(path.sep, "private", ...parts);
 
-const config = { schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f3-ensayo-local-0001", snapshot: "TimeControlDB_20261023_1200", technicalAdminId: "00000000-0000-4000-8000-000000000001", f2StateDir: "C:\\private\\f2", f2ServicesFile: "C:\\private\\services.csv", f2ClientsFile: "C:\\private\\clients.csv", inputs: Object.fromEntries(["clientEngagements", "planHours", "expenses", "payments", "administrativeEngagements", "executions"].map((name) => [name, "C:\\private\\x.csv"])) };
+const config = { schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f3-ensayo-local-0001", snapshot: "TimeControlDB_20261023_1200", technicalAdminId: "00000000-0000-4000-8000-000000000001", f2StateDir: abs("f2"), f2ServicesFile: abs("services.csv"), f2ClientsFile: abs("clients.csv"), inputs: Object.fromEntries(["clientEngagements", "planHours", "expenses", "payments", "administrativeEngagements", "executions"].map((name) => [name, abs("x.csv")])) };
 describe("ETL fase 3: consola y guardas", () => {
   it("admite únicamente destino local loopback y estados ordenados", () => { expect(parseConfig(config).expectedProjectRef).toBe("local"); expect(STATES.indexOf("VALIDADO")).toBeLessThan(STATES.indexOf("PREFLIGHT_VALIDADO")); });
   it("rechaza endpoints remotos con local, secretos y ambientes no habilitados", () => {
