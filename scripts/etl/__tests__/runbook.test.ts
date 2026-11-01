@@ -63,6 +63,12 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(second).not.toMatch(/load --block work-orders\s*$/m);
     expect(second).toContain('[[ "$before" == "$after" ]]');
   });
+  // Hallazgo de E3 (01/11): por el Session pooler `current_user` es `postgres` (no `postgres.<ref>`); el ref se comprueba en PGUSER.
+  it("el pre-vuelo valida PGUSER con el ref y acepta postgres como rol efectivo del pooler", () => {
+    const pre = read("00-preflight.sh");
+    expect(pre).toContain('"${PGUSER:-}" == "postgres.${TEST_REF}" && "$who" == "postgres"');
+    expect(pre).not.toContain('"$who" == "postgres.${TEST_REF}"');
+  });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
     for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);

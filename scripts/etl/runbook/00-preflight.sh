@@ -29,7 +29,9 @@ if [[ "$ENV_NAME" == "test" ]]; then
   [[ -f scripts/etl/test.config.json ]] && refs+=("$(node -e 'console.log(JSON.parse(require("fs").readFileSync("scripts/etl/test.config.json","utf8")).expectedProjectRef)')")
   for r in "${refs[@]}"; do [[ "$r" == "$TEST_REF" ]] || { rb_warn "ref distinto de Test en un archivo de configuración: $r"; fail=1; }; done
   [[ "$fail" == "0" ]] && rb_pass "el ref de Test coincide en ${#refs[@]} sitios"
-  who="$(rb_scalar "select current_user")"; [[ "$who" == "postgres.${TEST_REF}" ]] && rb_pass "conexión SQL como $who" || { rb_warn "current_user=$who"; fail=1; }
+  # El Session pooler autentica a `postgres.<ref>` (PGUSER) pero dentro de la base el rol efectivo es `postgres`.
+  who="$(rb_scalar "select current_user")"
+  if [[ "${PGUSER:-}" == "postgres.${TEST_REF}" && "$who" == "postgres" ]]; then rb_pass "conexión por el pooler como ${PGUSER} (rol efectivo ${who})"; else rb_warn "PGUSER=${PGUSER:-} current_user=${who} (se esperaba postgres.${TEST_REF} / postgres)"; fail=1; fi
 else
   rb_pass "destino local (Docker): $(rb_scalar "select current_setting('server_version')")"
 fi
