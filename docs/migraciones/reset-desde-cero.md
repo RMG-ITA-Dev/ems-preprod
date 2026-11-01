@@ -10,9 +10,12 @@
 
 ## 0. Qué es esto y cuándo se usa
 
-El "set consolidado" es el conjunto final de 14 migraciones que reemplazó las 184
+El "set consolidado" es el conjunto final de migraciones que reemplazó las 184
 históricas (`supabase/migrations/`: 7 de esquema `cero_01..07` + 7 de seed `cero_10..16`,
-sin datos demo, con catálogo maestro real). Este runbook reconstruye **cualquier** proyecto
+sin datos demo, con catálogo maestro real). Hoy el árbol tiene **61 archivos**: esas 14 más las
+incrementales posteriores. Con la implementación desde cero, los cambios se **editan en el sitio**
+(`cero_*` o la migración incremental que corresponda) y no se crean archivos nuevos; el ledger de un
+proyecto reconstruido debe quedar en 61. Este runbook reconstruye **cualquier** proyecto
 Supabase desde volumen vacío aplicando ese set — típicamente para:
 
 - Resetear el ambiente "Test" cuando queda en un estado inconsistente.
@@ -80,7 +83,7 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
 4. `supabase link --project-ref <REF>` si todavía no está linkeado a ese proyecto.
 5. **Confirmación interactiva obligatoria**: tenés que escribir el project-ref exacto para
    que el script continúe. No hay flag para saltarla.
-6. `supabase db reset --linked` — borra todo y reaplica las 14 migraciones.
+6. `supabase db reset --linked` — borra todo y reaplica las 61 migraciones.
 7. Verifica convergencia (`migration list --linked`, `db push --dry-run --linked`).
 8. Corre `verify-seed.sql` en modo **`preinit`** (`-v etl_f1_mode=preinit`) contra la base real:
    catálogos y configuración definitivos (industrias, gastos, prácticas/categorías, RBAC, ajustes,
@@ -163,6 +166,10 @@ node scripts/etl/fase1.mjs initialize --config <configuración privada>
 node scripts/etl/fase1.mjs verify     --config <configuración privada>
 ```
 
+**Cadena completa F1 → F3 (reset, F1, F2, paso manual de bajas, F3 por bloques y conciliación contra el
+legacy):** `scripts/etl/runbook/` (`run.sh`, README propio), con modo `--env local` para ensayarla y
+`--env test` con el ref de Test fijo. Producción no existe en ese runbook.
+
 La contraseña de `admin@ruizmier.com` es la temporal `ADMIN_TEMP_PASSWORD` con la que la consola crea
 la cuenta; es una cuenta de acceso inicial que **se elimina en el reset de producción**. No la pegue en
 chats ni la guarde en archivos versionados.
@@ -217,8 +224,14 @@ aplicar hacia adelante (sin invocar la lógica de "down"):
 ```bash
 psql "<connection string>" -c "DROP SEQUENCE public.fund_request_number_seq;"
 supabase db push --include-all --linked
-supabase migration list --linked   # confirmar 14/14, Local == Remote
+supabase migration list --linked   # confirmar 61/61, Local == Remote
 ```
+
+**Automatizado:** `scripts/etl/runbook/11-recover-reset.sh` (solo Test) hace este diagnóstico y esta
+corrección con comprobaciones: se detiene si lo que sobrevive no es exactamente esa secuencia, pide
+escribir `DROP fund_request_number_seq`, aplica `db push --include-all --linked`, borra las cuentas de
+Auth (el paso 4b del reset, que no llega a correr cuando el reset aborta) y verifica el ledger (61) y
+`verify-seed` en modo `preinit`. Se usa tras un `10-reset.sh` que cayó aquí; no repita `db reset`.
 
 Un reset *futuro* del mismo proyecto (ya en el historial consolidado) no debería divergir
 así — este problema es específico de la primera vez que se resetea un proyecto con
@@ -285,3 +298,5 @@ ambiente.
 | Fecha | Proyecto | Resultado |
 |---|---|---|
 | 2026-08-23/24 | Test (`slkqdcwwvmjtcbakajib`) | Verde — 14/14 migraciones, 22/22 checks de `verify-seed.sql`, `verify-auth-bootstrap.sh` OK. Incidente del sequence suelto (§6.1) diagnosticado y resuelto en el camino. Admin activado con contraseña real. |
+| 2026-10-28 | Test (`slkqdcwwvmjtcbakajib`) | Reset desde cero con el set de 60 migraciones de entonces: cayó otra vez en el hallazgo §6.1 (misma secuencia suelta, ledger en 0, `auth.users` en 0); corrección manual (`DROP SEQUENCE` y `db push --include-all --linked`), `verify-seed` `preinit` y luego F1 (`initialize`, `verify`, `verify-seed` `initialized`, `verify-auth-bootstrap.sh`) en verde. El paso 4b del script no llegó a ejercitarse contra Test. Detalle en `bugs/ETL/carga/fase1/reporte_ejecucion.md` §10 |
+| 2026-10-31 | Local (stack Docker, ensayos `e1`, `e2` y `e3`) | `scripts/etl/runbook/` completo (reset local, F1, F2, bajas, F3, conciliación contra el legacy y huella L9) sobre las 61 migraciones; sin tocar ningún proyecto remoto |

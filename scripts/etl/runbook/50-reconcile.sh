@@ -10,7 +10,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 RB_NEED_AUTH=0
 rb_init "$@"
 rb_confirm_window
-SKIP_SECOND=0; for a in "${RB_EXTRA_ARGS[@]:-}"; do [[ "$a" == "--skip-second-pass" ]] && SKIP_SECOND=1; done
+SKIP_SECOND=0; RECORD_FP=0; for a in "${RB_EXTRA_ARGS[@]:-}"; do [[ "$a" == "--skip-second-pass" ]] && SKIP_SECOND=1; [[ "$a" == "--record-fingerprint-baseline" ]] && RECORD_FP=1; done
 [[ -f "$(rb_config_path 3)" ]] || rb_die "falta la configuración F3 de esta corrida: ejecute antes el paso 40"
 
 fingerprint() {
@@ -54,6 +54,16 @@ if [[ "$SKIP_SECOND" == "0" ]]; then
   rb_pass "segunda pasada de F3: cero escrituras (huella idéntica)"
   rb_etl 3 reconcile-legacy
 fi
+
+rb_info "2b. Huella L9 por clave natural (comparable entre ambientes)"
+rb_etl 3 fingerprint
+FP_NOW="$STATE_BASE_POSIX/f3/fase3-f3-${ENV_NAME}-${RUN_ID}.fingerprint.json"
+FP_BASE="${ETL_BASELINE_FINGERPRINT:-$REPO_ROOT/bugs/ETL/carga/fase4/fingerprint-baseline.json}"   # bugs/ está en .gitignore; sin datos personales
+if [[ "$RECORD_FP" == "1" ]]; then mkdir -p "$(dirname "$FP_BASE")"; cp "$FP_NOW" "$FP_BASE"; rb_pass "baseline L9 guardado en $(basename "$FP_BASE")"
+elif [[ -f "$FP_BASE" ]]; then
+  node scripts/etl/fase3.mjs compare-fingerprints --a "$(rb_win_path "$FP_BASE")" --b "$(rb_win_path "$FP_NOW")" || rb_die "L9: la huella de ${ENV_NAME} difiere del baseline: cada diferencia se explica o se corrige, no se acepta por defecto"
+  rb_pass "L9: huella idéntica al baseline"
+else rb_warn "sin baseline L9: ejecute el ensayo local con --record-fingerprint-baseline"; [[ "$ENV_NAME" == "test" ]] && rb_die "L9 es requisito de E7: falta el baseline del ensayo local"; fi
 
 rb_info "3. Resumen para el reporte (sin datos personales)"
 rb_counts

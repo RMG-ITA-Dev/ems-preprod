@@ -98,6 +98,47 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'emailsClaimable',(SELECT count(*) FROM public.notification_emails n WHERE n.status IN ('pending','sending') AND n.entity_id IN (SELECT id::text FROM eng UNION SELECT id::text FROM adm))
         )::text;`, { engagementIds, adminEngagementIds, worksheetIds, woIds }));
     },
+    // L9 (Fase 4 §7): hashes por clave natural, sin UUID ni marcas de tiempo, para comparar Test con el ensayo local.
+    // El TC de los planes BOB es el DEFAULT del ambiente (depende de su historial de TC): solo se compara que sea positivo.
+    async fingerprintSnapshot({ engagements }) {
+      if (!Array.isArray(engagements) || engagements.length !== 134) throw new Fase1Error("BLOQUEADO", "huella L9 requiere los 134 encargos del journal");
+      return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
+        cot AS (SELECT e->>'sourceKey' AS cot, (e->>'engagementId')::uuid AS eid, e->>'kind' AS kind FROM p, jsonb_array_elements(p.x->'engagements') e),
+        sh AS (SELECT staff_id, md5(lower(btrim(email))) AS h FROM public.staff),
+        ck AS (SELECT client_id, md5(coalesce(tax_id,'') || '|' || client_legal_name) AS k FROM public.clients),
+        eng AS (SELECT eid FROM cot)
+        SELECT json_build_object(
+          'clients',(SELECT COALESCE(json_agg(json_build_array(ck.k, md5(row(c.client_type,c.operating_name,c.address,pk.k,c.parent_relationship,c.client_origin,c.billing_tax_treatment,i.industry_name,c.is_active)::text))),'[]'::json)
+            FROM public.clients c JOIN ck ON ck.client_id=c.client_id LEFT JOIN ck pk ON pk.client_id=c.parent_client_id LEFT JOIN public.industries i ON i.industry_id=c.industry_id),
+          'contacts',(SELECT COALESCE(json_agg(json_build_array(ck.k || ':' || cc.contact_type, md5(row(cc.full_name,cc.email,cc.phone,cc.is_active)::text))),'[]'::json)
+            FROM public.client_contacts cc JOIN ck ON ck.client_id=cc.client_id),
+          'staff',(SELECT COALESCE(json_agg(json_build_array(sh.h, md5(row(s.first_name,s.last_name,s.id_number,s.short_name,s.initials,s.hire_date,s.termination_date,s.city,so.name,pr.code,ca.category_name,s.is_active,s.is_schedulable,s.is_blocked,s.weekly_capacity_hours,s.target_utilization_percent,ur.role_key,ur.role,(s.auth_user_id IS NOT NULL))::text))),'[]'::json)
+            FROM public.staff s JOIN sh ON sh.staff_id=s.staff_id LEFT JOIN public.society so ON so.society_id=s.society_id LEFT JOIN public.practicas pr ON pr.practica_id=s.practica_id LEFT JOIN public.categories ca ON ca.category_id=s.category_id LEFT JOIN public.user_roles ur ON ur.user_id=s.auth_user_id),
+          'engagements',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(
+              e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,e.fecha_cierre,
+              ck.k,so.name,sv.code,hp.h,hm.h,hs.h,he.h,hit.h,htx.h,
+              ws.status,wsum.hours,wo.currency,wo.season_mode,wo.tax_rate,wo.adjustment_amount,wo.approval_status,wo.risk_status,to_char(wo.approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI'),
+              bl.hours,bl.n,ex.amount,ex.n,pl.payment_days,pl.exchange_rate_mode,CASE WHEN wo.currency='USD' THEN pl.exchange_rate::text ELSE (pl.exchange_rate>0)::text END,
+              ins.h,ins.n,nt.n,nt.h,th.hours,th.n,th.h)::text))),'[]'::json)
+            FROM cot JOIN public.engagements e ON e.engagement_id=cot.eid AND cot.kind='client'
+            LEFT JOIN ck ON ck.client_id=e.client_id LEFT JOIN public.society so ON so.society_id=e.society_id LEFT JOIN public.servicios sv ON sv.taxonomy_id=e.taxonomy_id
+            LEFT JOIN sh hp ON hp.staff_id=e.partner_id LEFT JOIN sh hm ON hm.staff_id=e.manager_id LEFT JOIN sh hs ON hs.staff_id=e.sqr_id LEFT JOIN sh he ON he.staff_id=e.encargado_id LEFT JOIN sh hit ON hit.staff_id=e.specialist_it_id LEFT JOIN sh htx ON htx.staff_id=e.specialist_tax_id
+            LEFT JOIN LATERAL (SELECT w.id, w.status FROM public.activity_worksheets w WHERE w.engagement_id=e.engagement_id ORDER BY w.version DESC LIMIT 1) ws ON true
+            LEFT JOIN LATERAL (SELECT sum(c.budget_hours) AS hours FROM public.activity_worksheet_cells c WHERE c.worksheet_id=ws.id) wsum ON true
+            LEFT JOIN public.work_orders wo ON wo.engagement_id=e.engagement_id
+            LEFT JOIN LATERAL (SELECT sum(l.budgeted_hours) AS hours, count(*) AS n FROM public.wo_budget_lines l WHERE l.wo_id=wo.wo_id) bl ON true
+            LEFT JOIN LATERAL (SELECT sum(b.budgeted_amount) AS amount, count(*) AS n FROM public.wo_expense_budget b WHERE b.wo_id=wo.wo_id) ex ON true
+            LEFT JOIN public.wo_payment_plan pl ON pl.wo_id=wo.wo_id
+            LEFT JOIN LATERAL (SELECT md5(string_agg(row(i.installment_number,i.percentage,i.amount,i.currency,i.status,i.installment_type,i.agreed_invoice_date,i.agreed_payment_date,CASE WHEN wo.currency='USD' THEN i.invoice_exchange_rate::text ELSE (i.invoice_exchange_rate>0)::text END)::text,'|' ORDER BY i.installment_number)) AS h, count(*) AS n FROM public.wo_payment_installments i WHERE i.wo_id=wo.wo_id) ins ON true
+            LEFT JOIN LATERAL (SELECT count(*) AS n, md5(COALESCE(string_agg(nn.body,'|' ORDER BY nn.body),'')) AS h FROM public.wo_installment_notes nn WHERE nn.wo_id=wo.wo_id AND nn.deleted_at IS NULL) nt ON true
+            LEFT JOIN LATERAL (SELECT sum(t.hours_logged) AS hours, count(*) AS n, md5(COALESCE(string_agg(row(t.date_worked,s2.h,ac.activity_code,t.hours_logged,t.is_forecast,t.etl_split_index)::text,'|' ORDER BY t.date_worked,s2.h,ac.activity_code,t.etl_split_index),'')) AS h FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id LEFT JOIN public.activity_codes ac ON ac.activity_id=t.activity_id WHERE t.engagement_id=e.engagement_id) th ON true),
+          'administrative',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,ck.k,so.name,hp.h,hm.h,
+              (SELECT count(*) FROM public.activity_worksheets w WHERE w.engagement_id=e.engagement_id),(SELECT count(*) FROM public.work_orders w2 WHERE w2.engagement_id=e.engagement_id),(SELECT count(*) FROM public.time_entries t WHERE t.engagement_id=e.engagement_id))::text))),'[]'::json)
+            FROM cot JOIN public.engagements e ON e.engagement_id=cot.eid AND cot.kind='administrative' LEFT JOIN ck ON ck.client_id=e.client_id LEFT JOIN public.society so ON so.society_id=e.society_id LEFT JOIN sh hp ON hp.staff_id=e.partner_id LEFT JOIN sh hm ON hm.staff_id=e.manager_id),
+          'hoursByStaff',(SELECT COALESCE(json_agg(json_build_array(q.h, md5(q.hours::text))),'[]'::json) FROM (SELECT s2.h, sum(t.hours_logged) AS hours FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id WHERE t.engagement_id IN (SELECT eid FROM eng) GROUP BY s2.h) q),
+          'emailQueue',(SELECT COALESCE(json_agg(json_build_array(q.k, md5(q.n::text))),'[]'::json) FROM (SELECT n.type_key || '|' || n.status || '|' || COALESCE(n.last_error,'-') AS k, count(*) AS n FROM public.notification_emails n WHERE n.entity_id IN (SELECT eid::text FROM eng) GROUP BY 1) q)
+        )::text;`, { engagements }));
+    },
     async holidayCatalog() {
       return query(`SELECT json_build_object(
         'holidays',(SELECT COALESCE(json_agg(json_build_object('date',holiday_date,'office',oficina,'name',holiday_name) ORDER BY holiday_date,oficina),'[]'::json) FROM public.holidays)
