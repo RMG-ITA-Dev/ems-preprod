@@ -19,7 +19,7 @@ rb_confirm_window
 rb_info "1. Diagnóstico (solo lectura)"
 ledger_table="$(rb_scalar "select coalesce(to_regclass('supabase_migrations.schema_migrations')::text,'')")"
 ledger_rows=0; [[ -n "$ledger_table" ]] && ledger_rows="$(rb_scalar "select count(*) from supabase_migrations.schema_migrations")"
-leftovers="$(rb_scalar "select coalesce(string_agg(c.relname || ':' || c.relkind, ',' order by c.relname), '') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v','m','S','p','f')")"
+leftovers="$(rb_scalar "select coalesce(string_agg(c.relname || ':' || c.relkind::text, ',' order by c.relname), '') from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v','m','S','p','f')")"
 types_left="$(rb_scalar "select count(*) from pg_type t join pg_namespace n on n.oid=t.typnamespace where n.nspname='public' and t.typtype in ('e','d')")"
 funcs_left="$(rb_scalar "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and not exists (select 1 from pg_depend d where d.objid=p.oid and d.deptype='e')")"
 auth_users="$(rb_scalar "select count(*) from auth.users")"

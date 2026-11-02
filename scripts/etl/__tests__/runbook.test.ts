@@ -69,6 +69,12 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(pre).toContain('"${PGUSER:-}" == "postgres.${TEST_REF}" && "$who" == "postgres"');
     expect(pre).not.toContain('"$who" == "postgres.${TEST_REF}"');
   });
+  // Hallazgo de E4 (01/11): `text || "char"` es ambiguo en Postgres; relkind debe convertirse a text en el diagnóstico del §6.1.
+  it("el diagnóstico de la recuperación §6.1 convierte relkind a text antes de concatenar", () => {
+    const recover = read("11-recover-reset.sh");
+    expect(recover).toContain("c.relname || ':' || c.relkind::text");
+    expect(recover).not.toMatch(/c\.relkind(?!::text|\s+in)/);
+  });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
     for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);
