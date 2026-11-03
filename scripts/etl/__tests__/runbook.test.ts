@@ -75,6 +75,13 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(recover).toContain("c.relname || ':' || c.relkind::text");
     expect(recover).not.toMatch(/c\.relkind(?!::text|\s+in)/);
   });
+  // Observación de revisión (01/11): el baseline L9 es la referencia del ensayo local; Test no puede reemplazarlo ni compararse contra uno que no lo sea.
+  it("el baseline L9 solo se registra con --env local y solo se compara contra uno de un ensayo local", () => {
+    const reconcile = read("50-reconcile.sh");
+    expect(reconcile).toContain('[[ "$RECORD_FP" != "1" || "$ENV_NAME" == "local" ]] || rb_die');
+    expect(reconcile.indexOf('"$RECORD_FP" != "1" || "$ENV_NAME" == "local"')).toBeLessThan(reconcile.indexOf("rb_etl 3 fingerprint"));
+    expect(reconcile).toContain('[[ "$base_env" == "local" ]] || rb_die');
+  });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
     for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);

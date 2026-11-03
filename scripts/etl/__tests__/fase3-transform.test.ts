@@ -66,3 +66,12 @@ describe("ETL fase 3: transformaciones", () => {
     expect(result.every((row) => row.sourceKey.startsWith("resolved:s|e|a|2026-06-01|false:"))).toBe(true);
   });
 });
+
+describe("ETL fase 3: redondeo de gastos BOB", () => {
+  const bob = (amount: string) => expensePayload({ legacy_expense_budget_id: "g-bob", legacy_currency_raw: "0", legacy_exchange_rate: "6.96", legacy_amount_usd: amount, legacy_expense_type_id: "2" });
+  it("redondea half-up a centavos, igual que la conciliación (BOB_ROUNDING), sin truncar", () => {
+    expect(bob("10.10")).toMatchObject({ amount: "70.3" }); // 70,296 → 70,30 (truncar daba 70,29)
+    expect(bob("10.01")).toMatchObject({ amount: "69.67" }); // 69,6696 → 69,67 (truncar daba 69,66)
+    expect(bob("100")).toMatchObject({ amount: "696" });
+  });
+});

@@ -129,7 +129,7 @@ export async function verify(ctx) {
   const journal = ctx.journal ?? ensureJournal(ctx); if (!journal) throw new Fase1Error("BLOQUEADO", "verify requiere el journal de fase 2"); ctx.journal = journal; const phase3 = await ctx.db.countPhase3Tables(); if (Object.values(phase3).some((value) => Number(value) !== 0)) throw new Fase1Error("BLOQUEADO", "CA14: hay datos de fase 3");
   const states = Object.values(journal.staff); if (states.length !== ctx.config.expectations.staff || states.some((entry) => entry.state !== "enlace_rol_confirmado")) throw new Fase1Error("BLOQUEADO", `journal no confirma las ${ctx.config.expectations.staff} fichas/cuentas/roles`);
   const persisted = await ctx.db.readStaffByIds(states.map((entry) => entry.staffId)); if (persisted.length !== states.length || persisted.some((row) => !row.auth_user_id || !row.role_key || !row.role)) throw new Fase1Error("BLOQUEADO", "el destino no confirma fichas/cuentas/roles del journal");
-  if (Object.values(journal.probes ?? {}).some((probe) => probe.state === "rotacion_pendiente")) throw new Fase1Error("BLOQUEADO", "hay una sonda de acceso abierta");
+  if (Object.values(journal.probes ?? {}).some((probe) => probe.state !== "cerrada")) throw new Fase1Error("BLOQUEADO", "hay una sonda de acceso abierta o con acceso fallido");
   checkpoint(ctx, { state: "VERIFICADO" }); return { ok: true, staffActivityState: "PENDIENTE_CAMBIO_MANUAL", phase3 };
 }
 export function report(ctx) { const journal = ctx.journal ?? ensureJournal(ctx); if (!journal) throw new Fase1Error("BLOQUEADO", "report requiere journal"); const date = new Intl.DateTimeFormat("es-BO", { timeZone: "America/La_Paz" }).format(new Date()); const report = { fecha: date, installationId: journal.installationId, projectRef: journal.projectRef, R1: journal.inputs, R2: { state: journal.state }, R3: { clients: Object.keys(journal.clients).length, staff: Object.keys(journal.staff).length }, R4: "sin PII ni secretos", R5: "PENDIENTE_CAMBIO_MANUAL" }; const file = path.join(ctx.stateDir, `fase2-${ctx.config.installationId}.report.json`); writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 }); return { ok: true, file }; }
@@ -140,7 +140,15 @@ export async function probeAccess(ctx, staffRef, { manual = false } = {}) {
   const password = manual ? ctx.env.ETL_F2_PROBE_PASSWORD : securePassword(); if (manual && !password) throw new Fase1Error("CONFIG", "--manual requiere ETL_F2_PROBE_PASSWORD");
   const updated = await authFor(ctx).updateUserById(entry.authUserId, { password }); if (!updated.ok) throw new Fase1Error(updated.uncertain ? "RECONCILIACION" : "BLOQUEADO", "no se pudo fijar la contraseña de sondeo");
   if (manual) return { ok: true, state: "rotacion_pendiente" };
-  const rotated = await authFor(ctx).updateUserById(entry.authUserId, { password: securePassword() }); if (!rotated.ok) throw new Fase1Error("RECONCILIACION", "no se pudo rotar la contraseña de sondeo");
+  // Plan §4.5: antes de rotar se prueba el acceso real: login con la clave temporal y get_my_staff_id() = ficha propia.
+  const auth = authFor(ctx); let failure = null;
+  const login = await auth.login(updated.user?.email, password);
+  if (!login.ok) failure = `el login de sondeo falló (HTTP ${login.status ?? "?"})`;
+  else if (login.userId !== entry.authUserId) failure = "el login de sondeo devolvió una cuenta distinta de la registrada";
+  else { const staffId = await auth.myStaffId(login.accessToken); if (staffId !== entry.staffId) failure = `get_my_staff_id() devolvió '${staffId ?? "null"}' en vez de la ficha propia`; }
+  // La clave temporal se rota siempre (no queda ninguna cuenta con una clave conocida); si el acceso falló la sonda queda abierta.
+  const rotated = await auth.updateUserById(entry.authUserId, { password: securePassword() }); if (!rotated.ok) throw new Fase1Error("RECONCILIACION", "no se pudo rotar la contraseña de sondeo");
+  if (failure) { checkpoint(ctx, { probes: { ...ctx.journal.probes, [staffRef]: { state: "acceso_fallido", at: new Date().toISOString() } } }); throw new Fase1Error("LOGIN", failure); }
   checkpoint(ctx, { probes: { ...ctx.journal.probes, [staffRef]: { state: "cerrada", at: new Date().toISOString() } } }); return { ok: true, state: "cerrada" };
 }
 export async function probeClose(ctx, staffRef) { ctx.journal = ctx.journal ?? ensureJournal(ctx); const entry = ctx.journal?.staff?.[staffRef]; if (!entry) throw new Fase1Error("BLOQUEADO", "ficha de sonda desconocida"); const result = await authFor(ctx).updateUserById(entry.authUserId, { password: securePassword() }); if (!result.ok) throw new Fase1Error("RECONCILIACION", "no se pudo cerrar la sonda"); checkpoint(ctx, { probes: { ...ctx.journal.probes, [staffRef]: { state: "cerrada", at: new Date().toISOString() } } }); return { ok: true, state: "cerrada" }; }

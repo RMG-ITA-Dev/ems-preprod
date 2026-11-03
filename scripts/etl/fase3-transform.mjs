@@ -126,9 +126,10 @@ export function seasonForIndustry(legacyIndustryId) { return [10, 12, 37].includ
 export function adjustedFee(standardFee, budgetHours) { return formatUnits(decimalUnits(budgetHours) - decimalUnits(standardFee)); }
 export function feeWithTax(adjusted) { const units = decimalUnits(adjusted); return formatUnits((units * 100n + 43n) / 87n); }
 export function expensePayload(row) {
+  // BOB: importe × TC redondeado half-up a centavos, igual que BOB_ROUNDING de fase3-reconcile.mjs (plan_v2 §3).
   const amount = decimalUnits(row.legacy_amount_usd); const currency = String(row.legacy_currency_raw ?? "").trim() === "1" ? "USD" : "BOB"; const rate = currency === "BOB" ? decimalUnits(row.legacy_exchange_rate) : null;
   if (amount < 0n || (currency === "BOB" && rate <= 0n)) throw new Error(`gasto/TC inválido: ${row.legacy_expense_budget_id}`);
-  return { ...row, currency, amount: formatUnits(currency === "BOB" ? amount * rate / 100n : amount), expense_type: ({ 2: "Viaje", 3: "Comunicaciones", 4: "Reproducción", 5: "Movilidad", 6: "Circularización" })[Number(row.legacy_expense_type_id)] };
+  return { ...row, currency, amount: formatUnits(currency === "BOB" ? (amount * rate + 50n) / 100n : amount), expense_type: ({ 2: "Viaje", 3: "Comunicaciones", 4: "Reproducción", 5: "Movilidad", 6: "Circularización" })[Number(row.legacy_expense_type_id)] };
 }
 
 const roundRatio = (numerator, denominator) => (numerator * 2n + denominator) / (2n * denominator);

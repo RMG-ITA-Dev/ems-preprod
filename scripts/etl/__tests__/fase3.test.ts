@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertTarget, createContext, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertTarget, createContext, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
 // Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
@@ -47,5 +47,30 @@ describe("ETL fase 3: consola y guardas", () => {
     ctx.journal.units["client-engagements"] = { state: "CONFIRMADA" };
     acceptBlock(ctx, "client-engagements", "a".repeat(64));
     expect(ctx.journal.blocks["client-engagements"].evidenceHash).toBe("a".repeat(64));
+  });
+});
+
+describe("ETL fase 3: horas y bloqueo de instalación", () => {
+  const newCtx = () => createContext({ config: parseConfig(config), stateDir: mkdtempSync(path.join(os.tmpdir(), "etl-f3-")), db: {} });
+
+  it("el bloque hours rechaza la operación create: no registra un éxito sin insertar horas", async () => {
+    const ctx = newCtx(); ctx.journal.blocks["work-orders"] = { acceptedAt: "2026-11-01T00:00:00.000Z" };
+    await expect(load(ctx, "hours")).rejects.toThrow(/--operation hours/);
+    expect(ctx.journal.units.hours).toBeUndefined();
+  });
+
+  it("dos comandos que escriben sobre la misma instalación no pueden correr a la vez", () => {
+    const ctx = newCtx();
+    const release = lockInstallation(ctx, "load");
+    expect(() => lockInstallation(ctx, "accept")).toThrow(/otra ejecución/);
+    release();
+    const again = lockInstallation(ctx, "load"); again();
+  });
+
+  it("los comandos de solo lectura no toman el bloqueo", () => {
+    const ctx = newCtx();
+    const release = lockInstallation(ctx, "load");
+    for (const command of ["validate", "report", "fingerprint", "reconcile-legacy"]) expect(() => lockInstallation(ctx, command)()).not.toThrow();
+    release();
   });
 });

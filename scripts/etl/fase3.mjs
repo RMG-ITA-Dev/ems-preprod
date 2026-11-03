@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProblems } from "./fase1-db.mjs";
-import { sha256 } from "./fase1.mjs";
+import { acquireLock, sha256 } from "./fase1.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
 import { isMigrableExecution, readInput, validateInputs } from "./fase3-input.mjs";
 import { HEADERS as F2_HEADERS, parseCsv } from "./fase2-input.mjs";
@@ -554,6 +554,16 @@ async function loadEngagementBlock(ctx, block, prepared, unit) {
   }
   return { recovered: false, engagements: found };
 }
+// Cada comando que escribe el journal toma el bloqueo de instalación durante toda su ejecución (como F1 y F2): dos
+// `load` simultáneos podrían ver ambos «sin encargos», reservar intenciones distintas y crear dos lotes.
+const LOCKED_COMMANDS = ["preflight", "load", "verify", "accept", "reconcile"];
+export function lockInstallation(ctx, command) {
+  if (!LOCKED_COMMANDS.includes(command)) return () => {};
+  const unlock = acquireLock(ctx.stateDir, ctx.config.installationId, { prefix: "fase3" });
+  const onSignal = () => { unlock(); process.exit(1); };
+  process.once("SIGINT", onSignal); process.once("SIGTERM", onSignal);
+  return () => { process.off("SIGINT", onSignal); process.off("SIGTERM", onSignal); unlock(); };
+}
 export async function load(ctx, block, operation = "create") {
   if (!BLOCKS.includes(block)) bad("bloque F3 inválido"); const prior = previousBlock(block); if (prior && !ctx.journal.blocks[prior]?.acceptedAt) throw new Fase1Error("BLOQUEADO", `falta acta aceptada de ${prior}`);
   if (operation === "sync-work-orders") {
@@ -590,6 +600,7 @@ export async function load(ctx, block, operation = "create") {
     return containOwnEmails(ctx, ctx.journal.units["work-orders"]);
   }
   if (operation !== "create") bad(`operación F3 inválida: ${operation}`);
+  if (block === "hours") bad("el bloque hours se carga con --operation hours: la operación create no inserta horas");
   const validated = ctx.inputs ? { inputs: ctx.inputs, matrix: buildMatrixArtifacts({ engagements: ctx.inputs.clientEngagements, planRows: ctx.inputs.planHours }) } : await validate(ctx);
   const prepared = { ...validated, engagementPayloads: await prepareEngagementPayloads(ctx, validated.inputs) };
   const unit = ctx.journal.units[block];
@@ -608,10 +619,8 @@ export async function load(ctx, block, operation = "create") {
     checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...(ctx.journal.units["work-orders"] ?? unit), state: "CONFIRMADA", result, confirmedAt: new Date().toISOString() } } });
     return result;
   }
-  const pending = unit ?? { id: randomUUID(), state: "INTENCION_DURABLE", inputHash: sha256(stable(prepared.inputs.fingerprints)) };
-  checkpoint(ctx, { units: { ...ctx.journal.units, [block]: pending } });
-  const result = await ctx.db.executeBlock({ block, technicalAdminId: ctx.config.technicalAdminId, payload: { block, unitId: pending.id, inputHash: pending.inputHash } });
-  checkpoint(ctx, { units: { ...ctx.journal.units, [block]: { ...pending, state: "CONFIRMADA", result } } }); return result;
+  // Todo bloque tiene su cargador arriba; este camino ya no puede marcar un bloque como confirmado sin escribir nada.
+  bad(`bloque sin cargador: ${block}`);
 }
 export async function verify(ctx, block) { if (block && !ctx.journal.units[block]?.state?.startsWith("CONFIRMADA")) throw new Fase1Error("BLOQUEADO", `bloque no confirmado: ${block}`); const inventory = await ctx.db.inventory(); const state = block === "hours" ? "HORAS_VERIFICADAS" : ctx.journal.state; requireState(ctx, state); checkpoint(ctx, { inventoryAfter: inventory }); return { ok: true, inventory }; }
 export function reconcile(ctx, resolution) { if (!resolution || !resolution.identity || !resolution.justification || !resolution.evidenceHash) throw new Fase1Error("BLOQUEADO", "resolución manual insuficiente"); checkpoint(ctx, { resolutions: [...(ctx.journal.resolutions ?? []), { ...resolution, reconciledAt: new Date().toISOString() }] }); return { ok: true }; }
@@ -663,5 +672,5 @@ export function compareFingerprintFiles({ a, b }) {
 }
 export function rollbackPlan(ctx) { return { ok: true, eligible: Object.entries(ctx.journal.units).filter(([, unit]) => unit.state === "CONFIRMADA").map(([block, unit]) => ({ block, unitId: unit.id, action: "revisión manual; no borrar automáticamente" })) }; }
 function args(argv) { const [command, ...tail] = argv; const flags = {}; for (let i = 0; i < tail.length; i += 1) { if (tail[i] === "--config") flags.config = tail[++i]; else if (tail[i] === "--block") flags.block = tail[++i]; else if (tail[i] === "--resolution") flags.resolution = tail[++i]; else if (tail[i] === "--evidence-hash") flags.evidenceHash = tail[++i]; else if (tail[i] === "--operation") flags.operation = tail[++i]; else if (tail[i] === "--a") flags.a = tail[++i]; else if (tail[i] === "--b") flags.b = tail[++i]; else bad(`argumento desconocido: ${tail[i]}`); } return { command, ...flags }; }
-export async function main(argv = process.argv.slice(2), env = process.env) { try { const parsed = args(argv); if (parsed.command === "compare-fingerprints") return compareFingerprintFiles(parsed); if (!parsed.config || !["validate", "preflight", "load", "verify", "accept", "report", "rollback-plan", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) bad("uso: fase3 <validate|preflight|load|verify|accept|report|rollback-plan|reconcile|reconcile-legacy|fingerprint> --config <archivo>  |  fase3 compare-fingerprints --a <huella> --b <huella>"); const ctx = createContext({ config: parseConfig(readJson(parsed.config)), env, stateDir: resolveStateDir(env) }); if (["preflight", "load", "verify", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) assertTarget(ctx.config, env); if (parsed.command === "validate") await validate(ctx); else if (parsed.command === "reconcile-legacy") await reconcileLegacy(ctx); else if (parsed.command === "fingerprint") await fingerprintCommand(ctx); else if (parsed.command === "preflight") await preflight(ctx); else if (parsed.command === "load") await load(ctx, parsed.block, parsed.operation); else if (parsed.command === "verify") await verify(ctx, parsed.block); else if (parsed.command === "accept") acceptBlock(ctx, parsed.block, parsed.evidenceHash); else if (parsed.command === "report") report(ctx); else if (parsed.command === "rollback-plan") rollbackPlan(ctx); else reconcile(ctx, readJson(parsed.resolution)); return 0; } catch (error) { console.error(`ERROR [${error.code ?? "ERROR"}]: ${error.message}`); return error.code === "BLOQUEADO" ? 2 : 1; } }
+export async function main(argv = process.argv.slice(2), env = process.env) { try { const parsed = args(argv); if (parsed.command === "compare-fingerprints") return compareFingerprintFiles(parsed); if (!parsed.config || !["validate", "preflight", "load", "verify", "accept", "report", "rollback-plan", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) bad("uso: fase3 <validate|preflight|load|verify|accept|report|rollback-plan|reconcile|reconcile-legacy|fingerprint> --config <archivo>  |  fase3 compare-fingerprints --a <huella> --b <huella>"); const ctx = createContext({ config: parseConfig(readJson(parsed.config)), env, stateDir: resolveStateDir(env) }); if (["preflight", "load", "verify", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) assertTarget(ctx.config, env); const release = lockInstallation(ctx, parsed.command); try { if (parsed.command === "validate") await validate(ctx); else if (parsed.command === "reconcile-legacy") await reconcileLegacy(ctx); else if (parsed.command === "fingerprint") await fingerprintCommand(ctx); else if (parsed.command === "preflight") await preflight(ctx); else if (parsed.command === "load") await load(ctx, parsed.block, parsed.operation); else if (parsed.command === "verify") await verify(ctx, parsed.block); else if (parsed.command === "accept") acceptBlock(ctx, parsed.block, parsed.evidenceHash); else if (parsed.command === "report") report(ctx); else if (parsed.command === "rollback-plan") rollbackPlan(ctx); else reconcile(ctx, readJson(parsed.resolution)); } finally { release(); } return 0; } catch (error) { console.error(`ERROR [${error.code ?? "ERROR"}]: ${error.message}`); return error.code === "BLOQUEADO" ? 2 : 1; } }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

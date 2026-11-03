@@ -1,7 +1,9 @@
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRoleAssignment } from "../fase2-input.mjs";
-import { parseConfig, reservedClientMatches } from "../fase2.mjs";
+import { parseConfig, probeAccess, reservedClientMatches } from "../fase2.mjs";
 
 const header = (name: keyof typeof HEADERS) => HEADERS[name].join(",");
 const client = (ref: string, parent = "", relation = "") => `${ref},Cliente ${ref},,001,entidad,${parent},${relation},nacional,nit_propio,Industria,Dirección,true,`;
@@ -71,4 +73,34 @@ describe("ETL fase 2: entrada offline", () => {
     expect(reservedClientMatches({ client_legal_name: "Ajeno", tax_id: "123", parent_client_id: null, industry_id: null, is_active: true, contacts: [] }, row, null, null, null)).toBe(false);
   });
 
+});
+
+describe("ETL fase 2: sondeo de acceso (plan §4.5)", () => {
+  const entry = { state: "enlace_rol_confirmado", authUserId: "auth-1", staffId: "staff-1", sourceInactive: false };
+  const newCtx = (auth: any) => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "etl-f2-probe-"));
+    return { stateDir: dir, journalFile: path.join(dir, "fase2-f2-prueba.journal.json"), config: {}, env: {}, auth, log: () => {}, journal: { installationId: "f2-prueba", state: "PREFLIGHT_VALIDADO", staff: { "legacy:1": entry }, probes: {} } };
+  };
+  const authWith = (login: any, myStaffId: string | null) => { const calls: any[] = []; return { calls, updateUserById: async (_id: string, attrs: any) => { calls.push(["update", attrs.password]); return { ok: true, user: { email: "p@ruizmier.com" } }; }, login: async (email: string, password: string) => { calls.push(["login", email, password]); return login; }, myStaffId: async () => myStaffId }; };
+
+  it("prueba login y get_my_staff_id() con la clave temporal antes de rotarla, y cierra la sonda", async () => {
+    const auth = authWith({ ok: true, accessToken: "t", userId: "auth-1" }, "staff-1"); const ctx: any = newCtx(auth);
+    await expect(probeAccess(ctx, "legacy:1")).resolves.toMatchObject({ ok: true, state: "cerrada" });
+    expect(auth.calls.map((c: any[]) => c[0])).toEqual(["update", "login", "update"]);
+    expect(auth.calls[1][1]).toBe("p@ruizmier.com");
+    expect(auth.calls[1][2]).toBe(auth.calls[0][1]);
+    expect(auth.calls[2][1]).not.toBe(auth.calls[0][1]);
+    expect(ctx.journal.probes["legacy:1"].state).toBe("cerrada");
+  });
+
+  it.each([
+    ["el login falla", { ok: false, status: 400 }, "staff-1", /login de sondeo falló/],
+    ["el login devuelve otra cuenta", { ok: true, accessToken: "t", userId: "otra" }, "staff-1", /cuenta distinta/],
+    ["get_my_staff_id() no es la ficha propia", { ok: true, accessToken: "t", userId: "auth-1" }, null, /get_my_staff_id\(\) devolvió/],
+  ])("si %s, rota igual la clave, deja la sonda fallida y no reporta éxito", async (_name, login, staffId, message) => {
+    const auth = authWith(login, staffId as string | null); const ctx: any = newCtx(auth);
+    await expect(probeAccess(ctx, "legacy:1")).rejects.toThrow(message as RegExp);
+    expect(auth.calls.filter((c: any[]) => c[0] === "update")).toHaveLength(2);
+    expect(ctx.journal.probes["legacy:1"].state).toBe("acceso_fallido");
+  });
 });
