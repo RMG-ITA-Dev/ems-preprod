@@ -58,15 +58,19 @@ SELECT ('57e00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c7e00000-0000-4000-8000-000000000001', 'FEVT Cliente SA', 'FEVT-7E01');
 
+-- BUG 0923-202: el solicitante (staff 1) es el encargado de los dos encargos; sin un lugar en el equipo (o una
+-- asignacion) no podria pedir fondos contra sus OT.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
-                                manager_id, created_by_staff_id, fecha_cierre, society_id)
+                                manager_id, encargado_id, created_by_staff_id, fecha_cierre, society_id)
 VALUES
   ('e7e00000-0000-4000-8000-000000000001', 'c7e00000-0000-4000-8000-000000000001',
    'FEVT Encargo Uno', '7E01', '57e00000-0000-4000-8000-000000000002',
+   '57e00000-0000-4000-8000-000000000001',
    '57e00000-0000-4000-8000-000000000002', '2026-12-31',
    (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
   ('e7e00000-0000-4000-8000-000000000002', 'c7e00000-0000-4000-8000-000000000001',
    'FEVT Encargo Dos', '7E02', '57e00000-0000-4000-8000-000000000003',
+   '57e00000-0000-4000-8000-000000000001',
    '57e00000-0000-4000-8000-000000000003', '2026-12-31',
    (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 

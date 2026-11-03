@@ -996,6 +996,7 @@
     "onlyRuizmierEmail": "Solo se permiten correos @{{domain}}.",
     "societyScopeForbidden": "Este registro es de otra sociedad; solo puede trabajar con encargos y órdenes de trabajo de su sociedad.",
     "fundRequestSocietyMismatch": "Una solicitud de fondos solo puede incluir órdenes de trabajo de la sociedad del solicitante.",
+    "fundRequestEngagementForbidden": "No está autorizado a pedir fondos para ese encargo: debe formar parte de su equipo o estar asignado a él.",
     "engagementSocietyLocked": "El encargo tiene solicitudes de fondos abiertas; ciérrelas o cancélelas antes de cambiar su sociedad."
   },
   "form": {
@@ -2676,14 +2677,14 @@
     "missingToAllocate": "Falta por distribuir",
     "overAllocated": "Exceso distribuido",
     "noApprovedWorkOrders": "No hay OTs aprobadas disponibles",
-    "noApprovedWorkOrdersHelp": "Pida al equipo que apruebe una OT y que su encargo tenga gerente asignado antes de continuar.",
+    "noApprovedWorkOrdersHelp": "En encargos de cliente solo aparecen las OTs donde usted forma parte del equipo o está asignado al encargo. La OT además debe estar aprobada y su encargo debe tener gerente.",
     "noAllocationsYet": "Aún no hay OTs asignadas. Agregue al menos una.",
     "noManagersAvailable": "No hay gerentes disponibles para asignar. Verifique que existan miembros del staff con categoría Gerente o Director.",
     "prereq": {
       "title": "No puede crear la solicitud todavía",
       "noManagers": "No hay gerentes activos en el sistema para asignar como aprobador.",
       "noApprovedWos": "No hay órdenes de trabajo en estado Aprobado. Solicite a su equipo aprobar al menos una antes de continuar.",
-      "noUsableWos": "No hay órdenes de trabajo aprobadas con gerente asignado en su engagement. Pida que se apruebe una OT y que su engagement tenga gerente antes de continuar."
+      "noUsableWos": "No tiene órdenes de trabajo disponibles. En encargos de cliente solo aparecen las de encargos donde forma parte del equipo o está asignado; además la OT debe estar aprobada y su encargo debe tener gerente."
     },
     "approvalNotes": "Notas del gerente",
     "rejectionReason": "Razón de rechazo",

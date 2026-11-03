@@ -80,6 +80,10 @@ describe("handleError", () => {
 
     const mismatch = { code: "42501", message: "FUND_REQUEST_SOCIETY_MISMATCH: ..." };
     expect(handleError(mismatch, { showToast: false }).message).toBe("errors.fundRequestSocietyMismatch");
+
+    // BUG 0923-202: el solicitante no es del equipo ni está asignado al encargo de la OT.
+    const notOnEngagement = { code: "42501", message: "FUND_REQUEST_ENGAGEMENT_FORBIDDEN: ..." };
+    expect(handleError(notOnEngagement, { showToast: false }).message).toBe("errors.fundRequestEngagementForbidden");
   });
 
   it("un 42501 cualquiera sigue siendo el mensaje genérico de permisos", () => {

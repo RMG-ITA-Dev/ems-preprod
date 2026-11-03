@@ -83,11 +83,16 @@ VALUES
   ('f7f00000-0000-4000-8000-000000000002', 'SF-FWO-2', '57f00000-0000-4000-8000-000000000001', 400, 'BOB', 'fondos_entregados', 400),
   ('f7f00000-0000-4000-8000-000000000003', 'SF-FWO-3', '57f00000-0000-4000-8000-000000000001', 999, 'BOB', 'cancelado', 0);
 
+-- BUG 0923-202: tr_fr_wo_enforce_requester_engagement exige que el solicitante sea del equipo o este asignado.
+-- Darle un lugar en el encargo cambiaria quien ve la OT, que es justo lo que esta suite mide: se apaga el
+-- trigger SOLO para este INSERT de fixture. La regla se prueba en rls-0923-202-fund-request-work-orders.sql.
+ALTER TABLE public.fund_request_work_orders DISABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount, approval_status)
 VALUES
   ('f7f00000-0000-4000-8000-000000000001', 'd7f00000-0000-4000-8000-000000000001', 600, 'aprobado'),
   ('f7f00000-0000-4000-8000-000000000002', 'd7f00000-0000-4000-8000-000000000001', 400, 'aprobado'),
   ('f7f00000-0000-4000-8000-000000000003', 'd7f00000-0000-4000-8000-000000000001', 999, 'aprobado');
+ALTER TABLE public.fund_request_work_orders ENABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 
 -- Gastos: en f1 pasajes 500 revisado; en f2 viáticos 120 revisado, taxis 30 aprobado por el
 -- gerente (en proceso), viáticos 50 pendiente (en proceso), un borrador 70 y un vencido 80 (no
