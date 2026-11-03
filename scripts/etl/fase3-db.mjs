@@ -91,6 +91,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'hoursByEngagement',(SELECT COALESCE(json_agg(json_build_array(q.engagement_id::text,q.hours::text)),'[]'::json) FROM (SELECT engagement_id,sum(hours_logged) hours FROM te GROUP BY engagement_id) q),
           'hoursByStaff',(SELECT COALESCE(json_agg(json_build_array(q.staff_id::text,q.hours::text)),'[]'::json) FROM (SELECT staff_id,sum(hours_logged) hours FROM te GROUP BY staff_id) q),
           'holidayEntries',(SELECT count(*) FROM te JOIN public.holidays h ON h.holiday_date=te.date_worked AND (h.oficina=0 OR h.oficina=CASE btrim(te.city) WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 END)),
+          'holidayHours',(SELECT COALESCE(sum(te.hours_logged),0)::text FROM te JOIN public.holidays h ON h.holiday_date=te.date_worked AND (h.oficina=0 OR h.oficina=CASE btrim(te.city) WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 END)),
           'periods',(SELECT count(*) FROM public.timesheet_periods),
           'lineApprovals',(SELECT count(*) FROM public.timesheet_line_approvals),
           'historicWithPeriodOrForecast',(SELECT count(*) FROM te WHERE period_id IS NOT NULL OR is_forecast IS DISTINCT FROM false),
@@ -427,6 +428,8 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
       return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         SELECT set_config('request.jwt.claims', json_build_object('sub',p.x->>'technicalAdminId','role','authenticated')::text,true) FROM p;
+        -- Marca de la carga histórica: enforce_holiday_blocking admite SOLO este INSERT en un feriado (y solo desde la sesión propietaria).
+        SELECT set_config('etl.f3_historical_hours','on',true);
         -- La carga histórica local usa la conexión PostgreSQL administradora autorizada.
         -- No se cambia a authenticated: esa policy sólo permite al propio empleado
         -- y no existe una RPC aprobada para actuar por los demás colaboradores.

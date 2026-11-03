@@ -65,3 +65,11 @@ bash scripts/etl/runbook/run.sh --env test --run-id 0001 --from 10 --to 50
   sincronización, gastos, riesgos, contención de correos y horas); la huella md5 de las tablas debe quedar idéntica.
 - **Tiempos locales:** F1 ≈ 8 s · F2 ≈ 2 min · F3 ≈ 3 min (pagos ≈ 2 s en una sola transacción).
 - Resultado completo y defectos corregidos: `bugs/ETL/carga/fase4/plan_v1.md`, «E1: resultado».
+
+## Entradas v2 (03/11/2026)
+
+Las configuraciones base locales (`scripts/etl/fase2.local.config.json` y `fase3.local.config.json`, ignoradas por Git) apuntan a
+los CSV corregidos de `Docs/carga/v2/`: `legacy_worked_at` es el día trabajado (la fecha de registro viaja en
+`legacy_registered_at`), el inicio del encargo es la menor fecha entre la creación y la primera hora trabajada y las horas en
+feriado aplicable se cargan como excepción histórica. `bugs/ETL/carga/fase4/inputs.sha256` y `fingerprint-baseline.json` son los
+de esa versión; los de la primera carga quedaron como `*-v1`.

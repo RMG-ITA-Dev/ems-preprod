@@ -20,6 +20,15 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => validateRoleAssignment({ staff_source_ref: "legacy:999", category_name: "Asistente" }, { expected_role_key: "risk_supervisor", expected_legacy_role: "manager" }, "assistant")).toThrow(/categoría/);
   });
 
+  it("rechaza texto con doble codificación UTF-8 y acepta los acentos correctos", () => {
+    const ok = `${header("clients")}\r\nlegacy:58,"COMPAÑIA DE SEGUROS, Médico",,001,empresa,,,nacional,nit_propio,Industria,"Av. 6 de Agosto N° 2678",true,`;
+    expect(() => parseCsv(ok, HEADERS.clients, "clientes")).not.toThrow();
+    for (const bad of ["COMPAÃ‘IA", "MÃ©dico", "NÂ° 2678"]) {
+      const text = ok.replace("COMPAÑIA DE SEGUROS, Médico", bad);
+      expect(() => parseCsv(text, HEADERS.clients, "clientes")).toThrow(/doble codificación UTF-8 en 1 línea\(s\) \(primera: 2\)/);
+    }
+  });
+
   it("acepta BOM, RFC4180 y conserva un NIT con cero inicial", () => {
     const rows = parseCsv(`\uFEFF${header("clients")}\r\nlegacy:89,"Nombre, S.A.",,001,empresa,,,nacional,nit_propio,Industria,"una\nlínea",true,`, HEADERS.clients, "clientes");
     expect(rows[0].tax_id).toBe("001");

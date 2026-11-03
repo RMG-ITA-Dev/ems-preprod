@@ -45,7 +45,13 @@ function bool(value, label) {
 }
 
 /** Parser RFC 4180 pequeño: soporta BOM, CRLF, comillas y saltos dentro de una celda. */
+// Doble codificación UTF-8 (UTF-8 leído como Windows-1252): «Ã‘», «Ã©», «Â°». Un archivo así se rechaza completo:
+// se cargaría tal cual en nombres y notas (hallazgo del 03/11/2026 en 02_clientes.csv).
+const DOUBLE_ENCODED = /[ÃÂ][\u0080-¿‘’‚“”…†‡ˆ‰Š‹ŒŽ•–—˜™š›œžŸ]/;
+
 export function parseCsv(text, expectedHeaders, label = "CSV") {
+  const encodingLines = String(text).split("\n").map((line, index) => (DOUBLE_ENCODED.test(line) ? index + 1 : 0)).filter(Boolean);
+  if (encodingLines.length) throw new Fase2InputError(`${label}: texto con doble codificación UTF-8 en ${encodingLines.length} línea(s) (primera: ${encodingLines[0]}); regenere el archivo desde el origen en UTF-8`);
   const source = String(text).replace(/^\uFEFF/, "");
   const rows = []; let row = []; let field = ""; let quoted = false;
   for (let i = 0; i < source.length; i += 1) {

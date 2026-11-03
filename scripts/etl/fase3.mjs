@@ -491,23 +491,24 @@ async function loadHours(ctx, inputs, unit) {
   const f2 = loadF2Maps(ctx.config.f2StateDir); const engagementRows = ctx.journal.units["client-engagements"]?.result?.engagements; if (!Array.isArray(engagementRows) || engagementRows.length !== 124) throw new Fase1Error("BLOQUEADO", "horas requiere el mapa confirmado de encargos cliente"); const engagements = new Map(engagementRows.map((row) => [row.sourceKey, row.engagementId])); const [catalog, staffCatalog, holidayCatalog] = await Promise.all([ctx.db.matrixCatalog(), ctx.db.engagementCatalog(), ctx.db.holidayCatalog()]); const activities = new Map(catalog.activities.map((row) => [row.code, row.id]));
   const officeByStaffId = new Map((staffCatalog.staff ?? []).map((row) => [row.id, ({ "La Paz": 1, "Santa Cruz": 2 })[String(row.city ?? "").trim()]])); const holidaysByDate = new Map();
   for (const holiday of holidayCatalog.holidays ?? []) { const date = String(holiday.date).slice(0, 10); holidaysByDate.set(date, [...(holidaysByDate.get(date) ?? []), Number(holiday.office)]); }
-  const excluded = []; const included = [];
-  for (const row of inputs.executions.filter(isMigrableExecution)) { const staffId = f2.staff[`legacy:${row.legacy_profile_id}`]; const workedDate = String(row.legacy_worked_at).slice(0, 10); const offices = holidaysByDate.get(workedDate) ?? []; if (offices.includes(0) || (staffId && offices.includes(officeByStaffId.get(staffId)))) excluded.push(row); else included.push(row); }
-  // Documento 10 §2.8 y plan_v2 F3-Q05: un feriado aplicable queda fuera de la carga de OTs cliente.
+  // Decisión del operador (03/11/2026): las horas trabajadas en feriado aplicable SE CARGAN. El legacy permitía trabajar esos días;
+  // el trigger enforce_holiday_blocking las admite solo en este INSERT histórico (createHours fija la marca). Se registran como evidencia.
+  const included = []; const holidayKept = [];
+  for (const row of inputs.executions.filter(isMigrableExecution)) { const staffId = f2.staff[`legacy:${row.legacy_profile_id}`]; const workedDate = String(row.legacy_worked_at).slice(0, 10); const offices = holidaysByDate.get(workedDate) ?? []; if (offices.includes(0) || (staffId && offices.includes(officeByStaffId.get(staffId)))) holidayKept.push(row); included.push(row); }
   const blueprint = consolidateResolvedHours(consolidateExecutions(included).map((row) => ({ sourceKey: `${row.legacy_execution_id}:${row.activity_code}:${row.split_index}`, timeId: randomUUID(), dateWorked: row.date_worked, hours: row.hours, staffId: f2.staff[`legacy:${row.legacy_profile_id}`], engagementId: engagements.get(row.legacy_cot), activityId: activities.get(row.activity_code), periodId: null, isForecast: false, sourceAllocations: row.source_allocations })));
   if (!blueprint.length || blueprint.some((row) => !row.staffId || !row.engagementId || !row.activityId || decimalUnits(row.hours) > 9999n)) throw new Fase1Error("BLOQUEADO", "horas: cruce o límite diario inválido");
   const hash = sha256(stable(blueprint.map(({ timeId, ...row }) => row))); let hours = unit.hours;
-  const holidayExclusions = { rule: "feriado aplicable por oficina del staff; fuera de alcance de OTs cliente", sourceRows: excluded.length, sourceHours: formatMoney(excluded.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)), dates: [...new Set(excluded.map((row) => String(row.legacy_worked_at).slice(0, 10)))].sort() };
+  const holidayKeptEvidence = { rule: "horas en feriado aplicable por oficina del staff: se cargan como carga histórica exceptuada", sourceRows: holidayKept.length, sourceHours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)), dates: [...new Set(holidayKept.map((row) => String(row.legacy_worked_at).slice(0, 10)))].sort() };
   if (unit.hourHash && unit.hourHash !== hash) {
     const previous = await ctx.db.hourSnapshot({ entries: hours });
     if (previous.entries?.length) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas: el intento previo tiene efectos y cambió el conjunto permitido");
     const priorIds = new Map(hours.map((row) => [row.sourceKey, row.timeId]));
     const preservesAllIds = blueprint.every((row) => priorIds.has(row.sourceKey));
     hours = blueprint.map((row) => ({ ...row, timeId: preservesAllIds ? priorIds.get(row.sourceKey) : randomUUID() }));
-    Object.assign(unit, { hours, hourHash: hash, hourHolidayExclusions: holidayExclusions, hourHolidayExclusionRepairAt: new Date().toISOString(), ...(preservesAllIds ? {} : { hourIdentityRepairAt: new Date().toISOString() }) });
+    Object.assign(unit, { hours, hourHash: hash, hourHolidayKept: holidayKeptEvidence, hourHolidayRepairAt: new Date().toISOString(), ...(preservesAllIds ? {} : { hourIdentityRepairAt: new Date().toISOString() }) });
     checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } });
   }
-  if (!hours) { hours = blueprint; Object.assign(unit, { hourHash: hash, hours, hourHolidayExclusions: holidayExclusions, hoursIntendedAt: new Date().toISOString() }); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
+  if (!hours) { hours = blueprint; Object.assign(unit, { hourHash: hash, hours, hourHolidayKept: holidayKeptEvidence, hoursIntendedAt: new Date().toISOString() }); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
   const snapshot = await ctx.db.hourSnapshot({ entries: hours }); const actual = new Map((snapshot.entries ?? []).map((row) => [row.timeId, row]));
   const exact = hours.every((row) => { const a = actual.get(row.timeId); return a && a.dateWorked === row.dateWorked && decimalEqual(a.hours, row.hours) && a.staffId === row.staffId && a.engagementId === row.engagementId && a.activityId === row.activityId && Number(a.etlSplitIndex) === Number(row.etlSplitIndex) && a.periodId == null && a.isForecast === false; });
   if (exact) return { recovered: true, entries: hours.length, hours: hours.reduce((sum, row) => sum + decimalUnits(row.hours), 0n).toString() };

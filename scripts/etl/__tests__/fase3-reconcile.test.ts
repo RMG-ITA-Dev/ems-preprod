@@ -32,29 +32,34 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     expect(BOB_ROUNDING(1n, 50n)).toBe(1n);
     expect(BOB_ROUNDING(1n, 49n)).toBe(0n);
   });
-  it("calcula esperados independientes: horas menos feriado, gastos positivos y suma de cuotas", () => {
+  it("calcula esperados independientes: todas las horas (el feriado se contabiliza aparte), gastos positivos y suma de cuotas", () => {
     const expected = legacyExpectations(base);
     expect(expected.planHoursUnits).toBe(1450n);
     expect(expected.expensesPositive).toBe(2n); expect(expected.expensesZeroOmitted).toBe(1n);
     expect(expected.expensesEmsUnits).toBe(10025n + 7030n);
     expect(expected.installments).toBe(2n); expect(expected.notes).toBe(1n); expect(expected.plans).toBe(2n);
-    expect(expected.holidayExcludedRows).toBe(1n); expect(expected.holidayExcludedHours).toBe(800n);
-    expect(expected.expectedHoursUnits).toBe(800n + 450n);
-    expect(expected.hoursByCot.get("C1")).toBe(800n); expect(expected.hoursByStaff.get("staff-8")).toBe(450n);
+    expect(expected.holidayKeptRows).toBe(1n); expect(expected.holidayKeptHours).toBe(800n);
+    expect(expected.expectedHoursUnits).toBe(800n + 800n + 450n);
+    expect(expected.hoursByCot.get("C1")).toBe(1600n); expect(expected.hoursByStaff.get("staff-7")).toBe(1600n); expect(expected.hoursByStaff.get("staff-8")).toBe(450n);
   });
   const actualFor = (expected: ReturnType<typeof legacyExpectations>) => ({
     clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55",
     expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]],
-    hoursTotal: "12.50", hoursByEngagement: [["e1", "8"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "8"], ["staff-8", "4.5"]],
-    holidayEntries: 0, periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
+    hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]],
+    holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" }, _expected: expected,
   });
   it("concilia cuando la base coincide y marca la diferencia exacta cuando no", () => {
     const expected = legacyExpectations(base);
     expect(compareLegacyControls(expected, actualFor(expected)).ok).toBe(true);
-    const drifted = { ...actualFor(expected), hoursByStaff: [["staff-7", "8"], ["staff-8", "5.5"]], installmentSumByWo: [["wo1", "1000"], ["wo2", "500.49"]], periods: 1 };
+    const drifted = { ...actualFor(expected), hoursByStaff: [["staff-7", "16"], ["staff-8", "5.5"]], installmentSumByWo: [["wo1", "1000"], ["wo2", "500.49"]], periods: 1 };
     const result = compareLegacyControls(expected, drifted);
     expect(result.ok).toBe(false);
     expect(result.rows.filter((row) => !row.ok).map((row) => row.id).sort()).toEqual(["L6d", "L7c", "L8a"]);
+  });
+  it("L7d falla si las horas de feriado de la fuente no quedaron cargadas", () => {
+    const expected = legacyExpectations(base);
+    const result = compareLegacyControls(expected, { ...actualFor(expected), holidayHours: "0" });
+    expect(result.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L7d"]);
   });
 });

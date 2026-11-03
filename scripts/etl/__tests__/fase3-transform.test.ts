@@ -54,7 +54,7 @@ describe("ETL fase 3: transformaciones", () => {
       services: { "17": { id: "service", name: "Auditoría" } }, staff: { "legacy:1": "partner", "legacy:2": "manager" },
       societies: { Pelaez: "rp", Jauregui: "rj" }, internalClientId: "internal", officeByStaffId: { partner: 2 },
     };
-    const [client] = buildClientEngagementPayloads([{ legacy_cot: "2026.21.098", gestion: "2026", legacy_department_id: "1", legacy_client_id: "9", legacy_service_id: "17", legacy_partner_profile_id: "1", legacy_manager_profile_id: "2", legacy_sqr_profile_id: "", legacy_manager_in_charge_profile_id: "", legacy_it_specialist_profile_id: "", legacy_tax_specialist_profile_id: "", legacy_city_id: "1", ems_start_date: "2026-01-01" }], maps);
+    const [client] = buildClientEngagementPayloads([{ legacy_cot: "2026.21.098", gestion: "2026", legacy_department_id: "1", legacy_client_id: "9", legacy_service_id: "17", legacy_partner_profile_id: "1", legacy_manager_profile_id: "2", legacy_sqr_profile_id: "", legacy_manager_in_charge_profile_id: "", legacy_it_specialist_profile_id: "", legacy_tax_specialist_profile_id: "", legacy_city_id: "1", ems_start_date: "2026-03-29" }], maps);
     expect(client).toMatchObject({ name: "Cliente Legal - FY 2026 - Auditoría", startDate: "2026-03-29", endDate: "2026-11-15", societyId: "rp", practice: 1, function: 1 });
     const [admin] = buildAdministrativeEngagementPayloads([{ legacy_cot: "2027.10.101", legacy_engagement_name: "  Administrativo  ", legacy_partner_profile_id: "1", legacy_created_date: "2026-10-01" }], maps);
     expect(admin).toMatchObject({ name: "Administrativo", clientId: "internal", partnerId: "partner", managerId: null, encargadoId: null, office: 2, practice: 0, function: 0, societyId: "rp" });

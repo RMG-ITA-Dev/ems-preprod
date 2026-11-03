@@ -17,7 +17,6 @@ const act = (practice, phase) => ({ AUD: { plan: "AUD-A2", execution: "AUD-A3", 
 const practiceFor = (department) => ({ 1: "AUD", 2: "COM", 3: "TAX" })[Number(department)];
 const categoryFor = (id, practice) => ({ 1: "Socio", 2: "Director", 3: "Gerente", 4: "Gerente", 5: "Senior", 9: "Asistente", 12: "Asistente", 13: "Supervisor", 16: practice === "AUD" ? "Semi-Senior" : "Semi Senior" })[Number(id)];
 const CLIENT_END_DATES = Object.freeze({ 2026: "2026-11-15", 2027: "2027-09-30" });
-const CLIENT_START_OVERRIDES = Object.freeze({ "2026.21.098": "2026-03-29", "2026.21.153": "2026-06-23", "2026.11.152": "2026-08-28" });
 const societyForDepartment = (department) => ({ 1: "Pelaez", 2: "Jauregui", 3: "Jauregui" })[Number(department)];
 const required = (value, label) => { if (!value) throw new Error(`referencia F3 no resuelta: ${label}`); return value; };
 
@@ -33,7 +32,7 @@ export function buildClientEngagementPayloads(rows, maps) {
       clientId: client.id, partnerId: staff(row.legacy_partner_profile_id, "socio"), managerId: staff(row.legacy_manager_profile_id, "gerente"),
       sqrId: staff(row.legacy_sqr_profile_id, "SQR"), encargadoId: staff(row.legacy_manager_in_charge_profile_id, "encargado"),
       itSpecialistId: staff(row.legacy_it_specialist_profile_id, "especialista IT"), taxSpecialistId: staff(row.legacy_tax_specialist_profile_id, "especialista Tax"),
-      startDate: CLIENT_START_OVERRIDES[row.legacy_cot] ?? String(row.ems_start_date), endDate: required(CLIENT_END_DATES[fiscalYear], `fin FY ${fiscalYear}`),
+      startDate: String(row.ems_start_date), endDate: required(CLIENT_END_DATES[fiscalYear], `fin FY ${fiscalYear}`),
       closingDate: `${fiscalYear}-09-30`, status: "active", office: Number(row.legacy_city_id), practice: department, function: 1, fiscalYear,
       workOrderRequired: true, activityRequired: true, internal: false, approvalRequired: true, fiscalOverride: false,
       societyId: required(maps.societies[societyForDepartment(department)], `sociedad práctica ${department}`), taxonomyId: service.id, contractFilePath: null,

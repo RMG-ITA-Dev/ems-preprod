@@ -1925,6 +1925,13 @@ BEGIN
     RETURN NEW;  -- Not a holiday applicable to this staff's office, allow
   END IF;
 
+  -- Carga histórica del ETL F3 (decisión del operador, 03/11/2026): el legacy permitía trabajar en feriado.
+  -- Solo INSERT, solo desde la sesión propietaria (un cliente de la API entra como `authenticator`) y solo con la
+  -- marca que fija la transacción de carga. Los UPDATE y la carga manual siguen bloqueados.
+  IF TG_OP = 'INSERT' AND session_user = 'postgres' AND current_setting('etl.f3_historical_hours', true) = 'on' THEN
+    RETURN NEW;
+  END IF;
+
   -- Read the holiday engagement setting
   SELECT setting_value INTO v_raw
   FROM global_settings

@@ -11,7 +11,7 @@ const bump = (map, key, units) => map.set(key, (map.get(key) ?? 0n) + units);
 // Importe (centavos) x TC (centésimas) → centavos redondeados half-up, como pide plan_v2 §3 («redondea a centavos»).
 export const BOB_ROUNDING = (amountUnits, rateUnits) => (amountUnits * rateUnits + 50n) / 100n;
 
-// Horas históricas fuera de alcance: feriado aplicable por oficina del staff (documento 10 §2.8). Las oficinas 0 (Firmwide) aplican a todos.
+// Feriado aplicable por oficina del staff (documento 10 §2.8): esas horas se cargan como excepción histórica, pero se contabilizan aparte. Las oficinas 0 (Firmwide) aplican a todos.
 export function holidayApplies({ date, officeOfStaff, holidaysByDate }) {
   const offices = holidaysByDate.get(day(date)) ?? [];
   return offices.includes(0) || (officeOfStaff != null && offices.includes(officeOfStaff));
@@ -30,12 +30,13 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   const billable = inputs.payments.filter((row) => !isNote(row)); const notes = inputs.payments.filter(isNote);
   const feeByCot = new Map(); for (const row of inputs.payments) feeByCot.set(text(row.legacy_cot), decimalUnits(row.legacy_fee_with_tax));
   const plansCount = new Set(inputs.payments.map((row) => text(row.legacy_cot))).size;
-  // L7: horas ejecutadas aprobadas, menos las de feriado aplicable (se contabilizan aparte, no se pierden).
+  // L7: horas ejecutadas aprobadas; todas se cargan. Las de feriado aplicable se contabilizan aparte (L7d).
   const migrable = inputs.executions.filter(isMigrableExecution);
-  const excluded = []; const kept = [];
+  const holiday = []; const kept = [];
   for (const row of migrable) {
     const staffId = staffByLegacyProfile.get(text(row.legacy_profile_id));
-    (holidayApplies({ date: row.legacy_worked_at, officeOfStaff: staffId ? officeByStaffId.get(staffId) : null, holidaysByDate }) ? excluded : kept).push(row);
+    if (holidayApplies({ date: row.legacy_worked_at, officeOfStaff: staffId ? officeByStaffId.get(staffId) : null, holidaysByDate })) holiday.push(row);
+    kept.push(row);
   }
   const hoursByCot = new Map(), hoursByStaff = new Map();
   for (const row of kept) { const units = decimalUnits(row.legacy_hours); bump(hoursByCot, text(row.legacy_cot), units); const staffId = staffByLegacyProfile.get(text(row.legacy_profile_id)); if (staffId) bump(hoursByStaff, staffId, units); }
@@ -45,7 +46,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
     expensesPositive: BigInt(positives.length), expensesZeroOmitted: BigInt(inputs.expenses.length - positives.length), expensesSourceUsd: sum(positives, (row) => decimalUnits(row.legacy_amount_usd)), expensesEmsUnits: sum(positives, emsExpenseUnits), expenseByCot,
     plans: BigInt(plansCount), installments: BigInt(billable.length), notes: BigInt(notes.length), feeByCot,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
-    holidayExcludedRows: BigInt(excluded.length), holidayExcludedHours: sum(excluded, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(excluded.map((row) => day(row.legacy_worked_at)))].sort(),
+    holidayKeptRows: BigInt(holiday.length), holidayKeptHours: sum(holiday, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(holiday.map((row) => day(row.legacy_worked_at)))].sort(),
     expectedHoursUnits: sum(kept, (row) => decimalUnits(row.legacy_hours)), hoursByCot, hoursByStaff, unmappedProfiles, scaleFactor,
   };
 }
@@ -70,12 +71,12 @@ export function compareLegacyControls(expected, actual) {
   rows.push(eq("L6a", "planes de pago", expected.plans, actual.plans)); rows.push(eq("L6b", "cuotas facturables", expected.installments, actual.installments)); rows.push(eq("L6c", "notas de plan activas", expected.notes, actual.notes));
   const feeDiffs = mapDiff(expected.feeByCot, toMap(actual.installmentSumByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));
   rows.push({ id: "L6d", label: "suma de cuotas por COT = honorario c/IVA legacy", expected: "iguales", actual: feeDiffs.length ? feeDiffs.slice(0, 5).join(" | ") : "iguales", ok: !feeDiffs.length, note: "" });
-  rows.push(eq("L7a", "horas ejecutadas cargadas = fuente aprobada - feriados aplicables", formatUnits(expected.expectedHoursUnits), units(actual.hoursTotal), `fuente aprobada ${formatUnits(expected.executionsMigrableHours)} h; feriados ${expected.holidayExcludedRows} filas / ${formatUnits(expected.holidayExcludedHours)} h en ${expected.holidayDates.join(", ")}`));
+  rows.push(eq("L7a", "horas ejecutadas cargadas = fuente aprobada", formatUnits(expected.expectedHoursUnits), units(actual.hoursTotal), `fuente aprobada ${formatUnits(expected.executionsMigrableHours)} h; de ellas, en feriado aplicable ${expected.holidayKeptRows} filas / ${formatUnits(expected.holidayKeptHours)} h en ${expected.holidayDates.join(", ")}`));
   const cotDiffs = mapDiff(expected.hoursByCot, toMap(actual.hoursByEngagement.map(([engagement, hours]) => [actual.cotByEngagement[engagement], hours])));
   rows.push({ id: "L7b", label: "horas por COT", expected: "iguales", actual: cotDiffs.length ? cotDiffs.slice(0, 5).join(" | ") : "iguales", ok: !cotDiffs.length, note: "" });
   const staffDiffs = mapDiff(expected.hoursByStaff, toMap(actual.hoursByStaff));
   rows.push({ id: "L7c", label: "horas por persona (ficha F2)", expected: "iguales", actual: staffDiffs.length ? staffDiffs.slice(0, 5).join(" | ") : "iguales", ok: !staffDiffs.length, note: expected.unmappedProfiles.length ? `perfiles sin ficha: ${expected.unmappedProfiles.join(",")}` : "" });
-  rows.push(eq("L7d", "horas cargadas en un feriado aplicable", 0, actual.holidayEntries));
+  rows.push(eq("L7d", "horas cargadas en feriado aplicable = las de la fuente (carga histórica exceptuada)", formatUnits(expected.holidayKeptHours), units(actual.holidayHours)));
   rows.push(eq("L8a", "períodos de timesheet creados", 0, actual.periods)); rows.push(eq("L8b", "líneas de aprobación creadas", 0, actual.lineApprovals));
   rows.push(eq("L8c", "horas históricas con período o forecast", 0, actual.historicWithPeriodOrForecast));
   rows.push(eq("L8d", "correos del lote enviados (status sent)", 0, actual.emailsSent));

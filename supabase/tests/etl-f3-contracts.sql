@@ -136,6 +136,34 @@ BEGIN
   v_err := pg_temp.try_hour(v_worker, 'f3c00000-0000-4000-8000-0000000000e2', v_hol_sc);
   IF v_err IS NOT NULL THEN RAISE EXCEPTION 'ETL F3 S04: el feriado de Santa Cruz no debía bloquear a una persona de La Paz (%)', v_err; END IF;
 
+  -- S04b — carga histórica en feriado (decisión del operador, 03/11/2026): el legacy permitía trabajar esos días. Solo el
+  -- INSERT de la transacción de carga (marca etl.f3_historical_hours) desde la sesión propietaria; UPDATE y carga manual siguen bloqueados.
+  PERFORM set_config('etl.f3_historical_hours', 'on', true);
+  v_err := pg_temp.try_hour(v_worker, 'f3c00000-0000-4000-8000-0000000000e2', v_hol_lp);
+  IF v_err IS NOT NULL THEN RAISE EXCEPTION 'ETL F3 S04b: con la marca de carga histórica una hora en feriado debía entrar (%)', v_err; END IF;
+  BEGIN
+    UPDATE public.time_entries SET hours_logged = 2 WHERE staff_id = v_worker AND engagement_id = 'f3c00000-0000-4000-8000-0000000000e2' AND date_worked = v_hol_lp;
+    RAISE EXCEPTION 'ETL F3 S04b: el UPDATE de una hora en feriado debía rechazarse aun con la marca';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE 'HOLIDAY_%' THEN RAISE; END IF;
+  END;
+  -- Una sesión que no es la propietaria no puede usar la marca (los clientes de la API entran como otro rol de sesión).
+  -- Con un superusuario (arnés de CI) se prueba el comportamiento; con la conexión postgres de Supabase local, que no puede
+  -- cambiar de sesión, se comprueba que la excepción exige session_user = postgres en la definición del trigger.
+  BEGIN
+    SET LOCAL SESSION AUTHORIZATION service_role;
+    v_err := pg_temp.try_hour(v_worker, 'f3c00000-0000-4000-8000-0000000000e2', v_hol_lp);
+    RESET SESSION AUTHORIZATION;
+    IF v_err IS NULL OR v_err NOT LIKE 'HOLIDAY_%' THEN RAISE EXCEPTION 'ETL F3 S04b: una sesión que no es la propietaria no debía poder cargar en feriado (%)', v_err; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF position('session_user = ''postgres''' IN pg_get_functiondef('public.enforce_holiday_blocking()'::regprocedure)) = 0 THEN
+      RAISE EXCEPTION 'ETL F3 S04b: la excepción de feriados debía exigir session_user = postgres';
+    END IF;
+  END;
+  PERFORM set_config('etl.f3_historical_hours', 'off', true);
+  v_err := pg_temp.try_hour(v_worker, 'f3c00000-0000-4000-8000-0000000000e2', v_hol_lp);
+  IF v_err IS NULL OR v_err NOT LIKE 'HOLIDAY_%' THEN RAISE EXCEPTION 'ETL F3 S04b: sin la marca la carga manual en feriado debía rechazarse (%)', v_err; END IF;
+
   -- S09 — un correo contenido (failed / ETL_F3_NO_DELIVERY) no es reclamable y uno ajeno conserva su estado.
   INSERT INTO public.notification_emails (email_id, dedupe_key, recipient_staff_id, to_email, type_key, entity_id, status, attempts, last_error) VALUES
     ('f3c00000-0000-4000-8000-0000000000f1', 'f3c-contenido', v_worker, 'f3c-contenido@example.test', (SELECT type_key FROM public.notification_types ORDER BY type_key LIMIT 1), 'f3c-entidad', 'failed', 0, 'ETL_F3_NO_DELIVERY'),

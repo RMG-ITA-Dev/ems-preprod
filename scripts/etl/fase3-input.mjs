@@ -7,7 +7,7 @@ import { parseCsv } from "./fase2-input.mjs";
 export const EXPENSE_HEADERS = ["legacy_expense_budget_id", "legacy_cot", "legacy_currency_raw", "legacy_exchange_rate", "legacy_expense_type_id", "legacy_amount_usd", "disposition"];
 export const PAYMENT_HEADERS = ["legacy_plan_payment_id", "legacy_cot", "legacy_installment_number", "legacy_detail", "legacy_percentage", "legacy_invoice_date", "legacy_currency_raw", "legacy_exchange_rate", "legacy_fee_with_tax", "proposed_disposition"];
 export const ADMINISTRATIVE_HEADERS = ["legacy_cot", "legacy_fiscal_year", "legacy_sequence", "legacy_internal_client_id", "legacy_engagement_name", "legacy_partner_profile_id", "legacy_approver_profile_id", "legacy_created_date", "legacy_closing_date", "legacy_active_flag", "legacy_creator_profile_id", "legacy_comments", "legacy_evidence_rows", "legacy_evidence_hours", "selector_profile_count", "total_administrative_engagements"];
-export const EXECUTION_HEADERS = ["legacy_execution_id", "legacy_approval_id", "legacy_cot", "legacy_profile_id", "legacy_sqr_profile_id", "legacy_department_id", "legacy_fiscal_year", "legacy_worked_at", "legacy_day", "legacy_week", "legacy_hours", "legacy_category_id", "legacy_specialty_id", "legacy_sent", "legacy_pending_approval", "legacy_recovery_count", "legacy_last_recovery_at", "legacy_engagement_created_date", "approval_evidence_count", "approved_evidence_count", "disposition"];
+export const EXECUTION_HEADERS = ["legacy_execution_id", "legacy_approval_id", "legacy_cot", "legacy_profile_id", "legacy_sqr_profile_id", "legacy_department_id", "legacy_fiscal_year", "legacy_worked_at", "legacy_registered_at", "legacy_day", "legacy_week", "legacy_hours", "legacy_category_id", "legacy_specialty_id", "legacy_sent", "legacy_pending_approval", "legacy_recovery_count", "legacy_last_recovery_at", "legacy_engagement_created_date", "approval_evidence_count", "approved_evidence_count", "disposition"];
 
 export const INPUT_HEADERS = Object.freeze({
   clientEngagements: ENGAGEMENT_HEADERS,
@@ -106,17 +106,29 @@ export function validateExecutions(rows, clientCots) {
   unique(rows, (row) => row.legacy_execution_id, "PK ejecución");
   for (const row of rows) {
     if (!clientCots.has(row.legacy_cot) || number(row.legacy_hours, `horas ejecución ${row.legacy_execution_id}`) <= 0) throw new Fase3InputError(`ejecución inválida: ${row.legacy_execution_id}`);
+    // legacy_worked_at es el día trabajado (Semanas); la fecha de registro viaja aparte en legacy_registered_at.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text(row.legacy_worked_at))) throw new Fase3InputError(`día trabajado inválido (se espera AAAA-MM-DD, no la fecha de registro): ${row.legacy_execution_id}`);
     const matches = approvedExecution(row) ? isMigrableExecution(row) : text(row.disposition) === "excluida_no_aprobada";
     if (!matches) throw new Fase3InputError(`disposición de ejecución contradice evidencia: ${row.legacy_execution_id}`);
   }
   return rows;
 }
 
+// Ninguna hora puede ser anterior al inicio de su encargo: el inicio es la menor fecha entre la creación y la primera hora trabajada.
+export function validateExecutionStarts(executions, clientEngagements) {
+  const start = new Map(clientEngagements.map((row) => [row.legacy_cot, text(row.ems_start_date).slice(0, 10)]));
+  for (const row of executions.filter(isMigrableExecution)) {
+    const first = start.get(row.legacy_cot);
+    if (first && text(row.legacy_worked_at) < first) throw new Fase3InputError(`hora anterior al inicio del encargo ${row.legacy_cot}: ${text(row.legacy_worked_at)} < ${first} (ejecución ${row.legacy_execution_id})`);
+  }
+  return executions;
+}
+
 export function validateInputs(inputs, { enforceExpected = false } = {}) {
   const clientEngagements = validateClientEngagements(inputs.clientEngagements);
   const clientCots = new Set(clientEngagements.map((row) => row.legacy_cot));
   validateAdministrativeEngagements(inputs.administrativeEngagements);
-  validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots); validateExecutions(inputs.executions, clientCots);
+  validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots); validateExecutions(inputs.executions, clientCots); validateExecutionStarts(inputs.executions, clientEngagements);
   if (enforceExpected && (clientEngagements.length !== 124 || inputs.administrativeEngagements.length !== 10)) throw new Fase3InputError("el alcance F3 exige 124 COT cliente y 10 administrativos");
   return Object.freeze({ ...inputs, fingerprints: Object.fromEntries(Object.entries(inputs).map(([name, rows]) => [name, fingerprint(rows)])), clientCots });
 }
