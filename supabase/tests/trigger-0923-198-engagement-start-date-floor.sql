@@ -5,7 +5,8 @@
 -- anterior a la creación del encargo, ni darlo de alta con inicio anterior a hoy. Una fecha histórica que fijó
 -- un admin y que no cambia no bloquea: el editor guarda el resto del encargo. Admin, internos y el sistema sin
 -- sesión quedan fuera. Review fix (Codex): como la exención de internos se apoya en is_internal, clasificar un
--- encargo de Cliente como interno (o desmarcarlo) queda solo para el admin.
+-- encargo de Cliente como interno (o desmarcarlo) queda solo para el admin. Y como el piso se mide desde
+-- created_at, quien no es admin no la elige: en el alta se fija a now() y después no se puede cambiar.
 --
 -- DÓNDE CORRE: supabase/tests/local/run-rls-tests.sh. Transacción única, SIEMPRE hace ROLLBACK. Corre como
 -- dueño (el trigger no depende de RLS); la identidad se simula con request.jwt.claims. Salida de éxito: una
@@ -22,11 +23,12 @@ INSERT INTO auth.users (id) VALUES
   ('a0923198-0000-4000-8000-000000000001'),  -- manager (editor restringido)
   ('a0923198-0000-4000-8000-000000000002');  -- admin
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id) VALUES
+-- city 'La Paz' (oficina 1): el alta directa del check 18 tiene que pasar trg_engagements_profile_scope.
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id, city) VALUES
   ('50923198-0000-4000-8000-000000000001', 'a0923198-0000-4000-8000-000000000001', 'SD', 'Manager0923198',
-   (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+   (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 'La Paz'),
   ('50923198-0000-4000-8000-000000000002', 'a0923198-0000-4000-8000-000000000002', 'SD', 'Admin0923198',
-   (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+   (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 'La Paz');
 
 INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('a0923198-0000-4000-8000-000000000001', 'manager'),
@@ -69,6 +71,16 @@ LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE public.engagements SET is_internal = p_internal, start_date = COALESCE(p_start, start_date)
    WHERE engagement_id = p_engagement;
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RETURN SQLERRM;
+END $$;
+
+-- Cambia created_at; devuelve NULL o el mensaje de error.
+CREATE FUNCTION pg_temp.try_set_created_at(p_engagement uuid, p_created timestamptz) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE public.engagements SET created_at = p_created WHERE engagement_id = p_engagement;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   RETURN SQLERRM;
@@ -220,6 +232,34 @@ BEGIN
     RAISE EXCEPTION 'FAIL (16): el admin debía poder marcar el Cliente como interno: %', v_err;
   END IF;
   RAISE NOTICE 'OK (16): admin clasifica un Cliente como interno';
+
+  -- 17. Review fix (Codex): el editor no puede mover created_at para correr el piso hacia atrás.
+  PERFORM pg_temp.as_user(c_manager);
+  v_err := pg_temp.try_set_created_at(c_e2, '2020-01-01 12:00:00+00');
+  IF v_err IS NULL OR v_err NOT LIKE 'ENGAGEMENT_CREATED_AT_IMMUTABLE%' THEN
+    RAISE EXCEPTION 'FAIL (17): cambiar created_at debía fallar con ENGAGEMENT_CREATED_AT_IMMUTABLE, dio: %', coalesce(v_err, 'OK');
+  END IF;
+  RAISE NOTICE 'OK (17): editor no-admin no puede cambiar la fecha de creación';
+
+  -- 18. Un alta del editor con created_at en el pasado queda con now().
+  INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, status,
+                                  work_order_required, is_internal, start_date, end_date, fecha_cierre,
+                                  society_id, oficina, practica, funcion, created_at)
+  VALUES ('70923198-0000-4000-8000-000000000015', '60923198-0000-4000-8000-000000000001', 'Alta created_at 0923198',
+          'SD-0015', 'active', true, false, v_today, '2099-12-31', '2026-12-31',
+          (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 1, 1, 1, '2020-01-01 12:00:00+00');
+  IF (SELECT created_at FROM public.engagements WHERE engagement_id = '70923198-0000-4000-8000-000000000015') <> now() THEN
+    RAISE EXCEPTION 'FAIL (18): el alta no-admin debía quedar con created_at = now()';
+  END IF;
+  RAISE NOTICE 'OK (18): alta no-admin con created_at en el pasado queda con now()';
+
+  -- 19. El admin sí puede cambiar created_at, como hasta ahora.
+  PERFORM pg_temp.as_user(c_admin);
+  v_err := pg_temp.try_set_created_at(c_e2, '2020-01-01 12:00:00+00');
+  IF v_err IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL (19): el admin debía poder cambiar created_at: %', v_err;
+  END IF;
+  RAISE NOTICE 'OK (19): admin cambia la fecha de creación';
 
   RAISE NOTICE 'START DATE FLOOR 0923-198: ALL CHECKS PASSED (rolled back)';
 END $$;

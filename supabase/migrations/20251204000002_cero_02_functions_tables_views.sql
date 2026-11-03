@@ -1698,6 +1698,14 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- Review fix (Codex): el piso de la edicion se mide desde OLD.created_at, asi que la fecha de creacion no la
+  -- elige quien no es admin: en el alta se fija a now() y despues no se puede cambiar.
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSIF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CREATED_AT_IMMUTABLE: solo un administrador puede cambiar la fecha de creacion del encargo';
+  END IF;
+
   -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
   -- Cliente como interno (o dejar de hacerlo) queda solo para el admin, igual que el switch del formulario. Los
   -- administrativos (funcion <> 1) los fuerza a internos trg_enforce_administrative_engagement_rules y su funcion
