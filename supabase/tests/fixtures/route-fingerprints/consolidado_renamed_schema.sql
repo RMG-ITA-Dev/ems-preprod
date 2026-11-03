@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 7CV5ytuTnBk1PkpKyTavm3hstUuMndAT9kMOveDplroCntICerxmL9c7NcE79HM
+\restrict 2ZLyo8XfdpC92E68g9kwMNYdef0O4jzSoIH8KoeGMRtOLjC6AfIS92ji7WM5jBS
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -4672,6 +4672,14 @@ CREATE FUNCTION public.engagements_guard_start_date_floor() RETURNS trigger
 BEGIN
   IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
     RETURN NEW;
+  END IF;
+
+  -- Review fix (Codex): el piso de la edicion se mide desde OLD.created_at, asi que la fecha de creacion no la
+  -- elige quien no es admin: en el alta se fija a now() y despues no se puede cambiar.
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSIF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CREATED_AT_IMMUTABLE: solo un administrador puede cambiar la fecha de creacion del encargo';
   END IF;
 
   -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
@@ -27425,7 +27433,7 @@ CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id 
 -- Name: engagements trg_engagements_guard_start_date_floor; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
+CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal, created_at ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
 
 
 --
@@ -31017,5 +31025,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 7CV5ytuTnBk1PkpKyTavm3hstUuMndAT9kMOveDplroCntICerxmL9c7NcE79HM
+\unrestrict 2ZLyo8XfdpC92E68g9kwMNYdef0O4jzSoIH8KoeGMRtOLjC6AfIS92ji7WM5jBS
 
