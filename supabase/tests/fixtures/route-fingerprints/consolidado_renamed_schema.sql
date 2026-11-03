@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict qP0lkrbFBtLZPgStFYvIvDTJJQawrU53mD9fvqQDXs9Nyxtgx1C48Qpvl5kf8Xb
+\restrict 7CV5ytuTnBk1PkpKyTavm3hstUuMndAT9kMOveDplroCntICerxmL9c7NcE79HM
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -4655,6 +4655,47 @@ BEGIN
                   WHERE wo.engagement_id = NEW.engagement_id
                     AND fr.status NOT IN ('borrador', 'cerrado', 'cancelado')) THEN
     RAISE EXCEPTION 'ENGAGEMENT_SOCIETY_LOCKED: el encargo tiene solicitudes de fondos abiertas; cierrelas o cancelelas antes de cambiar su sociedad';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: engagements_guard_start_date_floor(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagements_guard_start_date_floor() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
+  -- Cliente como interno (o dejar de hacerlo) queda solo para el admin, igual que el switch del formulario. Los
+  -- administrativos (funcion <> 1) los fuerza a internos trg_enforce_administrative_engagement_rules y su funcion
+  -- no cambia despues del alta, asi que no entran aca.
+  IF COALESCE(NEW.funcion, 1) = 1
+     AND ((TG_OP = 'INSERT' AND NEW.is_internal)
+          OR (TG_OP = 'UPDATE' AND NEW.is_internal IS DISTINCT FROM OLD.is_internal)) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_INTERNAL_ADMIN_ONLY: solo un administrador puede clasificar un encargo de cliente como interno';
+  END IF;
+
+  IF NEW.is_internal OR NEW.start_date IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.start_date < (now() AT TIME ZONE 'America/La_Paz')::date THEN
+      RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a hoy', NEW.start_date;
+    END IF;
+  ELSIF NEW.start_date IS DISTINCT FROM OLD.start_date
+        AND NEW.start_date < (OLD.created_at AT TIME ZONE 'America/La_Paz')::date THEN
+    RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a la creacion del encargo (%)',
+      NEW.start_date, (OLD.created_at AT TIME ZONE 'America/La_Paz')::date;
   END IF;
   RETURN NEW;
 END;
@@ -27381,6 +27422,13 @@ CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id 
 
 
 --
+-- Name: engagements trg_engagements_guard_start_date_floor; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
+
+
+--
 -- Name: engagements trg_engagements_log_assignment; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -30969,5 +31017,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict qP0lkrbFBtLZPgStFYvIvDTJJQawrU53mD9fvqQDXs9Nyxtgx1C48Qpvl5kf8Xb
+\unrestrict 7CV5ytuTnBk1PkpKyTavm3hstUuMndAT9kMOveDplroCntICerxmL9c7NcE79HM
 
