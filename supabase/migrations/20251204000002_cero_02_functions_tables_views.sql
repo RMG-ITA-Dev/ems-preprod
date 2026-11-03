@@ -1694,8 +1694,21 @@ CREATE FUNCTION public.engagements_guard_start_date_floor() RETURNS trigger
     SET search_path TO 'public'
     AS $$
 BEGIN
-  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin'
-     OR NEW.is_internal OR NEW.start_date IS NULL THEN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
+  -- Cliente como interno (o dejar de hacerlo) queda solo para el admin, igual que el switch del formulario. Los
+  -- administrativos (funcion <> 1) los fuerza a internos trg_enforce_administrative_engagement_rules y su funcion
+  -- no cambia despues del alta, asi que no entran aca.
+  IF COALESCE(NEW.funcion, 1) = 1
+     AND ((TG_OP = 'INSERT' AND NEW.is_internal)
+          OR (TG_OP = 'UPDATE' AND NEW.is_internal IS DISTINCT FROM OLD.is_internal)) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_INTERNAL_ADMIN_ONLY: solo un administrador puede clasificar un encargo de cliente como interno';
+  END IF;
+
+  IF NEW.is_internal OR NEW.start_date IS NULL THEN
     RETURN NEW;
   END IF;
 

@@ -4,7 +4,8 @@
 -- Regla: un editor que no es admin no puede CAMBIAR la fecha de inicio de un encargo de cliente a un día
 -- anterior a la creación del encargo, ni darlo de alta con inicio anterior a hoy. Una fecha histórica que fijó
 -- un admin y que no cambia no bloquea: el editor guarda el resto del encargo. Admin, internos y el sistema sin
--- sesión quedan fuera.
+-- sesión quedan fuera. Review fix (Codex): como la exención de internos se apoya en is_internal, clasificar un
+-- encargo de Cliente como interno (o desmarcarlo) queda solo para el admin.
 --
 -- DÓNDE CORRE: supabase/tests/local/run-rls-tests.sh. Transacción única, SIEMPRE hace ROLLBACK. Corre como
 -- dueño (el trigger no depende de RLS); la identidad se simula con request.jwt.claims. Salida de éxito: una
@@ -57,6 +58,17 @@ CREATE FUNCTION pg_temp.try_update(p_engagement uuid, p_start date, p_name text)
 LANGUAGE plpgsql AS $$
 BEGIN
   UPDATE public.engagements SET start_date = p_start, engagement_name = p_name WHERE engagement_id = p_engagement;
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RETURN SQLERRM;
+END $$;
+
+-- Cambia is_internal (y opcionalmente el inicio) en un solo UPDATE; devuelve NULL o el mensaje de error.
+CREATE FUNCTION pg_temp.try_set_internal(p_engagement uuid, p_internal boolean, p_start date) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE public.engagements SET is_internal = p_internal, start_date = COALESCE(p_start, start_date)
+   WHERE engagement_id = p_engagement;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
   RETURN SQLERRM;
@@ -171,6 +183,43 @@ BEGIN
     RAISE EXCEPTION 'FAIL (11): sin auth.uid() no debía haber piso: %', v_err;
   END IF;
   RAISE NOTICE 'OK (11): sistema sin sesión sin piso';
+
+  -- 12. Review fix (Codex): el editor no puede marcar un encargo de Cliente como interno.
+  PERFORM pg_temp.as_user(c_manager);
+  v_err := pg_temp.try_set_internal(c_e1, true, NULL);
+  IF v_err IS NULL OR v_err NOT LIKE 'ENGAGEMENT_INTERNAL_ADMIN_ONLY%' THEN
+    RAISE EXCEPTION 'FAIL (12): marcar un Cliente como interno debía fallar con ENGAGEMENT_INTERNAL_ADMIN_ONLY, dio: %', coalesce(v_err, 'OK');
+  END IF;
+  RAISE NOTICE 'OK (12): editor no-admin no puede marcar un Cliente como interno';
+
+  -- 13. El bypass del review: marcar interno y mover la fecha antes de la creación en el mismo UPDATE.
+  v_err := pg_temp.try_set_internal(c_e1, true, '2026-08-01');
+  IF v_err IS NULL OR v_err NOT LIKE 'ENGAGEMENT_INTERNAL_ADMIN_ONLY%' THEN
+    RAISE EXCEPTION 'FAIL (13): interno + fecha histórica en un UPDATE debía fallar, dio: %', coalesce(v_err, 'OK');
+  END IF;
+  RAISE NOTICE 'OK (13): no se puede saltar el piso marcando el encargo como interno';
+
+  -- 14. Tampoco puede desmarcar uno que el admin dejó interno (E2, funcion NULL = Cliente).
+  v_err := pg_temp.try_set_internal(c_e2, false, NULL);
+  IF v_err IS NULL OR v_err NOT LIKE 'ENGAGEMENT_INTERNAL_ADMIN_ONLY%' THEN
+    RAISE EXCEPTION 'FAIL (14): desmarcar un interno debía fallar con ENGAGEMENT_INTERNAL_ADMIN_ONLY, dio: %', coalesce(v_err, 'OK');
+  END IF;
+  RAISE NOTICE 'OK (14): editor no-admin no puede desmarcar un interno';
+
+  -- 15. Alta de Cliente como interno por el editor (con fecha pasada): rechazada por la clasificación.
+  v_err := pg_temp.try_insert('70923198-0000-4000-8000-000000000014', '2026-01-01', true);
+  IF v_err IS NULL OR v_err NOT LIKE 'ENGAGEMENT_INTERNAL_ADMIN_ONLY%' THEN
+    RAISE EXCEPTION 'FAIL (15): alta no-admin de Cliente interno debía fallar con ENGAGEMENT_INTERNAL_ADMIN_ONLY, dio: %', coalesce(v_err, 'OK');
+  END IF;
+  RAISE NOTICE 'OK (15): alta no-admin de Cliente interno rechazada';
+
+  -- 16. El admin sí clasifica un Cliente como interno.
+  PERFORM pg_temp.as_user(c_admin);
+  v_err := pg_temp.try_set_internal(c_e1, true, NULL);
+  IF v_err IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL (16): el admin debía poder marcar el Cliente como interno: %', v_err;
+  END IF;
+  RAISE NOTICE 'OK (16): admin clasifica un Cliente como interno';
 
   RAISE NOTICE 'START DATE FLOOR 0923-198: ALL CHECKS PASSED (rolled back)';
 END $$;
