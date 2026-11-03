@@ -75,6 +75,11 @@ CREATE TRIGGER tr_fr_wo_enforce_requester_engagement BEFORE INSERT OR UPDATE OF 
 
 CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_society_change();
 
+-- BUG 0923-198: piso de la fecha de inicio para editores que no son admin (alta: hoy; edicion: creacion, solo si
+-- la fecha cambia), clasificacion de un encargo de Cliente como interno y fecha de creacion solo para admin.
+-- Dispara despues de trg_enforce_administrative_engagement_rules (orden alfabetico).
+CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal, created_at ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
+
 
 --
 --

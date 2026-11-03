@@ -133,8 +133,9 @@ LANGUAGE sql AS $$
     p_client_id            := '5ec90000-0000-4000-8000-0000000000c1'::uuid,
     p_partner_id           := NULL,
     p_manager_id           := NULL,
-    p_start_date           := '2025-10-01'::date,
-    p_end_date             := '2026-09-30'::date,
+    -- 0923-198: un creador que no es admin no puede dar de alta con inicio anterior a hoy.
+    p_start_date           := (now() AT TIME ZONE 'America/La_Paz')::date,
+    p_end_date             := '2099-12-31'::date,
     p_status               := 'active',
     p_oficina              := p_oficina,
     p_practica             := p_practica,
@@ -147,7 +148,8 @@ LANGUAGE sql AS $$
     p_anio_fiscal          := 2026,
     p_work_order_required  := true,
     p_activity_required    := true,
-    p_is_internal          := true,
+    -- 0923-198: clasificar un Cliente como interno es solo de admin; esta suite no depende del flag.
+    p_is_internal          := false,
     p_approval_required    := true,
     p_fecha_cierre         := '2026-03-31'::date,
     p_anio_fiscal_override := false,

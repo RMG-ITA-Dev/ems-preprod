@@ -2287,3 +2287,7 @@ GRANT EXECUTE ON FUNCTION public.delete_installment_adjustment(p_adjustment_id u
 -- 1028-216: función de trigger SECURITY DEFINER (sincroniza la Matriz de Trabajo con la OT). Nadie la llama
 -- directo; se cierra a PUBLIC, anon y authenticated porque una función nace ejecutable por PUBLIC.
 REVOKE ALL ON FUNCTION public.sync_worksheet_status_from_work_order() FROM PUBLIC, anon, authenticated;
+
+-- 0923-198: función de trigger SECURITY DEFINER (piso de la fecha de inicio del encargo). Nadie la llama
+-- directo; se cierra a PUBLIC, anon y authenticated porque una función nace ejecutable por PUBLIC.
+REVOKE ALL ON FUNCTION public.engagements_guard_start_date_floor() FROM PUBLIC, anon, authenticated;
