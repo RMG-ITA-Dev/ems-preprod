@@ -59,10 +59,13 @@ SELECT ('57d00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
 INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
 VALUES ('c7d00000-0000-4000-8000-000000000001', 'FCAL Cliente SA', 'FCAL-7D01');
 
+-- BUG 0923-202: el solicitante (staff 1) es el encargado; sin un lugar en el equipo (o una asignacion) no
+-- podria pedir fondos contra la OT.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,
-                                manager_id, created_by_staff_id, fecha_cierre, society_id)
+                                manager_id, encargado_id, created_by_staff_id, fecha_cierre, society_id)
 VALUES ('e7d00000-0000-4000-8000-000000000001', 'c7d00000-0000-4000-8000-000000000001',
         'FCAL Encargo', '7D01', '57d00000-0000-4000-8000-000000000002',
+        '57d00000-0000-4000-8000-000000000001',
         '57d00000-0000-4000-8000-000000000002', '2027-12-31',
         (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 

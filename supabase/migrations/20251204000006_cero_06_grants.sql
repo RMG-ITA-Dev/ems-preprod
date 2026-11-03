@@ -2169,6 +2169,18 @@ GRANT EXECUTE ON FUNCTION public.fund_request_assert_requester_society(p_fund_re
 GRANT EXECUTE ON FUNCTION public.fr_wo_enforce_requester_society() TO service_role;
 GRANT EXECUTE ON FUNCTION public.fr_enforce_requester_society() TO service_role;
 GRANT EXECUTE ON FUNCTION public.engagements_guard_society_change() TO service_role;
+
+-- BUG 0923-202: elegibilidad para pedir fondos contra un encargo. El helper de dos argumentos juzga a un staff
+-- arbitrario: solo lo usan objetos DEFINER. La vista fund_request_selectable_work_orders llama al envoltorio del
+-- usuario actual, y PostgreSQL verifica ese EXECUTE contra quien consulta: se concede a authenticated.
+REVOKE EXECUTE ON FUNCTION public.can_request_funds_for_engagement(p_staff_id uuid, p_engagement_id uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fund_request_assert_requester_engagement(p_fund_request_id uuid, p_wo_id uuid) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.fr_wo_enforce_requester_engagement() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.can_request_funds_for_current_staff(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_request_funds_for_engagement(p_staff_id uuid, p_engagement_id uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fund_request_assert_requester_engagement(p_fund_request_id uuid, p_wo_id uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fr_wo_enforce_requester_engagement() TO service_role;
+GRANT EXECUTE ON FUNCTION public.can_request_funds_for_current_staff(p_engagement_id uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) TO authenticated, service_role;

@@ -996,6 +996,7 @@
     "onlyRuizmierEmail": "Only @{{domain}} emails are allowed.",
     "societyScopeForbidden": "This record belongs to another company; you can only work with your own company's engagements and work orders.",
     "fundRequestSocietyMismatch": "A fund request can only include work orders from the requester's company.",
+    "fundRequestEngagementForbidden": "You are not authorized to request funds for that engagement: you must be on its team or assigned to it.",
     "engagementSocietyLocked": "This engagement has open fund requests; close or cancel them before changing its company."
   },
   "form": {
@@ -2676,14 +2677,14 @@
     "missingToAllocate": "Pending to allocate",
     "overAllocated": "Over-allocated",
     "noApprovedWorkOrders": "No approved Work Orders available",
-    "noApprovedWorkOrdersHelp": "Ask the team to approve a Work Order and to assign a manager to its engagement before continuing.",
+    "noApprovedWorkOrdersHelp": "For client engagements, only Work Orders of engagements where you are on the team or assigned are listed. The Work Order must also be approved and its engagement must have a manager.",
     "noAllocationsYet": "No work orders allocated yet. Add at least one.",
     "noManagersAvailable": "No managers available to assign. Make sure there are active staff members with category Manager or Director.",
     "prereq": {
       "title": "You can't create a request yet",
       "noManagers": "There are no active managers in the system to assign as approver.",
       "noApprovedWos": "There are no work orders in Approved state. Ask your team to approve at least one before continuing.",
-      "noUsableWos": "There are no approved work orders whose engagement has a manager assigned. Ask for a WO to be approved and its engagement to have a manager before continuing."
+      "noUsableWos": "No work orders are available to you. For client engagements, only those of engagements where you are on the team or assigned are listed; the work order must also be approved and its engagement must have a manager."
     },
     "approvalNotes": "Manager notes",
     "rejectionReason": "Rejection reason",

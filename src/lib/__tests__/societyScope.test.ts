@@ -29,6 +29,11 @@ describe("societyScopeErrorKey", () => {
       .toBe("errors.engagementSocietyLocked");
   });
 
+  it("reconoce el rechazo por no ser del equipo ni estar asignado al encargo (0923-202)", () => {
+    expect(societyScopeErrorKey("FUND_REQUEST_ENGAGEMENT_FORBIDDEN: solo se pueden pedir fondos ..."))
+      .toBe("errors.fundRequestEngagementForbidden");
+  });
+
   it("cualquier otro mensaje no es un rechazo por sociedad", () => {
     expect(societyScopeErrorKey("new row violates row-level security policy")).toBeNull();
     expect(societyScopeErrorKey("CONTACT_FORBIDDEN: no tiene acceso")).toBeNull();
@@ -38,7 +43,8 @@ describe("societyScopeErrorKey", () => {
 
 describe("traducciones de los rechazos por sociedad", () => {
   it("las tres claves existen en inglés y en español", () => {
-    for (const key of ["societyScopeForbidden", "fundRequestSocietyMismatch", "engagementSocietyLocked"]) {
+    for (const key of ["societyScopeForbidden", "fundRequestSocietyMismatch", "engagementSocietyLocked",
+                       "fundRequestEngagementForbidden"]) {
       expect((en.errors as Record<string, string>)[key]).toBeTruthy();
       expect((es.errors as Record<string, string>)[key]).toBeTruthy();
     }

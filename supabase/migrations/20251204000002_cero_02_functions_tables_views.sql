@@ -1524,6 +1524,105 @@ $$;
 
 
 --
+-- Name: can_request_funds_for_engagement(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0923-202 (decisiones del operador 2026-10-30): quien puede pedir fondos contra las OT de un encargo.
+-- Encargo de CLIENTE (funcion 1 o NULL): solo el equipo (las 6 posiciones) o quien tenga una asignacion en
+-- engagement_assignments no borrada y no CANCELLED, sin importar fechas (PROPOSED cuenta: la tarjeta de
+-- Asignaciones del encargo las crea asi y es por donde se asigna a los asistentes). Encargo ADMINISTRATIVO
+-- (funcion 0/2/3): cualquiera, como antes. El admin, siempre. Juzga a un staff arbitrario (el SOLICITANTE, no el
+-- llamador), por eso su EXECUTE esta revocado: solo la usan objetos SECURITY DEFINER. La regla de sociedad va
+-- aparte (fund_request_assert_requester_society) y se suma a esta.
+CREATE FUNCTION public.can_request_funds_for_engagement(p_staff_id uuid, p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT p_staff_id IS NOT NULL AND p_engagement_id IS NOT NULL AND (
+    EXISTS (SELECT 1
+              FROM public.staff s
+              JOIN public.user_roles ur ON ur.user_id = s.auth_user_id AND ur.role = 'admin'
+             WHERE s.staff_id = p_staff_id)
+    OR EXISTS (SELECT 1
+                 FROM public.engagements e
+                WHERE e.engagement_id = p_engagement_id
+                  AND (COALESCE(e.funcion, 1) <> 1
+                       OR p_staff_id IN (e.manager_id, e.partner_id, e.sqr_id,
+                                         e.encargado_id, e.specialist_it_id, e.specialist_tax_id)))
+    OR EXISTS (SELECT 1
+                 FROM public.engagement_assignments ea
+                WHERE ea.engagement_id = p_engagement_id
+                  AND ea.staff_id = p_staff_id
+                  AND ea.deleted_at IS NULL
+                  AND ea.status <> 'CANCELLED')
+  )
+$$;
+
+
+--
+-- Name: can_request_funds_for_current_staff(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0923-202: can_request_funds_for_engagement() para el usuario actual, que es lo que filtra
+-- fund_request_selectable_work_orders. Una vista con security_invoker=false verifica el EXECUTE de sus funciones
+-- contra quien consulta, no contra el dueno: la vista no puede llamar al helper de dos argumentos (revocado para
+-- que nadie sondee la elegibilidad de terceros). Este envoltorio no acepta un staff ajeno, asi que si se concede.
+CREATE FUNCTION public.can_request_funds_for_current_staff(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.can_request_funds_for_engagement(public.get_my_staff_id(), p_engagement_id)
+$$;
+
+
+--
+-- Name: fund_request_assert_requester_engagement(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0923-202: toda OT de la solicitud debe ser de un encargo contra el que el SOLICITANTE puede pedir fondos
+-- (can_request_funds_for_engagement). Mismo contrato que fund_request_assert_requester_society: p_wo_id NULL
+-- revisa todas las OT de la solicitud; con valor, solo esa.
+CREATE FUNCTION public.fund_request_assert_requester_engagement(p_fund_request_id uuid, p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_requester uuid;
+BEGIN
+  SELECT fr.requester_staff_id INTO v_requester
+    FROM public.fund_requests fr
+   WHERE fr.fund_request_id = p_fund_request_id;
+
+  IF EXISTS (SELECT 1
+               FROM public.work_orders wo
+              WHERE (p_wo_id IS NOT NULL AND wo.wo_id = p_wo_id
+                     OR p_wo_id IS NULL AND wo.wo_id IN (SELECT frwo.wo_id FROM public.fund_request_work_orders frwo
+                                                          WHERE frwo.fund_request_id = p_fund_request_id))
+                AND NOT public.can_request_funds_for_engagement(v_requester, wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FUND_REQUEST_ENGAGEMENT_FORBIDDEN: solo se pueden pedir fondos contra ordenes de trabajo de encargos donde el solicitante es parte del equipo o esta asignado'
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: fr_wo_enforce_requester_engagement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Trigger de fund_request_work_orders (BUG 0923-202): cubre el alta, el cambio de OT y el cambio de solicitud padre.
+CREATE FUNCTION public.fr_wo_enforce_requester_engagement() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.fund_request_assert_requester_engagement(NEW.fund_request_id, NEW.wo_id);
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: fr_enforce_requester_society(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4020,6 +4119,9 @@ BEGIN
    ORDER BY e.engagement_id
      FOR SHARE OF e;
   PERFORM public.fund_request_assert_requester_society(p_fund_request_id, NULL);
+  -- BUG 0923-202: el solicitante debe seguir pudiendo pedir fondos contra cada encargo de la solicitud (un
+  -- borrador armado antes de perder el lugar en el equipo o la asignacion no llega a aprobacion).
+  PERFORM public.fund_request_assert_requester_engagement(p_fund_request_id, NULL);
 
   -- Debe tener al menos una OT; si no, nadie podría aprobarla.
   SELECT COALESCE(SUM(allocated_amount), 0)
@@ -7763,7 +7865,9 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
   WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id)
          -- Alcance por sociedad (2026-10-28): solo OT de la sociedad de quien pide (regla de armado de solicitudes).
-         AND (e.society_id = public.my_society_id()));
+         AND (e.society_id = public.my_society_id())
+         -- BUG 0923-202: OT de cliente solo para su equipo o sus asignados; las administrativas y el admin, como antes.
+         AND public.can_request_funds_for_current_staff(e.engagement_id));
 
 
 --
