@@ -1083,8 +1083,16 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   };
 
   const onSubmit = async (data: FormData) => {
-    // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor
-    if (!effectiveIsInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
+    // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor.
+    // BUG 0923-198: una fecha de inicio histórica ya guardada (la fijó un admin) que sigue sin
+    // cambios no bloquea el guardado del resto del encargo; el piso aplica solo a un valor nuevo.
+    // Se compara el valor y no `dirtyFields`: la hidratación usa `keepDirtyValues`.
+    const startDateUnchanged =
+      isEdit &&
+      !!engagement?.start_date &&
+      !!data.start_date &&
+      format(data.start_date, "yyyy-MM-dd") === engagement.start_date;
+    if (!startDateUnchanged && !effectiveIsInternal && effectiveMinStartDate && data.start_date && isBefore(startOfDay(data.start_date), effectiveMinStartDate)) {
       form.setError("start_date", {
         message: t("engagement.startDateBeforeCreation"),
       });
