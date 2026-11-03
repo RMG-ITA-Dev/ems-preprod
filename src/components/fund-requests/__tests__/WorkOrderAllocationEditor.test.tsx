@@ -239,3 +239,17 @@ describe("WorkOrderAllocationEditor — OTs en dólares (0722-164)", () => {
     expect(screen.getByText(/fundRequest.otsBlockedNoManager/)).toBeInTheDocument();
   });
 });
+
+describe("WorkOrderAllocationEditor — sin OTs seleccionables (0923-202)", () => {
+  it("deshabilita 'Agregar OT' y explica por qué no hay OTs", () => {
+    // La vista ya filtra por equipo o asignación: a quien no es parte de ningún
+    // encargo de cliente (ni hay administrativos aprobados) le llega vacía.
+    selectableWorkOrders = [];
+    renderEditor(0, []);
+
+    expect(screen.getByRole("button", { name: /fundRequest.addAllocation/ })).toBeDisabled();
+    expect(screen.getByText("fundRequest.noApprovedWorkOrders")).toBeInTheDocument();
+    expect(screen.getByText("fundRequest.noApprovedWorkOrdersHelp")).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+});

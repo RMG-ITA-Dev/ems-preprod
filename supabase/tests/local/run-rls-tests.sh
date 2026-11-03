@@ -557,6 +557,7 @@ assert_suite supabase/tests/rls-fund-request-events.sql 'FUND REQUEST EVENTS: AL
 assert_suite supabase/tests/rpc-fund-expense-calendar.sql 'FUND EXPENSE CALENDAR: ALL CHECKS PASSED'
 assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES BY WORK ORDER: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-accounting-society-scope.sql 'SOCIETY SCOPE: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-0923-202-fund-request-work-orders.sql '0923-202 FUND REQUEST WO: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-217-horas-encargo-finalizado.sql 'HORAS ENCARGO FINALIZADO: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-216-worksheet-status-sync.sql 'WORKSHEET STATUS SYNC 1028-216: ALL CHECKS PASSED'
 

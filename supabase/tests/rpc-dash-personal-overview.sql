@@ -283,6 +283,11 @@ INSERT INTO public.fund_requests (fund_request_id, request_number, requester_sta
 ON CONFLICT (fund_request_id) DO NOTHING;
 ALTER TABLE public.fund_requests ENABLE TRIGGER tr_fund_requests_enforce_bob;
 
+-- BUG 0923-202: tr_fr_wo_enforce_requester_engagement exige que el SOLICITANTE sea del equipo del encargo
+-- o este asignado a el. El solicitante de este fixture (s1) no lo es, y asignarlo moveria los conteos de
+-- carga y de encargos operativos que este archivo asserta. Se apaga el trigger SOLO alrededor de estas
+-- inserciones (incluida la de FR3, mas abajo); la regla se ejercita en rls-0923-202-fund-request-work-orders.sql.
+ALTER TABLE public.fund_request_work_orders DISABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 INSERT INTO public.fund_request_work_orders (fr_wo_id, fund_request_id, wo_id, allocated_amount, approval_status) VALUES
   ('f4902150-0000-4000-8000-000000000001', 'f3902150-0000-4000-8000-000000000001', 'd0902150-0000-4000-8000-000000000001', 500, 'aprobado'),
   ('f4902150-0000-4000-8000-000000000002', 'f3902150-0000-4000-8000-000000000002', 'd0902150-0000-4000-8000-000000000001', 200, 'pendiente')
@@ -297,6 +302,7 @@ INSERT INTO public.fund_request_work_orders (fr_wo_id, fund_request_id, wo_id, a
   ('f4902150-0000-4000-8000-000000000003', 'f3902150-0000-4000-8000-000000000003', 'd0902150-0000-4000-8000-000000000001', 1000, 'aprobado')
 ON CONFLICT (fr_wo_id) DO NOTHING;
 ALTER TABLE public.fund_request_work_orders ENABLE TRIGGER tr_fr_wo_validate_approved;
+ALTER TABLE public.fund_request_work_orders ENABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 
 INSERT INTO public.fund_request_expenses (fre_id, fund_request_id, wo_id, expense_type_id,
                                           expense_date, amount, currency, status, attachment_url) VALUES

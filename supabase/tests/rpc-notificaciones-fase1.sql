@@ -827,6 +827,16 @@ BEGIN
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
                                     total_requested_amount, currency, status)
   VALUES (v_fr, '59f00000-0000-4000-8000-000000000001', 500, 'BOB', 'borrador');
+  -- BUG 0923-202: el solicitante tiene que ser del equipo del encargo o estar asignado a el, si no
+  -- tr_fr_wo_enforce_requester_engagement rechaza la OT con FUND_REQUEST_ENGAGEMENT_FORBIDDEN. El
+  -- ASSISTANT del fixture no ocupa ninguna de las 6 posiciones: se lo asigna al encargo, que es
+  -- justamente el segundo camino que habilita la regla.
+  INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
+                                             start_date, end_date, status)
+  SELECT 'e9f00000-0000-4000-8000-000000000001',
+         '59f00000-0000-4000-8000-000000000001',
+         (SELECT category_id FROM public.categories ORDER BY category_name LIMIT 1),
+         current_date - 1, current_date + 30, 'CONFIRMED';
 
   INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
   VALUES (v_fr, v_wo, 500);
@@ -1116,6 +1126,14 @@ BEGIN
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
                                     total_requested_amount, currency, status, disbursed_at)
   VALUES (v_fr, '59f00000-0000-4000-8000-000000000001', 300, 'BOB', 'fondos_entregados', now());
+  -- BUG 0923-202: mismo motivo que en el Grupo 5 -- el ASSISTANT solicitante tiene que estar asignado a ESTE encargo.
+  INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
+                                             start_date, end_date, status)
+  SELECT 'e9f00000-0000-4000-8000-000000000004',
+         '59f00000-0000-4000-8000-000000000001',
+         (SELECT category_id FROM public.categories ORDER BY category_name LIMIT 1),
+         current_date - 1, current_date + 30, 'CONFIRMED';
+
   INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
   VALUES (v_fr, v_wo, 300);
 
@@ -3784,6 +3802,14 @@ BEGIN
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id,
                                     total_requested_amount, currency, status)
   VALUES ('f9f00000-0000-4000-8000-000000000009', c_assist, 200, 'BOB', 'borrador');
+  -- BUG 0923-202: mismo motivo que en el Grupo 5 -- el ASSISTANT solicitante tiene que estar asignado a ESTE encargo.
+  INSERT INTO public.engagement_assignments (engagement_id, staff_id, category_id,
+                                             start_date, end_date, status)
+  SELECT 'e9f00000-0000-4000-8000-00000000000b',
+         '59f00000-0000-4000-8000-000000000001',
+         (SELECT category_id FROM public.categories ORDER BY category_name LIMIT 1),
+         current_date - 1, current_date + 30, 'CONFIRMED';
+
   INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount)
   VALUES ('f9f00000-0000-4000-8000-000000000009', v_wo, 200);
   UPDATE public.fund_requests SET status = 'pendiente_aprobacion'

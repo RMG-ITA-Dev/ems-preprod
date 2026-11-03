@@ -90,11 +90,16 @@ VALUES
   ('f7c00000-0000-4000-8000-000000000007', '57c00000-0000-4000-8000-000000000001', 300, 'BOB', 'fondos_entregados', 300),
   ('f7c00000-0000-4000-8000-000000000008', '57c00000-0000-4000-8000-000000000001', 100, 'BOB', 'borrador', 0);
 
+-- BUG 0923-202: tr_fr_wo_enforce_requester_engagement exige que el solicitante sea del equipo del encargo o
+-- este asignado a el. Este asistente no lo es (y la base del harness no siembra categorias para asignarlo):
+-- se apaga el trigger SOLO para este INSERT de fixture. La regla se prueba en rls-0923-202-fund-request-work-orders.sql.
+ALTER TABLE public.fund_request_work_orders DISABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 INSERT INTO public.fund_request_work_orders (fund_request_id, wo_id, allocated_amount, approval_status)
 SELECT ('f7c00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        'd7c00000-0000-4000-8000-000000000001', 500,
        CASE WHEN n = 6 THEN 'pendiente' ELSE 'aprobado' END::public.fr_wo_approval_status
   FROM generate_series(2, 7) n;
+ALTER TABLE public.fund_request_work_orders ENABLE TRIGGER tr_fr_wo_enforce_requester_engagement;
 
 -- Gastos ya aprobados por el gerente, esperando a Contabilidad: 300 en f..2 y 300 en f..3
 -- (saldo 200 a favor de la firma). En f..5, uno todavía pendiente del gerente.

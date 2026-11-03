@@ -447,6 +447,10 @@ BEGIN
     pg_temp.rpc_error(u2, format('SELECT public.fund_request_disburse(%L::uuid, 100)', fa)), NULL);
 
   -- Regla de armado: OT de la sociedad del SOLICITANTE (todos los empleados, admin incluido) ──────────
+  -- BUG 0923-202: el selector ademas exige estar en el equipo del encargo (o asignado). U4 es gerente de
+  -- todos los encargos del fixture; U5 se pone de encargado de EB para que esto siga midiendo la sociedad.
+  UPDATE public.engagements SET encargado_id = '505c0000-0000-4000-8000-000000000005'
+   WHERE engagement_id = 'e05c0000-0000-4000-8000-00000000000b';
   PERFORM pg_temp.expect('selector de OT para fondos: el gerente de A solo ve WA',
     pg_temp.seen(u4, $q$SELECT wo_id FROM public.fund_request_selectable_work_orders WHERE wo_id::text LIKE 'd05c%'$q$), wa);
   PERFORM pg_temp.expect('selector de OT para fondos: el gerente contable de B solo ve WB',

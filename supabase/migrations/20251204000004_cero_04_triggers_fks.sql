@@ -69,6 +69,10 @@ CREATE TRIGGER tr_fr_wo_enforce_requester_society BEFORE INSERT OR UPDATE OF wo_
 
 CREATE TRIGGER tr_fr_enforce_requester_society BEFORE UPDATE OF requester_staff_id ON public.fund_requests FOR EACH ROW EXECUTE FUNCTION public.fr_enforce_requester_society();
 
+-- BUG 0923-202: la OT tiene que ser de un encargo contra el que el solicitante puede pedir fondos (equipo o
+-- asignacion en encargos de cliente; libre en administrativos; admin siempre). Alta, cambio de OT y de solicitud padre.
+CREATE TRIGGER tr_fr_wo_enforce_requester_engagement BEFORE INSERT OR UPDATE OF wo_id, fund_request_id ON public.fund_request_work_orders FOR EACH ROW EXECUTE FUNCTION public.fr_wo_enforce_requester_engagement();
+
 CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_society_change();
 
 

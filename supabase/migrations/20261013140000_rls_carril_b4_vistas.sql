@@ -28,8 +28,8 @@
 --   2. staff_directory pasa a security_invoker: obedece la RLS y el SELECT por columna de staff. Resultado idéntico hoy (32 de 32
 --      filas para los 11 roles, antes y después).
 --   3. Privilegios de las vistas de public: authenticated solo SELECT; anon nada (incluido MAINTAIN).
---   4. Comentario en fund_request_selectable_work_orders: sigue del dueño y global a propósito (cualquier empleado puede pedir
---      fondos contra cualquier OT aprobada: fr_wo_insert no mira alcance y el gerente de la OT aprueba).
+--   4. Comentario en fund_request_selectable_work_orders: sigue del dueño a propósito. Hoy filtra por sociedad (2026-10-28) y,
+--      en encargos de cliente, por equipo o asignación (BUG 0923-202, 2026-10-30, revierte el "global" de esta etapa).
 
 -- 0. Guardas ────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- El conjunto de visibilidad copia las cuatro políticas SELECT de engagements; si faltan, copiaría algo que ya no existe.
@@ -140,4 +140,4 @@ GRANT ALL ON public.engagement_wo_state TO service_role;
 
 -- 5. Documentación en el catálogo de la otra vista del dueño que se conserva ───────────────────────────────────────
 COMMENT ON VIEW public.fund_request_selectable_work_orders IS
-  'B4: SECURITY DEFINER a proposito. Cualquier empleado puede pedir fondos contra cualquier OT aprobada de SU sociedad (alcance por sociedad 2026-10-28; fr_wo_insert no mira alcance, el trigger tr_fr_wo_enforce_requester_society exige la sociedad del solicitante y el gerente de la OT aprueba), asi que debe ver todas las de su sociedad. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
+  'B4: SECURITY DEFINER a proposito. Lista las OT aprobadas de SU sociedad (alcance por sociedad 2026-10-28, trigger tr_fr_wo_enforce_requester_society) contra las que el usuario puede pedir fondos (BUG 0923-202, can_request_funds_for_current_staff: en encargos de cliente solo el equipo o los asignados; los administrativos y el admin, todas; trigger tr_fr_wo_enforce_requester_engagement). Corre como el dueno porque work_orders solo lo lee el equipo y un asignado o un encargo administrativo no pasan esa RLS. Solo columnas minimas: NUNCA agregar cliente, NIT, presupuesto ni notas.';
