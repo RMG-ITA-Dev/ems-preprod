@@ -124,6 +124,12 @@ run supabase/migrations/20251204000001_cero_01_extensions_enums.sql
 run supabase/migrations/20251204000002_cero_02_functions_tables_views.sql
 run supabase/migrations/20251204000003_cero_03_constraints_indexes.sql
 run supabase/migrations/20251204000004_cero_04_triggers_fks.sql
+
+# ETL fase 1 (T02): aserciones tempranas de estructura, justo después de cero_04 y antes de cualquier
+# seed ni migración posterior: categories.default_role_key (columna + check + FK, una sola vez),
+# clients (tax_id sin unicidad, atributos nuevos nullable, 7 checks, FK padre) e industries.status.
+run supabase/tests/local/verify-etl-f1-structure.sql
+
 run supabase/migrations/20251204000005_cero_05_rls_policies.sql
 run supabase/migrations/20251204000006_cero_06_grants.sql
 
@@ -139,6 +145,12 @@ run supabase/migrations/20251204000006_cero_06_grants.sql
 # tabla tiene FK a authorization_permissions, que este fixture es quien siembra en el harness —
 # en producción esa fila ya existe de antes (hallazgo real de CI, 2026-08-27).
 run supabase/tests/local/40-fixture-rbac-catalog.sql
+
+# ETL fase 1 (T08): cero_15 ya no siembra feriados. public.seed_initial_holidays(uuid) se define en cero_02
+# y sus permisos (sin EXECUTE para PUBLIC/anon/authenticated/service_role) cierran cero_06, así que ya
+# existe aquí; cero_15 es un paso sin cambios que se aplica igual, para ensayar el set completo.
+# B5 y etl-f1-contracts.sql verifican los privilegios efectivos de esa función con el estado final.
+run supabase/migrations/20251204001006_cero_15_seed_holidays.sql
 
 run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql
 run supabase/migrations/20260826221706_0817-180_grant_hr_engagement_work_order.sql
@@ -308,8 +320,10 @@ run supabase/migrations/20260918120000_dash_encargo_engagement_overview.sql
 # staff_id = get_my_staff_id() en cada CTE. Ejercitado por rpc-dash-personal-overview.sql.
 run supabase/migrations/20260921140000_dash_personal_overview.sql
 
-# 0722-160: las dos sociedades reales deben existir antes de aplicar la migración,
-# pues sus clientes internos se siembran y validan contra este catálogo.
+# 0722-160: las dos sociedades reales deben existir antes de aplicar la migración (sus reglas
+# administrativas se validan contra este catálogo). ETL fase 1: la migración YA NO siembra los dos
+# clientes internos (los carga la fase 2), así que el harness los crea como fixture ficticio justo
+# después, para las suites administrativas.
 #
 # Los UUID llevan el sufijo 0160 a propósito: ...0001 ya lo ocupa 'D5 Test Society', que
 # rls-engagement-assignments-d5.sql inserta dentro de su propia transacción. Como este seed
@@ -323,6 +337,15 @@ INSERT INTO public.society (society_id, name) VALUES
 ON CONFLICT DO NOTHING;
 "
 run supabase/migrations/20260922120000_0722_160_administrative_engagements.sql
+
+# Clientes internos FICTICIOS del harness (identidad canónica: NIT + nombre igual al de la sociedad).
+# No son datos de instalación: una instalación real nace con cero clientes (verify-seed.sql preinit).
+psql -v ON_ERROR_STOP=1 -d "$DB" -c "
+INSERT INTO public.clients (client_id, client_legal_name, tax_id, is_active) VALUES
+  ('c1000000-0000-4000-8000-000000000160', 'Ruizmier Pelaez S.R.L.',   '1006979026', true),
+  ('c1000000-0000-4000-8000-000000000161', 'Ruizmier Jauregui S.R.L.', '184046021',  true)
+ON CONFLICT DO NOTHING;
+"
 
 # 0922-190: policy aditiva ea_select_own sobre engagement_assignments (staff_id =
 # get_my_staff_id()) -- autovisibilidad para la pantalla "Mis asignaciones". No reemplaza
@@ -539,4 +562,11 @@ assert_suite supabase/tests/trigger-1028-217-horas-encargo-finalizado.sql 'HORAS
 assert_suite supabase/tests/trigger-1028-216-worksheet-status-sync.sql 'WORKSHEET STATUS SYNC 1028-216: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0923-198-engagement-start-date-floor.sql 'START DATE FLOOR 0923-198: ALL CHECKS PASSED'
 
-echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las 27 suites de RLS/RPC/schema-convergence/trigger pasaron"
+# ETL fase 1 (T03/T04/T08): modelo de clientes, carga inicial vs guardado operativo, privilegios y
+# comportamiento de seed_initial_holidays, directorio de clientes y B6. Va al final: verifica los
+# privilegios con el estado definitivo (después de B5/B6/D1).
+assert_suite supabase/tests/etl-f1-contracts.sql 'ETL F1 CONTRACTS: ALL CHECKS PASSED'
+assert_suite supabase/tests/etl-f2-contracts.sql 'ETL F2 CONTRACTS: ALL CHECKS PASSED'
+assert_suite supabase/tests/etl-f3-contracts.sql 'ETL F3 CONTRACTS: ALL CHECKS PASSED'
+
+echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las suites de RLS/RPC/schema-convergence/trigger y la contractual ETL fase 1 pasaron"

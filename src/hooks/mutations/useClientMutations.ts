@@ -43,7 +43,7 @@ export function useCreateClient() {
       // sobre el RETURNING) y los contactos, que se guardan aparte, necesitan ese id.
       client_id?: string;
       client_legal_name: string;
-      unique_tax_id: string;
+      tax_id: string;
       industry_id?: string;
       address?: string;
       is_active?: boolean;
@@ -76,7 +76,7 @@ export function useUpdateClient() {
       id: string;
       data: Partial<{
         client_legal_name: string;
-        unique_tax_id: string;
+        tax_id: string;
         industry_id: string;
         address: string;
         is_active: boolean;
@@ -169,7 +169,7 @@ export function useSaveClientWithContacts() {
       isNew: boolean;
       client: {
         client_legal_name: string;
-        unique_tax_id: string;
+        tax_id: string;
         industry_id?: string;
         address?: string;
         is_active?: boolean;

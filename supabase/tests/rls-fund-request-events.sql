@@ -55,7 +55,7 @@ SELECT ('57e00000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        (SELECT society_id FROM public.society ORDER BY name LIMIT 1), 40, '2020-01-01', 'La Paz'
   FROM generate_series(1, 5) n;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c7e00000-0000-4000-8000-000000000001', 'FEVT Cliente SA', 'FEVT-7E01');
 
 -- BUG 0923-202: el solicitante (staff 1) es el encargado de los dos encargos; sin un lugar en el equipo (o una

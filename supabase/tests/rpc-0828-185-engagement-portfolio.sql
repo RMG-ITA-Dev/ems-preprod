@@ -96,7 +96,7 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('a0828185-0000-4000-8000-000000000012', 'director')
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('60828185-0000-4000-8000-000000000001', 'Cliente Portfolio 0828185', 'NIT-0828185')
 ON CONFLICT (client_id) DO NOTHING;
 

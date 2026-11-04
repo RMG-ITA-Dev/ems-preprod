@@ -10,9 +10,12 @@
 
 ## 0. Qué es esto y cuándo se usa
 
-El "set consolidado" es el conjunto final de 14 migraciones que reemplazó las 184
+El "set consolidado" es el conjunto final de migraciones que reemplazó las 184
 históricas (`supabase/migrations/`: 7 de esquema `cero_01..07` + 7 de seed `cero_10..16`,
-sin datos demo, con catálogo maestro real). Este runbook reconstruye **cualquier** proyecto
+sin datos demo, con catálogo maestro real). Hoy el árbol tiene **61 archivos**: esas 14 más las
+incrementales posteriores. Con la implementación desde cero, los cambios se **editan en el sitio**
+(`cero_*` o la migración incremental que corresponda) y no se crean archivos nuevos; el ledger de un
+proyecto reconstruido debe quedar en 61. Este runbook reconstruye **cualquier** proyecto
 Supabase desde volumen vacío aplicando ese set — típicamente para:
 
 - Resetear el ambiente "Test" cuando queda en un estado inconsistente.
@@ -72,25 +75,25 @@ Todo sale del dashboard de Supabase (`supabase.com/dashboard`), proyecto objetiv
 1. Carga las credenciales **públicas** del proyecto objetivo desde un archivo `.env` que le
    indiques (nunca lee ni imprime su contenido — solo verifica por *nombre* que las
    variables existan).
-2. Pide por prompt oculto las **2 credenciales secretas** (connection string, service_role
-   key) — salvo que ya estén exportadas en tu shell.
+2. Pide por prompt oculto el **connection string** de Postgres (Session pooler) — salvo que ya
+   esté exportado en tu shell. La service_role/secret key ya no se pide acá: la necesita la
+   consola de inicialización (§5).
 3. Verificación no-secreta: que el project-ref aparezca dentro del connection string (evita
    apuntar por error a otro ambiente).
 4. `supabase link --project-ref <REF>` si todavía no está linkeado a ese proyecto.
 5. **Confirmación interactiva obligatoria**: tenés que escribir el project-ref exacto para
    que el script continúe. No hay flag para saltarla.
-6. `supabase db reset --linked` — borra todo y reaplica las 14 migraciones.
+6. `supabase db reset --linked` — borra todo y reaplica las 61 migraciones.
 7. Verifica convergencia (`migration list --linked`, `db push --dry-run --linked`).
-8. Corre `verify-seed.sql` contra la base real (24 chequeos: conteos, ADM/is_system,
-   `ADM_ACTIVITY_ID`, 61/61 `default_app_role`, feriados vs generador, cero datos demo,
-   bootstrap completo, cron jobs `finalize-stale-timers`/`finalize-engagements` activos,
-   `LANGUAGE`/`ALLOW_WEEKEND_TRACKING` presentes).
-9. Corre `verify-auth-bootstrap.sh` (Admin API → login por password → `get_my_staff_id()` →
-   1 fila admin) — el gate real del INSERT en `auth.users`/`auth.identities`. **Este paso fija
-   por Admin API una contraseña temporal de patrón conocido en la cuenta admin real** (ver
-   advertencia en §5) — se acepta esa exposición a cambio de probar el login real contra el
-   ambiente real, no solo el esquema. Se mitiga fijando una contraseña real inmediatamente
-   después (§5), paso que ya era obligatorio.
+8. Corre `verify-seed.sql` en modo **`preinit`** (`-v etl_f1_mode=preinit`) contra la base real:
+   catálogos y configuración definitivos (industrias, gastos, prácticas/categorías, RBAC, ajustes,
+   `ADM_ACTIVITY_ID`, `default_app_role`/`default_role_key`, cron jobs) y **cero** clientes, staff,
+   cuentas de usuario, roles y feriados.
+9. **No inicializa.** Informa «INICIALIZACIÓN PENDIENTE» y termina: ya no existe una cuenta fija
+   en el seed (`cero_14` quedó como no-op) ni se llama automáticamente a
+   `verify-auth-bootstrap.sh`. El primer administrador y el calendario los crea la consola
+   específica (§5), con su propia autorización. Este script reconstruye; no declara operativo el
+   ambiente.
 
 Si cualquier paso falla, el script se detiene ahí (`set -euo pipefail`) — no sigue a ciegas.
 
@@ -115,7 +118,7 @@ lista completa de alias).
 Vas a ver, en orden:
 
 1. `PASS — SUPABASE_DB_URL de '<archivo>' referencia el project-ref esperado.` — antes de
-   esto, si faltan las públicas te dice cuáles, y te pide las 2 secretas por prompt oculto
+   esto, si faltan las públicas te dice cuáles, y te pide el connection string por prompt oculto
    (pegá y Enter, sin ver nada en pantalla — es lo esperado, no un error).
 2. El check/creación del link.
 3. La advertencia destructiva, terminando en `Escribí exactamente el project-ref para
@@ -123,49 +126,55 @@ Vas a ver, en orden:
    cosa aborta sin tocar nada.
 4. `supabase db reset --linked` — vas a ver "Applying migration..." × 14.
 5. `migration list --linked` + `db push --dry-run` → debería decir 0 pendientes.
-6. `verify-seed.sql` → 22 líneas `NOTICE: PASS — ...` terminando en
+6. `verify-seed.sql` en modo preinit → líneas `NOTICE: PASS — ...` terminando en
    `VERIFY-SEED: ALL CHECKS PASSED`. (Los acentos/ñ pueden verse como `â?"`/`A-` en Windows —
    es solo encoding del cliente `psql`, cosmético, ver §6.)
-7. `verify-auth-bootstrap.sh` → termina en `VERIFY-AUTH-BOOTSTRAP: ALL CHECKS PASSED`.
-8. `RESET-DESDE-CERO: proyecto '<ref>' reconstruido y verificado end-to-end.`
+7. `RESET-DESDE-CERO: proyecto '<ref>' reconstruido y verificado en modo preinit.`, seguido de
+   `INICIALIZACIÓN PENDIENTE`: el ambiente todavía **no** es operativo (§5).
 
 Si algo falla, pegá el error completo a quien te esté ayudando — no reintentes por tu cuenta
 si falla a mitad del `db reset` (ver troubleshooting, §6).
 
-## 5. Después del script: activar al admin y probar la app — PASO NO OPCIONAL
+## 5. Después del script: inicializar con la consola — PASO APARTE
 
-**Advertencia (fuga aceptada y ya mitigada por este mismo paso):** el seed (`cero_14`) inserta
-al admin con una contraseña aleatoria e inutilizable — hasta ahí, nadie la conoce. Pero el
-paso 9 del script (`verify-auth-bootstrap.sh`, §3) la **sobreescribe** con una contraseña
-temporal de patrón conocido (`verify-bootstrap-<epoch>-<pid>!Aa1`) para probar el login real
-contra el ambiente real. Al terminar el script, la cuenta admin **ya no tiene** la contraseña
-inutilizable del seed — tiene esa temporal, reconstruible por cualquiera que sepa
-aproximadamente cuándo corrió el script. Esto es un compromiso aceptado (el mismo camino que
-recorre un usuario real, no solo el esquema), y su mitigación es este paso: no es una
-recomendación, es **obligatorio ejecutarlo inmediatamente** después de que el script termine —
-mientras no se haga, el ambiente recién reseteado tiene un admin con contraseña conocida activa.
+`reset-desde-cero.sh` deja el ambiente **sin cuentas**: no hay administrador, ni ficha de personal,
+ni feriados (`cero_14` es un no-op y `cero_15` es un paso sin cambios; la función `seed_initial_holidays` vive en `cero_02`, con sus permisos en `cero_06`).
+El primer administrador — la cuenta **genérica** `admin@ruizmier.com` (`Admin EMS`, categoría
+Socio de Auditoría, `is_schedulable = false`) — y los 28 feriados los crea la consola específica de
+fase 1 (`scripts/etl/README.md`). Es un paso **separado y con su propia autorización**: reconstruir
+no autoriza inicializar, y la inicialización remota no la autoriza este documento.
 
-**a) Fijar la contraseña real** (necesita la service_role/secret key otra vez — Settings → API):
+Antes de ejecutarla (resumen; el detalle está en el README de la consola):
+
+- El registro público (Bootstrap y `register-user`) debe estar **cerrado**: el único alta es el
+  administrador por consola. `handle_new_user` convierte en admin al primer usuario que se registre.
+- Variables de entorno, nunca en archivos versionados ni en el chat: `PG*` (pooler, usuario
+  `postgres.<ref>`), `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `ADMIN_TEMP_PASSWORD`,
+  `ETL_F1_STATE_DIR` (ruta absoluta fuera del repositorio), `ETL_F1_SIGNUP_CLOSED=1` y
+  `ETL_F1_WINDOW_CONFIRMED=<ref>`.
+- Correo: `MAIL_ENABLED=false` en el ensayo; concilie la cola `notification_emails` antes de
+  habilitar cualquier envío.
+- `supabase db reset --linked` **no** elimina por sí solo las cuentas de Auth, pero
+  `reset-desde-cero.sh` sí las borra (paso 4b: `auth.users` con sus identidades, sesiones y tokens,
+  y la bitácora `auth.audit_log_entries`) y lo anuncia en la confirmación. Los archivos de Storage
+  no se tocan. Si se reinicializa **sin** pasar por el script, hay que tratar `auth.users` a mano: la
+  consola se niega a trabajar sobre cuentas ajenas a su journal.
 
 ```bash
-read -s -p "service_role/secret key: " SUPABASE_SERVICE_ROLE_KEY
-export SUPABASE_SERVICE_ROLE_KEY
-
-curl -s -X PUT "https://<REF>.supabase.co/auth/v1/admin/users/c32c03fd-ddfb-4ae2-9176-664982d4621e" \
-  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"password": "<elegí una contraseña real, la vas a usar para loguearte>"}'
+node scripts/etl/fase1.mjs preflight  --config <configuración privada>
+node scripts/etl/fase1.mjs initialize --config <configuración privada>
+node scripts/etl/fase1.mjs verify     --config <configuración privada>
 ```
 
-Una respuesta con el JSON del usuario (email, id, `updated_at` reciente) confirma que
-funcionó. `c32c03fd-ddfb-4ae2-9176-664982d4621e` es el UUID fijo del admin del seed —
-siempre el mismo en cualquier ambiente reseteado con este set (está declarado en
-`supabase/migrations/*_cero_14_seed_admin_bootstrap.sql`).
+**Cadena completa F1 → F3 (reset, F1, F2, paso manual de bajas, F3 por bloques y conciliación contra el
+legacy):** `scripts/etl/runbook/` (`run.sh`, README propio), con modo `--env local` para ensayarla y
+`--env test` con el ref de Test fijo. Producción no existe en ese runbook.
 
-**b) Levantar la app apuntada a este proyecto:**
+La contraseña de `admin@ruizmier.com` es la temporal `ADMIN_TEMP_PASSWORD` con la que la consola crea
+la cuenta; es una cuenta de acceso inicial que **se elimina en el reset de producción**. No la pegue en
+chats ni la guarde en archivos versionados.
 
-En la raíz de `aurora-engage-pro-908f8234` (rama `refactor/bd-migracion-cero`), creá/editá
+**Levantar la app apuntada a este proyecto:** en la raíz de `aurora-engage-pro-908f8234`, cree/edite
 `.env.local` (gitignored, nunca se commitea):
 
 ```
@@ -173,15 +182,8 @@ VITE_SUPABASE_URL=https://<REF>.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=<la publishable/anon key — no la secreta>
 ```
 
-Después:
-
-```bash
-npm run dev
-```
-
-**c) Login:** correo `neilgraneros@ruizmier.com`, la contraseña que fijaste en (a). Si te da
-`400 Bad Request` en `/auth/v1/token`, es la contraseña equivocada (no la del connection
-string, no una que hayas probado "al boleo" — la que realmente pusiste en el curl de (a)).
+Después `npm run dev` y login con `admin@ruizmier.com` y la contraseña temporal. Si da `400 Bad
+Request` en `/auth/v1/token`, es la contraseña equivocada (no la del connection string).
 
 ## 6. Troubleshooting (hallazgos reales de la ejecución contra "Test")
 
@@ -222,8 +224,14 @@ aplicar hacia adelante (sin invocar la lógica de "down"):
 ```bash
 psql "<connection string>" -c "DROP SEQUENCE public.fund_request_number_seq;"
 supabase db push --include-all --linked
-supabase migration list --linked   # confirmar 14/14, Local == Remote
+supabase migration list --linked   # confirmar 61/61, Local == Remote
 ```
+
+**Automatizado:** `scripts/etl/runbook/11-recover-reset.sh` (solo Test) hace este diagnóstico y esta
+corrección con comprobaciones: se detiene si lo que sobrevive no es exactamente esa secuencia, pide
+escribir `DROP fund_request_number_seq`, aplica `db push --include-all --linked`, borra las cuentas de
+Auth (el paso 4b del reset, que no llega a correr cuando el reset aborta) y verifica el ledger (61) y
+`verify-seed` en modo `preinit`. Se usa tras un `10-reset.sh` que cayó aquí; no repita `db reset`.
 
 Un reset *futuro* del mismo proyecto (ya en el historial consolidado) no debería divergir
 así — este problema es específico de la primera vez que se resetea un proyecto con
@@ -264,10 +272,10 @@ que todavía no fue reseteado con el set consolidado.
 
 ## 7. Checklist manual post-reset (plan §7.3 — no lo hace el script, es criterio humano)
 
-- [ ] **Activar al admin del seed** (§5 de este documento) — hecho vía Admin API, contraseña
-      real fijada.
-- [ ] Login con ese admin en la app apuntada al proyecto reseteado; verificar que
-      `get_my_staff_id()` resuelve (ya lo probó el script, pero confirmarlo desde la UI real).
+- [ ] **Inicialización pendiente resuelta** (§5): consola `preflight` / `initialize` / `verify`
+      ejecutada con su autorización propia; sin ella el ambiente NO es operativo.
+- [ ] Login con `admin@ruizmier.com` en la app apuntada al proyecto reseteado; verificar que
+      `get_my_staff_id()` resuelve (ya lo probó la consola, pero confirmarlo desde la UI real).
 - [ ] `HOLIDAY_ENGAGEMENT_ID` vacío por diseño — completar a mano cuando exista el encargo de
       feriados/no facturable.
 - [ ] Alta de un equipo/asignación de prueba con `skills` vacío — debe funcionar.
@@ -290,3 +298,5 @@ ambiente.
 | Fecha | Proyecto | Resultado |
 |---|---|---|
 | 2026-08-23/24 | Test (`slkqdcwwvmjtcbakajib`) | Verde — 14/14 migraciones, 22/22 checks de `verify-seed.sql`, `verify-auth-bootstrap.sh` OK. Incidente del sequence suelto (§6.1) diagnosticado y resuelto en el camino. Admin activado con contraseña real. |
+| 2026-10-28 | Test (`slkqdcwwvmjtcbakajib`) | Reset desde cero con el set de 60 migraciones de entonces: cayó otra vez en el hallazgo §6.1 (misma secuencia suelta, ledger en 0, `auth.users` en 0); corrección manual (`DROP SEQUENCE` y `db push --include-all --linked`), `verify-seed` `preinit` y luego F1 (`initialize`, `verify`, `verify-seed` `initialized`, `verify-auth-bootstrap.sh`) en verde. El paso 4b del script no llegó a ejercitarse contra Test. Detalle en `bugs/ETL/carga/fase1/reporte_ejecucion.md` §10 |
+| 2026-10-31 | Local (stack Docker, ensayos `e1`, `e2` y `e3`) | `scripts/etl/runbook/` completo (reset local, F1, F2, bajas, F3, conciliación contra el legacy y huella L9) sobre las 61 migraciones; sin tocar ningún proyecto remoto |

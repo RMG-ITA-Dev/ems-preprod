@@ -27,6 +27,10 @@ const policiesSql = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20251204000005_cero_05_rls_policies.sql"),
   "utf-8",
 );
+const serviceSeedSql = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20251204001003_cero_12_seed_servicios.sql"),
+  "utf-8",
+);
 
 describe("servicios table (migración cero, consolidado)", () => {
   it("creates the public.servicios table", () => {
@@ -48,6 +52,11 @@ describe("servicios table (migración cero, consolidado)", () => {
     expect(constraintsSql).toContain(
       "CREATE UNIQUE INDEX idx_servicios_code_unique ON public.servicios USING btree (lower(TRIM(BOTH FROM code)));",
     );
+  });
+
+  it("seeds zero-padded sequential service codes for lexical ordering", () => {
+    const codes = [...serviceSeedSql.matchAll(/\('S(\d{2})',\s*trim\(/g)].map((match) => match[1]);
+    expect(codes).toEqual(Array.from({ length: 29 }, (_, index) => String(index + 1).padStart(2, "0")));
   });
 
   it("practica_id is a nullable FK to practicas (independent table)", () => {

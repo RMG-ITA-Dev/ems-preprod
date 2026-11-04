@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_codes: {
@@ -251,6 +226,27 @@ export type Database = {
           },
         ]
       }
+      auth_email_throttle: {
+        Row: {
+          email_normalized: string
+          last_sent_at: string | null
+          sent_count: number
+          window_start: string
+        }
+        Insert: {
+          email_normalized: string
+          last_sent_at?: string | null
+          sent_count?: number
+          window_start?: string
+        }
+        Update: {
+          email_normalized?: string
+          last_sent_at?: string | null
+          sent_count?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       auth_login_attempts: {
         Row: {
           attempts_count: number
@@ -388,6 +384,7 @@ export type Database = {
           category_name: string
           created_at: string | null
           default_app_role: Database["public"]["Enums"]["app_role"] | null
+          default_role_key: string | null
           display_order: number | null
           practica_id: string
           rate_high_bob: number
@@ -403,6 +400,7 @@ export type Database = {
           category_name: string
           created_at?: string | null
           default_app_role?: Database["public"]["Enums"]["app_role"] | null
+          default_role_key?: string | null
           display_order?: number | null
           practica_id: string
           rate_high_bob?: number
@@ -418,6 +416,7 @@ export type Database = {
           category_name?: string
           created_at?: string | null
           default_app_role?: Database["public"]["Enums"]["app_role"] | null
+          default_role_key?: string | null
           display_order?: number | null
           practica_id?: string
           rate_high_bob?: number
@@ -428,6 +427,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "categories_default_role_key_fkey"
+            columns: ["default_role_key"]
+            isOneToOne: false
+            referencedRelation: "authorization_roles"
+            referencedColumns: ["role_key"]
+          },
+          {
             foreignKeyName: "categories_practica_id_fkey"
             columns: ["practica_id"]
             isOneToOne: false
@@ -436,47 +442,107 @@ export type Database = {
           },
         ]
       }
+      client_contacts: {
+        Row: {
+          client_id: string
+          contact_id: string
+          contact_type: string
+          created_at: string
+          email: string | null
+          full_name: string
+          is_active: boolean
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          contact_id?: string
+          contact_type: string
+          created_at?: string
+          email?: string | null
+          full_name: string
+          is_active?: boolean
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          contact_id?: string
+          contact_type?: string
+          created_at?: string
+          email?: string | null
+          full_name?: string
+          is_active?: boolean
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_contacts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "client_contacts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients_directory"
+            referencedColumns: ["client_id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null
+          billing_tax_treatment: string | null
           client_id: string
           client_legal_name: string
-          contact_email: string | null
-          contact_name: string | null
-          contact_phone: string | null
+          client_origin: string | null
+          client_type: string | null
           created_at: string | null
           created_by_staff_id: string | null
           industry_id: string | null
           is_active: boolean | null
-          unique_tax_id: string
+          operating_name: string | null
+          parent_client_id: string | null
+          parent_relationship: string | null
+          tax_id: string
           updated_at: string | null
         }
         Insert: {
           address?: string | null
+          billing_tax_treatment?: string | null
           client_id?: string
           client_legal_name: string
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
+          client_origin?: string | null
+          client_type?: string | null
           created_at?: string | null
           created_by_staff_id?: string | null
           industry_id?: string | null
           is_active?: boolean | null
-          unique_tax_id: string
+          operating_name?: string | null
+          parent_client_id?: string | null
+          parent_relationship?: string | null
+          tax_id: string
           updated_at?: string | null
         }
         Update: {
           address?: string | null
+          billing_tax_treatment?: string | null
           client_id?: string
           client_legal_name?: string
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
+          client_origin?: string | null
+          client_type?: string | null
           created_at?: string | null
           created_by_staff_id?: string | null
           industry_id?: string | null
           is_active?: boolean | null
-          unique_tax_id?: string
+          operating_name?: string | null
+          parent_client_id?: string | null
+          parent_relationship?: string | null
+          tax_id?: string
           updated_at?: string | null
         }
         Relationships: [
@@ -507,6 +573,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "industries"
             referencedColumns: ["industry_id"]
+          },
+          {
+            foreignKeyName: "clients_parent_client_id_fkey"
+            columns: ["parent_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["client_id"]
+          },
+          {
+            foreignKeyName: "clients_parent_client_id_fkey"
+            columns: ["parent_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients_directory"
+            referencedColumns: ["client_id"]
           },
         ]
       }
@@ -630,7 +710,7 @@ export type Database = {
           oficina: number | null
           partner_id: string | null
           practica: number | null
-          society_id: string | null
+          society_id: string
           specialist_it_id: string | null
           specialist_tax_id: string | null
           sqr_id: string | null
@@ -662,7 +742,7 @@ export type Database = {
           oficina?: number | null
           partner_id?: string | null
           practica?: number | null
-          society_id?: string | null
+          society_id: string
           specialist_it_id?: string | null
           specialist_tax_id?: string | null
           sqr_id?: string | null
@@ -694,7 +774,7 @@ export type Database = {
           oficina?: number | null
           partner_id?: string | null
           practica?: number | null
-          society_id?: string | null
+          society_id?: string
           specialist_it_id?: string | null
           specialist_tax_id?: string | null
           sqr_id?: string | null
@@ -882,26 +962,174 @@ export type Database = {
           },
         ]
       }
+      exchange_rate_history: {
+        Row: {
+          actualizado_en: string
+          canal: string
+          compra: number
+          created_at: string
+          estado: string
+          fecha_publicacion: string | null
+          fecha_vigencia: string
+          fetched_at: string
+          fuente: string
+          id: string
+          moneda: string
+          regimen: string | null
+          venta: number
+          version_metodologia: string | null
+        }
+        Insert: {
+          actualizado_en: string
+          canal: string
+          compra: number
+          created_at?: string
+          estado: string
+          fecha_publicacion?: string | null
+          fecha_vigencia: string
+          fetched_at?: string
+          fuente: string
+          id?: string
+          moneda?: string
+          regimen?: string | null
+          venta: number
+          version_metodologia?: string | null
+        }
+        Update: {
+          actualizado_en?: string
+          canal?: string
+          compra?: number
+          created_at?: string
+          estado?: string
+          fecha_publicacion?: string | null
+          fecha_vigencia?: string
+          fetched_at?: string
+          fuente?: string
+          id?: string
+          moneda?: string
+          regimen?: string | null
+          venta?: number
+          version_metodologia?: string | null
+        }
+        Relationships: []
+      }
       expense_types: {
         Row: {
           created_at: string | null
           default_unit_cost: number | null
           expense_name: string
           expense_type_id: string
+          is_active: boolean
         }
         Insert: {
           created_at?: string | null
           default_unit_cost?: number | null
           expense_name: string
           expense_type_id?: string
+          is_active?: boolean
         }
         Update: {
           created_at?: string | null
           default_unit_cost?: number | null
           expense_name?: string
           expense_type_id?: string
+          is_active?: boolean
         }
         Relationships: []
+      }
+      fund_request_events: {
+        Row: {
+          action: string
+          actor_staff_id: string | null
+          amount: number | null
+          created_at: string
+          entity: string
+          event_id: string
+          fr_wo_id: string | null
+          fre_id: string | null
+          from_status: string | null
+          fund_request_id: string
+          notes: string | null
+          seq: number
+          to_status: string | null
+          wo_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_staff_id?: string | null
+          amount?: number | null
+          created_at?: string
+          entity: string
+          event_id?: string
+          fr_wo_id?: string | null
+          fre_id?: string | null
+          from_status?: string | null
+          fund_request_id: string
+          notes?: string | null
+          seq?: never
+          to_status?: string | null
+          wo_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_staff_id?: string | null
+          amount?: number | null
+          created_at?: string
+          entity?: string
+          event_id?: string
+          fr_wo_id?: string | null
+          fre_id?: string | null
+          from_status?: string | null
+          fund_request_id?: string
+          notes?: string | null
+          seq?: never
+          to_status?: string | null
+          wo_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fund_request_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "fund_request_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_request_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_request_events_fr_wo_id_fkey"
+            columns: ["fr_wo_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_work_orders"
+            referencedColumns: ["fr_wo_id"]
+          },
+          {
+            foreignKeyName: "fund_request_events_fre_id_fkey"
+            columns: ["fre_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_expenses"
+            referencedColumns: ["fre_id"]
+          },
+          {
+            foreignKeyName: "fund_request_events_fund_request_id_fkey"
+            columns: ["fund_request_id"]
+            isOneToOne: false
+            referencedRelation: "fund_requests"
+            referencedColumns: ["fund_request_id"]
+          },
+        ]
       }
       fund_request_expenses: {
         Row: {
@@ -920,10 +1148,12 @@ export type Database = {
           has_invoice_observation: boolean
           invoice_observation_notes: string | null
           iva_penalty_amount: number
+          manager_auto_approved: boolean
           manager_decided_at: string | null
           manager_notes: string | null
           rejection_reason: string | null
           returned_by_assistant: boolean
+          review_auto_approved: boolean
           reviewed_at: string | null
           reviewed_by_staff_id: string | null
           status: Database["public"]["Enums"]["fund_request_expense_status"]
@@ -949,10 +1179,12 @@ export type Database = {
           has_invoice_observation?: boolean
           invoice_observation_notes?: string | null
           iva_penalty_amount?: number
+          manager_auto_approved?: boolean
           manager_decided_at?: string | null
           manager_notes?: string | null
           rejection_reason?: string | null
           returned_by_assistant?: boolean
+          review_auto_approved?: boolean
           reviewed_at?: string | null
           reviewed_by_staff_id?: string | null
           status?: Database["public"]["Enums"]["fund_request_expense_status"]
@@ -978,10 +1210,12 @@ export type Database = {
           has_invoice_observation?: boolean
           invoice_observation_notes?: string | null
           iva_penalty_amount?: number
+          manager_auto_approved?: boolean
           manager_decided_at?: string | null
           manager_notes?: string | null
           rejection_reason?: string | null
           returned_by_assistant?: boolean
+          review_auto_approved?: boolean
           reviewed_at?: string | null
           reviewed_by_staff_id?: string | null
           status?: Database["public"]["Enums"]["fund_request_expense_status"]
@@ -1170,13 +1404,18 @@ export type Database = {
       fund_requests: {
         Row: {
           accounting_notes: string | null
-          approver_manager_staff_id: string | null
+          cancelled_at: string | null
+          cancelled_by_staff_id: string | null
+          cancelled_from_status:
+            | Database["public"]["Enums"]["fund_request_status"]
+            | null
           closed_at: string | null
+          closed_by_staff_id: string | null
           created_at: string
           currency: string
           disbursed_at: string | null
           disbursed_by_staff_id: string | null
-          due_back_date: string | null
+          expense_period_month: string
           fund_request_id: string
           manager_decided_at: string | null
           manager_notes: string | null
@@ -1188,8 +1427,12 @@ export type Database = {
           settled_by_staff_id: string | null
           settlement_amount: number | null
           settlement_balance: number | null
+          settlement_confirmation_notes: string | null
+          settlement_confirmed_at: string | null
+          settlement_confirmed_by_staff_id: string | null
           settlement_iva_total: number | null
           settlement_notes: string | null
+          settlement_reference: string | null
           settlement_resolution: string | null
           settlement_total_spent: number | null
           status: Database["public"]["Enums"]["fund_request_status"]
@@ -1200,13 +1443,18 @@ export type Database = {
         }
         Insert: {
           accounting_notes?: string | null
-          approver_manager_staff_id?: string | null
+          cancelled_at?: string | null
+          cancelled_by_staff_id?: string | null
+          cancelled_from_status?:
+            | Database["public"]["Enums"]["fund_request_status"]
+            | null
           closed_at?: string | null
+          closed_by_staff_id?: string | null
           created_at?: string
           currency: string
           disbursed_at?: string | null
           disbursed_by_staff_id?: string | null
-          due_back_date?: string | null
+          expense_period_month?: string
           fund_request_id?: string
           manager_decided_at?: string | null
           manager_notes?: string | null
@@ -1218,8 +1466,12 @@ export type Database = {
           settled_by_staff_id?: string | null
           settlement_amount?: number | null
           settlement_balance?: number | null
+          settlement_confirmation_notes?: string | null
+          settlement_confirmed_at?: string | null
+          settlement_confirmed_by_staff_id?: string | null
           settlement_iva_total?: number | null
           settlement_notes?: string | null
+          settlement_reference?: string | null
           settlement_resolution?: string | null
           settlement_total_spent?: number | null
           status?: Database["public"]["Enums"]["fund_request_status"]
@@ -1230,13 +1482,18 @@ export type Database = {
         }
         Update: {
           accounting_notes?: string | null
-          approver_manager_staff_id?: string | null
+          cancelled_at?: string | null
+          cancelled_by_staff_id?: string | null
+          cancelled_from_status?:
+            | Database["public"]["Enums"]["fund_request_status"]
+            | null
           closed_at?: string | null
+          closed_by_staff_id?: string | null
           created_at?: string
           currency?: string
           disbursed_at?: string | null
           disbursed_by_staff_id?: string | null
-          due_back_date?: string | null
+          expense_period_month?: string
           fund_request_id?: string
           manager_decided_at?: string | null
           manager_notes?: string | null
@@ -1248,8 +1505,12 @@ export type Database = {
           settled_by_staff_id?: string | null
           settlement_amount?: number | null
           settlement_balance?: number | null
+          settlement_confirmation_notes?: string | null
+          settlement_confirmed_at?: string | null
+          settlement_confirmed_by_staff_id?: string | null
           settlement_iva_total?: number | null
           settlement_notes?: string | null
+          settlement_reference?: string | null
           settlement_resolution?: string | null
           settlement_total_spent?: number | null
           status?: Database["public"]["Enums"]["fund_request_status"]
@@ -1260,22 +1521,43 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fund_requests_approver_manager_staff_id_fkey"
-            columns: ["approver_manager_staff_id"]
+            foreignKeyName: "fund_requests_cancelled_by_staff_id_fkey"
+            columns: ["cancelled_by_staff_id"]
             isOneToOne: false
             referencedRelation: "fund_request_selectable_work_orders"
             referencedColumns: ["manager_staff_id"]
           },
           {
-            foreignKeyName: "fund_requests_approver_manager_staff_id_fkey"
-            columns: ["approver_manager_staff_id"]
+            foreignKeyName: "fund_requests_cancelled_by_staff_id_fkey"
+            columns: ["cancelled_by_staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
             referencedColumns: ["staff_id"]
           },
           {
-            foreignKeyName: "fund_requests_approver_manager_staff_id_fkey"
-            columns: ["approver_manager_staff_id"]
+            foreignKeyName: "fund_requests_cancelled_by_staff_id_fkey"
+            columns: ["cancelled_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_closed_by_staff_id_fkey"
+            columns: ["closed_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_closed_by_staff_id_fkey"
+            columns: ["closed_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_closed_by_staff_id_fkey"
+            columns: ["closed_by_staff_id"]
             isOneToOne: false
             referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
@@ -1339,6 +1621,27 @@ export type Database = {
           {
             foreignKeyName: "fund_requests_settled_by_staff_id_fkey"
             columns: ["settled_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_settlement_confirmed_by_staff_id_fkey"
+            columns: ["settlement_confirmed_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_settlement_confirmed_by_staff_id_fkey"
+            columns: ["settlement_confirmed_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "fund_requests_settlement_confirmed_by_staff_id_fkey"
+            columns: ["settlement_confirmed_by_staff_id"]
             isOneToOne: false
             referencedRelation: "staff_directory"
             referencedColumns: ["staff_id"]
@@ -1427,6 +1730,7 @@ export type Database = {
           fiscal_year_end: string
           industry_id: string
           industry_name: string
+          status: string
           updated_at: string | null
         }
         Insert: {
@@ -1434,6 +1738,7 @@ export type Database = {
           fiscal_year_end: string
           industry_id?: string
           industry_name: string
+          status?: string
           updated_at?: string | null
         }
         Update: {
@@ -1441,6 +1746,7 @@ export type Database = {
           fiscal_year_end?: string
           industry_id?: string
           industry_name?: string
+          status?: string
           updated_at?: string | null
         }
         Relationships: []
@@ -1468,6 +1774,230 @@ export type Database = {
           migration_key?: string
         }
         Relationships: []
+      }
+      notification_emails: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          dedupe_key: string
+          email_id: string
+          entity_id: string | null
+          last_error: string | null
+          notification_id: string | null
+          payload: Json
+          recipient_staff_id: string
+          sent_at: string | null
+          status: string
+          to_email: string
+          to_name: string | null
+          type_key: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedupe_key: string
+          email_id?: string
+          entity_id?: string | null
+          last_error?: string | null
+          notification_id?: string | null
+          payload?: Json
+          recipient_staff_id: string
+          sent_at?: string | null
+          status?: string
+          to_email: string
+          to_name?: string | null
+          type_key: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedupe_key?: string
+          email_id?: string
+          entity_id?: string | null
+          last_error?: string | null
+          notification_id?: string | null
+          payload?: Json
+          recipient_staff_id?: string
+          sent_at?: string | null
+          status?: string
+          to_email?: string
+          to_name?: string | null
+          type_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_emails_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
+            referencedColumns: ["notification_id"]
+          },
+          {
+            foreignKeyName: "notification_emails_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "notification_emails_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "notification_emails_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "notification_emails_type_key_fkey"
+            columns: ["type_key"]
+            isOneToOne: false
+            referencedRelation: "notification_types"
+            referencedColumns: ["type_key"]
+          },
+        ]
+      }
+      notification_role_types: {
+        Row: {
+          created_at: string
+          role_key: string
+          scope_key: string
+          type_key: string
+        }
+        Insert: {
+          created_at?: string
+          role_key: string
+          scope_key: string
+          type_key: string
+        }
+        Update: {
+          created_at?: string
+          role_key?: string
+          scope_key?: string
+          type_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_role_types_role_key_fkey"
+            columns: ["role_key"]
+            isOneToOne: false
+            referencedRelation: "authorization_roles"
+            referencedColumns: ["role_key"]
+          },
+          {
+            foreignKeyName: "notification_role_types_type_key_fkey"
+            columns: ["type_key"]
+            isOneToOne: false
+            referencedRelation: "notification_types"
+            referencedColumns: ["type_key"]
+          },
+        ]
+      }
+      notification_types: {
+        Row: {
+          created_at: string
+          delivery: string
+          display_order: number
+          email_enabled: boolean
+          is_active: boolean
+          label_key: string
+          module_key: string
+          type_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          delivery: string
+          display_order?: number
+          email_enabled?: boolean
+          is_active?: boolean
+          label_key: string
+          module_key: string
+          type_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          delivery?: string
+          display_order?: number
+          email_enabled?: boolean
+          is_active?: boolean
+          label_key?: string
+          module_key?: string
+          type_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          dismissed_at: string | null
+          entity_id: string | null
+          notification_id: string
+          payload: Json
+          read_at: string | null
+          recipient_staff_id: string
+          type_key: string
+        }
+        Insert: {
+          created_at?: string
+          dismissed_at?: string | null
+          entity_id?: string | null
+          notification_id?: string
+          payload?: Json
+          read_at?: string | null
+          recipient_staff_id: string
+          type_key: string
+        }
+        Update: {
+          created_at?: string
+          dismissed_at?: string | null
+          entity_id?: string | null
+          notification_id?: string
+          payload?: Json
+          read_at?: string | null
+          recipient_staff_id?: string
+          type_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "notifications_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "notifications_recipient_staff_id_fkey"
+            columns: ["recipient_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "notifications_type_key_fkey"
+            columns: ["type_key"]
+            isOneToOne: false
+            referencedRelation: "notification_types"
+            referencedColumns: ["type_key"]
+          },
+        ]
       }
       parametro: {
         Row: {
@@ -1502,6 +2032,39 @@ export type Database = {
           periodo?: number
           tipo?: string | null
           valor?: number
+        }
+        Relationships: []
+      }
+      portfolio_events: {
+        Row: {
+          actor_user_id: string | null
+          created_at: string
+          engagement_id: string
+          event_id: string
+          event_type: string
+          occurred_at: string
+          previous_staff_id: string | null
+          subject_staff_id: string | null
+        }
+        Insert: {
+          actor_user_id?: string | null
+          created_at?: string
+          engagement_id: string
+          event_id?: string
+          event_type: string
+          occurred_at?: string
+          previous_staff_id?: string | null
+          subject_staff_id?: string | null
+        }
+        Update: {
+          actor_user_id?: string | null
+          created_at?: string
+          engagement_id?: string
+          event_id?: string
+          event_type?: string
+          occurred_at?: string
+          previous_staff_id?: string | null
+          subject_staff_id?: string | null
         }
         Relationships: []
       }
@@ -1840,6 +2403,7 @@ export type Database = {
           date_worked: string
           description: string | null
           engagement_id: string
+          etl_split_index: number
           hours_logged: number
           is_forecast: boolean | null
           period_id: string | null
@@ -1853,6 +2417,7 @@ export type Database = {
           date_worked: string
           description?: string | null
           engagement_id: string
+          etl_split_index?: number
           hours_logged: number
           is_forecast?: boolean | null
           period_id?: string | null
@@ -1866,6 +2431,7 @@ export type Database = {
           date_worked?: string
           description?: string | null
           engagement_id?: string
+          etl_split_index?: number
           hours_logged?: number
           is_forecast?: boolean | null
           period_id?: string | null
@@ -2173,6 +2739,121 @@ export type Database = {
           },
         ]
       }
+      timesheet_reversal_requests: {
+        Row: {
+          created_at: string
+          engagement_id: string | null
+          is_direct: boolean
+          period_id: string
+          reason: string
+          request_id: string
+          requested_at: string
+          requested_by: string
+          resolution_notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          scope: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          engagement_id?: string | null
+          is_direct?: boolean
+          period_id: string
+          reason: string
+          request_id?: string
+          requested_at?: string
+          requested_by: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          scope: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          engagement_id?: string | null
+          is_direct?: boolean
+          period_id?: string
+          reason?: string
+          request_id?: string
+          requested_at?: string
+          requested_by?: string
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          scope?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timesheet_reversal_requests_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "engagements"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_engagement_id_fkey"
+            columns: ["engagement_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["engagement_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "timesheet_periods"
+            referencedColumns: ["period_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "timesheet_reversal_requests_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+        ]
+      }
       user_lifecycle_audit_log: {
         Row: {
           action: string
@@ -2218,6 +2899,7 @@ export type Database = {
       user_roles: {
         Row: {
           created_at: string | null
+          deletion_email: string | null
           id: string
           role: Database["public"]["Enums"]["app_role"]
           role_key: string | null
@@ -2225,6 +2907,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          deletion_email?: string | null
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           role_key?: string | null
@@ -2232,6 +2915,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          deletion_email?: string | null
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           role_key?: string | null
@@ -2405,6 +3089,440 @@ export type Database = {
           },
         ]
       }
+      wo_installment_adjustments: {
+        Row: {
+          adjustment_id: string
+          adjustment_type: string
+          amount: number
+          created_at: string
+          created_by_staff_id: string | null
+          currency: string
+          deleted_at: string | null
+          deleted_by_staff_id: string | null
+          installment_id: string
+          reason: string
+          wo_id: string
+        }
+        Insert: {
+          adjustment_id?: string
+          adjustment_type: string
+          amount: number
+          created_at?: string
+          created_by_staff_id?: string | null
+          currency: string
+          deleted_at?: string | null
+          deleted_by_staff_id?: string | null
+          installment_id: string
+          reason: string
+          wo_id: string
+        }
+        Update: {
+          adjustment_id?: string
+          adjustment_type?: string
+          amount?: number
+          created_at?: string
+          created_by_staff_id?: string | null
+          currency?: string
+          deleted_at?: string | null
+          deleted_by_staff_id?: string | null
+          installment_id?: string
+          reason?: string
+          wo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_installment_adjustments_created_by_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_created_by_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_created_by_fkey"
+            columns: ["created_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_deleted_by_fkey"
+            columns: ["deleted_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_deleted_by_fkey"
+            columns: ["deleted_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_deleted_by_fkey"
+            columns: ["deleted_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "wo_payment_installments"
+            referencedColumns: ["installment_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_adjustments_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
+      }
+      wo_installment_events: {
+        Row: {
+          action: string
+          actor_staff_id: string | null
+          amount: number | null
+          created_at: string
+          currency: string | null
+          event_id: string
+          from_status: string | null
+          installment_id: string
+          new_date: string | null
+          old_date: string | null
+          reason: string | null
+          seq: number
+          to_status: string | null
+          wo_id: string
+        }
+        Insert: {
+          action: string
+          actor_staff_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          event_id?: string
+          from_status?: string | null
+          installment_id: string
+          new_date?: string | null
+          old_date?: string | null
+          reason?: string | null
+          seq?: never
+          to_status?: string | null
+          wo_id: string
+        }
+        Update: {
+          action?: string
+          actor_staff_id?: string | null
+          amount?: number | null
+          created_at?: string
+          currency?: string | null
+          event_id?: string
+          from_status?: string | null
+          installment_id?: string
+          new_date?: string | null
+          old_date?: string | null
+          reason?: string | null
+          seq?: never
+          to_status?: string | null
+          wo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_installment_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_actor_staff_id_fkey"
+            columns: ["actor_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "wo_payment_installments"
+            referencedColumns: ["installment_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_events_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
+      }
+      wo_installment_expenses: {
+        Row: {
+          amount: number
+          created_at: string
+          fre_id: string
+          installment_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          fre_id: string
+          installment_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          fre_id?: string
+          installment_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_installment_expenses_fre_id_fkey"
+            columns: ["fre_id"]
+            isOneToOne: true
+            referencedRelation: "fund_request_expenses"
+            referencedColumns: ["fre_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_expenses_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "wo_payment_installments"
+            referencedColumns: ["installment_id"]
+          },
+        ]
+      }
+      wo_installment_note_versions: {
+        Row: {
+          body: string
+          created_at: string
+          edited_by_staff_id: string | null
+          note_id: string
+          seq: number
+          version_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          edited_by_staff_id?: string | null
+          note_id: string
+          seq?: never
+          version_id?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          edited_by_staff_id?: string | null
+          note_id?: string
+          seq?: never
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_installment_note_versions_edited_by_staff_id_fkey"
+            columns: ["edited_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_note_versions_edited_by_staff_id_fkey"
+            columns: ["edited_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_note_versions_edited_by_staff_id_fkey"
+            columns: ["edited_by_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_note_versions_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "wo_installment_notes"
+            referencedColumns: ["note_id"]
+          },
+        ]
+      }
+      wo_installment_notes: {
+        Row: {
+          author_role: string | null
+          author_staff_id: string | null
+          body: string
+          created_at: string
+          deleted_at: string | null
+          installment_id: string | null
+          note_id: string
+          updated_at: string
+          wo_id: string
+        }
+        Insert: {
+          author_role?: string | null
+          author_staff_id?: string | null
+          body: string
+          created_at?: string
+          deleted_at?: string | null
+          installment_id?: string | null
+          note_id?: string
+          updated_at?: string
+          wo_id: string
+        }
+        Update: {
+          author_role?: string | null
+          author_staff_id?: string | null
+          body?: string
+          created_at?: string
+          deleted_at?: string | null
+          installment_id?: string | null
+          note_id?: string
+          updated_at?: string
+          wo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wo_installment_notes_author_staff_id_fkey"
+            columns: ["author_staff_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_author_staff_id_fkey"
+            columns: ["author_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_author_staff_id_fkey"
+            columns: ["author_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_installment_id_fkey"
+            columns: ["installment_id"]
+            isOneToOne: false
+            referencedRelation: "wo_payment_installments"
+            referencedColumns: ["installment_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "vw_wo_budget_hours_by_category_activity"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_order_summary"
+            referencedColumns: ["wo_id"]
+          },
+          {
+            foreignKeyName: "wo_installment_notes_wo_id_fkey"
+            columns: ["wo_id"]
+            isOneToOne: false
+            referencedRelation: "work_orders"
+            referencedColumns: ["wo_id"]
+          },
+        ]
+      }
       wo_payment_installments: {
         Row: {
           agreed_invoice_date: string | null
@@ -2412,10 +3530,22 @@ export type Database = {
           amount: number | null
           collection_invoice_date: string | null
           collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
           created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
           installment_id: string
           installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
           payment_date_actual: string | null
+          payment_exchange_rate: number | null
           percentage: number
           plan_id: string
           status: string
@@ -2428,10 +3558,22 @@ export type Database = {
           amount?: number | null
           collection_invoice_date?: string | null
           collection_payment_date?: string | null
+          confirmation_status?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          confirmed_for_date?: string | null
           created_at?: string | null
+          currency?: string | null
+          current_invoice_date?: string | null
+          current_payment_date?: string | null
           installment_id?: string
           installment_number: number
+          installment_type?: string
+          invoice_exchange_rate?: number | null
+          invoice_exchange_rate_date?: string | null
+          net_amount?: number | null
           payment_date_actual?: string | null
+          payment_exchange_rate?: number | null
           percentage?: number
           plan_id: string
           status?: string
@@ -2444,10 +3586,22 @@ export type Database = {
           amount?: number | null
           collection_invoice_date?: string | null
           collection_payment_date?: string | null
+          confirmation_status?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          confirmed_for_date?: string | null
           created_at?: string | null
+          currency?: string | null
+          current_invoice_date?: string | null
+          current_payment_date?: string | null
           installment_id?: string
           installment_number?: number
+          installment_type?: string
+          invoice_exchange_rate?: number | null
+          invoice_exchange_rate_date?: string | null
+          net_amount?: number | null
           payment_date_actual?: string | null
+          payment_exchange_rate?: number | null
           percentage?: number
           plan_id?: string
           status?: string
@@ -2455,6 +3609,27 @@ export type Database = {
           wo_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "wo_payment_installments_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "fund_request_selectable_work_orders"
+            referencedColumns: ["manager_staff_id"]
+          },
+          {
+            foreignKeyName: "wo_payment_installments_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["staff_id"]
+          },
+          {
+            foreignKeyName: "wo_payment_installments_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "staff_directory"
+            referencedColumns: ["staff_id"]
+          },
           {
             foreignKeyName: "wo_payment_installments_plan_id_fkey"
             columns: ["plan_id"]
@@ -2502,7 +3677,8 @@ export type Database = {
       wo_payment_plan: {
         Row: {
           created_at: string | null
-          exchange_rate: number | null
+          exchange_rate: number
+          exchange_rate_mode: string
           payment_days: number
           plan_id: string
           updated_at: string | null
@@ -2510,7 +3686,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
-          exchange_rate?: number | null
+          exchange_rate?: number
+          exchange_rate_mode?: string
           payment_days?: number
           plan_id?: string
           updated_at?: string | null
@@ -2518,7 +3695,8 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
-          exchange_rate?: number | null
+          exchange_rate?: number
+          exchange_rate_mode?: string
           payment_days?: number
           plan_id?: string
           updated_at?: string | null
@@ -2870,50 +4048,21 @@ export type Database = {
     Views: {
       clients_directory: {
         Row: {
-          address: string | null
           client_id: string | null
           client_legal_name: string | null
-          contact_email: string | null
-          contact_name: string | null
-          contact_phone: string | null
-          created_at: string | null
-          industry_id: string | null
           is_active: boolean | null
-          updated_at: string | null
         }
         Insert: {
-          address?: string | null
           client_id?: string | null
           client_legal_name?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
-          created_at?: string | null
-          industry_id?: string | null
           is_active?: boolean | null
-          updated_at?: string | null
         }
         Update: {
-          address?: string | null
           client_id?: string | null
           client_legal_name?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
-          created_at?: string | null
-          industry_id?: string | null
           is_active?: boolean | null
-          updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "clients_industry_id_fkey"
-            columns: ["industry_id"]
-            isOneToOne: false
-            referencedRelation: "industries"
-            referencedColumns: ["industry_id"]
-          },
-        ]
+        Relationships: []
       }
       engagement_wo_state: {
         Row: {
@@ -3107,6 +4256,7 @@ export type Database = {
           entity_id: string | null
           priority_level: string | null
           required_count: number | null
+          seen_at: string | null
           staff_id: string | null
           staff_name: string | null
           start_date: string | null
@@ -3248,6 +4398,53 @@ export type Database = {
       }
     }
     Functions: {
+      add_installment_adjustment: {
+        Args: {
+          p_amount: number
+          p_installment_id: string
+          p_reason: string
+          p_type: string
+        }
+        Returns: {
+          adjustment_id: string
+          adjustment_type: string
+          amount: number
+          created_at: string
+          created_by_staff_id: string | null
+          currency: string
+          deleted_at: string | null
+          deleted_by_staff_id: string | null
+          installment_id: string
+          reason: string
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_installment_adjustments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      add_installment_note: {
+        Args: { p_body: string; p_installment_id: string; p_wo_id: string }
+        Returns: {
+          author_role: string | null
+          author_staff_id: string | null
+          body: string
+          created_at: string
+          deleted_at: string | null
+          installment_id: string | null
+          note_id: string
+          updated_at: string
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_installment_notes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       admin_set_user_role: {
         Args: {
           p_new_role: Database["public"]["Enums"]["app_role"]
@@ -3270,6 +4467,10 @@ export type Database = {
         Args: { p_cells: Json; p_worksheet_id: string }
         Returns: undefined
       }
+      begin_notification_email_attempt: {
+        Args: { p_email_id: string }
+        Returns: number
+      }
       can_approve_timesheet: {
         Args: { p_approver_auth_id: string; p_period_id: string }
         Returns: boolean
@@ -3290,11 +4491,91 @@ export type Database = {
         Args: { p_engagement_id: string }
         Returns: boolean
       }
+      can_read_engagement_dashboard: {
+        Args: { p_engagement_id: string }
+        Returns: boolean
+      }
       check_login_allowed: { Args: { p_email: string }; Returns: Json }
       check_pending_hours_before_termination: {
         Args: { p_staff_id: string; p_termination_date: string }
         Returns: Json
       }
+      claim_auth_email_slot: {
+        Args: {
+          p_email: string
+          p_max_global?: number
+          p_max_por_hora?: number
+          p_min_segundos?: number
+        }
+        Returns: boolean
+      }
+      claim_notification_emails: {
+        Args: { p_limit?: number }
+        Returns: {
+          attempts: number
+          email_id: string
+          entity_id: string
+          payload: Json
+          to_email: string
+          to_name: string
+          type_key: string
+        }[]
+      }
+      clear_account_deletion_mark: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      client_contacts_visible: {
+        Args: { p_client_id: string }
+        Returns: boolean
+      }
+      client_has_required_contacts: {
+        Args: { p_client_id: string }
+        Returns: boolean
+      }
+      collect_installment: {
+        Args: {
+          p_expected_status: string
+          p_installment_id: string
+          p_payment_date?: string
+          p_payment_exchange_rate?: number
+        }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      collections_filter_options: { Args: never; Returns: Json }
       copy_categories_between_practices: {
         Args: {
           p_replace?: boolean
@@ -3309,6 +4590,7 @@ export type Database = {
           p_can_approve_wo?: boolean
           p_category_name: string
           p_default_app_role?: Database["public"]["Enums"]["app_role"]
+          p_default_role_key?: string
           p_display_order?: number
           p_practice_id: string
           p_rate_high_bob?: number
@@ -3323,6 +4605,7 @@ export type Database = {
           category_name: string
           created_at: string | null
           default_app_role: Database["public"]["Enums"]["app_role"] | null
+          default_role_key: string | null
           display_order: number | null
           practica_id: string
           rate_high_bob: number
@@ -3387,7 +4670,7 @@ export type Database = {
           oficina: number | null
           partner_id: string | null
           practica: number | null
-          society_id: string | null
+          society_id: string
           specialist_it_id: string | null
           specialist_tax_id: string | null
           sqr_id: string | null
@@ -3400,6 +4683,43 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "engagements"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_expense_reimbursement_row: {
+        Args: { p_payment_due_date?: string; p_wo_id: string }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -3437,6 +4757,80 @@ export type Database = {
         Args: { p_category_id: string }
         Returns: undefined
       }
+      delete_installment_adjustment: {
+        Args: { p_adjustment_id: string }
+        Returns: {
+          adjustment_id: string
+          adjustment_type: string
+          amount: number
+          created_at: string
+          created_by_staff_id: string | null
+          currency: string
+          deleted_at: string | null
+          deleted_by_staff_id: string | null
+          installment_id: string
+          reason: string
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_installment_adjustments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      delete_installment_note: {
+        Args: { p_note_id: string }
+        Returns: {
+          author_role: string | null
+          author_staff_id: string | null
+          body: string
+          created_at: string
+          deleted_at: string | null
+          installment_id: string | null
+          note_id: string
+          updated_at: string
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_installment_notes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      dismiss_notifications: { Args: { p_ids: string[] }; Returns: number }
+      edit_installment_note: {
+        Args: { p_body: string; p_note_id: string }
+        Returns: {
+          author_role: string | null
+          author_staff_id: string | null
+          body: string
+          created_at: string
+          deleted_at: string | null
+          installment_id: string | null
+          note_id: string
+          updated_at: string
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_installment_notes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      effective_engagement_state: {
+        Args: {
+          p_approval_status: string
+          p_approved_at: string
+          p_override: number
+          p_risk_status: string
+          p_wo_id: string
+          p_wo_required: boolean
+        }
+        Returns: number
+      }
       engagement_accepts_assignment_writes: {
         Args: { p_engagement_id: string }
         Returns: boolean
@@ -3444,6 +4838,10 @@ export type Database = {
       engagement_allows_hours_or_requests: {
         Args: { p_engagement_id: string }
         Returns: boolean
+      }
+      engagement_approval_bucket: {
+        Args: { p_staff_id: string; p_status: string }
+        Returns: Json
       }
       engagement_in_my_fund_request: {
         Args: { p_engagement_id: string }
@@ -3457,19 +4855,109 @@ export type Database = {
         }
         Returns: boolean
       }
+      engagement_overview: {
+        Args: { p_end: string; p_engagement_id: string; p_start: string }
+        Returns: Json
+      }
+      exchange_rate_on: { Args: { p_date: string }; Returns: number }
+      execute_timesheet_reversal: {
+        Args: {
+          p_engagement_id?: string
+          p_period_id: string
+          p_reason?: string
+          p_request_id?: string
+          p_scope: string
+        }
+        Returns: string
+      }
       finalize_all_stale_timers: { Args: never; Returns: number }
       finalize_due_engagements: { Args: never; Returns: number }
       finalize_my_stale_timers: { Args: never; Returns: number }
+      fr_accounting_sees: {
+        Args: {
+          p_cancelled_from: Database["public"]["Enums"]["fund_request_status"]
+          p_status: Database["public"]["Enums"]["fund_request_status"]
+        }
+        Returns: boolean
+      }
       fr_is_ot_manager: { Args: { p_fr_id: string }; Returns: boolean }
       fr_is_requester: { Args: { p_fr_id: string }; Returns: boolean }
       fr_is_submitted: { Args: { p_fr_id: string }; Returns: boolean }
+      fund_expense_in_process: {
+        Args: { p_period_month: string; p_status: string }
+        Returns: boolean
+      }
+      fund_request_cancel: {
+        Args: { p_fund_request_id: string; p_reason: string }
+        Returns: undefined
+      }
+      fund_request_confirm_settlement: {
+        Args: {
+          p_fund_request_id: string
+          p_notes?: string
+          p_reference?: string
+        }
+        Returns: undefined
+      }
+      fund_request_deadline: { Args: { p_month: string }; Returns: string }
+      fund_request_disburse: {
+        Args: {
+          p_amount: number
+          p_fund_request_id: string
+          p_new_month?: string
+          p_notes?: string
+        }
+        Returns: undefined
+      }
+      fund_request_expense_review: {
+        Args: { p_decision: string; p_fre_id: string; p_notes?: string }
+        Returns: undefined
+      }
+      fund_request_month_is_selectable: {
+        Args: { p_month: string }
+        Returns: boolean
+      }
+      fund_request_review_deadline: {
+        Args: { p_month: string }
+        Returns: string
+      }
+      fund_request_run_deadlines: { Args: { p_today?: string }; Returns: Json }
       fund_request_save_edit: {
         Args: { p_allocations: Json; p_fields: Json; p_fund_request_id: string }
+        Returns: undefined
+      }
+      fund_request_settle: {
+        Args: {
+          p_amount: number
+          p_fund_request_id: string
+          p_notes?: string
+          p_resolution: string
+        }
         Returns: undefined
       }
       fund_request_submit: {
         Args: { p_fund_request_id: string }
         Returns: undefined
+      }
+      fund_today: { Args: never; Returns: string }
+      fund_work_order_expense_detail: {
+        Args: { p_wo_id: string }
+        Returns: Json
+      }
+      fund_work_order_expense_summary: {
+        Args: never
+        Returns: {
+          assigned: number
+          budget: number
+          client_name: string
+          engagement_code: string
+          engagement_name: string
+          expense_count: number
+          in_process: number
+          request_count: number
+          spent: number
+          wo_id: string
+        }[]
       }
       get_all_user_roles: {
         Args: never
@@ -3504,6 +4992,8 @@ export type Database = {
         Returns: string
       }
       get_my_authorization_context: { Args: never; Returns: Json }
+      get_my_notification_aggregates: { Args: never; Returns: Json }
+      get_my_notifications: { Args: { p_limit?: number }; Returns: Json }
       get_my_pending_hours: { Args: { p_staff_id: string }; Returns: Json }
       get_my_staff_id: { Args: never; Returns: string }
       get_staff_assignment_segments: {
@@ -3525,6 +5015,26 @@ export type Database = {
         Args: { p_end_date: string; p_staff_id: string; p_start_date: string }
         Returns: Json
       }
+      get_wo_client_contacts: {
+        Args: { p_wo_id: string }
+        Returns: {
+          client_id: string
+          contact_id: string
+          contact_type: string
+          created_at: string
+          email: string | null
+          full_name: string
+          is_active: boolean
+          phone: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "client_contacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       has_assignment_on_engagement: {
         Args: { p_engagement_id: string }
         Returns: boolean
@@ -3538,6 +5048,64 @@ export type Database = {
         }
         Returns: boolean
       }
+      installment_adjustments_total: {
+        Args: { p_currency: string; p_installment_id: string }
+        Returns: number
+      }
+      installment_calendar_state: {
+        Args: {
+          p_invoice_date: string
+          p_payment_due_date: string
+          p_status: string
+          p_today: string
+          p_window_days?: number
+        }
+        Returns: string
+      }
+      invoice_installment: {
+        Args: {
+          p_expected_status: string
+          p_installment_id: string
+          p_invoice_date?: string
+          p_invoice_exchange_rate?: number
+          p_invoice_exchange_rate_date?: string
+          p_payment_due_date: string
+        }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       is_admin: { Args: never; Returns: boolean }
       is_assigned_to_client: { Args: { p_client_id: string }; Returns: boolean }
       is_assigned_to_engagement: {
@@ -3548,6 +5116,7 @@ export type Database = {
         Args: { p_staff_id: string }
         Returns: boolean
       }
+      is_collections_role: { Args: never; Returns: boolean }
       is_engagement_responsible: {
         Args: { p_engagement_id: string }
         Returns: boolean
@@ -3556,11 +5125,321 @@ export type Database = {
         Args: { p_engagement_id: string }
         Returns: boolean
       }
+      is_firm_hours_reader: { Args: never; Returns: boolean }
+      latest_exchange_rate: { Args: never; Returns: number }
+      list_administrative_engagements: { Args: never; Returns: Json }
+      list_administrative_internal_clients: { Args: never; Returns: Json }
+      list_collections_installments: {
+        Args: {
+          p_client_id?: string
+          p_currency?: string
+          p_date_from?: string
+          p_date_to?: string
+          p_include_expense_rows?: boolean
+          p_limit?: number
+          p_manager_id?: string
+          p_offset?: number
+          p_order?: string
+          p_practica?: number
+          p_search?: string
+          p_society_id?: string
+          p_tab?: string
+        }
+        Returns: Json
+      }
+      list_dashboard_engagements: { Args: never; Returns: Json }
+      list_loggable_engagements: {
+        Args: never
+        Returns: {
+          activity_required: boolean
+          client_id: string
+          client_legal_name: string
+          end_date: string
+          engagement_code: string
+          engagement_id: string
+          engagement_name: string
+          engagement_state_override: number
+          funcion: number
+          is_internal: boolean
+          practica: number
+          start_date: string
+          work_order_required: boolean
+        }[]
+      }
+      list_my_assignments: {
+        Args: { p_date_from: string; p_date_to: string; p_toggle: string }
+        Returns: {
+          allocation_percent: number
+          assignment_id: string
+          category_id: string
+          category_name: string
+          client_id: string
+          client_legal_name: string
+          deleted_at: string
+          end_date: string
+          engagement_code: string
+          engagement_id: string
+          engagement_name: string
+          hours_per_week: number
+          notes: string
+          start_date: string
+          status: string
+        }[]
+      }
+      list_own_engagement_labels: {
+        Args: { p_engagement_ids: string[] }
+        Returns: {
+          end_date: string
+          engagement_code: string
+          engagement_id: string
+          engagement_name: string
+          start_date: string
+        }[]
+      }
+      list_own_timer_engagement_labels: {
+        Args: { p_engagement_ids: string[] }
+        Returns: {
+          engagement_code: string
+          engagement_id: string
+          engagement_name: string
+        }[]
+      }
+      list_portfolio_engagements: { Args: never; Returns: Json }
+      mark_notification_email_result: {
+        Args: { p_email_id: string; p_error?: string; p_ok: boolean }
+        Returns: boolean
+      }
+      mark_notifications_read: { Args: { p_ids: string[] }; Returns: number }
       move_category: {
         Args: { p_category_id: string; p_new_position: number }
         Returns: undefined
       }
+      my_approvable_period_ids: { Args: never; Returns: string[] }
+      my_assigned_client_ids: { Args: never; Returns: string[] }
+      my_assigned_engagement_ids: { Args: never; Returns: string[] }
+      my_assigned_wo_ids: { Args: never; Returns: string[] }
+      my_assignment_engagement_ids: { Args: never; Returns: string[] }
+      my_fund_request_engagement_ids: { Args: never; Returns: string[] }
+      my_fund_request_wo_ids: { Args: never; Returns: string[] }
+      my_line_approval_mode: { Args: never; Returns: string }
+      my_managed_visible_plan_ids: { Args: never; Returns: string[] }
+      my_managed_visible_wo_ids: { Args: never; Returns: string[] }
+      my_responsible_engagement_ids: { Args: never; Returns: string[] }
+      my_responsible_period_ids: { Args: never; Returns: string[] }
+      my_sqr_visible_engagement_ids: { Args: never; Returns: string[] }
+      my_staffed_engagement_ids: { Args: never; Returns: string[] }
+      my_team_engagement_ids: { Args: never; Returns: string[] }
+      my_team_plan_ids: { Args: never; Returns: string[] }
+      my_team_wo_ids: { Args: never; Returns: string[] }
+      my_visible_engagement_ids: { Args: never; Returns: string[] }
+      notif_agg_approval_training_pending: { Args: never; Returns: Json }
+      notif_agg_fund_closure_pending: { Args: never; Returns: Json }
+      notif_agg_fund_disbursement_pending: { Args: never; Returns: Json }
+      notif_agg_fund_expense_review_pending: { Args: never; Returns: Json }
+      notif_agg_fund_settlement_pending: { Args: never; Returns: Json }
+      notif_agg_scheduler_coverage_gap: {
+        Args: { p_scope: string; p_staff_id: string }
+        Returns: Json
+      }
+      notif_agg_timesheet_overdue: { Args: { p_weeks: Json }; Returns: Json }
+      notif_agg_timesheet_pending_approval: {
+        Args: { p_from: string; p_staff_id: string }
+        Returns: Json
+      }
+      notif_agg_timesheet_reverted: { Args: { p_weeks: Json }; Returns: Json }
+      notif_agg_wo_installment_due_this_week: { Args: never; Returns: Json }
+      notif_agg_wo_installment_overdue: {
+        Args: { p_scope: string; p_staff_id: string }
+        Returns: Json
+      }
+      notif_client_assigned: {
+        Args: { p_client_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_contador: {
+        Args: { p_clave: string; p_payload: Json }
+        Returns: number
+      }
+      notif_emit_approval_reminder_weekly: { Args: never; Returns: number }
+      notif_emit_fund_auto_approval: {
+        Args: {
+          p_count: number
+          p_fund_request_id: string
+          p_managers: string[]
+          p_type_key: string
+        }
+        Returns: undefined
+      }
+      notif_emit_fund_deadline_reminders: {
+        Args: { p_today?: string }
+        Returns: number
+      }
+      notif_emit_fund_expired: {
+        Args: { p_count: number; p_fund_request_id: string }
+        Returns: undefined
+      }
+      notif_emit_fund_reminder_weekly: { Args: never; Returns: number }
+      notif_emit_timesheet_reminder_daily: { Args: never; Returns: number }
+      notif_emit_wo_installment_reminder_weekly: {
+        Args: never
+        Returns: number
+      }
+      notif_engagement_daily_scheduled: { Args: never; Returns: number }
+      notif_engagement_managers: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_engagement_owners: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_engagement_partners: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_engagement_staffed: {
+        Args: { p_engagement_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_fund_request_managers: {
+        Args: { p_fund_request_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_fund_sent_today: {
+        Args: { p_entity_id: string; p_staff_id: string; p_type_key: string }
+        Returns: boolean
+      }
+      notif_installment_adjustment: {
+        Args: {
+          p_evento: string
+          p_row: Database["public"]["Tables"]["wo_installment_adjustments"]["Row"]
+        }
+        Returns: number
+      }
+      notif_installment_expense_row: {
+        Args: {
+          p_evento: string
+          p_row: Database["public"]["Tables"]["wo_payment_installments"]["Row"]
+        }
+        Returns: number
+      }
+      notif_installment_note_added: {
+        Args: {
+          p_note: Database["public"]["Tables"]["wo_installment_notes"]["Row"]
+        }
+        Returns: number
+      }
+      notif_installment_rescheduled: {
+        Args: {
+          p_old_date: string
+          p_reason: string
+          p_row: Database["public"]["Tables"]["wo_payment_installments"]["Row"]
+        }
+        Returns: number
+      }
+      notif_origen_cambio_rol: { Args: never; Returns: string }
+      notif_permiso_de_ruta: {
+        Args: { p_module_key: string; p_payload: Json; p_type_key: string }
+        Returns: string
+      }
+      notif_role_tiene: {
+        Args: { p_role_key: string; p_type_key: string }
+        Returns: boolean
+      }
+      notif_scope_of: {
+        Args: { p_staff_id: string; p_type_key: string }
+        Returns: string
+      }
+      notif_staff_by_practice: {
+        Args: { p_practica_id: string; p_role_keys: string[] }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_staff_by_roles: {
+        Args: { p_role_keys: string[] }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_timesheet_period_leads: {
+        Args: { p_period_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
+      notif_timesheet_window_start: { Args: never; Returns: string }
+      notif_wo_daily_scheduled: { Args: never; Returns: number }
+      notify_staff: {
+        Args: {
+          p_entity_id?: string
+          p_payload?: Json
+          p_recipient_staff_id: string
+          p_type_key: string
+        }
+        Returns: string
+      }
+      partner_overview: {
+        Args: {
+          p_client_id?: string
+          p_end: string
+          p_fiscal_year?: number
+          p_industry_id?: string
+          p_manager_id?: string
+          p_society_id?: string
+          p_start: string
+        }
+        Returns: Json
+      }
+      partner_overview_engagements: {
+        Args: {
+          p_client_id?: string
+          p_end: string
+          p_fiscal_year?: number
+          p_industry_id?: string
+          p_limit?: number
+          p_manager_id?: string
+          p_offset?: number
+          p_over_budget_only?: boolean
+          p_society_id?: string
+          p_sort_key?: string
+          p_start: string
+        }
+        Returns: Json
+      }
       permission_scope: { Args: { p_permission_key: string }; Returns: string }
+      personal_overview: {
+        Args: { p_history_end: string; p_history_start: string }
+        Returns: Json
+      }
+      portfolio_overview: {
+        Args: {
+          p_client_id?: string
+          p_end: string
+          p_fiscal_year: number
+          p_fy_end: string
+          p_fy_start: string
+          p_practica_id?: string
+          p_start: string
+        }
+        Returns: Json
+      }
+      prepare_account_deletion: { Args: { p_user_id: string }; Returns: Json }
+      purge_old_auth_email_throttle: { Args: never; Returns: number }
+      purge_old_notification_emails: { Args: never; Returns: number }
+      purge_old_notifications: { Args: never; Returns: number }
       reactivate_practice_activity: {
         Args: { p_activity_id: string }
         Returns: {
@@ -3582,15 +5461,149 @@ export type Database = {
         }
       }
       record_failed_login: { Args: { p_email: string }; Returns: Json }
+      record_installment_confirmation: {
+        Args: {
+          p_confirmed: boolean
+          p_expected_invoice_date?: string
+          p_installment_id: string
+          p_new_invoice_date?: string
+          p_new_payment_due_date?: string
+          p_note?: string
+        }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reject_timesheet_reversal: {
+        Args: { p_notes: string; p_request_id: string }
+        Returns: undefined
+      }
+      release_auth_email_slot: { Args: { p_email: string }; Returns: boolean }
       reorder_practice_activity: {
         Args: { p_activity_id: string; p_new_position: number }
         Returns: undefined
+      }
+      request_timesheet_reversal: {
+        Args: {
+          p_engagement_id: string
+          p_period_id: string
+          p_reason: string
+          p_scope: string
+        }
+        Returns: string
+      }
+      reschedule_installment: {
+        Args: {
+          p_expected_invoice_date?: string
+          p_installment_id: string
+          p_new_invoice_date: string
+          p_new_payment_due_date: string
+          p_reason: string
+        }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       reset_login_attempts: { Args: { p_email: string }; Returns: undefined }
       resolve_wo_engagement_id: { Args: { p_wo_id: string }; Returns: string }
       resolve_wo_req_skill_engagement_id: {
         Args: { p_requirement_id: string }
         Returns: string
+      }
+      rollback_unconfirmed_signup: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      save_client_contacts: {
+        Args: { p_client_id: string; p_contacts: Json }
+        Returns: {
+          client_id: string
+          contact_id: string
+          contact_type: string
+          created_at: string
+          email: string | null
+          full_name: string
+          is_active: boolean
+          phone: string | null
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "client_contacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      save_client_with_contacts: {
+        Args: {
+          p_client: Json
+          p_client_id: string
+          p_contacts: Json
+          p_is_new: boolean
+        }
+        Returns: undefined
       }
       save_engagement_assignments: {
         Args: {
@@ -3603,6 +5616,85 @@ export type Database = {
       save_wo_staffing: {
         Args: { p_requirements: Json; p_wo_id: string }
         Returns: Json
+      }
+      seed_initial_holidays: { Args: { p_created_by: string }; Returns: number }
+      set_expense_reimbursement_amount: {
+        Args: { p_amount: number; p_installment_id: string }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_installment_overdue: {
+        Args: {
+          p_expected_status: string
+          p_installment_id: string
+          p_overdue: boolean
+        }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       staff_id_number_conflict: {
         Args: { p_exclude_staff_id?: string; p_id_number: string }
@@ -3633,6 +5725,55 @@ export type Database = {
         }
         Returns: Json
       }
+      suggest_exchange_difference: {
+        Args: { p_installment_id: string }
+        Returns: number
+      }
+      sync_user_role_from_category: {
+        Args: {
+          p_expected_role_key: string
+          p_reason?: string
+          p_staff_id: string
+        }
+        Returns: Json
+      }
+      sync_wo_payment_installments: {
+        Args: { p_installments: Json; p_plan_id: string; p_wo_id: string }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       sync_worksheet_to_wo_budget: {
         Args: { p_wo_id: string; p_worksheet_id: string }
         Returns: undefined
@@ -3648,6 +5789,7 @@ export type Database = {
           p_category_id: string
           p_category_name: string
           p_default_app_role: Database["public"]["Enums"]["app_role"]
+          p_default_role_key: string
           p_display_order: number
           p_rate_high_bob: number
           p_rate_high_usd: number
@@ -3661,6 +5803,7 @@ export type Database = {
           category_name: string
           created_at: string | null
           default_app_role: Database["public"]["Enums"]["app_role"] | null
+          default_role_key: string | null
           display_order: number | null
           practica_id: string
           rate_high_bob: number
@@ -3686,7 +5829,102 @@ export type Database = {
         }
         Returns: Json
       }
+      wo_billable_expenses: {
+        Args: { p_wo_id: string }
+        Returns: {
+          amount: number
+          fre_id: string
+        }[]
+      }
       wo_in_my_fund_request: { Args: { p_wo_id: string }; Returns: boolean }
+      wo_installment_assert_actionable: {
+        Args: { p_expected_status: string; p_installment_id: string }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      wo_installment_assert_manager: {
+        Args: { p_installment_id: string }
+        Returns: {
+          agreed_invoice_date: string | null
+          agreed_payment_date: string | null
+          amount: number | null
+          collection_invoice_date: string | null
+          collection_payment_date: string | null
+          confirmation_status: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          confirmed_for_date: string | null
+          created_at: string | null
+          currency: string | null
+          current_invoice_date: string | null
+          current_payment_date: string | null
+          installment_id: string
+          installment_number: number
+          installment_type: string
+          invoice_exchange_rate: number | null
+          invoice_exchange_rate_date: string | null
+          net_amount: number | null
+          payment_date_actual: string | null
+          payment_exchange_rate: number | null
+          percentage: number
+          plan_id: string
+          status: string
+          updated_at: string | null
+          wo_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "wo_payment_installments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      wo_installment_calendar_state: {
+        Args: {
+          p_agreed_invoice_date: string
+          p_agreed_payment_date: string
+          p_collection_payment_date: string
+          p_current_invoice_date: string
+          p_status: string
+          p_today?: string
+          p_window_days?: number
+        }
+        Returns: string
+      }
+      wo_note_wo_id: { Args: { p_note_id: string }; Returns: string }
+      wo_notes_participant: { Args: { p_wo_id: string }; Returns: boolean }
     }
     Enums: {
       app_role:
@@ -3713,6 +5951,7 @@ export type Database = {
         | "observado"
         | "rechazado"
         | "revisado_asistente"
+        | "vencido"
       fund_request_status:
         | "borrador"
         | "pendiente_aprobacion"
@@ -3848,9 +6087,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: [
@@ -3879,6 +6115,7 @@ export const Constants = {
         "observado",
         "rechazado",
         "revisado_asistente",
+        "vencido",
       ],
       fund_request_status: [
         "borrador",

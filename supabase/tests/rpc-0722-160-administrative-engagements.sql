@@ -18,6 +18,9 @@ DECLARE
   v_historical uuid;
   v_work_order uuid;
   v_payload jsonb;
+  v_alien_client uuid := 'c0722160-0000-4000-8000-0000000000a1';
+  v_f1_admin uuid := 'a0722160-0000-4000-8000-0000000000f1';
+  v_f1_msg text;
   -- Review fix (Codex): el anio fiscal del fixture NO puede ir hardcodeado. El JWT de mas abajo
   -- no tiene fila en user_roles, asi que cae en la rama consultiva de
   -- list_administrative_engagements(), que filtra `anio_fiscal >= FY vigente`. Con 2026 fijo el
@@ -34,9 +37,9 @@ BEGIN
   SELECT society_id INTO v_juaregui_society
     FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.';
   SELECT client_id INTO v_pelaez_client
-    FROM public.clients WHERE unique_tax_id = '1006979026';
+    FROM public.clients WHERE tax_id = '1006979026';
   SELECT client_id INTO v_juaregui_client
-    FROM public.clients WHERE unique_tax_id = '184046021';
+    FROM public.clients WHERE tax_id = '184046021';
 
   IF v_pelaez_society IS NULL OR v_juaregui_society IS NULL
      OR v_pelaez_client IS NULL OR v_juaregui_client IS NULL THEN
@@ -366,6 +369,37 @@ BEGIN
     RAISE EXCEPTION '0722-160 administrative rows left with is_internal/activity_required drift';
   END IF;
 
+  -- ETL fase 1: el NIT ya no es único. Un tercero que COMPARTE el NIT interno pero tiene un nombre ajeno NO es el
+  -- cliente interno de la sociedad: la guarda exige NIT + nombre normalizado igual al de la sociedad.
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
+  VALUES (v_alien_client, '0722-160 Cliente Ajeno S.A.', '1006979026');
+  v_f1_msg := NULL;
+  BEGIN
+    INSERT INTO public.engagements (
+      client_id, engagement_name, start_date, end_date, status, oficina, practica,
+      funcion, anio_fiscal, work_order_required, activity_required, is_internal,
+      approval_required, fecha_cierre, society_id
+    ) VALUES (
+      v_alien_client, '0722-160 Tercero con NIT interno', DATE '2026-09-01', DATE '2026-09-30',
+      'active', 1, 1, 0, v_fiscal_year, true, true, false, true, DATE '2026-09-30', v_pelaez_society
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_f1_msg := SQLERRM;
+  END;
+  IF v_f1_msg IS NULL OR v_f1_msg NOT LIKE '%el cliente interno debe corresponder a la sociedad%' THEN
+    RAISE EXCEPTION '0722-160 un tercero con NIT interno y nombre ajeno debía rechazarse como cliente interno (msg=%)', v_f1_msg;
+  END IF;
+  -- Lo mismo al reasignar un encargo administrativo existente a ese tercero.
+  v_f1_msg := NULL;
+  BEGIN
+    UPDATE public.engagements SET client_id = v_alien_client WHERE engagement_id = v_engagement;
+  EXCEPTION WHEN OTHERS THEN
+    v_f1_msg := SQLERRM;
+  END;
+  IF v_f1_msg IS NULL OR v_f1_msg NOT LIKE '%el cliente interno debe corresponder a la sociedad%' THEN
+    RAISE EXCEPTION '0722-160 reasignar un encargo administrativo a un tercero con NIT interno debía rechazarse (msg=%)', v_f1_msg;
+  END IF;
+
   IF public.list_administrative_engagements() <> '[]'::jsonb THEN
     RAISE EXCEPTION '0722-160 list leaked rows without an authenticated caller';
   END IF;
@@ -388,6 +422,40 @@ BEGIN
      WHERE (elem ->> 'engagement_id')::uuid = v_historical
   ) THEN
     RAISE EXCEPTION '0722-160 administrative list leaked a historical row to a read-only caller';
+  END IF;
+
+  -- list_administrative_internal_clients(): sin permiso devuelve []; con engagement.create devuelve SOLO los dos
+  -- internos canónicos (NIT + nombre de la sociedad), nunca al tercero que comparte el NIT; y dos candidatos
+  -- canónicos activos para una misma sociedad son un conflicto, no una elección con LIMIT 1.
+  IF public.list_administrative_internal_clients() <> '[]'::jsonb THEN
+    RAISE EXCEPTION '0722-160 list_administrative_internal_clients devolvió filas a un llamador sin engagement.create';
+  END IF;
+  INSERT INTO auth.users (id) VALUES (v_f1_admin);
+  INSERT INTO public.user_roles (user_id, role, role_key) VALUES (v_f1_admin, 'admin', 'admin');
+  PERFORM set_config(
+    'request.jwt.claims',
+    json_build_object('sub', v_f1_admin::text, 'role', 'authenticated')::text,
+    true
+  );
+  v_payload := public.list_administrative_internal_clients();
+  IF jsonb_array_length(v_payload) <> 2
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_payload) e WHERE (e ->> 'client_id')::uuid = v_alien_client)
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_payload) e
+                     WHERE (e ->> 'client_id')::uuid = v_pelaez_client AND e ->> 'unique_tax_id' = '1006979026')
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_payload) e
+                     WHERE (e ->> 'client_id')::uuid = v_juaregui_client AND e ->> 'unique_tax_id' = '184046021') THEN
+    RAISE EXCEPTION '0722-160 el RPC debía exponer solo los 2 internos canónicos con el alias unique_tax_id (devolvió %)', v_payload;
+  END IF;
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
+  VALUES ('c0722160-0000-4000-8000-0000000000a2', 'Ruizmier Pelaez S.R.L.', '1006979026');
+  v_f1_msg := NULL;
+  BEGIN
+    PERFORM public.list_administrative_internal_clients();
+  EXCEPTION WHEN OTHERS THEN
+    v_f1_msg := SQLERRM;
+  END;
+  IF v_f1_msg IS NULL OR v_f1_msg NOT LIKE '%conflicto de identidad%' THEN
+    RAISE EXCEPTION '0722-160 dos candidatos canónicos activos debían dar conflicto de identidad (msg=%)', v_f1_msg;
   END IF;
 
   RAISE NOTICE '0722-160: internal client mapping, trigger and authenticated list passed';

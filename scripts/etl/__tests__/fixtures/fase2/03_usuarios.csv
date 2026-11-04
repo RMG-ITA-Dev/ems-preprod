@@ -1,0 +1,5 @@
+staff_source_ref,email,expected_role_key,expected_legacy_role,email_confirm,password_strategy,activation_method,source_note
+legacy:16,etl-f2-ficticio-16@ruizmier.com,risk_partner,partner,true,random_ephemeral,password_reset_after_production,fixture
+legacy:17,etl-f2-ficticio-17@ruizmier.com,manager,manager,true,random_ephemeral,password_reset_after_production,fixture
+legacy:18,etl-f2-ficticio-18@ruizmier.com,senior,senior,true,random_ephemeral,password_reset_after_production,fixture
+legacy:19,etl-f2-ficticio-19@ruizmier.com,assistant,staff,true,random_ephemeral,password_reset_after_production,fixture

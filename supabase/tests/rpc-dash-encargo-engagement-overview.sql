@@ -38,7 +38,7 @@ BEGIN
 END $$;
 
 -- ── Cliente ────────────────────────────────────────────────────────────────────────────
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('60e07a60-0000-4000-8000-000000000001', 'Cliente E07A60', 'NIT-E07A60-1')
 ON CONFLICT (client_id) DO NOTHING;
 

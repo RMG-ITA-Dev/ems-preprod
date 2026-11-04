@@ -907,3 +907,122 @@ end
 where role_key is null;
 
 create index if not exists idx_user_roles_role_key on public.user_roles(role_key);
+
+
+-- E) ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md F1-M12): sugerencias de rol por categoría.
+-- categories.default_role_key nace NULL en cero_02 (con su check "no admin" en cero_03 y su FK a
+-- authorization_roles en cero_04), y cero_11 siembra las categorías ANTES de que exista este
+-- catálogo, así que no puede asignar valores. Aquí, con authorization_roles ya poblada, se
+-- completan las 61 sugerencias. Mapa explícito por abreviatura de práctica y nombre de categoría
+-- (la misma fuente que el backfill 20260917120000_0820-182): Supervisor = manager; staff -> assistant;
+-- especialistas ita_* / tax_*. Es una SUGERENCIA, no una asignación de rol a una cuenta.
+-- Solo completa valores NULL: una selección manual no nula se conserva.
+do $$
+declare
+  v_updated integer;
+  v_total   integer;
+  v_filled  integer;
+  v_admin   integer;
+begin
+  create temp table _f1_category_role_suggestions (
+    abbreviation  text not null,
+    category_name text not null,
+    role_key      text not null,
+    primary key (abbreviation, category_name)
+  ) on commit drop;
+
+  insert into _f1_category_role_suggestions (abbreviation, category_name, role_key) values
+  ('AUD', 'Socio',                        'partner'),
+  ('AUD', 'SQR',                          'sqr'),
+  ('AUD', 'Director',                     'director'),
+  ('AUD', 'Gerente',                      'manager'),
+  ('AUD', 'Supervisor',                   'manager'),
+  ('AUD', 'Senior',                       'senior'),
+  ('AUD', 'Semi-Senior',                  'semisenior'),
+  ('AUD', 'Asistente',                    'assistant'),
+  ('AUD', 'Pasante',                      'assistant'),
+  ('AUD', 'Gerente - Especialista ITA',   'ita_manager'),
+  ('AUD', 'Senior - Especialista ITA',    'ita_senior'),
+  ('AUD', 'Asistente - Especialista ITA', 'ita_assistant'),
+  ('AUD', 'Gerente - Especialista Tax',   'tax_manager'),
+  ('AUD', 'Senior - Especialista Tax',    'tax_senior'),
+  ('AUD', 'Asistente - Especialista Tax', 'tax_assistant'),
+  ('COM', 'Socio',                        'partner'),
+  ('COM', 'Director',                     'director'),
+  ('COM', 'Gerente',                      'manager'),
+  ('COM', 'Supervisor',                   'manager'),
+  ('COM', 'Senior',                       'senior'),
+  ('COM', 'Semi Senior',                  'semisenior'),
+  ('COM', 'Asistente',                    'assistant'),
+  ('COM', 'Pasante',                      'assistant'),
+  ('TAX', 'Socio',                        'partner'),
+  ('TAX', 'Director',                     'director'),
+  ('TAX', 'Gerente',                      'manager'),
+  ('TAX', 'Supervisor',                   'manager'),
+  ('TAX', 'Senior',                       'senior'),
+  ('TAX', 'Semi Senior',                  'semisenior'),
+  ('TAX', 'Asistente',                    'assistant'),
+  ('TAX', 'Pasante',                      'assistant'),
+  ('PTR', 'Socio',                        'partner'),
+  ('PTR', 'Director',                     'director'),
+  ('PTR', 'Gerente',                      'manager'),
+  ('PTR', 'Supervisor',                   'manager'),
+  ('PTR', 'Senior',                       'senior'),
+  ('PTR', 'Semi Senior',                  'semisenior'),
+  ('PTR', 'Asistente',                    'assistant'),
+  ('PTR', 'Pasante',                      'assistant'),
+  ('MYA', 'Socio',                        'partner'),
+  ('MYA', 'Director',                     'director'),
+  ('MYA', 'Gerente',                      'manager'),
+  ('MYA', 'Supervisor',                   'manager'),
+  ('MYA', 'Senior',                       'senior'),
+  ('MYA', 'Semi Senior',                  'semisenior'),
+  ('MYA', 'Asistente',                    'assistant'),
+  ('MYA', 'Pasante',                      'assistant'),
+  ('LEG', 'Socio',                        'partner'),
+  ('LEG', 'Director',                     'director'),
+  ('LEG', 'Gerente/Asociado Senior',      'manager'),
+  ('LEG', 'Asociado',                     'senior'),
+  ('LEG', 'Asociado Junior',              'semisenior'),
+  ('LEG', 'Abogado practicante',          'assistant'),
+  ('GYS', 'Socio',                        'partner'),
+  ('GYS', 'Director',                     'director'),
+  ('GYS', 'Gerente',                      'manager'),
+  ('GYS', 'Supervisor',                   'manager'),
+  ('GYS', 'Senior',                       'senior'),
+  ('GYS', 'Semi Senior',                  'semisenior'),
+  ('GYS', 'Asistente',                    'assistant'),
+  ('GYS', 'Pasante',                      'assistant');
+
+  select count(*) into v_total from _f1_category_role_suggestions;
+  if v_total <> 61 then
+    raise exception 'cero_13 E: se esperaban 61 sugerencias de rol, hay %', v_total;
+  end if;
+
+  update public.categories c
+     set default_role_key = s.role_key
+    from _f1_category_role_suggestions s
+    join public.practicas p on p.abbreviation = s.abbreviation
+   where c.practica_id = p.practica_id
+     and c.category_name = s.category_name
+     and c.default_role_key is null;
+  get diagnostics v_updated = row_count;
+
+  -- Cardinalidad y claves válidas: las 61 categorías con sugerencia, ninguna 'admin' (el check
+  -- de cero_03 ya lo impide; esto da un mensaje diagnosticable) y cada clave existe y está activa.
+  select count(*) filter (where default_role_key is not null),
+         count(*) filter (where default_role_key = 'admin')
+    into v_filled, v_admin
+    from public.categories;
+  if v_filled <> 61 or v_admin <> 0 then
+    raise exception 'cero_13 E: sugerencias de rol incompletas (con sugerencia=%, admin=%, actualizadas=%)', v_filled, v_admin, v_updated;
+  end if;
+  if exists (
+    select 1 from public.categories c
+      left join public.authorization_roles ar on ar.role_key = c.default_role_key and ar.is_active
+     where c.default_role_key is not null and ar.role_key is null
+  ) then
+    raise exception 'cero_13 E: alguna sugerencia apunta a un rol inexistente o inactivo';
+  end if;
+end
+$$;

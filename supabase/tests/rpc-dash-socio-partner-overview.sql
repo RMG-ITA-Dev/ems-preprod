@@ -63,7 +63,7 @@ INSERT INTO public.industries (industry_id, industry_name, fiscal_year_end) VALU
   ('90da5c10-0000-4000-8000-000000000002', 'Industria I2 da5c10', 'Diciembre')
 ON CONFLICT (industry_id) DO NOTHING;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id, industry_id) VALUES
   ('60da5c10-0000-4000-8000-000000000001', 'Cliente C1 da5c10', 'NIT-DA5C10-1', '90da5c10-0000-4000-8000-000000000001'),
   ('60da5c10-0000-4000-8000-000000000002', 'Cliente C2 da5c10', 'NIT-DA5C10-2', '90da5c10-0000-4000-8000-000000000002'),
   ('60da5c10-0000-4000-8000-000000000003', 'Cliente C3 da5c10', 'NIT-DA5C10-3', '90da5c10-0000-4000-8000-000000000002')

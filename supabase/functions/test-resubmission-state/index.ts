@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     // Create a test client
     const { data: client } = await supabase.from("clients").insert({
       client_legal_name: `Test Client ${suffix}`,
-      unique_tax_id: `TC-${suffix}`,
+      tax_id: `TC-${suffix}`,
     }).select().single();
 
     // Create engagements
@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
   async function setupHolidayTestData(suffix: string, staffCity: string | null, approvalRequired = true) {
     const { data: client } = await supabase.from("clients").insert({
       client_legal_name: `Test Holiday Client ${suffix}`,
-      unique_tax_id: `THC-${suffix}`,
+      tax_id: `THC-${suffix}`,
     }).select().single();
 
     const { data: holidayEng } = await supabase.from("engagements").insert({

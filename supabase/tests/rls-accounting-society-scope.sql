@@ -69,7 +69,7 @@ SELECT ('505c0000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
        40, '2020-01-01', 'La Paz'
   FROM generate_series(1, 5) n;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c05c0000-0000-4000-8000-00000000000a', 'SOCSCOPE Cliente A',          'SOCSCOPE-A'),
   ('c05c0000-0000-4000-8000-00000000000b', 'SOCSCOPE Cliente B',          'SOCSCOPE-B'),
   ('c05c0000-0000-4000-8000-00000000000c', 'SOCSCOPE Cliente Compartido', 'SOCSCOPE-C'),
@@ -481,9 +481,11 @@ END $$;
 -- ══ Fase 4: notificaciones ═══════════════════════════════════════════════════════════════════════
 
 -- Las dos cuotas pasan a facturadas con vencimiento hoy (por vencer esta semana), sin pasar por los guards.
+-- «Hoy» es public.fund_today() (fecha de La Paz), el mismo que usa notif_agg_wo_installment_due_this_week: con
+-- current_date (UTC), de 20:00 a medianoche de La Paz ya es mañana y, en domingo, cae fuera de la semana en curso.
 SET LOCAL session_replication_role = replica;
 UPDATE public.wo_payment_installments
-   SET status = 'Invoiced', agreed_payment_date = current_date, collection_payment_date = current_date
+   SET status = 'Invoiced', agreed_payment_date = public.fund_today(), collection_payment_date = public.fund_today()
  WHERE installment_id IN ('115c0000-0000-4000-8000-00000000000a', '115c0000-0000-4000-8000-00000000000b');
 SET LOCAL session_replication_role = origin;
 

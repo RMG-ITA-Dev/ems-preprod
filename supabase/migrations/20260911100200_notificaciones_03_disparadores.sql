@@ -2767,7 +2767,9 @@ BEGIN
   v_base := jsonb_build_object(
     'client_id',         NEW.client_id,
     'client_legal_name', COALESCE(NEW.client_legal_name, ''),
-    'unique_tax_id',     COALESCE(NEW.unique_tax_id, ''));
+    -- ETL fase 1: la columna se llama tax_id; la clave del payload sigue siendo unique_tax_id
+    -- (contrato histórico de las plantillas y de rpc-notificaciones-fase1).
+    'unique_tax_id',     COALESCE(NEW.tax_id, ''));
 
   -- ── Alta (D-37) ──
   IF TG_OP = 'INSERT' THEN

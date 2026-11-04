@@ -1,0 +1,47 @@
+// L9 (Fase 4 §7): huella de lo cargado por clave natural, comparable entre ambientes. Los UUID y las marcas de tiempo
+// cambian en cada instalación; los valores de negocio no. Cada conjunto es una lista de pares [clave, hash de la fila]
+// calculados en SQL; aquí solo se canonicalizan, se resumen y se comparan. La huella no contiene datos personales:
+// las claves son COT, NIT/razón social o el hash del correo, y los valores son hashes.
+import { createHash } from "node:crypto";
+
+export const FINGERPRINT_VERSION = 1;
+export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "hoursByStaff", "emailQueue"]);
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+
+// Una clave puede repetirse (NIT compartido, varios roles): se numera por hash ordenado, de modo que el resultado no
+// dependa del orden en que la base devuelva las filas.
+export function keyedHashes(pairs) {
+  const groups = new Map();
+  for (const [key, hash] of pairs ?? []) groups.set(String(key), [...(groups.get(String(key)) ?? []), String(hash)]);
+  const out = {};
+  for (const [key, hashes] of [...groups].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    hashes.sort();
+    hashes.forEach((hash, index) => { out[hashes.length === 1 ? key : `${key}#${index + 1}`] = hash; });
+  }
+  return out;
+}
+
+export function buildFingerprint({ environment, projectRef, installationId, snapshot, generatedAt = new Date().toISOString() }) {
+  const sets = {};
+  for (const name of SET_NAMES) {
+    if (!Array.isArray(snapshot?.[name])) throw new Error(`la consulta de huellas no devolvió el conjunto ${name}`);
+    const keys = keyedHashes(snapshot[name]);
+    sets[name] = { count: Object.keys(keys).length, sha256: sha256(JSON.stringify(Object.entries(keys))), keys };
+  }
+  return { version: FINGERPRINT_VERSION, generatedAt, environment, projectRef, installationId, sets };
+}
+
+// Compara dos huellas conjunto por conjunto y señala qué claves faltan o cambiaron (máximo `limit` por categoría).
+export function compareFingerprints(a, b, { limit = 8 } = {}) {
+  if (a?.version !== FINGERPRINT_VERSION || b?.version !== FINGERPRINT_VERSION) throw new Error("versión de huella incompatible");
+  const rows = SET_NAMES.map((name) => {
+    const left = a.sets?.[name], right = b.sets?.[name];
+    if (!left || !right) return { name, ok: false, countA: left?.count ?? null, countB: right?.count ?? null, missingInB: [], missingInA: [], changed: [], note: "conjunto ausente" };
+    const missingInB = Object.keys(left.keys).filter((key) => !(key in right.keys));
+    const missingInA = Object.keys(right.keys).filter((key) => !(key in left.keys));
+    const changed = Object.keys(left.keys).filter((key) => key in right.keys && left.keys[key] !== right.keys[key]);
+    const ok = left.count === right.count && left.sha256 === right.sha256 && !missingInA.length && !missingInB.length && !changed.length;
+    return { name, ok, countA: left.count, countB: right.count, missingInB: missingInB.slice(0, limit), missingInA: missingInA.slice(0, limit), changed: changed.slice(0, limit), totals: { missingInB: missingInB.length, missingInA: missingInA.length, changed: changed.length }, note: "" };
+  });
+  return { ok: rows.every((row) => row.ok), rows, a: { environment: a.environment, projectRef: a.projectRef, installationId: a.installationId }, b: { environment: b.environment, projectRef: b.projectRef, installationId: b.installationId } };
+}

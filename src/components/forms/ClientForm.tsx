@@ -74,7 +74,7 @@ type Translate = (key: string) => string;
 
 export const buildFormSchema = (t: Translate = (k) => k) => z.object({
   client_legal_name: z.string().min(1, "Client name is required"),
-  unique_tax_id: z
+  tax_id: z
     .string()
     .min(1, "NIT is required")
     .max(15, "NIT cannot exceed 15 digits")
@@ -145,7 +145,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     resolver: zodResolver(schema),
     defaultValues: {
       client_legal_name: "",
-      unique_tax_id: "",
+      tax_id: "",
       industry_id: "",
       contact_general_name: "",
       contact_general_email: "",
@@ -168,7 +168,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     if (client && contactsFetched && (!loaded || !form.formState.isDirty)) {
       form.reset({
         client_legal_name: client.client_legal_name,
-        unique_tax_id: client.unique_tax_id,
+        tax_id: client.tax_id,
         industry_id: client.industry_id || "",
         // Cobranzas Fase 5: los contactos ya no son columnas de `clients`, llegan de
         // client_contacts. Se toma el primer activo de cada tipo: puede haber varios (Q52),
@@ -201,7 +201,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
     let nitQuery = supabase
       .from("clients")
       .select("client_id, client_legal_name")
-      .eq("unique_tax_id", data.unique_tax_id);
+      .eq("tax_id", data.tax_id);
     if (client?.client_id) {
       nitQuery = nitQuery.neq("client_id", client.client_id);
     }
@@ -212,14 +212,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       return;
     }
     if (existingByNit && existingByNit.length > 0) {
-      toast.error(t("errors.duplicateNit", { nit: data.unique_tax_id, name: existingByNit[0].client_legal_name }));
+      toast.error(t("errors.duplicateNit", { nit: data.tax_id, name: existingByNit[0].client_legal_name }));
       return;
     }
 
     // Pre-save duplicate name check (case-insensitive)
     let nameQuery = supabase
       .from("clients")
-      .select("client_id, unique_tax_id")
+      .select("client_id, tax_id")
       .ilike("client_legal_name", trimmedName);
     if (client?.client_id) {
       nameQuery = nameQuery.neq("client_id", client.client_id);
@@ -231,13 +231,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       return;
     }
     if (existingByName && existingByName.length > 0) {
-      toast.error(t("errors.duplicateClientNameWithNit", { nit: existingByName[0].unique_tax_id }));
+      toast.error(t("errors.duplicateClientNameWithNit", { nit: existingByName[0].tax_id }));
       return;
     }
 
     const payload = {
       client_legal_name: trimmedName,
-      unique_tax_id: data.unique_tax_id,
+      tax_id: data.tax_id,
       industry_id: data.industry_id || undefined,
       address: data.address || undefined,
       is_active: data.is_active,
@@ -349,7 +349,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               />
               <FormField
                 control={form.control}
-                name="unique_tax_id"
+                name="tax_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.nitLabel")} *</FormLabel>
@@ -365,9 +365,9 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                             const raw = e.target.value;
                             const stripped = raw.replace(/\D/g, "");
                             if (raw !== stripped) {
-                              form.setError("unique_tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
+                              form.setError("tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
                             } else {
-                              form.clearErrors("unique_tax_id");
+                              form.clearErrors("tax_id");
                             }
                             field.onChange(stripped);
                           }}
@@ -607,7 +607,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
 
                 <FormField
                   control={form.control}
-                  name="unique_tax_id"
+                  name="tax_id"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("client.nitLabel")} *</FormLabel>
@@ -622,9 +622,9 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                             const raw = e.target.value;
                             const stripped = raw.replace(/\D/g, "");
                             if (raw !== stripped) {
-                              form.setError("unique_tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
+                              form.setError("tax_id", { type: "manual", message: t("client.nitOnlyNumbers") });
                             } else {
-                              form.clearErrors("unique_tax_id");
+                              form.clearErrors("tax_id");
                             }
                             field.onChange(stripped);
                           }}

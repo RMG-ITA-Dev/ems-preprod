@@ -28,7 +28,7 @@
 BEGIN;
 
 -- Fixtures (como postgres; RLS no ata al dueno de la tabla) --------------------
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c0923202-0000-4000-8000-000000000001', 'Cliente 0923202', 'NIT-0923202')
 ON CONFLICT (client_id) DO NOTHING;
 

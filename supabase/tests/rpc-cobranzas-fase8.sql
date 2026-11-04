@@ -39,13 +39,16 @@ INSERT INTO public.society (society_id, name)
 VALUES ('50c00000-0000-4000-8000-0000000000c3', 'Ruizmier Pelaez S.R.L.')
 ON CONFLICT (name) DO NOTHING;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c1000000-0000-4000-8000-0000000000c1', 'CF8 Cliente Uno', 'CF8-TAX-001'),
   ('c1000000-0000-4000-8000-0000000000c2', 'CF8 Cliente Dos', 'CF8-TAX-002');
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
-VALUES ('c1000000-0000-4000-8000-0000000000c3', 'Ruizmier Pelaez S.R.L.', '1006979026')
-ON CONFLICT (unique_tax_id) DO NOTHING;
+-- ETL fase 1: el NIT ya no es único, así que no puede servir de destino de ON CONFLICT. El cliente interno de
+-- la sociedad Pelaez se identifica por su PK: es el MISMO UUID del fixture ficticio que run-rls-tests.sh siembra
+-- tras 0722-160 (una corrida suelta de esta suite lo crea; dentro del harness ya existe y no se duplica).
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
+VALUES ('c1000000-0000-4000-8000-000000000160', 'Ruizmier Pelaez S.R.L.', '1006979026')
+ON CONFLICT (client_id) DO NOTHING;
 
 CREATE FUNCTION pg_temp.impersonate(p_sub uuid) RETURNS void
 LANGUAGE sql AS $$
@@ -85,7 +88,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
   ('e0000000-0000-4000-8000-0000000000c1', 'c1000000-0000-4000-8000-0000000000c1', 'CF8 Auditoria Uno', 'CF8-E1', 1, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c2'),
   ('e0000000-0000-4000-8000-0000000000c2', 'c1000000-0000-4000-8000-0000000000c2', 'CF8 Impuestos Dos', 'CF8-E2', 2, 1,    '2026-12-31', '50c00000-0000-4000-8000-0000000000c1', '51c00000-0000-4000-8000-0000000000c6'),
   ('e0000000-0000-4000-8000-0000000000c3',
-   (SELECT client_id FROM public.clients WHERE unique_tax_id = '1006979026'),
+   (SELECT client_id FROM public.clients WHERE tax_id = '1006979026'),
    'CF8 Administrativo', 'CF8-E3', 1, 2, '2026-12-31',
    (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
    '51c00000-0000-4000-8000-0000000000c2'),
