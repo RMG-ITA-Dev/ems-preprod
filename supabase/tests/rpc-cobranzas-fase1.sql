@@ -118,6 +118,7 @@ DECLARE
   v_fr1    uuid := 'f4000000-0000-4000-8000-0000000000f1';
   v_fr2    uuid := 'f4000000-0000-4000-8000-0000000000f2';
   denied   boolean;
+  v_actor  uuid;
 BEGIN
   -- ══════════════════════════════════════════════════════════════════
   -- 1. installment_calendar_state(): la regla unica
@@ -408,6 +409,23 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - Contabilidad pudo reprogramar una cuota (es del gerente, Q42)';
   END IF;
   RAISE NOTICE 'PASS - reprogramar no es de Contabilidad';
+
+  -- La moneda de una cuota de honorarios tambien es contrato: la arma el gerente (Q29). Con la
+  -- OT en Borrador la pantalla se la dejaba elegir a Contabilidad y el guard no la frenaba.
+  FOREACH v_actor IN ARRAY ARRAY[c_acctmgr, c_collections] LOOP
+    PERFORM pg_temp.impersonate(v_actor);
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_installments
+         SET currency = 'USD' WHERE installment_id = v_i2;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'INSTALLMENT_FIELD_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'TEST FAIL - Contabilidad pudo cambiar la moneda de una cuota de honorarios';
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS - la moneda de una cuota de honorarios no es de Contabilidad';
 
   -- ══════════════════════════════════════════════════════════════════
   -- 7. Bitacora: se escribe sola y nadie la edita

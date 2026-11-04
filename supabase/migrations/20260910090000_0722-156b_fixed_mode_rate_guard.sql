@@ -183,6 +183,12 @@ BEGIN
        -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
        OR (NEW.amount IS DISTINCT FROM OLD.amount
            AND OLD.installment_type <> 'expense_reimbursement')
+       -- La moneda de una cuota de HONORARIOS es parte del contrato que arma el gerente
+       -- (Q29). Faltaba en esta lista: con la OT en Borrador la pantalla le dejaba elegirla
+       -- a Contabilidad, y aca nada lo frenaba. La de la fila de gastos SI la cambia
+       -- Contabilidad (Fase 9, useSetInstallmentCurrency), igual que su monto.
+       OR (NEW.currency IS DISTINCT FROM OLD.currency
+           AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
     THEN
