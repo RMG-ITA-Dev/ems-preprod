@@ -35,6 +35,9 @@ bash scripts/etl/runbook/run.sh --env test --run-id 0001 --from 10 --to 50
 - **Credenciales:** solo por prompt sin eco (o ya exportadas en la misma terminal): `SUPABASE_DB_URL` (Session
   pooler, puerto 5432), `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_TEMP_PASSWORD`. Nunca por el chat, argv ni archivos.
   `--dry-run` oculta cualquier valor con `PASSWORD`, `KEY`, `SECRET` o `_URL`.
+- **`--dry-run` es limitado:** omite las escrituras (`rb_etl_mut`), pero los `verify`, `report` y `preflight` posteriores siguen
+  leyendo el estado real y fallan (`BLOQUEADO`) si la carga anterior no existe. Sirve para ver qué ejecutaría un paso contra un
+  destino ya cargado; **no** previsualiza una corrida completa sobre una base vacía. Las cargas reales no lo usan.
 - **Declaraciones humanas en Test:** `VENTANA <ref>` (ventana exclusiva, registro público cerrado,
   `MAIL_ENABLED=false`, respaldo restaurable), `DROP fund_request_number_seq`, `APLICAR 8 BAJAS`,
   `ACEPTO <bloque>`. No hay opción para saltárselas en Test; `--yes-local` solo existe en local.
