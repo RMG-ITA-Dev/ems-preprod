@@ -6,6 +6,9 @@
   "installationId": "f3-ensayo-local-0001",
   "snapshot": "TimeControlDB_20261023_1200",
   "technicalAdminId": "00000000-0000-4000-8000-000000000001",
+  "f2StateDir": "C:\\ruta\\privada\\ems-etl-state\\local-0001\\f2",
+  "f2ServicesFile": "C:\\ruta\\privada\\06_servicios_equivalencias.csv",
+  "f2ClientsFile": "C:\\ruta\\privada\\02_clientes.csv",
   "inputs": {
     "clientEngagements": "C:\\ruta\\privada\\alcance_202610291139_OT_clientes.csv",
     "planHours": "C:\\ruta\\privada\\202610291232_OT_planificacion_horas.csv",

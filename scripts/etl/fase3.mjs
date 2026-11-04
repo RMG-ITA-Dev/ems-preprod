@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProblems } from "./fase1-db.mjs";
-import { acquireLock, sha256 } from "./fase1.mjs";
+import { acquireLock, readJournal, sha256 } from "./fase1.mjs";
+import { STATES as F2_STATES } from "./fase2.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
 import { isMigrableExecution, readInput, validateInputs } from "./fase3-input.mjs";
 import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
@@ -43,7 +44,8 @@ export function parseConfig(raw) {
 export function loadF2Maps(f2StateDir) {
   const journalFile = readdirSync(f2StateDir).filter((name) => /^fase2-.*\.journal\.json$/.test(name)).sort().at(-1);
   if (!journalFile) throw new Fase1Error("BLOQUEADO", "no existe journal F2 para resolver identidades F3");
-  const journal = readJson(path.join(f2StateDir, journalFile));
+  // readJournal verifica el checksum que F2 escribió: un journal alterado o dañado no entrega sus mapeos de UUID a F3.
+  const journal = readJournal(path.join(f2StateDir, journalFile), { states: F2_STATES });
   if (journal.state !== "VERIFICADO") throw new Fase1Error("BLOQUEADO", "F3 requiere journal F2 en estado VERIFICADO");
   const clients = Object.fromEntries(Object.entries(journal.clients ?? {}).map(([key, value]) => [key, { id: value.clientId }]));
   const staff = Object.fromEntries(Object.entries(journal.staff ?? {}).map(([key, value]) => [key, value.staffId]));

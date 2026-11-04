@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, loadF2Maps, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { writeJournal } from "../fase1.mjs";
+import { journalPathFor } from "../fase2.mjs";
+import { fileURLToPath } from "node:url";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
 // Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
@@ -74,6 +77,24 @@ describe("ETL fase 3: consola y guardas", () => {
     expect(exitCodeFor({ code: "CONFIG" })).toBe(1); expect(exitCodeFor(new Error("x"))).toBe(1);
     // Una escritura de resultado incierto (SQL o Auth) también exige reconciliar.
     expect(exitCodeFor({ code: "SQL_INCIERTO" })).toBe(3); expect(exitCodeFor({ code: "AUTH_INCIERTO" })).toBe(3);
+  });
+  it("F3 solo toma los mapeos del journal de F2 si su checksum es íntegro y su estado es VERIFICADO", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "etl-f3-f2journal-"));
+    const file = journalPathFor(dir, "f2-ensayo-0001");
+    writeJournal(file, { version: 1, installationId: "f2-ensayo-0001", projectRef: "local", state: "VERIFICADO", inputs: {}, clients: { "C-1": { clientId: "uuid-cliente-1" } }, staff: { "P-1": { staffId: "uuid-staff-1" } } });
+    expect(loadF2Maps(dir)).toMatchObject({ clients: { "C-1": { id: "uuid-cliente-1" } }, staff: { "P-1": "uuid-staff-1" } });
+    // Journal que sigue siendo JSON válido pero fue alterado después de escribirse: el checksum ya no coincide.
+    writeFileSync(file, readFileSync(file, "utf8").replace("uuid-cliente-1", "uuid-otro-cliente"));
+    expect(() => loadF2Maps(dir)).toThrow(/checksum/);
+    // Íntegro pero sin verificar.
+    writeJournal(file, { version: 1, installationId: "f2-ensayo-0001", projectRef: "local", state: "CLIENTES_CONFIRMADOS", inputs: {}, clients: {}, staff: {} });
+    expect(() => loadF2Maps(dir)).toThrow(/VERIFICADO/);
+  });
+  it("el ejemplo de configuración de F3 trae todas las claves que parseConfig exige", () => {
+    const example = JSON.parse(readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "fase3.config.example.json"), "utf8"));
+    // Las rutas de ejemplo son de Windows (no absolutas en Linux): se sustituyen por rutas absolutas válidas en cualquier plataforma.
+    const portable = JSON.parse(JSON.stringify(example), (_key, value) => typeof value === "string" && value.startsWith("C:\\ruta") ? abs(path.basename(value.replaceAll("\\", "/"))) : value);
+    expect(() => parseConfig(portable)).not.toThrow();
   });
   it("F3 solo usa los archivos auxiliares de F2 si coinciden con la huella que F2 verificó", () => {
     const file = path.join(mkdtempSync(path.join(os.tmpdir(), "etl-f3-aux-")), "servicios.csv");
