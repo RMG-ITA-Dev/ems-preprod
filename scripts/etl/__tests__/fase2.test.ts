@@ -2,9 +2,9 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRoleAssignment } from "../fase2-input.mjs";
+import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRates, validateRoleAssignment, validateServices } from "../fase2-input.mjs";
 import { writeJournal } from "../fase1.mjs";
-import { createContext, journalPathFor, parseConfig, probeAccess, report, reservedClientMatches } from "../fase2.mjs";
+import { createContext, journalPathFor, parseConfig, probeAccess, report, requireWindow, reservedClientMatches } from "../fase2.mjs";
 
 const header = (name: keyof typeof HEADERS) => HEADERS[name].join(",");
 const client = (ref: string, parent = "", relation = "") => `${ref},Cliente ${ref},,001,entidad,${parent},${relation},nacional,nit_propio,Industria,Dirección,true,`;
@@ -97,6 +97,28 @@ describe("ETL fase 2: entrada offline", () => {
     // Un journal anterior a este campo no lo trae y se acepta.
     writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, state: "VALIDADO", inputs: {} });
     expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
+  });
+
+  it("exige que la confirmación de ventana sea la del ref del proyecto", () => {
+    const ctx = (value: string | undefined) => ({ config: { expectedProjectRef: "slkqdcwwvmjtcbakajib" }, env: value === undefined ? {} : { ETL_F2_WINDOW_CONFIRMED: value } }) as any;
+    expect(() => requireWindow(ctx("slkqdcwwvmjtcbakajib"))).not.toThrow();
+    expect(() => requireWindow(ctx(undefined))).toThrow(/ETL_F2_WINDOW_CONFIRMED/);
+    expect(() => requireWindow(ctx("local"))).toThrow(/ETL_F2_WINDOW_CONFIRMED/);
+    expect(() => requireWindow(ctx("ventana-31-10"))).toThrow(/ETL_F2_WINDOW_CONFIRMED/);
+  });
+
+  it("valida el contenido de las tarifas y de las equivalencias de servicios", () => {
+    const rate = (p: string, c: string, v = "1") => ({ practica_abbreviation: p, category_name: c, rate_high_usd: v, rate_low_usd: v, rate_high_bob: v, rate_low_bob: v, source_rule: "x" });
+    expect(() => validateRates([rate("AUD", "Socio"), rate("AUD", "SQR")], { expected: { ...EXPECTED, rates: 2 } })).not.toThrow();
+    expect(() => validateRates([], { expected: EXPECTED })).toThrow(/se esperaban 15/); // solo encabezado
+    expect(() => validateRates([rate("AUD", "Socio"), rate("AUD", "Socio")], { expected: { ...EXPECTED, rates: 2 } })).toThrow(/duplicada/);
+    expect(() => validateRates([rate("AUD", "Socio", "abc")], { expected: { ...EXPECTED, rates: 1 } })).toThrow(/no numérico/);
+    expect(() => validateRates([rate("", "Socio")], { expected: { ...EXPECTED, rates: 1 } })).toThrow(/vacía/);
+    const svc = (id: string, name = "Auditoría") => ({ legacy_service_id: id, ems_service_name: name, equivalence_basis: "x" });
+    expect(() => validateServices([svc("1"), svc("2")], { expected: { ...EXPECTED, services: 2 } })).not.toThrow();
+    expect(() => validateServices([], { expected: EXPECTED })).toThrow(/se esperaban 46/);
+    expect(() => validateServices([svc("1"), svc("1")], { expected: { ...EXPECTED, services: 2 } })).toThrow(/duplicado/);
+    expect(() => validateServices([svc("1", "")], { expected: { ...EXPECTED, services: 1 } })).toThrow(/vacío/);
   });
 
   it("reconcilia una unidad cliente reservada sólo cuando coincide exactamente", () => {

@@ -89,9 +89,10 @@ if run_block work-orders; then
   fi
 fi
 if run_block hours; then
-  step "horas (24.968,00 h)"                    "j.units?.hours?.state === 'CONFIRMADA'"  3 load --block hours --operation hours
+  step "horas (25.226,00 h)"                    "j.units?.hours?.state === 'CONFIRMADA'"  3 load --block hours --operation hours
   rb_etl_mut 3 load --block work-orders --operation contain-emails   # idempotente: cierra también lo que generen las horas
-  rb_etl 3 verify --block hours
+  # Como en los bloques anteriores: verify + acta humana (ACEPTO hours) antes de dar F3 por cargada. Se omite si ya está aceptado.
+  if done_mark "j.blocks?.hours?.acceptedAt"; then rb_pass "bloque hours ya aceptado, se omite"; else accept_block hours; fi
 fi
 rb_etl 3 report
 rb_counts

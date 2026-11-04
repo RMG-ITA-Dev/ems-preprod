@@ -48,7 +48,8 @@ export function createContext({ config, env = process.env, stateDir, db, auth, l
   return { ...base, journalFile: stateDir ? journalPathFor(stateDir, config.installationId) : null, input: null };
 }
 function authFor(ctx) { if (ctx.auth) return ctx.auth; const { SUPABASE_SERVICE_ROLE_KEY: serviceKey, SUPABASE_ANON_KEY: anonKey } = ctx.env; if (!serviceKey || !anonKey) throw new Fase1Error("CONFIG", "faltan SUPABASE_SERVICE_ROLE_KEY y SUPABASE_ANON_KEY"); ctx.auth = createAuthAdapter({ url: ctx.config.supabaseUrl, serviceKey, anonKey }); return ctx.auth; }
-function requireWindow(ctx) { if (!ctx.env.ETL_F2_WINDOW_CONFIRMED) throw new Fase1Error("CONFIG", "falta ETL_F2_WINDOW_CONFIRMED (ventana exclusiva)"); }
+// La confirmación debe nombrar el proyecto destino (como F1): un valor sobrante de otro ambiente no autoriza escrituras.
+export function requireWindow(ctx) { if (ctx.env.ETL_F2_WINDOW_CONFIRMED !== ctx.config.expectedProjectRef) throw new Fase1Error("CONFIG", `falta ETL_F2_WINDOW_CONFIRMED=${ctx.config.expectedProjectRef} (ventana exclusiva)`); }
 function ensureJournal(ctx) { const existing = readJournal(ctx.journalFile, { states: STATES }); if (existing && (existing.installationId !== ctx.config.installationId || existing.projectRef !== ctx.config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal de otra instalación o proyecto");
   // Misma instalación con otra configuración: con clientes o fichas ya cargados, reanudar mezclaría resultados que esa configuración
   // no produjo. Sin progreso el journal adopta la configuración vigente. Un journal anterior a este campo no lo trae y se acepta.

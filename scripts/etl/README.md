@@ -44,7 +44,7 @@ identificarla y excluirla. La cuenta se elimina en el reset de producción.
 | `ADMIN_TEMP_PASSWORD` | Contraseña temporal del administrador (≥ 12 caracteres) |
 | `ETL_F1_STATE_DIR` | Ruta **absoluta**, fuera del repositorio, del journal |
 | `ETL_F1_SIGNUP_CLOSED=1` | Declaración explícita de que Bootstrap y `register-user` no están disponibles |
-| `ETL_F1_WINDOW_CONFIRMED=<ref>` | Solo `test`/`production`: ventana exclusiva de altas confirmada |
+| `ETL_F1_WINDOW_CONFIRMED=<ref>` | Solo `test`/`production`: ventana exclusiva de altas confirmada. F2 y F3 exigen `ETL_F2_WINDOW_CONFIRMED=<ref>` y `ETL_F3_WINDOW_CONFIRMED=<ref>` con el mismo valor (el runbook las exporta) |
 
 Contraseñas, tokens y claves nunca aparecen en la configuración versionada, el journal ni los
 reportes: todo mensaje pasa por un redactor. El SQL va por `psql` con `execFile` sin shell, con las
@@ -142,7 +142,7 @@ Fase 3 prepara y carga por bloques los encargos, matrices, OTs y horas aprobadas
 - `environment=local`: `expectedProjectRef=local`, `supabaseUrl` loopback y `PGHOST` loopback.
 - `environment=test`: el ref queda fijo en el código (`KNOWN_REFS.test`), `supabaseUrl` debe ser
   `https://<ref>.supabase.co`, `PGHOST` el pooler (`*.pooler.supabase.com`), `PGUSER=postgres.<ref>` y
-  `ETL_F3_WINDOW_CONFIRMED` (ventana exclusiva). `preflight` comprueba además que `technicalAdminId` sea el
+  `ETL_F3_WINDOW_CONFIRMED=<ref>` (ventana exclusiva; igual al ref del proyecto, como en F1 y F2). `preflight` comprueba además que `technicalAdminId` sea el
   administrador bootstrap de F1 (ficha enlazada, rol `admin/admin`). Un journal pertenece a un único ref.
 
 Producción, Dev 2.0 y Lovable siguen rechazados, sin bandera para saltarse la guarda. `ETL_F3_STATE_DIR` es

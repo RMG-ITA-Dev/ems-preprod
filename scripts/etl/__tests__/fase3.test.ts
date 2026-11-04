@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertInputsUnchangedSinceProgress, assertTarget, createContext, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
 // Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
@@ -27,9 +27,12 @@ describe("ETL fase 3: consola y guardas", () => {
   });
   it("la guarda de destino exige pooler, usuario postgres.<ref> y ventana confirmada en Test, y loopback en local", () => {
     const test = parseConfig({ ...config, environment: "test", expectedProjectRef: TEST_REF, supabaseUrl: `https://${TEST_REF}.supabase.co`, installationId: "f3-test-0001" });
-    const env = { PGHOST: "aws-1-us-west-1.pooler.supabase.com", PGUSER: `postgres.${TEST_REF}`, ETL_F3_WINDOW_CONFIRMED: "ventana-31-10" };
+    const env = { PGHOST: "aws-1-us-west-1.pooler.supabase.com", PGUSER: `postgres.${TEST_REF}`, ETL_F3_WINDOW_CONFIRMED: TEST_REF };
     expect(() => assertTarget(test, env)).not.toThrow();
     expect(() => assertTarget(test, { ...env, ETL_F3_WINDOW_CONFIRMED: "" })).toThrow(/ETL_F3_WINDOW_CONFIRMED/);
+    // Una confirmación sobrante de otro ambiente (o una etiqueta libre) no autoriza escrituras en este proyecto.
+    expect(() => assertTarget(test, { ...env, ETL_F3_WINDOW_CONFIRMED: "local" })).toThrow(/ETL_F3_WINDOW_CONFIRMED/);
+    expect(() => assertTarget(test, { ...env, ETL_F3_WINDOW_CONFIRMED: "ventana-31-10" })).toThrow(/ETL_F3_WINDOW_CONFIRMED/);
     expect(() => assertTarget(test, { ...env, PGHOST: "127.0.0.1" })).toThrow(/pooler/);
     expect(() => assertTarget(test, { ...env, PGUSER: "postgres.xcdcxtduotwgwmhxvsiz" })).toThrow(/PGUSER/);
     expect(() => assertTarget(parseConfig(config), { PGHOST: "127.0.0.1" })).not.toThrow();
@@ -64,6 +67,10 @@ describe("ETL fase 3: consola y guardas", () => {
     expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: { "client-engagements": { state: "CONFIRMADA" } }, blocks: {} }, before)).not.toThrow();
     expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: { "client-engagements": { state: "CONFIRMADA" } }, blocks: {} }, after)).toThrow(/cambió la huella/);
     expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: {}, blocks: { hours: { acceptedAt: "x" } } }, after)).toThrow(/cambió la huella/);
+  });
+  it("devuelve los mismos códigos de salida que F1 y F2 (2 bloqueado, 3 reconciliación requerida, 1 el resto)", () => {
+    expect(exitCodeFor({ code: "BLOQUEADO" })).toBe(2); expect(exitCodeFor({ code: "RECONCILIACION_REQUERIDA" })).toBe(3);
+    expect(exitCodeFor({ code: "CONFIG" })).toBe(1); expect(exitCodeFor(new Error("x"))).toBe(1);
   });
   it("no permite aceptar un bloque sin unidad confirmada", () => {
     const ctx = createContext({ config: parseConfig(config), stateDir: mkdtempSync(path.join(os.tmpdir(), "etl-f3-")), db: {} });

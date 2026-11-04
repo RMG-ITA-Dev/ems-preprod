@@ -172,6 +172,32 @@ export function validateUsers(rows, staff, { expected = EXPECTED, allowedDomain 
   return rows;
 }
 
+const RATE_FIELDS = ["rate_high_usd", "rate_low_usd", "rate_high_bob", "rate_low_bob"];
+export function validateRates(rows, { expected = EXPECTED, enforceExpected = true } = {}) {
+  const seen = new Set();
+  for (const row of rows) {
+    const key = `${String(row.practica_abbreviation ?? "").trim()}|${String(row.category_name ?? "").trim()}`;
+    if (key.startsWith("|") || key.endsWith("|")) throw new Fase2InputError("tarifas: práctica o categoría vacía");
+    if (seen.has(key)) throw new Fase2InputError(`tarifas: fila duplicada ${key}`);
+    for (const field of RATE_FIELDS) if (!/^\d+(\.\d+)?$/.test(String(row[field] ?? "").trim())) throw new Fase2InputError(`tarifas: ${field} no numérico en ${key}`);
+    seen.add(key);
+  }
+  if (enforceExpected && rows.length !== expected.rates) throw new Fase2InputError(`tarifas: se esperaban ${expected.rates} filas y hay ${rows.length}`);
+  return rows;
+}
+
+export function validateServices(rows, { expected = EXPECTED, enforceExpected = true } = {}) {
+  const seen = new Set();
+  for (const row of rows) {
+    const id = String(row.legacy_service_id ?? "").trim();
+    if (!id || !String(row.ems_service_name ?? "").trim()) throw new Fase2InputError("servicios: código legacy o servicio EMS vacío");
+    if (seen.has(id)) throw new Fase2InputError(`servicios: código legacy duplicado ${id}`);
+    seen.add(id);
+  }
+  if (enforceExpected && rows.length !== expected.services) throw new Fase2InputError(`servicios: se esperaban ${expected.services} filas y hay ${rows.length}`);
+  return rows;
+}
+
 export function validateRoleAssignment(staff, user, categoryDefaultRoleKey) {
   const override = APPROVED_ROLE_OVERRIDES[staff.staff_source_ref];
   if (override) {
@@ -199,5 +225,6 @@ export function loadInputs(inputs, options = {}) {
   for (const name of names) if (!inputs?.[name]) throw new Fase2InputError(`falta ruta de ${name}`);
   const parsed = Object.fromEntries(names.map((name) => [name, parseCsv(readFileSync(inputs[name], "utf8"), HEADERS[name], name)]));
   const clients = validateClients(parsed.clients, options); validateContacts(parsed.contacts, clients, options); validateStaff(parsed.staff, options); validateUsers(parsed.users, parsed.staff, options);
+  validateRates(parsed.rates, options); validateServices(parsed.services, options);
   return { ...parsed, clients, fingerprints: Object.fromEntries(names.map((name) => [name, { sha256: sha256File(inputs[name]), rows: parsed[name].length }])) };
 }
