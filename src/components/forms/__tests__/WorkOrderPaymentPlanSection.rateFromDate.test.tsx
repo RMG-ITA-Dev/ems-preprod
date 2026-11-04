@@ -41,9 +41,11 @@ vi.mock("@/hooks/useInstallmentNotes", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/hooks/useInstallmentNotes")>();
   return { ...real, useInstallmentNotes: () => ({ data: [] }) };
 });
+// La bitácora: vacía salvo en los tests del historial (Parte B).
+const events = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("@/hooks/useInstallmentEvents", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/hooks/useInstallmentEvents")>();
-  return { ...real, useInstallmentEvents: () => ({ data: [] }) };
+  return { ...real, useInstallmentEvents: () => ({ data: events.list }) };
 });
 vi.mock("@/hooks/useInstallmentAdjustments", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/hooks/useInstallmentAdjustments")>();
@@ -254,6 +256,7 @@ beforeEach(() => {
   mockUpdateStatus.mockReset();
   mockUpdateExchangeRate.mockReset();
   pick.date = "2026-10-11";
+  events.list = [];
 });
 
 describe("1028-214 — TC del encabezado del plan desde una fecha", () => {
@@ -403,6 +406,8 @@ describe("1028-214 — TC por fila desde una fecha (modo Variable)", () => {
         installmentId: "inst-a",
         field: "invoice_exchange_rate",
         value: 6.9,
+        // Parte B: se guarda también de qué cotización salió.
+        rateDate: "2026-10-09",
         woId: "wo-9",
       }),
     );
@@ -590,7 +595,7 @@ describe("1028-214 — TC desde una fecha en el diálogo de facturar/cobrar (Cob
     expect(screen.queryByTestId("rate-note-dialog")).not.toBeInTheDocument();
   });
 
-  it("PTC9: al facturar se manda el TC traído y la fecha elegida", async () => {
+  it("PTC9: al facturar se manda el TC traído y la fecha de SU cotización, no la elegida", async () => {
     mockRpc.mockResolvedValueOnce(rateRow(6.9, "2026-10-09"));
     renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }) });
     openStatusDialog("Invoiced");
@@ -600,7 +605,8 @@ describe("1028-214 — TC desde una fecha en el diálogo de facturar/cobrar (Cob
     fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmInvoicedAction"));
 
     expect(mockUpdateStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ newStatus: "Invoiced", invoiceExchangeRate: 6.9, invoiceExchangeRateDate: "2026-10-11" }),
+      // Se eligió el 11/10 (sin cotización) y el TC salió del 09/10: se guarda el 09/10.
+      expect.objectContaining({ newStatus: "Invoiced", invoiceExchangeRate: 6.9, invoiceExchangeRateDate: "2026-10-09" }),
     );
   });
 
@@ -624,5 +630,229 @@ describe("1028-214 — TC desde una fecha en el diálogo de facturar/cobrar (Cob
     expect(mockUpdateStatus).toHaveBeenCalledWith(
       expect.objectContaining({ newStatus: "Completed", paymentExchangeRate: 6.9 }),
     );
+  });
+});
+
+// Parte B (commit aparte): la trazabilidad que pidió Q49. Lo que se guarda es la fecha DE LA
+// COTIZACIÓN de la que salió el TC —no la elegida en el calendario—, también para el TC de pago;
+// la bitácora registra el TC con que se facturó o se cobró; la pantalla lo muestra; y corregir la
+// Fecha Fact. avisa si la fecha nueva tiene otra cotización.
+describe("1028-214 Parte B — trazabilidad del TC en Cobranzas", () => {
+  const variable = makePlan({ exchange_rate_mode: "variable" });
+  const openStatusDialog = (status: PaymentInstallmentStatus) => {
+    const select = screen
+      .getAllByTestId("select")
+      .find((el) => Array.from((el as HTMLSelectElement).options).some((o) => o.value === status))!;
+    fireEvent.change(select, { target: { value: status } });
+  };
+  const facturada = (over: Partial<PaymentInstallmentInput> = {}) =>
+    makeInstallment({
+      status: "Invoiced",
+      collection_invoice_date: "2026-10-21",
+      collection_payment_date: "2026-11-20",
+      invoice_exchange_rate: 11.73,
+      invoice_exchange_rate_date: "2026-10-21",
+      payment_exchange_rate: null,
+      ...over,
+    });
+
+  it("PTC10: facturar en Variable sin tocar nada guarda la fecha de la cotización del día", () => {
+    renderSection({ plan: variable, installments: [makeInstallment()] });
+    openStatusDialog("Invoiced");
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(11.57);
+    expect(screen.getByTestId("invoice-rate-origin")).toHaveTextContent("workOrders.paymentPlan.rateOriginDate");
+
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmInvoicedAction"));
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceExchangeRate: 11.57, invoiceExchangeRateDate: "2026-11-03" }),
+    );
+  });
+
+  it("PTC11: en Variable, el TC traído de una fecha desde la fila se respeta al facturar", () => {
+    renderSection({
+      plan: variable,
+      installments: [makeInstallment({ invoice_exchange_rate: 6.9, invoice_exchange_rate_date: "2026-10-09" })],
+    });
+    openStatusDialog("Invoiced");
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(6.9);
+
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmInvoicedAction"));
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceExchangeRate: 6.9, invoiceExchangeRateDate: "2026-10-09" }),
+    );
+  });
+
+  it("PTC11b: sin fecha en la fila, Variable sigue proponiendo el TC del día (Q49)", () => {
+    renderSection({ plan: variable, installments: [makeInstallment({ invoice_exchange_rate: 6.9 })] });
+    openStatusDialog("Invoiced");
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(11.57);
+  });
+
+  it("PTC13: un TC tecleado, o el del plan en Fijo, se guarda sin fecha", () => {
+    const { unmount } = renderSection({ plan: variable, installments: [makeInstallment()] });
+    openStatusDialog("Invoiced");
+    fireEvent.change(screen.getByTestId("invoice-rate-input"), { target: { value: "7.3" } });
+    expect(screen.getByTestId("invoice-rate-origin")).toHaveTextContent("workOrders.paymentPlan.rateOriginManual");
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmInvoicedAction"));
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ invoiceExchangeRate: 7.3, invoiceExchangeRateDate: null }),
+    );
+    unmount();
+
+    renderSection({ installments: [makeInstallment()] });
+    openStatusDialog("Invoiced");
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmInvoicedAction"));
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ invoiceExchangeRate: 6.96, invoiceExchangeRateDate: null }),
+    );
+  });
+
+  it("PTC14: cobrar guarda la fecha de la cotización del TC de pago", async () => {
+    mockRpc.mockResolvedValueOnce(rateRow(6.9, "2026-10-09"));
+    const { unmount } = renderSection({ plan: variable, installments: [facturada()] });
+    openStatusDialog("Completed");
+    // Sin TC de pago en la cuota, propone el del día con su cotización.
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(11.57);
+    fireEvent.click(screen.getByTestId("invoice-rate-date"));
+    await waitFor(() => expect(screen.getByTestId("invoice-rate-input")).toHaveValue(6.9));
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmCompletedAction"));
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ newStatus: "Completed", paymentExchangeRate: 6.9, paymentExchangeRateDate: "2026-10-09" }),
+    );
+    unmount();
+
+    // Con un TC de pago ya capturado desde la fila, se respeta él y su fecha.
+    renderSection({
+      plan: variable,
+      installments: [facturada({ payment_exchange_rate: 11.9, payment_exchange_rate_date: "2026-10-30" })],
+    });
+    openStatusDialog("Completed");
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.confirmCompletedAction"));
+    expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ paymentExchangeRate: 11.9, paymentExchangeRateDate: "2026-10-30" }),
+    );
+  });
+
+  it("PTC15: el historial muestra el TC de facturar/cobrar y de qué cotización salió", () => {
+    const ev = (over: Record<string, unknown>) => ({
+      event_id: `ev-${Math.random()}`,
+      seq: 1,
+      installment_id: "i-h",
+      wo_id: "wo-1",
+      action: "status_change",
+      from_status: "Pending",
+      to_status: "Invoiced",
+      old_date: null,
+      new_date: null,
+      amount: null,
+      currency: null,
+      reason: null,
+      actor_staff_id: "s-1",
+      created_at: "2026-10-21T15:00:00Z",
+      actor: { first_name: "Ana", last_name: "Cobranzas" },
+      ...over,
+    });
+    events.list = [
+      ev({ exchange_rate: 11.73, exchange_rate_date: "2026-10-21" }),
+      ev({ from_status: "Invoiced", to_status: "Completed", exchange_rate: 11.9, exchange_rate_date: null }),
+      ev({ from_status: "Invoiced", to_status: "Overdue" }),
+    ];
+    renderSection({ installments: [facturada({ installment_id: "i-h" })] });
+    fireEvent.click(screen.getByText("workOrders.paymentPlan.historyCount"));
+
+    const lines = screen.getAllByText(/workOrders\.paymentPlan\.historyStatusChange/).map((el) => el.textContent);
+    expect(lines).toContain(
+      "workOrders.paymentPlan.historyStatusChange" +
+        "workOrders.paymentPlan.historyExchangeRate" +
+        "workOrders.paymentPlan.historyExchangeRateDate",
+    );
+    expect(lines).toContain(
+      "workOrders.paymentPlan.historyStatusChange" +
+        "workOrders.paymentPlan.historyExchangeRate" +
+        "workOrders.paymentPlan.historyExchangeRateManual",
+    );
+    expect(lines).toContain("workOrders.paymentPlan.historyStatusChange");
+  });
+
+  it("PER10: la celda muestra de qué cotización es el TC, también en Fijo", () => {
+    const { unmount } = renderSection({
+      plan: variable,
+      installments: [facturada({ installment_id: "i-v" })],
+    });
+    expect(screen.getByTestId("rate-origin-i-v:invoice")).toHaveTextContent("workOrders.paymentPlan.rateOriginDate");
+    expect(screen.queryByTestId("rate-origin-i-v:payment")).not.toBeInTheDocument();
+    unmount();
+
+    renderSection({
+      installments: [facturada({ installment_id: "i-f", payment_exchange_rate: 6.96, payment_exchange_rate_date: "2026-10-30" })],
+    });
+    expect(screen.getByTestId("rate-origin-i-f:payment")).toBeInTheDocument();
+  });
+
+  describe("aviso al corregir la Fecha Fact.", () => {
+    const changeInvoiceDate = (container: HTMLElement, from: string, to: string) => {
+      const input = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).find(
+        (el) => el.value === from,
+      )!;
+      fireEvent.change(input, { target: { value: to } });
+    };
+
+    it("PTC16: si la fecha nueva tiene otra cotización, avisa con los dos TC y no bloquea", async () => {
+      mockRpc.mockResolvedValueOnce(rateRow(11.68, "2026-10-15"));
+      const { container } = renderSection({ installments: [facturada()] });
+
+      changeInvoiceDate(container, "2026-10-21", "2026-10-15");
+
+      expect(await screen.findByTestId("collection-date-rate-warning")).toHaveTextContent(
+        "workOrders.paymentPlan.collectionDateRateMismatch",
+      );
+      expect(mockRpc).toHaveBeenCalledWith("exchange_rate_on_detail", { p_date: "2026-10-15" });
+      expect(screen.getByText("workOrders.paymentPlan.confirmCollectionDateAction")).toBeEnabled();
+    });
+
+    it("PTC17: si la cotización vigente es la misma que la del TC, no avisa", async () => {
+      // Domingo 26/10: su cotización vigente es la del 24/10, que es la que ya tiene el TC.
+      mockRpc.mockResolvedValueOnce(rateRow(11.88, "2026-10-24"));
+      const { container } = renderSection({ installments: [facturada({ invoice_exchange_rate_date: "2026-10-24" })] });
+
+      changeInvoiceDate(container, "2026-10-21", "2026-10-26");
+
+      await waitFor(() => expect(mockRpc).toHaveBeenCalled());
+      await act(async () => {});
+      expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
+    });
+
+    it("PTC18: sin consulta ni aviso para un TC escrito a mano o una cuota en Bs", async () => {
+      const r1 = renderSection({ installments: [facturada({ invoice_exchange_rate_date: null })] });
+      changeInvoiceDate(r1.container, "2026-10-21", "2026-10-15");
+      r1.unmount();
+
+      renderSection({ installments: [facturada({ currency: "BOB" })] });
+      changeInvoiceDate(document.body, "2026-10-21", "2026-10-15");
+
+      await act(async () => {});
+      expect(mockRpc).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
+    });
+
+    it("PTC19: sin cotización no avisa, y cancelar no deja el aviso para la próxima vez", async () => {
+      mockRpc.mockResolvedValueOnce(noRate);
+      const { container } = renderSection({ installments: [facturada()] });
+      changeInvoiceDate(container, "2026-10-21", "2026-09-01");
+      await waitFor(() => expect(mockRpc).toHaveBeenCalled());
+      await act(async () => {});
+      expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText("common.cancel"));
+
+      // Una consulta que vuelve después de cancelar tampoco lo muestra.
+      const late = deferred<ReturnType<typeof rateRow>>();
+      mockRpc.mockReturnValueOnce(late.promise);
+      changeInvoiceDate(container, "2026-10-21", "2026-10-15");
+      fireEvent.click(screen.getByText("common.cancel"));
+      await act(async () => { late.resolve(rateRow(11.68, "2026-10-15")); });
+      expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
+    });
   });
 });

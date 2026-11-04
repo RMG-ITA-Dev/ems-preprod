@@ -285,6 +285,7 @@ const WorkOrderEdit = () => {
             confirmed_at: i.confirmed_at,
             currency: i.currency,
             invoice_exchange_rate_date: i.invoice_exchange_rate_date,
+            payment_exchange_rate_date: i.payment_exchange_rate_date,
             installment_type: i.installment_type ?? "fee",
             net_amount: i.net_amount !== null && i.net_amount !== undefined ? Number(i.net_amount) : null,
           }));

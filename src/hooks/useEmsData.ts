@@ -216,6 +216,8 @@ export interface WOPaymentInstallment {
   // Fase 6: la cuota puede ir en otra moneda que la OT, y se registra de que fecha salio el TC.
   currency: 'BOB' | 'USD' | 'USDT' | null;
   invoice_exchange_rate_date: string | null;
+  // 1028-214: de qué cotización salió el TC de pago.
+  payment_exchange_rate_date: string | null;
   // Fase 7: 'fee' reparte honorarios; 'expense_reimbursement' es la fila con la que
   // Contabilidad le cobra al cliente los gastos ya ejecutados.
   installment_type: 'fee' | 'expense_reimbursement';

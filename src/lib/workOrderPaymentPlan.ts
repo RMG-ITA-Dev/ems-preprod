@@ -291,8 +291,21 @@ export function computeConvertedAmount(amount: number | null, rate: number | nul
 // guard, y el campo termina bloqueando su propio guardado. Comparar ignorando estos 2
 // campos evita ese autobloqueo, sin dejar de detectar cambios reales pendientes en el
 // resto de la fila (porcentaje, fechas via el batch, etc.).
-function withoutSelfSavingRateFields(inst: PaymentInstallmentInput): Omit<PaymentInstallmentInput, 'invoice_exchange_rate' | 'payment_exchange_rate'> {
-  const { invoice_exchange_rate, payment_exchange_rate, ...rest } = inst;
+// 1028-214: lo mismo con la fecha de la cotizacion de cada TC, que viaja en el mismo
+// guardado directo. Sin excluirlas, traer el TC de una fecha marcaba el plan como sucio.
+function withoutSelfSavingRateFields(
+  inst: PaymentInstallmentInput,
+): Omit<
+  PaymentInstallmentInput,
+  'invoice_exchange_rate' | 'payment_exchange_rate' | 'invoice_exchange_rate_date' | 'payment_exchange_rate_date'
+> {
+  const {
+    invoice_exchange_rate,
+    payment_exchange_rate,
+    invoice_exchange_rate_date,
+    payment_exchange_rate_date,
+    ...rest
+  } = inst;
   return rest;
 }
 

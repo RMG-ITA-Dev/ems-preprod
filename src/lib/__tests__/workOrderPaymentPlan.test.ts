@@ -687,6 +687,20 @@ describe("isPaymentPlanRestDirty (excluye invoice/payment_exchange_rate, que se 
     expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
   });
 
+  // 1028-214: traer el TC de una fecha cambia también la fecha de su cotización, que se guarda
+  // junto con el TC. Si contara, el propio selector bloquearía el guardado siguiente.
+  it("is false when only the rate's quote dates changed (saved with the rate itself)", () => {
+    const original = [baseInstallment({ status: "Invoiced" })];
+    const edited = [
+      baseInstallment({
+        status: "Invoiced",
+        invoice_exchange_rate_date: "2026-10-09",
+        payment_exchange_rate_date: null,
+      }),
+    ];
+    expect(isPaymentPlanRestDirty(edited, original, basePlan(), basePlan())).toBe(false);
+  });
+
   it("is true when percentage changed (a real pending change elsewhere in the row)", () => {
     const original = [baseInstallment({ percentage: 100 })];
     const edited = [baseInstallment({ percentage: 50 })];

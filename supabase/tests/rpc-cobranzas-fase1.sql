@@ -1284,6 +1284,59 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - en modo fijo el TC se corrige al facturar, y solo ahi';
 
+  -- 12.d2 (1028-214, Q49 "registrar el cambio en wo_installment_events"): la bitacora guarda
+  -- el TC con que se facturo y de que cotizacion salio.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4 AND action = 'status_change' AND to_status = 'Invoiced'
+       AND exchange_rate = 7.10 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no registro el TC de facturacion ni su cotizacion';
+  END IF;
+
+  -- La fecha de la cotizacion se congela con el TC: ni un admin la reescribe ya facturada.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-02' WHERE installment_id = v_i4;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se reescribio la cotizacion del TC de una cuota ya facturada';
+  END IF;
+
+  -- Al cobrar tambien queda la cotizacion del TC de pago, en la cuota y en la bitacora.
+  PERFORM pg_temp.impersonate(c_collections);
+  v_row := public.collect_installment(v_i4, 'Invoiced', v_today, 7.15, '2026-10-09');
+  IF v_row.payment_exchange_rate <> 7.15 OR v_row.payment_exchange_rate_date IS DISTINCT FROM '2026-10-09' THEN
+    RAISE EXCEPTION 'TEST FAIL - no se guardo el TC de pago con su cotizacion (quedo % del %)',
+      v_row.payment_exchange_rate, v_row.payment_exchange_rate_date;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4 AND action = 'status_change' AND to_status = 'Completed'
+       AND exchange_rate = 7.15 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no registro el TC de pago ni su cotizacion';
+  END IF;
+
+  -- Y ya cobrada, tampoco se reescribe.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate_date = NULL WHERE installment_id = v_i4;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se reescribio la cotizacion del TC de pago de una cuota cobrada';
+  END IF;
+  IF has_function_privilege('anon', 'public.collect_installment(uuid, text, date, numeric, date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL - anon no deberia poder ejecutar collect_installment';
+  END IF;
+  RAISE NOTICE 'PASS - la cotizacion de cada TC queda en la cuota y en la bitacora, y se congela con el';
+
   -- 12.e El resincronizado del plan sigue funcionando: corre con la OT en Draft y sin rol de
   -- cobranza, y los chequeos nuevos no lo pueden romper.
   PERFORM pg_temp.impersonate(c_manager);

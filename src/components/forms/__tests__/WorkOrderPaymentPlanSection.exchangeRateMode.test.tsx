@@ -548,10 +548,12 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
       fireEvent.change(input, { target: { value: "7.02" } });
       fireEvent.blur(input);
 
+      // 1028-214: un valor tecleado ya no sale de una cotización, así que su fecha se limpia.
       expect(mockUpdateExchangeRate).toHaveBeenCalledWith({
         installmentId: "inst-42",
         field: "invoice_exchange_rate",
         value: 7.02,
+        rateDate: null,
         woId: "wo-99",
       });
     });
@@ -577,6 +579,7 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
         installmentId: "inst-43",
         field: "payment_exchange_rate",
         value: 6.8,
+        rateDate: null,
         woId: "wo-99",
       });
     });
@@ -601,7 +604,7 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
       fireEvent.change(input, { target: { value: "7.02" } });
       fireEvent.blur(input);
       expect(mockUpdateExchangeRate).toHaveBeenLastCalledWith({
-        installmentId: "inst-42", field: "invoice_exchange_rate", value: 7.02, woId: "wo-99",
+        installmentId: "inst-42", field: "invoice_exchange_rate", value: 7.02, rateDate: null, woId: "wo-99",
       });
 
       // 2) External refresh (e.g. a query refetch after another tab saved a newer value)

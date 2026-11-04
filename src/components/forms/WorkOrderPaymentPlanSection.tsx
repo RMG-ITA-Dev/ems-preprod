@@ -229,10 +229,16 @@ export function WorkOrderPaymentPlanSection({
   // `invoiceRateDate` vacío significa "escrito a mano", y así se guarda.
   const [invoiceRate, setInvoiceRate] = useState<number | null>(null);
   const [invoiceRateDate, setInvoiceRateDate] = useState("");
+  // 1028-214: de qué cotización salió el TC del diálogo (su fecha_vigencia). Es lo que se
+  // guarda en la cuota; `invoiceRateDate` es solo la fecha que se eligió en el calendario.
+  // null = escrito a mano o TC del plan.
+  const [invoiceRateOriginDate, setInvoiceRateOriginDate] = useState<string | null>(null);
   const [scheduleReason, setScheduleReason] = useState("");
   const updateInstallmentExchangeRate = useUpdateInstallmentExchangeRate();
   const latestRate = useLatestExchangeRate();
   const latestBuyRate = latestRate.data?.compra ?? null;
+  // 1028-214: la cotización de la que sale el TC "del día" que se autocompleta.
+  const latestBuyRateDate = latestRate.data?.fecha_vigencia ?? null;
 
   // Cobranzas Fase 6: el TC de una fecha concreta, para el calendario del diálogo de facturar.
   // Va por RPC porque la regla —si esa fecha no tiene cotización, vale la última anterior— vive
@@ -290,6 +296,39 @@ export function WorkOrderPaymentPlanSection({
     installmentId: string;
     newDate: string;
   } | null>(null);
+  // 1028-214: Q48 dice "TC del día en que se factura", pero la Fecha Fact. se puede corregir
+  // en cualquier momento y el TC ya está congelado. Nadie decidió qué hacer con el TC en ese
+  // caso: el diálogo solo lo hace visible. No bloquea ni cambia el TC.
+  const [collectionDateRateWarning, setCollectionDateRateWarning] = useState<{
+    rate: number;
+    rateDate: string;
+    newDate: string;
+    newRate: number;
+    newRateDate: string;
+  } | null>(null);
+  const openCollectionDateDialog = async (inst: PaymentInstallmentInput, newDate: string) => {
+    if (!inst.installment_id) return;
+    setCollectionDateRateWarning(null);
+    setPendingCollectionDate({ installmentId: inst.installment_id, newDate });
+    // Solo vale para un TC ya congelado (cuota facturada) que salió de una cotización: uno
+    // escrito a mano o el del plan no tiene una fecha con la cual compararse.
+    const rate = inst.invoice_exchange_rate;
+    const rateDate = inst.invoice_exchange_rate_date;
+    if (inst.status === "Pending" || installmentCurrency(inst) === "BOB" || rate == null || !rateDate) {
+      clearRateNote("collectionDate");
+      return;
+    }
+    const result = await lookupRate("collectionDate", newDate);
+    // Se compara contra la cotización VIGENTE para la fecha nueva, no contra la fecha cruda:
+    // corregir a un domingo cuyo TC vigente es el del viernes ya usado no es un desfase.
+    if (result.status !== "ok" || result.sourceDate === rateDate) return;
+    setCollectionDateRateWarning({ rate, rateDate, newDate, newRate: result.rate, newRateDate: result.sourceDate });
+  };
+  const closeCollectionDateDialog = () => {
+    clearRateNote("collectionDate");
+    setCollectionDateRateWarning(null);
+    setPendingCollectionDate(null);
+  };
   // Iteración 18 #2: el TC de creación no persiste NULL sobre un valor ya real
   // (Iteración 17 #3), pero eso dejaba el campo re-mostrando el valor viejo de
   // inmediato al borrarlo -- la tecla siguiente se insertaba sobre ese valor en vez
@@ -363,11 +402,21 @@ export function WorkOrderPaymentPlanSection({
    */
   const describeEvent = (ev: InstallmentEvent): string => {
     switch (ev.action) {
-      case "status_change":
-        return t("workOrders.paymentPlan.historyStatusChange", {
+      case "status_change": {
+        const change = t("workOrders.paymentPlan.historyStatusChange", {
           from: ev.from_status ? t(`workOrders.paymentPlan.status${ev.from_status}`) : "—",
           to: ev.to_status ? t(`workOrders.paymentPlan.status${ev.to_status}`) : "—",
         });
+        // 1028-214 (Q49): el TC con que se facturó o se cobró, y de qué cotización salió.
+        if (ev.exchange_rate == null) return change;
+        return (
+          change +
+          t("workOrders.paymentPlan.historyExchangeRate", { rate: formatRate(Number(ev.exchange_rate)) }) +
+          (ev.exchange_rate_date
+            ? t("workOrders.paymentPlan.historyExchangeRateDate", { date: fmtDate(ev.exchange_rate_date) })
+            : t("workOrders.paymentPlan.historyExchangeRateManual"))
+        );
+      }
       case "rescheduled":
         return t("workOrders.paymentPlan.historyRescheduled", {
           from: fmtDate(ev.old_date),
@@ -429,6 +478,25 @@ export function WorkOrderPaymentPlanSection({
       maximumFractionDigits: 6,
     });
 
+  // 1028-214: el TC "del día" con su cotización, para los diálogos de facturar/cobrar. Sin
+  // cotización cae al TC del plan, que no sale de ninguna fecha.
+  const todayDialogRate = (): { rate: number | null; date: string | null } =>
+    latestBuyRate != null
+      ? { rate: latestBuyRate, date: latestBuyRateDate }
+      : { rate: currentPlan.exchange_rate, date: null };
+
+  // 1028-214: "Cotización del …" debajo del TC de una cuota. No se repite si ya está a la
+  // vista el aviso de que la cotización no es la del día elegido, que dice lo mismo.
+  const renderRateOrigin = (rateDate: string | null | undefined, noteKey: string) => {
+    if (!rateDate) return null;
+    const note = rateNotes[noteKey];
+    if (note && note.used !== note.requested) return null;
+    return (
+      <p className="text-[10px] text-muted-foreground" data-testid={`rate-origin-${noteKey}`}>
+        {t("workOrders.paymentPlan.rateOriginDate", { date: fmtDate(rateDate) })}
+      </p>
+    );
+  };
 
   const hasAlert = installments.some((inst) => isAlertDue(inst));
 
@@ -487,8 +555,8 @@ export function WorkOrderPaymentPlanSection({
   // perdería lo que se editó mientras tanto.
   const latestRateHandlersRef = useRef<{
     handleExchangeRateChange: (val: number) => void;
-    handleInvoiceRateChange?: (idx: number, val: number) => void;
-    handlePaymentRateChange?: (idx: number, val: number) => void;
+    handleInvoiceRateChange?: (idx: number, val: number, rateDate?: string | null) => void;
+    handlePaymentRateChange?: (idx: number, val: number, rateDate?: string | null) => void;
   }>({ handleExchangeRateChange });
   latestRateHandlersRef.current.handleExchangeRateChange = handleExchangeRateChange;
 
@@ -798,23 +866,28 @@ export function WorkOrderPaymentPlanSection({
   // 0722-156b: solo relevantes en modo Variable (en Fijo la celda es de solo lectura,
   // reflejando el TC de creacion) — el freeze real lo aplica el trigger de DB sobre
   // la columna status persistida, `disabled` aca es solo UX.
-  const handleInvoiceRateChange = (idx: number, val: number) => {
+  // 1028-214: `rateDate` es la cotización de la que salió el TC (null = tecleado a mano).
+  const handleInvoiceRateChange = (idx: number, val: number, rateDate: string | null = null) => {
     const inst = installments[idx];
     const normalized = val > 0 ? val : null;
     const key = inst.installment_id ?? String(idx);
     pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], invoice: normalized };
     onInstallmentsChange(
-      installments.map((i, idx2) => (idx2 === idx ? { ...i, invoice_exchange_rate: normalized } : i)),
+      installments.map((i, idx2) =>
+        idx2 === idx ? { ...i, invoice_exchange_rate: normalized, invoice_exchange_rate_date: rateDate } : i,
+      ),
     );
   };
 
-  const handlePaymentRateChange = (idx: number, val: number) => {
+  const handlePaymentRateChange = (idx: number, val: number, rateDate: string | null = null) => {
     const inst = installments[idx];
     const normalized = val > 0 ? val : null;
     const key = inst.installment_id ?? String(idx);
     pendingRateEditsRef.current[key] = { ...pendingRateEditsRef.current[key], payment: normalized };
     onInstallmentsChange(
-      installments.map((i, idx2) => (idx2 === idx ? { ...i, payment_exchange_rate: normalized } : i)),
+      installments.map((i, idx2) =>
+        idx2 === idx ? { ...i, payment_exchange_rate: normalized, payment_exchange_rate_date: rateDate } : i,
+      ),
     );
   };
   latestRateHandlersRef.current.handleInvoiceRateChange = handleInvoiceRateChange;
@@ -841,8 +914,8 @@ export function WorkOrderPaymentPlanSection({
       toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
       return;
     }
-    if (field === "invoice") latestRateHandlersRef.current.handleInvoiceRateChange?.(idx, result.rate);
-    else latestRateHandlersRef.current.handlePaymentRateChange?.(idx, result.rate);
+    if (field === "invoice") latestRateHandlersRef.current.handleInvoiceRateChange?.(idx, result.rate, result.sourceDate);
+    else latestRateHandlersRef.current.handlePaymentRateChange?.(idx, result.rate, result.sourceDate);
     setRateNote(key, date, result.sourceDate);
     if (inst.installment_id) {
       // Ya se persiste aquí: un blur posterior sin edición nueva no debe volver a mandarlo.
@@ -852,6 +925,7 @@ export function WorkOrderPaymentPlanSection({
         installmentId: inst.installment_id,
         field: field === "invoice" ? "invoice_exchange_rate" : "payment_exchange_rate",
         value: result.rate,
+        rateDate: result.sourceDate,
         woId,
       });
     }
@@ -877,8 +951,8 @@ export function WorkOrderPaymentPlanSection({
     inst: PaymentInstallmentInput,
     newStatus: PaymentInstallmentStatus,
     // Cobranzas Fase 6: el TC que la persona confirmó en el diálogo de facturar, y de qué
-    // fecha salió (null = lo escribió a mano).
-    rateOverride?: { invoiceRate: number | null; invoiceRateDate: string | null },
+    // cotización salió (1028-214; null = lo escribió a mano o es el TC del plan).
+    rateOverride?: { invoiceRate: number | null; rateOriginDate: string | null },
   ) => {
     const updates: Partial<PaymentInstallmentInput> = { status: newStatus };
     // El TC del diálogo sólo vale para una cuota que NO va en Bs: en una cuota en bolivianos no
@@ -901,6 +975,7 @@ export function WorkOrderPaymentPlanSection({
       // hubiera quedado en la columna y después ya no se podía corregir.
       if (rate != null) {
         updates.payment_exchange_rate = rate;
+        updates.payment_exchange_rate_date = rateOverride?.rateOriginDate ?? null;
       }
     }
     // Overdue (manual from Invoiced): keep existing collection dates, just change status
@@ -928,11 +1003,13 @@ export function WorkOrderPaymentPlanSection({
             ? rate ?? inst.invoice_exchange_rate
             : undefined,
         invoiceExchangeRateDate:
-          newStatus === "Invoiced" && rate != null ? rateOverride?.invoiceRateDate ?? null : undefined,
+          newStatus === "Invoiced" && rate != null ? rateOverride?.rateOriginDate ?? null : undefined,
         paymentExchangeRate:
           newStatus === "Completed"
             ? rate ?? inst.payment_exchange_rate
             : undefined,
+        paymentExchangeRateDate:
+          newStatus === "Completed" && rate != null ? rateOverride?.rateOriginDate ?? null : undefined,
       });
     }
   };
@@ -1209,6 +1286,9 @@ export function WorkOrderPaymentPlanSection({
                     : latestBuyRate ?? currentPlan.exchange_rate,
                 );
                 setInvoiceRateDate("");
+                setInvoiceRateOriginDate(
+                  (row.currency ?? "BOB") !== "BOB" && latestBuyRate != null ? latestBuyRateDate : null,
+                );
                 clearRateNote("dialog");
                 setPendingChange({ row, newStatus: s });
               } else {
@@ -1822,11 +1902,15 @@ export function WorkOrderPaymentPlanSection({
                                       // viejo del ref y lo repersistia, pisando el mas nuevo en
                                       // silencio. Se borra la entrada apenas se lee, para que un blur
                                       // posterior sin edicion caiga al valor fresco de inst.*.
+                                      // 1028-214: un valor tecleado ya no sale de una
+                                      // cotización; un blur sin edición no toca la fecha.
+                                      const typed = pending?.invoice !== undefined;
                                       if (pending) delete pending.invoice;
                                       updateInstallmentExchangeRate.mutate({
                                         installmentId: inst.installment_id,
                                         field: "invoice_exchange_rate",
                                         value,
+                                        ...(typed ? { rateDate: null } : {}),
                                         woId,
                                       });
                                     }
@@ -1848,6 +1932,7 @@ export function WorkOrderPaymentPlanSection({
                               </div>
                             )}
                             {renderRateNote(rowRateKey(inst, idx, "invoice"), "text-[10px] mt-0.5")}
+                            {renderRateOrigin(inst.invoice_exchange_rate_date, rowRateKey(inst, idx, "invoice"))}
                             {latestBuyRate != null && (
                               <p className="text-[10px] text-muted-foreground mt-0.5">
                                 {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
@@ -1887,11 +1972,15 @@ export function WorkOrderPaymentPlanSection({
                                       const value = pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate;
                                       // MUST FIX review iteracion 12 #3: ver el mismo fix en el onBlur
                                       // del TC de facturacion, arriba.
+                                      // 1028-214: un valor tecleado ya no sale de una
+                                      // cotización; un blur sin edición no toca la fecha.
+                                      const typed = pending?.payment !== undefined;
                                       if (pending) delete pending.payment;
                                       updateInstallmentExchangeRate.mutate({
                                         installmentId: inst.installment_id,
                                         field: "payment_exchange_rate",
                                         value,
+                                        ...(typed ? { rateDate: null } : {}),
                                         woId,
                                       });
                                     }
@@ -1912,6 +2001,7 @@ export function WorkOrderPaymentPlanSection({
                               </div>
                             )}
                             {renderRateNote(rowRateKey(inst, idx, "payment"), "text-[10px] mt-0.5")}
+                            {renderRateOrigin(inst.payment_exchange_rate_date, rowRateKey(inst, idx, "payment"))}
                             {latestBuyRate != null && (
                               <p className="text-[10px] text-muted-foreground mt-0.5">
                                 {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
@@ -1957,7 +2047,7 @@ export function WorkOrderPaymentPlanSection({
                                   toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
                                   return;
                                 }
-                                setPendingCollectionDate({ installmentId: inst.installment_id, newDate: e.target.value });
+                                openCollectionDateDialog(inst, e.target.value);
                               } else {
                                 handleCollectionInvoiceDateChange(idx, e.target.value);
                               }
@@ -1988,18 +2078,28 @@ export function WorkOrderPaymentPlanSection({
                                 if (s === "Invoiced") {
                                   // El modo decide el VALOR POR DEFECTO, no si se puede tocar:
                                   // fijo trae el TC del plan, variable el del día (Q49).
-                                  setInvoiceRate(
+                                  // 1028-214: salvo que en Variable alguien ya haya traído el TC
+                                  // de una fecha desde la fila: esa elección se respeta.
+                                  const prefill =
                                     currentPlan.exchange_rate_mode === "fijo"
-                                      ? currentPlan.exchange_rate
-                                      : latestBuyRate ?? currentPlan.exchange_rate,
-                                  );
+                                      ? { rate: currentPlan.exchange_rate, date: null }
+                                      : inst.invoice_exchange_rate != null && inst.invoice_exchange_rate_date
+                                        ? { rate: inst.invoice_exchange_rate, date: inst.invoice_exchange_rate_date }
+                                        : todayDialogRate();
+                                  setInvoiceRate(prefill.rate);
+                                  setInvoiceRateOriginDate(prefill.date);
                                   setInvoiceRateDate("");
                                 }
                                 if (s === "Completed") {
                                   // Al cobrar, el TC por defecto es el del día: es el día en
                                   // que el dinero entró. Lo que ya tenga la cuota se respeta
                                   // si alguien lo capturó antes desde la columna.
-                                  setInvoiceRate(inst.payment_exchange_rate ?? latestBuyRate ?? currentPlan.exchange_rate);
+                                  const prefill =
+                                    inst.payment_exchange_rate != null
+                                      ? { rate: inst.payment_exchange_rate, date: inst.payment_exchange_rate_date ?? null }
+                                      : todayDialogRate();
+                                  setInvoiceRate(prefill.rate);
+                                  setInvoiceRateOriginDate(prefill.date);
                                   setInvoiceRateDate("");
                                 }
                                 // El aviso de "otra fecha" era de la cuota anterior.
@@ -2330,6 +2430,7 @@ export function WorkOrderPaymentPlanSection({
                     setInvoiceRate(v);
                     // Tecleado a mano: deja de venir de una fecha.
                     setInvoiceRateDate("");
+                    setInvoiceRateOriginDate(null);
                     clearRateNote("dialog");
                   }}
                   decimals={6}
@@ -2356,12 +2457,21 @@ export function WorkOrderPaymentPlanSection({
                         return;
                       }
                       setInvoiceRate(result.rate);
+                      setInvoiceRateOriginDate(result.sourceDate);
                       setRateNote("dialog", d, result.sourceDate);
                     }}
                   />
                 </div>
               </div>
               {renderRateNote("dialog", "text-xs")}
+              {/* 1028-214: de qué cotización sale el TC que se va a guardar. */}
+              {invoiceRate != null && invoiceRate > 0 && (
+                <p className="text-xs text-muted-foreground" data-testid="invoice-rate-origin">
+                  {invoiceRateOriginDate
+                    ? t("workOrders.paymentPlan.rateOriginDate", { date: fmtDate(invoiceRateOriginDate) })
+                    : t("workOrders.paymentPlan.rateOriginManual")}
+                </p>
+              )}
             </div>
           )}
         <DialogFooter>
@@ -2374,7 +2484,7 @@ export function WorkOrderPaymentPlanSection({
               if (pendingChange) {
                 handleStatusChange(pendingChange.row, pendingChange.newStatus, {
                   invoiceRate,
-                  invoiceRateDate: invoiceRateDate || null,
+                  rateOriginDate: invoiceRateOriginDate,
                 });
                 setPendingChange(null);
               }
@@ -2389,7 +2499,7 @@ export function WorkOrderPaymentPlanSection({
     </Dialog>
 
     {/* Collection invoice date correction dialog (admin direct-save) */}
-    <Dialog open={!!pendingCollectionDate} onOpenChange={(open) => { if (!open) setPendingCollectionDate(null); }}>
+    <Dialog open={!!pendingCollectionDate} onOpenChange={(open) => { if (!open) closeCollectionDateDialog(); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("workOrders.paymentPlan.confirmCollectionDateTitle")}</DialogTitle>
@@ -2397,8 +2507,26 @@ export function WorkOrderPaymentPlanSection({
             {t("workOrders.paymentPlan.confirmCollectionDateDesc", { date: fmtDate(pendingCollectionDate?.newDate ?? null) })}
           </DialogDescription>
         </DialogHeader>
+        {/* 1028-214: si la fecha nueva tiene otra cotización que la del TC ya congelado. */}
+        {collectionDateRateWarning && (
+          <div
+            className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm text-warning"
+            data-testid="collection-date-rate-warning"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {t("workOrders.paymentPlan.collectionDateRateMismatch", {
+                rate: formatRate(collectionDateRateWarning.rate),
+                rateDate: fmtDate(collectionDateRateWarning.rateDate),
+                newDate: fmtDate(collectionDateRateWarning.newDate),
+                newRate: formatRate(collectionDateRateWarning.newRate),
+                newRateDate: fmtDate(collectionDateRateWarning.newRateDate),
+              })}
+            </span>
+          </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setPendingCollectionDate(null)}>
+          <Button variant="outline" onClick={closeCollectionDateDialog}>
             {t("common.cancel")}
           </Button>
           <Button
@@ -2410,7 +2538,7 @@ export function WorkOrderPaymentPlanSection({
                   paymentDays: currentPlan.payment_days,
                   woId,
                 });
-                setPendingCollectionDate(null);
+                closeCollectionDateDialog();
               }
             }}
           >

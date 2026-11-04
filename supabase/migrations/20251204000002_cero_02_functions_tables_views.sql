@@ -8613,8 +8613,14 @@ CREATE TABLE public.wo_payment_installments (
     net_amount numeric,
     currency text,
     -- De que fecha salio el TC de facturacion: el usuario puede escribirlo a mano o elegir una
-    -- fecha en el calendario y traer el TC de ese dia (decision Q49). NULL = se escribio a mano.
+    -- fecha en el calendario y traer el TC de ese dia (decision Q49).
+    -- 1028-214: es la fecha DE LA COTIZACION (exchange_rate_history.fecha_vigencia), no la que
+    -- se eligio en el calendario: un domingo trae el TC del viernes y guarda el viernes.
+    -- NULL = el TC no salio de una cotizacion (escrito a mano, o el TC del plan en modo fijo).
     invoice_exchange_rate_date date,
+    -- 1028-214: lo mismo para el TC de PAGO. Antes el dialogo de cobro dejaba elegir la fecha
+    -- pero la descartaba: la trazabilidad que pidio Q49 quedaba solo para la facturacion.
+    payment_exchange_rate_date date,
     confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
     confirmed_for_date date,
     confirmed_by uuid,
@@ -8809,6 +8815,11 @@ CREATE TABLE public.wo_installment_events (
     reason text,
     actor_staff_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    -- 1028-214 (decision Q49: "registrar el cambio en wo_installment_events"): el TC con el
+    -- que se facturo o se cobro, y de que cotizacion salio (NULL = a mano o TC del plan).
+    -- Solo en los status_change a Facturado y a Completado.
+    exchange_rate numeric,
+    exchange_rate_date date,
     CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
 );
 
@@ -8907,7 +8918,8 @@ CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status THEN
     INSERT INTO public.wo_installment_events (
-      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id,
+      exchange_rate, exchange_rate_date
     ) VALUES (
       NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
       -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
@@ -8916,7 +8928,18 @@ BEGIN
         WHEN 'Completed' THEN NEW.payment_date_actual
         ELSE NULL
       END,
-      NEW.amount, public.get_my_staff_id()
+      NEW.amount, public.get_my_staff_id(),
+      -- 1028-214: el TC que queda congelado en esa transicion, y su cotizacion.
+      CASE NEW.status
+        WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
+        WHEN 'Completed' THEN NEW.payment_exchange_rate
+        ELSE NULL
+      END,
+      CASE NEW.status
+        WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
+        WHEN 'Completed' THEN NEW.payment_exchange_rate_date
+        ELSE NULL
+      END
     );
   END IF;
 
@@ -9086,7 +9109,7 @@ $$;
 -- #352 pide que registrar el cobro no dependa de la condicion de calendario.
 -- p_payment_date es la fecha REAL del pago; igual que al facturar, hoy la UI manda hoy
 -- (Q13) y el parametro queda listo por si piden elegirla.
-CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL, p_payment_exchange_rate numeric DEFAULT NULL) RETURNS public.wo_payment_installments
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL, p_payment_exchange_rate numeric DEFAULT NULL, p_payment_exchange_rate_date date DEFAULT NULL) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9121,7 +9144,12 @@ BEGIN
   UPDATE public.wo_payment_installments
      SET status = 'Completed',
          payment_date_actual = v_payment_date,
-         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate),
+         -- 1028-214: la fecha de la cotizacion del TC que se confirmo al cobrar (NULL = a mano).
+         -- Si no vino TC, se conserva lo que ya tenia la cuota, igual que el TC.
+         payment_exchange_rate_date = CASE WHEN p_payment_exchange_rate IS NOT NULL
+                                           THEN p_payment_exchange_rate_date
+                                           ELSE payment_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 

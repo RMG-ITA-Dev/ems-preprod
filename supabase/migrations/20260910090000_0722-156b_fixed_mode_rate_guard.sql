@@ -335,6 +335,19 @@ BEGIN
     WHERE p.plan_id = NEW.plan_id;
   END IF;
 
+  -- 1028-214: de que cotizacion salio cada TC. Se congela en la misma ventana que el TC al
+  -- que acompana -- si no, la trazabilidad que pidio Q49 se podria reescribir despues de
+  -- facturar o de cobrar. No lleva chequeo de rol: no cambia montos, y quien puede escribir
+  -- el TC es quien la escribe.
+  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+     AND OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de facturacion de esta cuota ya esta congelada';
+  END IF;
+  IF NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+     AND OLD.status = 'Completed' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de pago de esta cuota ya esta congelada';
+  END IF;
+
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
     IF OLD.status <> 'Pending' THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: el tipo de cambio de facturacion de esta cuota ya esta congelado';
