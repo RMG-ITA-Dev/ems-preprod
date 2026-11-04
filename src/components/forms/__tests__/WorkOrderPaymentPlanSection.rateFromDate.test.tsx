@@ -1018,3 +1018,46 @@ describe("1028-214 — el estado de la fila espera su consulta de TC (review 2)"
     expect(selects[1]).toBeEnabled();
   });
 });
+
+// Tercera review de Codex: el formulario necesita saber que el TC del encabezado está en camino.
+describe("1028-214 — la sección avisa la consulta del TC del encabezado (review 3)", () => {
+  it("PEH6: avisa al empezar y al terminar la consulta, también si no hay cotización", async () => {
+    const onPlanRateLookupChange = vi.fn();
+    const slow = deferred<typeof noRate>();
+    mockRpc.mockReturnValueOnce(slow.promise);
+    renderSection({ onPlanRateLookupChange });
+    onPlanRateLookupChange.mockClear();
+
+    fireEvent.click(screen.getByTestId("payment-plan-exchange-rate-date"));
+    expect(onPlanRateLookupChange).toHaveBeenLastCalledWith(true);
+
+    await act(async () => { slow.resolve(noRate); });
+    expect(onPlanRateLookupChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("PEH7: teclear el TC durante la consulta también libera el aviso", () => {
+    const onPlanRateLookupChange = vi.fn();
+    mockRpc.mockReturnValueOnce(deferred<typeof noRate>().promise);
+    renderSection({ onPlanRateLookupChange });
+
+    fireEvent.click(screen.getByTestId("payment-plan-exchange-rate-date"));
+    expect(onPlanRateLookupChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.change(screen.getByTestId("payment-plan-exchange-rate"), { target: { value: "7" } });
+    expect(onPlanRateLookupChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("PEH8: las consultas de una fila no bloquean el guardado del plan", () => {
+    const onPlanRateLookupChange = vi.fn();
+    mockRpc.mockReturnValueOnce(deferred<typeof noRate>().promise);
+    renderSection({
+      onPlanRateLookupChange,
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [makeInstallment({ status: "Pending" })],
+    });
+
+    fireEvent.click(screen.getByTestId("installment-invoice-rate-date"));
+
+    expect(onPlanRateLookupChange).not.toHaveBeenCalledWith(true);
+  });
+});

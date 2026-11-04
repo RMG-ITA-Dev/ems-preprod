@@ -1382,6 +1382,26 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - la cotizacion de un TC solo la registra Contabilidad o un admin, con la OT aprobada';
 
+  -- 12.g (1028-214, review de Codex) Facturar sin mandar TC conserva el TC de la cuota Y su
+  -- fecha de cotizacion: borrarla registraba ese mismo TC como "a mano".
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo4;
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  v_row := public.invoice_installment(v_i4b, 'Pending', v_today + 40, v_today, NULL, NULL);
+  IF v_row.invoice_exchange_rate <> 6.75 OR v_row.invoice_exchange_rate_date IS DISTINCT FROM '2026-10-09' THEN
+    RAISE EXCEPTION 'TEST FAIL - facturar sin TC no conservo el TC y su cotizacion (quedo % del %)',
+      v_row.invoice_exchange_rate, v_row.invoice_exchange_rate_date;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4b AND action = 'status_change' AND to_status = 'Invoiced'
+       AND exchange_rate = 6.75 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora registro como a mano un TC que salio de una cotizacion';
+  END IF;
+  RAISE NOTICE 'PASS - facturar sin TC conserva el TC y su cotizacion';
+
   -- ══════════════════════════════════════════════════════════════════
   -- 13. Fase 7: los gastos ejecutados se le facturan al cliente (Q37-Q41)
   -- ══════════════════════════════════════════════════════════════════

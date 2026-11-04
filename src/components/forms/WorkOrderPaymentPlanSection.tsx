@@ -94,6 +94,12 @@ interface WorkOrderPaymentPlanSectionProps {
   // (20260908150000_0722-156b_plan_insert_guard.sql).
   canEditPaymentPlan: boolean;
   /**
+   * 1028-214 (review de Codex): avisa mientras se trae el TC del encabezado desde una fecha.
+   * El formulario deshabilita Guardar y Enviar a aprobación: guardar en ese momento persistía
+   * el TC anterior, y enviar a aprobación bloqueaba el plan antes de que llegara el elegido.
+   */
+  onPlanRateLookupChange?: (pending: boolean) => void;
+  /**
    * Cobranzas Fase 2 (decisión del operador Q19): Contabilidad SÍ puede abrir una OT que
    * todavía no está aprobada, pero no puede cobrar sobre ella. En vez de dejar los
    * controles apagados sin explicación, se avisa por qué. El bloqueo real lo aplica el
@@ -185,6 +191,7 @@ export function WorkOrderPaymentPlanSection({
   isStatusEditable,
   isAdminDateEditable,
   canEditPaymentPlan,
+  onPlanRateLookupChange,
   collectionsApprovalStatus = null,
   canWriteNotes = false,
   expenseRows = [],
@@ -256,6 +263,10 @@ export function WorkOrderPaymentPlanSection({
   const [rateLookupPending, setRateLookupPending] = useState<Record<string, boolean>>({});
   const setLookupPending = (key: string, pending: boolean) =>
     setRateLookupPending((prev) => (!!prev[key] === pending ? prev : { ...prev, [key]: pending }));
+  const planRateLookupPending = !!rateLookupPending.plan;
+  useEffect(() => {
+    onPlanRateLookupChange?.(planRateLookupPending);
+  }, [planRateLookupPending, onPlanRateLookupChange]);
   const lookupRate = async (key: string, date: string): Promise<RateLookup> => {
     const seq = (rateLookupSeqRef.current[key] ?? 0) + 1;
     rateLookupSeqRef.current[key] = seq;

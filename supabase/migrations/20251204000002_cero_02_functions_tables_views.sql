@@ -9086,12 +9086,17 @@ BEGIN
   -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
   -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
   -- de uno tecleado.
+  -- 1028-214 (review de Codex): la fecha acompana al TC. Si no vino TC, se conserva el que ya
+  -- tenia la cuota (COALESCE) y tambien su fecha: borrarla dejaba ese mismo TC registrado como
+  -- "a mano". Misma regla que collect_installment.
   UPDATE public.wo_payment_installments
      SET status = 'Invoiced',
          collection_invoice_date = v_invoice_date,
          collection_payment_date = p_payment_due_date,
          invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
-         invoice_exchange_rate_date = p_invoice_exchange_rate_date
+         invoice_exchange_rate_date = CASE WHEN p_invoice_exchange_rate IS NOT NULL
+                                           THEN p_invoice_exchange_rate_date
+                                           ELSE invoice_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
