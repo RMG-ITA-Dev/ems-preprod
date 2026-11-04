@@ -337,8 +337,7 @@ BEGIN
 
   -- 1028-214: de que cotizacion salio cada TC. Se congela en la misma ventana que el TC al
   -- que acompana -- si no, la trazabilidad que pidio Q49 se podria reescribir despues de
-  -- facturar o de cobrar. No lleva chequeo de rol: no cambia montos, y quien puede escribir
-  -- el TC es quien la escribe.
+  -- facturar o de cobrar. Quien puede escribirla se controla en el bloque siguiente.
   IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
      AND OLD.status <> 'Pending' THEN
     RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de facturacion de esta cuota ya esta congelada';
