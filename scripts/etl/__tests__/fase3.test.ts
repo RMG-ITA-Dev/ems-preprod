@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertTarget, createContext, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertInputsUnchangedSinceProgress, assertTarget, createContext, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
 // Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
@@ -40,6 +40,22 @@ describe("ETL fase 3: consola y guardas", () => {
     const local = createContext({ config: parseConfig(config), stateDir, db: {} }); writeFileSync(local.journalFile, JSON.stringify(local.journal));
     const test = parseConfig({ ...config, environment: "test", expectedProjectRef: TEST_REF, supabaseUrl: `https://${TEST_REF}.supabase.co` });
     expect(() => createContext({ config: test, stateDir, db: {} })).toThrow(/otra instalación o proyecto/);
+  });
+  it("no reanuda un journal de la misma instalación creado con otra configuración", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "etl-f3-"));
+    const first = createContext({ config: parseConfig(config), stateDir, db: {} }); writeFileSync(first.journalFile, JSON.stringify(first.journal));
+    expect(() => createContext({ config: parseConfig(config), stateDir, db: {} })).not.toThrow();
+    const other = parseConfig({ ...config, technicalAdminId: "11111111-1111-4111-8111-111111111111" });
+    expect(other.configHash).not.toBe(first.config.configHash);
+    expect(() => createContext({ config: other, stateDir, db: {} })).toThrow(/otra configuración/);
+  });
+  it("los CSV no pueden cambiar una vez que hay unidades o bloques escritos, pero sí antes", () => {
+    const before = { a: "1" }; const after = { a: "2" };
+    expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: {}, blocks: {} }, after)).not.toThrow();
+    expect(() => assertInputsUnchangedSinceProgress({ units: { "client-engagements": {} }, blocks: {} }, after)).not.toThrow(); // sin huella previa
+    expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: { "client-engagements": { state: "CONFIRMADA" } }, blocks: {} }, before)).not.toThrow();
+    expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: { "client-engagements": { state: "CONFIRMADA" } }, blocks: {} }, after)).toThrow(/cambió la huella/);
+    expect(() => assertInputsUnchangedSinceProgress({ inputs: before, units: {}, blocks: { hours: { acceptedAt: "x" } } }, after)).toThrow(/cambió la huella/);
   });
   it("no permite aceptar un bloque sin unidad confirmada", () => {
     const ctx = createContext({ config: parseConfig(config), stateDir: mkdtempSync(path.join(os.tmpdir(), "etl-f3-")), db: {} });

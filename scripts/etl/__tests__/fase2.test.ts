@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRoleAssignment } from "../fase2-input.mjs";
-import { parseConfig, probeAccess, reservedClientMatches } from "../fase2.mjs";
+import { writeJournal } from "../fase1.mjs";
+import { createContext, journalPathFor, parseConfig, probeAccess, report, reservedClientMatches } from "../fase2.mjs";
 
 const header = (name: keyof typeof HEADERS) => HEADERS[name].join(",");
 const client = (ref: string, parent = "", relation = "") => `${ref},Cliente ${ref},,001,entidad,${parent},${relation},nacional,nit_propio,Industria,Dirección,true,`;
@@ -74,6 +75,23 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => parseConfig(base)).toThrow(/desconocida|credenciales/);
     delete base.apiKey;
     expect(() => parseConfig(base)).toThrow(/alterar expectations/);
+  });
+
+  it("no reanuda un journal de la misma instalación creado con otra configuración", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "etl-f2-"));
+    const raw = (clients: string): any => ({
+      schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f2-ensayo-local-0001",
+      bootstrapAdminEmail: "admin@ruizmier.com", snapshot: "TimeControlDB_20261023_1200",
+      inputs: Object.fromEntries(["clients", "contacts", "staff", "users", "rates", "services"].map((name) => [name, path.resolve(path.sep, "tmp", name === "clients" ? clients : "x.csv")])),
+    });
+    const config = parseConfig(raw("a.csv")); const other = parseConfig(raw("b.csv"));
+    expect(other.configHash).not.toBe(config.configHash);
+    writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, configHash: config.configHash, state: "VALIDADO", inputs: {} });
+    expect(() => report(createContext({ config, stateDir, db: {} } as any))).not.toThrow(/configHash/);
+    expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).toThrow(/otra configuración/);
+    // Un journal anterior a este campo no lo trae y se acepta.
+    writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, state: "VALIDADO", inputs: {} });
+    expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
   });
 
   it("reconcilia una unidad cliente reservada sólo cuando coincide exactamente", () => {

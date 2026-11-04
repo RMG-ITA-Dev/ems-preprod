@@ -42,14 +42,18 @@ export function resolveStateDir(env, repoRoot = REPO_ROOT) {
 }
 export const journalPathFor = (dir, id) => path.join(dir, `fase2-${id}.journal.json`);
 function checkpoint(ctx, patch) { ctx.journal = writeJournal(ctx.journalFile, { ...ctx.journal, ...patch }); return ctx.journal; }
-function journalFor(ctx, inputs) { return { version: 1, installationId: ctx.config.installationId, environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, codeRevision: process.env.GITHUB_SHA ?? "local", state: "PENDIENTE", inputs: inputs.fingerprints, clients: {}, staff: {}, probes: {}, createdAt: new Date().toISOString() }; }
+function journalFor(ctx, inputs) { return { version: 1, installationId: ctx.config.installationId, environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, configHash: ctx.config.configHash, codeRevision: process.env.GITHUB_SHA ?? "local", state: "PENDIENTE", inputs: inputs.fingerprints, clients: {}, staff: {}, probes: {}, createdAt: new Date().toISOString() }; }
 export function createContext({ config, env = process.env, stateDir, db, auth, log } = {}) {
   const base = createFase1Context({ config, env, stateDir, db: db ?? createFase2DbAdapter({ env }), auth, log });
   return { ...base, journalFile: stateDir ? journalPathFor(stateDir, config.installationId) : null, input: null };
 }
 function authFor(ctx) { if (ctx.auth) return ctx.auth; const { SUPABASE_SERVICE_ROLE_KEY: serviceKey, SUPABASE_ANON_KEY: anonKey } = ctx.env; if (!serviceKey || !anonKey) throw new Fase1Error("CONFIG", "faltan SUPABASE_SERVICE_ROLE_KEY y SUPABASE_ANON_KEY"); ctx.auth = createAuthAdapter({ url: ctx.config.supabaseUrl, serviceKey, anonKey }); return ctx.auth; }
 function requireWindow(ctx) { if (!ctx.env.ETL_F2_WINDOW_CONFIRMED) throw new Fase1Error("CONFIG", "falta ETL_F2_WINDOW_CONFIRMED (ventana exclusiva)"); }
-function ensureJournal(ctx) { const existing = readJournal(ctx.journalFile, { states: STATES }); if (existing && (existing.installationId !== ctx.config.installationId || existing.projectRef !== ctx.config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal de otra instalación o proyecto"); return existing; }
+function ensureJournal(ctx) { const existing = readJournal(ctx.journalFile, { states: STATES }); if (existing && (existing.installationId !== ctx.config.installationId || existing.projectRef !== ctx.config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal de otra instalación o proyecto");
+  // Misma instalación con otra configuración: reanudar mezclaría fichas ya cargadas con una configuración que no las produjo.
+  // Un journal anterior a este campo no lo trae y se acepta; los nuevos siempre lo guardan.
+  if (existing && existing.configHash !== undefined && existing.configHash !== ctx.config.configHash) throw new Fase1Error("BLOQUEADO", "el journal F2 se creó con otra configuración (configHash): use un installationId nuevo");
+  return existing; }
 
 export async function cmdValidate(ctx) {
   const input = loadInputs(ctx.config.inputs, { expected: ctx.config.expectations, enforceExpected: true });

@@ -238,6 +238,9 @@ export function createContext({ config, env = process.env, stateDir, db } = {}) 
   const journalFile = journalPathFor(stateDir, config.installationId); const existing = existsSync(journalFile) ? readJson(journalFile) : null;
   // Un journal pertenece a un único proyecto: reutilizarlo contra otro ref sería promover estado ajeno.
   if (existing && (existing.installationId !== config.installationId || existing.projectRef !== config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal F3 de otra instalación o proyecto");
+  // Misma instalación pero otra configuración (rutas de CSV, administrador técnico, F2, equivalencias…): reanudar mezclaría
+  // unidades confirmadas con una configuración que no las produjo. Una instalación nueva exige un installationId nuevo.
+  if (existing && existing.configHash !== config.configHash) throw new Fase1Error("BLOQUEADO", "el journal F3 se creó con otra configuración (configHash): use un installationId nuevo");
   return { config, env, stateDir, journalFile, journal: existing ?? initialJournal(config), db: db ?? createFase3DbAdapter({ env }) };
 }
 // Guarda de entorno para toda orden que toque la base: conexión coherente con el ref y, fuera de local, ventana exclusiva confirmada.
@@ -249,9 +252,17 @@ const checkpoint = (ctx, patch) => { ctx.journal = { ...ctx.journal, ...patch, u
 const requireState = (ctx, state) => { if (STATES.indexOf(ctx.journal.state) > STATES.indexOf(state)) return; checkpoint(ctx, { state }); };
 const inputsFor = (config) => Object.fromEntries(INPUT_NAMES.map((name) => [name, readInput(config.inputs[name], name)]));
 
+// Con progreso (unidades o bloques ya escritos) los CSV no pueden cambiar: las unidades confirmadas y sus UUID salieron de
+// los insumos anteriores. Antes de cargar nada sí se puede corregir un CSV y revalidar.
+export function assertInputsUnchangedSinceProgress(journal, fingerprints) {
+  const progressed = Object.keys(journal.units ?? {}).length > 0 || Object.keys(journal.blocks ?? {}).length > 0;
+  if (progressed && journal.inputs && stable(journal.inputs) !== stable(fingerprints)) throw new Fase1Error("BLOQUEADO", "cambió la huella de los CSV de F3 desde que empezó la carga: use un installationId nuevo");
+}
+
 export async function validate(ctx) {
   const inputs = validateInputs(inputsFor(ctx.config), { enforceExpected: true }); const matrix = buildMatrixArtifacts({ engagements: inputs.clientEngagements, planRows: inputs.planHours }); const executions = consolidateExecutions(inputs.executions.filter(isMigrableExecution));
   const evidence = { R1: { inputs: inputs.fingerprints, clients: inputs.clientEngagements.length, administrative: inputs.administrativeEngagements.length, matrixHours: matrix.cellTotal, executedCells: executions.length }, R3: { zeroPlanHours: matrix.dispositions.filter((row) => row.disposition === "omitida_cero").length, zeroExpenses: inputs.expenses.filter((row) => row.disposition === "omitida_cero").length, excludedExecutions: inputs.executions.filter((row) => !isMigrableExecution(row)).length }, R4: { matrixSourceTotal: matrix.sourceTotal, noteCount: inputs.payments.filter((row) => ["nota_plan_confirmada", "plan_note"].includes(row.proposed_disposition)).length } };
+  assertInputsUnchangedSinceProgress(ctx.journal, inputs.fingerprints);
   requireState(ctx, "VALIDADO"); checkpoint(ctx, { inputs: inputs.fingerprints, evidence }); ctx.inputs = inputs; return { ok: true, inputs, matrix, executions, evidence };
 }
 export async function preflight(ctx) { const result = await validate(ctx); const target = await ctx.db.preflight(ctx.config); if (!target.engagement_rpc || !target.sync_rpc || !target.note_rpc) throw new Fase1Error("BLOQUEADO", "contrato RPC F3 incompleto"); if (target.technical_admin_ok !== true) throw new Fase1Error("BLOQUEADO", "technicalAdminId no es el administrador bootstrap (ficha enlazada con rol admin/admin)"); const inventory = await ctx.db.inventory(); requireState(ctx, "PREFLIGHT_VALIDADO"); checkpoint(ctx, { inventory }); return { ...result, target, inventory }; }
