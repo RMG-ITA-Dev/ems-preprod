@@ -1956,7 +1956,7 @@
       "rateOriginManual": "Entered manually or plan rate",
       "historyExchangeRate": " · Rate {{rate}}",
       "historyExchangeRateDate": " (rate from {{date}})",
-      "historyExchangeRateManual": " (manual)",
+      "historyExchangeRateManual": " (manual or plan rate)",
       "collectionDateRateMismatch": "The invoice rate ({{rate}}) comes from the {{rateDate}} quote. For {{newDate}} the quote is {{newRate}} (from {{newRateDate}}). The rate is already frozen and will not change.",
       "totalsByCurrency": "Totals by currency",
       "contactsTitle": "Client contacts",

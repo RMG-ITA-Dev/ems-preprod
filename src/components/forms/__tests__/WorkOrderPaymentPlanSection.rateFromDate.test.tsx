@@ -97,13 +97,20 @@ vi.mock("@/components/ui/select", () => ({
   Select: ({
     children,
     value,
+    disabled,
     onValueChange,
   }: {
     children?: React.ReactNode;
     value?: string;
+    disabled?: boolean;
     onValueChange?: (v: string) => void;
   }) => (
-    <select data-testid="select" value={value ?? ""} onChange={(e) => onValueChange?.(e.target.value)}>
+    <select
+      data-testid="select"
+      value={value ?? ""}
+      disabled={disabled}
+      onChange={(e) => onValueChange?.(e.target.value)}
+    >
       {children}
     </select>
   ),
@@ -956,5 +963,58 @@ describe("1028-214 — confirmar espera a la consulta del TC (review)", () => {
     fireEvent.change(input, { target: { value: "2026-10-15" } });
 
     expect(screen.getByTestId("confirm-collection-date")).toBeEnabled();
+  });
+});
+
+// Segunda review de Codex: la consulta de la FILA también tiene que terminar antes de facturar o
+// cobrar esa cuota. Si no, el diálogo se prellena con el TC anterior y lo congela.
+describe("1028-214 — el estado de la fila espera su consulta de TC (review 2)", () => {
+  const statusSelect = () =>
+    screen
+      .getAllByTestId("select")
+      .find((el) => Array.from((el as HTMLSelectElement).options).some((o) => o.value === "Invoiced"))!;
+
+  it("PTC22: con la consulta de la fila en curso no se cambia el estado; al volver, el diálogo trae el TC nuevo", async () => {
+    const slow = deferred<ReturnType<typeof rateRow>>();
+    mockRpc.mockReturnValueOnce(slow.promise);
+    renderStateful({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [makeInstallment({ installment_id: "inst-r", status: "Pending" })],
+    });
+
+    fireEvent.click(screen.getByTestId("installment-invoice-rate-date"));
+
+    expect(statusSelect()).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => { slow.resolve(rateRow(6.9, "2026-10-09")); });
+
+    expect(statusSelect()).toBeEnabled();
+    fireEvent.change(statusSelect(), { target: { value: "Invoiced" } });
+    // La fila ya tiene el TC de la fecha y su cotización: el diálogo lo propone.
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(6.9);
+    fireEvent.click(screen.getByTestId("confirm-status-change"));
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceExchangeRate: 6.9, invoiceExchangeRateDate: "2026-10-09" }),
+    );
+  });
+
+  it("PTC22b: una consulta en otra fila no bloquea el estado de esta", () => {
+    mockRpc.mockReturnValueOnce(deferred<ReturnType<typeof rateRow>>().promise);
+    renderStateful({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [
+        makeInstallment({ installment_id: "inst-s1", installment_number: 1, percentage: 50, status: "Pending" }),
+        makeInstallment({ installment_id: "inst-s2", installment_number: 2, percentage: 50, status: "Pending" }),
+      ],
+    });
+
+    fireEvent.click(screen.getAllByTestId("installment-invoice-rate-date")[0]);
+
+    const selects = screen
+      .getAllByTestId("select")
+      .filter((el) => Array.from((el as HTMLSelectElement).options).some((o) => o.value === "Invoiced"));
+    expect(selects[0]).toBeDisabled();
+    expect(selects[1]).toBeEnabled();
   });
 });

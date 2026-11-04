@@ -1956,7 +1956,7 @@
       "rateOriginManual": "Ingresado a mano o TC del plan",
       "historyExchangeRate": " · TC {{rate}}",
       "historyExchangeRateDate": " (cotización del {{date}})",
-      "historyExchangeRateManual": " (a mano)",
+      "historyExchangeRateManual": " (a mano o TC del plan)",
       "collectionDateRateMismatch": "El TC de facturación ({{rate}}) es de la cotización del {{rateDate}}. Para el {{newDate}} la cotización es {{newRate}} (del {{newRateDate}}). El TC ya está congelado y no cambia.",
       "totalsByCurrency": "Totales por moneda",
       "contactsTitle": "Contactos del cliente",

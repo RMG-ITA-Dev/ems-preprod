@@ -906,6 +906,9 @@ export function WorkOrderPaymentPlanSection({
   // 1028-214: clave del aviso y del turno de consulta de una celda de TC.
   const rowRateKey = (inst: PaymentInstallmentInput, idx: number, field: "invoice" | "payment") =>
     `${inst.installment_id ?? String(idx)}:${field}`;
+  // ¿Esta fila está trayendo el TC de una fecha (de facturación o de pago)?
+  const rowRateLookupBusy = (inst: PaymentInstallmentInput, idx: number) =>
+    !!rateLookupPending[rowRateKey(inst, idx, "invoice")] || !!rateLookupPending[rowRateKey(inst, idx, "payment")];
 
   // 1028-214: el TC de una cuota desde una fecha (modo Variable). Se guarda en el acto, igual
   // que el onBlur de la celda: con la OT aprobada no hay botón Guardar de página.
@@ -2081,8 +2084,14 @@ export function WorkOrderPaymentPlanSection({
                         {isStatusEditable && availableOptions.length > 0 ? (
                           <Select
                             value={stage}
+                            // Review de Codex (1028-214): con una consulta de TC de esta fila en
+                            // curso, el diálogo se prellenaría con el TC anterior y facturar o cobrar
+                            // lo congelaría, perdiendo el de la fecha recién elegida. Se espera a que
+                            // la consulta vuelva.
+                            disabled={rowRateLookupBusy(inst, idx)}
                             onValueChange={(val) => {
                               const s = val as PaymentInstallmentStatus;
+                              if (rowRateLookupBusy(inst, idx)) return;
                               if (isPaymentPlanDirty && inst.installment_id) {
                                 toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
                                 return;
