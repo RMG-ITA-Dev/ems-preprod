@@ -914,6 +914,25 @@ export function WorkOrderPaymentPlanSection({
   latestRateHandlersRef.current.handleInvoiceRateChange = handleInvoiceRateChange;
   latestRateHandlersRef.current.handlePaymentRateChange = handlePaymentRateChange;
 
+  // Review de Codex (1028-214): el guardado de una celda de TC sale sin esperarlo, y la celda
+  // se habilita apenas vuelve la consulta, no el guardado. Dos guardados seguidos de la misma
+  // celda (otra fecha, o teclear y salir) podían llegar en desorden y dejar escrito el anterior.
+  // Se encolan por celda: el último que se pide es el último que se escribe. El primero sale en
+  // el acto; solo espera el que llega con otro todavía en vuelo.
+  type RowRateSave = Parameters<typeof updateInstallmentExchangeRate.mutateAsync>[0];
+  const rowRateSaveChainRef = useRef<Record<string, Promise<void>>>({});
+  const saveRowRate = (vars: RowRateSave) => {
+    const key = `${vars.installmentId}:${vars.field}`;
+    // Un error ya lo informa el onError de la mutación; la cola sigue con el siguiente.
+    const run = () => updateInstallmentExchangeRate.mutateAsync(vars).then(() => undefined, () => undefined);
+    const previous = rowRateSaveChainRef.current[key];
+    const current = previous ? previous.then(run) : run();
+    rowRateSaveChainRef.current[key] = current;
+    void current.then(() => {
+      if (rowRateSaveChainRef.current[key] === current) delete rowRateSaveChainRef.current[key];
+    });
+  };
+
   // 1028-214: clave del aviso y del turno de consulta de una celda de TC.
   const rowRateKey = (inst: PaymentInstallmentInput, idx: number, field: "invoice" | "payment") =>
     `${inst.installment_id ?? String(idx)}:${field}`;
@@ -945,7 +964,7 @@ export function WorkOrderPaymentPlanSection({
       // Ya se persiste aquí: un blur posterior sin edición nueva no debe volver a mandarlo.
       const pending = pendingRateEditsRef.current[inst.installment_id];
       if (pending) delete pending[field];
-      updateInstallmentExchangeRate.mutate({
+      saveRowRate({
         installmentId: inst.installment_id,
         field: field === "invoice" ? "invoice_exchange_rate" : "payment_exchange_rate",
         value: result.rate,
@@ -1931,7 +1950,7 @@ export function WorkOrderPaymentPlanSection({
                                       // cotización; un blur sin edición no toca la fecha.
                                       const typed = pending?.invoice !== undefined;
                                       if (pending) delete pending.invoice;
-                                      updateInstallmentExchangeRate.mutate({
+                                      saveRowRate({
                                         installmentId: inst.installment_id,
                                         field: "invoice_exchange_rate",
                                         value,
@@ -2002,7 +2021,7 @@ export function WorkOrderPaymentPlanSection({
                                       // cotización; un blur sin edición no toca la fecha.
                                       const typed = pending?.payment !== undefined;
                                       if (pending) delete pending.payment;
-                                      updateInstallmentExchangeRate.mutate({
+                                      saveRowRate({
                                         installmentId: inst.installment_id,
                                         field: "payment_exchange_rate",
                                         value,

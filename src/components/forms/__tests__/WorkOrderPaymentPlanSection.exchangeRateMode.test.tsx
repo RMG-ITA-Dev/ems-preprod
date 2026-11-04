@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // 0722-156b (Fase 2): plan-level Fijo/Variable toggle + per-installment invoice/payment
@@ -19,7 +19,15 @@ const mockUpdateExchangeRate = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateInstallmentExchangeRate: () => ({ mutate: mockUpdateExchangeRate, isPending: false }),
+  // Los guardados de TC por celda salen por mutateAsync (encolados por celda, 1028-214).
+  useUpdateInstallmentExchangeRate: () => ({
+    mutate: mockUpdateExchangeRate,
+    mutateAsync: (v: unknown) => {
+      mockUpdateExchangeRate(v);
+      return Promise.resolve();
+    },
+    isPending: false,
+  }),
   // Cobranzas Fase 3: la sección del plan de pagos ahora también usa estos dos. Sin ellos en
   // el mock del barrel, el componente revienta al montar.
   useRescheduleInstallment: () => ({ mutate: vi.fn(), isPending: false }),
@@ -588,7 +596,7 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
     // sin edicion nueva sobre una fila cuyo prop se refresco con un valor mas reciente
     // (ej. otra pestana ya guardo uno distinto) volvia a leer el valor viejo del ref y
     // lo repersistia, pisando el mas nuevo en silencio.
-    it("PEM16b: a later blur with no new edit persists the fresh prop value, not a stale ref from an earlier edit", () => {
+    it("PEM16b: a later blur with no new edit persists the fresh prop value, not a stale ref from an earlier edit", async () => {
       mockUpdateExchangeRate.mockClear();
       const baseOverrides = {
         woId: "wo-99",
@@ -618,6 +626,8 @@ describe("WorkOrderPaymentPlanSection — per-installment TC cells (0722-156b Fa
       // from the prop, not the stale 7.02 left over in pendingRateEditsRef.
       const refreshedInput = screen.getByTestId("installment-invoice-rate");
       fireEvent.blur(refreshedInput);
+      // 1028-214: los guardados de una celda se encolan; el segundo sale al terminar el primero.
+      await waitFor(() => expect(mockUpdateExchangeRate).toHaveBeenCalledTimes(2));
       expect(mockUpdateExchangeRate).toHaveBeenLastCalledWith({
         installmentId: "inst-42", field: "invoice_exchange_rate", value: 9.99, woId: "wo-99",
       });

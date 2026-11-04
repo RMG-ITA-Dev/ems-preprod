@@ -17,10 +17,20 @@ vi.mock("react-i18next", () => ({
 
 const mockUpdateStatus = vi.hoisted(() => vi.fn());
 const mockUpdateExchangeRate = vi.hoisted(() => vi.fn());
+const saveGate = vi.hoisted(() => ({ next: undefined as ((v: unknown) => Promise<void>) | undefined }));
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: mockUpdateStatus, isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateInstallmentExchangeRate: () => ({ mutate: mockUpdateExchangeRate, isPending: false }),
+  // Los guardados de TC por celda salen por mutateAsync, encolados por celda. `saveGate` deja
+  // que un test controle cuándo termina cada guardado.
+  useUpdateInstallmentExchangeRate: () => ({
+    mutate: mockUpdateExchangeRate,
+    mutateAsync: (v: unknown) => {
+      mockUpdateExchangeRate(v);
+      return saveGate.next ? saveGate.next(v) : Promise.resolve();
+    },
+    isPending: false,
+  }),
   useRescheduleInstallment: () => ({ mutate: vi.fn(), isPending: false }),
   useRecordInstallmentConfirmation: () => ({ mutate: vi.fn(), isPending: false }),
   useAddInstallmentNote: () => ({ mutate: vi.fn(), isPending: false }),
@@ -275,6 +285,7 @@ beforeEach(() => {
   mockUpdateExchangeRate.mockReset();
   pick.date = "2026-10-11";
   events.list = [];
+  saveGate.next = undefined;
 });
 
 describe("1028-214 — TC del encabezado del plan desde una fecha", () => {
@@ -1059,5 +1070,63 @@ describe("1028-214 — la sección avisa la consulta del TC del encabezado (revi
     fireEvent.click(screen.getByTestId("installment-invoice-rate-date"));
 
     expect(onPlanRateLookupChange).not.toHaveBeenCalledWith(true);
+  });
+});
+
+// Quinta review de Codex: dos guardados seguidos de la misma celda no pueden llegar en desorden.
+describe("1028-214 — los guardados de una celda de TC se encolan (review 5)", () => {
+  it("PER11: el segundo guardado espera al primero, y queda escrito el último que se pidió", async () => {
+    mockRpc.mockResolvedValueOnce(rateRow(6.9, "2026-10-09"));
+    const firstSave = deferred<void>();
+    const calls: number[] = [];
+    saveGate.next = (v) => {
+      calls.push((v as { value: number }).value);
+      return calls.length === 1 ? firstSave.promise : Promise.resolve();
+    };
+    renderStateful({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [makeInstallment({ installment_id: "inst-q", status: "Pending" })],
+    });
+
+    // 1) El calendario guarda 6.9 y ese guardado queda en vuelo.
+    fireEvent.click(screen.getByTestId("installment-invoice-rate-date"));
+    await waitFor(() => expect(calls).toEqual([6.9]));
+
+    // 2) Enseguida se teclea 7.2 y se sale de la celda: el segundo guardado NO sale todavía.
+    const input = screen.getByTestId("installment-invoice-rate");
+    fireEvent.change(input, { target: { value: "7.2" } });
+    fireEvent.blur(input);
+    expect(calls).toEqual([6.9]);
+
+    // 3) Termina el primero; recién ahí sale el segundo, que es el que queda escrito.
+    await act(async () => { firstSave.resolve(); });
+    await waitFor(() => expect(calls).toEqual([6.9, 7.2]));
+    expect(mockUpdateExchangeRate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ installmentId: "inst-q", value: 7.2, rateDate: null }),
+    );
+  });
+
+  it("PER12: guardados de celdas distintas no se esperan entre sí", async () => {
+    mockRpc.mockResolvedValueOnce(rateRow(6.9, "2026-10-09"));
+    const calls: string[] = [];
+    saveGate.next = (v) => {
+      calls.push((v as { installmentId: string }).installmentId);
+      return new Promise<void>(() => {}); // nunca termina
+    };
+    renderStateful({
+      plan: makePlan({ exchange_rate_mode: "variable" }),
+      installments: [
+        makeInstallment({ installment_id: "inst-a1", installment_number: 1, percentage: 50, status: "Pending" }),
+        makeInstallment({ installment_id: "inst-a2", installment_number: 2, percentage: 50, status: "Pending" }),
+      ],
+    });
+
+    fireEvent.click(screen.getAllByTestId("installment-invoice-rate-date")[0]);
+    await waitFor(() => expect(calls).toEqual(["inst-a1"]));
+    const second = screen.getAllByTestId("installment-invoice-rate")[1];
+    fireEvent.change(second, { target: { value: "7.4" } });
+    fireEvent.blur(second);
+
+    expect(calls).toEqual(["inst-a1", "inst-a2"]);
   });
 });
