@@ -1684,6 +1684,63 @@ $$;
 
 --
 --
+-- Name: engagements_guard_start_date_floor(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0923-198: piso de la fecha de inicio de un encargo de cliente, el mismo que aplica el formulario. Un
+-- editor que no es admin no puede dar de alta un encargo con inicio anterior a hoy, ni CAMBIAR el inicio a un
+-- dia anterior a la creacion del encargo. Una fecha historica que ya fijo un admin y que no cambia no bloquea:
+-- el editor guarda el resto del encargo. Admin, internos (los administrativos ya llegan forzados a internos por
+-- trg_enforce_administrative_engagement_rules, que dispara antes por orden alfabetico) y el sistema sin sesion
+-- quedan fuera. Fechas en hora de Bolivia, como el formulario. Admin = espejo del `isAdmin` del formulario
+-- (`role_key = 'admin'` vía current_role_key()), no public.is_admin(), que lee el enum legacy user_roles.role.
+CREATE FUNCTION public.engagements_guard_start_date_floor() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Review fix (Codex): el piso de la edicion se mide desde OLD.created_at, asi que la fecha de creacion no la
+  -- elige quien no es admin: en el alta se fija a now() y despues no se puede cambiar.
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSIF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CREATED_AT_IMMUTABLE: solo un administrador puede cambiar la fecha de creacion del encargo';
+  END IF;
+
+  -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
+  -- Cliente como interno (o dejar de hacerlo) queda solo para el admin, igual que el switch del formulario. Los
+  -- administrativos (funcion <> 1) los fuerza a internos trg_enforce_administrative_engagement_rules y su funcion
+  -- no cambia despues del alta, asi que no entran aca.
+  IF COALESCE(NEW.funcion, 1) = 1
+     AND ((TG_OP = 'INSERT' AND NEW.is_internal)
+          OR (TG_OP = 'UPDATE' AND NEW.is_internal IS DISTINCT FROM OLD.is_internal)) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_INTERNAL_ADMIN_ONLY: solo un administrador puede clasificar un encargo de cliente como interno';
+  END IF;
+
+  IF NEW.is_internal OR NEW.start_date IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.start_date < (now() AT TIME ZONE 'America/La_Paz')::date THEN
+      RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a hoy', NEW.start_date;
+    END IF;
+  ELSIF NEW.start_date IS DISTINCT FROM OLD.start_date
+        AND NEW.start_date < (OLD.created_at AT TIME ZONE 'America/La_Paz')::date THEN
+    RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a la creacion del encargo (%)',
+      NEW.start_date, (OLD.created_at AT TIME ZONE 'America/La_Paz')::date;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
 -- Name: deactivate_practice_activity(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 

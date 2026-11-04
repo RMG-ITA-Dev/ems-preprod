@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict IcU9LZD5WHPbZcQFaFN2yB8rE0dDWDlbDEcWfcV4LsiqVgfKAPUg5CkUAyTgIjr
+\restrict 2ZLyo8XfdpC92E68g9kwMNYdef0O4jzSoIH8KoeGMRtOLjC6AfIS92ji7WM5jBS
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -3295,7 +3295,6 @@ CREATE FUNCTION public.enforce_administrative_engagement_rules() RETURNS trigger
     AS $$
 DECLARE
   v_client_nit text;
-  v_client_name text;
   v_society_name text;
 BEGIN
   -- Review fix (Codex, 3ra vuelta): `funcion` es inmutable despues de crear. EngagementForm
@@ -3334,17 +3333,14 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT c.tax_id, c.client_legal_name, s.name
-    INTO v_client_nit, v_client_name, v_society_name
+  SELECT c.unique_tax_id, s.name
+    INTO v_client_nit, v_society_name
     FROM public.clients c
     JOIN public.society s ON s.society_id = NEW.society_id
    WHERE c.client_id = NEW.client_id;
 
-  -- ETL fase 1: el NIT ya no es único, así que un tercero con NIT interno NO califica: el nombre
-  -- normalizado del cliente debe además coincidir con el de la sociedad canónica del encargo.
-  IF lower(trim(v_client_name)) = lower(trim(v_society_name))
-     AND ((v_society_name = 'Ruizmier Pelaez S.R.L.' AND v_client_nit = '1006979026')
-          OR (v_society_name = 'Ruizmier Jauregui S.R.L.' AND v_client_nit = '184046021')) THEN
+  IF (v_society_name = 'Ruizmier Pelaez S.R.L.' AND v_client_nit = '1006979026')
+     OR (v_society_name = 'Ruizmier Jauregui S.R.L.' AND v_client_nit = '184046021') THEN
     NEW.is_internal := true;
     NEW.activity_required := false;
     RETURN NEW;
@@ -3811,13 +3807,6 @@ BEGIN
 
   IF NOT FOUND THEN
     RETURN NEW;  -- Not a holiday applicable to this staff's office, allow
-  END IF;
-
-  -- Carga histórica del ETL F3 (decisión del operador, 03/11/2026): el legacy permitía trabajar en feriado.
-  -- Solo INSERT, solo desde la sesión propietaria (un cliente de la API entra como `authenticator`) y solo con la
-  -- marca que fija la transacción de carga. Los UPDATE y la carga manual siguen bloqueados.
-  IF TG_OP = 'INSERT' AND session_user = 'postgres' AND current_setting('etl.f3_historical_hours', true) = 'on' THEN
-    RETURN NEW;
   END IF;
 
   -- Read the holiday engagement setting
@@ -4666,6 +4655,55 @@ BEGIN
                   WHERE wo.engagement_id = NEW.engagement_id
                     AND fr.status NOT IN ('borrador', 'cerrado', 'cancelado')) THEN
     RAISE EXCEPTION 'ENGAGEMENT_SOCIETY_LOCKED: el encargo tiene solicitudes de fondos abiertas; cierrelas o cancelelas antes de cambiar su sociedad';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: engagements_guard_start_date_floor(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagements_guard_start_date_floor() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Review fix (Codex): el piso de la edicion se mide desde OLD.created_at, asi que la fecha de creacion no la
+  -- elige quien no es admin: en el alta se fija a now() y despues no se puede cambiar.
+  IF TG_OP = 'INSERT' THEN
+    NEW.created_at := now();
+  ELSIF NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CREATED_AT_IMMUTABLE: solo un administrador puede cambiar la fecha de creacion del encargo';
+  END IF;
+
+  -- Review fix (Codex): la exencion de internos se apoya en NEW.is_internal, asi que clasificar un encargo de
+  -- Cliente como interno (o dejar de hacerlo) queda solo para el admin, igual que el switch del formulario. Los
+  -- administrativos (funcion <> 1) los fuerza a internos trg_enforce_administrative_engagement_rules y su funcion
+  -- no cambia despues del alta, asi que no entran aca.
+  IF COALESCE(NEW.funcion, 1) = 1
+     AND ((TG_OP = 'INSERT' AND NEW.is_internal)
+          OR (TG_OP = 'UPDATE' AND NEW.is_internal IS DISTINCT FROM OLD.is_internal)) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_INTERNAL_ADMIN_ONLY: solo un administrador puede clasificar un encargo de cliente como interno';
+  END IF;
+
+  IF NEW.is_internal OR NEW.start_date IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.start_date < (now() AT TIME ZONE 'America/La_Paz')::date THEN
+      RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a hoy', NEW.start_date;
+    END IF;
+  ELSIF NEW.start_date IS DISTINCT FROM OLD.start_date
+        AND NEW.start_date < (OLD.created_at AT TIME ZONE 'America/La_Paz')::date THEN
+    RAISE EXCEPTION 'ENGAGEMENT_START_DATE_FLOOR: la fecha de inicio % no puede ser anterior a la creacion del encargo (%)',
+      NEW.start_date, (OLD.created_at AT TIME ZONE 'America/La_Paz')::date;
   END IF;
   RETURN NEW;
 END;
@@ -8511,64 +8549,25 @@ COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: lista
 --
 
 CREATE FUNCTION public.list_administrative_internal_clients() RETURNS jsonb
-    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-DECLARE
-  v_conflict text;
-  v_result jsonb;
-BEGIN
-  IF NOT public.has_permission('engagement.create') THEN
-    RETURN '[]'::jsonb;
-  END IF;
-
-  -- ETL fase 1: identidad canónica = NIT + nombre normalizado igual al de la sociedad. Un cliente
-  -- ajeno con NIT interno compartido (el NIT ya no es único) no se expone. Dos candidatos activos
-  -- indistinguibles para la misma sociedad son un conflicto de instalación/carga: se señala, no se
-  -- resuelve elegiendo uno con LIMIT 1.
-  SELECT string_agg(g.society_name, ', ' ORDER BY g.society_name)
-    INTO v_conflict
-    FROM (
-      SELECT v.society_name
-        FROM public.clients c
-        JOIN (VALUES
-          ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
-          ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
-        ) AS v(society_name, nit)
-          ON c.tax_id = v.nit
-         AND lower(trim(c.client_legal_name)) = lower(trim(v.society_name))
-       WHERE c.is_active
-       GROUP BY v.society_name
-      HAVING count(*) > 1
-    ) g;
-  IF v_conflict IS NOT NULL THEN
-    RAISE EXCEPTION '0722-160: conflicto de identidad: más de un cliente interno canónico activo para %', v_conflict;
-  END IF;
-
   SELECT COALESCE(
     jsonb_agg(
       jsonb_build_object(
         'client_id', c.client_id,
         'client_legal_name', c.client_legal_name,
-        'unique_tax_id', c.tax_id,
+        'unique_tax_id', c.unique_tax_id,
         'is_active', c.is_active
       )
       ORDER BY c.client_legal_name
     ),
     '[]'::jsonb
   )
-    INTO v_result
     FROM public.clients c
-    JOIN (VALUES
-      ('Ruizmier Pelaez S.R.L.'::text, '1006979026'::text),
-      ('Ruizmier Jauregui S.R.L.'::text, '184046021'::text)
-    ) AS v(society_name, nit)
-      ON c.tax_id = v.nit
-     AND lower(trim(c.client_legal_name)) = lower(trim(v.society_name))
-   WHERE c.is_active;
-
-  RETURN v_result;
-END;
+   WHERE c.unique_tax_id IN ('1006979026', '184046021')
+     AND c.is_active
+     AND public.has_permission('engagement.create');
 $$;
 
 
@@ -8576,7 +8575,7 @@ $$;
 -- Name: FUNCTION list_administrative_internal_clients(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_administrative_internal_clients() IS '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT. ETL fase 1: el NIT ya no es unico, asi que la identidad canonica exige tambien el nombre normalizado de la sociedad; un tercero con NIT interno no se expone y dos candidatos activos para una misma sociedad lanzan conflicto en vez de elegirse con LIMIT 1. Alias JSON unique_tax_id conservado. Sin clientes cargados devuelve [].';
+COMMENT ON FUNCTION public.list_administrative_internal_clients() IS '0722-160: expone unicamente los dos clientes internos de sociedad (Pelaez/Jauregui) a quien tiene engagement.create, sin depender de client.read -- hr_manager/hr_analyst tienen engagement.create para este flujo pero no client.read, y otorgarles client.read general expondria la cartera completa en vez de solo los dos clientes controlados. Review fix (Greptile): filtra is_active ademas del NIT -- defensa en profundidad, independiente de que el DO block de arriba ya deba haber reactivado ambas filas canonicas.';
 
 
 --
@@ -8637,8 +8636,7 @@ BEGIN
       e.manager_id,
       c.client_id,
       c.client_legal_name,
-      -- ETL fase 1: la columna se llama tax_id; el alias conserva la clave JSON histórica unique_tax_id.
-      c.tax_id AS unique_tax_id,
+      c.unique_tax_id,
       COALESCE(i.currency, wo.currency) AS row_currency,
       -- La fecha que la pantalla llama "vigente": la reprogramada si la hubo.
       COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date_vigente,
@@ -11799,9 +11797,7 @@ BEGIN
   v_base := jsonb_build_object(
     'client_id',         NEW.client_id,
     'client_legal_name', COALESCE(NEW.client_legal_name, ''),
-    -- ETL fase 1: la columna se llama tax_id; la clave del payload sigue siendo unique_tax_id
-    -- (contrato histórico de las plantillas y de rpc-notificaciones-fase1).
-    'unique_tax_id',     COALESCE(NEW.tax_id, ''));
+    'unique_tax_id',     COALESCE(NEW.unique_tax_id, ''));
 
   -- ── Alta (D-37) ──
   IF TG_OP = 'INSERT' THEN
@@ -17518,11 +17514,11 @@ BEGIN
   END IF;
 
   IF p_is_new THEN
-    INSERT INTO public.clients (client_id, client_legal_name, tax_id, industry_id, address, is_active)
+    INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id, address, is_active)
     VALUES (
       p_client_id,
       p_client->>'client_legal_name',
-      p_client->>'tax_id',
+      p_client->>'unique_tax_id',
       NULLIF(p_client->>'industry_id', '')::uuid,
       NULLIF(p_client->>'address', ''),
       COALESCE((p_client->>'is_active')::boolean, true)
@@ -17530,7 +17526,7 @@ BEGIN
   ELSE
     UPDATE public.clients c
        SET client_legal_name = CASE WHEN p_client ? 'client_legal_name' THEN p_client->>'client_legal_name' ELSE c.client_legal_name END,
-           tax_id            = CASE WHEN p_client ? 'tax_id' THEN p_client->>'tax_id' ELSE c.tax_id END,
+           unique_tax_id     = CASE WHEN p_client ? 'unique_tax_id' THEN p_client->>'unique_tax_id' ELSE c.unique_tax_id END,
            industry_id       = CASE WHEN p_client ? 'industry_id' THEN NULLIF(p_client->>'industry_id', '')::uuid ELSE c.industry_id END,
            address           = CASE WHEN p_client ? 'address' THEN NULLIF(p_client->>'address', '') ELSE c.address END,
            is_active         = CASE WHEN p_client ? 'is_active' THEN (p_client->>'is_active')::boolean ELSE c.is_active END
@@ -17953,129 +17949,6 @@ BEGIN
   RETURN COALESCE(v_result, '[]'::jsonb);
 END;
 $$;
-
-
---
--- Name: seed_initial_holidays(uuid); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.seed_initial_holidays(p_created_by uuid) RETURNS integer
-    LANGUAGE plpgsql
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_expected constant integer := 28;
-  v_inserted integer;
-  v_present  integer;
-  v_conflicts text;
-BEGIN
-  IF p_created_by IS NULL THEN
-    RAISE EXCEPTION 'HOLIDAYS_ACTOR_INVALID: falta el staff autor';
-  END IF;
-
-  -- El rol se consulta con el helper SECURITY DEFINER has_role(), no con una lectura directa de la
-  -- tabla de roles: la suite B2 exige que toda función de public que lea esa tabla sea SECURITY
-  -- DEFINER del dueño. El helper comprueba el espejo app_role = admin, que handle_new_user() y
-  -- admin_set_user_role_key() mantienen sincronizado con role_key = admin.
-  IF NOT EXISTS (
-    SELECT 1
-      FROM public.staff s
-     WHERE s.staff_id = p_created_by
-       AND s.is_active IS TRUE
-       AND s.deleted_at IS NULL
-       AND s.auth_user_id IS NOT NULL
-       AND public.has_role(s.auth_user_id, 'admin'::public.app_role)
-  ) THEN
-    RAISE EXCEPTION 'HOLIDAYS_ACTOR_INVALID: % no es un staff activo, enlazado a Auth y con rol admin', p_created_by;
-  END IF;
-
-  -- Repetible dentro de una misma transacción: se descarta cualquier copia previa.
-  DROP TABLE IF EXISTS pg_temp._seed_holidays_catalog;
-  CREATE TEMP TABLE _seed_holidays_catalog (
-    holiday_date date NOT NULL,
-    holiday_name text NOT NULL,
-    oficina smallint NOT NULL,
-    PRIMARY KEY (holiday_date, oficina)
-  ) ON COMMIT DROP;
-
-  INSERT INTO _seed_holidays_catalog (holiday_date, holiday_name, oficina)
-  SELECT v.holiday_date::date, v.holiday_name, v.oficina
-  FROM (VALUES
-  -- 2026 — getBoliviaNationalHolidays(2026), con traslado dominical
-  ('2026-01-01', 'Año Nuevo',                                     0),
-  ('2026-01-22', 'Día del Estado Plurinacional',                  0),
-  ('2026-02-16', 'Lunes de Carnaval',                              0),
-  ('2026-02-17', 'Martes de Carnaval',                             0),
-  ('2026-04-03', 'Viernes Santo',                                  0),
-  ('2026-05-01', 'Día del Trabajo',                                0),
-  ('2026-06-04', 'Corpus Christi',                                 0),
-  ('2026-06-22', 'Año Nuevo Andino Amazónico',                     0),
-  ('2026-07-16', 'Aniversario del Departamento de La Paz',         1),
-  ('2026-08-06', 'Día de la Independencia',                        0),
-  ('2026-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
-  ('2026-11-02', 'Día de los Difuntos',                            0),
-  ('2026-12-25', 'Navidad',                                        0),
-  -- 2026 — extras del catálogo maestro, nombre con sufijo protegido (decisión 2026-08-23)
-  ('2026-06-05', 'Puente (Adicional)',                             0),
-  ('2026-08-07', 'Puente (Adicional)',                             0),
-  -- 2027 — getBoliviaNationalHolidays(2027), con traslado dominical
-  ('2027-01-01', 'Año Nuevo',                                     0),
-  ('2027-01-22', 'Día del Estado Plurinacional',                  0),
-  ('2027-02-08', 'Lunes de Carnaval',                              0),
-  ('2027-02-09', 'Martes de Carnaval',                             0),
-  ('2027-03-26', 'Viernes Santo',                                  0),
-  ('2027-05-01', 'Día del Trabajo',                                0),
-  ('2027-05-27', 'Corpus Christi',                                 0),
-  ('2027-06-21', 'Año Nuevo Andino Amazónico',                     0),
-  ('2027-07-16', 'Aniversario del Departamento de La Paz',         1),
-  ('2027-08-06', 'Día de la Independencia',                        0),
-  ('2027-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
-  ('2027-11-02', 'Día de los Difuntos',                            0),
-  ('2027-12-25', 'Navidad',                                        0)
-  ) AS v(holiday_date, holiday_name, oficina);
-
-  IF (SELECT count(*) FROM _seed_holidays_catalog) <> v_expected THEN
-    RAISE EXCEPTION 'HOLIDAYS_CATALOG_INVALID: el catálogo literal no tiene % filas', v_expected;
-  END IF;
-
-  SELECT string_agg(format('%s/oficina %s', h.holiday_date, h.oficina), ', ' ORDER BY h.holiday_date, h.oficina)
-    INTO v_conflicts
-    FROM public.holidays h
-    JOIN _seed_holidays_catalog c ON c.holiday_date = h.holiday_date AND c.oficina = h.oficina
-   WHERE h.holiday_name IS DISTINCT FROM c.holiday_name
-      OR h.created_by IS DISTINCT FROM p_created_by;
-  IF v_conflicts IS NOT NULL THEN
-    RAISE EXCEPTION 'HOLIDAYS_CONFLICT: feriados existentes contradicen el catálogo o el autor esperado: %', v_conflicts;
-  END IF;
-
-  INSERT INTO public.holidays (holiday_date, holiday_name, oficina, created_by)
-  SELECT c.holiday_date, c.holiday_name, c.oficina, p_created_by
-    FROM _seed_holidays_catalog c
-   WHERE NOT EXISTS (
-     SELECT 1 FROM public.holidays h
-      WHERE h.holiday_date = c.holiday_date AND h.oficina = c.oficina
-   );
-  GET DIAGNOSTICS v_inserted = ROW_COUNT;
-
-  SELECT count(*) INTO v_present
-    FROM _seed_holidays_catalog c
-    JOIN public.holidays h
-      ON h.holiday_date = c.holiday_date AND h.oficina = c.oficina
-     AND h.holiday_name = c.holiday_name AND h.created_by = p_created_by;
-  IF v_present <> v_expected THEN
-    RAISE EXCEPTION 'HOLIDAYS_INCOMPLETE: el calendario tiene % de % filas esperadas (insertadas en esta llamada: %)', v_present, v_expected, v_inserted;
-  END IF;
-
-  RETURN v_present;
-END;
-$$;
-
-
---
--- Name: FUNCTION seed_initial_holidays(p_created_by uuid); Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON FUNCTION public.seed_initial_holidays(p_created_by uuid) IS 'ETL fase 1: siembra el calendario inicial (28 feriados) a nombre de un administrador confirmado. Solo propietario; repetible sin modificar filas; aborta ante contradicciones.';
 
 
 --
@@ -22997,34 +22870,14 @@ COMMENT ON COLUMN public.authorization_roles.legacy_app_role IS 'Valor del enum 
 CREATE TABLE public.clients (
     client_id uuid DEFAULT gen_random_uuid() NOT NULL,
     client_legal_name character varying(255) NOT NULL,
-    tax_id character varying(50) NOT NULL,
+    unique_tax_id character varying(50) NOT NULL,
     industry_id uuid,
     address text,
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    created_by_staff_id uuid,
-    operating_name character varying(255),
-    client_type text,
-    parent_client_id uuid,
-    parent_relationship text,
-    client_origin text,
-    billing_tax_treatment text,
-    CONSTRAINT clients_billing_tax_treatment_check CHECK ((billing_tax_treatment = ANY (ARRAY['nit_propio'::text, 'nit_generico_99001'::text, 'pendiente'::text]))),
-    CONSTRAINT clients_client_origin_check CHECK ((client_origin = ANY (ARRAY['nacional'::text, 'extranjero'::text, 'diplomatico'::text]))),
-    CONSTRAINT clients_client_type_check CHECK ((client_type = ANY (ARRAY['entidad'::text, 'sucursal'::text, 'proyecto'::text, 'fideicomiso'::text]))),
-    CONSTRAINT clients_fideicomiso_not_sucursal_check CHECK (((client_type IS DISTINCT FROM 'fideicomiso'::text) OR (parent_relationship IS DISTINCT FROM 'sucursal_de'::text))),
-    CONSTRAINT clients_parent_not_self_check CHECK ((parent_client_id IS DISTINCT FROM client_id)),
-    CONSTRAINT clients_parent_pair_check CHECK (((parent_client_id IS NULL) = (parent_relationship IS NULL))),
-    CONSTRAINT clients_parent_relationship_check CHECK ((parent_relationship = ANY (ARRAY['proyecto_de'::text, 'sucursal_de'::text, 'administrado_por'::text])))
+    created_by_staff_id uuid
 );
-
-
---
--- Name: COLUMN clients.tax_id; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.clients.tax_id IS 'NIT del cliente. NO es único: proyectos, sucursales y fideicomisos comparten NIT (p. ej. 99001, NIT genérico). La identidad técnica es client_id.';
 
 
 --
@@ -23456,10 +23309,8 @@ CREATE TABLE public.industries (
     industry_id uuid DEFAULT gen_random_uuid() NOT NULL,
     industry_name character varying(100) NOT NULL,
     fiscal_year_end character varying(50) NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT industries_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -23800,8 +23651,6 @@ CREATE TABLE public.time_entries (
     updated_at timestamp with time zone DEFAULT now(),
     period_id uuid,
     is_forecast boolean DEFAULT false,
-    etl_split_index smallint DEFAULT 1 NOT NULL,
-    CONSTRAINT time_entries_etl_split_index_check CHECK ((etl_split_index > 0)),
     CONSTRAINT time_entries_hours_logged_check CHECK ((hours_logged >= (0)::numeric))
 );
 
@@ -25196,6 +25045,14 @@ ALTER TABLE ONLY public.clients
 
 
 --
+-- Name: clients clients_unique_tax_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_unique_tax_id_key UNIQUE (unique_tax_id);
+
+
+--
 -- Name: engagement_assignments engagement_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -26320,6 +26177,13 @@ CREATE UNIQUE INDEX activity_codes_active_code_unique ON public.activity_codes U
 
 
 --
+-- Name: clients_client_legal_name_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX clients_client_legal_name_unique ON public.clients USING btree (lower(TRIM(BOTH FROM client_legal_name)));
+
+
+--
 -- Name: idx_activity_worksheet_cells_activity; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -26380,27 +26244,6 @@ CREATE INDEX idx_client_contacts_client ON public.client_contacts USING btree (c
 --
 
 CREATE INDEX idx_clients_created_by_staff ON public.clients USING btree (created_by_staff_id) WHERE (created_by_staff_id IS NOT NULL);
-
-
---
--- Name: idx_clients_legal_name; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_clients_legal_name ON public.clients USING btree (lower(TRIM(BOTH FROM client_legal_name)));
-
-
---
--- Name: idx_clients_parent_client_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_clients_parent_client_id ON public.clients USING btree (parent_client_id) WHERE (parent_client_id IS NOT NULL);
-
-
---
--- Name: idx_clients_tax_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_clients_tax_id ON public.clients USING btree (tax_id);
 
 
 --
@@ -26673,7 +26516,7 @@ CREATE INDEX idx_time_entries_staff_date ON public.time_entries USING btree (sta
 -- Name: idx_time_entries_unique_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast, etl_split_index);
+CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast);
 
 
 --
@@ -27587,6 +27430,13 @@ CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id 
 
 
 --
+-- Name: engagements trg_engagements_guard_start_date_floor; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal, created_at ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
+
+
+--
 -- Name: engagements trg_engagements_log_assignment; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -28164,14 +28014,6 @@ ALTER TABLE ONLY public.clients
 
 ALTER TABLE ONLY public.clients
     ADD CONSTRAINT clients_industry_id_fkey FOREIGN KEY (industry_id) REFERENCES public.industries(industry_id);
-
-
---
--- Name: clients clients_parent_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.clients
-    ADD CONSTRAINT clients_parent_client_id_fkey FOREIGN KEY (parent_client_id) REFERENCES public.clients(client_id) ON DELETE RESTRICT;
 
 
 --
@@ -31183,5 +31025,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict IcU9LZD5WHPbZcQFaFN2yB8rE0dDWDlbDEcWfcV4LsiqVgfKAPUg5CkUAyTgIjr
+\unrestrict 2ZLyo8XfdpC92E68g9kwMNYdef0O4jzSoIH8KoeGMRtOLjC6AfIS92ji7WM5jBS
 
