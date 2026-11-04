@@ -11,7 +11,7 @@ import { HEADERS as F2_HEADERS, parseCsv } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
 import { buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
-import { boliviaHolidays, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
+import { buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
 
 export const BLOCKS = Object.freeze(["client-engagements", "administrative-engagements", "matrices", "work-orders", "hours"]);
 export const STATES = Object.freeze(["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "ENCARGOS_CLIENTE_ACEPTADOS", "ADMINISTRATIVOS_ACEPTADOS", "MATRICES_ACEPTADAS", "OTS_ACEPTADAS", "HORAS_VERIFICADAS", "ACEPTADO"]);
@@ -186,7 +186,7 @@ export async function preparePaymentBlueprint(ctx, inputs) {
   const notes = inputs.payments.filter((row) => ["nota_plan_confirmada", "plan_note"].includes(String(row.proposed_disposition).trim()));
   if (groups.size !== 124 || inputs.payments.length !== 281 || billable.length !== 277 || notes.length !== 4) throw new Fase1Error("BLOQUEADO", `pagos fuente incompatible: planes=${groups.size}, cuotas=${billable.length}, notas=${notes.length}`);
   const financials = await ctx.db.paymentFinancials({ workOrders: workOrders.map(({ sourceKey, woId }) => ({ sourceKey, woId })) }); const financialByCot = new Map((financials.financials ?? []).map((row) => [row.sourceKey, row]));
-  const holidays = boliviaHolidays([2025, 2026, 2027, 2028]); const blueprint = [];
+  const blueprint = [];
   for (const workOrder of workOrders) {
     const source = sourceByCot.get(workOrder.sourceKey); const rows = groups.get(workOrder.sourceKey); const finance = financialByCot.get(workOrder.sourceKey);
     if (!source || !rows || !finance || finance.woId !== workOrder.woId || finance.currency !== workOrder.currency) throw new Fase1Error("BLOQUEADO", `pagos sin cruce financiero: ${workOrder.sourceKey}`);
@@ -194,7 +194,7 @@ export async function preparePaymentBlueprint(ctx, inputs) {
     const previousAdjustment = money(finance.adjustmentAmount); const expectedFeeWithTax = money(feeWithTax(legacyBudget)); const sourceFees = new Set(rows.map((row) => money(row.legacy_fee_with_tax)));
     if (sourceFees.size !== 1 || !sourceFees.has(expectedFeeWithTax)) throw new Fase1Error("BLOQUEADO", `honorario c/IVA legacy incompatible: ${workOrder.sourceKey}`);
     if (decimalUnits(standard) + decimalUnits(adjustment) !== decimalUnits(legacyBudget)) throw new Fase1Error("BLOQUEADO", `ajuste financiero no concilia: ${workOrder.sourceKey}`);
-    const artifact = paymentArtifacts(rows, expectedFeeWithTax, holidays); const rawCurrency = String(rows[0].legacy_currency_raw).trim(); const exchangeRate = rawCurrency === "1" ? money(rows[0].legacy_exchange_rate) : null;
+    const artifact = paymentArtifacts(rows, expectedFeeWithTax); const rawCurrency = String(rows[0].legacy_currency_raw).trim(); const exchangeRate = rawCurrency === "1" ? money(rows[0].legacy_exchange_rate) : null;
     if (!['0', '1'].includes(rawCurrency) || (rawCurrency === '1' && (decimalUnits(exchangeRate) <= 0n || rows.some((row) => money(row.legacy_exchange_rate) !== exchangeRate)))) throw new Fase1Error("BLOQUEADO", `TC de plan incompatible: ${workOrder.sourceKey}`);
     blueprint.push({ sourceKey: workOrder.sourceKey, woId: workOrder.woId, previousAdjustmentAmount: previousAdjustment, adjustmentAmount: adjustment, legacyBudget, feeWithTax: expectedFeeWithTax, exchangeRate, exchangeRateMode: rawCurrency === "1" ? "fijo" : null,
       installments: artifact.installments.map((row) => ({ sourceKey: row.legacy_plan_payment_id, installmentNumber: Number(row.legacy_installment_number), agreedInvoiceDate: row.legacy_invoice_date, agreedPaymentDate: row.payment_due_date, percentage: row.percentage, amount: row.amount, currency: workOrder.currency, invoiceExchangeRate: exchangeRate, paymentExchangeRate: exchangeRate })),

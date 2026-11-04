@@ -1,5 +1,4 @@
 // Transformaciones puras F3: los importes se conservan como enteros escalados, nunca Number acumulado.
-import { EXPECTED_CALENDAR } from "./fase1-db.mjs";
 import { isPlanNote } from "./fase3-input.mjs";
 
 const POW10 = (scale) => 10n ** BigInt(scale);
@@ -132,23 +131,23 @@ export function expensePayload(row) {
 }
 
 const roundRatio = (numerator, denominator) => (numerator * 2n + denominator) / (2n * denominator);
-export function paymentArtifacts(rows, feeWithTaxValue, holidays = []) {
+export function paymentArtifacts(rows, feeWithTaxValue) {
   const billable = rows.filter((row) => !isPlanNote(row)).sort((a, b) => Number(a.legacy_installment_number) - Number(b.legacy_installment_number)); const notes = rows.filter(isPlanNote);
   const scale = Math.max(...billable.map((row) => (String(row.legacy_percentage ?? "").trim().split(".")[1] ?? "").length));
   if (!billable.length || scale > 6) throw new Error(`porcentaje de cuotas no conciliable: precisión ${scale}`);
   const denominator = 100n * POW10(scale); const original = billable.reduce((sum, row) => sum + decimalUnits(row.legacy_percentage, scale), 0n); const correction = denominator - original;
   const tolerance = scale >= 2 ? POW10(scale - 2) : 1n;
   if (correction < -tolerance || correction > 4n * tolerance) throw new Error(`porcentaje de cuotas no conciliable: ${formatUnits(original, scale)}`);
-  const holidaysSet = new Set(holidays); const fee = decimalUnits(feeWithTaxValue);
+  const fee = decimalUnits(feeWithTaxValue);
   // Es el equivalente entero de computeAmount(percentage, feeWithTax): el producto
   // se redondea a dos decimales para CADA cuota, no al total acumulado.
-  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = roundRatio(fee * percentage, denominator); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30, holidaysSet), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
+  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = roundRatio(fee * percentage, denominator); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
   const expected = fee; const actual = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); const residual = expected - actual; const cot = String(rows[0]?.legacy_cot ?? "");
   if (residual !== 0n) installments[installments.length - 1].amount = formatUnits(decimalUnits(installments.at(-1).amount) + residual);
   const reconciled = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); if (expected !== reconciled) throw new Error(`residuo monetario de cuotas: ${formatUnits(expected - reconciled)}`);
   return { installments, notes: notes.map((row) => ({ ...row, installment_id: null, body: noteBody(row) })) };
 }
 export function noteBody(row) { return `COT: ${row.legacy_cot}\nCuota legacy: ${row.legacy_installment_number}\nPorcentaje legacy: ${row.legacy_percentage}%\n[INICIO TEXTO LEGACY]\n${row.legacy_detail}\n[FIN TEXTO LEGACY]`; }
-// La consola usa el calendario local aprobado por F1, no una dependencia de código frontend.
-export function boliviaHolidays(years = [2026, 2027]) { return EXPECTED_CALENDAR.map((entry) => entry.split("|")[0]).filter((date) => years.includes(Number(date.slice(0, 4)))); }
-export function addBusinessDays(dateText, days, holidays = new Set()) { const date = new Date(`${dateText}T00:00:00Z`); let left = days; while (left > 0) { date.setUTCDate(date.getUTCDate() + 1); const weekday = date.getUTCDay(); if (weekday !== 0 && weekday !== 6 && !holidays.has(date.toISOString().slice(0, 10))) left -= 1; } return date.toISOString().slice(0, 10); }
+// Decisión del operador (04/11/2026): la fecha de pago es la de factura más 30 días laborables, de lunes a viernes, SIN considerar feriados.
+// Es deliberadamente más simple que el front (que salta feriados nacionales); no depende de ningún calendario.
+export function addBusinessDays(dateText, days) { const date = new Date(`${dateText}T00:00:00Z`); let left = days; while (left > 0) { date.setUTCDate(date.getUTCDate() + 1); const weekday = date.getUTCDay(); if (weekday !== 0 && weekday !== 6) left -= 1; } return date.toISOString().slice(0, 10); }

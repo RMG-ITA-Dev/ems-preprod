@@ -25,7 +25,8 @@ describe("ETL fase 3: transformaciones", () => {
   });
   it("calcula temporadas, honorario y calendario sin flotantes acumulados", () => {
     expect(seasonForIndustry(10)).toBe("Low"); expect(seasonForIndustry(11)).toBe("High"); expect(decimalUnits("2.0000")).toBe(200n); expect(adjustedFee("10", "12.34")).toBe("2.34"); expect(feeWithTax("87")).toBe("100");
-    expect(addBusinessDays("2026-12-24", 1, new Set(["2026-12-25"]))).toBe("2026-12-28");
+    // Lunes a viernes, sin feriados: el 25/12 (feriado) cuenta como día laborable y el fin de semana se salta.
+    expect(addBusinessDays("2026-12-24", 1)).toBe("2026-12-25"); expect(addBusinessDays("2026-12-25", 1)).toBe("2026-12-28");
   });
   it("convierte gastos BOB con su TC legacy y conserva USD", () => {
     expect(expensePayload({ legacy_expense_budget_id: "g-bob", legacy_currency_raw: "0", legacy_exchange_rate: "6.96", legacy_amount_usd: "100", legacy_expense_type_id: "2" })).toMatchObject({ currency: "BOB", amount: "696", expense_type: "Viaje" });
@@ -33,19 +34,19 @@ describe("ETL fase 3: transformaciones", () => {
   });
   it("sólo ajusta el último porcentaje y nunca absorbe una nota", () => {
     const rows = [{ legacy_cot: "2026.11.001", legacy_installment_number: "1", legacy_percentage: "50", legacy_invoice_date: "2026-01-01", legacy_currency_raw: "0" }, { legacy_cot: "2026.11.001", legacy_installment_number: "2", legacy_percentage: "50", legacy_invoice_date: "2026-02-01", legacy_currency_raw: "0" }];
-    const result = paymentArtifacts(rows, "100", []); expect(result.installments.map((row) => row.amount)).toEqual(["50", "50"]); expect(result.notes).toHaveLength(0);
+    const result = paymentArtifacts(rows, "100"); expect(result.installments.map((row) => row.amount)).toEqual(["50", "50"]); expect(result.notes).toHaveLength(0);
   });
   it("aplica F3-Q08 a toda OT, conserva seis decimales y cuadra el último importe", () => {
     const rows = Array.from({ length: 13 }, (_, index) => ({ legacy_cot: "2026.22.007", legacy_installment_number: String(index + 1), legacy_percentage: index === 12 ? "4.000000" : "8.333000", legacy_invoice_date: "2026-01-01", legacy_currency_raw: "0", proposed_disposition: index === 12 ? "nota_plan_confirmada" : "cuota_facturable" }));
-    const result = paymentArtifacts(rows, "5783.91", []);
+    const result = paymentArtifacts(rows, "5783.91");
     expect(result.installments).toHaveLength(12);
     expect(result.installments.at(-1)).toMatchObject({ percentage: "8.337", amount: "482.24" });
     expect(result.installments.reduce((sum, row) => sum + Number(row.amount), 0)).toBeCloseTo(5783.91, 2);
   });
-  it("preserva snapshots BOB/USD y usa exactamente treinta días hábiles", () => {
-    const bob = paymentArtifacts([{ legacy_cot: "C", legacy_installment_number: "1", legacy_percentage: "100.000000", legacy_invoice_date: "2026-12-24", legacy_currency_raw: "0" }], "100", ["2026-12-25", "2027-01-01", "2027-01-22"]);
-    const usd = paymentArtifacts([{ legacy_cot: "U", legacy_installment_number: "1", legacy_percentage: "100.000000", legacy_invoice_date: "2026-01-01", legacy_currency_raw: "1" }], "100", []);
-    expect(bob.installments[0]).toMatchObject({ percentage: "100", exchange_rate_mode: null, payment_days: 30, payment_due_date: "2027-02-09" });
+  it("preserva snapshots BOB/USD y usa exactamente treinta días laborables (lunes a viernes, sin feriados)", () => {
+    const bob = paymentArtifacts([{ legacy_cot: "C", legacy_installment_number: "1", legacy_percentage: "100.000000", legacy_invoice_date: "2026-12-24", legacy_currency_raw: "0" }], "100");
+    const usd = paymentArtifacts([{ legacy_cot: "U", legacy_installment_number: "1", legacy_percentage: "100.000000", legacy_invoice_date: "2026-01-01", legacy_currency_raw: "1" }], "100");
+    expect(bob.installments[0]).toMatchObject({ percentage: "100", exchange_rate_mode: null, payment_days: 30, payment_due_date: "2027-02-04" });
     expect(usd.installments[0]).toMatchObject({ exchange_rate_mode: "fijo", amount: "100" });
   });
   it("construye encargos cliente y administrativos sólo con los cruces aprobados", () => {
