@@ -55,7 +55,7 @@ INSERT INTO auth.users (id) VALUES
 INSERT INTO public.categories (category_id, category_name, practica_id)
 VALUES ('c0920000-0000-4000-8000-000000000001', '0922-190 Test Category', '5e900000-0000-4000-8000-000000000001');
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1920000-0000-4000-8000-000000000001', '0922-190 Test Client', '0922190-TAX-001');
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES

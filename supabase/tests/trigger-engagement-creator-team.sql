@@ -137,7 +137,7 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Cliente del fixture ────────────────────────────────────────────────────────────────────────
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, is_active)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id, is_active)
 VALUES ('c1c00000-0000-4000-8000-000000000001', 'ECT Cliente de Prueba', 'ECT-TAX-0810172', true);
 
 -- ── Helpers ────────────────────────────────────────────────────────────────────────────────────

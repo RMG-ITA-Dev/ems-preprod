@@ -841,6 +841,11 @@ CREATE TABLE public.categories (
     can_approve_timesheets boolean DEFAULT false,
     default_app_role public.app_role,
     practica_id uuid NOT NULL,
+    -- BUG 0820-182 (ETL fase 1, plan_v2.md §3): rol del catálogo authorization_roles que la
+    -- categoría SUGIERE al vincular un usuario. Nace aquí para que forme parte de la estructura
+    -- inicial; el check "no admin" va en cero_03 y la FK en cero_04. cero_11 no asigna valores
+    -- (authorization_roles todavía está vacía): las 61 sugerencias se completan al final de cero_13.
+    default_role_key text,
     CONSTRAINT categories_display_order_positive CHECK ((display_order >= 1))
 );
 
@@ -2074,6 +2079,13 @@ BEGIN
 
   IF NOT FOUND THEN
     RETURN NEW;  -- Not a holiday applicable to this staff's office, allow
+  END IF;
+
+  -- Carga histórica del ETL F3 (decisión del operador, 03/11/2026): el legacy permitía trabajar en feriado.
+  -- Solo INSERT, solo desde la sesión propietaria (un cliente de la API entra como `authenticator`) y solo con la
+  -- marca que fija la transacción de carga. Los UPDATE y la carga manual siguen bloqueados.
+  IF TG_OP = 'INSERT' AND session_user = 'postgres' AND current_setting('etl.f3_historical_hours', true) = 'on' THEN
+    RETURN NEW;
   END IF;
 
   -- Read the holiday engagement setting
@@ -6459,6 +6471,142 @@ $$;
 
 
 --
+-- Name: seed_initial_holidays(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md F1-M07): el INSERT con CROSS JOIN a la ficha fija de
+-- cero_14 se sustituye por la función public.seed_initial_holidays(uuid). Una instalación nueva
+-- NO tiene ningún feriado hasta que la consola de fase 1 la ejecuta con el administrador ya
+-- confirmado; el CROSS JOIN contra un staff inexistente habría omitido las 28 filas en silencio.
+--
+-- Contrato:
+--   * LANGUAGE plpgsql, SECURITY INVOKER, search_path = public. Ejecutable SOLO por el propietario
+--     de las migraciones (conexión SQL del operador): se revoca de PUBLIC, anon, authenticated y
+--     service_role. Una función que escribe feriados a nombre de otra persona no se expone por API.
+--   * Valida que p_created_by sea un staff activo, no borrado, enlazado a Auth y con rol efectivo admin.
+--   * Compara las filas existentes con el catálogo y el autor esperado ANTES de aceptar una
+--     reanudación: un feriado con la misma (fecha, oficina) pero nombre o autor distinto aborta toda
+--     la llamada, sin sobrescribir nada.
+--   * Inserta solo los faltantes; una repetición correcta no modifica ninguna fila.
+--   * Comprueba el conjunto esperado completo y devuelve 28.
+CREATE FUNCTION public.seed_initial_holidays(p_created_by uuid)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO public
+AS $$
+DECLARE
+  v_expected constant integer := 28;
+  v_inserted integer;
+  v_present  integer;
+  v_conflicts text;
+BEGIN
+  IF p_created_by IS NULL THEN
+    RAISE EXCEPTION 'HOLIDAYS_ACTOR_INVALID: falta el staff autor';
+  END IF;
+
+  -- El rol se consulta con el helper SECURITY DEFINER has_role(), no con una lectura directa de la
+  -- tabla de roles: la suite B2 exige que toda función de public que lea esa tabla sea SECURITY
+  -- DEFINER del dueño. El helper comprueba el espejo app_role = admin, que handle_new_user() y
+  -- admin_set_user_role_key() mantienen sincronizado con role_key = admin.
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.staff s
+     WHERE s.staff_id = p_created_by
+       AND s.is_active IS TRUE
+       AND s.deleted_at IS NULL
+       AND s.auth_user_id IS NOT NULL
+       AND public.has_role(s.auth_user_id, 'admin'::public.app_role)
+  ) THEN
+    RAISE EXCEPTION 'HOLIDAYS_ACTOR_INVALID: % no es un staff activo, enlazado a Auth y con rol admin', p_created_by;
+  END IF;
+
+  -- Repetible dentro de una misma transacción: se descarta cualquier copia previa.
+  DROP TABLE IF EXISTS pg_temp._seed_holidays_catalog;
+  CREATE TEMP TABLE _seed_holidays_catalog (
+    holiday_date date NOT NULL,
+    holiday_name text NOT NULL,
+    oficina smallint NOT NULL,
+    PRIMARY KEY (holiday_date, oficina)
+  ) ON COMMIT DROP;
+
+  INSERT INTO _seed_holidays_catalog (holiday_date, holiday_name, oficina)
+  SELECT v.holiday_date::date, v.holiday_name, v.oficina
+  FROM (VALUES
+  -- 2026 — getBoliviaNationalHolidays(2026), con traslado dominical
+  ('2026-01-01', 'Año Nuevo',                                     0),
+  ('2026-01-22', 'Día del Estado Plurinacional',                  0),
+  ('2026-02-16', 'Lunes de Carnaval',                              0),
+  ('2026-02-17', 'Martes de Carnaval',                             0),
+  ('2026-04-03', 'Viernes Santo',                                  0),
+  ('2026-05-01', 'Día del Trabajo',                                0),
+  ('2026-06-04', 'Corpus Christi',                                 0),
+  ('2026-06-22', 'Año Nuevo Andino Amazónico',                     0),
+  ('2026-07-16', 'Aniversario del Departamento de La Paz',         1),
+  ('2026-08-06', 'Día de la Independencia',                        0),
+  ('2026-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
+  ('2026-11-02', 'Día de los Difuntos',                            0),
+  ('2026-12-25', 'Navidad',                                        0),
+  -- 2026 — extras del catálogo maestro, nombre con sufijo protegido (decisión 2026-08-23)
+  ('2026-06-05', 'Puente (Adicional)',                             0),
+  ('2026-08-07', 'Puente (Adicional)',                             0),
+  -- 2027 — getBoliviaNationalHolidays(2027), con traslado dominical
+  ('2027-01-01', 'Año Nuevo',                                     0),
+  ('2027-01-22', 'Día del Estado Plurinacional',                  0),
+  ('2027-02-08', 'Lunes de Carnaval',                              0),
+  ('2027-02-09', 'Martes de Carnaval',                             0),
+  ('2027-03-26', 'Viernes Santo',                                  0),
+  ('2027-05-01', 'Día del Trabajo',                                0),
+  ('2027-05-27', 'Corpus Christi',                                 0),
+  ('2027-06-21', 'Año Nuevo Andino Amazónico',                     0),
+  ('2027-07-16', 'Aniversario del Departamento de La Paz',         1),
+  ('2027-08-06', 'Día de la Independencia',                        0),
+  ('2027-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
+  ('2027-11-02', 'Día de los Difuntos',                            0),
+  ('2027-12-25', 'Navidad',                                        0)
+  ) AS v(holiday_date, holiday_name, oficina);
+
+  IF (SELECT count(*) FROM _seed_holidays_catalog) <> v_expected THEN
+    RAISE EXCEPTION 'HOLIDAYS_CATALOG_INVALID: el catálogo literal no tiene % filas', v_expected;
+  END IF;
+
+  SELECT string_agg(format('%s/oficina %s', h.holiday_date, h.oficina), ', ' ORDER BY h.holiday_date, h.oficina)
+    INTO v_conflicts
+    FROM public.holidays h
+    JOIN _seed_holidays_catalog c ON c.holiday_date = h.holiday_date AND c.oficina = h.oficina
+   WHERE h.holiday_name IS DISTINCT FROM c.holiday_name
+      OR h.created_by IS DISTINCT FROM p_created_by;
+  IF v_conflicts IS NOT NULL THEN
+    RAISE EXCEPTION 'HOLIDAYS_CONFLICT: feriados existentes contradicen el catálogo o el autor esperado: %', v_conflicts;
+  END IF;
+
+  INSERT INTO public.holidays (holiday_date, holiday_name, oficina, created_by)
+  SELECT c.holiday_date, c.holiday_name, c.oficina, p_created_by
+    FROM _seed_holidays_catalog c
+   WHERE NOT EXISTS (
+     SELECT 1 FROM public.holidays h
+      WHERE h.holiday_date = c.holiday_date AND h.oficina = c.oficina
+   );
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+
+  SELECT count(*) INTO v_present
+    FROM _seed_holidays_catalog c
+    JOIN public.holidays h
+      ON h.holiday_date = c.holiday_date AND h.oficina = c.oficina
+     AND h.holiday_name = c.holiday_name AND h.created_by = p_created_by;
+  IF v_present <> v_expected THEN
+    RAISE EXCEPTION 'HOLIDAYS_INCOMPLETE: el calendario tiene % de % filas esperadas (insertadas en esta llamada: %)', v_present, v_expected, v_inserted;
+  END IF;
+
+  RETURN v_present;
+END;
+$$;
+
+COMMENT ON FUNCTION public.seed_initial_holidays(uuid) IS
+  'ETL fase 1: siembra el calendario inicial (28 feriados) a nombre de un administrador confirmado. Solo propietario; repetible sin modificar filas; aborta ante contradicciones.';
+
+
+--
 --
 -- Name: staff_id_number_conflict(text, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -7601,7 +7749,7 @@ COMMENT ON COLUMN public.authorization_roles.legacy_app_role IS 'Valor del enum 
 CREATE TABLE public.clients (
     client_id uuid DEFAULT gen_random_uuid() NOT NULL,
     client_legal_name character varying(255) NOT NULL,
-    unique_tax_id character varying(50) NOT NULL,
+    tax_id character varying(50) NOT NULL,
     industry_id uuid,
     -- Cobranzas Fase 5 (issue #352, decisiones del operador Q20/Q52): los tres contact_* que
     -- vivian aca se retiran. Un solo contacto por cliente no alcanzaba: Cobranzas necesita el
@@ -7611,8 +7759,25 @@ CREATE TABLE public.clients (
     is_active boolean DEFAULT true,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    created_by_staff_id uuid
+    created_by_staff_id uuid,
+    -- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md §3, modelo de clientes de ETL 02): todos
+    -- nullable y SIN default; dominios, par padre/relación y FK en cero_03 / cero_04. El
+    -- guardado operativo (save_client_with_contacts) no los envía: INSERT deja NULL, UPDATE los conserva.
+    operating_name character varying(255),
+    client_type text,
+    parent_client_id uuid,
+    parent_relationship text,
+    client_origin text,
+    billing_tax_treatment text
 );
+
+
+--
+--
+-- Name: COLUMN clients.tax_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.tax_id IS 'NIT del cliente. NO es único: proyectos, sucursales y fideicomisos comparten NIT (p. ej. 99001, NIT genérico). La identidad técnica es client_id.';
 
 
 --
@@ -8036,6 +8201,9 @@ CREATE TABLE public.industries (
     industry_id uuid DEFAULT gen_random_uuid() NOT NULL,
     industry_name character varying(100) NOT NULL,
     fiscal_year_end character varying(50) NOT NULL,
+    -- ETL fase 1 (ETL 01): una industria retirada se conserva para las referencias históricas
+    -- pero no se ofrece para asignaciones nuevas. Dominio en cero_03 (industries_status_check).
+    status text DEFAULT 'active' NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now()
 );
@@ -8208,6 +8376,8 @@ CREATE TABLE public.time_entries (
     updated_at timestamp with time zone DEFAULT now(),
     period_id uuid,
     is_forecast boolean DEFAULT false,
+    etl_split_index smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT time_entries_etl_split_index_check CHECK ((etl_split_index > 0)),
     CONSTRAINT time_entries_hours_logged_check CHECK ((hours_logged >= (0)::numeric))
 );
 
@@ -9810,7 +9980,7 @@ $$;
 -- El id lo genera el formulario (mismo motivo que useCreateClient: el alta desde el cliente no
 -- puede leer la fila que acaba de crear).
 --
--- p_client: {client_legal_name, unique_tax_id, industry_id?, address?, is_active?}. En la
+-- p_client: {client_legal_name, tax_id, industry_id?, address?, is_active?}. En la
 -- edicion, una clave ausente deja el valor como esta (igual que el UPDATE parcial de antes).
 CREATE FUNCTION public.save_client_with_contacts(
   p_client_id uuid,
@@ -9840,11 +10010,11 @@ BEGIN
   END IF;
 
   IF p_is_new THEN
-    INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id, industry_id, address, is_active)
+    INSERT INTO public.clients (client_id, client_legal_name, tax_id, industry_id, address, is_active)
     VALUES (
       p_client_id,
       p_client->>'client_legal_name',
-      p_client->>'unique_tax_id',
+      p_client->>'tax_id',
       NULLIF(p_client->>'industry_id', '')::uuid,
       NULLIF(p_client->>'address', ''),
       COALESCE((p_client->>'is_active')::boolean, true)
@@ -9852,7 +10022,7 @@ BEGIN
   ELSE
     UPDATE public.clients c
        SET client_legal_name = CASE WHEN p_client ? 'client_legal_name' THEN p_client->>'client_legal_name' ELSE c.client_legal_name END,
-           unique_tax_id     = CASE WHEN p_client ? 'unique_tax_id' THEN p_client->>'unique_tax_id' ELSE c.unique_tax_id END,
+           tax_id            = CASE WHEN p_client ? 'tax_id' THEN p_client->>'tax_id' ELSE c.tax_id END,
            industry_id       = CASE WHEN p_client ? 'industry_id' THEN NULLIF(p_client->>'industry_id', '')::uuid ELSE c.industry_id END,
            address           = CASE WHEN p_client ? 'address' THEN NULLIF(p_client->>'address', '') ELSE c.address END,
            is_active         = CASE WHEN p_client ? 'is_active' THEN (p_client->>'is_active')::boolean ELSE c.is_active END
@@ -10246,7 +10416,8 @@ BEGIN
       e.manager_id,
       c.client_id,
       c.client_legal_name,
-      c.unique_tax_id,
+      -- ETL fase 1: la columna se llama tax_id; el alias conserva la clave JSON histórica unique_tax_id.
+      c.tax_id AS unique_tax_id,
       COALESCE(i.currency, wo.currency) AS row_currency,
       -- La fecha que la pantalla llama "vigente": la reprogramada si la hubo.
       COALESCE(i.current_invoice_date, i.agreed_invoice_date) AS invoice_date_vigente,

@@ -548,7 +548,7 @@ BEGIN
   -- piden estados opuestos: el plan de pagos no se puede crear sobre una OT aprobada o en
   -- revisión (trg_wo_payment_plan_guard_exchange_rate, EXCHANGE_RATE_LOCKED) y una solicitud de
   -- fondos sólo se puede imputar a una OT aprobada (fr_wo_validate_approved).
-  INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id)
   VALUES (c_cli, 'CORREO Cliente Uno', 'CORREO-9C01');
 
   INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code,

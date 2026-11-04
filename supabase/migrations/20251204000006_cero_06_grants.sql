@@ -2291,3 +2291,10 @@ REVOKE ALL ON FUNCTION public.sync_worksheet_status_from_work_order() FROM PUBLI
 -- 0923-198: función de trigger SECURITY DEFINER (piso de la fecha de inicio del encargo). Nadie la llama
 -- directo; se cierra a PUBLIC, anon y authenticated porque una función nace ejecutable por PUBLIC.
 REVOKE ALL ON FUNCTION public.engagements_guard_start_date_floor() FROM PUBLIC, anon, authenticated;
+
+-- ETL fase 1 (F1-M07): seed_initial_holidays(uuid) escribe feriados a nombre de otra persona; solo el propietario de las
+-- migraciones (conexión SQL del operador) la ejecuta. Se cierra a PUBLIC, anon, authenticated y service_role: no se expone por API.
+REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM authenticated;
+REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM service_role;

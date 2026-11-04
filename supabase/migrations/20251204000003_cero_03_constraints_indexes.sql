@@ -135,11 +135,42 @@ ALTER TABLE ONLY public.clients
 
 --
 --
--- Name: clients clients_unique_tax_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md §3, F1-M02): la unicidad global de NIT
+-- (clients_unique_tax_id_key) se retira. Proyectos, sucursales y fideicomisos comparten NIT
+-- legítimamente (p. ej. 99001); la identidad técnica es client_id. Se sustituye por un índice
+-- NO único más abajo (idx_clients_tax_id) y por los dominios del modelo de ETL 02.
+--
+-- Name: clients clients_*_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.clients
-    ADD CONSTRAINT clients_unique_tax_id_key UNIQUE (unique_tax_id);
+    ADD CONSTRAINT clients_client_type_check
+    CHECK (client_type IN ('entidad', 'sucursal', 'proyecto', 'fideicomiso'));
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_parent_relationship_check
+    CHECK (parent_relationship IN ('proyecto_de', 'sucursal_de', 'administrado_por'));
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_client_origin_check
+    CHECK (client_origin IN ('nacional', 'extranjero', 'diplomatico'));
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_billing_tax_treatment_check
+    CHECK (billing_tax_treatment IN ('nit_propio', 'nit_generico_99001', 'pendiente'));
+
+-- Padre y relación van juntos: ambos informados o ambos NULL.
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_parent_pair_check
+    CHECK ((parent_client_id IS NULL) = (parent_relationship IS NULL));
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_parent_not_self_check
+    CHECK (parent_client_id IS DISTINCT FROM client_id);
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_fideicomiso_not_sucursal_check
+    CHECK (client_type IS DISTINCT FROM 'fideicomiso' OR parent_relationship IS DISTINCT FROM 'sucursal_de');
 
 
 --
@@ -291,6 +322,28 @@ ALTER TABLE ONLY public.holidays
 
 ALTER TABLE ONLY public.industries
     ADD CONSTRAINT industries_industry_name_key UNIQUE (industry_name);
+
+
+--
+--
+-- Name: industries industries_status_check; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.industries
+    ADD CONSTRAINT industries_status_check CHECK (status IN ('active', 'inactive'));
+
+
+--
+--
+-- Name: categories categories_default_role_key_not_admin; Type: CHECK CONSTRAINT; Schema: public; Owner: -
+--
+-- BUG 0820-182 (ETL fase 1, F1-M02): una categoría nunca puede sugerir `admin`. Sugerirlo
+-- convertiría un cambio de categoría en una vía de escalada de privilegios; el filtro del
+-- desplegable y el guard de StaffForm son de cliente y un bundle viejo, un RPC llamado a mano
+-- o un restore podrían saltárselos. Esto no.
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_default_role_key_not_admin CHECK (default_role_key IS DISTINCT FROM 'admin');
 
 
 --
@@ -765,10 +818,17 @@ CREATE UNIQUE INDEX activity_codes_active_code_unique ON public.activity_codes U
 
 --
 --
--- Name: clients_client_legal_name_unique; Type: INDEX; Schema: public; Owner: -
+-- ETL fase 1 (F1-M02): el índice ÚNICO clients_client_legal_name_unique se retira (razones
+-- sociales repetidas son legítimas en ETL 02). Se conservan índices de búsqueda NO únicos.
+--
+-- Name: idx_clients_legal_name / idx_clients_tax_id / idx_clients_parent_client_id; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX clients_client_legal_name_unique ON public.clients USING btree (lower(TRIM(BOTH FROM client_legal_name)));
+CREATE INDEX idx_clients_legal_name ON public.clients USING btree (lower(TRIM(BOTH FROM client_legal_name)));
+
+CREATE INDEX idx_clients_tax_id ON public.clients USING btree (tax_id);
+
+CREATE INDEX idx_clients_parent_client_id ON public.clients USING btree (parent_client_id) WHERE (parent_client_id IS NOT NULL);
 
 
 --
@@ -1056,7 +1116,7 @@ CREATE INDEX idx_time_entries_staff_date ON public.time_entries USING btree (sta
 -- Name: idx_time_entries_unique_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast);
+CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast, etl_split_index);
 
 
 --

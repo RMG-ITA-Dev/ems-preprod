@@ -162,19 +162,24 @@ const defaultRoleKeySql = readFileSync(
 );
 
 describe("categories.default_role_key (0820-182)", () => {
-  it("adds the column idempotently and FKs it to the authorization_roles catalog", () => {
-    expect(defaultRoleKeySql).toMatch(
-      /ALTER TABLE public\.categories\s+ADD COLUMN IF NOT EXISTS default_role_key text;/,
-    );
+  // ETL fase 1 (F1-M11): la columna, su FK y su check nacen en la estructura inicial (cero_02 /
+  // cero_03 / cero_04); 20260825000000 ya NO los declara, solo comprueba que existan una vez.
+  it("declares the column in the initial structure and FKs it to the authorization_roles catalog (cero_04)", () => {
+    const categoriesTable = /CREATE TABLE public\.categories \(([\s\S]*?)\r?\n\);/.exec(sql)?.[1] ?? "";
+    expect(categoriesTable).toMatch(/\n\s+default_role_key text,/);
     // El FK al catálogo es lo que impide guardar un role_key inexistente: sin él, la
     // "sugerencia" podría apuntar a un rol que ya no existe.
-    expect(defaultRoleKeySql).toMatch(
-      /ADD CONSTRAINT categories_default_role_key_fkey\s+FOREIGN KEY \(default_role_key\)\s+REFERENCES public\.authorization_roles\(role_key\)/,
+    expect(fksSql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_fkey FOREIGN KEY \(default_role_key\) REFERENCES public\.authorization_roles\(role_key\) ON UPDATE CASCADE ON DELETE SET NULL/,
     );
-    // Idempotencia: se puede re-pegar la migración completa sin chocar con 42710.
-    expect(defaultRoleKeySql).toContain(
-      "DROP CONSTRAINT IF EXISTS categories_default_role_key_fkey",
-    );
+  });
+
+  it("20260825000000 no longer redeclares the structure, it only asserts it exists once", () => {
+    expect(defaultRoleKeySql).not.toContain("ADD COLUMN IF NOT EXISTS default_role_key");
+    expect(defaultRoleKeySql).not.toContain("ADD CONSTRAINT categories_default_role_key_fkey");
+    expect(defaultRoleKeySql).not.toContain("ADD CONSTRAINT categories_default_role_key_not_admin");
+    expect(defaultRoleKeySql).toContain("categories_default_role_key_fkey debe existir una vez");
+    expect(defaultRoleKeySql).toContain("categories_default_role_key_not_admin debe existir una vez");
   });
 
   it.each(["create_category_for_practice", "update_category_for_practice"])(
@@ -261,11 +266,9 @@ describe("categories.default_role_key (0820-182)", () => {
     // Sugerir `admin` por categoría convierte un cambio de categoría en escalada de
     // privilegios. Los filtros de UI son de cliente; el CHECK no se puede saltear con un
     // bundle viejo, un RPC a mano o un restore.
-    expect(defaultRoleKeySql).toContain(
-      "DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin",
-    );
-    expect(defaultRoleKeySql).toMatch(
-      /ADD CONSTRAINT categories_default_role_key_not_admin\s+CHECK \(default_role_key IS DISTINCT FROM 'admin'\)/,
+    // ETL fase 1: el CHECK nace con la estructura inicial (cero_03).
+    expect(constraintsSql).toMatch(
+      /ADD CONSTRAINT categories_default_role_key_not_admin CHECK \(default_role_key IS DISTINCT FROM 'admin'\)/,
     );
   });
 

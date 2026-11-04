@@ -20,41 +20,52 @@
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- 1) Columna + FK al catálogo
+-- 1) Columna, FK y check: TRASLADADOS a migración cero (ETL fase 1, F1-M11)
 -- ---------------------------------------------------------------------
--- NULL = "Ninguno" (la categoría no sugiere rol). No se fuerza NOT NULL: es un
--- dato opcional que el admin llena por categoría cuando le sirve.
-ALTER TABLE public.categories
-  ADD COLUMN IF NOT EXISTS default_role_key text;
+-- `categories.default_role_key` nace ahora en cero_02 (columna), cero_03 (check "no admin") y
+-- cero_04 (FK a authorization_roles, ON UPDATE CASCADE ON DELETE SET NULL), para que forme parte
+-- de la estructura inicial de una instalación nueva. Esta migración ya NO la declara: solo
+-- comprueba que la estructura exista UNA vez y con la forma esperada, y conserva el resto
+-- (comentario, RPC modernas, copia entre prácticas, sincronización de roles y permisos).
+-- Semántica intacta: NULL = "Ninguno"; es una sugerencia, no una asignación; un cambio de
+-- categoría nunca puede sugerir `admin` (check), ni siquiera por un RPC llamado a mano o un restore.
+DO $$
+DECLARE
+  v_fk    record;
+  v_check integer;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'categories'
+       AND column_name = 'default_role_key' AND data_type = 'text'
+  ) THEN
+    RAISE EXCEPTION 'F1-M11: falta categories.default_role_key (debe nacer en cero_02)';
+  END IF;
+
+  SELECT count(*) AS n, min(confupdtype::text) AS upd, min(confdeltype::text) AS del
+    INTO v_fk
+    FROM pg_constraint
+   WHERE conrelid = 'public.categories'::regclass
+     AND conname = 'categories_default_role_key_fkey'
+     AND contype = 'f'
+     AND confrelid = 'public.authorization_roles'::regclass;
+  IF v_fk.n <> 1 OR v_fk.upd <> 'c' OR v_fk.del <> 'n' THEN
+    RAISE EXCEPTION 'F1-M11: categories_default_role_key_fkey debe existir una vez, ON UPDATE CASCADE ON DELETE SET NULL (cero_04); encontradas=%', v_fk.n;
+  END IF;
+
+  SELECT count(*) INTO v_check
+    FROM pg_constraint
+   WHERE conrelid = 'public.categories'::regclass
+     AND conname = 'categories_default_role_key_not_admin'
+     AND contype = 'c';
+  IF v_check <> 1 THEN
+    RAISE EXCEPTION 'F1-M11: categories_default_role_key_not_admin debe existir una vez (cero_03); encontradas=%', v_check;
+  END IF;
+END
+$$;
 
 COMMENT ON COLUMN public.categories.default_role_key IS
   'Rol del catálogo authorization_roles que esta categoría SUGIERE al vincular un usuario. Es una sugerencia, no una asignación: el rol efectivo se gestiona en Configuración → Roles de Usuario y siempre puede diferir. NULL = ninguno.';
-
--- Idempotente: DROP antes de ADD para poder re-aplicar la migración completa.
-ALTER TABLE public.categories
-  DROP CONSTRAINT IF EXISTS categories_default_role_key_fkey;
-
-ALTER TABLE public.categories
-  ADD CONSTRAINT categories_default_role_key_fkey
-  FOREIGN KEY (default_role_key)
-  REFERENCES public.authorization_roles(role_key)
-  ON UPDATE CASCADE
-  ON DELETE SET NULL;
-
--- ---------------------------------------------------------------------
--- 2) El invariante: una categoría nunca puede sugerir `admin`
--- ---------------------------------------------------------------------
--- Sugerir `admin` por categoría convertiría un cambio de categoría en una vía de
--- escalada de privilegios. El filtro del desplegable y el guard de StaffForm son de
--- cliente: un bundle viejo, un RPC llamado a mano o un restore podrían saltárselos.
--- Esto no. Se crea ANTES del backfill (que vive en 20260825000100) a propósito: si ese
--- backfill intentara alguna vez asignar `admin`, la migración falla en vez de pasar.
-ALTER TABLE public.categories
-  DROP CONSTRAINT IF EXISTS categories_default_role_key_not_admin;
-
-ALTER TABLE public.categories
-  ADD CONSTRAINT categories_default_role_key_not_admin
-  CHECK (default_role_key IS DISTINCT FROM 'admin');
 
 -- ---------------------------------------------------------------------
 -- 3) RPC de creación — firma nueva

@@ -10,44 +10,29 @@
 -- "(Adicional)" exigido por §0.1, así NATIONAL_HOLIDAY_NAMES nunca las puede colisionar
 -- ni el botón "Generar" las toca.
 --
--- created_by: sub-select del staff del bootstrap (cero_14) por email — depende de cero_14.
+-- La función public.seed_initial_holidays(uuid) vive ahora donde la regla del repositorio
+-- (docs/operations.md, «Edit migrations in place») pone cada cosa: la función en cero_02 y sus permisos
+-- (REVOKE de PUBLIC, anon, authenticated y service_role) al final de cero_06. Este archivo conserva el
+-- contrato documentado y es un paso sin cambios: no siembra filas ni declara objetos.
+--
+-- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md F1-M07): el INSERT con CROSS JOIN a la ficha fija de
+-- cero_14 se sustituye por la función public.seed_initial_holidays(uuid). Una instalación nueva
+-- NO tiene ningún feriado hasta que la consola de fase 1 la ejecuta con el administrador ya
+-- confirmado; el CROSS JOIN contra un staff inexistente habría omitido las 28 filas en silencio.
+--
+-- Contrato:
+--   * LANGUAGE plpgsql, SECURITY INVOKER, search_path = public. Ejecutable SOLO por el propietario
+--     de las migraciones (conexión SQL del operador): se revoca de PUBLIC, anon, authenticated y
+--     service_role. Una función que escribe feriados a nombre de otra persona no se expone por API.
+--   * Valida que p_created_by sea un staff activo, no borrado, enlazado a Auth y con rol efectivo admin.
+--   * Compara las filas existentes con el catálogo y el autor esperado ANTES de aceptar una
+--     reanudación: un feriado con la misma (fecha, oficina) pero nombre o autor distinto aborta toda
+--     la llamada, sin sobrescribir nada.
+--   * Inserta solo los faltantes; una repetición correcta no modifica ninguna fila.
+--   * Comprueba el conjunto esperado completo y devuelve 28.
 
-INSERT INTO public.holidays (holiday_date, holiday_name, oficina, created_by)
-SELECT v.holiday_date::date, v.holiday_name, v.oficina, s.staff_id
-FROM (VALUES
-  -- 2026 — getBoliviaNationalHolidays(2026), con traslado dominical
-  ('2026-01-01', 'Año Nuevo',                                     0),
-  ('2026-01-22', 'Día del Estado Plurinacional',                  0),
-  ('2026-02-16', 'Lunes de Carnaval',                              0),
-  ('2026-02-17', 'Martes de Carnaval',                             0),
-  ('2026-04-03', 'Viernes Santo',                                  0),
-  ('2026-05-01', 'Día del Trabajo',                                0),
-  ('2026-06-04', 'Corpus Christi',                                 0),
-  ('2026-06-22', 'Año Nuevo Andino Amazónico',                     0),
-  ('2026-07-16', 'Aniversario del Departamento de La Paz',         1),
-  ('2026-08-06', 'Día de la Independencia',                        0),
-  ('2026-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
-  ('2026-11-02', 'Día de los Difuntos',                            0),
-  ('2026-12-25', 'Navidad',                                        0),
-  -- 2026 — extras del catálogo maestro, nombre con sufijo protegido (decisión 2026-08-23)
-  ('2026-06-05', 'Puente (Adicional)',                             0),
-  ('2026-08-07', 'Puente (Adicional)',                             0),
-  -- 2027 — getBoliviaNationalHolidays(2027), con traslado dominical
-  ('2027-01-01', 'Año Nuevo',                                     0),
-  ('2027-01-22', 'Día del Estado Plurinacional',                  0),
-  ('2027-02-08', 'Lunes de Carnaval',                              0),
-  ('2027-02-09', 'Martes de Carnaval',                             0),
-  ('2027-03-26', 'Viernes Santo',                                  0),
-  ('2027-05-01', 'Día del Trabajo',                                0),
-  ('2027-05-27', 'Corpus Christi',                                 0),
-  ('2027-06-21', 'Año Nuevo Andino Amazónico',                     0),
-  ('2027-07-16', 'Aniversario del Departamento de La Paz',         1),
-  ('2027-08-06', 'Día de la Independencia',                        0),
-  ('2027-09-24', 'Aniversario del Departamento de Santa Cruz',     2),
-  ('2027-11-02', 'Día de los Difuntos',                            0),
-  ('2027-12-25', 'Navidad',                                        0)
-) AS v(holiday_date, holiday_name, oficina)
-CROSS JOIN (
-  SELECT staff_id FROM public.staff WHERE lower(trim(email)) = 'neilgraneros@ruizmier.com'
-) AS s
-ON CONFLICT (holiday_date, oficina) DO NOTHING;
+DO $$
+BEGIN
+  RAISE NOTICE 'cero_15: sin feriados sembrados; usar scripts/etl/fase1.mjs initialize (public.seed_initial_holidays, definida en cero_02)';
+END
+$$;

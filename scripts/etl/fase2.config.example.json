@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "environment": "local",
+  "expectedProjectRef": "local",
+  "supabaseUrl": "http://127.0.0.1:54321",
+  "installationId": "f2-ensayo-local-0001",
+  "bootstrapAdminEmail": "admin@ruizmier.com",
+  "snapshot": "TimeControlDB_20261023_1200",
+  "inputs": {
+    "clients": "C:\\tmp\\etl-f2\\02_clientes.csv",
+    "contacts": "C:\\tmp\\etl-f2\\02_1_contactos.csv",
+    "staff": "C:\\tmp\\etl-f2\\03_staff.csv",
+    "users": "C:\\tmp\\etl-f2\\03_usuarios.csv",
+    "rates": "C:\\tmp\\etl-f2\\04_rates_auditoria.csv",
+    "services": "C:\\tmp\\etl-f2\\06_servicios_equivalencias.csv"
+  },
+  "expectations": { "clients": 6, "contacts": 2, "staff": 4, "users": 4, "rates": 1, "services": 2, "activeStaff": 3, "inactiveStaff": 1, "schedulableStaff": 3 }
+}

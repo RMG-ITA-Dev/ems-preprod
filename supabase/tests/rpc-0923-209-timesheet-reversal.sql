@@ -51,7 +51,7 @@ INSERT INTO public.society (society_id, name)
 VALUES ('50c92320-9000-4000-8000-000000000001', '0923-209 Test Society')
 ON CONFLICT (society_id) DO NOTHING;
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1923209-0000-4000-8000-000000000001', '0923-209 Test Client', '0923209-TAX-001');
 
 INSERT INTO auth.users (id) VALUES

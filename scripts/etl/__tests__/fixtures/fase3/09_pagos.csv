@@ -1,0 +1,2 @@
+legacy_plan_payment_id,legacy_cot,legacy_installment_number,legacy_detail,legacy_percentage,legacy_invoice_date,legacy_currency_raw,legacy_exchange_rate,legacy_fee_with_tax,proposed_disposition
+pp1,2026.11.001,1,Factura,100,2026-01-01,0,,100,installment

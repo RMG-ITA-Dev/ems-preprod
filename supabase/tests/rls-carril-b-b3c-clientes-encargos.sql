@@ -27,7 +27,7 @@ BEGIN;
 
 -- ── Fixtures (como owner; sin claims, los triggers de perfil dejan pasar) ──────────────────────
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('c1b3cc00-0000-4000-8000-000000000001', 'B3cc Cliente Uno', 'B3CC-TAX-001'),
   ('c1b3cc00-0000-4000-8000-000000000002', 'B3cc Cliente Dos', 'B3CC-TAX-002');
 
@@ -292,24 +292,32 @@ BEGIN
 
   -- 5. Alta de cliente ───────────────────────────────────────────────────────────────────────────────
   -- El gerente crea con RETURNING y lo ve (política "creator read"); el asistente no puede crear.
-  v_err := pg_temp.try_as(u2, 'INSERT INTO public.clients (client_legal_name, unique_tax_id) VALUES (''B3cc Cliente Tres'', ''B3CC-TAX-003'') RETURNING client_id');
+  v_err := pg_temp.try_as(u2, 'INSERT INTO public.clients (client_legal_name, tax_id) VALUES (''B3cc Cliente Tres'', ''B3CC-TAX-003'') RETURNING client_id');
   IF v_err IS NOT NULL THEN RAISE EXCEPTION 'B3c FAIL — el gerente debía crear un cliente con RETURNING (err=%)', v_err; END IF;
   IF pg_temp.count_as(u2, 'clients') <> 2 THEN
     RAISE EXCEPTION 'B3c FAIL — el gerente debía ver el cliente que creó, además del de su encargo';
   END IF;
-  v_err := pg_temp.try_as(u5, 'INSERT INTO public.clients (client_legal_name, unique_tax_id) VALUES (''B3cc Intruso'', ''B3CC-TAX-999'')');
+  v_err := pg_temp.try_as(u5, 'INSERT INTO public.clients (client_legal_name, tax_id) VALUES (''B3cc Intruso'', ''B3CC-TAX-999'')');
   IF v_err IS NULL OR v_err NOT LIKE '42501%' THEN
     RAISE EXCEPTION 'B3c FAIL — el asistente pudo crear un cliente (err=%)', v_err;
   END IF;
-  -- NIT de un cliente que el gerente NO ve: el chequeo previo no lo encuentra y la base responde 23505.
-  IF pg_temp.scalar_as(u2, 'SELECT count(*) FROM public.clients WHERE unique_tax_id = ''B3CC-TAX-002''') <> 0 THEN
+  -- ETL fase 1: el NIT ya NO es único (proyectos, sucursales y fideicomisos lo comparten). Dar de alta un cliente con
+  -- el NIT de otro que el gerente NO ve ahora se acepta; lo que se conserva es la denegación de LECTURA del cliente
+  -- ajeno: el gerente sigue sin verlo y solo ve el que creó.
+  IF pg_temp.scalar_as(u2, 'SELECT count(*) FROM public.clients WHERE tax_id = ''B3CC-TAX-002''') <> 0 THEN
     RAISE EXCEPTION 'B3c FAIL — el gerente no debía ver el cliente de otro encargo al buscar por NIT';
   END IF;
-  v_err := pg_temp.try_as(u2, 'INSERT INTO public.clients (client_legal_name, unique_tax_id) VALUES (''B3cc Otro Nombre'', ''B3CC-TAX-002'')');
-  IF v_err IS NULL OR v_err NOT LIKE '23505%' THEN
-    RAISE EXCEPTION 'B3c FAIL — el NIT duplicado debía dar 23505 aunque el cliente sea invisible (err=%)', v_err;
+  v_err := pg_temp.try_as(u2, 'INSERT INTO public.clients (client_legal_name, tax_id) VALUES (''B3cc Otro Nombre'', ''B3CC-TAX-002'')');
+  IF v_err IS NOT NULL THEN
+    RAISE EXCEPTION 'B3c FAIL — el NIT repetido de un cliente invisible debía aceptarse (ya no hay unicidad de NIT) (err=%)', v_err;
   END IF;
-  RAISE NOTICE 'PASS — alta: el gerente crea y lo ve; el asistente no crea; un NIT ajeno invisible da 23505 (la app muestra el aviso sin variables)';
+  IF pg_temp.scalar_as(u2, 'SELECT count(*) FROM public.clients WHERE tax_id = ''B3CC-TAX-002''') <> 1
+     OR pg_temp.scalar_as(u2, 'SELECT count(*) FROM public.clients WHERE client_legal_name = ''B3cc Cliente Dos''') <> 0 THEN
+    RAISE EXCEPTION 'B3c FAIL — con el NIT repetido el gerente solo debía ver el cliente que creó, nunca el ajeno';
+  END IF;
+  -- Se retira el cliente de la prueba (como owner) para que las secciones siguientes partan del mismo estado.
+  DELETE FROM public.clients WHERE client_legal_name = 'B3cc Otro Nombre';
+  RAISE NOTICE 'PASS — alta: el gerente crea y lo ve; el asistente no crea; un NIT repetido se acepta y el cliente ajeno sigue invisible';
 
   -- 6. Escritura de clientes y encargos ───────────────────────────────────────────────────────────
   SELECT count(*) INTO v_tot FROM public.clients;

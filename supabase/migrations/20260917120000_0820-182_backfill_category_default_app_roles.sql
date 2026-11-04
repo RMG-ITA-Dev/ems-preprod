@@ -17,16 +17,13 @@
 -- el mismo valor. Si faltara una práctica/categoría esperada, aborta en vez de
 -- actualizar un subconjunto silenciosamente.
 --
--- Las 3 categorías de Auditoría / Especialista IT usan acá "ITA" (no "IT" como
--- en cero_11): Dev 2.0 ya tenía esas 3 filas con "ITA" de prototipado manual
--- previo al seed, y el resto de la app usa "ITA" de forma consistente
--- (role_key ita_manager/ita_senior/ita_assistant, src/locales/es.json,
--- plantillas de correo) — "IT" en cero_11 es el nombre desactualizado. No se
--- corrige cero_11 mismo motivo que fecha_local_current_date.sql no toca
--- cero_02: hay ambientes que lo corrieron con ledger (supabase db push), así
--- que un push posterior lo saltea y nunca recogería el cambio, y el archivo
--- queda como registro histórico de lo que realmente se aplicó. Esta migración
--- pasa a ser la fuente vigente para esas 3 categorías.
+-- Supervisor sugiere 'manager' (ETL fase 1, F1-CA03): las 6 prácticas con esa categoría.
+-- Las 3 categorías de Auditoría / Especialista ITA: cero_11 las siembra ahora con "ITA"
+-- (antes sembraba "IT", nombre desactualizado frente a role_key ita_*, src/locales/es.json y las
+-- plantillas de correo). La normalización IT→ITA de más abajo se conserva para ambientes
+-- sembrados con el cero_11 anterior o con drift manual: en una instalación nueva es un no-op.
+-- Los ambientes con ledger (supabase db push) no recogen ediciones de archivos ya aplicados,
+-- así que para ellos esta migración sigue siendo la fuente vigente.
 --
 -- Despliegue: supabase db push --project-ref <ref>
 -- =====================================================================
@@ -47,7 +44,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Auditoría', 'SQR', 'sqr'),
   ('Auditoría', 'Director', 'director'),
   ('Auditoría', 'Gerente', 'manager'),
-  ('Auditoría', 'Supervisor', 'senior'),
+  ('Auditoría', 'Supervisor', 'manager'),
   ('Auditoría', 'Senior', 'senior'),
   ('Auditoría', 'Semi-Senior', 'semisenior'),
   ('Auditoría', 'Asistente', 'staff'),
@@ -62,7 +59,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Compliance', 'Socio', 'partner'),
   ('Compliance', 'Director', 'director'),
   ('Compliance', 'Gerente', 'manager'),
-  ('Compliance', 'Supervisor', 'senior'),
+  ('Compliance', 'Supervisor', 'manager'),
   ('Compliance', 'Senior', 'senior'),
   ('Compliance', 'Semi Senior', 'semisenior'),
   ('Compliance', 'Asistente', 'staff'),
@@ -71,7 +68,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Tax & Advisory', 'Socio', 'partner'),
   ('Tax & Advisory', 'Director', 'director'),
   ('Tax & Advisory', 'Gerente', 'manager'),
-  ('Tax & Advisory', 'Supervisor', 'senior'),
+  ('Tax & Advisory', 'Supervisor', 'manager'),
   ('Tax & Advisory', 'Senior', 'senior'),
   ('Tax & Advisory', 'Semi Senior', 'semisenior'),
   ('Tax & Advisory', 'Asistente', 'staff'),
@@ -80,7 +77,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Precios de Transferencias', 'Socio', 'partner'),
   ('Precios de Transferencias', 'Director', 'director'),
   ('Precios de Transferencias', 'Gerente', 'manager'),
-  ('Precios de Transferencias', 'Supervisor', 'senior'),
+  ('Precios de Transferencias', 'Supervisor', 'manager'),
   ('Precios de Transferencias', 'Senior', 'senior'),
   ('Precios de Transferencias', 'Semi Senior', 'semisenior'),
   ('Precios de Transferencias', 'Asistente', 'staff'),
@@ -89,7 +86,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('M&A', 'Socio', 'partner'),
   ('M&A', 'Director', 'director'),
   ('M&A', 'Gerente', 'manager'),
-  ('M&A', 'Supervisor', 'senior'),
+  ('M&A', 'Supervisor', 'manager'),
   ('M&A', 'Senior', 'senior'),
   ('M&A', 'Semi Senior', 'semisenior'),
   ('M&A', 'Asistente', 'staff'),
@@ -105,7 +102,7 @@ INSERT INTO _0820_182_category_role_defaults (
   ('Growth & Strategy', 'Socio', 'partner'),
   ('Growth & Strategy', 'Director', 'director'),
   ('Growth & Strategy', 'Gerente', 'manager'),
-  ('Growth & Strategy', 'Supervisor', 'senior'),
+  ('Growth & Strategy', 'Supervisor', 'manager'),
   ('Growth & Strategy', 'Senior', 'senior'),
   ('Growth & Strategy', 'Semi Senior', 'semisenior'),
   ('Growth & Strategy', 'Asistente', 'staff'),
@@ -128,12 +125,10 @@ UPDATE _0820_182_category_role_defaults
 ALTER TABLE _0820_182_category_role_defaults
   ALTER COLUMN practice_code SET NOT NULL;
 
--- Renombra las 3 categorías de Auditoría / Especialista IT a "ITA" si todavía
--- existen con el nombre viejo de cero_11 -- un reset limpio (CI consolidated-
--- replay, o cualquier ambiente sembrado solo por migraciones) las siembra así,
--- porque cero_11 nunca se edita (ver comentario de arriba). Es un no-op donde
--- ya se llaman "ITA" (Dev 2.0, prototipado manual previo al seed), así que el
--- join de más abajo matchea sin importar de qué estado parte el ambiente.
+-- Renombra las 3 categorías de Auditoría / Especialista IT a "ITA" si todavía existen con el
+-- nombre viejo (ambientes sembrados con el cero_11 anterior). Es un no-op donde ya se llaman
+-- "ITA" (instalación nueva, Dev 2.0), así que el join de más abajo matchea sin importar de qué
+-- estado parta el ambiente.
 --
 -- Guardia previa: si por drift manual un ambiente llegara a tener AMBAS
 -- variantes (IT e ITA) para la misma categoría, el UPDATE de abajo chocaría

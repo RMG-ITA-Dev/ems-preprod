@@ -38,7 +38,7 @@ describe("useClientMutations", () => {
 
       result.current.mutate({
         client_legal_name: "Acme Corp",
-        unique_tax_id: "123456789",
+        tax_id: "123456789",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -47,7 +47,7 @@ describe("useClientMutations", () => {
       // Se envía el payload sin RETURNING: insert() se resuelve solo.
       expect(mockInsert).toHaveBeenCalledWith({
         client_legal_name: "Acme Corp",
-        unique_tax_id: "123456789",
+        tax_id: "123456789",
       });
       expect(toast.success).toHaveBeenCalled();
     });
@@ -66,7 +66,7 @@ describe("useClientMutations", () => {
       result.current.mutate({
         client_id: "11111111-1111-4111-8111-111111111111",
         client_legal_name: "Acme Corp",
-        unique_tax_id: "123456789",
+        tax_id: "123456789",
         address: "Av. Siempre Viva 742",
       });
 
@@ -137,7 +137,7 @@ describe("useClientMutations", () => {
 
       result.current.mutate({
         client_legal_name: "Duplicate Corp",
-        unique_tax_id: "999",
+        tax_id: "999",
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
@@ -161,7 +161,7 @@ describe("useClientMutations", () => {
 
       result.current.mutate({
         client_legal_name: "Some Corp",
-        unique_tax_id: "DUPLICATE-NIT",
+        tax_id: "DUPLICATE-NIT",
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
@@ -188,7 +188,7 @@ describe("useClientMutations", () => {
 
       result.current.mutate({
         client_legal_name: "Test",
-        unique_tax_id: "123",
+        tax_id: "123",
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
@@ -214,7 +214,7 @@ describe("useClientMutations", () => {
 
       result.current.mutate({
         client_legal_name: "Test",
-        unique_tax_id: "123",
+        tax_id: "123",
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));

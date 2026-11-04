@@ -1,0 +1,18 @@
+{
+  "environment": "local",
+  "expectedProjectRef": "local",
+  "supabaseUrl": "http://127.0.0.1:54321",
+  "installationId": "f1-ensayo-local-0001",
+  "admin": {
+    "email": "admin@ruizmier.com",
+    "firstName": "Admin",
+    "lastName": "EMS",
+    "shortName": "adminems",
+    "idNumber": "0000001",
+    "hireDate": "2026-01-01",
+    "city": "La Paz",
+    "societyName": "Ruizmier Pelaez S.R.L.",
+    "practiceCode": "AUD",
+    "categoryName": "Socio"
+  }
+}

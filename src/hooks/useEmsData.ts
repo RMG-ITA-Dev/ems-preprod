@@ -40,6 +40,8 @@ export interface Industry {
   industry_id: string;
   industry_name: string;
   fiscal_year_end: string;
+  // ETL fase 1: estado del catálogo (solo tipo; la UI aún no lo usa).
+  status?: "active" | "inactive";
 }
 
 // Staff interface for staff_directory view (non-sensitive fields only)
@@ -94,12 +96,19 @@ export interface StaffFull extends Staff {
   staff_skills?: StaffSkillWithSkill[];
 }
 
-// Client interface - includes unique_tax_id (NIT is public tax ID, not sensitive)
+// Client interface - includes tax_id (NIT is public tax ID, not sensitive)
 export interface Client {
   client_id: string;
   client_legal_name: string;
-  unique_tax_id: string;
+  tax_id: string;
   industry_id: string | null;
+  // ETL fase 1: atributos de clasificación y relación (nullable, sin editores; solo tipos).
+  operating_name?: string | null;
+  client_type?: "entidad" | "sucursal" | "proyecto" | "fideicomiso" | null;
+  parent_client_id?: string | null;
+  parent_relationship?: "proyecto_de" | "sucursal_de" | "administrado_por" | null;
+  client_origin?: "nacional" | "extranjero" | "diplomatico" | null;
+  billing_tax_treatment?: "nit_propio" | "nit_generico_99001" | "pendiente" | null;
   // Cobranzas Fase 5: los contactos viven en client_contacts, con tipo.
   contacts?: Array<{
     contact_id: string;
@@ -116,7 +125,7 @@ export interface Client {
 
 // Full client interface for admin use only (includes tax ID)
 export interface ClientFull extends Client {
-  unique_tax_id: string;
+  tax_id: string;
 }
 
 // B3c (RLS de clients): el cliente que viaja embebido en encargos, OT y aprobaciones sale de la vista
@@ -733,7 +742,7 @@ export function useActiveStaffWithSkills() {
   });
 }
 
-// useClients returns client data including NIT (unique_tax_id is public tax ID, not sensitive)
+// useClients returns client data including NIT (tax_id is public tax ID, not sensitive)
 // Queries base table with explicit columns to allow embedded joins
 // Cobranzas Fase 5: el contacto dejó de ser una columna de la ficha; viene embebido desde
 // client_contacts, con su tipo. La lista de Clientes muestra el general.
@@ -746,7 +755,7 @@ export function useClients() {
         .select(`
           client_id,
           client_legal_name,
-          unique_tax_id,
+          tax_id,
           industry_id,
           address,
           is_active,

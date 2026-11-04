@@ -677,6 +677,29 @@ ALTER TABLE ONLY public.clients
 
 --
 --
+-- Name: clients clients_parent_client_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+-- ETL fase 1 (F1-M03): padre inexistente y borrado de un padre referenciado quedan prohibidos.
+-- La ausencia de ciclos de varios nodos NO la garantiza SQL (plan_v2.md §3): la valida el
+-- cargador de fase 2.
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_parent_client_id_fkey FOREIGN KEY (parent_client_id) REFERENCES public.clients(client_id) ON DELETE RESTRICT;
+
+
+--
+--
+-- Name: categories categories_default_role_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+-- BUG 0820-182 (F1-M03): la sugerencia apunta al catálogo real authorization_roles. Los valores
+-- no nulos se completan al final de cero_13, cuando el catálogo ya existe.
+
+ALTER TABLE ONLY public.categories
+    ADD CONSTRAINT categories_default_role_key_fkey FOREIGN KEY (default_role_key) REFERENCES public.authorization_roles(role_key) ON UPDATE CASCADE ON DELETE SET NULL;
+
+
+--
+--
 -- Name: engagement_assignments engagement_assignments_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

@@ -4,6 +4,17 @@
 # (bugs/migracion_cero/plan_v2.md, Fase 7). Genérico a propósito — el mismo script sirve
 # para "Test" hoy, o para cualquier ambiente nuevo que se levante después.
 #
+# Fase 1 ETL (bugs/ETL/carga/fase1/plan_v2.md §5): este script SOLO RECONSTRUYE y verifica en modo
+# `preinit` (catálogos y configuración definitivos; cero clientes, staff, cuentas de usuario, roles
+# y feriados). NO inicializa ni declara operativo el ambiente: el primer administrador
+# (admin@ruizmier.com) y el calendario los crea después la consola específica
+# `scripts/etl/fase1.mjs initialize`, un paso aparte con su propia autorización.
+#
+# El reset borra TODO, incluidas las cuentas de Auth: `db reset --linked` no las elimina por sí solo,
+# así que el paso 4b las borra (auth.users y todo lo que cuelga: identidades, sesiones, tokens y la
+# bitácora de autenticación). Los archivos de Storage no se tocan (Supabase prohíbe borrar
+# storage.objects por SQL y esta fase no los usa). Ver docs/migraciones/reset-desde-cero.md.
+#
 # NUNCA lee el CONTENIDO de un .env* con este script mismo ni lo imprime: solo hace `source`
 # del archivo indicado (en un subproceso) y verifica por NOMBRE que las variables necesarias
 # existan; los valores viajan directo del entorno a los comandos (`supabase`/`psql`/`curl`),
@@ -24,15 +35,14 @@
 #   API REST/Auth del proyecto: SUPABASE_URL | API_URL | VITE_SUPABASE_URL
 #   anon/publishable key      : SUPABASE_ANON_KEY | ANON_KEY | SUPABASE_PUBLISHABLE_KEY | VITE_SUPABASE_PUBLISHABLE_KEY
 #
-# Las 2 credenciales FUERTES (conexión directa a Postgres con password, y la
-# service_role/secret key que habilita la Admin API) nunca se leen de un archivo: si ya
-# están exportadas en el entorno se usan tal cual (nunca impresas); si no, el script las
-# pide por prompt interactivo con eco apagado (no quedan en el historial de la shell ni en
-# ningún archivo). Nunca las pegués en el chat de un agente ni las guardes en un .env
-# trackeado — si alguna vez terminan en un lugar así, rotalas desde el dashboard de
-# Supabase (Settings → Database / API) en cuanto puedas.
+# La credencial FUERTE (conexión a Postgres con password, por el pooler) nunca se lee de un
+# archivo: si ya está exportada en el entorno se usa tal cual (nunca impresa); si no, el script la
+# pide por prompt interactivo con eco apagado (no queda en el historial de la shell ni en ningún
+# archivo). Nunca la pegués en el chat de un agente ni la guardes en un .env trackeado — si alguna
+# vez termina en un lugar así, rotala desde el dashboard de Supabase (Settings → Database) en
+# cuanto puedas. La service_role/secret key YA NO se pide acá: la necesita la consola de
+# inicialización (scripts/etl/fase1.mjs), que es un paso aparte.
 #   Conexión Postgres directa : SUPABASE_DB_URL | DB_URL
-#   service_role / secret key : SUPABASE_SERVICE_ROLE_KEY | SERVICE_ROLE_KEY | SUPABASE_SECRET_KEY
 #
 # Requiere: Supabase CLI (versión pineada en supabase/tests/fixtures/route-fingerprints/
 # VERSIONS.md), psql, curl. Corre DESDE la raíz de un checkout que tenga el set consolidado
@@ -157,17 +167,15 @@ resolve_alias SUPABASE_ANON_KEY SUPABASE_ANON_KEY ANON_KEY SUPABASE_PUBLISHABLE_
 [[ "$missing" -eq 0 ]] || exit 1
 
 resolve_alias SUPABASE_DB_URL SUPABASE_DB_URL DB_URL || true
-resolve_alias SUPABASE_SERVICE_ROLE_KEY SUPABASE_SERVICE_ROLE_KEY SERVICE_ROLE_KEY SUPABASE_SECRET_KEY || true
 echo ""
-echo "Faltan credenciales fuertes que NUNCA se leen de un archivo — se piden ahora,"
-echo "sin eco en pantalla (obtenelas del dashboard de Supabase, Settings → Database / API,"
-echo "'Session pooler' para la connection string):"
+echo "La credencial fuerte NUNCA se lee de un archivo — si no está ya exportada se pide ahora,"
+echo "sin eco en pantalla (dashboard de Supabase, Settings → Database, 'Session pooler' para la"
+echo "connection string):"
 prompt_secret SUPABASE_DB_URL "Connection string de Postgres (Session pooler)" || exit 1
-prompt_secret SUPABASE_SERVICE_ROLE_KEY "service_role / secret key" || exit 1
 
 # Verificación no-secreta: el project-ref debe aparecer en la URL de conexión (substring),
 # sin imprimir la URL completa (que contiene el password). SUPABASE_URL se valida igual —
-# es la que usa verify-auth-bootstrap.sh para la Admin API; sin este chequeo, un valor
+# es la que usa la consola (scripts/etl/fase1.mjs) para la Admin API; sin este chequeo, un valor
 # heredado de otro proyecto en la misma shell pasaría inadvertido (review de PR #310).
 if [[ "$SUPABASE_DB_URL" != *"$PROJECT_REF"* ]]; then
   echo "FATAL: SUPABASE_DB_URL de '$ENV_FILE' no contiene el project-ref '$PROJECT_REF' — ¿archivo de env equivocado?" >&2
@@ -207,7 +215,8 @@ fi
 # --- 3. Confirmación interactiva explícita (nunca se salta) ------------------------------
 echo ""
 echo "⚠️  Vas a BORRAR TODO el contenido del proyecto Supabase '${PROJECT_REF}' y reconstruirlo"
-echo "    desde cero con el set consolidado de ${REPO_ROOT}/supabase/migrations/."
+echo "    desde cero con el set consolidado de ${REPO_ROOT}/supabase/migrations/. Se borran también"
+echo "    TODAS las cuentas de Auth (usuarios, identidades, sesiones y bitácora de autenticación)."
 echo "    Esto es IRREVERSIBLE. Escribí exactamente el project-ref para confirmar:"
 read -r -p "> " CONFIRM
 if [[ "$CONFIRM" != "$PROJECT_REF" ]]; then
@@ -234,19 +243,49 @@ if ! supabase db reset --linked; then
   exit 1
 fi
 
+# --- 4b. Cuentas de Auth: se borran también -------------------------------------------------
+# `db reset --linked` reconstruye el esquema pero deja las cuentas de Auth de ensayo. Quedarían
+# usuarios sin ficha, y tanto verify-seed (preinit) como la consola se niegan a trabajar con ellos.
+# Con el rol de la conexión (postgres.<ref>), un DELETE sobre auth.users arrastra por cascada las
+# identidades, sesiones, refresh tokens, factores MFA y one_time_tokens; la bitácora
+# auth.audit_log_entries no tiene clave foránea y se vacía aparte. Es parte del mismo borrado que el
+# operador ya confirmó arriba escribiendo el project-ref.
+echo "── borrando las cuentas de Auth (auth.users y todo lo que cuelga de ellas)"
+auth_before="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "select count(*) from auth.users")"
+psql "$SUPABASE_DB_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
+DELETE FROM auth.users;
+DO $$
+BEGIN
+  IF to_regclass('auth.audit_log_entries') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM auth.audit_log_entries';
+  END IF;
+END
+$$;
+SQL
+auth_left="$(psql "$SUPABASE_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "select (select count(*) from auth.users) + (select count(*) from auth.identities) + (select count(*) from auth.sessions) + (select count(*) from auth.refresh_tokens)")"
+if [[ "$auth_left" != "0" ]]; then
+  echo "FATAL: tras borrar las cuentas de Auth quedan ${auth_left} filas entre users, identities, sessions y refresh_tokens." >&2
+  exit 1
+fi
+echo "PASS — cuentas de Auth borradas (había ${auth_before}; ahora 0 en users, identities, sessions y refresh_tokens)."
+
 # --- 5. Verificar convergencia -------------------------------------------------------------
 echo "── supabase migration list --linked"
 supabase migration list --linked
 echo "── supabase db push --dry-run --include-all --linked"
 supabase db push --dry-run --include-all --linked
 
-# --- 6. Verificación de datos (verify-seed.sql) --------------------------------------------
-echo "── verify-seed.sql contra ${PROJECT_REF}"
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "${REPO_ROOT}/supabase/tests/local/verify-seed.sql"
+# --- 6. Verificación de datos en modo preinit (verify-seed.sql) ----------------------------
+# preinit: catálogos/configuración definitivos y cero clientes, staff, cuentas, roles y feriados.
+# La verificación del estado inicializado (administrador + 28 feriados) es de la consola.
+echo "── verify-seed.sql (etl_f1_mode=preinit) contra ${PROJECT_REF}"
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -v etl_f1_mode=preinit -f "${REPO_ROOT}/supabase/tests/local/verify-seed.sql"
 
-# --- 7. Verificación end-to-end del bootstrap de Auth --------------------------------------
-echo "── verify-auth-bootstrap.sh contra ${PROJECT_REF}"
-DB_URL="$SUPABASE_DB_URL" bash "${REPO_ROOT}/supabase/tests/local/verify-auth-bootstrap.sh"
-
+# --- 7. Inicialización: PENDIENTE ----------------------------------------------------------
+# Ya no se llama automáticamente al verificador de Auth ni se espera una cuenta fija: la cuenta de
+# administrador no existe hasta que corra la consola específica, con su propia autorización.
 echo ""
-echo "RESET-DESDE-CERO: proyecto '${PROJECT_REF}' reconstruido y verificado end-to-end."
+echo "RESET-DESDE-CERO: proyecto '${PROJECT_REF}' reconstruido y verificado en modo preinit."
+echo "INICIALIZACIÓN PENDIENTE: el ambiente NO está operativo hasta ejecutar la consola específica"
+echo "(node scripts/etl/fase1.mjs preflight / initialize / verify) con su autorización propia —"
+echo "ver scripts/etl/README.md y docs/migraciones/reset-desde-cero.md §5."

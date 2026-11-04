@@ -41,11 +41,11 @@ const Clients = () => {
       ),
     },
     {
-      key: "unique_tax_id",
+      key: "tax_id",
       label: t("client.nit"),
       sortable: true,
       mobilePriority: 'secondary',
-      render: (row) => <span className="text-muted-foreground">{row.unique_tax_id || "-"}</span>,
+      render: (row) => <span className="text-muted-foreground">{row.tax_id || "-"}</span>,
     },
     {
       key: "industry.industry_name",
@@ -113,7 +113,7 @@ const Clients = () => {
         data={clients || []}
         columns={columns}
         searchPlaceholder={t("client.searchPlaceholder")}
-        searchKeys={["client_legal_name", "unique_tax_id"]}
+        searchKeys={["client_legal_name", "tax_id"]}
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("client.newClient") : undefined}
         onNewClick={canCreate ? () => navigate("/clients/new") : undefined}

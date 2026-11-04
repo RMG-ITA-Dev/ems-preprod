@@ -36,7 +36,7 @@ BEGIN;
 
 -- ── Fixtures (como owner; las RPC SECURITY DEFINER escalan igual) ─────────────────────────────
 
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id)
+INSERT INTO public.clients (client_id, client_legal_name, tax_id)
 VALUES ('c1b10000-0000-4000-8000-000000000001', 'B1 Test Client', 'B1-TAX-001');
 
 INSERT INTO auth.users (id) VALUES

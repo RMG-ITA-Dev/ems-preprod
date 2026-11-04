@@ -44,7 +44,7 @@ vi.mock("react-i18next", () => ({
 const stableClients = [{
   client_id: "client-1",
   client_legal_name: "Ruizmier Pelaez S.R.L.",
-  unique_tax_id: "1006979026",
+  tax_id: "1006979026",
   is_active: true,
 }];
 const stableSocieties = [{ society_id: "society-1", name: "Ruizmier Pelaez S.R.L.", is_active: true }];

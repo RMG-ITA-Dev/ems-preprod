@@ -6674,6 +6674,8 @@ CREATE TABLE public.time_entries (
     updated_at timestamp with time zone DEFAULT now(),
     period_id uuid,
     is_forecast boolean DEFAULT false,
+    etl_split_index smallint DEFAULT 1 NOT NULL,
+    CONSTRAINT time_entries_etl_split_index_check CHECK ((etl_split_index > 0)),
     CONSTRAINT time_entries_hours_logged_check CHECK ((hours_logged >= (0)::numeric))
 );
 
@@ -7903,7 +7905,7 @@ CREATE INDEX idx_time_entries_staff_date ON public.time_entries USING btree (sta
 -- Name: idx_time_entries_unique_entry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast);
+CREATE UNIQUE INDEX idx_time_entries_unique_entry ON public.time_entries USING btree (staff_id, engagement_id, activity_id, date_worked, is_forecast, etl_split_index);
 
 
 --

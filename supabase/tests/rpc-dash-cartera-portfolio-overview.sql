@@ -85,7 +85,7 @@ BEGIN
 END $$;
 
 -- ── Clientes ────────────────────────────────────────────────────────────────────────────
-INSERT INTO public.clients (client_id, client_legal_name, unique_tax_id) VALUES
+INSERT INTO public.clients (client_id, client_legal_name, tax_id) VALUES
   ('60ca27e0-0000-4000-8000-000000000001', 'Cliente C1 ca27e0', 'NIT-CA27E0-1'),
   ('60ca27e0-0000-4000-8000-000000000002', 'Cliente C2 ca27e0', 'NIT-CA27E0-2'),
   ('60ca27e0-0000-4000-8000-000000000003', 'Cliente C3 ca27e0', 'NIT-CA27E0-3')
