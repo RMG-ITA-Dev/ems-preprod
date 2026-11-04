@@ -347,6 +347,25 @@ BEGIN
      AND OLD.status = 'Completed' THEN
     RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de pago de esta cuota ya esta congelada';
   END IF;
+  -- Y la escribe solo quien captura el TC por cuota: Contabilidad o un admin, con la OT
+  -- aprobada (review de Codex sobre el PR de 1028-214). La policy "Manager can manage..." le
+  -- deja al gerente actualizar la fila, y sin esto podia inventar de que cotizacion salio un
+  -- TC que despues la bitacora y la pantalla muestran como cierto. Ningun camino legitimo del
+  -- gerente toca estas fechas: ni el guardado del plan, ni el resincronizado de modo fijo.
+  -- Admin por role_key, no is_admin() (enum legacy): mismo criterio que la pantalla.
+  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+     OR NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede registrar de que cotizacion salio el tipo de cambio';
+    END IF;
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
+  END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
     IF OLD.status <> 'Pending' THEN

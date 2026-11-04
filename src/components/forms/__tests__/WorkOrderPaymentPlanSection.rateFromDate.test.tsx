@@ -67,16 +67,27 @@ vi.mock("sonner", () => ({ toast: { error: mockToastError, success: vi.fn() } })
 // RateFromDatePicker.test.tsx. Acá es un botón que "elige" la fecha que el test deje en `pick`.
 const pick = vi.hoisted(() => ({ date: "2026-10-11" }));
 vi.mock("@/components/forms/RateFromDatePicker", () => ({
+  // `loading` se expone como atributo y NO deshabilita el mock: los tests de carrera necesitan
+  // poder elegir dos fechas seguidas. Que el componente real se deshabilite lo prueba
+  // RateFromDatePicker.test.tsx.
   RateFromDatePicker: ({
     onPick,
     disabled,
+    loading,
     testId,
   }: {
     onPick: (d: string) => void;
     disabled?: boolean;
+    loading?: boolean;
     testId: string;
   }) => (
-    <button type="button" data-testid={testId} disabled={disabled} onClick={() => onPick(pick.date)}>
+    <button
+      type="button"
+      data-testid={testId}
+      data-loading={loading ? "true" : undefined}
+      disabled={disabled}
+      onClick={() => onPick(pick.date)}
+    >
       pick
     </button>
   ),
@@ -854,5 +865,96 @@ describe("1028-214 Parte B — trazabilidad del TC en Cobranzas", () => {
       await act(async () => { late.resolve(rateRow(11.68, "2026-10-15")); });
       expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
     });
+  });
+});
+
+// Review de Codex sobre el PR: no se puede confirmar mientras se espera una consulta de TC.
+describe("1028-214 — confirmar espera a la consulta del TC (review)", () => {
+  const openStatusDialog = (status: PaymentInstallmentStatus) => {
+    const select = screen
+      .getAllByTestId("select")
+      .find((el) => Array.from((el as HTMLSelectElement).options).some((o) => o.value === status))!;
+    fireEvent.change(select, { target: { value: status } });
+  };
+
+  it("PTC20: facturar no se confirma con el TC anterior mientras llega el de la fecha elegida", async () => {
+    const slow = deferred<ReturnType<typeof rateRow>>();
+    mockRpc.mockReturnValueOnce(slow.promise);
+    renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }) });
+    openStatusDialog("Invoiced");
+
+    fireEvent.click(screen.getByTestId("invoice-rate-date"));
+
+    expect(screen.getByTestId("confirm-status-change")).toBeDisabled();
+    expect(screen.getByTestId("invoice-rate-date")).toHaveAttribute("data-loading", "true");
+    fireEvent.click(screen.getByTestId("confirm-status-change"));
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+
+    await act(async () => { slow.resolve(rateRow(6.9, "2026-10-09")); });
+
+    expect(screen.getByTestId("confirm-status-change")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("confirm-status-change"));
+    expect(mockUpdateStatus).toHaveBeenCalledWith(expect.objectContaining({ invoiceExchangeRate: 6.9 }));
+  });
+
+  it("PTC20b: teclear a mano durante la consulta la descarta y vuelve a habilitar Confirmar", async () => {
+    const slow = deferred<ReturnType<typeof rateRow>>();
+    mockRpc.mockReturnValueOnce(slow.promise);
+    renderSection({ plan: makePlan({ exchange_rate_mode: "variable" }) });
+    openStatusDialog("Invoiced");
+    fireEvent.click(screen.getByTestId("invoice-rate-date"));
+    expect(screen.getByTestId("confirm-status-change")).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("invoice-rate-input"), { target: { value: "7.3" } });
+
+    expect(screen.getByTestId("confirm-status-change")).toBeEnabled();
+    await act(async () => { slow.resolve(rateRow(6.9, "2026-10-09")); });
+    expect(screen.getByTestId("invoice-rate-input")).toHaveValue(7.3);
+  });
+
+  it("PTC21: la corrección de Fecha Fact. espera la comparación antes de dejar confirmar", async () => {
+    const slow = deferred<ReturnType<typeof rateRow>>();
+    mockRpc.mockReturnValueOnce(slow.promise);
+    const { container } = renderSection({
+      installments: [
+        makeInstallment({
+          status: "Invoiced",
+          collection_invoice_date: "2026-10-21",
+          collection_payment_date: "2026-11-20",
+          invoice_exchange_rate: 11.73,
+          invoice_exchange_rate_date: "2026-10-21",
+        }),
+      ],
+    });
+    const input = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).find(
+      (el) => el.value === "2026-10-21",
+    )!;
+    fireEvent.change(input, { target: { value: "2026-10-15" } });
+
+    expect(screen.getByTestId("confirm-collection-date")).toBeDisabled();
+    await act(async () => { slow.resolve(rateRow(11.68, "2026-10-15")); });
+
+    expect(screen.getByTestId("collection-date-rate-warning")).toBeInTheDocument();
+    expect(screen.getByTestId("confirm-collection-date")).toBeEnabled();
+  });
+
+  it("PTC21b: sin nada que comparar (TC a mano), se puede confirmar de inmediato", () => {
+    const { container } = renderSection({
+      installments: [
+        makeInstallment({
+          status: "Invoiced",
+          collection_invoice_date: "2026-10-21",
+          collection_payment_date: "2026-11-20",
+          invoice_exchange_rate: 11.73,
+          invoice_exchange_rate_date: null,
+        }),
+      ],
+    });
+    const input = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).find(
+      (el) => el.value === "2026-10-21",
+    )!;
+    fireEvent.change(input, { target: { value: "2026-10-15" } });
+
+    expect(screen.getByTestId("confirm-collection-date")).toBeEnabled();
   });
 });

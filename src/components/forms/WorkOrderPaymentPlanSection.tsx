@@ -250,14 +250,23 @@ export function WorkOrderPaymentPlanSection({
   // y, si al volver ya no es el último (se eligió otra fecha o se tecleó a mano mientras
   // esperaba), la respuesta se descarta: no puede pisar lo que la persona hizo después.
   const rateLookupSeqRef = useRef<Record<string, number>>({});
+  // Review de Codex (1028-214): mientras la consulta no vuelve, el campo todavía muestra el TC
+  // anterior. Confirmar en ese momento facturaba o cobraba —y congelaba— ese TC, no el de la
+  // fecha recién elegida. Los botones que confirman miran este estado y esperan.
+  const [rateLookupPending, setRateLookupPending] = useState<Record<string, boolean>>({});
+  const setLookupPending = (key: string, pending: boolean) =>
+    setRateLookupPending((prev) => (!!prev[key] === pending ? prev : { ...prev, [key]: pending }));
   const lookupRate = async (key: string, date: string): Promise<RateLookup> => {
     const seq = (rateLookupSeqRef.current[key] ?? 0) + 1;
     rateLookupSeqRef.current[key] = seq;
+    setLookupPending(key, true);
     const { data, error } = await rpcUntyped<{ compra: number; fecha_vigencia: string }[] | null>(
       "exchange_rate_on_detail",
       { p_date: date },
     );
+    // Una respuesta vieja no toca el estado: la consulta que la reemplazó lo resuelve.
     if (rateLookupSeqRef.current[key] !== seq) return { status: "stale" };
+    setLookupPending(key, false);
     const row = error ? null : data?.[0];
     if (!row) return { status: "none" };
     return { status: "ok", rate: Number(row.compra), sourceDate: row.fecha_vigencia };
@@ -268,8 +277,9 @@ export function WorkOrderPaymentPlanSection({
   const setRateNote = (key: string, requested: string, used: string) =>
     setRateNotes((prev) => ({ ...prev, [key]: { requested, used } }));
   const clearRateNote = (key: string) => {
-    // También invalida una consulta que todavía no volvió.
+    // También invalida una consulta que todavía no volvió: ya no hay nada que esperar.
     rateLookupSeqRef.current[key] = (rateLookupSeqRef.current[key] ?? 0) + 1;
+    setLookupPending(key, false);
     setRateNotes((prev) => {
       if (!(key in prev)) return prev;
       const { [key]: _removed, ...rest } = prev;
@@ -1414,6 +1424,7 @@ export function WorkOrderPaymentPlanSection({
                   <RateFromDatePicker
                     value={rateNotes.plan?.requested ?? null}
                     onPick={applyPlanRateFromDate}
+                    loading={!!rateLookupPending.plan}
                     className="h-10"
                     testId="payment-plan-exchange-rate-date"
                   />
@@ -1926,6 +1937,7 @@ export function WorkOrderPaymentPlanSection({
                                     compact
                                     value={rateNotes[rowRateKey(inst, idx, "invoice")]?.requested ?? null}
                                     onPick={(d) => applyRowRateFromDate(idx, "invoice", d)}
+                                    loading={!!rateLookupPending[rowRateKey(inst, idx, "invoice")]}
                                     testId="installment-invoice-rate-date"
                                   />
                                 )}
@@ -1995,6 +2007,7 @@ export function WorkOrderPaymentPlanSection({
                                     compact
                                     value={rateNotes[rowRateKey(inst, idx, "payment")]?.requested ?? null}
                                     onPick={(d) => applyRowRateFromDate(idx, "payment", d)}
+                                    loading={!!rateLookupPending[rowRateKey(inst, idx, "payment")]}
                                     testId="installment-payment-rate-date"
                                   />
                                 )}
@@ -2445,6 +2458,7 @@ export function WorkOrderPaymentPlanSection({
                   {/* 1028-214: el mismo calendario que el encabezado del plan y las celdas. */}
                   <RateFromDatePicker
                     value={invoiceRateDate || null}
+                    loading={!!rateLookupPending.dialog}
                     testId="invoice-rate-date"
                     onPick={async (d) => {
                       setInvoiceRateDate(d);
@@ -2480,6 +2494,9 @@ export function WorkOrderPaymentPlanSection({
           </Button>
           <Button
             variant={pendingChange?.newStatus === "Overdue" ? "destructive" : "default"}
+            // Review de Codex: no confirmar con el TC anterior mientras se trae el de la fecha.
+            disabled={!!rateLookupPending.dialog}
+            data-testid="confirm-status-change"
             onClick={() => {
               if (pendingChange) {
                 handleStatusChange(pendingChange.row, pendingChange.newStatus, {
@@ -2530,6 +2547,10 @@ export function WorkOrderPaymentPlanSection({
             {t("common.cancel")}
           </Button>
           <Button
+            // Review de Codex: esperar la comparación de cotizaciones; si no, se podía confirmar
+            // antes de que apareciera el aviso, y cerrar el diálogo lo descartaba para siempre.
+            disabled={!!rateLookupPending.collectionDate}
+            data-testid="confirm-collection-date"
             onClick={async () => {
               if (pendingCollectionDate) {
                 await updateCollectionDate.mutateAsync({

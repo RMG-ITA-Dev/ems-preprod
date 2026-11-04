@@ -109,6 +109,7 @@ DECLARE
   v_note   uuid;
   v_i3x    uuid;
   v_i4     uuid;
+  v_i4b    uuid;
   v_plan3  uuid;
   v_plan4  uuid;
   v_rate   numeric;
@@ -1353,6 +1354,33 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - editar el TC del plan dejo de resincronizar las cuotas (quedo %)', v_rate;
   END IF;
   RAISE NOTICE 'PASS - editar el TC del plan sigue resincronizando las cuotas pendientes';
+
+  -- 12.f (1028-214, review de Codex) De que cotizacion salio un TC lo registra solo quien
+  -- captura el TC: el gerente puede actualizar la fila, pero no inventar ese origen.
+  SELECT installment_id INTO v_i4b FROM public.wo_payment_installments
+   WHERE plan_id = v_plan4 AND installment_number = 1;
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente registro de que cotizacion salio un TC';
+  END IF;
+
+  -- Contabilidad tampoco, mientras la OT no este aprobada (c_wo4 sigue en Draft).
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se registro la cotizacion de un TC con la OT sin aprobar';
+  END IF;
+  RAISE NOTICE 'PASS - la cotizacion de un TC solo la registra Contabilidad o un admin, con la OT aprobada';
 
   -- ══════════════════════════════════════════════════════════════════
   -- 13. Fase 7: los gastos ejecutados se le facturan al cliente (Q37-Q41)

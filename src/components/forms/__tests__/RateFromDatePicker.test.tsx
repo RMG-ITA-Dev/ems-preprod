@@ -51,6 +51,13 @@ describe("RateFromDatePicker (1028-214)", () => {
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
   });
 
+  it("RDP4: mientras carga el TC, el botón gira, avisa que está ocupado y no deja elegir otra fecha", () => {
+    render(<RateFromDatePicker value={null} onPick={vi.fn()} testId="p" loading />);
+    expect(screen.getByTestId("p")).toBeDisabled();
+    expect(screen.getByTestId("p")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByTestId("p").querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("RDP3: deshabilitado no abre, y los días futuros no se pueden elegir", () => {
     const { rerender } = render(<RateFromDatePicker value={null} onPick={vi.fn()} testId="p" disabled />);
     expect(screen.getByTestId("p")).toBeDisabled();
