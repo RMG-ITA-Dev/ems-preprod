@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict btWnxUcDL0eknHsW9FJgirhqvLnRbkDgFnKZeMDGfdnOizCIgLfY3MabhcMFc8r
+\restrict ElObB2gFOeWaz6bcusCsbQBYmFKpT7Cc6QWu8hgDXtaEBasWWRK6forSkl5OkHg
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -2211,6 +2211,7 @@ CREATE TABLE public.wo_payment_installments (
     net_amount numeric,
     currency text,
     invoice_exchange_rate_date date,
+    payment_exchange_rate_date date,
     confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
     confirmed_for_date date,
     confirmed_by uuid,
@@ -2229,10 +2230,10 @@ CREATE TABLE public.wo_payment_installments (
 
 
 --
--- Name: collect_installment(uuid, text, date, numeric); Type: FUNCTION; Schema: public; Owner: -
+-- Name: collect_installment(uuid, text, date, numeric, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL::date, p_payment_exchange_rate numeric DEFAULT NULL::numeric) RETURNS public.wo_payment_installments
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL::date, p_payment_exchange_rate numeric DEFAULT NULL::numeric, p_payment_exchange_rate_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -2267,7 +2268,12 @@ BEGIN
   UPDATE public.wo_payment_installments
      SET status = 'Completed',
          payment_date_actual = v_payment_date,
-         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate),
+         -- 1028-214: la fecha de la cotizacion del TC que se confirmo al cobrar (NULL = a mano).
+         -- Si no vino TC, se conserva lo que ya tenia la cuota, igual que el TC.
+         payment_exchange_rate_date = CASE WHEN p_payment_exchange_rate IS NOT NULL
+                                           THEN p_payment_exchange_rate_date
+                                           ELSE payment_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -4729,7 +4735,19 @@ CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
     LANGUAGE sql STABLE
     SET search_path TO 'public'
     AS $$
-  SELECT h.compra
+  SELECT d.compra FROM public.exchange_rate_on_detail(p_date) d;
+$$;
+
+
+--
+-- Name: exchange_rate_on_detail(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.exchange_rate_on_detail(p_date date) RETURNS TABLE(compra numeric, fecha_vigencia date)
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT h.compra, h.fecha_vigencia
     FROM public.exchange_rate_history h
    WHERE h.fecha_vigencia <= p_date
    ORDER BY h.fecha_vigencia DESC
@@ -8199,12 +8217,17 @@ BEGIN
   -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
   -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
   -- de uno tecleado.
+  -- 1028-214 (review de Codex): la fecha acompana al TC. Si no vino TC, se conserva el que ya
+  -- tenia la cuota (COALESCE) y tambien su fecha: borrarla dejaba ese mismo TC registrado como
+  -- "a mano". Misma regla que collect_installment.
   UPDATE public.wo_payment_installments
      SET status = 'Invoiced',
          collection_invoice_date = v_invoice_date,
          collection_payment_date = p_payment_due_date,
          invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
-         invoice_exchange_rate_date = p_invoice_exchange_rate_date
+         invoice_exchange_rate_date = CASE WHEN p_invoice_exchange_rate IS NOT NULL
+                                           THEN p_invoice_exchange_rate_date
+                                           ELSE invoice_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -19857,10 +19880,19 @@ CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  v_converts boolean;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status THEN
+    -- 1028-214 (review de Codex): una cuota en Bs no convierte nada. Si es de una OT en otra
+    -- moneda, sus columnas de TC pueden seguir con el TC del plan, y registrarlo hacia que el
+    -- historial lo mostrara como el TC "con que se facturo". Misma regla de moneda efectiva
+    -- que invoice_installment usa para exigir TC.
+    SELECT COALESCE(NEW.currency, w.currency) <> 'BOB' INTO v_converts
+      FROM public.work_orders w WHERE w.wo_id = NEW.wo_id;
     INSERT INTO public.wo_installment_events (
-      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id,
+      exchange_rate, exchange_rate_date
     ) VALUES (
       NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
       -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
@@ -19869,7 +19901,20 @@ BEGIN
         WHEN 'Completed' THEN NEW.payment_date_actual
         ELSE NULL
       END,
-      NEW.amount, public.get_my_staff_id()
+      NEW.amount, public.get_my_staff_id(),
+      -- 1028-214: el TC que queda congelado en esa transicion, y su cotizacion.
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
+          WHEN 'Completed' THEN NEW.payment_exchange_rate
+        END
+      END,
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
+          WHEN 'Completed' THEN NEW.payment_exchange_rate_date
+        END
+      END
     );
   END IF;
 
@@ -19976,6 +20021,12 @@ BEGIN
     END IF;
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
+    END IF;
+    -- 1028-214 (review de Codex): de que cotizacion salio un TC se registra despues, al
+    -- capturarlo (Contabilidad o admin, OT aprobada; ver mas abajo). Una cuota nueva no la
+    -- trae: el alta la hace el gerente con la OT en Draft, y por aca podia inventarla.
+    IF NEW.invoice_exchange_rate_date IS NOT NULL OR NEW.payment_exchange_rate_date IS NOT NULL THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: una cuota nueva no puede traer la cotizacion de origen del tipo de cambio';
     END IF;
 
     -- MUST FIX review iteracion 18 #1: se resuelve el plan por NEW.plan_id (la
@@ -20100,6 +20151,12 @@ BEGIN
        -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
        -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
        OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
+       -- La moneda de una cuota de HONORARIOS es parte del contrato que arma el gerente
+       -- (Q29). Faltaba en esta lista: con la OT en Borrador la pantalla le dejaba elegirla
+       -- a Contabilidad, y aca nada lo frenaba. La de la fila de gastos SI la cambia
+       -- Contabilidad (Fase 9, useSetInstallmentCurrency), igual que su monto.
+       OR (NEW.currency IS DISTINCT FROM OLD.currency
            AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
@@ -20245,6 +20302,42 @@ BEGIN
     FROM public.wo_payment_plan p
     JOIN public.work_orders wo ON wo.wo_id = p.wo_id
     WHERE p.plan_id = NEW.plan_id;
+  END IF;
+
+  -- 1028-214: de que cotizacion salio cada TC. Se congela en la misma ventana que el TC al
+  -- que acompana -- si no, la trazabilidad que pidio Q49 se podria reescribir despues de
+  -- facturar o de cobrar. Quien puede escribirla se controla en el bloque siguiente.
+  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+     AND OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de facturacion de esta cuota ya esta congelada';
+  END IF;
+  IF NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+     AND OLD.status = 'Completed' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de pago de esta cuota ya esta congelada';
+  END IF;
+  -- Y la escribe solo quien captura el TC por cuota: Contabilidad o un admin, con la OT
+  -- aprobada (review de Codex sobre el PR de 1028-214). La policy "Manager can manage..." le
+  -- deja al gerente actualizar la fila, y sin esto podia inventar de que cotizacion salio un
+  -- TC que despues la bitacora y la pantalla muestran como cierto. Ningun camino legitimo del
+  -- gerente toca estas fechas: ni el guardado del plan, ni el resincronizado de modo fijo.
+  -- Admin por role_key, no is_admin() (enum legacy): mismo criterio que la pantalla.
+  -- Solo al REGISTRAR una fecha: borrarla nunca inventa un origen, y es lo que hace el
+  -- resincronizado de modo fijo (corre como el gerente, con la OT en Draft) cuando reemplaza
+  -- el TC de una cuota por el del plan.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NOT NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NOT NULL) THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede registrar de que cotizacion salio el tipo de cambio';
+    END IF;
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
   END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
@@ -20448,13 +20541,20 @@ BEGIN
     NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
     OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
   ) THEN
+    -- 1028-214 (review de Codex): el TC del plan no sale de ninguna cotizacion. Si la cuota
+    -- traia uno de una fecha (capturado en modo variable), al reemplazarlo se borra tambien
+    -- esa fecha: si no, el TC del plan quedaba atribuido a una cotizacion que no es la suya.
     UPDATE public.wo_payment_installments
     SET invoice_exchange_rate = NEW.exchange_rate,
-        payment_exchange_rate = NEW.exchange_rate
+        payment_exchange_rate = NEW.exchange_rate,
+        invoice_exchange_rate_date = NULL,
+        payment_exchange_rate_date = NULL
     WHERE plan_id = NEW.plan_id
       AND status = 'Pending'
       AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
-           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR invoice_exchange_rate_date IS NOT NULL
+           OR payment_exchange_rate_date IS NOT NULL);
   END IF;
   RETURN NULL;
 END;
@@ -24275,6 +24375,8 @@ CREATE TABLE public.wo_installment_events (
     reason text,
     actor_staff_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    exchange_rate numeric,
+    exchange_rate_date date,
     CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
 );
 
@@ -31239,5 +31341,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict btWnxUcDL0eknHsW9FJgirhqvLnRbkDgFnKZeMDGfdnOizCIgLfY3MabhcMFc8r
+\unrestrict ElObB2gFOeWaz6bcusCsbQBYmFKpT7Cc6QWu8hgDXtaEBasWWRK6forSkl5OkHg
 
