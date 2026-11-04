@@ -27,8 +27,8 @@ export const CLEAN_TABLES = Object.freeze(["clients", "client_contacts", "engage
 
 /**
  * Calendario esperado, como "fecha|oficina|nombre". Es la MISMA lista literal que declara
- * public.seed_initial_holidays (cero_15) y que verifica verify-seed.sql: la prueba
- * "el calendario esperado coincide con cero_15" impide que se desalineen. `verify` la usa para
+ * public.seed_initial_holidays (cero_02) y que verifica verify-seed.sql: la prueba
+ * "el calendario esperado coincide con cero_02" impide que se desalineen. `verify` la usa para
  * comparar el contenido real (no solo el conteo y la autoría): un feriado con fecha, oficina o nombre
  * distintos no pasa aunque sigan existiendo 28 filas.
  */

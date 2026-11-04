@@ -146,10 +146,10 @@ run supabase/migrations/20251204000006_cero_06_grants.sql
 # en producción esa fila ya existe de antes (hallazgo real de CI, 2026-08-27).
 run supabase/tests/local/40-fixture-rbac-catalog.sql
 
-# ETL fase 1 (T08): cero_15 ya no siembra feriados, solo declara public.seed_initial_holidays(uuid)
-# (SECURITY INVOKER, sin EXECUTE para PUBLIC/anon/authenticated/service_role). Se declara aquí, ANTES
-# de B5, para que B5 y etl-f1-contracts.sql verifiquen sus privilegios efectivos con el estado final.
-# Solo depende de las tablas de cero_02 (holidays, staff, user_roles).
+# ETL fase 1 (T08): cero_15 ya no siembra feriados. public.seed_initial_holidays(uuid) se define en cero_02
+# y sus permisos (sin EXECUTE para PUBLIC/anon/authenticated/service_role) cierran cero_06, así que ya
+# existe aquí; cero_15 es un paso sin cambios que se aplica igual, para ensayar el set completo.
+# B5 y etl-f1-contracts.sql verifican los privilegios efectivos de esa función con el estado final.
 run supabase/migrations/20251204001006_cero_15_seed_holidays.sql
 
 run supabase/migrations/20260826162100_0817-180_enforce_engagement_profile_scope.sql

@@ -99,6 +99,11 @@ export function buildMatrixArtifacts({ engagements, planRows }) {
     const sourceKey = [row.legacy_cot, row.target_category_name, row.target_activity_code].join("|"); const current = grouped.get(sourceKey) ?? { legacy_cot: row.legacy_cot, practica_abbreviation: row.practica_abbreviation, target_category_name: row.target_category_name, target_activity_code: row.target_activity_code, units: 0n, source_contribution_count: 0 };
     current.units += exactUnits(row.allocated_budget_hours, `aporte ${row.legacy_plan_hours_id}`); current.source_contribution_count += 1; grouped.set(sourceKey, current);
   }
+  // activity_worksheet_cells.budget_hours es numeric(10,2): una celda con más decimales se redondearía al guardar y la
+  // verificación exacta posterior rechazaría un lote ya confirmado. Se rechaza ANTES de escribir; no se reparte ni se redondea.
+  for (const [sourceKey, { units }] of grouped) {
+    if (units % 100n !== 0n) throw new Error(`celda con más de 2 decimales (${sourceKey} = ${exactText(units)}): la matriz guarda 2 decimales`);
+  }
   const cells = [...grouped.values()].map(({ units, ...row }) => ({ ...row, budget_hours: exactText(units), source_contribution_count: String(row.source_contribution_count) })).sort((a, b) => `${a.legacy_cot}|${a.target_category_name}|${a.target_activity_code}`.localeCompare(`${b.legacy_cot}|${b.target_category_name}|${b.target_activity_code}`));
   const sourceTotal = planRows.reduce((sum, row) => sum + exactUnits(row.legacy_budget_hours, `horas ${row.legacy_plan_hours_id}`), 0n); const cellTotal = cells.reduce((sum, row) => sum + exactUnits(row.budget_hours, "celda"), 0n);
   if (sourceTotal !== cellTotal) throw new Error(`delta de matriz ${exactText(sourceTotal - cellTotal)}`);

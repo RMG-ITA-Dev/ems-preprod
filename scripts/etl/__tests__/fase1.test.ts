@@ -623,8 +623,8 @@ describe("verify", () => {
 });
 
 describe("calendario esperado", () => {
-  it("coincide con el catálogo literal de la migración cero_15 (consola y migración no se desalinean)", () => {
-    const sql = fs.readFileSync(path.resolve(HERE, "..", "..", "..", "supabase", "migrations", "20251204001006_cero_15_seed_holidays.sql"), "utf-8");
+  it("coincide con el catálogo literal de la función en cero_02 (consola y migración no se desalinean)", () => {
+    const sql = fs.readFileSync(path.resolve(HERE, "..", "..", "..", "supabase", "migrations", "20251204000002_cero_02_functions_tables_views.sql"), "utf-8");
     const rows = [...sql.matchAll(/^\s*\('(\d{4}-\d{2}-\d{2})',\s*'([^']+)',\s*(\d)\)/gm)].map((m) => `${m[1]}|${m[3]}|${m[2]}`);
     expect(rows).toHaveLength(28);
     expect([...EXPECTED_CALENDAR].sort()).toEqual([...rows].sort());

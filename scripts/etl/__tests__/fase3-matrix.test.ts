@@ -31,4 +31,15 @@ describe("ETL fase 3: matriz lógica", () => {
     expect(() => buildMatrixArtifacts({ engagements: [engagement], planRows: [plan] })).toThrow(/fracción/);
     expect(() => buildMatrixArtifacts({ engagements: [engagement], planRows: [{ ...plan, legacy_budget_hours: "1" }, { ...plan, legacy_budget_hours: "1", legacy_plan_hours_id: "1" }] })).toThrow(/duplicada/);
   });
+
+  it("rechaza ANTES de escribir una celda que la base (numeric 10,2) redondearía", () => {
+    const engagement = { legacy_cot: "A", legacy_department_id: "1", legacy_it_specialist_profile_id: "", legacy_tax_specialist_profile_id: "" };
+    // Gerente (categoría 3) reparte 25 % / 50 % / 25 %: 1,25 h da 0,3125 / 0,625 / 0,3125, que no caben en 2 decimales.
+    const gerente = { legacy_plan_hours_id: "1", legacy_cot: "A", legacy_category_id: "3", legacy_specialty_id: "2", legacy_budget_hours: "1.25" };
+    expect(() => buildMatrixArtifacts({ engagements: [engagement], planRows: [gerente] })).toThrow(/más de 2 decimales/);
+    // 1,28 h da 0,32 / 0,64 / 0,32: cabe exacto y la suma se conserva.
+    const ok = buildMatrixArtifacts({ engagements: [engagement], planRows: [{ ...gerente, legacy_budget_hours: "1.28" }] });
+    expect(ok.cells.map((c: { budget_hours: string }) => c.budget_hours).sort()).toEqual(["0.32", "0.32", "0.64"].sort());
+    expect(ok).toMatchObject({ sourceTotal: "1.28", cellTotal: "1.28" });
+  });
 });

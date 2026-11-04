@@ -138,7 +138,7 @@ si falla a mitad del `db reset` (ver troubleshooting, §6).
 ## 5. Después del script: inicializar con la consola — PASO APARTE
 
 `reset-desde-cero.sh` deja el ambiente **sin cuentas**: no hay administrador, ni ficha de personal,
-ni feriados (`cero_14` es un no-op y `cero_15` solo declara la función `seed_initial_holidays`).
+ni feriados (`cero_14` es un no-op y `cero_15` es un paso sin cambios; la función `seed_initial_holidays` vive en `cero_02`, con sus permisos en `cero_06`).
 El primer administrador — la cuenta **genérica** `admin@ruizmier.com` (`Admin EMS`, categoría
 Socio de Auditoría, `is_schedulable = false`) — y los 28 feriados los crea la consola específica de
 fase 1 (`scripts/etl/README.md`). Es un paso **separado y con su propia autorización**: reconstruir

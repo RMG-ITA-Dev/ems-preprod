@@ -50,11 +50,21 @@ json_field() {
 
 # --- 2. Login por password --------------------------------------------------------------
 echo "── POST /auth/v1/token?grant_type=password (${ADMIN_EMAIL})"
-TOKEN_RESP="$(curl -sS -w '\n%{http_code}' -X POST \
+# El cuerpo se escapa como JSON (una contraseña con " o \ no debe romper la petición ni cambiar lo que
+# recibe Auth) y viaja por stdin: así la contraseña no queda en el argv del proceso.
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"; s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"; s="${s//$'\r'/\\r}"; s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+LOGIN_BODY="{\"email\": \"$(json_escape "$ADMIN_EMAIL")\", \"password\": \"$(json_escape "$ADMIN_TEMP_PASSWORD")\"}"
+TOKEN_RESP="$(printf '%s' "$LOGIN_BODY" | curl -sS -w '\n%{http_code}' -X POST \
   "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
   -H "apikey: ${SUPABASE_ANON_KEY}" \
   -H "Content-Type: application/json" \
-  -d "{\"email\": \"${ADMIN_EMAIL}\", \"password\": \"${ADMIN_TEMP_PASSWORD}\"}")"
+  --data-binary @-)"
+unset LOGIN_BODY
 TOKEN_HTTP_CODE="$(printf '%s' "$TOKEN_RESP" | tail -1)"
 TOKEN_BODY="$(printf '%s' "$TOKEN_RESP" | sed '$d')"
 if [[ "$TOKEN_HTTP_CODE" != "200" ]]; then

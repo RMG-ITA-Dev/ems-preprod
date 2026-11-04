@@ -1,7 +1,7 @@
 -- ETL fase 1 (bugs/ETL/carga/fase1/plan_v2.md, T03 / T04 / T08): suite contractual SQL/RLS.
 --
 -- Corre desde supabase/tests/local/run-rls-tests.sh DESPUÉS de todas las migraciones (incluida B5/B6/D1) y de
--- que el harness declare public.seed_initial_holidays(uuid) (cero_15) antes de B5. Transacción única, SIEMPRE
+-- que cero_02/cero_06 declaren public.seed_initial_holidays(uuid) y cierren sus permisos (antes de B5). Transacción única, SIEMPRE
 -- hace ROLLBACK. Salida de éxito: una NOTICE por chequeo y, al final, "ETL F1 CONTRACTS: ALL CHECKS PASSED".
 --
 --   T03  clientes: NIT y razón social repetidos; atributos nuevos nullable sin default; dominios inválidos; padre
