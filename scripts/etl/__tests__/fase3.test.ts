@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, loadF2Maps, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertPaymentCurrency, assertTarget, createContext, exitCodeFor, load, loadF2Maps, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 import { writeJournal } from "../fase1.mjs";
 import { journalPathFor } from "../fase2.mjs";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,13 @@ describe("ETL fase 3: consola y guardas", () => {
     // Las rutas de ejemplo son de Windows (no absolutas en Linux): se sustituyen por rutas absolutas válidas en cualquier plataforma.
     const portable = JSON.parse(JSON.stringify(example), (_key, value) => typeof value === "string" && value.startsWith("C:\\ruta") ? abs(path.basename(value.replaceAll("\\", "/"))) : value);
     expect(() => parseConfig(portable)).not.toThrow();
+  });
+  it("rechaza un plan cuyas cuotas no tienen la moneda del encargo, o monedas mezcladas", () => {
+    const row = (installment: string, currency: string) => ({ legacy_cot: "2026.11.001", legacy_installment_number: installment, legacy_currency_raw: currency });
+    expect(() => assertPaymentCurrency([row("1", "0   "), row("2", "0")], "0", "2026.11.001")).not.toThrow(); // el legacy trae espacios
+    expect(() => assertPaymentCurrency([row("1", "1"), row("2", "1")], "0", "2026.11.001")).toThrow(/distinta de la del encargo/); // BOB con cuotas USD
+    expect(() => assertPaymentCurrency([row("1", "0"), row("2", "1")], "0", "2026.11.001")).toThrow(/distinta de la del encargo/); // mezcladas
+    expect(() => assertPaymentCurrency([row("1", "0")], "1", "2026.11.001")).toThrow(/2026\.11\.001/);
   });
   it("F3 solo usa los archivos auxiliares de F2 si coinciden con la huella que F2 verificó", () => {
     const file = path.join(mkdtempSync(path.join(os.tmpdir(), "etl-f3-aux-")), "servicios.csv");

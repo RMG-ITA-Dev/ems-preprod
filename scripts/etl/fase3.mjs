@@ -7,7 +7,7 @@ import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProbl
 import { acquireLock, readJournal, sha256 } from "./fase1.mjs";
 import { STATES as F2_STATES } from "./fase2.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
-import { isMigrableExecution, readInput, validateInputs } from "./fase3-input.mjs";
+import { isMigrableExecution, isPlanNote, readInput, validateInputs } from "./fase3-input.mjs";
 import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
@@ -50,6 +50,13 @@ export function loadF2Maps(f2StateDir) {
   const clients = Object.fromEntries(Object.entries(journal.clients ?? {}).map(([key, value]) => [key, { id: value.clientId }]));
   const staff = Object.fromEntries(Object.entries(journal.staff ?? {}).map(([key, value]) => [key, value.staffId]));
   return { clients, staff, journalFile, inputs: journal.inputs ?? {} };
+}
+// La moneda de la OT sale del encargo; todas las cuotas de su plan deben traer esa misma moneda legacy. Si no, el plan se cargaría
+// en la moneda de la OT pero con el modo de tipo de cambio de una moneda distinta y pasaría la conciliación de importes.
+export function assertPaymentCurrency(rows, engagementCurrencyRaw, cot) {
+  const expected = String(engagementCurrencyRaw ?? "").trim();
+  const bad = rows.filter((row) => !isPlanNote(row)).find((row) => String(row.legacy_currency_raw ?? "").trim() !== expected);
+  if (bad) throw new Fase1Error("BLOQUEADO", `moneda de las cuotas distinta de la del encargo: ${cot}`);
 }
 // Los archivos auxiliares de F2 que F3 lee (equivalencias de servicios y clientes) deben ser exactamente los que F2 verificó:
 // el configHash de F3 cubre solo su ruta. Una huella ausente o distinta bloquea antes de usar el contenido.
@@ -204,6 +211,7 @@ export async function preparePaymentBlueprint(ctx, inputs) {
     const previousAdjustment = money(finance.adjustmentAmount); const expectedFeeWithTax = money(feeWithTax(legacyBudget)); const sourceFees = new Set(rows.map((row) => money(row.legacy_fee_with_tax)));
     if (sourceFees.size !== 1 || !sourceFees.has(expectedFeeWithTax)) throw new Fase1Error("BLOQUEADO", `honorario c/IVA legacy incompatible: ${workOrder.sourceKey}`);
     if (decimalUnits(standard) + decimalUnits(adjustment) !== decimalUnits(legacyBudget)) throw new Fase1Error("BLOQUEADO", `ajuste financiero no concilia: ${workOrder.sourceKey}`);
+    assertPaymentCurrency(rows, source.legacy_currency_raw, workOrder.sourceKey);
     const artifact = paymentArtifacts(rows, expectedFeeWithTax); const rawCurrency = String(rows[0].legacy_currency_raw).trim(); const exchangeRate = rawCurrency === "1" ? money(rows[0].legacy_exchange_rate) : null;
     if (!['0', '1'].includes(rawCurrency) || (rawCurrency === '1' && (decimalUnits(exchangeRate) <= 0n || rows.some((row) => money(row.legacy_exchange_rate) !== exchangeRate)))) throw new Fase1Error("BLOQUEADO", `TC de plan incompatible: ${workOrder.sourceKey}`);
     blueprint.push({ sourceKey: workOrder.sourceKey, woId: workOrder.woId, previousAdjustmentAmount: previousAdjustment, adjustmentAmount: adjustment, legacyBudget, feeWithTax: expectedFeeWithTax, exchangeRate, exchangeRateMode: rawCurrency === "1" ? "fijo" : null,
