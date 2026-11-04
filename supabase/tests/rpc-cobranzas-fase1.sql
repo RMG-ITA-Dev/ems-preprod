@@ -1180,6 +1180,28 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - el TC por fecha cae a la ultima cotizacion anterior, y avisa cuando no hay';
 
+  -- 12.a2 (1028-214) exchange_rate_on_detail(): el mismo TC con la fecha de la cotizacion que
+  -- se uso, para que la pantalla avise cuando salio de un dia anterior al elegido.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.exchange_rate_on_detail('2026-10-09') d
+     WHERE d.compra = 6.90 AND d.fecha_vigencia = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - el detalle de una fecha con cotizacion deberia traer ese mismo dia';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.exchange_rate_on_detail('2026-10-11') d
+     WHERE d.compra = 6.90 AND d.fecha_vigencia = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - el detalle de una fecha sin cotizacion deberia traer la fecha de la ultima anterior';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.exchange_rate_on_detail('2020-01-01')) THEN
+    RAISE EXCEPTION 'TEST FAIL - sin ninguna cotizacion anterior el detalle no deberia devolver filas';
+  END IF;
+  IF has_function_privilege('anon', 'public.exchange_rate_on_detail(date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL - anon no deberia poder ejecutar exchange_rate_on_detail';
+  END IF;
+  RAISE NOTICE 'PASS - el detalle del TC por fecha trae la fecha real de la cotizacion';
+
   -- 12.b Una cuota puede ir en otra moneda que la OT (c_wo1 esta en BOB).
   PERFORM pg_temp.impersonate(c_manager);
   UPDATE public.wo_payment_installments SET currency = 'USD' WHERE installment_id = v_i3x;

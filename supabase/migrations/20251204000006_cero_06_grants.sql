@@ -2243,6 +2243,9 @@ GRANT EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) TO authent
 -- Cobranzas Fase 6: TC de una fecha concreta, para el calendario del diálogo de facturar.
 REVOKE EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) TO authenticated, service_role;
+-- 1028-214: el mismo TC con la fecha de la cotizacion usada, para avisar en pantalla.
+REVOKE EXECUTE ON FUNCTION public.exchange_rate_on_detail(p_date date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.exchange_rate_on_detail(p_date date) TO authenticated, service_role;
 
 -- Cobranzas Fase 7: gastos ejecutados facturados al cliente (issue #352).
 REVOKE ALL ON TABLE public.wo_installment_expenses FROM PUBLIC, anon;

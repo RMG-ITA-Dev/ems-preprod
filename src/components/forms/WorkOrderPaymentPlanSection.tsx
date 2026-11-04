@@ -51,6 +51,7 @@ import { useLatestExchangeRate } from "@/hooks/useExchangeRate";
 import { useInstallmentNotes, notesForInstallment, planLevelNotes } from "@/hooks/useInstallmentNotes";
 import { useWorkOrderClientContacts } from "@/hooks/useClientContacts";
 import { InstallmentNotesThread } from "./InstallmentNotesThread";
+import { RateFromDatePicker } from "./RateFromDatePicker";
 import {
   distributePercentages,
   computeAmount,
@@ -161,6 +162,19 @@ const fmtDate = (d: string | null): string => {
   return `${day}/${m}/${y}`;
 };
 
+// Los avisos del encabezado del plan son una sola línea con el ícono al lado del texto. El
+// Alert base posiciona el ícono en absoluto arriba a la izquierda y le fuerza text-foreground
+// (pensado para un aviso con título y párrafo): en una línea quedaba desfasado hacia abajo y
+// en blanco en vez del color del aviso. Esto lo devuelve al flujo del flex.
+const INLINE_ALERT_ICON = "[&>svg]:static [&>svg~*]:pl-0 [&>svg+div]:translate-y-0";
+
+// 1028-214: resultado de traer el TC de una fecha. `stale` = la respuesta llegó tarde y ya no
+// corresponde aplicarla; `none` = no hay cotización para esa fecha ni para ninguna anterior.
+type RateLookup =
+  | { status: "ok"; rate: number; sourceDate: string }
+  | { status: "none" }
+  | { status: "stale" };
+
 export function WorkOrderPaymentPlanSection({
   woId,
   currency,
@@ -222,11 +236,51 @@ export function WorkOrderPaymentPlanSection({
 
   // Cobranzas Fase 6: el TC de una fecha concreta, para el calendario del diálogo de facturar.
   // Va por RPC porque la regla —si esa fecha no tiene cotización, vale la última anterior— vive
-  // en la base (exchange_rate_on), y repetirla acá sería un segundo criterio.
-  const fetchRateOn = async (date: string): Promise<number | null> => {
-    const { data, error } = await rpcUntyped<number | null>("exchange_rate_on", { p_date: date });
-    if (error) return null;
-    return data == null ? null : Number(data);
+  // en la base (exchange_rate_on_detail), y repetirla acá sería un segundo criterio.
+  // 1028-214: la misma consulta sirve al encabezado del plan y a las celdas por fila, y trae
+  // también la fecha de la cotización usada, para avisar cuando no es la que se eligió.
+  //
+  // `key` identifica el campo que pidió el TC. Cada consulta toma un número de turno por campo
+  // y, si al volver ya no es el último (se eligió otra fecha o se tecleó a mano mientras
+  // esperaba), la respuesta se descarta: no puede pisar lo que la persona hizo después.
+  const rateLookupSeqRef = useRef<Record<string, number>>({});
+  const lookupRate = async (key: string, date: string): Promise<RateLookup> => {
+    const seq = (rateLookupSeqRef.current[key] ?? 0) + 1;
+    rateLookupSeqRef.current[key] = seq;
+    const { data, error } = await rpcUntyped<{ compra: number; fecha_vigencia: string }[] | null>(
+      "exchange_rate_on_detail",
+      { p_date: date },
+    );
+    if (rateLookupSeqRef.current[key] !== seq) return { status: "stale" };
+    const row = error ? null : data?.[0];
+    if (!row) return { status: "none" };
+    return { status: "ok", rate: Number(row.compra), sourceDate: row.fecha_vigencia };
+  };
+  // El aviso "se usó la del …" es solo visual (decisión del operador): no se guarda, y se
+  // borra en cuanto la persona escribe el TC a mano.
+  const [rateNotes, setRateNotes] = useState<Record<string, { requested: string; used: string }>>({});
+  const setRateNote = (key: string, requested: string, used: string) =>
+    setRateNotes((prev) => ({ ...prev, [key]: { requested, used } }));
+  const clearRateNote = (key: string) => {
+    // También invalida una consulta que todavía no volvió.
+    rateLookupSeqRef.current[key] = (rateLookupSeqRef.current[key] ?? 0) + 1;
+    setRateNotes((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _removed, ...rest } = prev;
+      return rest;
+    });
+  };
+  const renderRateNote = (key: string, className: string) => {
+    const note = rateNotes[key];
+    if (!note || note.used === note.requested) return null;
+    return (
+      <p className={cn("text-warning", className)} data-testid={`rate-note-${key}`}>
+        {t("workOrders.paymentPlan.rateFromEarlierDate", {
+          requested: fmtDate(note.requested),
+          used: fmtDate(note.used),
+        })}
+      </p>
+    );
   };
   const [pendingChange, setPendingChange] = useState<{
     row: PaymentInstallmentInput;
@@ -426,6 +480,29 @@ export function WorkOrderPaymentPlanSection({
     if (updatedPlan.exchange_rate_mode === "fijo") {
       onInstallmentsChange(applyExchangeRateMode("fijo", updatedPlan.exchange_rate, installments));
     }
+  };
+  // Los handlers cierran sobre el plan y las cuotas del render en que se crearon. Una consulta
+  // de TC por fecha aplica su resultado DESPUÉS de esperar la RPC, cuando ese render ya puede
+  // ser viejo: sin este ref, aplicar el TC reescribiría el plan con un estado anterior y
+  // perdería lo que se editó mientras tanto.
+  const latestRateHandlersRef = useRef<{
+    handleExchangeRateChange: (val: number) => void;
+    handleInvoiceRateChange?: (idx: number, val: number) => void;
+    handlePaymentRateChange?: (idx: number, val: number) => void;
+  }>({ handleExchangeRateChange });
+  latestRateHandlersRef.current.handleExchangeRateChange = handleExchangeRateChange;
+
+  // 1028-214: el TC del plan desde una fecha. Se guarda con el plan, como si se hubiera
+  // escrito: en modo Fijo, handleExchangeRateChange ya lo propaga a las cuotas.
+  const applyPlanRateFromDate = async (date: string) => {
+    const result = await lookupRate("plan", date);
+    if (result.status === "stale") return;
+    if (result.status === "none") {
+      toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+      return;
+    }
+    latestRateHandlersRef.current.handleExchangeRateChange(result.rate);
+    setRateNote("plan", date, result.sourceDate);
   };
 
   // 0722-156b: cambiar de modo re-sincroniza (Fijo) o inicializa los campos aun sin
@@ -739,6 +816,45 @@ export function WorkOrderPaymentPlanSection({
     onInstallmentsChange(
       installments.map((i, idx2) => (idx2 === idx ? { ...i, payment_exchange_rate: normalized } : i)),
     );
+  };
+  latestRateHandlersRef.current.handleInvoiceRateChange = handleInvoiceRateChange;
+  latestRateHandlersRef.current.handlePaymentRateChange = handlePaymentRateChange;
+
+  // 1028-214: clave del aviso y del turno de consulta de una celda de TC.
+  const rowRateKey = (inst: PaymentInstallmentInput, idx: number, field: "invoice" | "payment") =>
+    `${inst.installment_id ?? String(idx)}:${field}`;
+
+  // 1028-214: el TC de una cuota desde una fecha (modo Variable). Se guarda en el acto, igual
+  // que el onBlur de la celda: con la OT aprobada no hay botón Guardar de página.
+  const applyRowRateFromDate = async (idx: number, field: "invoice" | "payment", date: string) => {
+    const inst = installments[idx];
+    // Mismo guard que el onBlur: si el resto del plan tiene cambios sin guardar, el refetch
+    // posterior a este guardado los pisaría.
+    if (inst.installment_id && isPaymentPlanDirty) {
+      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+      return;
+    }
+    const key = rowRateKey(inst, idx, field);
+    const result = await lookupRate(key, date);
+    if (result.status === "stale") return;
+    if (result.status === "none") {
+      toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+      return;
+    }
+    if (field === "invoice") latestRateHandlersRef.current.handleInvoiceRateChange?.(idx, result.rate);
+    else latestRateHandlersRef.current.handlePaymentRateChange?.(idx, result.rate);
+    setRateNote(key, date, result.sourceDate);
+    if (inst.installment_id) {
+      // Ya se persiste aquí: un blur posterior sin edición nueva no debe volver a mandarlo.
+      const pending = pendingRateEditsRef.current[inst.installment_id];
+      if (pending) delete pending[field];
+      updateInstallmentExchangeRate.mutate({
+        installmentId: inst.installment_id,
+        field: field === "invoice" ? "invoice_exchange_rate" : "payment_exchange_rate",
+        value: result.rate,
+        woId,
+      });
+    }
   };
 
   const handleCollectionInvoiceDateChange = (idx: number, value: string) => {
@@ -1093,6 +1209,7 @@ export function WorkOrderPaymentPlanSection({
                     : latestBuyRate ?? currentPlan.exchange_rate,
                 );
                 setInvoiceRateDate("");
+                clearRateNote("dialog");
                 setPendingChange({ row, newStatus: s });
               } else {
                 handleStatusChange(row, s);
@@ -1151,8 +1268,8 @@ export function WorkOrderPaymentPlanSection({
             {t("workOrders.paymentPlan.title")}
           </CardTitle>
           {hasAlert && (
-            <Alert className="py-2 px-3 w-auto border-warning/50 bg-warning/10 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-warning shrink-0" />
+            <Alert className={cn("py-2 px-3 w-auto border-warning/50 bg-warning/10 flex items-center gap-2", INLINE_ALERT_ICON, "[&>svg]:text-warning")}>
+              <AlertTriangle className="h-4 w-4 shrink-0" />
               <AlertDescription className="text-warning text-sm">
                 {t("workOrders.paymentPlan.alertBanner")}
               </AlertDescription>
@@ -1161,8 +1278,8 @@ export function WorkOrderPaymentPlanSection({
           {/* Cobranzas Fase 2 (Q19): la OT todavía no está aprobada, así que las acciones de
               cobranza están apagadas. Se dice por qué en vez de dejar los controles muertos. */}
           {collectionsApprovalStatus && collectionsApprovalStatus !== "Approved" && (
-            <Alert className="py-2 px-3 w-auto border-info/50 bg-info/10 flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-info shrink-0" />
+            <Alert className={cn("py-2 px-3 w-auto border-info/50 bg-info/10 flex items-center gap-2", INLINE_ALERT_ICON, "[&>svg]:text-info")}>
+              <AlertTriangle className="h-4 w-4 shrink-0" />
               <AlertDescription className="text-info text-sm">
                 {t("workOrders.paymentPlan.collectionsNotApprovedBanner", {
                   status: t(`workOrders.paymentPlan.approvalStatus${collectionsApprovalStatus}`),
@@ -1188,24 +1305,41 @@ export function WorkOrderPaymentPlanSection({
                   <span className="text-destructive ml-1" aria-hidden>*</span>
                 )}
               </Label>
-              <NumericInput
-                decimals={6}
-                locale={numericLocale}
-                min={0}
-                // Decision del operador 2026-10-20: el campo arranca con el TC de hoy a la
-                // vista y editable, no con un 0 y la cotizacion abajo como texto -- un 0 no es
-                // un tipo de cambio valido, y obligaba a copiar a mano un numero que la pagina
-                // ya tenia. Es solo lo que se MUESTRA: el valor no se escribe en el plan hasta
-                // que el usuario toca algo, para que abrir la pestana no deje la pagina
-                // "sin guardar" sin haber hecho nada. En cuanto hay una cuota, el efecto de
-                // autocompletado de mas arriba lo persiste.
-                value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? latestBuyRate ?? 0)}
-                onChange={handleExchangeRateChange}
-                onBlur={() => setRateInputBlank(false)}
-                disabled={!isEditable || planLocked || !canEditPaymentPlan}
-                className="w-full"
-                data-testid="payment-plan-exchange-rate"
-              />
+              <div className="flex items-center gap-2">
+                <NumericInput
+                  decimals={6}
+                  locale={numericLocale}
+                  min={0}
+                  // Decision del operador 2026-10-20: el campo arranca con el TC de hoy a la
+                  // vista y editable, no con un 0 y la cotizacion abajo como texto -- un 0 no es
+                  // un tipo de cambio valido, y obligaba a copiar a mano un numero que la pagina
+                  // ya tenia. Es solo lo que se MUESTRA: el valor no se escribe en el plan hasta
+                  // que el usuario toca algo, para que abrir la pestana no deje la pagina
+                  // "sin guardar" sin haber hecho nada. En cuanto hay una cuota, el efecto de
+                  // autocompletado de mas arriba lo persiste.
+                  value={rateInputBlank ? "" : (currentPlan.exchange_rate ?? latestBuyRate ?? 0)}
+                  onChange={(val) => {
+                    clearRateNote("plan");
+                    handleExchangeRateChange(val);
+                  }}
+                  onBlur={() => setRateInputBlank(false)}
+                  disabled={!isEditable || planLocked || !canEditPaymentPlan}
+                  className="w-full"
+                  data-testid="payment-plan-exchange-rate"
+                />
+                {/* 1028-214: quien arma el plan puede traer el TC de una fecha anterior. El
+                    botón solo aparece cuando el campo se puede editar: a quien no puede
+                    usarlo no se le muestra un control apagado. */}
+                {isEditable && !planLocked && canEditPaymentPlan && (
+                  <RateFromDatePicker
+                    value={rateNotes.plan?.requested ?? null}
+                    onPick={applyPlanRateFromDate}
+                    className="h-10"
+                    testId="payment-plan-exchange-rate-date"
+                  />
+                )}
+              </div>
+              {renderRateNote("plan", "text-xs")}
               {latestBuyRate != null && (
                 <p className="text-xs text-muted-foreground">
                   {t("workOrders.paymentPlan.currentBuyRateReference", { value: formatRate(latestBuyRate) })}
@@ -1656,48 +1790,64 @@ export function WorkOrderPaymentPlanSection({
                                 {inst.invoice_exchange_rate != null ? formatRate(inst.invoice_exchange_rate) : "—"}
                               </span>
                             ) : (
-                              <NumericInput
-                                decimals={6}
-                                locale={numericLocale}
-                                min={0}
-                                value={inst.invoice_exchange_rate ?? 0}
-                                onChange={(val) => handleInvoiceRateChange(idx, val)}
-                                onBlur={() => {
-                                  // Guardado directo e inmediato (0722-156b Amendment 2026-09-07):
-                                  // este campo solo se habilita con la OT ya Aprobada, momento en el
-                                  // que WorkOrderForm ya no ofrece un boton "Guardar" de pagina --
-                                  // sin esto el valor quedaba atrapado en memoria para siempre.
-                                  // MUST FIX review iteracion 2 #13: mismo guard que ya usa la fecha
-                                  // de cobro -- no guardar directo si el resto del plan tiene cambios
-                                  // sin guardar todavia (evita que el batch-save posterior pise esto).
-                                  if (inst.installment_id) {
-                                    if (isPaymentPlanDirty) {
-                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
-                                      return;
+                              <div className="flex items-center gap-1">
+                                <NumericInput
+                                  decimals={6}
+                                  locale={numericLocale}
+                                  min={0}
+                                  value={inst.invoice_exchange_rate ?? 0}
+                                  onChange={(val) => {
+                                    clearRateNote(rowRateKey(inst, idx, "invoice"));
+                                    handleInvoiceRateChange(idx, val);
+                                  }}
+                                  onBlur={() => {
+                                    // Guardado directo e inmediato (0722-156b Amendment 2026-09-07):
+                                    // este campo solo se habilita con la OT ya Aprobada, momento en el
+                                    // que WorkOrderForm ya no ofrece un boton "Guardar" de pagina --
+                                    // sin esto el valor quedaba atrapado en memoria para siempre.
+                                    // MUST FIX review iteracion 2 #13: mismo guard que ya usa la fecha
+                                    // de cobro -- no guardar directo si el resto del plan tiene cambios
+                                    // sin guardar todavia (evita que el batch-save posterior pise esto).
+                                    if (inst.installment_id) {
+                                      if (isPaymentPlanDirty) {
+                                        toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                        return;
+                                      }
+                                      const pending = pendingRateEditsRef.current[inst.installment_id];
+                                      const value = pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate;
+                                      // MUST FIX review iteracion 12 #3: pendingRateEditsRef nunca se
+                                      // limpiaba -- un blur sin edicion nueva (ej. foco+blur accidental)
+                                      // sobre una fila cuyo prop se refresco con un valor mas reciente
+                                      // (otra pestana ya guardo uno distinto) volvia a leer el valor
+                                      // viejo del ref y lo repersistia, pisando el mas nuevo en
+                                      // silencio. Se borra la entrada apenas se lee, para que un blur
+                                      // posterior sin edicion caiga al valor fresco de inst.*.
+                                      if (pending) delete pending.invoice;
+                                      updateInstallmentExchangeRate.mutate({
+                                        installmentId: inst.installment_id,
+                                        field: "invoice_exchange_rate",
+                                        value,
+                                        woId,
+                                      });
                                     }
-                                    const pending = pendingRateEditsRef.current[inst.installment_id];
-                                    const value = pending?.invoice !== undefined ? pending.invoice : inst.invoice_exchange_rate;
-                                    // MUST FIX review iteracion 12 #3: pendingRateEditsRef nunca se
-                                    // limpiaba -- un blur sin edicion nueva (ej. foco+blur accidental)
-                                    // sobre una fila cuyo prop se refresco con un valor mas reciente
-                                    // (otra pestana ya guardo uno distinto) volvia a leer el valor
-                                    // viejo del ref y lo repersistia, pisando el mas nuevo en
-                                    // silencio. Se borra la entrada apenas se lee, para que un blur
-                                    // posterior sin edicion caiga al valor fresco de inst.*.
-                                    if (pending) delete pending.invoice;
-                                    updateInstallmentExchangeRate.mutate({
-                                      installmentId: inst.installment_id,
-                                      field: "invoice_exchange_rate",
-                                      value,
-                                      woId,
-                                    });
-                                  }
-                                }}
-                                disabled={!isStatusEditable || !isInvoiceRateEditable(inst.status)}
-                                className="w-full h-8"
-                                data-testid="installment-invoice-rate"
-                              />
+                                  }}
+                                  disabled={!isStatusEditable || !isInvoiceRateEditable(inst.status)}
+                                  className="w-full h-8"
+                                  data-testid="installment-invoice-rate"
+                                />
+                                {/* 1028-214: solo para quien puede capturar este TC ahora
+                                    (admin o Cobranzas, OT aprobada, cuota Pendiente). */}
+                                {isStatusEditable && isInvoiceRateEditable(inst.status) && (
+                                  <RateFromDatePicker
+                                    compact
+                                    value={rateNotes[rowRateKey(inst, idx, "invoice")]?.requested ?? null}
+                                    onPick={(d) => applyRowRateFromDate(idx, "invoice", d)}
+                                    testId="installment-invoice-rate-date"
+                                  />
+                                )}
+                              </div>
                             )}
+                            {renderRateNote(rowRateKey(inst, idx, "invoice"), "text-[10px] mt-0.5")}
                             {latestBuyRate != null && (
                               <p className="text-[10px] text-muted-foreground mt-0.5">
                                 {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
@@ -1717,36 +1867,51 @@ export function WorkOrderPaymentPlanSection({
                                 {inst.payment_exchange_rate != null ? formatRate(inst.payment_exchange_rate) : "—"}
                               </span>
                             ) : (
-                              <NumericInput
-                                decimals={6}
-                                locale={numericLocale}
-                                min={0}
-                                value={inst.payment_exchange_rate ?? 0}
-                                onChange={(val) => handlePaymentRateChange(idx, val)}
-                                onBlur={() => {
-                                  if (inst.installment_id) {
-                                    if (isPaymentPlanDirty) {
-                                      toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
-                                      return;
+                              <div className="flex items-center gap-1">
+                                <NumericInput
+                                  decimals={6}
+                                  locale={numericLocale}
+                                  min={0}
+                                  value={inst.payment_exchange_rate ?? 0}
+                                  onChange={(val) => {
+                                    clearRateNote(rowRateKey(inst, idx, "payment"));
+                                    handlePaymentRateChange(idx, val);
+                                  }}
+                                  onBlur={() => {
+                                    if (inst.installment_id) {
+                                      if (isPaymentPlanDirty) {
+                                        toast.error(t("workOrders.paymentPlan.validationSavePlanFirst"));
+                                        return;
+                                      }
+                                      const pending = pendingRateEditsRef.current[inst.installment_id];
+                                      const value = pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate;
+                                      // MUST FIX review iteracion 12 #3: ver el mismo fix en el onBlur
+                                      // del TC de facturacion, arriba.
+                                      if (pending) delete pending.payment;
+                                      updateInstallmentExchangeRate.mutate({
+                                        installmentId: inst.installment_id,
+                                        field: "payment_exchange_rate",
+                                        value,
+                                        woId,
+                                      });
                                     }
-                                    const pending = pendingRateEditsRef.current[inst.installment_id];
-                                    const value = pending?.payment !== undefined ? pending.payment : inst.payment_exchange_rate;
-                                    // MUST FIX review iteracion 12 #3: ver el mismo fix en el onBlur
-                                    // del TC de facturacion, arriba.
-                                    if (pending) delete pending.payment;
-                                    updateInstallmentExchangeRate.mutate({
-                                      installmentId: inst.installment_id,
-                                      field: "payment_exchange_rate",
-                                      value,
-                                      woId,
-                                    });
-                                  }
-                                }}
-                                disabled={!isStatusEditable || !isPaymentRateCaptureEditable(inst.status)}
-                                className="w-full h-8"
-                                data-testid="installment-payment-rate"
-                              />
+                                  }}
+                                  disabled={!isStatusEditable || !isPaymentRateCaptureEditable(inst.status)}
+                                  className="w-full h-8"
+                                  data-testid="installment-payment-rate"
+                                />
+                                {/* 1028-214: lo mismo, con la cuota Facturada o En mora. */}
+                                {isStatusEditable && isPaymentRateCaptureEditable(inst.status) && (
+                                  <RateFromDatePicker
+                                    compact
+                                    value={rateNotes[rowRateKey(inst, idx, "payment")]?.requested ?? null}
+                                    onPick={(d) => applyRowRateFromDate(idx, "payment", d)}
+                                    testId="installment-payment-rate-date"
+                                  />
+                                )}
+                              </div>
                             )}
+                            {renderRateNote(rowRateKey(inst, idx, "payment"), "text-[10px] mt-0.5")}
                             {latestBuyRate != null && (
                               <p className="text-[10px] text-muted-foreground mt-0.5">
                                 {t("workOrders.paymentPlan.currentBuyRateShort", { value: formatRate(latestBuyRate) })}
@@ -1837,6 +2002,8 @@ export function WorkOrderPaymentPlanSection({
                                   setInvoiceRate(inst.payment_exchange_rate ?? latestBuyRate ?? currentPlan.exchange_rate);
                                   setInvoiceRateDate("");
                                 }
+                                // El aviso de "otra fecha" era de la cuota anterior.
+                                clearRateNote("dialog");
                                 setPendingChange({ row: inst, newStatus: s });
                               } else {
                                 handleStatusChange(inst, s);
@@ -2163,6 +2330,7 @@ export function WorkOrderPaymentPlanSection({
                     setInvoiceRate(v);
                     // Tecleado a mano: deja de venir de una fecha.
                     setInvoiceRateDate("");
+                    clearRateNote("dialog");
                   }}
                   decimals={6}
                   min={0}
@@ -2173,25 +2341,27 @@ export function WorkOrderPaymentPlanSection({
                   <span className="text-xs text-muted-foreground">
                     {t("workOrders.paymentPlan.invoiceRateFromDate")}
                   </span>
-                  <Input
-                    type="date"
-                    lang="es-BO"
-                    className="h-8 w-40 text-sm"
-                    value={invoiceRateDate}
-                    max={today}
-                    onChange={async (e) => {
-                      const d = e.target.value;
+                  {/* 1028-214: el mismo calendario que el encabezado del plan y las celdas. */}
+                  <RateFromDatePicker
+                    value={invoiceRateDate || null}
+                    testId="invoice-rate-date"
+                    onPick={async (d) => {
                       setInvoiceRateDate(d);
-                      if (!d) return;
-                      const rate = await fetchRateOn(d);
+                      const result = await lookupRate("dialog", d);
+                      if (result.status === "stale") return;
                       // Sin cotización para esa fecha ni ninguna anterior: se deja lo que haya
                       // y la persona lo carga a mano, en vez de pisarlo con un cero.
-                      if (rate != null) setInvoiceRate(rate);
-                      else toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+                      if (result.status === "none") {
+                        toast.error(t("workOrders.paymentPlan.invoiceRateNotFound"));
+                        return;
+                      }
+                      setInvoiceRate(result.rate);
+                      setRateNote("dialog", d, result.sourceDate);
                     }}
                   />
                 </div>
               </div>
+              {renderRateNote("dialog", "text-xs")}
             </div>
           )}
         <DialogFooter>

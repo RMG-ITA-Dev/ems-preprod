@@ -9587,7 +9587,7 @@ $$;
 
 --
 --
--- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+-- Name: exchange_rate_on_detail(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
 -- Cobranzas Fase 6 (decision del operador Q49): al facturar, quien cobra puede escribir el TC a
@@ -9597,17 +9597,36 @@ $$;
 -- Usa el valor de COMPRA, igual que latest_exchange_rate(), para que el TC del calendario y el
 -- que se autocompleta solo sean la misma magnitud. Si la fecha pedida no tiene registro (fin de
 -- semana, feriado, o un dia que el sincronizador no alcanzo) cae al ultimo anterior: un viernes
--- es la cotizacion vigente el sabado. Si no hay ninguno anterior devuelve NULL y la pantalla
+-- es la cotizacion vigente el sabado. Si no hay ninguno anterior no devuelve filas y la pantalla
 -- deja cargar el TC a mano.
-CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+--
+-- 1028-214: devuelve tambien fecha_vigencia, la fecha de la cotizacion que se uso. Sin ella la
+-- pantalla no podia avisar que el TC salio de un dia anterior al elegido, y hacerlo con una
+-- segunda consulta duplicaba la peticion. Es la UNICA definicion de la regla: exchange_rate_on
+-- delega en ella.
+CREATE FUNCTION public.exchange_rate_on_detail(p_date date) RETURNS TABLE(compra numeric, fecha_vigencia date)
     LANGUAGE sql STABLE
     SET search_path TO 'public'
     AS $$
-  SELECT h.compra
+  SELECT h.compra, h.fecha_vigencia
     FROM public.exchange_rate_history h
    WHERE h.fecha_vigencia <= p_date
    ORDER BY h.fecha_vigencia DESC
    LIMIT 1;
+$$;
+
+
+--
+--
+-- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Solo el TC de exchange_rate_on_detail, sin la fecha. Devuelve NULL si no hay cotizacion.
+CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT d.compra FROM public.exchange_rate_on_detail(p_date) d;
 $$;
 
 
