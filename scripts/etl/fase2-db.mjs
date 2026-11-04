@@ -41,7 +41,8 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         'industries',(SELECT COALESCE(json_agg(json_build_object('industry_id',industry_id,'industry_name',industry_name,'fiscal_year_end',fiscal_year_end,'status',status)),'[]'::json) FROM public.industries),
         'societies',(SELECT COALESCE(json_agg(json_build_object('society_id',society_id,'name',name)),'[]'::json) FROM public.society),
         'categories',(SELECT COALESCE(json_agg(json_build_object('category_id',c.category_id,'category_name',c.category_name,'practica_id',p.practica_id,'practica_abbreviation',p.abbreviation,'default_role_key',c.default_role_key,'default_app_role',c.default_app_role)),'[]'::json) FROM public.categories c JOIN public.practicas p ON p.practica_id=c.practica_id),
-        'services',(SELECT COALESCE(json_agg(json_build_object('taxonomy_id',taxonomy_id,'name',name,'is_active',is_active,'practica_id',practica_id)),'[]'::json) FROM public.servicios)
+        'services',(SELECT COALESCE(json_agg(json_build_object('taxonomy_id',taxonomy_id,'name',name,'is_active',is_active,'practica_id',practica_id)),'[]'::json) FROM public.servicios),
+        'roles',(SELECT COALESCE(json_agg(json_build_object('role_key',role_key,'legacy_app_role',legacy_app_role)),'[]'::json) FROM public.authorization_roles)
       )::text;`);
     },
     async insertClientUnit({ client, contact, clientId, parentClientId, industryId }) {

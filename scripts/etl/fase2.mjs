@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAuthAdapter, acquireLock, createContext as createFase1Context, Fase1Error, readJournal, sha256, writeJournal } from "./fase1.mjs";
 import { FORBIDDEN_REFS, KNOWN_REFS, REPO_ROOT, connectionGuardProblems, makeRedactor } from "./fase1-db.mjs";
-import { EXPECTED, Fase2InputError, loadInputs, normalizeEmail, resolveIndustryRef, rowSourceHash, validateRoleAssignment } from "./fase2-input.mjs";
+import { EXPECTED, Fase2InputError, assertLegacyRoleMirror, loadInputs, normalizeEmail, resolveIndustryRef, rowSourceHash, validateRoleAssignment } from "./fase2-input.mjs";
 import { createFase2DbAdapter } from "./fase2-db.mjs";
 
 export const STATES = ["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "CLIENTES_CONFIRMADOS", "STAFF_CONFIRMADO", "CUENTAS_CONFIRMADAS", "ENLACE_Y_ROL_CONFIRMADOS", "VERIFICADO"];
@@ -75,6 +75,7 @@ export async function runPreflight(ctx) {
   const problems = connectionGuardProblems(ctx.config, ctx.env); if (problems.length) throw new Fase1Error("BLOQUEADO", problems.join("; "));
   requireWindow(ctx); const input = ctx.input ?? (await cmdValidate(ctx)).input; const state = await ctx.db.readTargetState(); const catalogs = await ctx.db.readCatalogs();
   const bootstrap = state.bootstrap ?? []; if (bootstrap.length < 1 || !bootstrap.some((x) => normalizeEmail(x.email) === ctx.config.bootstrapAdminEmail && x.role === "admin" && x.role_key === "admin")) throw new Fase1Error("BLOQUEADO", "bootstrap admin/admin de fase 1 ausente");
+  try { assertLegacyRoleMirror(input.users, catalogs.roles); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); }
   const maps = catalogMaps(catalogs); for (const client of input.clients) if (client.industry_ref) { try { resolveIndustryRef(client.industry_ref, catalogs.industries ?? []); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } } for (const row of input.staff) { const category = maps.category.get(`${row.practica_abbreviation}|${row.category_name}`); if (!maps.society.has(row.society_name) || !category || !category.default_role_key) throw new Fase1Error("BLOQUEADO", `catálogo no resuelto para ${row.staff_source_ref}`); const user = input.users.find((x) => x.staff_source_ref === row.staff_source_ref); try { validateRoleAssignment(row, user, category.default_role_key); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); } }
   if (ctx.stateDir) { ctx.journal = ctx.journal ?? ensureJournal(ctx) ?? journalFor(ctx, input); checkpoint(ctx, { state: "PREFLIGHT_VALIDADO" }); }
   return { ok: true, input, state, catalogs, maps };

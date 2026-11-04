@@ -211,6 +211,19 @@ export function validateRoleAssignment(staff, user, categoryDefaultRoleKey) {
   }
 }
 
+// El rol legacy que el sistema aplica a una cuenta sale de authorization_roles.legacy_app_role del rol esperado (no de la categoría:
+// los gerentes especialistas tienen default_app_role specialist_* y rol efectivo manager). Si el CSV trae otro par, la carga crearía
+// la ficha y la cuenta de Auth y recién después fallaría la comparación; se rechaza antes de escribir.
+export function assertLegacyRoleMirror(users, roles) {
+  if (!Array.isArray(roles) || !roles.length) throw new Fase2InputError("catálogo de roles no disponible para validar el rol legacy");
+  const mirror = new Map(roles.map((role) => [role.role_key, role.legacy_app_role]));
+  for (const user of users) {
+    const expected = mirror.get(user.expected_role_key);
+    if (expected === undefined || expected === null) throw new Fase2InputError(`rol sin espejo legacy en el catálogo (${user.staff_source_ref})`);
+    if (expected !== user.expected_legacy_role) throw new Fase2InputError(`rol legacy no coincide con el espejo del rol ${user.expected_role_key} (${user.staff_source_ref})`);
+  }
+}
+
 export function resolveIndustryRef(ref, industries) {
   const source = String(ref ?? "").trim();
   const numbered = source.match(/^(\d+)\s*:\s*(.+)$/);

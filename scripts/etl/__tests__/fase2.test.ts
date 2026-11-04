@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRates, validateRoleAssignment, validateServices } from "../fase2-input.mjs";
+import { EXPECTED, Fase2InputError, HEADERS, assertLegacyRoleMirror, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRates, validateRoleAssignment, validateServices } from "../fase2-input.mjs";
 import { writeJournal } from "../fase1.mjs";
 import { EXIT, createContext, journalPathFor, parseConfig, probeAccess, report, requireWindow, reservedClientMatches } from "../fase2.mjs";
 
@@ -102,6 +102,15 @@ describe("ETL fase 2: entrada offline", () => {
   it("mapea a 3 (reconciliar) los resultados inciertos de SQL y de Auth, y a 2 el bloqueo", () => {
     expect(EXIT.RECONCILIACION_REQUERIDA).toBe(3); expect(EXIT.SQL_INCIERTO).toBe(3); expect(EXIT.AUTH_INCIERTO).toBe(3);
     expect(EXIT.BLOQUEADO).toBe(2); expect(EXIT.CONFIG).toBeUndefined(); // lo demás cae en el código de error genérico (1)
+  });
+
+  it("rechaza antes de escribir un rol legacy que no es el espejo del rol esperado (authorization_roles)", () => {
+    const roles = [{ role_key: "manager", legacy_app_role: "manager" }, { role_key: "staff", legacy_app_role: "staff" }];
+    const user = (ref: string, roleKey: string, legacy: string) => ({ staff_source_ref: ref, expected_role_key: roleKey, expected_legacy_role: legacy });
+    expect(() => assertLegacyRoleMirror([user("a", "manager", "manager"), user("b", "staff", "staff")], roles)).not.toThrow();
+    expect(() => assertLegacyRoleMirror([user("a", "manager", "staff")], roles)).toThrow(/no coincide con el espejo/); // par inconsistente
+    expect(() => assertLegacyRoleMirror([user("a", "inexistente", "staff")], roles)).toThrow(/sin espejo legacy/);
+    expect(() => assertLegacyRoleMirror([user("a", "manager", "manager")], [])).toThrow(/catálogo de roles no disponible/); // falla cerrado
   });
 
   it("exige que la confirmación de ventana sea la del ref del proyecto", () => {
