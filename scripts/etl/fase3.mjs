@@ -233,14 +233,19 @@ const writeJson = (file, value) => {
   replaceJournal(tmp, file);
   try { const dir = openSync(path.dirname(file), "r"); try { fsyncSync(dir); } finally { closeSync(dir); } } catch { /* Windows no permite fsync de directorio. */ }
 };
+const journalHasProgress = (journal) => Object.keys(journal.units ?? {}).length > 0 || Object.keys(journal.blocks ?? {}).length > 0;
 const initialJournal = (config) => ({ version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, configHash: config.configHash, state: "PENDIENTE", blocks: {}, units: {}, createdAt: new Date().toISOString() });
 export function createContext({ config, env = process.env, stateDir, db } = {}) {
   const journalFile = journalPathFor(stateDir, config.installationId); const existing = existsSync(journalFile) ? readJson(journalFile) : null;
   // Un journal pertenece a un único proyecto: reutilizarlo contra otro ref sería promover estado ajeno.
   if (existing && (existing.installationId !== config.installationId || existing.projectRef !== config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal F3 de otra instalación o proyecto");
-  // Misma instalación pero otra configuración (rutas de CSV, administrador técnico, F2, equivalencias…): reanudar mezclaría
-  // unidades confirmadas con una configuración que no las produjo. Una instalación nueva exige un installationId nuevo.
-  if (existing && existing.configHash !== config.configHash) throw new Fase1Error("BLOQUEADO", "el journal F3 se creó con otra configuración (configHash): use un installationId nuevo");
+  // Misma instalación pero otra configuración (rutas de CSV, administrador técnico, F2, equivalencias…): con unidades o bloques
+  // ya escritos, reanudar mezclaría resultados que esa configuración no produjo y se exige un installationId nuevo. Sin progreso
+  // (p. ej. el pre-vuelo validó con un administrador técnico de marcador) el journal adopta la configuración vigente.
+  if (existing && existing.configHash !== config.configHash) {
+    if (journalHasProgress(existing)) throw new Fase1Error("BLOQUEADO", "el journal F3 se creó con otra configuración (configHash): use un installationId nuevo");
+    existing.configHash = config.configHash;
+  }
   return { config, env, stateDir, journalFile, journal: existing ?? initialJournal(config), db: db ?? createFase3DbAdapter({ env }) };
 }
 // Guarda de entorno para toda orden que toque la base: conexión coherente con el ref y, fuera de local, ventana exclusiva confirmada.
@@ -255,8 +260,7 @@ const inputsFor = (config) => Object.fromEntries(INPUT_NAMES.map((name) => [name
 // Con progreso (unidades o bloques ya escritos) los CSV no pueden cambiar: las unidades confirmadas y sus UUID salieron de
 // los insumos anteriores. Antes de cargar nada sí se puede corregir un CSV y revalidar.
 export function assertInputsUnchangedSinceProgress(journal, fingerprints) {
-  const progressed = Object.keys(journal.units ?? {}).length > 0 || Object.keys(journal.blocks ?? {}).length > 0;
-  if (progressed && journal.inputs && stable(journal.inputs) !== stable(fingerprints)) throw new Fase1Error("BLOQUEADO", "cambió la huella de los CSV de F3 desde que empezó la carga: use un installationId nuevo");
+  if (journalHasProgress(journal) && journal.inputs && stable(journal.inputs) !== stable(fingerprints)) throw new Fase1Error("BLOQUEADO", "cambió la huella de los CSV de F3 desde que empezó la carga: use un installationId nuevo");
 }
 
 export async function validate(ctx) {

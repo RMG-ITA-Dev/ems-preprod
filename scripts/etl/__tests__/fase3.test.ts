@@ -41,13 +41,21 @@ describe("ETL fase 3: consola y guardas", () => {
     const test = parseConfig({ ...config, environment: "test", expectedProjectRef: TEST_REF, supabaseUrl: `https://${TEST_REF}.supabase.co` });
     expect(() => createContext({ config: test, stateDir, db: {} })).toThrow(/otra instalación o proyecto/);
   });
-  it("no reanuda un journal de la misma instalación creado con otra configuración", () => {
+  it("con progreso no reanuda un journal creado con otra configuración; sin progreso adopta la vigente (pre-vuelo con administrador de marcador)", () => {
     const stateDir = mkdtempSync(path.join(os.tmpdir(), "etl-f3-"));
-    const first = createContext({ config: parseConfig(config), stateDir, db: {} }); writeFileSync(first.journalFile, JSON.stringify(first.journal));
-    expect(() => createContext({ config: parseConfig(config), stateDir, db: {} })).not.toThrow();
-    const other = parseConfig({ ...config, technicalAdminId: "11111111-1111-4111-8111-111111111111" });
-    expect(other.configHash).not.toBe(first.config.configHash);
-    expect(() => createContext({ config: other, stateDir, db: {} })).toThrow(/otra configuración/);
+    const marker = parseConfig({ ...config, technicalAdminId: "00000000-0000-4000-8000-000000000001" });
+    const real = parseConfig({ ...config, technicalAdminId: "11111111-1111-4111-8111-111111111111" });
+    expect(real.configHash).not.toBe(marker.configHash);
+    // Pre-vuelo: valida con el marcador y deja el journal sin unidades ni bloques.
+    const pre = createContext({ config: marker, stateDir, db: {} }); writeFileSync(pre.journalFile, JSON.stringify(pre.journal));
+    expect(() => createContext({ config: marker, stateDir, db: {} })).not.toThrow();
+    // Paso 40: administrador real. No hay progreso, así que el journal adopta la configuración vigente.
+    const load = createContext({ config: real, stateDir, db: {} });
+    expect(load.journal.configHash).toBe(real.configHash);
+    // Con una unidad escrita, otra configuración ya no se reanuda.
+    load.journal.units["client-engagements"] = { state: "CONFIRMADA" }; writeFileSync(load.journalFile, JSON.stringify(load.journal));
+    expect(() => createContext({ config: real, stateDir, db: {} })).not.toThrow();
+    expect(() => createContext({ config: marker, stateDir, db: {} })).toThrow(/otra configuración/);
   });
   it("los CSV no pueden cambiar una vez que hay unidades o bloques escritos, pero sí antes", () => {
     const before = { a: "1" }; const after = { a: "2" };

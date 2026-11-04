@@ -86,8 +86,13 @@ describe("ETL fase 2: entrada offline", () => {
     });
     const config = parseConfig(raw("a.csv")); const other = parseConfig(raw("b.csv"));
     expect(other.configHash).not.toBe(config.configHash);
-    writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, configHash: config.configHash, state: "VALIDADO", inputs: {} });
+    const journal = { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, configHash: config.configHash, state: "VALIDADO", inputs: {}, clients: {}, staff: {} };
+    writeJournal(journalPathFor(stateDir, config.installationId), journal);
     expect(() => report(createContext({ config, stateDir, db: {} } as any))).not.toThrow(/configHash/);
+    // Sin clientes ni fichas cargados la configuración nueva se adopta (el pre-vuelo y la carga pueden diferir).
+    expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
+    // Con una ficha ya cargada, otra configuración no se reanuda.
+    writeJournal(journalPathFor(stateDir, config.installationId), { ...journal, staff: { "P-1": { state: "confirmado" } } });
     expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).toThrow(/otra configuración/);
     // Un journal anterior a este campo no lo trae y se acepta.
     writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, state: "VALIDADO", inputs: {} });
