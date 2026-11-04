@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXPECTED, Fase2InputError, HEADERS, detectCycles, parseCsv, resolveIndustryRef, topoOrder, validateClients, validateRates, validateRoleAssignment, validateServices } from "../fase2-input.mjs";
 import { writeJournal } from "../fase1.mjs";
-import { createContext, journalPathFor, parseConfig, probeAccess, report, requireWindow, reservedClientMatches } from "../fase2.mjs";
+import { EXIT, createContext, journalPathFor, parseConfig, probeAccess, report, requireWindow, reservedClientMatches } from "../fase2.mjs";
 
 const header = (name: keyof typeof HEADERS) => HEADERS[name].join(",");
 const client = (ref: string, parent = "", relation = "") => `${ref},Cliente ${ref},,001,entidad,${parent},${relation},nacional,nit_propio,Industria,Dirección,true,`;
@@ -97,6 +97,11 @@ describe("ETL fase 2: entrada offline", () => {
     // Un journal anterior a este campo no lo trae y se acepta.
     writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, state: "VALIDADO", inputs: {} });
     expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
+  });
+
+  it("mapea a 3 (reconciliar) los resultados inciertos de SQL y de Auth, y a 2 el bloqueo", () => {
+    expect(EXIT.RECONCILIACION_REQUERIDA).toBe(3); expect(EXIT.SQL_INCIERTO).toBe(3); expect(EXIT.AUTH_INCIERTO).toBe(3);
+    expect(EXIT.BLOQUEADO).toBe(2); expect(EXIT.CONFIG).toBeUndefined(); // lo demás cae en el código de error genérico (1)
   });
 
   it("exige que la confirmación de ventana sea la del ref del proyecto", () => {

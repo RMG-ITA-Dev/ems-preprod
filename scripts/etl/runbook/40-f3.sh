@@ -40,7 +40,9 @@ rb_etl 3 preflight
 block_hash() {
   JOURNAL="$(rb_win_path "$JOURNAL3")" BLOCK="$1" node -e '
     const j = JSON.parse(require("fs").readFileSync(process.env.JOURNAL, "utf8")); const u = j.units?.[process.env.BLOCK] ?? {};
-    const h = u.expectedHash || u.matrixHash || u.workOrderHash || u.inputHash || "";
+    // La unidad de horas no guarda hash propio: la consola deja el de las horas cargadas (hourHash) en la unidad work-orders.
+    const wo = j.units?.["work-orders"] ?? {};
+    const h = u.expectedHash || u.matrixHash || u.workOrderHash || u.inputHash || (process.env.BLOCK === "hours" ? wo.hourHash : "") || "";
     if (!/^[a-f0-9]{64}$/i.test(h)) { console.error("sin hash de bloque"); process.exit(1); } process.stdout.write(h);'
 }
 accept_block() {

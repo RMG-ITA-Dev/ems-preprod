@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertTarget, createContext, exitCodeFor, load, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 
 const TEST_REF = "slkqdcwwvmjtcbakajib";
 // Ruta absoluta válida en cualquier plataforma (el CI corre en Linux; «C:\…» no es absoluta allí).
@@ -71,6 +72,19 @@ describe("ETL fase 3: consola y guardas", () => {
   it("devuelve los mismos códigos de salida que F1 y F2 (2 bloqueado, 3 reconciliación requerida, 1 el resto)", () => {
     expect(exitCodeFor({ code: "BLOQUEADO" })).toBe(2); expect(exitCodeFor({ code: "RECONCILIACION_REQUERIDA" })).toBe(3);
     expect(exitCodeFor({ code: "CONFIG" })).toBe(1); expect(exitCodeFor(new Error("x"))).toBe(1);
+    // Una escritura de resultado incierto (SQL o Auth) también exige reconciliar.
+    expect(exitCodeFor({ code: "SQL_INCIERTO" })).toBe(3); expect(exitCodeFor({ code: "AUTH_INCIERTO" })).toBe(3);
+  });
+  it("F3 solo usa los archivos auxiliares de F2 si coinciden con la huella que F2 verificó", () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "etl-f3-aux-")), "servicios.csv");
+    writeFileSync(file, "legacy_service_id,ems_service_name,equivalence_basis\n1,Auditoría,x\n");
+    const sha = createHash("sha256").update(readFileSync(file)).digest("hex");
+    const f2 = { inputs: { services: { sha256: sha, rows: 1 } } };
+    expect(() => assertF2AuxiliaryFile(file, f2, "services")).not.toThrow();
+    writeFileSync(file, "legacy_service_id,ems_service_name,equivalence_basis\n1,Otro servicio,x\n"); // sobrescrito en el lugar
+    expect(() => assertF2AuxiliaryFile(file, f2, "services")).toThrow(/difiere del que verificó F2/);
+    expect(() => assertF2AuxiliaryFile(file, { inputs: {} }, "services")).toThrow(/no registra la huella/);
+    expect(() => assertF2AuxiliaryFile(file, { inputs: { services: { sha256: "xyz" } } }, "services")).toThrow(/no registra la huella/);
   });
   it("no permite aceptar un bloque sin unidad confirmada", () => {
     const ctx = createContext({ config: parseConfig(config), stateDir: mkdtempSync(path.join(os.tmpdir(), "etl-f3-")), db: {} });

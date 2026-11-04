@@ -9,7 +9,8 @@ import { EXPECTED, Fase2InputError, loadInputs, normalizeEmail, resolveIndustryR
 import { createFase2DbAdapter } from "./fase2-db.mjs";
 
 export const STATES = ["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "CLIENTES_CONFIRMADOS", "STAFF_CONFIRMADO", "CUENTAS_CONFIRMADAS", "ENLACE_Y_ROL_CONFIRMADOS", "VERIFICADO"];
-export const EXIT = Object.freeze({ ok: 0, error: 1, BLOQUEADO: 2, RECONCILIACION: 3, RECONCILIACION_REQUERIDA: 3 });
+// SQL_INCIERTO y AUTH_INCIERTO (timeout o corte tras una escritura que pudo confirmarse) también exigen reconciliar: código 3.
+export const EXIT = Object.freeze({ ok: 0, error: 1, BLOQUEADO: 2, RECONCILIACION: 3, RECONCILIACION_REQUERIDA: 3, SQL_INCIERTO: 3, AUTH_INCIERTO: 3 });
 const TOP = ["schemaVersion", "environment", "expectedProjectRef", "supabaseUrl", "installationId", "bootstrapAdminEmail", "snapshot", "inputs", "expectations"];
 const INPUT_NAMES = ["clients", "contacts", "staff", "users", "rates", "services"];
 const secretKey = /pass|secret|token|key|credential/i;

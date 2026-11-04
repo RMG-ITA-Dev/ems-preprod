@@ -7,7 +7,7 @@ import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProbl
 import { acquireLock, sha256 } from "./fase1.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
 import { isMigrableExecution, readInput, validateInputs } from "./fase3-input.mjs";
-import { HEADERS as F2_HEADERS, parseCsv } from "./fase2-input.mjs";
+import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
 import { buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
@@ -47,7 +47,14 @@ export function loadF2Maps(f2StateDir) {
   if (journal.state !== "VERIFICADO") throw new Fase1Error("BLOQUEADO", "F3 requiere journal F2 en estado VERIFICADO");
   const clients = Object.fromEntries(Object.entries(journal.clients ?? {}).map(([key, value]) => [key, { id: value.clientId }]));
   const staff = Object.fromEntries(Object.entries(journal.staff ?? {}).map(([key, value]) => [key, value.staffId]));
-  return { clients, staff, journalFile };
+  return { clients, staff, journalFile, inputs: journal.inputs ?? {} };
+}
+// Los archivos auxiliares de F2 que F3 lee (equivalencias de servicios y clientes) deben ser exactamente los que F2 verificó:
+// el configHash de F3 cubre solo su ruta. Una huella ausente o distinta bloquea antes de usar el contenido.
+export function assertF2AuxiliaryFile(file, f2, name) {
+  const expected = f2.inputs?.[name]?.sha256;
+  if (!/^[a-f0-9]{64}$/i.test(expected ?? "")) throw new Fase1Error("BLOQUEADO", `el journal F2 no registra la huella de ${name}`);
+  if (sha256File(file) !== expected) throw new Fase1Error("BLOQUEADO", `${name}: el archivo difiere del que verificó F2 (huella distinta); F3 no lo usa`);
 }
 const nameKey = (value) => String(value ?? "").trim().toLocaleLowerCase("es");
 const catalogByName = (rows, label) => {
@@ -64,6 +71,7 @@ const catalogByName = (rows, label) => {
 // catálogo local vigente. No escribe ni infiere valores cuando falta un cruce.
 export async function prepareEngagementPayloads(ctx, inputs) {
   const f2 = loadF2Maps(ctx.config.f2StateDir);
+  assertF2AuxiliaryFile(ctx.config.f2ServicesFile, f2, "services");
   const servicesSource = parseCsv(readFileSync(ctx.config.f2ServicesFile, "utf8"), F2_HEADERS.services, "equivalencias F2");
   const catalog = await ctx.db.engagementCatalog();
   const clientsCatalog = new Map((catalog.clients ?? []).map((row) => [row.id, row]));
@@ -140,7 +148,7 @@ export async function prepareWorkOrderBlueprint(ctx, inputs) {
   const matrixMaps = ctx.journal.units.matrices?.matrices;
   const engagementMaps = ctx.journal.units["client-engagements"]?.result?.engagements;
   if (!Array.isArray(matrixMaps) || matrixMaps.length !== 124 || !Array.isArray(engagementMaps) || engagementMaps.length !== 124) throw new Fase1Error("BLOQUEADO", "OTs requiere mapas confirmados de encargos y matrices");
-  const f2 = loadF2Maps(ctx.config.f2StateDir); const clientRows = parseCsv(readFileSync(ctx.config.f2ClientsFile, "utf8"), F2_HEADERS.clients, "clientes F2");
+  const f2 = loadF2Maps(ctx.config.f2StateDir); assertF2AuxiliaryFile(ctx.config.f2ClientsFile, f2, "clients"); const clientRows = parseCsv(readFileSync(ctx.config.f2ClientsFile, "utf8"), F2_HEADERS.clients, "clientes F2");
   const f2Clients = new Map(clientRows.map((row) => [row.source_ref, row])); const catalog = await ctx.db.workOrderCatalog(); const clients = new Map((catalog.clients ?? []).map((row) => [row.id, row]));
   const worksheetByCot = new Map(matrixMaps.map((row) => [row.sourceKey, row])); const engagementByCot = new Map(engagementMaps.map((row) => [row.sourceKey, row.engagementId]));
   return inputs.clientEngagements.map((row) => {
@@ -690,6 +698,6 @@ export function compareFingerprintFiles({ a, b }) {
 export function rollbackPlan(ctx) { return { ok: true, eligible: Object.entries(ctx.journal.units).filter(([, unit]) => unit.state === "CONFIRMADA").map(([block, unit]) => ({ block, unitId: unit.id, action: "revisión manual; no borrar automáticamente" })) }; }
 function args(argv) { const [command, ...tail] = argv; const flags = {}; for (let i = 0; i < tail.length; i += 1) { if (tail[i] === "--config") flags.config = tail[++i]; else if (tail[i] === "--block") flags.block = tail[++i]; else if (tail[i] === "--resolution") flags.resolution = tail[++i]; else if (tail[i] === "--evidence-hash") flags.evidenceHash = tail[++i]; else if (tail[i] === "--operation") flags.operation = tail[++i]; else if (tail[i] === "--a") flags.a = tail[++i]; else if (tail[i] === "--b") flags.b = tail[++i]; else bad(`argumento desconocido: ${tail[i]}`); } return { command, ...flags }; }
 // Mismos códigos que F1 y F2 y que el README: 2 BLOQUEADO, 3 RECONCILIACION_REQUERIDA, 1 el resto.
-export const exitCodeFor = (error) => error?.code === "BLOQUEADO" ? 2 : error?.code === "RECONCILIACION_REQUERIDA" ? 3 : 1;
+export const exitCodeFor = (error) => error?.code === "BLOQUEADO" ? 2 : ["RECONCILIACION_REQUERIDA", "SQL_INCIERTO", "AUTH_INCIERTO"].includes(error?.code) ? 3 : 1;
 export async function main(argv = process.argv.slice(2), env = process.env) { try { const parsed = args(argv); if (parsed.command === "compare-fingerprints") return compareFingerprintFiles(parsed); if (!parsed.config || !["validate", "preflight", "load", "verify", "accept", "report", "rollback-plan", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) bad("uso: fase3 <validate|preflight|load|verify|accept|report|rollback-plan|reconcile|reconcile-legacy|fingerprint> --config <archivo>  |  fase3 compare-fingerprints --a <huella> --b <huella>"); const ctx = createContext({ config: parseConfig(readJson(parsed.config)), env, stateDir: resolveStateDir(env) }); if (["preflight", "load", "verify", "reconcile", "reconcile-legacy", "fingerprint"].includes(parsed.command)) assertTarget(ctx.config, env); const release = lockInstallation(ctx, parsed.command); try { if (parsed.command === "validate") await validate(ctx); else if (parsed.command === "reconcile-legacy") await reconcileLegacy(ctx); else if (parsed.command === "fingerprint") await fingerprintCommand(ctx); else if (parsed.command === "preflight") await preflight(ctx); else if (parsed.command === "load") await load(ctx, parsed.block, parsed.operation); else if (parsed.command === "verify") await verify(ctx, parsed.block); else if (parsed.command === "accept") acceptBlock(ctx, parsed.block, parsed.evidenceHash); else if (parsed.command === "report") report(ctx); else if (parsed.command === "rollback-plan") rollbackPlan(ctx); else reconcile(ctx, readJson(parsed.resolution)); } finally { release(); } return 0; } catch (error) { console.error(`ERROR [${error.code ?? "ERROR"}]: ${error.message}`); return exitCodeFor(error); } }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
