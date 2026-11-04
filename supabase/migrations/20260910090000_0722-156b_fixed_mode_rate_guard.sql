@@ -59,6 +59,12 @@ BEGIN
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
+    -- 1028-214 (review de Codex): de que cotizacion salio un TC se registra despues, al
+    -- capturarlo (Contabilidad o admin, OT aprobada; ver mas abajo). Una cuota nueva no la
+    -- trae: el alta la hace el gerente con la OT en Draft, y por aca podia inventarla.
+    IF NEW.invoice_exchange_rate_date IS NOT NULL OR NEW.payment_exchange_rate_date IS NOT NULL THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: una cuota nueva no puede traer la cotizacion de origen del tipo de cambio';
+    END IF;
 
     -- MUST FIX review iteracion 18 #1: se resuelve el plan por NEW.plan_id (la
     -- referencia que la fila declara), no por NEW.wo_id -- un wo_id que no coincida
@@ -352,8 +358,13 @@ BEGIN
   -- TC que despues la bitacora y la pantalla muestran como cierto. Ningun camino legitimo del
   -- gerente toca estas fechas: ni el guardado del plan, ni el resincronizado de modo fijo.
   -- Admin por role_key, no is_admin() (enum legacy): mismo criterio que la pantalla.
-  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
-     OR NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date THEN
+  -- Solo al REGISTRAR una fecha: borrarla nunca inventa un origen, y es lo que hace el
+  -- resincronizado de modo fijo (corre como el gerente, con la OT en Draft) cuando reemplaza
+  -- el TC de una cuota por el del plan.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NOT NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NOT NULL) THEN
     IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
       RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede registrar de que cotizacion salio el tipo de cambio';
     END IF;

@@ -333,9 +333,18 @@ export function applyExchangeRateMode(
   installments: PaymentInstallmentInput[],
 ): PaymentInstallmentInput[] {
   if (mode !== 'fijo') return installments;
-  return installments.map((inst) => ({
-    ...inst,
-    invoice_exchange_rate: isInvoiceRateEditable(inst.status) ? planExchangeRate : inst.invoice_exchange_rate,
-    payment_exchange_rate: isPaymentRateEditable(inst.status) ? planExchangeRate : inst.payment_exchange_rate,
-  }));
+  // 1028-214: el TC del plan no sale de ninguna cotización. Donde se reemplaza el TC, se borra
+  // también la fecha de cotización que traía la cuota (igual que el resincronizado de la base,
+  // wo_payment_plan_sync_fixed_installments); donde el TC queda congelado, la fecha también.
+  return installments.map((inst) => {
+    const invoiceEditable = isInvoiceRateEditable(inst.status);
+    const paymentEditable = isPaymentRateEditable(inst.status);
+    return {
+      ...inst,
+      invoice_exchange_rate: invoiceEditable ? planExchangeRate : inst.invoice_exchange_rate,
+      payment_exchange_rate: paymentEditable ? planExchangeRate : inst.payment_exchange_rate,
+      invoice_exchange_rate_date: invoiceEditable ? null : inst.invoice_exchange_rate_date,
+      payment_exchange_rate_date: paymentEditable ? null : inst.payment_exchange_rate_date,
+    };
+  });
 }

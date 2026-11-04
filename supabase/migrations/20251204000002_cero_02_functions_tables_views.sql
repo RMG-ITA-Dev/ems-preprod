@@ -8915,8 +8915,16 @@ CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  v_converts boolean;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status THEN
+    -- 1028-214 (review de Codex): una cuota en Bs no convierte nada. Si es de una OT en otra
+    -- moneda, sus columnas de TC pueden seguir con el TC del plan, y registrarlo hacia que el
+    -- historial lo mostrara como el TC "con que se facturo". Misma regla de moneda efectiva
+    -- que invoice_installment usa para exigir TC.
+    SELECT COALESCE(NEW.currency, w.currency) <> 'BOB' INTO v_converts
+      FROM public.work_orders w WHERE w.wo_id = NEW.wo_id;
     INSERT INTO public.wo_installment_events (
       installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id,
       exchange_rate, exchange_rate_date
@@ -8930,15 +8938,17 @@ BEGIN
       END,
       NEW.amount, public.get_my_staff_id(),
       -- 1028-214: el TC que queda congelado en esa transicion, y su cotizacion.
-      CASE NEW.status
-        WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
-        WHEN 'Completed' THEN NEW.payment_exchange_rate
-        ELSE NULL
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
+          WHEN 'Completed' THEN NEW.payment_exchange_rate
+        END
       END,
-      CASE NEW.status
-        WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
-        WHEN 'Completed' THEN NEW.payment_exchange_rate_date
-        ELSE NULL
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
+          WHEN 'Completed' THEN NEW.payment_exchange_rate_date
+        END
       END
     );
   END IF;

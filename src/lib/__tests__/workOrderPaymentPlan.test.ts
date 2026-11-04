@@ -657,6 +657,32 @@ describe("applyExchangeRateMode (modo Fijo sync — no-op for an already-frozen 
     expect(result[0].invoice_exchange_rate).toBe(6.95);
     expect(result[0].payment_exchange_rate).toBe(6.98);
   });
+
+  // 1028-214: el TC del plan no sale de ninguna cotización; dejar la fecha anterior lo
+  // atribuía a una cotización que no es la suya.
+  it("modo Fijo: borra la cotización del TC que reemplaza y conserva la del TC congelado", () => {
+    const installments = [
+      baseInstallment({
+        status: "Pending",
+        invoice_exchange_rate: 6.9,
+        invoice_exchange_rate_date: "2026-10-09",
+        payment_exchange_rate: 6.9,
+        payment_exchange_rate_date: null,
+      }),
+      baseInstallment({
+        status: "Completed",
+        invoice_exchange_rate: 6.95,
+        invoice_exchange_rate_date: "2026-10-02",
+        payment_exchange_rate: 6.98,
+        payment_exchange_rate_date: "2026-10-09",
+      }),
+    ];
+    const [pending, completed] = applyExchangeRateMode("fijo", 7.0, installments);
+    expect(pending.invoice_exchange_rate_date).toBeNull();
+    expect(pending.payment_exchange_rate_date).toBeNull();
+    expect(completed.invoice_exchange_rate_date).toBe("2026-10-02");
+    expect(completed.payment_exchange_rate_date).toBe("2026-10-09");
+  });
 });
 
 // MUST FIX 0722-156b review iteracion 3 #4: invoice_exchange_rate/payment_exchange_rate
