@@ -91,6 +91,7 @@
     "administrativeEngagements": "Administrative Engagements",
     "workMatrix": "Work Matrix",
     "workOrders": "Work Orders",
+    "risks": "Risk",
     "timeSheet": "Time Sheet",
     "myAssignments": "My Assignments",
     "timesheetApprovals": "Approvals",
@@ -448,7 +449,43 @@
       "specialist_tax": "Tax Specialist"
     }
   },
+  "risks": {
+    "title": "Risk",
+    "subtitle": "Risk assessments of work orders",
+    "searchPlaceholder": "Search by engagement or client...",
+    "statusFilter": "Status",
+    "filter": {
+      "emergency": "Emergency",
+      "pending": "Pending approval",
+      "rejected": "Rejected",
+      "approved": "Approved by Risk",
+      "finalized": "Finalized",
+      "all": "All"
+    },
+    "columns": {
+      "engagement": "Engagement",
+      "client": "Client",
+      "san": "SAN (ID/date)",
+      "ceac": "CEAC (ID/date)",
+      "level": "Risk level",
+      "status": "Status"
+    },
+    "emergency": "Emergency",
+    "dueOn": "due {{date}}",
+    "loadError": "We could not load the risk assessments. Please try again.",
+    "retry": "Retry",
+    "backToList": "Back to Risk",
+    "detailNotFound": "The risk assessment for this work order was not found or is not available."
+  },
   "authz": {
+    "perm": {
+      "work_order": {
+        "risk": {
+          "read": "View the Risk module",
+          "emergency_sign": "Sign the emergency as Risk Partner"
+        }
+      }
+    },
     "role": {
       "admin": "Administrator",
       "it_security_manager": "National IT Security Manager",
@@ -1520,10 +1557,6 @@
         "partnerHours": {
           "title": "My hours as partner"
         },
-        "sqrHours": {
-          "title": "My hours as SQR",
-          "inEngagements": "in {{count}} engagements"
-        },
         "hoursOfBudget": "{{logged}} / {{budget}} h",
         "alerts": {
           "title": "Review",
@@ -1882,7 +1915,6 @@
     "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft",
     "riskSavedOnSubmit": "Risk data will be saved when submitting for approval",
-    "riskOnlyAdministrative": "This work order belongs to an administrative engagement and has no risk assessment.",
     "confirmParametersTitle": "Confirm Work Order Parameters",
     "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
     "selectedCurrency": "Currency",

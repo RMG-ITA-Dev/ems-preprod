@@ -203,8 +203,9 @@ BEGIN
   SELECT count(*) INTO n FROM public.authorization_permissions;
   -- +1 de 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read) + 1 de
   -- 20261009120000_rls_carril_b.sql (timesheet.self_approve, que is_auto_approved_category()
-  -- consultaba sin que existiera en el catálogo).
-  IF n <> 86 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 86, encontrado %', n; END IF;
+  -- consultaba sin que existiera en el catálogo) + 2 de 20261009120000_rls_carril_b.sql (1028-213:
+  -- work_order.risk.read y work_order.risk.emergency_sign, módulo /risks).
+  IF n <> 88 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 88, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_role_permissions;
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
@@ -220,16 +221,21 @@ BEGIN
   -- 20260918120000_dash_encargo_engagement_overview.sql (dashboard.engagement.read para
   -- semisenior — decisiones.md §3 de bugs/dashboard/encargo/) + 2 de
   -- 20251204001004_cero_13_seed_authorization_rbac.sql (fund_disbursement.read/update para
-  -- accounting_analyst, paridad contable — docs/plan-contabilidad-gastos.md Fase 1.2) + 10 de
+  -- accounting_analyst, paridad contable — docs/plan-contabilidad-gastos.md Fase 1.2) - 3 de
+  -- 20251204001004_cero_13_seed_authorization_rbac.sql (1028-213, D-23: work_order.risk.approve de
+  -- manager/ita_manager/tax_manager) - 1 de 20260826221706_0817-180_grant_hr_engagement_work_order.sql
+  -- (1028-213, D-23: work_order.risk.approve de hr_manager; quedan 12 hr_manager + 3 hr_analyst) + 10 de
   -- 20261009120000_rls_carril_b.sql (Carril B / B1.2: +12 — 5 de timesheet.self_approve, 5 de
   -- risk_partner (activity_code.read, work_order.read/submit/payment_plan.approve, client.create)
   -- y 2 de risk_supervisor (work_order.read, engagement.read) — y -2: worksheet.create/update
-  -- de risk_partner) + 7 de 20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
+  -- de risk_partner; 1028-213 quita work_order.read de risk_supervisor (-1) y suma 5 concesiones de
+  -- work_order.risk.read (admin/risk_partner/risk_supervisor) y work_order.risk.emergency_sign
+  -- (admin/risk_partner) (+5), neto +4 sobre el total de B1.2) + 7 de 20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql
   -- (Carril B / B3p, decisión del operador: lectura con alcance department de work_order, engagement
   -- y client para collections_analyst, y de work_order y engagement para accounting_manager y
   -- accounting_analyst; contabilidad sin client.read).
   IF n <> 777 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 777, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 86 permisos / 777 concesiones';
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 88 permisos / 777 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

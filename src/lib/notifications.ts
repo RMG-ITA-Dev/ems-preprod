@@ -533,6 +533,19 @@ const TYPE_ROUTE_PERMISSION: Record<string, string> = {
 };
 
 /**
+ * 1028-213 (D-17, AC-32): los avisos de Riesgos llevan al detalle del módulo `/risks` para quien
+ * tiene `work_order.risk.read`; si no (p. ej. el gerente), a la OT, y solo si puede abrirla. Se
+ * resuelven ANTES del gate de permiso del módulo porque el `risk_supervisor` ya no tiene
+ * `work_order.read` y, con ese gate, quedaría sin enlace.
+ * Mantener sincronizado con supabase/functions/_shared/plantillas/rutas.ts (correo).
+ */
+const RISK_NOTIFICATION_TYPES = new Set([
+  "wo.submitted_risk",
+  "wo.risk.resubmitted",
+  "wo.emergency.deadline_passed",
+]);
+
+/**
  * A donde lleva un evento al hacer click, o `null` si todavia no hay destino para su modulo
  * o si el usuario no puede abrir esa pantalla.
  *
@@ -570,6 +583,14 @@ export function notificationRoute(
   if (event.type_key === "approval.reversal_rejected" && event.payload?.scope === "engagement") {
     if (can && !can("timesheet_approval.read")) return null;
     return "/timesheet/approvals?tab=my-requests";
+  }
+
+  if (event.module_key === "work_order" && RISK_NOTIFICATION_TYPES.has(event.type_key)) {
+    if (!event.entity_id) return null;
+    // Sin `can` (llamadores que no gatean) se conserva el destino histórico: la OT.
+    if (!can) return `/work-orders/${event.entity_id}`;
+    if (can("work_order.risk.read")) return `/risks/${event.entity_id}`;
+    return can("work_order.read") ? `/work-orders/${event.entity_id}` : null;
   }
 
   const permission =

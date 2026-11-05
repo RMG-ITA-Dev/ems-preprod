@@ -283,14 +283,6 @@ export function toViewModel(payload: PartnerOverviewPayload | null | undefined):
         pending: n(payload.kpis?.my_partner_hours?.pending),
         rejected: n(payload.kpis?.my_partner_hours?.rejected),
       },
-      my_sqr_hours: {
-        budget: n(payload.kpis?.my_sqr_hours?.budget),
-        approved: n(payload.kpis?.my_sqr_hours?.approved),
-        pending: n(payload.kpis?.my_sqr_hours?.pending),
-        rejected: n(payload.kpis?.my_sqr_hours?.rejected),
-        engagement_count: n(payload.kpis?.my_sqr_hours?.engagement_count),
-        engagements: payload.kpis?.my_sqr_hours?.engagements ?? [],
-      },
       alerts: {
         over_budget_count: n(payload.kpis?.alerts?.over_budget_count),
         portfolio_count: n(payload.kpis?.alerts?.portfolio_count),

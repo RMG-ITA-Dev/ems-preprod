@@ -179,8 +179,7 @@ DROP POLICY IF EXISTS "Admins can view all work orders" ON public.work_orders;
 CREATE POLICY "Admins can view all work orders" ON public.work_orders FOR SELECT TO authenticated
   USING ((SELECT public.is_admin()));
 DROP POLICY IF EXISTS "Assigned SQR can view work orders" ON public.work_orders;
-CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders FOR SELECT TO authenticated
-  USING (engagement_id IN (SELECT public.my_sqr_visible_engagement_ids()));
+-- 1028-213 (D-21, A1): el SQR del encargo ya no lee la OT; la politica no se vuelve a crear (el DROP queda para limpiar bases que la tenian).
 DROP POLICY IF EXISTS "Staff can view fund request work orders" ON public.work_orders;
 CREATE POLICY "Staff can view fund request work orders" ON public.work_orders FOR SELECT TO authenticated
   USING (wo_id IN (SELECT public.my_fund_request_wo_ids()));
@@ -190,7 +189,7 @@ CREATE POLICY "Team can view engagement work orders" ON public.work_orders FOR S
 DROP POLICY IF EXISTS "work_orders assigned read" ON public.work_orders;
 CREATE POLICY "work_orders assigned read" ON public.work_orders FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = 'assigned_engagements'
-         AND engagement_id IN (SELECT public.my_assigned_engagement_ids()));
+         AND engagement_id IN (SELECT public.my_team_engagement_ids())); -- 1028-213 (D-20, A3): solo socio y gerente (antes: socio, gerente, SQR y encargado)
 DROP POLICY IF EXISTS "work_orders firm read" ON public.work_orders;
 CREATE POLICY "work_orders firm read" ON public.work_orders FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = ANY (ARRAY['firm', 'department']));
@@ -211,7 +210,7 @@ CREATE POLICY "Team can view budget lines" ON public.wo_budget_lines FOR SELECT 
 DROP POLICY IF EXISTS "budget_lines assigned read" ON public.wo_budget_lines;
 CREATE POLICY "budget_lines assigned read" ON public.wo_budget_lines FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = 'assigned_engagements'
-         AND wo_id IN (SELECT public.my_assigned_wo_ids()));
+         AND wo_id IN (SELECT public.my_team_wo_ids())); -- 1028-213 (D-21, A4): solo socio y gerente
 DROP POLICY IF EXISTS "budget_lines firm read" ON public.wo_budget_lines;
 CREATE POLICY "budget_lines firm read" ON public.wo_budget_lines FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = ANY (ARRAY['firm', 'department']));
@@ -232,7 +231,7 @@ CREATE POLICY "Team can view expense budget" ON public.wo_expense_budget FOR SEL
 DROP POLICY IF EXISTS "expense_budget assigned read" ON public.wo_expense_budget;
 CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = 'assigned_engagements'
-         AND wo_id IN (SELECT public.my_assigned_wo_ids()));
+         AND wo_id IN (SELECT public.my_team_wo_ids())); -- 1028-213 (D-21, A4): solo socio y gerente
 DROP POLICY IF EXISTS "expense_budget firm read" ON public.wo_expense_budget;
 CREATE POLICY "expense_budget firm read" ON public.wo_expense_budget FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('work_order.read')) AND (SELECT public.permission_scope('work_order.read')) = ANY (ARRAY['firm', 'department']));

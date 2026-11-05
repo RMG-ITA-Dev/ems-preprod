@@ -694,6 +694,21 @@ describe("rutas", () => {
       }
     });
 
+    // 1028-213 (D-17, AC-32): los avisos de Riesgos llevan a /risks/:woId cuando notify_staff marca
+    // payload.ruta = 'risks'; sin la marca (otros roles) siguen a /work-orders/:id.
+    it("los avisos de Riesgos van a /risks/:woId con payload.ruta = 'risks'", () => {
+      for (const typeKey of ["wo.submitted_risk", "wo.risk.resubmitted", "wo.emergency.deadline_passed"]) {
+        expect(rutaDeNotificacion({ typeKey, entityId: "wo-9", payload: { ruta: "risks" } }), typeKey)
+          .toBe("/risks/wo-9");
+        expect(rutaDeNotificacion({ typeKey, entityId: "wo-9" }), typeKey).toBe("/work-orders/wo-9");
+      }
+      // La marca solo aplica a esos tres tipos y sin_ruta sigue ganando.
+      expect(rutaDeNotificacion({ typeKey: "wo.approved_partner", entityId: "wo-9", payload: { ruta: "risks" } }))
+        .toBe("/work-orders/wo-9");
+      expect(rutaDeNotificacion({ typeKey: "wo.submitted_risk", entityId: "wo-9", payload: { ruta: "risks", sin_ruta: true } }))
+        .toBeNull();
+    });
+
     it("gana sobre cualquier destino, incluido el de los recordatorios", () => {
       const ruta = rutaDeNotificacion({
         typeKey: "approval.reminder.weekly",

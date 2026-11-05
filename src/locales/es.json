@@ -91,6 +91,7 @@
     "administrativeEngagements": "Encargos Administrativos",
     "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
+    "risks": "Riesgos",
     "timeSheet": "Hoja de Tiempo",
     "myAssignments": "Mis Asignaciones",
     "timesheetApprovals": "Aprobaciones",
@@ -448,7 +449,43 @@
       "specialist_tax": "Especialista Tax"
     }
   },
+  "risks": {
+    "title": "Riesgos",
+    "subtitle": "Evaluaciones de riesgo de las órdenes de trabajo",
+    "searchPlaceholder": "Buscar por encargo o cliente...",
+    "statusFilter": "Estado",
+    "filter": {
+      "emergency": "Emergencia",
+      "pending": "Pendiente de aprobación",
+      "rejected": "Rechazado",
+      "approved": "Aprobado por Riesgos",
+      "finalized": "Finalizado",
+      "all": "Todas"
+    },
+    "columns": {
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "san": "SAN (ID/fecha)",
+      "ceac": "CEAC (ID/fecha)",
+      "level": "Nivel de riesgo",
+      "status": "Estado"
+    },
+    "emergency": "Emergencia",
+    "dueOn": "vence {{date}}",
+    "loadError": "No se pudieron cargar las evaluaciones de riesgo. Intente de nuevo.",
+    "retry": "Reintentar",
+    "backToList": "Volver a Riesgos",
+    "detailNotFound": "No se encontró la evaluación de riesgos de esta orden de trabajo o no está disponible."
+  },
   "authz": {
+    "perm": {
+      "work_order": {
+        "risk": {
+          "read": "Ver el módulo de Riesgos",
+          "emergency_sign": "Firmar la emergencia como Socio de Riesgos"
+        }
+      }
+    },
     "role": {
       "admin": "Administrador",
       "it_security_manager": "Gerente Nacional de Seguridad TI",
@@ -1520,10 +1557,6 @@
         "partnerHours": {
           "title": "Mis horas como socio"
         },
-        "sqrHours": {
-          "title": "Mis horas como SQR",
-          "inEngagements": "en {{count}} encargos"
-        },
         "hoursOfBudget": "{{logged}} / {{budget}} h",
         "alerts": {
           "title": "Revisión",
@@ -1882,7 +1915,6 @@
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
     "riskSavedOnSubmit": "Los datos de Riesgo se guardarán al enviar para aprobación",
-    "riskOnlyAdministrative": "Esta OT es de un encargo administrativo: no tiene evaluación de riesgos.",
     "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
     "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
     "selectedCurrency": "Moneda",

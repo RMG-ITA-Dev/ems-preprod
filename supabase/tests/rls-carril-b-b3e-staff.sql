@@ -9,7 +9,7 @@
 -- que las escrituras del dueño entre intentos se evaluaran como ese usuario).
 --
 -- Fixture world (ids con prefijo b3e): A admin, M gerente del encargo, P socio del encargo, S asistente, Q gerente
---   que es SQR del encargo (cierra la pista de Riesgos), X gerente sin relación. Ficha sin enlazar (U).
+--   que es SQR del encargo (1028-213: ya no escribe la OT; antes cerraba la pista de Riesgos), X gerente sin relación. Ficha sin enlazar (U).
 --   E1 encargo de cliente (M gerente, P socio, Q sqr) con OT1; E2 encargo administrativo (funcion 0) con OT2.
 
 BEGIN;
@@ -227,7 +227,7 @@ BEGIN
   RAISE NOTICE 'PASS — trigger de firma presente, DEFINER con search_path fijo y sin EXECUTE para roles de API';
 
   -- 7. El gerente y los demás NO firman por el socio ───────────────────────────────────────────────────────────────
-  FOREACH v_who IN ARRAY ARRAY[m, q] LOOP
+  FOREACH v_who IN ARRAY ARRAY[m] LOOP
     IF pg_temp.try_as(v_who, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', wo1)) <> 'ERR 42501' THEN
       RAISE EXCEPTION 'B3e-2 FAIL — % fijó la firma del socio por UPDATE directo', v_who;
     END IF;
@@ -235,6 +235,13 @@ BEGIN
       RAISE EXCEPTION 'B3e-2 FAIL — % cerró una OT como Aprobada sin la firma del socio', v_who;
     END IF;
   END LOOP;
+  -- 1028-213 (D-21, D-37): el SQR ya no tiene política de UPDATE sobre work_orders ("Assigned SQR can update work orders" se
+  -- retiró): la fila ni siquiera le es alcanzable, así que ambas sentencias tocan 0 filas (antes llegaban al trigger y daban 42501).
+  IF pg_temp.try_as(q, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', wo1)) <> '0'
+     OR pg_temp.try_as(q, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L', wo1)) <> '0'
+     OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo1) IS NOT NULL THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el SQR alcanzó la OT por UPDATE (debía tocar 0 filas) o la firma quedó escrita';
+  END IF;
   IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', wo2)) <> 'ERR 42501' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente firmó una OT administrativa';
   END IF;
@@ -253,11 +260,12 @@ BEGIN
     RAISE EXCEPTION 'B3e-2 FAIL — el socio del encargo debía poder firmar';
   END IF;
   -- useApproveRisk: primero Riesgos aprueba su pista (se escribe como dueño y con triggers en réplica: lo que se prueba es el
-  -- cierre) y después el aprobador (aquí el SQR) cierra con filtro approved_at no nulo.
+  -- cierre) y después el aprobador cierra con filtro approved_at no nulo. 1028-213: el aprobador del fixture es el admin (el SQR ya no
+  -- escribe la OT; en producción Riesgos cierra dentro de approve_wo_risk, ver rpc-1028-213-risks.sql).
   EXECUTE 'SET LOCAL session_replication_role = replica';
   UPDATE public.work_orders SET risk_status = 'Approved' WHERE wo_id = wo1;
   EXECUTE 'SET LOCAL session_replication_role = origin';
-  IF pg_temp.try_as(q, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L AND approved_at IS NOT NULL', wo1)) <> '1' THEN
+  IF pg_temp.try_as(a, format('UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L AND approved_at IS NOT NULL', wo1)) <> '1' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — Riesgos debía poder cerrar la OT ya firmada por el socio';
   END IF;
   IF (SELECT approval_status FROM public.work_orders WHERE wo_id = wo1) <> 'Approved' THEN
@@ -321,7 +329,7 @@ BEGIN
   RAISE NOTICE 'PASS — el gerente no borra la firma por el estado; el socio retira; el gerente retira una OT sin firma';
 
   -- 9c. Revisión del PR (Codex): el INSERT también pasa por la guarda. wo_create_by_permission deja crear la OT al gerente
-  --     asignado y las tres columnas de firma tienen INSERT para authenticated: sin guarda en el INSERT, el gerente creaba
+  --     del encargo (1028-213, D-42: ya no al SQR ni al encargado) y las tres columnas de firma tienen INSERT para authenticated: sin guarda en el INSERT, el gerente creaba
   --     la OT ya firmada y Aprobada.
   IF pg_temp.try_as(m, format('INSERT INTO public.work_orders (engagement_id, currency, season_mode, approval_status, approved_by, approved_at) VALUES (%L, ''BOB'', ''High'', ''Approved'', %L, now())', 'e0b3e000-0000-4000-8000-000000000003', '50b3e000-0000-4000-8000-000000000003')) <> 'ERR 42501' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente creó una OT ya firmada y Aprobada por INSERT';

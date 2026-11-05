@@ -639,8 +639,7 @@ END $$;
 -- Correccion del operador (2026-09-16): ser SQR de un encargo (sqr_id = yo) ya NO alcanza
 -- para entrar a role_scope/scope_all (KPI1, Bloques A-H, KPI5) -- solo partner_id = yo. u3
 -- (rol 'director') es sqr_id de E6 pero NUNCA partner_id de nada -> su scope queda vacio;
--- sus horas de SQR siguen disponibles via kpis.my_sqr_hours (asercion 11, sin cambios, esa
--- CTE nunca dependio de role_scope). u4 (rol 'sqr') es LITERALMENTE partner_id de E6 -> la
+-- 1028-213 (D-41): el KPI kpis.my_sqr_hours ya no existe (asercion 11). u4 (rol 'sqr') es LITERALMENTE partner_id de E6 -> la
 -- ve completa, porque el alcance lo decide la columna del encargo, no la etiqueta del rol.
 DO $$
 DECLARE v jsonb;
@@ -884,7 +883,7 @@ BEGIN
   RAISE NOTICE 'OK 10b: previous_total_bob incluye a E11 (fee_net=1000, solo en cartera hace un anio) aunque E11 nunca este en el scope 2026 actual';
 END $$;
 
--- ── 11. my_partner_hours.budget = Socio de E1; my_sqr_hours(director) = SQR de E6, count=1 ─
+-- ── 11. my_partner_hours.budget = Socio de E1; kpis.my_sqr_hours ya no existe (1028-213, D-41) ─
 DO $$
 DECLARE v jsonb;
 BEGIN
@@ -897,15 +896,10 @@ BEGIN
 
   PERFORM pg_temp.impersonate(pg_temp.u(3));  -- director, sqr_id de E6
   v := public.partner_overview(pg_temp.p_start(), pg_temp.p_end());
-  IF (v->'kpis'->'my_sqr_hours'->>'budget')::numeric <> 8 THEN
-    RAISE EXCEPTION 'FAIL: my_sqr_hours.budget esperado 8 (SQR de E6), obtuvo %',
-      v->'kpis'->'my_sqr_hours'->>'budget';
+  IF (v->'kpis') ? 'my_sqr_hours' THEN
+    RAISE EXCEPTION 'FAIL: kpis.my_sqr_hours no deberia existir (1028-213, D-41); el director SQR de E6 no recibe un KPI por ser SQR: %', v->'kpis';
   END IF;
-  IF (v->'kpis'->'my_sqr_hours'->>'engagement_count')::int <> 1 THEN
-    RAISE EXCEPTION 'FAIL: my_sqr_hours.engagement_count esperado 1, obtuvo %',
-      v->'kpis'->'my_sqr_hours'->>'engagement_count';
-  END IF;
-  RAISE NOTICE 'OK 11: my_partner_hours.budget=10 (Socio E1); my_sqr_hours(director).budget=8 (SQR E6), count=1';
+  RAISE NOTICE 'OK 11: my_partner_hours.budget=10 (Socio E1); kpis.my_sqr_hours ausente (1028-213, D-41)';
 END $$;
 
 -- ── 11b. funcion=1 tambien excluye horas personales (KPI3): te13 (4h aprobadas de u2 sobre
@@ -1175,8 +1169,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: el payload expone una clave PII cruda: %', v;
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v->'managers') m WHERE m ? 'role_key')
-     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v->'filters'->'managers') m WHERE m ? 'role_key')
-     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v->'kpis'->'my_sqr_hours'->'engagements') m WHERE m ? 'role_key') THEN
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v->'filters'->'managers') m WHERE m ? 'role_key') THEN
     RAISE EXCEPTION 'FAIL: un objeto de staff anidado expone role_key (solo meta.role_key -- el propio rol del llamante -- es aceptable)';
   END IF;
   RAISE NOTICE 'OK 19: sin email/id_number/aud_reg_number/auth_user_id en ningun nivel; role_key solo en meta (propio del llamante)';

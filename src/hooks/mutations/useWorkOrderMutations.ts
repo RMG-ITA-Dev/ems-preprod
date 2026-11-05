@@ -208,45 +208,39 @@ export function useApproveWorkOrder() {
   });
 }
 
+// 1028-213 (D-37): la escritura de Riesgos va por funciones SECURITY DEFINER del servidor, no
+// por UPDATE directo a work_orders. Cada una toma el lock de la fila, exige
+// is_admin() OR can_approve_wo_risk(), valida la precondición y escribe solo columnas de
+// Riesgos (más el cierre atómico de approval_status) en una transacción. El actor sale de
+// get_my_staff_id() en el servidor: el cliente ya no manda staffId.
+// El cast `as never` es el mismo escape que useWorkOrderPaymentPlanMutations: las firmas no
+// están en src/integrations/supabase/types.ts (auto-generado, no se edita a mano).
+
+// Lista /risks y detalle /risks/:woId leen las mismas filas que estas acciones cambian.
+function invalidateRiskViews(queryClient: QueryClient, woId: string) {
+  queryClient.invalidateQueries({ queryKey: ["risk_work_orders"] });
+  queryClient.invalidateQueries({ queryKey: ["risk_work_order", woId] });
+}
+
 // Normal Riesgos approval (single sign-off): used by the normal flow AND by the
 // post-completion data review after an emergency OT completes its risk data.
 export function useApproveRisk() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      woId,
-      staffId,
-    }: {
-      woId: string;
-      staffId: string;
-    }) => {
-      // Riesgos track.
-      const { data: result, error } = await supabase
-        .from("work_orders")
-        .update({
-          risk_approved_by: staffId,
-          risk_approved_at: new Date().toISOString(),
-          risk_status: "Approved",
-        })
-        .eq("wo_id", woId)
-        .select()
-        .single();
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { data, error } = await supabase.rpc("approve_wo_risk" as never, {
+        p_wo_id: woId,
+      } as never);
       if (error) throw error;
-      // Atomic close: flip to Approved only if the Socio track is already done.
-      const { error: closeError } = await supabase
-        .from("work_orders")
-        .update({ approval_status: "Approved" })
-        .eq("wo_id", woId)
-        .not("approved_at", "is", null);
-      if (closeError) throw closeError;
-      return result;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving risk"),
@@ -259,89 +253,47 @@ export function useApproveRisk() {
 export function useApproveEmergencyReview() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      woId,
-      staffId,
-    }: {
-      woId: string;
-      staffId: string;
-    }) => {
-      const { data: result, error } = await supabase
-        .from("work_orders")
-        .update({
-          emergency_review_by: staffId,
-          emergency_review_at: new Date().toISOString(),
-        })
-        .eq("wo_id", woId)
-        .is("emergency_review_at", null) // first click wins; concurrent double-click fails instead of overwriting
-        .select()
-        .single();
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { data, error } = await supabase.rpc("approve_wo_emergency_review" as never, {
+        p_wo_id: woId,
+      } as never);
       if (error) throw error;
-      return result;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.riskReviewApproved"));
     },
     onError: createMutationErrorHandler("approving emergency risk review"),
   });
 }
 
-// Emergency step 2: Socio de Riesgos sign-off. With both emergency approvals in,
-// risk_status becomes 'Emergency_Approved', the +7 calendar-day deadline starts,
-// and the OT closes if the Socio (business) track is already done.
+// Emergency step 2: Socio de Riesgos sign-off (risk_partner o admin, D-38). With both
+// emergency approvals in, risk_status becomes 'Emergency_Approved', the +7 calendar-day
+// deadline starts (fecha de La Paz, calculada en el servidor), and the OT closes if the
+// Socio (business) track is already done.
 export function useApproveEmergencyPartner() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      woId,
-      staffId,
-    }: {
-      woId: string;
-      staffId: string;
-    }) => {
-      const deadline = new Date();
-      deadline.setDate(deadline.getDate() + 7); // +7 calendar days (~5 business days)
-      // Use local date components to avoid UTC offset shifting the stored DATE by one day
-      // (toISOString() returns UTC, which can be ±1 day from local time in Bolivia/UTC-4).
-      const deadlineStr = [
-        deadline.getFullYear(),
-        String(deadline.getMonth() + 1).padStart(2, "0"),
-        String(deadline.getDate()).padStart(2, "0"),
-      ].join("-");
-      const { data: result, error } = await supabase
-        .from("work_orders")
-        .update({
-          emergency_partner_by: staffId,
-          emergency_partner_at: new Date().toISOString(),
-          risk_status: "Emergency_Approved",
-          emergency_deadline_at: deadlineStr,
-        })
-        .eq("wo_id", woId)
-        .not("emergency_review_at", "is", null)
-        .is("emergency_partner_at", null)
-        .select()
-        .single();
+    mutationFn: async ({ woId }: { woId: string }) => {
+      const { data, error } = await supabase.rpc("approve_wo_emergency_partner" as never, {
+        p_wo_id: woId,
+      } as never);
       if (error) throw error;
-      // Atomic close: flip to Approved only if the Socio track is already done.
-      const { error: closeError } = await supabase
-        .from("work_orders")
-        .update({ approval_status: "Approved" })
-        .eq("wo_id", woId)
-        .not("approved_at", "is", null);
-      if (closeError) throw closeError;
-      return result;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving emergency risk"),
@@ -363,32 +315,22 @@ export function useRejectRisk() {
       // (la OT sigue Pending/Approved) ni toca la aprobación del Socio. Solo marca la
       // pista de Riesgos como rechazada con su nota; el Gerente corrige y reenvía a
       // Riesgos ("Enviar a aprobar a Riesgos" -> risk_status='Pending').
-      // Limpia todas las marcas de emergencia para que un reenvío posterior
+      // El servidor limpia todas las marcas de emergencia para que un reenvío posterior
       // reinicie el flujo de dos firmas desde el paso 1.
-      const { data: result, error } = await supabase
-        .from("work_orders")
-        .update({
-          risk_status: "Rejected",
-          risk_notes: riskNotes ?? null,
-          emergency_review_by: null,
-          emergency_review_at: null,
-          emergency_partner_by: null,
-          emergency_partner_at: null,
-          emergency_deadline_at: null,
-          emergency_justification: null,
-        })
-        .eq("wo_id", woId)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc("reject_wo_risk" as never, {
+        p_wo_id: woId,
+        p_risk_notes: riskNotes ?? null,
+      } as never);
       if (error) throw error;
-      return result;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting risk"),

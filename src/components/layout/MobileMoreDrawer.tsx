@@ -18,6 +18,7 @@ import {
   CalendarRange,
   ChartColumnDecreasing,
   HandCoins,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Drawer,
@@ -96,6 +97,8 @@ export function MobileMoreDrawer({ open, onOpenChange }: MobileMoreDrawerProps) 
   ].filter((i) => i.show);
 
   const operationsItems: DrawerNavItem[] = [
+    // 1028-213: módulo de Riesgos, mismo predicado que AppSidebar.tsx.
+    { path: "/risks", icon: ShieldCheck, labelKey: "nav.risks", show: can("work_order.risk.read") },
     // 0922-190: sin permiso — mismo criterio que AppSidebar.tsx.
     { path: "/timesheet/assignments", icon: ListChecks, labelKey: "nav.myAssignments", show: roleKey !== "risk_supervisor" && roleKey !== "hr_analyst" },
     { path: "/timesheet/approvals", icon: CheckSquare, labelKey: "nav.timesheetApprovals", show: can("timesheet_approval.read") },

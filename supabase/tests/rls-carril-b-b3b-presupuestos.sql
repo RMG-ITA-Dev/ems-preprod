@@ -166,8 +166,8 @@ BEGIN
     -- el asistente no ve ninguna
     IF pg_temp.count_as(u5, t) <> 0 THEN RAISE EXCEPTION 'B3b PRESUPUESTOS FAIL — el asistente no debía ver filas de %', t; END IF;
   END LOOP;
-  -- cobranza, contabilidad y risk_supervisor (work_order.read department): ven líneas y gastos, no celdas
-  FOREACH v_who IN ARRAY ARRAY[u4, u6, u7] LOOP
+  -- cobranza y contabilidad (work_order.read department): ven líneas y gastos, no celdas
+  FOREACH v_who IN ARRAY ARRAY[u4, u7] LOOP
     IF pg_temp.count_as(v_who, 'wo_budget_lines') <> 2 OR pg_temp.count_as(v_who, 'wo_expense_budget') <> 2 THEN
       RAISE EXCEPTION 'B3b PRESUPUESTOS FAIL — % debía ver las líneas y gastos de todas las OT (work_order.read department)', v_who;
     END IF;
@@ -175,7 +175,15 @@ BEGIN
       RAISE EXCEPTION 'B3b PRESUPUESTOS FAIL — % no tiene worksheet.read y no debía ver celdas', v_who;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — lectura: admin todo; gerentes lo de su encargo; cobranza, contabilidad y riesgos ven líneas y gastos pero no celdas; asistente nada';
+  -- 1028-213 (D-24): risk_supervisor ya no tiene work_order.read: no ve líneas, gastos ni celdas (ve la parte de Riesgos de la OT
+  -- solo por list_risk_work_orders/get_risk_work_order, que no devuelven presupuesto). Contraparte: cobranza y contabilidad, que
+  -- sí conservan work_order.read department, siguen viéndolas (loop de arriba).
+  FOREACH t IN ARRAY tablas LOOP
+    IF pg_temp.count_as(u6, t) <> 0 THEN
+      RAISE EXCEPTION 'B3b PRESUPUESTOS FAIL — risk_supervisor no debía ver filas de % (sin work_order.read)', t;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS — lectura: admin todo; gerentes lo de su encargo; cobranza y contabilidad ven líneas y gastos pero no celdas; riesgos y asistente nada';
 
   -- 3. Escritura: solo admin y gerente/socio del encargo ───────────────────────────────────────────
   -- El gerente edita su línea y no la ajena.

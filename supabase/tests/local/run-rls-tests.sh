@@ -561,6 +561,9 @@ assert_suite supabase/tests/rls-0923-202-fund-request-work-orders.sql '0923-202 
 assert_suite supabase/tests/trigger-1028-217-horas-encargo-finalizado.sql 'HORAS ENCARGO FINALIZADO: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-216-worksheet-status-sync.sql 'WORKSHEET STATUS SYNC 1028-216: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0923-198-engagement-start-date-floor.sql 'START DATE FLOOR 0923-198: ALL CHECKS PASSED'
+# 1028-213: modulo /risks (funciones de Riesgos) y alcance de la OT (solo socio y gerente del encargo).
+assert_suite supabase/tests/rpc-1028-213-risks.sql 'RISKS RPC 1028-213: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-1028-213-work-order-scope.sql 'WO SCOPE 1028-213: ALL CHECKS PASSED'
 
 # ETL fase 1 (T03/T04/T08): modelo de clientes, carga inicial vs guardado operativo, privilegios y
 # comportamiento de seed_initial_holidays, directorio de clientes y B6. Va al final: verifica los

@@ -18,7 +18,6 @@ import {
   FolderKanban,
   DollarSign,
   Briefcase,
-  Search,
   AlertTriangle,
   Users,
 } from "lucide-react";
@@ -674,25 +673,6 @@ export function PartnerTab() {
                   approved={vm.kpis.my_partner_hours.approved}
                   pending={vm.kpis.my_partner_hours.pending}
                   budget={vm.kpis.my_partner_hours.budget}
-                />
-              }
-            />
-
-            <StatCard
-              title={t("dashboard.socio.kpi.sqrHours.title")}
-              value={t("dashboard.socio.kpi.hoursOfBudget", {
-                logged: vm.kpis.my_sqr_hours.approved + vm.kpis.my_sqr_hours.pending,
-                budget: vm.kpis.my_sqr_hours.budget,
-              })}
-              icon={<Search className="h-5 w-5" />}
-              subtitle={t("dashboard.socio.kpi.sqrHours.inEngagements", {
-                count: vm.kpis.my_sqr_hours.engagement_count,
-              })}
-              footer={
-                <BicolorBar
-                  approved={vm.kpis.my_sqr_hours.approved}
-                  pending={vm.kpis.my_sqr_hours.pending}
-                  budget={vm.kpis.my_sqr_hours.budget}
                 />
               }
             />
