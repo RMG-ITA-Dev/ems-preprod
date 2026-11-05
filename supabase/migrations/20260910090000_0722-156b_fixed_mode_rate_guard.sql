@@ -59,6 +59,12 @@ BEGIN
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
     END IF;
+    -- 1028-214 (review de Codex): de que cotizacion salio un TC se registra despues, al
+    -- capturarlo (Contabilidad o admin, OT aprobada; ver mas abajo). Una cuota nueva no la
+    -- trae: el alta la hace el gerente con la OT en Draft, y por aca podia inventarla.
+    IF NEW.invoice_exchange_rate_date IS NOT NULL OR NEW.payment_exchange_rate_date IS NOT NULL THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: una cuota nueva no puede traer la cotizacion de origen del tipo de cambio';
+    END IF;
 
     -- MUST FIX review iteracion 18 #1: se resuelve el plan por NEW.plan_id (la
     -- referencia que la fila declara), no por NEW.wo_id -- un wo_id que no coincida
@@ -182,6 +188,12 @@ BEGIN
        -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
        -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
        OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
+       -- La moneda de una cuota de HONORARIOS es parte del contrato que arma el gerente
+       -- (Q29). Faltaba en esta lista: con la OT en Borrador la pantalla le dejaba elegirla
+       -- a Contabilidad, y aca nada lo frenaba. La de la fila de gastos SI la cambia
+       -- Contabilidad (Fase 9, useSetInstallmentCurrency), igual que su monto.
+       OR (NEW.currency IS DISTINCT FROM OLD.currency
            AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
@@ -327,6 +339,67 @@ BEGIN
     FROM public.wo_payment_plan p
     JOIN public.work_orders wo ON wo.wo_id = p.wo_id
     WHERE p.plan_id = NEW.plan_id;
+  END IF;
+
+  -- 1028-214: de que cotizacion salio cada TC. Se congela en la misma ventana que el TC al
+  -- que acompana -- si no, la trazabilidad que pidio Q49 se podria reescribir despues de
+  -- facturar o de cobrar. Quien puede escribirla se controla en el bloque siguiente.
+  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+     AND OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de facturacion de esta cuota ya esta congelada';
+  END IF;
+  IF NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+     AND OLD.status = 'Completed' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de pago de esta cuota ya esta congelada';
+  END IF;
+  -- Y la escribe solo quien captura el TC por cuota: Contabilidad o un admin, con la OT
+  -- aprobada (review de Codex sobre el PR de 1028-214). La policy "Manager can manage..." le
+  -- deja al gerente actualizar la fila, y sin esto podia inventar de que cotizacion salio un
+  -- TC que despues la bitacora y la pantalla muestran como cierto. Ningun camino legitimo del
+  -- gerente toca estas fechas: ni el guardado del plan, ni el resincronizado de modo fijo.
+  -- Admin por role_key, no is_admin() (enum legacy): mismo criterio que la pantalla.
+  -- Este bloque es el de REGISTRAR una fecha; borrarla tiene su propia regla abajo, porque el
+  -- resincronizado de modo fijo (corre como el gerente, con la OT en Draft) la borra cuando
+  -- reemplaza el TC de una cuota por el del plan.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NOT NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NOT NULL) THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede registrar de que cotizacion salio el tipo de cambio';
+    END IF;
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
+  END IF;
+  -- Borrarla tampoco queda libre (review de Codex sobre el PR de 1028-214): si el gerente
+  -- borra la fecha sin tocar el TC, ese TC -- que salio de una cotizacion -- pasa a verse como
+  -- escrito a mano o del plan. Fuera de Contabilidad o un admin, solo se borra en el
+  -- resincronizado de modo fijo: el plan esta en 'fijo' y la cuota queda con el TC del plan,
+  -- que no sale de ninguna cotizacion. Cualquier otro cambio del TC por el gerente ya lo
+  -- rechazan los bloques de abajo.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NULL) THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      SELECT p.exchange_rate_mode, p.exchange_rate
+      INTO v_exchange_rate_mode, v_plan_exchange_rate
+      FROM public.wo_payment_plan p
+      WHERE p.plan_id = NEW.plan_id;
+      IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+          AND NOT (v_exchange_rate_mode = 'fijo'
+                   AND NEW.invoice_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate))
+         OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+          AND NOT (v_exchange_rate_mode = 'fijo'
+                   AND NEW.payment_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate)) THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede borrar de que cotizacion salio el tipo de cambio';
+      END IF;
+    END IF;
   END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN

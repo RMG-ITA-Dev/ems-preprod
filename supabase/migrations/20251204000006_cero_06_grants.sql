@@ -2146,7 +2146,7 @@ REVOKE EXECUTE ON FUNCTION public.engagements_guard_society_change() FROM PUBLIC
 REVOKE EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) FROM PUBLIC, anon;
-REVOKE EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric, p_payment_exchange_rate_date date) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.is_collections_role() TO authenticated, service_role;
@@ -2184,7 +2184,7 @@ GRANT EXECUTE ON FUNCTION public.can_request_funds_for_current_staff(p_engagemen
 GRANT EXECUTE ON FUNCTION public.installment_calendar_state(p_status text, p_invoice_date date, p_payment_due_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.wo_installment_calendar_state(p_status text, p_agreed_invoice_date date, p_current_invoice_date date, p_agreed_payment_date date, p_collection_payment_date date, p_today date, p_window_days integer) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.invoice_installment(p_installment_id uuid, p_expected_status text, p_payment_due_date date, p_invoice_date date, p_invoice_exchange_rate numeric, p_invoice_exchange_rate_date date) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date, p_payment_exchange_rate numeric, p_payment_exchange_rate_date date) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.set_installment_overdue(p_installment_id uuid, p_expected_status text, p_overdue boolean) TO authenticated, service_role;
 
 -- wo_installment_assert_actionable es la guarda interna de las 3 RPC (rol, OT aprobada,
@@ -2243,6 +2243,9 @@ GRANT EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) TO authent
 -- Cobranzas Fase 6: TC de una fecha concreta, para el calendario del diálogo de facturar.
 REVOKE EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.exchange_rate_on(p_date date) TO authenticated, service_role;
+-- 1028-214: el mismo TC con la fecha de la cotizacion usada, para avisar en pantalla.
+REVOKE EXECUTE ON FUNCTION public.exchange_rate_on_detail(p_date date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.exchange_rate_on_detail(p_date date) TO authenticated, service_role;
 
 -- Cobranzas Fase 7: gastos ejecutados facturados al cliente (issue #352).
 REVOKE ALL ON TABLE public.wo_installment_expenses FROM PUBLIC, anon;

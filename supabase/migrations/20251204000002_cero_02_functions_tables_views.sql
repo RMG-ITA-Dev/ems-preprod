@@ -8783,8 +8783,14 @@ CREATE TABLE public.wo_payment_installments (
     net_amount numeric,
     currency text,
     -- De que fecha salio el TC de facturacion: el usuario puede escribirlo a mano o elegir una
-    -- fecha en el calendario y traer el TC de ese dia (decision Q49). NULL = se escribio a mano.
+    -- fecha en el calendario y traer el TC de ese dia (decision Q49).
+    -- 1028-214: es la fecha DE LA COTIZACION (exchange_rate_history.fecha_vigencia), no la que
+    -- se eligio en el calendario: un domingo trae el TC del viernes y guarda el viernes.
+    -- NULL = el TC no salio de una cotizacion (escrito a mano, o el TC del plan en modo fijo).
     invoice_exchange_rate_date date,
+    -- 1028-214: lo mismo para el TC de PAGO. Antes el dialogo de cobro dejaba elegir la fecha
+    -- pero la descartaba: la trazabilidad que pidio Q49 quedaba solo para la facturacion.
+    payment_exchange_rate_date date,
     confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
     confirmed_for_date date,
     confirmed_by uuid,
@@ -8979,6 +8985,11 @@ CREATE TABLE public.wo_installment_events (
     reason text,
     actor_staff_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    -- 1028-214 (decision Q49: "registrar el cambio en wo_installment_events"): el TC con el
+    -- que se facturo o se cobro, y de que cotizacion salio (NULL = a mano o TC del plan).
+    -- Solo en los status_change a Facturado y a Completado.
+    exchange_rate numeric,
+    exchange_rate_date date,
     CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
 );
 
@@ -9074,10 +9085,19 @@ CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  v_converts boolean;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status THEN
+    -- 1028-214 (review de Codex): una cuota en Bs no convierte nada. Si es de una OT en otra
+    -- moneda, sus columnas de TC pueden seguir con el TC del plan, y registrarlo hacia que el
+    -- historial lo mostrara como el TC "con que se facturo". Misma regla de moneda efectiva
+    -- que invoice_installment usa para exigir TC.
+    SELECT COALESCE(NEW.currency, w.currency) <> 'BOB' INTO v_converts
+      FROM public.work_orders w WHERE w.wo_id = NEW.wo_id;
     INSERT INTO public.wo_installment_events (
-      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id,
+      exchange_rate, exchange_rate_date
     ) VALUES (
       NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
       -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
@@ -9086,7 +9106,20 @@ BEGIN
         WHEN 'Completed' THEN NEW.payment_date_actual
         ELSE NULL
       END,
-      NEW.amount, public.get_my_staff_id()
+      NEW.amount, public.get_my_staff_id(),
+      -- 1028-214: el TC que queda congelado en esa transicion, y su cotizacion.
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
+          WHEN 'Completed' THEN NEW.payment_exchange_rate
+        END
+      END,
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
+          WHEN 'Completed' THEN NEW.payment_exchange_rate_date
+        END
+      END
     );
   END IF;
 
@@ -9233,12 +9266,17 @@ BEGIN
   -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
   -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
   -- de uno tecleado.
+  -- 1028-214 (review de Codex): la fecha acompana al TC. Si no vino TC, se conserva el que ya
+  -- tenia la cuota (COALESCE) y tambien su fecha: borrarla dejaba ese mismo TC registrado como
+  -- "a mano". Misma regla que collect_installment.
   UPDATE public.wo_payment_installments
      SET status = 'Invoiced',
          collection_invoice_date = v_invoice_date,
          collection_payment_date = p_payment_due_date,
          invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
-         invoice_exchange_rate_date = p_invoice_exchange_rate_date
+         invoice_exchange_rate_date = CASE WHEN p_invoice_exchange_rate IS NOT NULL
+                                           THEN p_invoice_exchange_rate_date
+                                           ELSE invoice_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -9256,7 +9294,7 @@ $$;
 -- #352 pide que registrar el cobro no dependa de la condicion de calendario.
 -- p_payment_date es la fecha REAL del pago; igual que al facturar, hoy la UI manda hoy
 -- (Q13) y el parametro queda listo por si piden elegirla.
-CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL, p_payment_exchange_rate numeric DEFAULT NULL) RETURNS public.wo_payment_installments
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL, p_payment_exchange_rate numeric DEFAULT NULL, p_payment_exchange_rate_date date DEFAULT NULL) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9291,7 +9329,12 @@ BEGIN
   UPDATE public.wo_payment_installments
      SET status = 'Completed',
          payment_date_actual = v_payment_date,
-         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate),
+         -- 1028-214: la fecha de la cotizacion del TC que se confirmo al cobrar (NULL = a mano).
+         -- Si no vino TC, se conserva lo que ya tenia la cuota, igual que el TC.
+         payment_exchange_rate_date = CASE WHEN p_payment_exchange_rate IS NOT NULL
+                                           THEN p_payment_exchange_rate_date
+                                           ELSE payment_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -9757,7 +9800,7 @@ $$;
 
 --
 --
--- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+-- Name: exchange_rate_on_detail(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
 -- Cobranzas Fase 6 (decision del operador Q49): al facturar, quien cobra puede escribir el TC a
@@ -9767,17 +9810,36 @@ $$;
 -- Usa el valor de COMPRA, igual que latest_exchange_rate(), para que el TC del calendario y el
 -- que se autocompleta solo sean la misma magnitud. Si la fecha pedida no tiene registro (fin de
 -- semana, feriado, o un dia que el sincronizador no alcanzo) cae al ultimo anterior: un viernes
--- es la cotizacion vigente el sabado. Si no hay ninguno anterior devuelve NULL y la pantalla
+-- es la cotizacion vigente el sabado. Si no hay ninguno anterior no devuelve filas y la pantalla
 -- deja cargar el TC a mano.
-CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+--
+-- 1028-214: devuelve tambien fecha_vigencia, la fecha de la cotizacion que se uso. Sin ella la
+-- pantalla no podia avisar que el TC salio de un dia anterior al elegido, y hacerlo con una
+-- segunda consulta duplicaba la peticion. Es la UNICA definicion de la regla: exchange_rate_on
+-- delega en ella.
+CREATE FUNCTION public.exchange_rate_on_detail(p_date date) RETURNS TABLE(compra numeric, fecha_vigencia date)
     LANGUAGE sql STABLE
     SET search_path TO 'public'
     AS $$
-  SELECT h.compra
+  SELECT h.compra, h.fecha_vigencia
     FROM public.exchange_rate_history h
    WHERE h.fecha_vigencia <= p_date
    ORDER BY h.fecha_vigencia DESC
    LIMIT 1;
+$$;
+
+
+--
+--
+-- Name: exchange_rate_on(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- Solo el TC de exchange_rate_on_detail, sin la fecha. Devuelve NULL si no hay cotizacion.
+CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT d.compra FROM public.exchange_rate_on_detail(p_date) d;
 $$;
 
 

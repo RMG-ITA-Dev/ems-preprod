@@ -195,13 +195,20 @@ BEGIN
     NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
     OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
   ) THEN
+    -- 1028-214 (review de Codex): el TC del plan no sale de ninguna cotizacion. Si la cuota
+    -- traia uno de una fecha (capturado en modo variable), al reemplazarlo se borra tambien
+    -- esa fecha: si no, el TC del plan quedaba atribuido a una cotizacion que no es la suya.
     UPDATE public.wo_payment_installments
     SET invoice_exchange_rate = NEW.exchange_rate,
-        payment_exchange_rate = NEW.exchange_rate
+        payment_exchange_rate = NEW.exchange_rate,
+        invoice_exchange_rate_date = NULL,
+        payment_exchange_rate_date = NULL
     WHERE plan_id = NEW.plan_id
       AND status = 'Pending'
       AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
-           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR invoice_exchange_rate_date IS NOT NULL
+           OR payment_exchange_rate_date IS NOT NULL);
   END IF;
   RETURN NULL;
 END;
