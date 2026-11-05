@@ -342,7 +342,9 @@ export function WorkOrderPaymentPlanSection({
     const result = await lookupRate("collectionDate", newDate);
     // Se compara contra la cotización VIGENTE para la fecha nueva, no contra la fecha cruda:
     // corregir a un domingo cuyo TC vigente es el del viernes ya usado no es un desfase.
-    if (result.status !== "ok" || result.sourceDate === rateDate) return;
+    // Y también el valor: si el proveedor corrige la cotización de esa misma fecha, el sync la
+    // pisa (upsert por fecha_vigencia) y el TC congelado ya no coincide (review de Codex).
+    if (result.status !== "ok" || (result.sourceDate === rateDate && result.rate === rate)) return;
     setCollectionDateRateWarning({ rate, rateDate, newDate, newRate: result.rate, newRateDate: result.sourceDate });
   };
   const closeCollectionDateDialog = () => {

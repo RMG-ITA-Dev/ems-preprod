@@ -844,13 +844,30 @@ describe("1028-214 Parte B — trazabilidad del TC en Cobranzas", () => {
     it("PTC17: si la cotización vigente es la misma que la del TC, no avisa", async () => {
       // Domingo 26/10: su cotización vigente es la del 24/10, que es la que ya tiene el TC.
       mockRpc.mockResolvedValueOnce(rateRow(11.88, "2026-10-24"));
-      const { container } = renderSection({ installments: [facturada({ invoice_exchange_rate_date: "2026-10-24" })] });
+      const { container } = renderSection({
+        installments: [facturada({ invoice_exchange_rate: 11.88, invoice_exchange_rate_date: "2026-10-24" })],
+      });
 
       changeInvoiceDate(container, "2026-10-21", "2026-10-26");
 
       await waitFor(() => expect(mockRpc).toHaveBeenCalled());
       await act(async () => {});
       expect(screen.queryByTestId("collection-date-rate-warning")).not.toBeInTheDocument();
+    });
+
+    it("PTC17b: misma cotización pero el proveedor la corrigió (otro valor): avisa", async () => {
+      // El sync pisa la cotización de una fecha ya publicada (upsert por fecha_vigencia): la
+      // fecha coincide, pero el TC congelado ya no es el vigente (review de Codex).
+      mockRpc.mockResolvedValueOnce(rateRow(11.9, "2026-10-24"));
+      const { container } = renderSection({
+        installments: [facturada({ invoice_exchange_rate: 11.88, invoice_exchange_rate_date: "2026-10-24" })],
+      });
+
+      changeInvoiceDate(container, "2026-10-21", "2026-10-26");
+
+      expect(await screen.findByTestId("collection-date-rate-warning")).toHaveTextContent(
+        "workOrders.paymentPlan.collectionDateRateMismatch",
+      );
     });
 
     it("PTC18: sin consulta ni aviso para un TC escrito a mano o una cuota en Bs", async () => {
