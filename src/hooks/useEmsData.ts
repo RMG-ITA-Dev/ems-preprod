@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { orderHomonymsBySeq } from "@/lib/clientLabels";
 import { logger } from "@/lib/logger";
 import {
   aggregateRequirements,
@@ -140,6 +141,9 @@ export interface ClientDirectoryEntry {
   client_id: string;
   client_legal_name: string;
   is_active: boolean;
+  // 1028-211: número del cliente entre los de igual razón social, por fecha de alta y sobre toda la
+  // firma (lo calcula la vista). NULL si el nombre es único.
+  homonym_seq: number | null;
 }
 
 export interface Engagement {
@@ -785,10 +789,12 @@ export function useClientDirectory() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('clients_directory')
-        .select('client_id, client_legal_name, is_active')
+        .select('client_id, client_legal_name, is_active, homonym_seq')
         .order('client_legal_name');
       if (error) throw error;
-      return data as ClientDirectoryEntry[];
+      // `as unknown as`: types.ts no conoce homonym_seq (1028-211) hasta regenerarlo contra el proyecto.
+      // Entre nombres iguales el orden de la base es arbitrario: #1 antes que #2.
+      return orderHomonymsBySeq(data as unknown as ClientDirectoryEntry[], (entry) => entry.homonym_seq);
     },
   });
 }

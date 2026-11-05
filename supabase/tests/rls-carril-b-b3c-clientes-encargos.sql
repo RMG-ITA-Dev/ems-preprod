@@ -232,8 +232,8 @@ BEGIN
   -- 4. Directorio de clientes ───────────────────────────────────────────────────────────────────────
   SELECT string_agg(column_name, ',' ORDER BY ordinal_position) INTO v_cols
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
-  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
-    RAISE EXCEPTION 'B3c FAIL — clients_directory debe tener solo client_id, client_legal_name e is_active y tiene %', v_cols;
+  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active,homonym_seq' THEN
+    RAISE EXCEPTION 'B3c FAIL — clients_directory debe tener solo client_id, client_legal_name, is_active y homonym_seq y tiene %', v_cols;
   END IF;
   -- Asistente y senior (sin client.read) leen el nombre de TODOS los clientes por el directorio...
   IF pg_temp.count_as(u5, 'clients_directory') <> v_cli OR pg_temp.count_as(u6, 'clients_directory') <> v_cli THEN
@@ -245,6 +245,22 @@ BEGIN
   IF v_err IS NULL OR v_err NOT LIKE '42703%' THEN
     RAISE EXCEPTION 'B3c FAIL — contact_email no debía existir en el directorio (err=%)', v_err;
   END IF;
+  -- 1028-211: homonym_seq numera a los homónimos por fecha de alta (desempate client_id), sin distinguir mayúsculas ni
+  -- espacios en los bordes; un nombre único queda en NULL. Se insertan como dueño y se leen como el asistente.
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id, created_at) VALUES
+    ('c0b3cc00-0000-4000-8000-0000000000f2', 'B3C HOMONIMO', '99001', '2026-01-02'),
+    ('c0b3cc00-0000-4000-8000-0000000000f1', ' b3c homonimo ', '99001', '2026-01-01'),
+    ('c0b3cc00-0000-4000-8000-0000000000f3', 'B3C HOMONIMO', '12345', '2026-01-02'),
+    ('c0b3cc00-0000-4000-8000-0000000000f4', 'B3C NOMBRE UNICO', '99001', '2026-01-01');
+  IF pg_temp.scalar_as(u5, $q$SELECT count(*) FROM public.clients_directory
+                              WHERE (client_id = 'c0b3cc00-0000-4000-8000-0000000000f1' AND homonym_seq = 1)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f2' AND homonym_seq = 2)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f3' AND homonym_seq = 3)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f4' AND homonym_seq IS NULL)$q$) <> 4 THEN
+    RAISE EXCEPTION 'B3c FAIL — homonym_seq debía numerar 1, 2, 3 a los homónimos por fecha de alta y dejar NULL al nombre único';
+  END IF;
+  DELETE FROM public.clients WHERE client_id::text LIKE 'c0b3cc00-0000-4000-8000-0000000000f_';
+  RAISE NOTICE 'PASS — directorio: homonym_seq numera homónimos por fecha de alta y deja NULL a los nombres únicos';
   -- Sin ficha de staff el directorio no devuelve filas (misma regla que fund_request_selectable_work_orders).
   IF pg_temp.count_as(u1, 'clients_directory') <> 0 THEN
     RAISE EXCEPTION 'B3c FAIL — el admin del fixture no tiene ficha de staff y no debía ver filas del directorio';
@@ -257,7 +273,9 @@ BEGIN
         'INSERT INTO public.clients_directory (client_id, client_legal_name) VALUES (gen_random_uuid(), ''x'')',
         'UPDATE public.engagement_wo_state SET risk_status = risk_status'] LOOP
       v_err := pg_temp.try_as(v_who, v);
-      IF v_err IS NULL OR v_err NOT LIKE '42501%' THEN
+      -- 1028-211: con homonym_seq (función de ventana) clients_directory dejó de ser auto-updatable, así que
+      -- Postgres corta la escritura antes de mirar privilegios: 55000 "cannot update view". Sigue denegada.
+      IF v_err IS NULL OR NOT (v_err LIKE '42501%' OR (v LIKE '%clients_directory%' AND v_err LIKE '55000%')) THEN
         RAISE EXCEPTION 'B3c FAIL — % pudo escribir por una vista (%; err=%)', v_who, v, v_err;
       END IF;
     END LOOP;

@@ -84,6 +84,8 @@ import {
   EngagementState,
 } from "@/lib/engagementStatus";
 import { getUpcomingClosingDates, getFiscalYearForDate } from "@/lib/fiscalCalculations";
+import { clientNameWithSeq } from "@/lib/clientLabels";
+import { ClientHomonymTag } from "@/components/clients/ClientHomonymTag";
 
 interface StaffComboboxProps {
   label: string;
@@ -689,6 +691,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // lista por la sociedad actual: hacerlo deja visible solamente el cliente ya
   // seleccionado e impide cambiar a la otra sociedad.
   const visibleClientOptions = isAdministrativeFunction ? administrativeClientOptions : clientOptions;
+  // 1028-211: la razón social puede repetirse (ETL 02). Los homónimos llevan su número correlativo
+  // (#1, #2…), que calcula la vista clients_directory sobre toda la firma: el mismo cliente tiene el
+  // mismo número en todas las pantallas. Los clientes internos del modo administrativo vienen de otra
+  // RPC, sin número (son dos y de nombre distinto).
+  const homonymSeqOf = (client: object): number | null =>
+    (client as { homonym_seq?: number | null }).homonym_seq ?? null;
 
   // BUG #0603-140: data assigned by the server, shown in a confirmation modal after create
   const [createdInfo, setCreatedInfo] = useState<{
@@ -1288,7 +1296,11 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
       // clientOptions viene vacio y el cliente interno solo existe en administrativeClientOptions
       // (el RPC list_administrative_internal_clients). Con clientOptions el modal de confirmacion
       // mostraba el cliente en blanco aunque el encargo se hubiera guardado bien.
-      const clientName = visibleClientOptions.find((c) => c.client_id === data.client_id)?.client_legal_name ?? "";
+      const selectedClient = visibleClientOptions.find((c) => c.client_id === data.client_id);
+      const clientName = clientNameWithSeq(
+        selectedClient?.client_legal_name ?? "",
+        selectedClient ? homonymSeqOf(selectedClient) : null,
+      );
       setCreatedInfo({
         code: created.engagement_code,
         name: data.engagement_name,
@@ -1749,6 +1761,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                         <SelectContent>
                           {visibleClientOptions.map((client) => (
                             <SelectItem key={client.client_id} value={client.client_id}>
+                              {/* 1028-211: el número va ANTES del nombre. Con el selector cerrado el
+                                  trigger muestra una sola línea (line-clamp-1) y corta lo que no entra:
+                                  al final, un nombre largo escondería el número. */}
+                              {homonymSeqOf(client) !== null && (
+                                <ClientHomonymTag seq={homonymSeqOf(client)!} className="mr-2" />
+                              )}
                               {client.client_legal_name}
                               {isAdministrativeFunction && ` — ${societyOptions.find((society) => society.society_id === administrativeSocietyIdByClientId.get(client.client_id))?.name ?? t("engagement.society")}`}
                               {!client.is_active && ` (${t("status.inactive")})`}

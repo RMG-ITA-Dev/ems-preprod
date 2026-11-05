@@ -736,6 +736,7 @@
     }
   },
   "client": {
+    "homonymTag": "Cliente homónimo n.º {{n}}",
     "placeholderLegalName": "Empresa S.A.",
     "placeholderContactName": "Juan Pérez",
     "placeholderEmail": "contacto@empresa.com",
@@ -979,10 +980,6 @@
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
-    "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
-    "duplicateNitExists": "Ya existe un cliente con ese NIT. Si no lo ves en tu lista de clientes, solicita acceso a un administrador.",
-    "duplicateClientName": "El nombre de cliente ya existe.",
-    "duplicateClientNameWithNit": "El nombre de cliente ya existe (NIT: {{nit}}).",
     "duplicateCheckFailed": "No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente.",
     "duplicateEmail": "Ya existe un miembro del personal con este correo",
     "categoryPracticeMismatch": "La categoría seleccionada no pertenece a la práctica elegida. Vuelva a seleccionarla.",
@@ -2355,6 +2352,7 @@
     "complete": "¡Configuración completa! Bienvenido a EMS."
   },
   "validation": {
+    "taxIdMax15": "El NIT no puede superar 15 dígitos",
     "firstNameRequired": "El nombre es requerido",
     "lastNameRequired": "El apellido es requerido",
     "emailRequired": "El correo electrónico es requerido",

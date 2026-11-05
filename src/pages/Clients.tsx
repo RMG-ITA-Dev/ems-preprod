@@ -1,13 +1,16 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 
-import { useClients, useEngagements, useIndustries, Client } from "@/hooks/useEmsData";
+import { useClients, useClientDirectory, useEngagements, useIndustries, Client } from "@/hooks/useEmsData";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate } from "react-router-dom";
 import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCanSeeAllEngagements } from "@/hooks/useCanSeeAllEngagements";
+import { byNameAndTaxId, findRepeated, orderHomonymsBySeq } from "@/lib/clientLabels";
+import { ClientHomonymTag } from "@/components/clients/ClientHomonymTag";
 
 const Clients = () => {
   const { t, i18n } = useTranslation();
@@ -20,6 +23,23 @@ const Clients = () => {
   // usuario los lee todos (un gerente ve únicamente los suyos y subcontaría los demás del mismo cliente).
   const canSeeAllEngagements = useCanSeeAllEngagements();
   const { data: industries } = useIndustries();
+  // 1028-211: razón social y NIT pueden repetirse (ETL 02). La lista ya muestra el NIT, así que el
+  // número de homónimo solo hace falta cuando coinciden los dos: ahí las filas serían idénticas. QUÉ
+  // filas lo llevan se decide sobre la colección cargada (antes de los filtros del DataTable); el
+  // NÚMERO viene del directorio, que lo calcula sobre toda la firma, para que coincida con el que se
+  // ve en el selector de Nuevo Encargo.
+  const { data: directory } = useClientDirectory();
+  const repeatedIds = useMemo(() => findRepeated(clients ?? [], byNameAndTaxId), [clients]);
+  const homonymSeqById = useMemo(
+    () => new Map((directory ?? []).map((entry) => [entry.client_id, entry.homonym_seq])),
+    [directory],
+  );
+  const homonymSeqOf = (clientId: string) => (repeatedIds.has(clientId) ? homonymSeqById.get(clientId) ?? null : null);
+  // Entre nombres iguales el orden de la consulta es arbitrario: #1 antes que #2.
+  const orderedClients = useMemo(
+    () => orderHomonymsBySeq(clients ?? [], (client) => homonymSeqById.get(client.client_id)),
+    [clients, homonymSeqById],
+  );
 
   const getEngagementCount = (clientId: string) => {
     return engagements?.filter((e) => e.client_id === clientId).length || 0;
@@ -37,7 +57,12 @@ const Clients = () => {
       sortable: true,
       mobilePriority: 'primary',
       render: (row) => (
-        <span className="font-medium">{row.client_legal_name}</span>
+        <span className="font-medium">
+          {row.client_legal_name}
+          {homonymSeqOf(row.client_id) !== null && (
+            <ClientHomonymTag seq={homonymSeqOf(row.client_id)!} className="ml-2" />
+          )}
+        </span>
       ),
     },
     {
@@ -110,7 +135,7 @@ const Clients = () => {
   return (
     <AppLayout title={t("nav.clients")}>
       <DataTable
-        data={clients || []}
+        data={orderedClients}
         columns={columns}
         searchPlaceholder={t("client.searchPlaceholder")}
         searchKeys={["client_legal_name", "tax_id"]}

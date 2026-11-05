@@ -736,6 +736,7 @@
     }
   },
   "client": {
+    "homonymTag": "Same-name client no. {{n}}",
     "placeholderLegalName": "Company Name S.A.",
     "placeholderContactName": "John Doe",
     "placeholderEmail": "contact@company.com",
@@ -979,10 +980,6 @@
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
-    "duplicateNit": "A client with NIT {{nit}} already exists: {{name}}",
-    "duplicateNitExists": "A client with this NIT already exists. If you can't see it in your client list, ask an administrator for access.",
-    "duplicateClientName": "A client with this name already exists.",
-    "duplicateClientNameWithNit": "A client with this name already exists (NIT: {{nit}}). Please verify it is not a duplicate.",
     "duplicateCheckFailed": "We couldn't check for duplicate client names (connection issue). Please try again.",
     "duplicateEmail": "A staff member with this email already exists",
     "categoryPracticeMismatch": "The selected category does not belong to the chosen practice. Please select it again.",
@@ -2355,6 +2352,7 @@
     "complete": "Setup complete! Welcome to EMS."
   },
   "validation": {
+    "taxIdMax15": "NIT cannot exceed 15 digits",
     "firstNameRequired": "First name is required",
     "lastNameRequired": "Last name is required",
     "emailRequired": "Email is required",

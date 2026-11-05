@@ -5,32 +5,10 @@ import { toast } from "sonner";
 import { createMutationErrorHandler, handleError, ErrorCode } from "@/lib/error-handler";
 import i18n from "@/i18n";
 
-// Handle duplicate constraint errors with structured matching
+// 1028-211: NIT y razón social ya no son únicos (ETL retiró clients_unique_tax_id_key y
+// clients_client_legal_name_unique), así que no hay 23505 de cliente que traducir. Cualquier otro
+// error —incluido un 23505 de otra tabla, como client_contacts— va al manejador genérico.
 function handleClientError(error: Error, operation: string) {
-  const err = error as unknown as {
-    code?: string;
-    message?: string;
-    constraint?: string;
-    details?: string;
-  };
-
-  if (err.code === "23505") {
-    // Prefer err.constraint when available; fall back to message.includes()
-    const constraintName = err.constraint || err.message || "";
-
-    if (constraintName.includes("clients_client_legal_name_unique")) {
-      toast.error(i18n.t("errors.duplicateClientName"));
-      return;
-    }
-    if (constraintName.includes("clients_unique_tax_id_key")) {
-      // Sin {nit, name}: con la RLS de clients (B3c) el chequeo previo de ClientForm no ve un cliente
-      // ajeno, así que el NIT duplicado llega acá como 23505 y no hay nombre que mostrar.
-      // `errors.duplicateNit` (con variables) sigue siendo el del chequeo previo.
-      toast.error(i18n.t("errors.duplicateNitExists"));
-      return;
-    }
-  }
-
   createMutationErrorHandler(operation)(error);
 }
 
@@ -44,7 +22,7 @@ export function useCreateClient() {
       client_id?: string;
       client_legal_name: string;
       tax_id: string;
-      industry_id?: string;
+      industry_id?: string | null;
       address?: string;
       is_active?: boolean;
     }) => {
@@ -77,7 +55,7 @@ export function useUpdateClient() {
       data: Partial<{
         client_legal_name: string;
         tax_id: string;
-        industry_id: string;
+        industry_id: string | null;
         address: string;
         is_active: boolean;
       }>;
@@ -170,7 +148,8 @@ export function useSaveClientWithContacts() {
       client: {
         client_legal_name: string;
         tax_id: string;
-        industry_id?: string;
+        // 1028-211: ausente conserva el valor guardado; null lo limpia (save_client_with_contacts).
+        industry_id?: string | null;
         address?: string;
         is_active?: boolean;
       };

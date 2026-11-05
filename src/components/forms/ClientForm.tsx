@@ -77,7 +77,7 @@ export const buildFormSchema = (t: Translate = (k) => k) => z.object({
   tax_id: z
     .string()
     .min(1, "NIT is required")
-    .max(15, "NIT cannot exceed 15 digits")
+    .max(15, t("validation.taxIdMax15"))
     .regex(/^\d+$/, "NIT must contain only digits (0–9)"),
   industry_id: z.string().optional(),
   // Cobranzas Fase 5 (issue #352, decisiones Q20/Q52): el cliente pasa de UN contacto suelto a
@@ -100,6 +100,11 @@ export const formSchema = buildFormSchema();
 
 type FormData = z.infer<typeof formSchema>;
 
+// 1028-211: valor de la opción "sin industria". Radix Select no admite un <SelectItem value="">,
+// así que la opción usa este centinela y el cambio lo traduce a "" (el vacío del formulario).
+// El centinela nunca llega al payload.
+const NO_INDUSTRY = "__none__";
+
 interface ClientFormProps {
   client?: ClientFull | null;
   compact?: boolean;
@@ -116,6 +121,35 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
   const canSave = !isEdit || can("client.update");
   const { data: industries } = useIndustries();
+  // 1028-211: para asignar se ofrecen solo las industrias activas, más la que el cliente ya tiene
+  // guardada aunque esté inactiva (si no, Radix no tendría <SelectItem> para el valor hidratado y
+  // lo mostraría vacío). Se compara contra el valor GUARDADO, no el del formulario: elegir otra
+  // no hace desaparecer la actual del menú hasta guardar. El catálogo completo lo siguen usando
+  // los listados y filtros (Clients.tsx), que pueden mostrar inactivas para consultar historia.
+  const selectableIndustries = useMemo(
+    () =>
+      (industries ?? []).filter(
+        (industry) => industry.status === "active" || industry.industry_id === client?.industry_id,
+      ),
+    [industries, client?.industry_id],
+  );
+  const handleIndustryChange = (onChange: (value: string) => void) => (value: string) => {
+    if (value === NO_INDUSTRY) onChange("");
+    // Mismo blindaje que EngagementForm contra el onValueChange("") espurio de Radix, que llega
+    // cuando todavía no hay un <SelectItem> que empareje el valor (catálogo que llega tarde).
+    else if (value !== "") onChange(value);
+  };
+  const industryItems = (
+    <>
+      <SelectItem value={NO_INDUSTRY}>{t("common.none")}</SelectItem>
+      {selectableIndustries.map((ind) => (
+        <SelectItem key={ind.industry_id} value={ind.industry_id}>
+          {ind.industry_name}
+          {ind.status !== "active" && ` (${t("status.inactive")})`}
+        </SelectItem>
+      ))}
+    </>
+  );
   // Cobranzas Fase 5: los contactos ya no son columnas de la ficha; se leen y se guardan
   // aparte, y la RPC valida que haya al menos uno de cada tipo.
   // La ficha y los contactos se guardan JUNTOS, en una transacción: si los contactos fallan,
@@ -193,52 +227,26 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   }, [isDirty, onDirtyChange]);
 
   const onSubmit = async (data: FormData) => {
-    // Normalize name to match DB constraint: LOWER(TRIM(client_legal_name))
-    // UI check is best-effort; DB constraint is source of truth for TRIM+LOWER normalization.
+    // 1028-211: NIT y razón social pueden repetirse (ETL 02: proyectos, sucursales y fideicomisos
+    // comparten NIT), así que ya no hay consultas previas de duplicados.
     const trimmedName = data.client_legal_name.trim();
 
-    // Pre-save duplicate NIT check
-    let nitQuery = supabase
-      .from("clients")
-      .select("client_id, client_legal_name")
-      .eq("tax_id", data.tax_id);
-    if (client?.client_id) {
-      nitQuery = nitQuery.neq("client_id", client.client_id);
-    }
-    const { data: existingByNit, error: nitError } = await nitQuery.limit(1);
+    // El alta no puede devolver la fila creada: el RETURNING la haría pasar por la policy de
+    // LECTURA de clients, que varios roles no pasan (ver useCreateClient). Así que el id se
+    // genera acá y los contactos se guardan contra ese mismo id.
+    const isNew = !(isEdit && client);
 
-    if (nitError) {
-      toast.error(t("errors.duplicateCheckFailed"));
-      return;
-    }
-    if (existingByNit && existingByNit.length > 0) {
-      toast.error(t("errors.duplicateNit", { nit: data.tax_id, name: existingByNit[0].client_legal_name }));
-      return;
-    }
-
-    // Pre-save duplicate name check (case-insensitive)
-    let nameQuery = supabase
-      .from("clients")
-      .select("client_id, tax_id")
-      .ilike("client_legal_name", trimmedName);
-    if (client?.client_id) {
-      nameQuery = nameQuery.neq("client_id", client.client_id);
-    }
-    const { data: existingByName, error: nameError } = await nameQuery.limit(1);
-
-    if (nameError) {
-      toast.error(t("errors.duplicateCheckFailed"));
-      return;
-    }
-    if (existingByName && existingByName.length > 0) {
-      toast.error(t("errors.duplicateClientNameWithNit", { nit: existingByName[0].tax_id }));
-      return;
-    }
+    // 1028-211: industry_id es nullable. En la RPC, una clave AUSENTE conserva el valor y `null`
+    // lo limpia. El alta manda siempre la clave (id o null); la edición la manda solo si cambió
+    // respecto de lo guardado. Se compara el valor y no `dirtyFields`: el proxy de RHF solo
+    // calcula `dirtyFields` si se leyó en el render (mismo criterio que 0923-198).
+    const nextIndustryId = data.industry_id || null;
+    const industryChanged = isNew || nextIndustryId !== (client?.industry_id ?? null);
 
     const payload = {
       client_legal_name: trimmedName,
       tax_id: data.tax_id,
-      industry_id: data.industry_id || undefined,
+      ...(industryChanged ? { industry_id: nextIndustryId } : {}),
       address: data.address || undefined,
       is_active: data.is_active,
     };
@@ -281,10 +289,6 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         })),
     ];
 
-    // El alta no puede devolver la fila creada: el RETURNING la haría pasar por la policy de
-    // LECTURA de clients, que varios roles no pasan (ver useCreateClient). Así que el id se
-    // genera acá y los contactos se guardan contra ese mismo id.
-    const isNew = !(isEdit && client);
     try {
       await saveClient.mutateAsync({
         clientId: isNew ? crypto.randomUUID() : client!.client_id,
@@ -383,19 +387,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-xs">{t("client.industry")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={handleIndustryChange(field.onChange)} value={field.value}>
                       <FormControl>
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue placeholder={t("client.selectIndustry")} />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
-                        {industries?.map((ind) => (
-                          <SelectItem key={ind.industry_id} value={ind.industry_id}>
-                            {ind.industry_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
+                      <SelectContent>{industryItems}</SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
@@ -643,19 +641,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("client.industry")}</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select onValueChange={handleIndustryChange(field.onChange)} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder={t("client.selectIndustry")} />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
-                          {industries?.map((ind) => (
-                            <SelectItem key={ind.industry_id} value={ind.industry_id}>
-                              {ind.industry_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
+                        <SelectContent>{industryItems}</SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
