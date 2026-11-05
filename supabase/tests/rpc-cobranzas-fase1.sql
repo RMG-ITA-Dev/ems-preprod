@@ -1471,6 +1471,44 @@ BEGIN
   PERFORM pg_temp.impersonate(c_admin);
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id IN (c_wo5, c_wo6);
 
+  -- 12.i (1028-214, review de Codex) Borrar de que cotizacion salio un TC tampoco es del
+  -- gerente: el TC quedaba y pasaba a verse como escrito a mano. Va aca porque necesita un
+  -- plan en modo variable con la OT aprobada (wo5); el modo fijo ya lo cubre 12.g.
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments
+     SET invoice_exchange_rate_date = '2026-10-09', payment_exchange_rate_date = '2026-10-09'
+   WHERE installment_id = v_i5;
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = NULL WHERE installment_id = v_i5;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente borro de que cotizacion salio el TC de facturacion';
+  END IF;
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate_date = NULL WHERE installment_id = v_i5;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente borro de que cotizacion salio el TC de pago';
+  END IF;
+  -- Contabilidad si puede: es quien la registra.
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments
+     SET invoice_exchange_rate_date = NULL, payment_exchange_rate_date = NULL
+   WHERE installment_id = v_i5;
+  IF (SELECT invoice_exchange_rate_date IS NOT NULL OR payment_exchange_rate_date IS NOT NULL
+        FROM public.wo_payment_installments WHERE installment_id = v_i5) THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad no pudo borrar de que cotizacion salio el TC';
+  END IF;
+  RAISE NOTICE 'PASS - borrar la cotizacion de un TC es de Contabilidad o un admin, salvo el resincronizado de modo fijo';
+  PERFORM pg_temp.impersonate(c_admin);
+
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id, total_requested_amount, currency, status, expense_period_month) VALUES
     (v_fr1, '51c00000-0000-4000-8000-0000000000f2', 1500, 'BOB', 'fondos_entregados', date_trunc('month', v_today)::date),
     (v_fr2, '51c00000-0000-4000-8000-0000000000f2',  400, 'BOB', 'fondos_entregados', date_trunc('month', v_today)::date);
