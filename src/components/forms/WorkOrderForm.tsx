@@ -1850,37 +1850,6 @@ export function WorkOrderForm({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
-                  {t("workOrders.sanDate")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <Input
-                    type="date"
-                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
-                    onChange={(e) =>
-                      onRiskAssessmentChange?.(
-                        "sanCompletedAt",
-                        e.target.value || null,
-                      )
-                    }
-                  />
-                ) : (
-                  <p className="text-sm py-2">
-                    {sanCompletedAt ? (
-                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
-                        "es-BO",
-                        { day: "2-digit", month: "2-digit", year: "numeric" },
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>
                   {t("workOrders.ceacDate")}
                   {riskFieldsEditable && (
                     <span className="text-destructive"> *</span>
@@ -1913,36 +1882,40 @@ export function WorkOrderForm({
                   </p>
                 )}
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
-                  {t("workOrders.sanApprovalId")}
+                  {t("workOrders.sanDate")}
                   {riskFieldsEditable && (
                     <span className="text-destructive"> *</span>
                   )}
                 </Label>
                 {riskFieldsEditable ? (
-                  <>
-                    <Input
-                      type="text"
-                      placeholder={t("workOrders.sanApprovalIdPlaceholder")}
-                      value={sanApprovalId || ""}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/\s/g, "");
-                        onRiskAssessmentChange?.("sanApprovalId", val || null);
-                      }}
-                    />
-                  </>
+                  <Input
+                    type="date"
+                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
+                    onChange={(e) =>
+                      onRiskAssessmentChange?.(
+                        "sanCompletedAt",
+                        e.target.value || null,
+                      )
+                    }
+                  />
                 ) : (
                   <p className="text-sm py-2">
-                    {sanApprovalId || (
+                    {sanCompletedAt ? (
+                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
+                        "es-BO",
+                        { day: "2-digit", month: "2-digit", year: "numeric" },
+                      )
+                    ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </p>
                 )}
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
                   {t("workOrders.ceacNumber")}
@@ -1965,6 +1938,33 @@ export function WorkOrderForm({
                 ) : (
                   <p className="text-sm py-2">
                     {ceacNumber || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  {t("workOrders.sanApprovalId")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
+                {riskFieldsEditable ? (
+                  <>
+                    <Input
+                      type="text"
+                      placeholder={t("workOrders.sanApprovalIdPlaceholder")}
+                      value={sanApprovalId || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\s/g, "");
+                        onRiskAssessmentChange?.("sanApprovalId", val || null);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm py-2">
+                    {sanApprovalId || (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </p>
