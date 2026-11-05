@@ -762,11 +762,10 @@ const WorkOrderEdit = () => {
       });
       return;
     }
-    const CEAC_NUM_RE = /^\d{10}$/;
-    const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
+    // El formato de los códigos va a cambiar: basta con que no estén vacíos.
     const allComplete =
-      !!ceacCompletedAt && CEAC_NUM_RE.test(ceacNumber ?? '')
-      && !!sanCompletedAt && SAN_ID_RE.test(sanApprovalId ?? '')
+      !!ceacCompletedAt && (ceacNumber ?? '').trim().length > 0
+      && !!sanCompletedAt && (sanApprovalId ?? '').trim().length > 0
       && !!riskLevel;
     const allEmpty =
       !ceacCompletedAt && !ceacNumber && !sanCompletedAt && !sanApprovalId && !riskLevel;

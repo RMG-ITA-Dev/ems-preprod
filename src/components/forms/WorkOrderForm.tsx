@@ -619,15 +619,14 @@ export function WorkOrderForm({
   const isStaffingEditable = isDraft && !isLocked && !socioApproved &&
     !staffingLoading && !staffingError && staffingServiceResolved;
 
-  const CEAC_NUM_RE = /^\d{10}$/;
-  const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
   const RISK_LEVELS = ["Bajo", "Moderado", "Alto"] as const;
   // Sentinel for the "Ninguno" option: Radix Select forbids an empty-string
   // SelectItem value, so this maps back to `null` in onValueChange.
   const RISK_LEVEL_NONE = "__none__";
 
-  const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? "");
-  const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? "");
+  // El formato de los códigos va a cambiar: basta con que no estén vacíos.
+  const ceacNumberValid = (ceacNumber ?? "").trim().length > 0;
+  const sanApprovalValid = (sanApprovalId ?? "").trim().length > 0;
   const riskLevelValid = RISK_LEVELS.includes(
     riskLevel as (typeof RISK_LEVELS)[number],
   );
@@ -1851,6 +1850,37 @@ export function WorkOrderForm({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>
+                  {t("workOrders.sanDate")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
+                {riskFieldsEditable ? (
+                  <Input
+                    type="date"
+                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
+                    onChange={(e) =>
+                      onRiskAssessmentChange?.(
+                        "sanCompletedAt",
+                        e.target.value || null,
+                      )
+                    }
+                  />
+                ) : (
+                  <p className="text-sm py-2">
+                    {sanCompletedAt ? (
+                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
+                        "es-BO",
+                        { day: "2-digit", month: "2-digit", year: "numeric" },
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>
                   {t("workOrders.ceacDate")}
                   {riskFieldsEditable && (
                     <span className="text-destructive"> *</span>
@@ -1883,75 +1913,9 @@ export function WorkOrderForm({
                   </p>
                 )}
               </div>
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.sanDate")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <Input
-                    type="date"
-                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
-                    onChange={(e) =>
-                      onRiskAssessmentChange?.(
-                        "sanCompletedAt",
-                        e.target.value || null,
-                      )
-                    }
-                  />
-                ) : (
-                  <p className="text-sm py-2">
-                    {sanCompletedAt ? (
-                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
-                        "es-BO",
-                        { day: "2-digit", month: "2-digit", year: "numeric" },
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.ceacNumber")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <>
-                    <Input
-                      type="text"
-                      placeholder={t("workOrders.ceacNumberPlaceholder")}
-                      value={ceacNumber || ""}
-                      onChange={(e) => {
-                        const val = e.target.value
-                          .replace(/[^\d]/g, "")
-                          .slice(0, 10);
-                        onRiskAssessmentChange?.("ceacNumber", val || null);
-                      }}
-                    />
-                    {(ceacNumber?.length ?? 0) > 0 &&
-                      !CEAC_NUM_RE.test(ceacNumber ?? "") && (
-                        <p className="text-xs text-destructive">
-                          {t("workOrders.ceacNumberInvalid")}
-                        </p>
-                      )}
-                  </>
-                ) : (
-                  <p className="text-sm py-2">
-                    {ceacNumber || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
               <div className="space-y-2">
                 <Label>
                   {t("workOrders.sanApprovalId")}
@@ -1966,23 +1930,41 @@ export function WorkOrderForm({
                       placeholder={t("workOrders.sanApprovalIdPlaceholder")}
                       value={sanApprovalId || ""}
                       onChange={(e) => {
-                        const val = e.target.value
-                          .replace(/[^\d-]/g, "")
-                          .replace(/(.*-.*)-/g, "$1")
-                          .slice(0, 11);
+                        const val = e.target.value.replace(/\s/g, "");
                         onRiskAssessmentChange?.("sanApprovalId", val || null);
                       }}
                     />
-                    {(sanApprovalId?.length ?? 0) > 0 &&
-                      !SAN_ID_RE.test(sanApprovalId ?? "") && (
-                        <p className="text-xs text-destructive">
-                          {t("workOrders.sanApprovalIdInvalid")}
-                        </p>
-                      )}
                   </>
                 ) : (
                   <p className="text-sm py-2">
                     {sanApprovalId || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  {t("workOrders.ceacNumber")}
+                  {riskFieldsEditable && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </Label>
+                {riskFieldsEditable ? (
+                  <>
+                    <Input
+                      type="text"
+                      placeholder={t("workOrders.ceacNumberPlaceholder")}
+                      value={ceacNumber || ""}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\s/g, "");
+                        onRiskAssessmentChange?.("ceacNumber", val || null);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <p className="text-sm py-2">
+                    {ceacNumber || (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </p>
