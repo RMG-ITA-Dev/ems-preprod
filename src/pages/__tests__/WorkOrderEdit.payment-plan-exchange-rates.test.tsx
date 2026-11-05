@@ -134,8 +134,11 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1", category: { can_approve_wo: true } } }),
 }));
 
+// El rol lo cambia cada test; `can` sigue concediendo todo, como el seed le concede
+// work_order.payment_plan.approve a Cobranzas, Gerente de Contabilidad, socios, etc.
+const authRole = vi.hoisted(() => ({ roleKey: "admin" }));
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: "admin" }),
+  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: authRole.roleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
@@ -223,6 +226,36 @@ describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () 
     vi.clearAllMocks();
     capturedFormProps = {};
     mockWorkOrder.approval_status = originalApprovalStatus;
+    authRole.roleKey = "admin";
+  });
+
+  // La fecha acordada y la moneda de cada cuota se habilitaban por el permiso
+  // work_order.payment_plan.approve, que también tienen Cobranzas y el Gerente de
+  // Contabilidad: con la OT en Borrador podían editar el contrato del gerente.
+  it("WEX-ADE1: el bypass de fechas del plan en Borrador o Rechazada es solo de admin", () => {
+    for (const status of ["Draft", "Rejected"]) {
+      mockWorkOrder.approval_status = status;
+      authRole.roleKey = "admin";
+      const { unmount } = renderPage();
+      expect(capturedFormProps.isAdminDateEditable).toBe(true);
+      unmount();
+    }
+  });
+
+  it("WEX-ADE2: Cobranzas y el Gerente de Contabilidad no reciben el bypass, aunque tengan el permiso", () => {
+    mockWorkOrder.approval_status = "Draft";
+    for (const role of ["collections_analyst", "accounting_manager", "partner"]) {
+      authRole.roleKey = role;
+      const { unmount } = renderPage();
+      expect(capturedFormProps.isAdminDateEditable).toBe(false);
+      unmount();
+    }
+  });
+
+  it("WEX-ADE3: con la OT aprobada no hay bypass, ni para admin", () => {
+    mockWorkOrder.approval_status = "Approved";
+    renderPage();
+    expect(capturedFormProps.isAdminDateEditable).toBe(false);
   });
 
   // Amendment 2026-09-07: Cobranza/Estado/TC por cuota (isStatusEditable) solo se

@@ -275,6 +275,7 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
         prevStatus: "Invoiced",
         woId: "wo-1",
         paymentExchangeRate: 7.01,
+        paymentExchangeRateDate: "2026-10-09",
       });
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -285,6 +286,8 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
           p_installment_id: "inst-1",
           p_expected_status: "Invoiced",
           p_payment_exchange_rate: 7.01,
+          // 1028-214: de qué cotización salió el TC de pago.
+          p_payment_exchange_rate_date: "2026-10-09",
         }),
       );
     });
@@ -358,6 +361,35 @@ describe("useWorkOrderPaymentPlanMutations — exchange rate (0722-156b Fase 2)"
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockUpdate).toHaveBeenCalledWith({ payment_exchange_rate: 7.01 });
+    });
+
+    // 1028-214: el TC traído de una fecha guarda también su cotización; uno tecleado la limpia.
+    it("PEX13: con rateDate escribe el TC y su fecha en el mismo update", async () => {
+      const mockEq = vi.fn().mockResolvedValue({ error: null });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateInstallmentExchangeRate(), { wrapper: createWrapper() });
+      result.current.mutate({
+        installmentId: "inst-1", field: "invoice_exchange_rate", value: 6.9, rateDate: "2026-10-09", woId: "wo-1",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(mockUpdate).toHaveBeenCalledWith({ invoice_exchange_rate: 6.9, invoice_exchange_rate_date: "2026-10-09" });
+    });
+
+    it("PEX14: rateDate null limpia la fecha (TC tecleado a mano)", async () => {
+      const mockEq = vi.fn().mockResolvedValue({ error: null });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateInstallmentExchangeRate(), { wrapper: createWrapper() });
+      result.current.mutate({
+        installmentId: "inst-1", field: "payment_exchange_rate", value: 7.2, rateDate: null, woId: "wo-1",
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_exchange_rate: 7.2, payment_exchange_rate_date: null });
     });
 
     it("PEX10: EXCHANGE_RATE_LOCKED (ej. la cuota se congelo en otra pestaña) muestra el toast especifico", async () => {

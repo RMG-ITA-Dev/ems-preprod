@@ -285,6 +285,7 @@ const WorkOrderEdit = () => {
             confirmed_at: i.confirmed_at,
             currency: i.currency,
             invoice_exchange_rate_date: i.invoice_exchange_rate_date,
+            payment_exchange_rate_date: i.payment_exchange_rate_date,
             installment_type: i.installment_type ?? "fee",
             net_amount: i.net_amount !== null && i.net_amount !== undefined ? Number(i.net_amount) : null,
           }));
@@ -1103,7 +1104,12 @@ const WorkOrderEdit = () => {
           // Contabilidad, y sólo con la OT aprobada — antes de aprobar no hay nada ejecutado.
           // El servidor lo verifica igual en create_expense_reimbursement_row().
           canBillExpenses={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
-          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
+          // Es el bypass de ADMIN para corregir fechas del plan fuera del flujo del gerente
+          // (ver WorkOrderPaymentPlanSection, dateEditable). Antes miraba el permiso
+          // work_order.payment_plan.approve, que también tienen Cobranzas, Gerente de
+          // Contabilidad, socios, SQR y directores: con la OT en Borrador o Rechazada todos
+          // ellos veían editables la fecha acordada y la moneda de cada cuota.
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && isAdmin}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":

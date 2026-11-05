@@ -22,7 +22,7 @@ const mockUpdateStatus = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/mutations", () => ({
   useUpdateInstallmentStatus: () => ({ mutate: mockUpdateStatus, isPending: false }),
   useUpdateCollectionDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false }),
   useRescheduleInstallment: () => ({ mutate: mockReschedule, isPending: false }),
   useRecordInstallmentConfirmation: () => ({ mutate: mockRecordConfirmation, isPending: false }),
   useAddInstallmentNote: () => ({ mutate: mockAddNote, isPending: false }),

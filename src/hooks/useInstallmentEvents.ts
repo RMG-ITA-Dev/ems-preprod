@@ -38,6 +38,10 @@ export interface InstallmentEvent {
   reason: string | null;
   actor_staff_id: string | null;
   created_at: string;
+  /** 1028-214: en un cambio a Facturado o Completado, el TC con el que se hizo… */
+  exchange_rate?: number | null;
+  /** …y de qué cotización salió (null = a mano o TC del plan). */
+  exchange_rate_date?: string | null;
   actor?: { first_name: string | null; last_name: string | null } | null;
 }
 

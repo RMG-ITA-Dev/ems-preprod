@@ -130,7 +130,7 @@ vi.mock("@/hooks/mutations", () => ({
   useDeletePaymentPlan:       () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateInstallmentStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useUpdateCollectionDate:    () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateInstallmentExchangeRate: () => ({ mutate: vi.fn(), mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false }),
   // Cobranzas Fase 3: la sección del plan de pagos ahora también usa estos dos. Sin ellos en
   // el mock del barrel, el componente revienta al montar.
   useRescheduleInstallment: () => ({ mutate: vi.fn(), isPending: false }),

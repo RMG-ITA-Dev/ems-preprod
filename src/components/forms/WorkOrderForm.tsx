@@ -469,6 +469,9 @@ export function WorkOrderForm({
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
   // motive/reference into emergency_justification. Riesgos approvers enter nothing.
   const [submitEmergencyDialogOpen, setSubmitEmergencyDialogOpen] = useState(false);
+  // 1028-214 (review de Codex): mientras el plan de pagos trae el TC del encabezado desde una
+  // fecha, guardar o enviar a aprobación persistiría el TC anterior.
+  const [paymentRateLookupPending, setPaymentRateLookupPending] = useState(false);
   const [submitJustification, setSubmitJustification] = useState("");
   // "submit" = Draft con campos vacíos → onSubmitForApproval; "resend" = Rechazado con campos vacíos → onCompleteRisk.
   const [emergencyDialogMode, setEmergencyDialogMode] = useState<"submit" | "resend">("submit");
@@ -1449,6 +1452,7 @@ export function WorkOrderForm({
           isAdminDateEditable={isAdminDateEditable}
           canEditPaymentPlan={canEditPaymentPlan}
           isPaymentPlanDirty={isPaymentPlanDirty}
+          onPlanRateLookupChange={setPaymentRateLookupPending}
           onPlanChange={onPaymentPlanChange}
           onInstallmentsChange={onPaymentInstallmentsChange}
         />
@@ -2374,7 +2378,7 @@ export function WorkOrderForm({
                 onClick={onSubmit}
                 loading={isSubmitting}
                 className="btn-action"
-                disabled={isDirty && !hasNonRiskDirty}
+                disabled={(isDirty && !hasNonRiskDirty) || paymentRateLookupPending}
                 title={
                   isDirty && !hasNonRiskDirty
                     ? t("workOrders.riskSavedOnSubmit")
@@ -2412,7 +2416,7 @@ export function WorkOrderForm({
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}
-                  disabled={!canSubmitForApproval}
+                  disabled={!canSubmitForApproval || paymentRateLookupPending}
                   title={
                     !canSubmitForApproval
                       ? t("workOrders.riskAssessmentRequired")
@@ -2438,6 +2442,7 @@ export function WorkOrderForm({
                 onClick={onSubmit}
                 loading={isSubmitting}
                 className="btn-action"
+                disabled={paymentRateLookupPending}
               >
                 {t("common.save")}
               </LoadingButton>
@@ -2451,6 +2456,7 @@ export function WorkOrderForm({
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}
+                  disabled={paymentRateLookupPending}
                   title={missingRequiredTab ? t("workOrders.tabsNotVisited") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
@@ -2507,7 +2513,7 @@ export function WorkOrderForm({
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={submitJustification.trim().length === 0}
+              disabled={submitJustification.trim().length === 0 || paymentRateLookupPending}
               onClick={() => {
                 const justif = submitJustification.trim();
                 if (emergencyDialogMode === "resend") {
