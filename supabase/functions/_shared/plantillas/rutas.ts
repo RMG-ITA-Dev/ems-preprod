@@ -82,12 +82,12 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   // Todos los eventos del módulo llevan wo_id en entity_id, incluidos los de cuota: la cuota no
   // tiene pantalla propia, se edita en la pestaña "Plan de pagos" de su orden.
   //
-  // 1028-213 (D-17, AC-32): los tres avisos de Riesgos de la OT van a /risks/:woId cuando `notify_staff`
+  // 1028-213 (D-17, AC-32): los avisos de Riesgos de la OT (incluido el del paso 1 de emergencia, que recibe quien debe firmar el paso 2) van a /risks/:woId cuando `notify_staff`
   // marcó `payload.ruta = 'risks'` (el destinatario tiene work_order.risk.read). Espejo de
   // `notificationRoute` (src/lib/notifications.ts): si una ruta cambia en la app, se toca acá.
   if (
     (typeKey === "wo.submitted_risk" || typeKey === "wo.risk.resubmitted" ||
-      typeKey === "wo.emergency.deadline_passed") &&
+      typeKey === "wo.emergency.step1_done" || typeKey === "wo.emergency.deadline_passed") &&
     payload.ruta === "risks"
   ) {
     return entidad ? `/risks/${entidad}` : null;

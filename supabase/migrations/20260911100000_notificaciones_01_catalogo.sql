@@ -426,11 +426,11 @@ BEGIN
   -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
   -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
   --
-  -- 1028-213 (D-17, AC-32): los tres avisos de Riesgos de la OT llevan a /risks/:woId para los roles que
+  -- 1028-213 (D-17, AC-32): los avisos de Riesgos de la OT (submitted_risk, risk.resubmitted, emergency.step1_done y emergency.deadline_passed) llevan a /risks/:woId para los roles que
   -- tienen work_order.risk.read (risk_partner, risk_supervisor, admin). Se marca con payload.ruta = 'risks'
   -- (lo lee rutas.ts) y NO se marca sin_ruta: risk_supervisor ya no tiene work_order.read, que es el
   -- permiso del destino /work-orders. Para cualquier otro rol sigue la lógica de siempre.
-  IF p_type_key IN ('wo.submitted_risk', 'wo.risk.resubmitted', 'wo.emergency.deadline_passed')
+  IF p_type_key IN ('wo.submitted_risk', 'wo.risk.resubmitted', 'wo.emergency.step1_done', 'wo.emergency.deadline_passed')
      AND EXISTS (
        SELECT 1 FROM public.authorization_role_permissions arp
         WHERE arp.role_key = v_role_key

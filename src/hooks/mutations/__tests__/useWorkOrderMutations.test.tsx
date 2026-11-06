@@ -368,6 +368,50 @@ describe("useWorkOrderMutations", () => {
         expect(keysOf(spy)).not.toContainEqual(["risk_work_orders"]);
       }
     );
+
+    // Review 1028-213, R1-4: las acciones que NO son RPC de Riesgos pero cambian lo que /risks lee
+    // (envío, reenvío de Riesgos, retiro a Draft, reversión de la aprobación) también invalidan.
+    describe("otras acciones sobre la OT invalidan /risks (R1-4)", () => {
+      beforeEach(() => {
+        // Cadena de PostgREST que sirve para update().eq()[.eq()].select().single() y se puede esperar.
+        const chain: any = {};
+        for (const m of ["update", "eq", "select", "single", "not", "is"]) {
+          chain[m] = vi.fn().mockReturnValue(chain);
+        }
+        chain.then = (resolve: (v: unknown) => unknown) =>
+          resolve({ data: { wo_id: "wo-9" }, error: null });
+        vi.mocked(supabase.from).mockReturnValue(chain as any);
+      });
+
+      it.each([
+        ["useSubmitWorkOrder", useSubmitWorkOrder],
+        ["useCompleteRiskAssessment", useCompleteRiskAssessment],
+        ["useUnsubmitWorkOrder", useUnsubmitWorkOrder],
+        ["useRevertRiskApproval", useRevertRiskApproval],
+      ] as const)("%s invalida la lista y el detalle de /risks", async (_name, useHook) => {
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
+
+        result.current.mutate({ woId: "wo-9" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        // Y conserva las invalidaciones que ya tenía.
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      });
+
+      it("reenviar solo Riesgos tras un rechazo hace que /risks vuelva a pedir la lista (caso del review)", async () => {
+        const { result, spy } = renderWithSpy(() => useCompleteRiskAssessment());
+
+        result.current.mutate({ woId: "wo-9" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(keysOf(spy).filter((k) => k[0] === "risk_work_orders")).toHaveLength(1);
+      });
+    });
   });
 
   describe("useRevertSocioApproval (admin)", () => {

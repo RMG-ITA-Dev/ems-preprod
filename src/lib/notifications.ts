@@ -542,6 +542,7 @@ const TYPE_ROUTE_PERMISSION: Record<string, string> = {
 const RISK_NOTIFICATION_TYPES = new Set([
   "wo.submitted_risk",
   "wo.risk.resubmitted",
+  "wo.emergency.step1_done",
   "wo.emergency.deadline_passed",
 ]);
 

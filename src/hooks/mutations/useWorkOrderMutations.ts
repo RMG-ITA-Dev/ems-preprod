@@ -143,12 +143,15 @@ export function useSubmitWorkOrder() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // /risks lee estos mismos campos (SAN/CEAC, estado de Riesgos, Draft): sin esto, la lista
+      // y el detalle muestran el estado anterior hasta que vence el staleTime (review 1028-213, R1-4).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.submittedForApproval"));
     },
     onError: createMutationErrorHandler("submitting work order"),
@@ -403,12 +406,15 @@ export function useRevertRiskApproval() {
       if (reopenError) throw reopenError;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // La reversión devuelve la pista de Riesgos a Pending y borra las firmas de emergencia
+      // (review 1028-213, R1-4).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
     onError: createMutationErrorHandler("reverting risk approval"),
@@ -479,12 +485,14 @@ export function useCompleteRiskAssessment() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // El reenvío de Riesgos vuelve la pista a Pending: /risks debe verlo (review 1028-213, R1-4).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("completing risk assessment"),
@@ -550,13 +558,15 @@ export function useUnsubmitWorkOrder() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
       queryClient.invalidateQueries({ queryKey: ["worksheet-by-engagement"] });
+      // Retirar la OT la devuelve a Draft: sale de la lista de /risks (review 1028-213, R1-4).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.unsubmitted"));
     },
     onError: createMutationErrorHandler("unsubmitting work order"),

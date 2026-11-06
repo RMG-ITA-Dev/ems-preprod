@@ -368,6 +368,17 @@ BEGIN
   DELETE FROM public.notification_emails WHERE notification_id = v_id;
   DELETE FROM public.notifications WHERE notification_id = v_id;
 
+  -- Review R3-1: el aviso del paso 1 de emergencia lo recibe el risk_partner, que debe firmar el paso 2 en /risks; sin la marca
+  -- su enlace caeria en /work-orders/:id, donde ya solo lee las OT en las que es socio.
+  v_id := public.notify_staff('wo.emergency.step1_done', '59f00000-0000-4000-8000-000000000008',
+                              'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
+  SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;
+  IF v_p IS NULL OR v_p->>'ruta' IS DISTINCT FROM 'risks' OR v_p ? 'sin_ruta' THEN
+    RAISE EXCEPTION 'TEST FAIL — wo.emergency.step1_done al risk_partner debía llevar ruta=risks y no sin_ruta (payload %)', v_p;
+  END IF;
+  DELETE FROM public.notification_emails WHERE notification_id = v_id;
+  DELETE FROM public.notifications WHERE notification_id = v_id;
+
   v_id := public.notify_staff('wo.approved_partner', '59f00000-0000-4000-8000-000000000002',
                               'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
   SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;

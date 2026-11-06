@@ -402,8 +402,13 @@ BEGIN
          wo.san_completed_at, wo.san_approval_id, wo.risk_level
     INTO v_wo
     FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
    WHERE wo.wo_id = p_wo_id
-     FOR UPDATE;
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;
@@ -461,8 +466,13 @@ BEGIN
   SELECT wo.engagement_id, wo.approval_status, wo.risk_status
     INTO v_wo
     FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
    WHERE wo.wo_id = p_wo_id
-     FOR UPDATE;
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;
@@ -519,8 +529,13 @@ BEGIN
          wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
     INTO v_wo
     FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
    WHERE wo.wo_id = p_wo_id
-     FOR UPDATE;
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;
@@ -581,8 +596,13 @@ BEGIN
          wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
     INTO v_wo
     FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
    WHERE wo.wo_id = p_wo_id
-     FOR UPDATE;
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
   END IF;

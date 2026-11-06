@@ -576,7 +576,13 @@ describe("notificationRoute", () => {
   // 1028-213 (D-17, AC-32): los avisos de Riesgos llevan al detalle de /risks para quien tiene
   // work_order.risk.read; si no, a la OT solo si puede abrirla; si no, sin enlace.
   describe("avisos de Riesgos (1028-213)", () => {
-    const RISK_TYPES = ["wo.submitted_risk", "wo.risk.resubmitted", "wo.emergency.deadline_passed"];
+    // Incluye el aviso del paso 1 de emergencia: lo recibe el risk_partner, que debe firmar el paso 2 en /risks (review R3-1).
+    const RISK_TYPES = [
+      "wo.submitted_risk",
+      "wo.risk.resubmitted",
+      "wo.emergency.step1_done",
+      "wo.emergency.deadline_passed",
+    ];
     const riskEvent = (type_key: string) => ({
       ...event("n1", "work_order"),
       type_key,

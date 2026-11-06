@@ -210,7 +210,11 @@ const Risks = () => {
     <AppLayout title={t("risks.title")}>
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">{t("risks.subtitle")}</p>
+        {/* key: el filtro de estado se aplica FUERA del DataTable (`visible`), que solo vuelve a la página 1
+            cuando cambian sus propios filtros. Sin remontarlo, tras estar en la página 2 de «Todas» un filtro
+            con pocas filas dejaba la tabla en una página inexistente, vacía (review 1028-213, R3-5). */}
         <DataTable
+          key={activeFilter}
           data={visible}
           columns={columns}
           searchPlaceholder={t("risks.searchPlaceholder")}

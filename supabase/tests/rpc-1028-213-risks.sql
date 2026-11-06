@@ -147,6 +147,8 @@ DO $$
 DECLARE
   err     text;
   n       int;
+  u       int;
+  v_sql   text;
   v_cols  text;
   v_h     text;
   v_row   record;
@@ -307,6 +309,36 @@ BEGIN
   err := pg_temp.try(format('SELECT public.approve_wo_risk(%L)', '00000000-0000-4000-8000-000000000000'));
   IF err IS DISTINCT FROM 'NOT_FOUND' THEN RAISE EXCEPTION 'RISKS FAIL — W3: aprobar un wo_id inexistente debía dar NOT_FOUND (err=%)', err; END IF;
   RAISE NOTICE 'PASS — W3: Draft, emergencia por la vía normal e inexistente dan CONFLICT / NOT_FOUND';
+
+  -- W3b (review R3-2): las cuatro escrituras aplican la misma elegibilidad que la lectura. Una OT de encargo administrativo
+  -- (OT3) o cancelado (OT4) da NOT_FOUND con admin y con RP (que SÍ tienen el permiso), igual que get_risk_work_order: lo que
+  -- /risks trata como inexistente no se puede escribir llamando a la función. El NOT_FOUND sale antes de cualquier UPDATE.
+  FOREACH u IN ARRAY ARRAY[1, 2] LOOP
+    PERFORM pg_temp.impersonate(u);
+    FOREACH v_sql IN ARRAY ARRAY[
+      'SELECT public.approve_wo_risk(%L)', 'SELECT public.reject_wo_risk(%L)',
+      'SELECT public.approve_wo_emergency_review(%L)', 'SELECT public.approve_wo_emergency_partner(%L)'
+    ] LOOP
+      FOREACH n IN ARRAY ARRAY[3, 4] LOOP
+        err := pg_temp.try(format(v_sql, pg_temp.wo(n)));
+        IF err IS DISTINCT FROM 'NOT_FOUND' THEN
+          RAISE EXCEPTION 'RISKS FAIL — W3b: U% con % sobre OT% (administrativa/cancelada) debía dar NOT_FOUND y dio %', u, v_sql, n, err;
+        END IF;
+      END LOOP;
+    END LOOP;
+  END LOOP;
+  -- Contraparte: la MISMA llamada (admin) sobre una OT elegible no da NOT_FOUND sino CONFLICT (la OT1 tiene sus 5 campos de
+  -- riesgo llenos, no es emergencia), de modo que el NOT_FOUND de arriba viene de la elegibilidad y no de la fixture.
+  PERFORM pg_temp.impersonate(1);
+  FOREACH v_sql IN ARRAY ARRAY[
+    'SELECT public.approve_wo_emergency_review(%L)', 'SELECT public.approve_wo_emergency_partner(%L)'
+  ] LOOP
+    err := pg_temp.try(format(v_sql, pg_temp.wo(1)));
+    IF err IS DISTINCT FROM 'CONFLICT' THEN
+      RAISE EXCEPTION 'RISKS FAIL — W3b: % sobre la OT1 (elegible) debía dar CONFLICT y dio %', v_sql, err;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS — W3b: las cuatro escrituras dan NOT_FOUND para OT administrativa y cancelada (admin y RP); la OT elegible sigue dando CONFLICT';
 
   -- W4 (AC-19, AC-28): gerente, SQR, ITA, asistente, anon y sin sesión no aprueban, no rechazan y no firman emergencia.
   FOREACH n IN ARRAY ARRAY[4, 5, 6, 7] LOOP

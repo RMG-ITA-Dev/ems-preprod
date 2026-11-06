@@ -377,3 +377,31 @@ describe("Risks — estados", () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 });
+
+// Review 1028-213, R3-5: el filtro de estado se aplica fuera del DataTable; al cambiarlo hay que volver a la
+// primera página, o quien está en la página 2 de «Todas» veía una tabla vacía aunque hubiera órdenes.
+describe("Risks — paginación al cambiar el filtro (R3-5)", () => {
+  const MANY: RiskWorkOrderRow[] = [
+    ...Array.from({ length: 25 }, (_, i) =>
+      wo({ wo_id: `p${i}`, engagement_code: `2027.200.${String(i + 1).padStart(3, "0")}`, risk_status: "Pending" }),
+    ),
+    wo({ wo_id: "a1", engagement_code: "2027.300.001", risk_status: "Approved" }),
+  ];
+  const ANY_CODE = /^2027\.\d{3}\.\d{3}$/;
+  const codes = () => screen.queryAllByText(ANY_CODE).map((el) => el.textContent);
+  const nextPage = () =>
+    (screen.getByText(/common\.page/).nextElementSibling as HTMLButtonElement);
+
+  it("tras pasar a la página 2 de «Todas», un filtro con pocas filas muestra sus filas (no una página vacía)", () => {
+    hookState = loaded(MANY);
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    expect(codes()).toHaveLength(20); // 26 filas, 20 por página
+
+    fireEvent.click(nextPage());
+    expect(codes()).toHaveLength(6); // estamos en la página 2
+
+    fireEvent.change(filterSelect(), { target: { value: "approved" } });
+    expect(codes()).toEqual(["2027.300.001"]);
+  });
+});
