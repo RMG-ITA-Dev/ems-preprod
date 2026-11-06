@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict P82udK4gkVaM38x2OkSInGrlVBXpj7mKfudO0KyeYuc0qQ1oo87CCEAI2btFDVM
+\restrict mWA62MZSl14ePphQ7js29oXNOa4H8LQ6IqYIvKmpU72lMND8r0inFHvbWof02V3
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -3556,6 +3556,84 @@ BEGIN
     RAISE EXCEPTION 'Category % does not belong to the engagement''s practice', NEW.category_id;
   END IF;
 
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: enforce_client_activation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_client_activation() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- 1. Permiso: solo con una petición de la API y sin client.activate.
+  IF auth.uid() IS NOT NULL AND NOT public.has_permission('client.activate') THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.is_active := false;
+    ELSIF NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+      RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- 1b. Desactivar es solo de admin (decisión del operador, 2026-11-06): Cobranzas y el Gerente de Contabilidad
+  -- activan, no desactivan. Admin por role_key (current_role_key), no por el enum legacy de is_admin().
+  IF TG_OP = 'UPDATE' AND auth.uid() IS NOT NULL
+     AND OLD.is_active IS TRUE AND NEW.is_active IS NOT TRUE
+     AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Trazabilidad: quién y cuándo, siempre desde la sesión (NULL si es el sistema). Las cuatro columnas no se
+  -- escriben a mano: en un UPDATE sin cambio de estado se conservan; en un alta solo cuenta si nace activa.
+  IF TG_OP = 'INSERT' THEN
+    NEW.activated_at            := CASE WHEN NEW.is_active IS TRUE THEN now() END;
+    NEW.activated_by_staff_id   := CASE WHEN NEW.is_active IS TRUE THEN public.get_my_staff_id() END;
+    NEW.deactivated_at          := NULL;
+    NEW.deactivated_by_staff_id := NULL;
+  ELSE
+    NEW.activated_at            := OLD.activated_at;
+    NEW.activated_by_staff_id   := OLD.activated_by_staff_id;
+    NEW.deactivated_at          := OLD.deactivated_at;
+    NEW.deactivated_by_staff_id := OLD.deactivated_by_staff_id;
+    IF NEW.is_active IS TRUE AND OLD.is_active IS NOT TRUE THEN
+      NEW.activated_at          := now();
+      NEW.activated_by_staff_id := public.get_my_staff_id();
+    ELSIF NEW.is_active IS NOT TRUE AND OLD.is_active IS TRUE THEN
+      NEW.deactivated_at          := now();
+      NEW.deactivated_by_staff_id := public.get_my_staff_id();
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: enforce_engagement_client_active(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_engagement_client_active() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.client_id IS NOT DISTINCT FROM OLD.client_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.client_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = NEW.client_id AND c.is_active IS TRUE) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CLIENT_INACTIVE: el cliente esta pendiente de activacion o inactivo; Cobranzas o Contabilidad deben activarlo antes de crear el encargo';
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -9672,6 +9750,15 @@ CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
     AS $$
   -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
   SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+  UNION
+  -- 1028-211: un cliente SIN encargos todavía no tiene sociedad; se toma la de quien lo creó, para que Cobranzas y
+  -- Contabilidad de esa sociedad lo encuentren y lo activen. Desde su primer encargo manda la sociedad del encargo.
+  -- Creador sin sociedad o cliente sin creador (carga ETL): no lo ve ningún rol con alcance por sociedad.
+  SELECT c.client_id
+    FROM public.clients c
+    JOIN public.staff s ON s.staff_id = c.created_by_staff_id
+   WHERE s.society_id = public.my_society_id()
+     AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = c.client_id)
 $$;
 
 
@@ -11866,7 +11953,11 @@ DECLARE
   v_base        jsonb;
   v_rec         record;
   v_deactivated boolean;
+  v_society     uuid;
   c_firma constant text[] := ARRAY['senior_partner'];
+  -- 1028-211: quien activa clientes. notif_staff_by_roles_in_society deja a admin siempre y a los dos roles con
+  -- alcance por sociedad solo si son de la sociedad pedida.
+  c_activadores constant text[] := ARRAY['admin', 'accounting_manager', 'collections_analyst'];
 BEGIN
   v_base := jsonb_build_object(
     'client_id',         NEW.client_id,
@@ -11886,6 +11977,48 @@ BEGIN
     LOOP
       PERFORM public.notify_staff('client.created', v_rec.staff_id,
                                   NEW.client_id::text, v_base);
+    END LOOP;
+
+    -- 1028-211: el alta de quien no tiene client.activate nace inactiva (trg_clients_enforce_activation) y
+    -- espera a que la active Cobranzas o Contabilidad de la sociedad del creador, o admin. Creador sin
+    -- sociedad: solo admin. El aviso nombra al creador para que sepan a quién preguntar.
+    IF NOT COALESCE(NEW.is_active, true) THEN
+      SELECT s.society_id INTO v_society FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id;
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_activadores, v_society)
+      LOOP
+        PERFORM public.notify_staff('client.pending_activation', v_rec.staff_id, NEW.client_id::text,
+          v_base || jsonb_build_object('creator_name',
+            (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+               FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id)));
+      END LOOP;
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  -- ── Activación (1028-211) ──
+  -- Al creador (para que sepa que ya puede abrir encargos) y a quien activa, solo por campana. La sociedad es la
+  -- de los encargos del cliente; si todavía no tiene, la del creador (la misma regla que my_society_client_ids).
+  -- La activación no cuenta además como edición.
+  IF NOT COALESCE(OLD.is_active, true) AND COALESCE(NEW.is_active, true) THEN
+    FOR v_rec IN
+      SELECT NEW.created_by_staff_id AS staff_id WHERE NEW.created_by_staff_id IS NOT NULL
+      UNION
+      SELECT a.staff_id
+        FROM (SELECT DISTINCT e.society_id FROM public.engagements e WHERE e.client_id = NEW.client_id
+              UNION
+              SELECT s.society_id FROM public.staff s
+               WHERE s.staff_id = NEW.created_by_staff_id
+                 AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = NEW.client_id)) soc
+        CROSS JOIN LATERAL public.notif_staff_by_roles_in_society(c_activadores, soc.society_id) a
+      UNION
+      -- admin aunque no haya ninguna sociedad (cliente de la carga ETL sin creador ni encargos).
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+    LOOP
+      PERFORM public.notify_staff('client.activated', v_rec.staff_id, NEW.client_id::text,
+        v_base || jsonb_build_object('activated_by_name',
+          (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+             FROM public.staff s WHERE s.staff_id = NEW.activated_by_staff_id)));
     END LOOP;
     RETURN NULL;
   END IF;
@@ -11945,7 +12078,7 @@ $$;
 -- Name: FUNCTION notify_client_events(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notify_client_events() IS 'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. Degrada a WARNING.';
+COMMENT ON FUNCTION public.notify_client_events() IS 'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. 1028-211: el alta inactiva avisa a quien activa (client.pending_activation) y la activacion al creador y a quien activa (client.activated). Degrada a WARNING.';
 
 
 --
@@ -18166,6 +18299,39 @@ $$;
 
 
 --
+-- Name: set_client_active(uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_client_active(p_client_id uuid, p_active boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF p_client_id IS NULL OR p_active IS NULL THEN
+    RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan el cliente o el estado';
+  END IF;
+  IF NOT public.has_permission('client.activate') THEN
+    RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_active IS FALSE AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF public.is_society_scoped_role()
+     AND p_client_id NOT IN (SELECT public.my_society_client_ids()) THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+
+  UPDATE public.clients SET is_active = p_active WHERE client_id = p_client_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+END;
+$$;
+
+
+--
 -- Name: set_client_created_by(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -23184,6 +23350,10 @@ CREATE TABLE public.clients (
     parent_relationship text,
     client_origin text,
     billing_tax_treatment text,
+    activated_at timestamp with time zone,
+    activated_by_staff_id uuid,
+    deactivated_at timestamp with time zone,
+    deactivated_by_staff_id uuid,
     CONSTRAINT clients_billing_tax_treatment_check CHECK ((billing_tax_treatment = ANY (ARRAY['nit_propio'::text, 'nit_generico_99001'::text, 'pendiente'::text]))),
     CONSTRAINT clients_client_origin_check CHECK ((client_origin = ANY (ARRAY['nacional'::text, 'extranjero'::text, 'diplomatico'::text]))),
     CONSTRAINT clients_client_type_check CHECK ((client_type = ANY (ARRAY['entidad'::text, 'sucursal'::text, 'proyecto'::text, 'fideicomiso'::text]))),
@@ -23209,14 +23379,51 @@ COMMENT ON COLUMN public.clients.created_by_staff_id IS 'Staff que creó el clie
 
 
 --
+-- Name: COLUMN clients.activated_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.activated_at IS '1028-211: última activación (alta activa incluida). La fija trg_clients_enforce_activation; NULL si nunca se activó con esta trazabilidad.';
+
+
+--
+-- Name: COLUMN clients.activated_by_staff_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.activated_by_staff_id IS '1028-211: quién hizo la última activación (get_my_staff_id() de la sesión; NULL si fue el sistema, p. ej. la carga ETL).';
+
+
+--
+-- Name: COLUMN clients.deactivated_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.deactivated_at IS '1028-211: última desactivación. La fija trg_clients_enforce_activation.';
+
+
+--
+-- Name: COLUMN clients.deactivated_by_staff_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.deactivated_by_staff_id IS '1028-211: quién hizo la última desactivación (NULL si fue el sistema).';
+
+
+--
 -- Name: clients_directory; Type: VIEW; Schema: public; Owner: -
 --
 
 CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
  SELECT client_id,
     client_legal_name,
-    is_active
-   FROM public.clients c
+    is_active,
+    homonym_seq
+   FROM ( SELECT cl.client_id,
+            cl.client_legal_name,
+            cl.is_active,
+                CASE
+                    WHEN (count(*) OVER same_name > 1) THEN row_number() OVER (same_name ORDER BY cl.created_at, cl.client_id)
+                    ELSE NULL::bigint
+                END AS homonym_seq
+           FROM public.clients cl
+          WINDOW same_name AS (PARTITION BY (lower(btrim((cl.client_legal_name)::text))))) c
   WHERE ((public.get_my_staff_id() IS NOT NULL) AND ((NOT public.is_society_scoped_role()) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids))));
 
 
@@ -23224,7 +23431,7 @@ CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
 -- Name: VIEW clients_directory; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON VIEW public.clients_directory IS 'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated.';
+COMMENT ON VIEW public.clients_directory IS 'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated. homonym_seq (1028-211): número del cliente entre los de igual razón social, por fecha de alta; NULL si el nombre es único.';
 
 
 --
@@ -24547,22 +24754,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_04; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_04 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_11_05; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -24615,6 +24806,22 @@ CREATE TABLE realtime.messages_2026_11_07 (
 --
 
 CREATE TABLE realtime.messages_2026_11_08 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_09; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_09 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -24907,13 +25114,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_04; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_04 FOR VALUES FROM ('2026-11-04 00:00:00') TO ('2026-11-05 00:00:00');
-
-
---
 -- Name: messages_2026_11_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -24939,6 +25139,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_07
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_08 FOR VALUES FROM ('2026-11-08 00:00:00') TO ('2026-11-09 00:00:00');
+
+
+--
+-- Name: messages_2026_11_09; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_09 FOR VALUES FROM ('2026-11-09 00:00:00') TO ('2026-11-10 00:00:00');
 
 
 --
@@ -25908,14 +26115,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_04 messages_2026_11_04_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_04
-    ADD CONSTRAINT messages_2026_11_04_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_11_05 messages_2026_11_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -25945,6 +26144,14 @@ ALTER TABLE ONLY realtime.messages_2026_11_07
 
 ALTER TABLE ONLY realtime.messages_2026_11_08
     ADD CONSTRAINT messages_2026_11_08_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_09 messages_2026_11_09_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_09
+    ADD CONSTRAINT messages_2026_11_09_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -27070,13 +27277,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_04_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_04_inserted_at_topic_idx ON realtime.messages_2026_11_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -27102,6 +27302,13 @@ CREATE INDEX messages_2026_11_07_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_08_inserted_at_topic_idx ON realtime.messages_2026_11_08 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_09_inserted_at_topic_idx ON realtime.messages_2026_11_09 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -27203,20 +27410,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_04_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_04_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_04_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_04_pkey;
-
-
---
 -- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -27270,6 +27463,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_08_pkey;
+
+
+--
+-- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_09_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_09_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_09_pkey;
 
 
 --
@@ -27679,6 +27886,13 @@ CREATE TRIGGER trg_clients_created_by BEFORE INSERT OR UPDATE ON public.clients 
 
 
 --
+-- Name: clients trg_clients_enforce_activation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_clients_enforce_activation BEFORE INSERT OR UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.enforce_client_activation();
+
+
+--
 -- Name: time_entries trg_enforce_activity_default; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -27753,6 +27967,13 @@ CREATE TRIGGER trg_engagements_created_by BEFORE INSERT OR UPDATE ON public.enga
 --
 
 CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_creator_team();
+
+
+--
+-- Name: engagements trg_engagements_enforce_client_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_enforce_client_active BEFORE INSERT OR UPDATE OF client_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_client_active();
 
 
 --
@@ -28334,11 +28555,27 @@ ALTER TABLE ONLY public.client_contacts
 
 
 --
+-- Name: clients clients_activated_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_activated_by_staff_id_fkey FOREIGN KEY (activated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: clients clients_created_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.clients
     ADD CONSTRAINT clients_created_by_staff_id_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: clients clients_deactivated_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_deactivated_by_staff_id_fkey FOREIGN KEY (deactivated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
 
 
 --
@@ -31366,5 +31603,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict P82udK4gkVaM38x2OkSInGrlVBXpj7mKfudO0KyeYuc0qQ1oo87CCEAI2btFDVM
+\unrestrict mWA62MZSl14ePphQ7js29oXNOa4H8LQ6IqYIvKmpU72lMND8r0inFHvbWof02V3
 
