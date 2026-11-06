@@ -198,12 +198,14 @@ export function useApproveWorkOrder() {
       if (closeError) throw closeError;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // El detalle de /risks muestra el estado del Socio (approval_status / approved_at) (review 1028-213, R5-2).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.approved"));
     },
     onError: createMutationErrorHandler("approving work order"),
@@ -363,12 +365,14 @@ export function useRevertSocioApproval() {
       if (reopenError) throw reopenError;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // La reversión borra la firma del Socio, que el detalle de /risks muestra (review 1028-213, R5-2).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.approvalReverted"));
     },
     onError: createMutationErrorHandler("reverting socio approval"),
@@ -514,12 +518,14 @@ export function useRejectWorkOrder() {
       if (error) throw error;
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_data, { woId }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["work_order"] });
+      // El rechazo del Socio cambia approval_status, que el detalle de /risks muestra (review 1028-213, R5-2).
+      invalidateRiskViews(queryClient, woId);
       toast.success(i18n.t("workOrders.rejected"));
     },
     onError: createMutationErrorHandler("rejecting work order"),

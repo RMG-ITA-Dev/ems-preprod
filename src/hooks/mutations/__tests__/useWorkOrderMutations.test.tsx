@@ -375,7 +375,7 @@ describe("useWorkOrderMutations", () => {
       beforeEach(() => {
         // Cadena de PostgREST que sirve para update().eq()[.eq()].select().single() y se puede esperar.
         const chain: any = {};
-        for (const m of ["update", "eq", "select", "single", "not", "is"]) {
+        for (const m of ["update", "eq", "select", "single", "not", "is", "in"]) {
           chain[m] = vi.fn().mockReturnValue(chain);
         }
         chain.then = (resolve: (v: unknown) => unknown) =>
@@ -398,6 +398,26 @@ describe("useWorkOrderMutations", () => {
         expect(keys).toContainEqual(["risk_work_orders"]);
         expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
         // Y conserva las invalidaciones que ya tenía.
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      });
+
+      // Review 1028-213, R5-2: el detalle de /risks muestra el estado del Socio (approval_status / approved_at),
+      // así que aprobar, rechazar o revertir esa pista también invalida las consultas de Riesgos.
+      it.each([
+        ["useApproveWorkOrder", useApproveWorkOrder, { woId: "wo-9", staffId: "staff-1" }],
+        ["useRejectWorkOrder", useRejectWorkOrder, { woId: "wo-9", notes: "faltan anexos" }],
+        ["useRevertSocioApproval", useRevertSocioApproval, { woId: "wo-9" }],
+      ] as const)("%s (pista del Socio) invalida la lista y el detalle de /risks", async (_name, useHook, vars) => {
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
+
+        result.current.mutate(vars);
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
         for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
           expect(keys).toContainEqual(k);
         }
