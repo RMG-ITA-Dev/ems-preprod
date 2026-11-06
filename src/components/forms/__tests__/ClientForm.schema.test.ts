@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildFormSchema, formSchema } from "@/components/forms/ClientForm";
+import { createInstance } from "i18next";
+import en from "@/locales/en.json";
+import es from "@/locales/es.json";
 
 // Cobranzas Fase 5 (issue #352): el cliente pasó de UN contacto opcional a DOS obligatorios
 // —el del cliente y el de cobranza (finanzas)—, así que una ficha válida ya los incluye.
@@ -30,7 +33,8 @@ describe("ClientForm — tax_id validation (BUG 0306-76)", () => {
   it("rejects NIT longer than 15 digits", () => {
     const result = formSchema.safeParse({ ...validBase, tax_id: "1234567890123456" });
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0].message).toBe("NIT cannot exceed 15 digits");
+    // 1028-211: el mensaje pasa por i18n; el `t` por defecto devuelve la clave.
+    expect(result.error?.issues[0].message).toBe("validation.taxIdMax15");
   });
   it("rejects alphabetic NIT", () => {
     const result = formSchema.safeParse({ ...validBase, tax_id: "qweeeee" });
@@ -134,5 +138,30 @@ describe("ClientForm — los mensajes de los contactos pasan por i18n", () => {
     expect(sinNombre.error?.issues[0].message).toBe("T(validation.contactCobranzaRequired)");
     const malCorreo = schema.safeParse({ ...validBase, contact_general_email: "no-es-correo" });
     expect(malCorreo.error?.issues[0].message).toBe("T(validation.emailInvalid)");
+  });
+});
+
+describe("ClientForm — máximo del NIT en español e inglés (1028-211)", () => {
+  // Con los locales reales y no con el mock que devuelve claves. Se prueba el schema y no el
+  // input: el campo tiene maxLength=15, así que tecleando no se llega a 16 dígitos.
+  const nitDe16 = { ...validBase, tax_id: "1234567890123456" };
+  const translatorFor = async (lng: "en" | "es") => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng,
+      resources: { en: { translation: en }, es: { translation: es } },
+      interpolation: { escapeValue: false },
+    });
+    return (key: string) => i18n.t(key);
+  };
+
+  it("en inglés", async () => {
+    const result = buildFormSchema(await translatorFor("en")).safeParse(nitDe16);
+    expect(result.error?.issues[0].message).toBe("NIT cannot exceed 15 digits");
+  });
+
+  it("en español", async () => {
+    const result = buildFormSchema(await translatorFor("es")).safeParse(nitDe16);
+    expect(result.error?.issues[0].message).toBe("El NIT no puede superar 15 dígitos");
   });
 });

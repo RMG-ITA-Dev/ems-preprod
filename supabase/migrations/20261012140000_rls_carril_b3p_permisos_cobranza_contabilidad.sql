@@ -34,3 +34,21 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
   ('accounting_analyst',  'work_order.read', 'department'),
   ('accounting_analyst',  'engagement.read', 'department')
 ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
+
+-- 1028-211 (decisión del operador, 2026-11-05): activación de clientes. Cualquier rol con client.create crea el
+-- cliente, pero solo Cobranzas, el Gerente de Contabilidad y admin lo activan (client.activate, que también
+-- desactiva). Sin el permiso, el alta nace inactiva (trg_clients_enforce_activation) y un cliente inactivo no
+-- admite encargos (trg_engagements_enforce_client_active). El Gerente de Contabilidad recibe además client.read
+-- para encontrar en /clients los clientes que tiene que activar; como los otros dos roles contables, lo ve
+-- recortado a su sociedad (my_society_client_ids, que para un cliente sin encargos usa la sociedad del creador).
+-- Revierte para accounting_manager la nota de arriba ("Contabilidad NO recibe client.read").
+INSERT INTO public.authorization_permissions (permission_key, module_key, action_key, label_key, display_order)
+VALUES ('client.activate', 'client', 'activate', 'authz.perm.client.activate', 40)
+ON CONFLICT (permission_key) DO NOTHING;
+
+INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
+  ('admin',               'client.activate', 'firm'),
+  ('accounting_manager',  'client.activate', 'department'),
+  ('collections_analyst', 'client.activate', 'department'),
+  ('accounting_manager',  'client.read',     'department')
+ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;

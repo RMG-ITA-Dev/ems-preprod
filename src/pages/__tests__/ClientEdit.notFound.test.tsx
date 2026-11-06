@@ -28,7 +28,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 let mockId = "no-existe";
-let mockClients: Array<{ client_id: string }> | undefined = [];
+let mockClients: Array<Record<string, unknown>> | undefined = [];
 let mockLoading = false;
 let mockError = false;
 const mockRefetch = vi.fn();
@@ -53,6 +53,10 @@ vi.mock("@/hooks/usePageLeaveLock", () => ({
 vi.mock("@/components/ui/leave-page-dialog", () => ({ LeavePageDialog: () => null }));
 vi.mock("@/components/clients/ClientEngagementsTable", () => ({
   ClientEngagementsTable: () => <div data-testid="engagements-table" />,
+}));
+// 1028-211: el botón de activación tiene sus propios tests (ClientActivationButton.test.tsx).
+vi.mock("@/components/clients/ClientActivationButton", () => ({
+  ClientActivationButton: () => null,
 }));
 
 // El doble del formulario expone lo unico que importa aca: si lo recibio o no, y en que modo
@@ -113,6 +117,31 @@ describe("ClientEdit — un id fuera de la lista no es un alta", () => {
     wrap();
     expect(screen.getByTestId("client-form")).toHaveAttribute("data-mode", "edit");
     expect(screen.queryByText("client.unavailable")).not.toBeInTheDocument();
+  });
+
+  it("1028-211: muestra quién activó el cliente y cuándo", () => {
+    mockId = "cli-1";
+    mockClients = [{
+      client_id: "cli-1",
+      is_active: true,
+      activated_at: "2026-11-06T15:00:00Z",
+      activated_by: { first_name: "Ana", last_name: "Pérez" },
+    }];
+    render(<ClientEdit />);
+    expect(screen.getByText("client.activatedBy")).toBeInTheDocument();
+    expect(screen.queryByText("client.pendingActivation")).not.toBeInTheDocument();
+  });
+
+  it("1028-211: pendiente (nunca activado) vs. inactivo (desactivado después)", () => {
+    mockId = "cli-1";
+    mockClients = [{ client_id: "cli-1", is_active: false }];
+    const { unmount } = render(<ClientEdit />);
+    expect(screen.getByText("client.pendingActivation")).toBeInTheDocument();
+    unmount();
+    mockClients = [{ client_id: "cli-1", is_active: false, deactivated_at: "2026-11-06T15:00:00Z", deactivated_by: null }];
+    render(<ClientEdit />);
+    expect(screen.getByText("status.inactive")).toBeInTheDocument();
+    expect(screen.getByText("client.deactivatedOn")).toBeInTheDocument();
   });
 
   it("un error de carga NO es un cliente inexistente: avisa y ofrece reintentar", () => {

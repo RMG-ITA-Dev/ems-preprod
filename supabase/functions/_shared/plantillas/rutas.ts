@@ -145,6 +145,11 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
     return entidad ? `/timesheet/approvals/${entidad}` : null;
   }
 
+  // 1028-211: los avisos de cliente llevan a la ficha (entity_id = client_id), como `notificationRoute`.
+  if (typeKey.startsWith("client.")) {
+    return entidad ? `/clients/${entidad}` : null;
+  }
+
   // Los eventos de cuenta nacen en `user_roles`, donde lo que hay es un user_id: el disparador
   // resuelve la ficha y la deja en el payload.
   if (typeKey.startsWith("auth.")) {

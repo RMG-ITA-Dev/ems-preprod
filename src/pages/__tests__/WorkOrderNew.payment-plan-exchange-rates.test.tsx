@@ -205,6 +205,14 @@ describe("WorkOrderNew — payment plan exchange rates (0722-156b Fase 2)", () =
   // antes de guardar, el TC quedaba en memoria y se persistia igual, aunque
   // la seccion de TC ya no se mostrara en pantalla para esa moneda.
   it("NEX2: volver a BOB antes de guardar limpia el exchange_rate/modo del plan y el TC de las cuotas, aunque hayan quedado en memoria desde que la moneda era USD", async () => {
+    // Con exchange_rate null, la columna toma su DEFAULT latest_exchange_rate() (11.89 aca).
+    mockUpsertPaymentPlanAsync.mockResolvedValueOnce({
+      plan_id: "plan-new-1",
+      wo_id: "wo-new-1",
+      exchange_rate: 11.89,
+      payment_days: 30,
+      exchange_rate_mode: "fijo",
+    });
     const { getByTestId } = renderPage();
 
     act(() => {
@@ -248,7 +256,12 @@ describe("WorkOrderNew — payment plan exchange rates (0722-156b Fase 2)", () =
     );
     const sentInstallments = mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments;
     expect(sentInstallments).toHaveLength(1);
-    expect(sentInstallments[0].invoice_exchange_rate).toBeNull();
-    expect(sentInstallments[0].payment_exchange_rate).toBeNull();
+    // Las cuotas no conservan el 6.96 que quedo en memoria de USD: llevan el TC que el plan
+    // guardo (DEFAULT de la base). Antes salian en null, y el guard de modo fijo
+    // (wo_payment_installments_guard_exchange_rate) rechazaba la cuota nueva con
+    // EXCHANGE_RATE_LOCKED porque no coincidia con el TC del plan: crear o guardar por
+    // primera vez una OT en BOB con plan de pagos fallaba y la cuota se perdia.
+    expect(sentInstallments[0].invoice_exchange_rate).toBe(11.89);
+    expect(sentInstallments[0].payment_exchange_rate).toBe(11.89);
   });
 });

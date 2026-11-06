@@ -564,6 +564,7 @@ assert_suite supabase/tests/trigger-0923-198-engagement-start-date-floor.sql 'ST
 # 1028-213: modulo /risks (funciones de Riesgos) y alcance de la OT (solo socio y gerente del encargo).
 assert_suite supabase/tests/rpc-1028-213-risks.sql 'RISKS RPC 1028-213: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-1028-213-work-order-scope.sql 'WO SCOPE 1028-213: ALL CHECKS PASSED'
+assert_suite supabase/tests/rls-1028-211-client-activation.sql 'CLIENT ACTIVATION 1028-211: ALL CHECKS PASSED'
 
 # ETL fase 1 (T03/T04/T08): modelo de clientes, carga inicial vs guardado operativo, privilegios y
 # comportamiento de seed_initial_holidays, directorio de clientes y B6. Va al final: verifica los

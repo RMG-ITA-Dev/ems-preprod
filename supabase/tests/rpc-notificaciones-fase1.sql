@@ -243,8 +243,9 @@ BEGIN
   -- + 3 de Cobranzas Fase 3 (issue #352): confirmation_pending, billing_late y rescheduled.
   -- + 1 de la Fase 4: note_added.
   -- + 2 de la Fase 7: expense_row_created y expense_row_amount_changed.
-  IF v_types <> 95 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 95 (¿corriste el parser?)', v_types;
+  -- + 2 de 1028-211: client.pending_activation y client.activated.
+  IF v_types <> 97 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 97 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
@@ -263,9 +264,11 @@ BEGIN
   -- + 12 de la Fase 7: los 3 gerentes y los 3 socios, por cada uno de los 2 tipos.
   -- + 22 de hr_manager como Gerente de encargos (2026-10-27): avisos 'assigned' de encargo,
   --   fondos, envíos de horas y Socio en OT; sin Riesgos, cuotas/cobranza ni clientes.
+  -- + 14 de 1028-211: client.pending_activation (admin + los 2 de alcance por sociedad) y client.activated
+  --   (los mismos 3 + los 8 roles que crean clientes, con alcance own).
   -- - 2 de 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval.
-  IF v_grants <> 624 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 624', v_grants;
+  IF v_grants <> 638 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 638', v_grants;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
                   WHERE role_key = 'hr_manager' AND type_key = 'fund.request.submitted_for_approval'
@@ -279,7 +282,7 @@ BEGIN
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 624 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 97 tipos, 638 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -3338,6 +3341,12 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el creador no recibio el alta de su propio cliente (hubo %)', v_n;
   END IF;
   RAISE NOTICE 'PASS - el alta llega al Senior Partner y al creador, aun sin encargos';
+
+  -- 1028-211: el alta de un gerente nace pendiente de activacion. Se activa sin sesion (como lo haria
+  -- Cobranzas/Contabilidad) para que la inactivacion de 14.d sea un cambio real.
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.clients SET is_active = true WHERE client_id = v_cli;
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
 
   -- 14.b Edicion sin encargos: nadie esta asignado todavia, asi que no hay a quien avisar.
   DELETE FROM public.notifications;

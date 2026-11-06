@@ -94,10 +94,16 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — las 7 filas de lectura (alcance department) existen';
 
-  -- 2. Sin permisos de más: contabilidad no recibe client.read; nadie gana escritura ───────────────
+  -- 2. Sin permisos de más: el Analista de Contabilidad no recibe client.read; nadie gana escritura ────
+  -- 1028-211: el Gerente de Contabilidad SÍ tiene client.read (department), para encontrar en /clients los
+  -- clientes que activa (client.activate). El Analista de Contabilidad sigue sin él.
   IF EXISTS (SELECT 1 FROM public.authorization_role_permissions
-              WHERE role_key IN ('accounting_manager', 'accounting_analyst') AND permission_key = 'client.read') THEN
-    RAISE EXCEPTION 'B3p PERMISOS FAIL — contabilidad no debe tener client.read (solo nombre, vía directorio de B4)';
+              WHERE role_key = 'accounting_analyst' AND permission_key = 'client.read') THEN
+    RAISE EXCEPTION 'B3p PERMISOS FAIL — el Analista de Contabilidad no debe tener client.read (solo nombre, vía directorio de B4)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions
+                  WHERE role_key = 'accounting_manager' AND permission_key = 'client.read' AND scope_key = 'department') THEN
+    RAISE EXCEPTION 'B3p PERMISOS FAIL — el Gerente de Contabilidad debe tener client.read department (1028-211)';
   END IF;
   SELECT string_agg(role_key || ':' || permission_key, ', ') INTO v_bad
     FROM public.authorization_role_permissions
@@ -108,7 +114,7 @@ BEGIN
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'B3p PERMISOS FAIL — estos roles no debían ganar escritura: %', v_bad;
   END IF;
-  RAISE NOTICE 'PASS — contabilidad sin client.read; los tres roles sin permisos de crear, editar ni enviar';
+  RAISE NOTICE 'PASS — client.read solo para Cobranzas y el Gerente de Contabilidad; los tres roles sin permisos de crear, editar ni enviar';
 
   -- 3. Efecto real de la política work_orders firm read ───────────────────────────────────────────
   IF pg_temp.wo_seen(u1) <> 1 OR pg_temp.wo_seen(u2) <> 1 OR pg_temp.wo_seen(u3) <> 1 THEN

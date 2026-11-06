@@ -706,8 +706,9 @@ BEGIN
     END IF;
     SELECT string_agg(column_name, ',' ORDER BY ordinal_position) INTO v_cols
       FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
-    IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
-      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory debe exponer solo client_id, client_legal_name e is_active y expone: %', v_cols;
+    -- 1028-211 suma homonym_seq (número entre homónimos): no es NIT, contacto ni industria.
+    IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active,homonym_seq' THEN
+      RAISE EXCEPTION 'CONVERGENCE FAIL — clients_directory debe exponer solo client_id, client_legal_name, is_active y homonym_seq y expone: %', v_cols;
     END IF;
     SELECT coalesce(reloptions::text, '') INTO v_opts FROM pg_class WHERE oid = 'public.clients_directory'::regclass;
     IF v_opts ~ 'security_invoker=(true|on)' THEN

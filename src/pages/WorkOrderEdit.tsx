@@ -639,7 +639,15 @@ const WorkOrderEdit = () => {
         payment_days: paymentPlan?.payment_days ?? 30,
         exchange_rate_mode: mode,
       });
-      const syncedInstallments = applyExchangeRateMode(mode, exchangeRate, paymentInstallments);
+      // El TC de las cuotas sale del plan YA GUARDADO, no del que se mandó: si se mandó null
+      // (OT en BOB, que nunca captura TC), la columna toma su DEFAULT latest_exchange_rate()
+      // y, en modo fijo, el guard exige que la cuota nueva traiga ese mismo TC. Con el null
+      // local, el primer guardado de una OT en BOB sin plan rebotaba con EXCHANGE_RATE_LOCKED.
+      const syncedInstallments = applyExchangeRateMode(
+        mode,
+        exchangeRate ?? savedPlan.exchange_rate,
+        paymentInstallments,
+      );
       await batchUpsertInstallments.mutateAsync({
         planId: savedPlan.plan_id,
         woId: workOrder.wo_id,

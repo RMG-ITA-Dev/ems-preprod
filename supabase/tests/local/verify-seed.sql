@@ -205,7 +205,8 @@ BEGIN
   -- 20261009120000_rls_carril_b.sql (timesheet.self_approve, que is_auto_approved_category()
   -- consultaba sin que existiera en el catálogo) + 2 de 20261009120000_rls_carril_b.sql (1028-213:
   -- work_order.risk.read y work_order.risk.emergency_sign, módulo /risks).
-  IF n <> 88 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 88, encontrado %', n; END IF;
+  -- + 1 de 20261012140000_rls_carril_b3p_permisos_cobranza_contabilidad.sql (1028-211: client.activate).
+  IF n <> 89 THEN RAISE EXCEPTION 'FAIL — authorization_permissions: esperado 89, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_role_permissions;
   -- 737 del seed histórico (20260724010000_authz_fase2_seed.sql) + 16 de
   -- 20260826221706_0817-180_grant_hr_engagement_work_order.sql (13 hr_manager + 3 hr_analyst:
@@ -234,8 +235,10 @@ BEGIN
   -- (Carril B / B3p, decisión del operador: lectura con alcance department de work_order, engagement
   -- y client para collections_analyst, y de work_order y engagement para accounting_manager y
   -- accounting_analyst; contabilidad sin client.read).
-  IF n <> 777 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 777, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 88 permisos / 777 concesiones';
+  -- + 4 de la misma B3p por 1028-211: client.activate para admin, accounting_manager y collections_analyst, y
+  -- client.read para accounting_manager.
+  IF n <> 781 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 781, encontrado %', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 89 permisos / 781 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

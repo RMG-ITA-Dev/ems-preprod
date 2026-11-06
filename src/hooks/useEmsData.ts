@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { orderHomonymsBySeq } from "@/lib/clientLabels";
 import { logger } from "@/lib/logger";
 import {
   aggregateRequirements,
@@ -126,6 +127,11 @@ export interface Client {
 // Full client interface for admin use only (includes tax ID)
 export interface ClientFull extends Client {
   tax_id: string;
+  // 1028-211: última activación/desactivación (las llena el trigger con la sesión) y el nombre de quién.
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  activated_by?: { first_name: string; last_name: string } | null;
+  deactivated_by?: { first_name: string; last_name: string } | null;
 }
 
 // B3c (RLS de clients): el cliente que viaja embebido en encargos, OT y aprobaciones sale de la vista
@@ -140,6 +146,9 @@ export interface ClientDirectoryEntry {
   client_id: string;
   client_legal_name: string;
   is_active: boolean;
+  // 1028-211: número del cliente entre los de igual razón social, por fecha de alta y sobre toda la
+  // firma (lo calcula la vista). NULL si el nombre es único.
+  homonym_seq: number | null;
 }
 
 export interface Engagement {
@@ -785,10 +794,12 @@ export function useClientDirectory() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('clients_directory')
-        .select('client_id, client_legal_name, is_active')
+        .select('client_id, client_legal_name, is_active, homonym_seq')
         .order('client_legal_name');
       if (error) throw error;
-      return data as ClientDirectoryEntry[];
+      // `as unknown as`: types.ts no conoce homonym_seq (1028-211) hasta regenerarlo contra el proyecto.
+      // Entre nombres iguales el orden de la base es arbitrario: #1 antes que #2.
+      return orderHomonymsBySeq(data as unknown as ClientDirectoryEntry[], (entry) => entry.homonym_seq);
     },
   });
 }
@@ -804,11 +815,14 @@ export function useClientsFull() {
         .from('clients')
         .select(`
           *,
-          industry:industries(*)
+          industry:industries(*),
+          activated_by:staff!clients_activated_by_staff_id_fkey(first_name, last_name),
+          deactivated_by:staff!clients_deactivated_by_staff_id_fkey(first_name, last_name)
         `)
         .order('client_legal_name');
       if (error) throw error;
-      return data as ClientFull[];
+      // `as unknown as`: types.ts no conoce las columnas de activación (1028-211) hasta regenerarlo.
+      return data as unknown as ClientFull[];
     },
   });
 }
