@@ -17,6 +17,7 @@ import {
   useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
+  useUpdateWorkOrder,
 } from "../useWorkOrderMutations";
 
 function createWrapper() {
@@ -259,174 +260,194 @@ describe("useWorkOrderMutations", () => {
     });
   });
 
-  describe("useApproveRisk (Riesgos track)", () => {
-    function makeRiskMock(singleData: unknown) {
-      const mockSingle = vi.fn().mockResolvedValue({ data: singleData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockNot = vi.fn().mockResolvedValue({ error: null });
-      const mockEq = vi.fn().mockReturnValue({ select: mockSelect, not: mockNot });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
-      return { mockUpdate, mockNot };
-    }
-
-    it("normal approval sets risk_status=Approved and closes when Socio track is done", async () => {
-      const { mockUpdate, mockNot } = makeRiskMock({ wo_id: "wo-1" });
-
-      const { result } = renderHook(() => useApproveRisk(), {
-        wrapper: createWrapper(),
+  // 1028-213 (D-37): la escritura de Riesgos va por funciones del servidor. El cliente solo manda
+  // el id de la OT (y las notas del rechazo): el actor sale de get_my_staff_id() en el servidor,
+  // la precondición ("la primera gana") y las columnas escritas las decide la función.
+  describe("Riesgos por RPC (1028-213)", () => {
+    function renderWithSpy<T>(hook: () => T) {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       });
-
-      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-      expect(mockUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          risk_status: "Approved",
-          risk_approved_by: "admin-1",
-        })
+      const spy = vi.spyOn(queryClient, "invalidateQueries");
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       );
-      // Conditional close gated on the Socio track (approved_at IS NOT NULL).
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Approved" });
-      expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
+      return { ...renderHook(hook, { wrapper }), spy };
+    }
+    const keysOf = (spy: ReturnType<typeof vi.spyOn>) =>
+      spy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey);
+
+    beforeEach(() => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
     });
 
-    it("does NOT write any emergency_* fields (those belong to the two-step hooks)", async () => {
-      const { mockUpdate } = makeRiskMock({ wo_id: "wo-1" });
+    it.each([
+      ["useApproveRisk", useApproveRisk, "approve_wo_risk", {}],
+      ["useApproveEmergencyReview", useApproveEmergencyReview, "approve_wo_emergency_review", {}],
+      ["useApproveEmergencyPartner", useApproveEmergencyPartner, "approve_wo_emergency_partner", {}],
+      [
+        "useRejectRisk",
+        useRejectRisk,
+        "reject_wo_risk",
+        { p_risk_notes: "Falta documentación" },
+      ],
+    ] as const)(
+      "%s llama a la RPC %s solo con el id de la OT, sin staffId ni UPDATE directo",
+      async (_name, useHook, rpcName, extraArgs) => {
+        const { result } = renderWithSpy(() => (useHook as () => any)());
 
-      const { result } = renderHook(() => useApproveRisk(), {
-        wrapper: createWrapper(),
-      });
+        result.current.mutate({ woId: "wo-1", riskNotes: "Falta documentación" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
+        const expectedArgs =
+          rpcName === "reject_wo_risk" ? { p_wo_id: "wo-1", ...extraArgs } : { p_wo_id: "wo-1" };
+        expect(supabase.rpc).toHaveBeenCalledTimes(1);
+        expect(supabase.rpc).toHaveBeenCalledWith(rpcName, expectedArgs);
+        // Ya no hay UPDATE directo a work_orders ni se manda el actor.
+        expect(supabase.from).not.toHaveBeenCalled();
+        const sent = vi.mocked(supabase.rpc).mock.calls[0][1] as Record<string, unknown>;
+        expect("staffId" in sent).toBe(false);
+        expect("p_staff_id" in sent).toBe(false);
+        expect(toast.success).toHaveBeenCalled();
+      }
+    );
+
+    it("useRejectRisk manda p_risk_notes = null cuando no hay notas", async () => {
+      const { result } = renderWithSpy(() => useRejectRisk());
+
+      result.current.mutate({ woId: "wo-1" });
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-      const riskWrite = mockUpdate.mock.calls.map((c) => c[0]).find((a) => a.risk_status);
-      expect("emergency_deadline_at" in riskWrite).toBe(false);
-      expect("emergency_justification" in riskWrite).toBe(false);
-    });
-  });
-
-  describe("useApproveEmergencyReview (emergency step 1: Riesgo)", () => {
-    it("records the first sign-off only — no deadline, no close; guard prevents double-click overwrite", async () => {
-      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
-      const mockEq = vi.fn().mockReturnValue({ is: mockIs });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
-
-      const { result } = renderHook(() => useApproveEmergencyReview(), {
-        wrapper: createWrapper(),
+      expect(supabase.rpc).toHaveBeenCalledWith("reject_wo_risk", {
+        p_wo_id: "wo-1",
+        p_risk_notes: null,
       });
-
-      result.current.mutate({ woId: "wo-1", staffId: "admin-1" });
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-      const arg = mockUpdate.mock.calls[0][0];
-      expect(arg.emergency_review_by).toBe("admin-1");
-      expect(arg.emergency_review_at).toBeTruthy();
-      expect("risk_status" in arg).toBe(false);
-      expect("emergency_deadline_at" in arg).toBe(false);
-      // Guard: only writes when emergency_review_at is null (first click wins).
-      expect(mockIs).toHaveBeenCalledWith("emergency_review_at", null);
-      // Only one UPDATE — no conditional close.
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("useApproveEmergencyPartner (emergency step 2: Socio de Riesgos)", () => {
-    it("sets Emergency_Approved + deadline (+7d) and closes when Socio track is done", async () => {
-      const mockSingle = vi.fn().mockResolvedValue({ data: { wo_id: "wo-1" }, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
-      // First .not() → guard on emergency_review_at → { is: mockIs }
-      // Second .not() → conditional close on approved_at → resolves to { error: null }
-      const mockNot = vi.fn()
-        .mockReturnValueOnce({ is: mockIs })
-        .mockResolvedValue({ error: null });
-      const mockEq = vi.fn().mockReturnValue({ not: mockNot });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
-
-      const { result } = renderHook(() => useApproveEmergencyPartner(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate({ woId: "wo-1", staffId: "admin-2" });
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-      // Sequential guard filters applied before writing Emergency_Approved.
-      expect(mockNot).toHaveBeenCalledWith("emergency_review_at", "is", null);
-      expect(mockIs).toHaveBeenCalledWith("emergency_partner_at", null);
-      const riskWrite = mockUpdate.mock.calls
-        .map((c) => c[0])
-        .find((arg) => arg.risk_status === "Emergency_Approved");
-      expect(riskWrite).toBeTruthy();
-      expect(riskWrite.emergency_partner_by).toBe("admin-2");
-      const d = new Date();
-      d.setDate(d.getDate() + 7);
-      const expectedDeadline = [
-        d.getFullYear(),
-        String(d.getMonth() + 1).padStart(2, "0"),
-        String(d.getDate()).padStart(2, "0"),
-      ].join("-");
-      expect(riskWrite.emergency_deadline_at).toBe(expectedDeadline);
-      // Conditional close gated on the Socio track.
-      expect(mockUpdate).toHaveBeenCalledWith({ approval_status: "Approved" });
-      expect(mockNot).toHaveBeenCalledWith("approved_at", "is", null);
     });
 
-    it("does NOT write Emergency_Approved and fails when step 1 was not completed (sequential guard)", async () => {
-      const pgrst116 = { code: "PGRST116", message: "No rows matched the guard filters" };
-      const mockSingle = vi.fn().mockResolvedValue({ data: null, error: pgrst116 });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockIs = vi.fn().mockReturnValue({ select: mockSelect });
-      const mockNot = vi.fn().mockReturnValue({ is: mockIs });
-      const mockEq = vi.fn().mockReturnValue({ not: mockNot });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+    it.each([
+      ["useApproveRisk", useApproveRisk],
+      ["useApproveEmergencyReview", useApproveEmergencyReview],
+      ["useApproveEmergencyPartner", useApproveEmergencyPartner],
+      ["useRejectRisk", useRejectRisk],
+    ] as const)(
+      "%s invalida la lista y el detalle de /risks además de las invalidaciones de la OT",
+      async (_name, useHook) => {
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
 
-      const { result } = renderHook(() => useApproveEmergencyPartner(), {
-        wrapper: createWrapper(),
+        result.current.mutate({ woId: "wo-9" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      }
+    );
+
+    it.each([
+      ["useApproveRisk", useApproveRisk],
+      ["useApproveEmergencyReview", useApproveEmergencyReview],
+      ["useApproveEmergencyPartner", useApproveEmergencyPartner],
+      ["useRejectRisk", useRejectRisk],
+    ] as const)(
+      "%s: un error del servidor termina en error y pasa por el manejador de errores",
+      async (_name, useHook) => {
+        vi.mocked(supabase.rpc).mockResolvedValue({
+          data: null,
+          error: { message: "FORBIDDEN", code: "P0001" },
+        } as any);
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
+
+        result.current.mutate({ woId: "wo-1" });
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(toast.error).toHaveBeenCalled();
+        // Sin éxito no se invalida la lista de /risks.
+        expect(keysOf(spy)).not.toContainEqual(["risk_work_orders"]);
+      }
+    );
+
+    // Review 1028-213, R1-4: las acciones que NO son RPC de Riesgos pero cambian lo que /risks lee
+    // (envío, reenvío de Riesgos, retiro a Draft, reversión de la aprobación) también invalidan.
+    describe("otras acciones sobre la OT invalidan /risks (R1-4)", () => {
+      beforeEach(() => {
+        // Cadena de PostgREST que sirve para update().eq()[.eq()].select().single() y se puede esperar.
+        const chain: any = {};
+        for (const m of ["update", "eq", "select", "single", "not", "is", "in"]) {
+          chain[m] = vi.fn().mockReturnValue(chain);
+        }
+        chain.then = (resolve: (v: unknown) => unknown) =>
+          resolve({ data: { wo_id: "wo-9" }, error: null });
+        vi.mocked(supabase.from).mockReturnValue(chain as any);
       });
 
-      result.current.mutate({ woId: "wo-1", staffId: "admin-2" });
-      await waitFor(() => expect(result.current.isError).toBe(true));
+      it.each([
+        ["useSubmitWorkOrder", useSubmitWorkOrder],
+        ["useCompleteRiskAssessment", useCompleteRiskAssessment],
+        ["useUnsubmitWorkOrder", useUnsubmitWorkOrder],
+        ["useRevertRiskApproval", useRevertRiskApproval],
+      ] as const)("%s invalida la lista y el detalle de /risks", async (_name, useHook) => {
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
 
-      // Guard prevented the write: only 1 UPDATE issued (no conditional close).
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-    });
-  });
+        result.current.mutate({ woId: "wo-9" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-  describe("useRejectRisk", () => {
-    it("rechaza la pista de Riesgos y limpia todas las columnas de emergencia para reiniciar el flujo", async () => {
-      const mockData = { wo_id: "wo-1", risk_status: "Rejected" };
-      const mockSingle = vi.fn().mockResolvedValue({ data: mockData, error: null });
-      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
-      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
-      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
-      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
-
-      const { result } = renderHook(() => useRejectRisk(), {
-        wrapper: createWrapper(),
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        // Y conserva las invalidaciones que ya tenía.
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
       });
 
-      result.current.mutate({ woId: "wo-1", riskNotes: "Falta documentación" });
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      // Review 1028-213, R5-2: el detalle de /risks muestra el estado del Socio (approval_status / approved_at),
+      // así que aprobar, rechazar o revertir esa pista también invalida las consultas de Riesgos.
+      it.each([
+        ["useApproveWorkOrder", useApproveWorkOrder, { woId: "wo-9", staffId: "staff-1" }],
+        ["useRejectWorkOrder", useRejectWorkOrder, { woId: "wo-9", notes: "faltan anexos" }],
+        ["useRevertSocioApproval", useRevertSocioApproval, { woId: "wo-9" }],
+      ] as const)("%s (pista del Socio) invalida la lista y el detalle de /risks", async (_name, useHook, vars) => {
+        const { result, spy } = renderWithSpy(() => (useHook as () => any)());
 
-      const arg = mockUpdate.mock.calls[0][0];
-      expect(arg.risk_status).toBe("Rejected");
-      expect(arg.risk_notes).toBe("Falta documentación");
-      // Limpia marcas de emergencia para que un reenvío reinicie el flujo desde paso 1.
-      expect(arg.emergency_review_by).toBeNull();
-      expect(arg.emergency_review_at).toBeNull();
-      expect(arg.emergency_partner_by).toBeNull();
-      expect(arg.emergency_partner_at).toBeNull();
-      expect(arg.emergency_deadline_at).toBeNull();
-      expect(arg.emergency_justification).toBeNull();
-      // Tracks independientes: no toca el Socio.
-      expect("approval_status" in arg).toBe(false);
+        result.current.mutate(vars);
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      });
+
+      // Review 1028-213, R9-1: el reenvío de la pista del Socio tras un rechazo (Rejected -> Pending_Approval) usa el
+      // hook genérico de actualización; el detalle de /risks muestra ese estado, así que también invalida.
+      it("useUpdateWorkOrder (reenvío del Socio) invalida la lista y el detalle de /risks", async () => {
+        const { result, spy } = renderWithSpy(() => useUpdateWorkOrder());
+
+        result.current.mutate({ id: "wo-9", data: { approval_status: "Pending_Approval" } });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      });
+
+      it("reenviar solo Riesgos tras un rechazo hace que /risks vuelva a pedir la lista (caso del review)", async () => {
+        const { result, spy } = renderWithSpy(() => useCompleteRiskAssessment());
+
+        result.current.mutate({ woId: "wo-9" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(keysOf(spy).filter((k) => k[0] === "risk_work_orders")).toHaveLength(1);
+      });
     });
   });
 
@@ -749,8 +770,8 @@ describe("useWorkOrderMutations", () => {
     it.each([
       ["useSubmitWorkOrder", useSubmitWorkOrder, { woId: "wo-1" }],
       ["useApproveWorkOrder", useApproveWorkOrder, { woId: "wo-1", staffId: "staff-1" }],
-      ["useApproveRisk", useApproveRisk, { woId: "wo-1", staffId: "staff-1" }],
-      ["useApproveEmergencyPartner", useApproveEmergencyPartner, { woId: "wo-1", staffId: "staff-1" }],
+      ["useApproveRisk", useApproveRisk, { woId: "wo-1" }],
+      ["useApproveEmergencyPartner", useApproveEmergencyPartner, { woId: "wo-1" }],
       ["useRejectRisk", useRejectRisk, { woId: "wo-1" }],
       ["useRevertSocioApproval", useRevertSocioApproval, { woId: "wo-1" }],
       ["useRevertRiskApproval", useRevertRiskApproval, { woId: "wo-1" }],
@@ -761,6 +782,8 @@ describe("useWorkOrderMutations", () => {
       "%s invalida la matriz y conserva las invalidaciones de la OT",
       async (_name, useHook, vars) => {
         mockFromSequence([OK]);
+        // Los hooks de Riesgos (1028-213) van por RPC, no por supabase.from().
+        vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
         const { result, spy } = renderWithSpy(() => (useHook as () => any)());
 
         result.current.mutate(vars);

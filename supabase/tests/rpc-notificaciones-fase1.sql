@@ -266,8 +266,9 @@ BEGIN
   --   fondos, envíos de horas y Socio en OT; sin Riesgos, cuotas/cobranza ni clientes.
   -- + 14 de 1028-211: client.pending_activation (admin + los 2 de alcance por sociedad) y client.activated
   --   (los mismos 3 + los 8 roles que crean clientes, con alcance own).
-  IF v_grants <> 640 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 640', v_grants;
+  -- - 2 de 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval.
+  IF v_grants <> 638 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 638', v_grants;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
                   WHERE role_key = 'hr_manager' AND type_key = 'fund.request.submitted_for_approval'
@@ -281,7 +282,7 @@ BEGIN
   IF v_roles <> 23 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 95 tipos, 626 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 97 tipos, 638 concesiones, 23 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -293,6 +294,103 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL — % concesiones apuntan a un role_key inexistente', v_orphan;
   END IF;
   RAISE NOTICE 'PASS — ninguna concesión huérfana de rol';
+END $$;
+
+-- ── Grupo 0b — 1028-213: el SQR sale de los avisos de OT; los de Riesgos llevan a /risks ────────
+-- D-22: el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval, pero conserva los avisos de
+-- encargo (engagement.sqr_assigned, que ya cubre el grupo 10.b) y el informativo de envío de horas. D-17 / AC-32: los
+-- tres avisos de Riesgos de la OT marcan payload.ruta = 'risks' para los roles con work_order.risk.read.
+DO $$
+DECLARE
+  v_ids uuid[];
+  v_id  uuid;
+  v_p   jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.notification_role_types
+              WHERE role_key = 'sqr'
+                AND type_key IN ('wo.submitted_partner', 'wo.payment_plan.pending_approval')) THEN
+    RAISE EXCEPTION 'TEST FAIL — el rol sqr conserva wo.submitted_partner o wo.payment_plan.pending_approval';
+  END IF;
+  -- Contraparte: el socio y el director siguen recibiéndolos (la fila no se borró por error de más).
+  IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
+                  WHERE role_key = 'partner' AND type_key = 'wo.submitted_partner' AND scope_key = 'assigned')
+     OR NOT EXISTS (SELECT 1 FROM public.notification_role_types
+                     WHERE role_key = 'director' AND type_key = 'wo.payment_plan.pending_approval' AND scope_key = 'assigned') THEN
+    RAISE EXCEPTION 'TEST FAIL — partner/director perdieron wo.submitted_partner o wo.payment_plan.pending_approval';
+  END IF;
+  RAISE NOTICE 'PASS — el SQR ya no tiene wo.submitted_partner ni wo.payment_plan.pending_approval; partner y director los conservan';
+
+  -- notif_engagement_partners devuelve solo al socio, aunque el encargo tenga SQR; el informativo de envío de horas
+  -- (notif_timesheet_period_leads) sí conserva al SQR. Se escribe con triggers apagados: es un cambio de fixture que no
+  -- debe emitir avisos de cambio de responsables ni de horas, y se revierte al final del bloque.
+  EXECUTE 'SET LOCAL session_replication_role = replica';
+  UPDATE public.engagements SET sqr_id = '59f00000-0000-4000-8000-000000000003'
+   WHERE engagement_id = 'e9f00000-0000-4000-8000-000000000002';
+  INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, period_id, is_forecast)
+  VALUES ('59f00000-0000-4000-8000-000000000001', 'e9f00000-0000-4000-8000-000000000002',
+          '79f00000-0000-4000-8000-000000000001', (date_trunc('week', CURRENT_DATE)::date - 14), 8,
+          '79f00000-0000-4000-8000-0000000000f1', false);
+
+  SELECT array_agg(staff_id ORDER BY staff_id) INTO v_ids
+    FROM public.notif_engagement_partners('e9f00000-0000-4000-8000-000000000002');
+  IF v_ids IS DISTINCT FROM ARRAY['59f00000-0000-4000-8000-000000000004']::uuid[] THEN
+    RAISE EXCEPTION 'TEST FAIL — notif_engagement_partners debía devolver solo al socio (…04), devolvió %', v_ids;
+  END IF;
+  SELECT array_agg(staff_id ORDER BY staff_id) INTO v_ids
+    FROM public.notif_timesheet_period_leads('79f00000-0000-4000-8000-0000000000f1')
+   WHERE staff_id IN ('59f00000-0000-4000-8000-000000000002', '59f00000-0000-4000-8000-000000000003',
+                      '59f00000-0000-4000-8000-000000000004');
+  IF v_ids IS DISTINCT FROM ARRAY['59f00000-0000-4000-8000-000000000002', '59f00000-0000-4000-8000-000000000003',
+                                  '59f00000-0000-4000-8000-000000000004']::uuid[] THEN
+    RAISE EXCEPTION 'TEST FAIL — notif_timesheet_period_leads debía incluir gerente (…02), SQR (…03) y socio (…04), devolvió %', v_ids;
+  END IF;
+
+  DELETE FROM public.time_entries
+   WHERE period_id = '79f00000-0000-4000-8000-0000000000f1' AND engagement_id = 'e9f00000-0000-4000-8000-000000000002';
+  UPDATE public.engagements SET sqr_id = NULL WHERE engagement_id = 'e9f00000-0000-4000-8000-000000000002';
+  EXECUTE 'SET LOCAL session_replication_role = origin';
+  RAISE NOTICE 'PASS — notif_engagement_partners es solo el socio; notif_timesheet_period_leads conserva al SQR';
+
+  -- Los avisos de Riesgos marcan la ruta /risks para quien tiene work_order.risk.read (risk_supervisor y risk_partner) y no
+  -- marcan sin_ruta aunque risk_supervisor ya no tenga work_order.read. Otro tipo de OT no recibe la marca.
+  v_id := public.notify_staff('wo.submitted_risk', '59f00000-0000-4000-8000-000000000005',
+                              'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
+  SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;
+  IF v_p IS NULL OR v_p->>'ruta' IS DISTINCT FROM 'risks' OR v_p ? 'sin_ruta' THEN
+    RAISE EXCEPTION 'TEST FAIL — wo.submitted_risk al risk_supervisor debía llevar ruta=risks y no sin_ruta (payload %)', v_p;
+  END IF;
+  DELETE FROM public.notification_emails WHERE notification_id = v_id;
+  DELETE FROM public.notifications WHERE notification_id = v_id;
+
+  v_id := public.notify_staff('wo.submitted_risk', '59f00000-0000-4000-8000-000000000008',
+                              'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
+  SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;
+  IF v_p IS NULL OR v_p->>'ruta' IS DISTINCT FROM 'risks' OR v_p ? 'sin_ruta' THEN
+    RAISE EXCEPTION 'TEST FAIL — wo.submitted_risk al risk_partner debía llevar ruta=risks y no sin_ruta (payload %)', v_p;
+  END IF;
+  DELETE FROM public.notification_emails WHERE notification_id = v_id;
+  DELETE FROM public.notifications WHERE notification_id = v_id;
+
+  -- Review R3-1: el aviso del paso 1 de emergencia lo recibe el risk_partner, que debe firmar el paso 2 en /risks; sin la marca
+  -- su enlace caeria en /work-orders/:id, donde ya solo lee las OT en las que es socio.
+  v_id := public.notify_staff('wo.emergency.step1_done', '59f00000-0000-4000-8000-000000000008',
+                              'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
+  SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;
+  IF v_p IS NULL OR v_p->>'ruta' IS DISTINCT FROM 'risks' OR v_p ? 'sin_ruta' THEN
+    RAISE EXCEPTION 'TEST FAIL — wo.emergency.step1_done al risk_partner debía llevar ruta=risks y no sin_ruta (payload %)', v_p;
+  END IF;
+  DELETE FROM public.notification_emails WHERE notification_id = v_id;
+  DELETE FROM public.notifications WHERE notification_id = v_id;
+
+  v_id := public.notify_staff('wo.approved_partner', '59f00000-0000-4000-8000-000000000002',
+                              'e9f00000-0000-4000-8000-000000000002', '{}'::jsonb);
+  SELECT payload INTO v_p FROM public.notifications WHERE notification_id = v_id;
+  IF v_p IS NULL OR v_p ? 'ruta' THEN
+    RAISE EXCEPTION 'TEST FAIL — un aviso de OT que no es de Riesgos no debía llevar payload.ruta (payload %)', v_p;
+  END IF;
+  DELETE FROM public.notification_emails WHERE notification_id = v_id;
+  DELETE FROM public.notifications WHERE notification_id = v_id;
+  RAISE NOTICE 'PASS — wo.submitted_risk lleva payload.ruta=risks (risk_supervisor y risk_partner, sin sin_ruta); el resto de OT, no';
 END $$;
 
 -- ── Grupo 1 — notify_staff(): el portón ─────────────────────────────────────

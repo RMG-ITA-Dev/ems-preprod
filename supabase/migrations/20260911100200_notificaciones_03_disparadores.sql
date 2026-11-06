@@ -420,18 +420,15 @@ CREATE FUNCTION public.notif_engagement_partners(p_engagement_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
-  -- sqr_id incluido a propósito (D-19): la función SQR la ocupan Socio, Senior Partner,
-  -- Senior o Director, y para ellos "asignados" significa justamente "el encargo donde soy
-  -- el SQR". Quien la ocupe con un rol que la matriz no contempla lo filtra notify_staff().
-  SELECT s FROM (
-    SELECT e.partner_id AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-    UNION
-    SELECT e.sqr_id     FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-  ) q WHERE s IS NOT NULL
+  -- 1028-213 (D-22, A10): el SQR ya no recibe avisos de OT; el conjunto devuelve solo al socio.
+  -- Antes incluía sqr_id (D-19). El SQR conserva los avisos de encargo (engagement.sqr_assigned) y los
+  -- de horas (notif_timesheet_period_leads agrega sqr_id por su cuenta).
+  SELECT e.partner_id AS s FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id AND e.partner_id IS NOT NULL
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_engagement_partners(uuid) IS
-  'Alcance `assigned` de la banda alta de un encargo: partner_id + sqr_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+  'Alcance `assigned` de la banda alta de un encargo: solo partner_id (1028-213: el SQR ya no recibe avisos de OT). Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
 DROP FUNCTION IF EXISTS public.notif_engagement_managers(uuid);
 
@@ -1776,6 +1773,9 @@ CREATE FUNCTION public.notif_timesheet_period_leads(p_period_id uuid)
     ) g
     CROSS JOIN LATERAL (
       SELECT staff_id FROM public.notif_engagement_partners(g.engagement_id)
+      UNION
+      -- 1028-213: notif_engagement_partners ya no incluye al SQR; el aviso de envío de la boleta sí lo conserva.
+      SELECT e.sqr_id FROM public.engagements e WHERE e.engagement_id = g.engagement_id
       UNION
       SELECT staff_id FROM public.notif_engagement_managers(g.engagement_id)
     ) r

@@ -91,6 +91,7 @@
     "administrativeEngagements": "Encargos Administrativos",
     "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
+    "risks": "Riesgos",
     "timeSheet": "Hoja de Tiempo",
     "myAssignments": "Mis Asignaciones",
     "timesheetApprovals": "Aprobaciones",
@@ -448,7 +449,45 @@
       "specialist_tax": "Especialista Tax"
     }
   },
+  "risks": {
+    "title": "Riesgos",
+    "subtitle": "Evaluaciones de riesgo de las órdenes de trabajo",
+    "searchPlaceholder": "Buscar por encargo o cliente...",
+    "statusFilter": "Estado",
+    "filter": {
+      "emergency": "Emergencia",
+      "pending": "Pendiente de aprobación",
+      "rejected": "Rechazado",
+      "approved": "Aprobado por Riesgos",
+      "finalized": "Finalizado",
+      "all": "Todas"
+    },
+    "columns": {
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "san": "SAN (ID/fecha)",
+      "ceac": "CEAC (ID/fecha)",
+      "level": "Nivel de riesgo",
+      "status": "Estado"
+    },
+    "emergency": "Emergencia",
+    "dueOn": "vence {{date}}",
+    "partnerLabel": "Socio",
+    "managerLabel": "Gerente",
+    "loadError": "No se pudieron cargar las evaluaciones de riesgo. Intente de nuevo.",
+    "retry": "Reintentar",
+    "backToList": "Volver a Riesgos",
+    "detailNotFound": "No se encontró la evaluación de riesgos de esta orden de trabajo o no está disponible."
+  },
   "authz": {
+    "perm": {
+      "work_order": {
+        "risk": {
+          "read": "Ver el módulo de Riesgos",
+          "emergency_sign": "Firmar la emergencia como Socio de Riesgos"
+        }
+      }
+    },
     "role": {
       "admin": "Administrador",
       "it_security_manager": "Gerente Nacional de Seguridad TI",
@@ -1849,10 +1888,6 @@
     "tabsNotVisited": "Debe revisar todas las pestañas del formulario antes de enviar la OT a aprobación.",
     "ceacNumber": "Nro CEAC",
     "sanApprovalId": "ID Aprobación SAN",
-    "ceacNumberPlaceholder": "0000000000",
-    "sanApprovalIdPlaceholder": "0000000000 o 00000-00000",
-    "ceacNumberInvalid": "Debe tener exactamente 10 dígitos",
-    "sanApprovalIdInvalid": "Debe tener 10 dígitos o el formato 00000-00000",
     "riskLevel": "Nivel de Riesgo",
     "riskLevelNone": "Ninguno",
     "riskLevelBajo": "Bajo",
@@ -1881,6 +1916,7 @@
     "approvalReverted": "Aprobación revertida",
     "partnerActionsLabel": "Socio",
     "riskActionsLabel": "Riesgos",
+    "emergencyAwaitingPartner": "Falta la aprobación de Riesgos: la firma del Socio de Riesgos (paso 2) de la emergencia está pendiente. Aun así, puede rechazar el riesgo aunque no corresponda la emergencia.",
     "submitEmergencyTitle": "Enviar sin datos de Riesgo",
     "submitEmergencyMessage": "Está enviando sin datos de Riesgo, estos datos son necesarios y si no tiene estos datos se enviará por aprobación de emergencia. En este caso, asegúrese de tener la aprobación correspondiente.",
     "submitEmergencyJustificationLabel": "Motivo / Referencia de la solicitud a Riesgos",
@@ -1903,7 +1939,6 @@
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
     "riskSavedOnSubmit": "Los datos de Riesgo se guardarán al enviar para aprobación",
-    "riskOnlyAdministrative": "Esta OT es de un encargo administrativo: no tiene evaluación de riesgos.",
     "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
     "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
     "selectedCurrency": "Moneda",

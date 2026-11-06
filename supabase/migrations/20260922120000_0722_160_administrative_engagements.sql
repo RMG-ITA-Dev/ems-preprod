@@ -195,6 +195,467 @@ BEGIN
 END;
 $$;
 
+-- =====================================================================================
+-- 1028-213: modulo /risks. Lectura y escritura de la pista de Riesgos por funciones SECURITY DEFINER
+-- (decisiones D-18, D-35, D-37, D-38; plan_v2 §3).
+--
+-- Por que funciones y no politicas: Riesgos (risk_partner, risk_supervisor, admin) ve y resuelve la pista de Riesgos
+-- de TODAS las OT, pero no debe leer presupuesto, plan de pagos, gastos ni horas, ni escribir otras columnas. Una
+-- politica de lectura/UPDATE sobre work_orders es todo-o-nada por fila; estas funciones devuelven y tocan solo columnas
+-- de Riesgos. Tampoco llevan filtro de sociedad (D-18): la politica restrictiva de sociedad solo alcanza a Contabilidad y
+-- Cobranzas, que no reciben work_order.risk.read.
+--
+-- Reglas comunes:
+--   * SECURITY DEFINER + search_path fijo; sin sesion (auth.uid() nulo) -> FORBIDDEN. anon sin EXECUTE.
+--   * El actor sale de get_my_staff_id() en el servidor; el cliente nunca manda staffId.
+--   * Escrituras: fila bloqueada (FOR UPDATE), permiso is_admin() OR can_approve_wo_risk(engagement_id), precondicion
+--     (espejo de los predicados de la pantalla; CONFLICT si falla) y una sola transaccion. wo_guard_risk_approval
+--     sigue disparando como segunda linea de defensa.
+--   * Ninguna devuelve la fila completa de work_orders.
+-- =====================================================================================
+
+CREATE OR REPLACE FUNCTION public.list_risk_work_orders()
+RETURNS TABLE (
+  wo_id uuid,
+  engagement_id uuid,
+  engagement_code character varying,
+  engagement_name character varying,
+  client_name character varying,
+  partner_name text,
+  manager_name text,
+  san_approval_id text,
+  san_completed_at date,
+  ceac_number text,
+  ceac_completed_at date,
+  risk_level text,
+  risk_status text,
+  emergency_review_at timestamptz,
+  emergency_partner_at timestamptz,
+  emergency_deadline_at date,
+  has_emergency_justification boolean,
+  engagement_state_override smallint
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.read')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT wo.wo_id,
+         e.engagement_id,
+         e.engagement_code,
+         e.engagement_name,
+         c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
+         wo.san_approval_id,
+         wo.san_completed_at,
+         wo.ceac_number,
+         wo.ceac_completed_at,
+         wo.risk_level,
+         wo.risk_status,
+         wo.emergency_review_at,
+         wo.emergency_partner_at,
+         wo.emergency_deadline_at,
+         (COALESCE(btrim(wo.emergency_justification), '') <> ''),
+         e.engagement_state_override
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
+   WHERE wo.approval_status <> 'Draft'                                         -- D-10: sin borradores
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)                        -- sin encargos administrativos
+     AND e.engagement_state_override IS DISTINCT FROM 6                        -- H-5: sin encargos cancelados
+   ORDER BY e.engagement_code, wo.wo_id;                                       -- D-39
+END;
+$$;
+
+COMMENT ON FUNCTION public.list_risk_work_orders() IS
+  '1028-213: lista de /risks. Solo columnas de Riesgos (sin montos ni horas); todas las OT no borrador de encargos de cliente no cancelados, de cualquier sociedad (D-18), ordenadas por codigo de encargo. Guarda: admin o work_order.risk.read.';
+
+CREATE OR REPLACE FUNCTION public.get_risk_work_order(p_wo_id uuid)
+RETURNS TABLE (
+  wo_id uuid,
+  engagement_id uuid,
+  engagement_code character varying,
+  engagement_name character varying,
+  client_name character varying,
+  partner_name text,
+  manager_name text,
+  san_approval_id text,
+  san_completed_at date,
+  ceac_number text,
+  ceac_completed_at date,
+  risk_level text,
+  risk_status text,
+  emergency_review_at timestamptz,
+  emergency_partner_at timestamptz,
+  emergency_deadline_at date,
+  has_emergency_justification boolean,
+  engagement_state_override smallint,
+  approval_status character varying,
+  approved_at timestamptz,
+  risk_notes text,
+  emergency_justification text,
+  risk_approved_at timestamptz,
+  risk_approved_by uuid,
+  emergency_review_by uuid,
+  emergency_partner_by uuid
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+#variable_conflict use_column
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.read')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT wo.wo_id,
+         e.engagement_id,
+         e.engagement_code,
+         e.engagement_name,
+         c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
+         wo.san_approval_id,
+         wo.san_completed_at,
+         wo.ceac_number,
+         wo.ceac_completed_at,
+         wo.risk_level,
+         wo.risk_status,
+         wo.emergency_review_at,
+         wo.emergency_partner_at,
+         wo.emergency_deadline_at,
+         (COALESCE(btrim(wo.emergency_justification), '') <> ''),
+         e.engagement_state_override,
+         wo.approval_status,
+         wo.approved_at,
+         wo.risk_notes,
+         wo.emergency_justification,
+         wo.risk_approved_at,
+         wo.risk_approved_by,
+         wo.emergency_review_by,
+         wo.emergency_partner_by
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
+   WHERE wo.wo_id = p_wo_id
+     AND wo.approval_status <> 'Draft'
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION public.get_risk_work_order(uuid) IS
+  '1028-213: detalle de /risks/:woId. La fila de la lista mas aprobacion del socio, notas de rechazo, motivo de emergencia y actores de la pista de Riesgos; sin montos, presupuesto, plan de pagos ni horas. NOT_FOUND si la OT no existe, es borrador, administrativa o de un encargo cancelado.';
+
+-- ---- Escrituras -------------------------------------------------------------------------------------------------
+-- Espejo de los predicados de la pantalla (WorkOrderForm: riskApprovalReady, riskAllEmpty, showRiskActions,
+-- showNormalRiskApprove, showEmergencyReview, showEmergencyPartner), ahora tambien del lado del servidor.
+
+CREATE OR REPLACE FUNCTION public.approve_wo_risk(p_wo_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  -- Antes de mirar la fila: quien no puede aprobar Riesgos en ningun encargo no distingue entre "no existe" y "no puedo".
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.ceac_completed_at, wo.ceac_number,
+         wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion: enviada (no Draft), pista de Riesgos pendiente de revision (no Approved/Rejected/Emergency_Approved:
+  -- una emergencia firmada se regulariza cuando el gerente completa los datos y la pista vuelve a Pending) y los 5
+  -- campos de riesgo completos.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NULL
+     OR COALESCE(btrim(v_wo.ceac_number), '') = ''
+     OR v_wo.san_completed_at IS NULL
+     OR COALESCE(btrim(v_wo.san_approval_id), '') = ''
+     OR v_wo.risk_level IS NULL OR v_wo.risk_level NOT IN ('Bajo', 'Moderado', 'Alto') THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  UPDATE public.work_orders
+     SET risk_approved_by = v_staff,
+         risk_approved_at = now(),
+         risk_status      = 'Approved'
+   WHERE wo_id = p_wo_id;
+
+  -- Cierre atomico: la OT pasa a Approved solo si la pista del socio ya esta firmada.
+  UPDATE public.work_orders
+     SET approval_status = 'Approved'
+   WHERE wo_id = p_wo_id
+     AND approved_at IS NOT NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.approve_wo_risk(uuid) IS
+  '1028-213: aprobacion normal de Riesgos (tambien regulariza una emergencia ya completada). Escribe solo risk_approved_by/at, risk_status y, si el socio ya firmo, approval_status. Guarda: admin o can_approve_wo_risk; fila bloqueada; CONFLICT si no cumple la precondicion.';
+
+CREATE OR REPLACE FUNCTION public.reject_wo_risk(p_wo_id uuid, p_risk_notes text DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_wo record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion: enviada y la pista de Riesgos sin resolver (showRiskActions).
+  IF v_wo.approval_status = 'Draft' OR COALESCE(v_wo.risk_status, 'Pending') IN ('Approved', 'Rejected') THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  -- Pistas independientes (D-15): no toca approval_status ni la aprobacion del socio. Limpia las marcas de emergencia
+  -- para que un reenvio reinicie el flujo de dos firmas desde el paso 1 (igual que useRejectRisk).
+  UPDATE public.work_orders
+     SET risk_status             = 'Rejected',
+         risk_notes              = p_risk_notes,
+         emergency_review_by     = NULL,
+         emergency_review_at     = NULL,
+         emergency_partner_by    = NULL,
+         emergency_partner_at    = NULL,
+         emergency_deadline_at   = NULL,
+         emergency_justification = NULL
+   WHERE wo_id = p_wo_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.reject_wo_risk(uuid, text) IS
+  '1028-213: rechazo de Riesgos. Escribe risk_status = Rejected, risk_notes y limpia las columnas emergency_*; no toca approval_status ni approved_* (D-15). Guarda: admin o can_approve_wo_risk; fila bloqueada.';
+
+CREATE OR REPLACE FUNCTION public.approve_wo_emergency_review(p_wo_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.emergency_review_at,
+         wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion (showEmergencyReview): enviada, pista pendiente, los 5 campos vacios (emergencia) y paso 1 sin firmar.
+  -- "El primero gana": un segundo clic encuentra emergency_review_at ya escrito y recibe CONFLICT.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NOT NULL
+     OR COALESCE(v_wo.ceac_number, '') <> ''
+     OR v_wo.san_completed_at IS NOT NULL
+     OR COALESCE(v_wo.san_approval_id, '') <> ''
+     OR COALESCE(v_wo.risk_level, '') <> ''
+     OR v_wo.emergency_review_at IS NOT NULL THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  UPDATE public.work_orders
+     SET emergency_review_by = v_staff,
+         emergency_review_at = now()
+   WHERE wo_id = p_wo_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.approve_wo_emergency_review(uuid) IS
+  '1028-213: paso 1 de la emergencia (revision de Riesgos). Escribe solo emergency_review_by/at; no inicia la fecha limite ni cierra la OT. El primero gana (CONFLICT si ya esta firmado).';
+
+CREATE OR REPLACE FUNCTION public.approve_wo_emergency_partner(p_wo_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  -- D-38 / H-6: el paso 2 (firma del Socio de Riesgos) lo hacen risk_partner y admin, no risk_supervisor.
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.emergency_sign')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.emergency_review_at, wo.emergency_partner_at,
+         wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion (showEmergencyPartner): enviada, pista pendiente, 5 campos vacios, paso 1 firmado y paso 2 sin firmar.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NOT NULL
+     OR COALESCE(v_wo.ceac_number, '') <> ''
+     OR v_wo.san_completed_at IS NOT NULL
+     OR COALESCE(v_wo.san_approval_id, '') <> ''
+     OR COALESCE(v_wo.risk_level, '') <> ''
+     OR v_wo.emergency_review_at IS NULL
+     OR v_wo.emergency_partner_at IS NOT NULL THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  -- Fecha limite: +7 dias calendario sobre la fecha de Bolivia (la columna es date; now() en UTC adelantaria el dia).
+  UPDATE public.work_orders
+     SET emergency_partner_by  = v_staff,
+         emergency_partner_at  = now(),
+         risk_status           = 'Emergency_Approved',
+         emergency_deadline_at = (now() AT TIME ZONE 'America/La_Paz')::date + 7
+   WHERE wo_id = p_wo_id;
+
+  -- Cierre atomico: la OT pasa a Approved solo si la pista del socio ya esta firmada.
+  UPDATE public.work_orders
+     SET approval_status = 'Approved'
+   WHERE wo_id = p_wo_id
+     AND approved_at IS NOT NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.approve_wo_emergency_partner(uuid) IS
+  '1028-213: paso 2 de la emergencia (firma del Socio de Riesgos; risk_partner y admin, permiso work_order.risk.emergency_sign). Escribe emergency_partner_by/at, risk_status = Emergency_Approved, emergency_deadline_at (fecha de La Paz + 7) y, si el socio ya firmo, approval_status. El primero gana.';
+
+REVOKE ALL ON FUNCTION public.list_risk_work_orders() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.get_risk_work_order(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.approve_wo_risk(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.reject_wo_risk(uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.approve_wo_emergency_review(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.approve_wo_emergency_partner(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_risk_work_orders() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_risk_work_order(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.approve_wo_risk(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.reject_wo_risk(uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.approve_wo_emergency_review(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.approve_wo_emergency_partner(uuid) TO authenticated, service_role;
+
 -- Review fix (Codex): notify_work_order_events() (20260911100200) decide la entrada a la cola
 -- de Riesgos con `risk_status = 'Pending' AND v_submitted`. Para una OT administrativa esa
 -- combinacion se cumple SIEMPRE -- enforce_administrative_work_order_rules() (BEFORE) fuerza

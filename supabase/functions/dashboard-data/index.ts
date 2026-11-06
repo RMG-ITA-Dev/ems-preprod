@@ -428,7 +428,7 @@ async function getTimeValue(
       return { entries: [], summary: { totalHours: 0, totalValue: 0, entryCount: 0 } };
     }
     query = query.or(
-      `engagements.manager_id.eq.${staffId},engagements.partner_id.eq.${staffId},engagements.sqr_id.eq.${staffId},engagements.encargado_id.eq.${staffId}`
+      `engagements.manager_id.eq.${staffId},engagements.partner_id.eq.${staffId},engagements.encargado_id.eq.${staffId}`
     );
   }
 
@@ -513,7 +513,7 @@ async function getEngagementKpis(
     if (!staffId) {
       return { engagements: [], summary: { activeCount: 0, totalAgreedFees: 0, totalActualHours: 0, totalBudgetHours: 0, totalMargin: 0, avgRealization: 0 } };
     }
-    query = query.or(`manager_id.eq.${staffId},partner_id.eq.${staffId},sqr_id.eq.${staffId},encargado_id.eq.${staffId}`);
+    query = query.or(`manager_id.eq.${staffId},partner_id.eq.${staffId},encargado_id.eq.${staffId}`);
   }
 
   const { data: engagements, error } = await query;

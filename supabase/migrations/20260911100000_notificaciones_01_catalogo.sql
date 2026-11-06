@@ -425,14 +425,28 @@ BEGIN
   --
   -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
   -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
-  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
-  IF v_permiso IS NOT NULL
-     AND NOT EXISTS (
+  --
+  -- 1028-213 (D-17, AC-32): los avisos de Riesgos de la OT (submitted_risk, risk.resubmitted, emergency.step1_done y emergency.deadline_passed) llevan a /risks/:woId para los roles que
+  -- tienen work_order.risk.read (risk_partner, risk_supervisor, admin). Se marca con payload.ruta = 'risks'
+  -- (lo lee rutas.ts) y NO se marca sin_ruta: risk_supervisor ya no tiene work_order.read, que es el
+  -- permiso del destino /work-orders. Para cualquier otro rol sigue la lógica de siempre.
+  IF p_type_key IN ('wo.submitted_risk', 'wo.risk.resubmitted', 'wo.emergency.step1_done', 'wo.emergency.deadline_passed')
+     AND EXISTS (
        SELECT 1 FROM public.authorization_role_permissions arp
         WHERE arp.role_key = v_role_key
-          AND arp.permission_key = v_permiso
+          AND arp.permission_key = 'work_order.risk.read'
      ) THEN
-    v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+    v_payload := v_payload || jsonb_build_object('ruta', 'risks');
+  ELSE
+    v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
+    IF v_permiso IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM public.authorization_role_permissions arp
+          WHERE arp.role_key = v_role_key
+            AND arp.permission_key = v_permiso
+       ) THEN
+      v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+    END IF;
   END IF;
 
   -- La campana, sólo para los tipos que viven ahí.

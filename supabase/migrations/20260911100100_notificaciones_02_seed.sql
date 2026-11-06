@@ -3,6 +3,8 @@
 -- 2026-10-27 (D-50 de docs/matriz-notificaciones.md): hr_manager recibe 22 avisos de gerente con alcance
 -- 'assigned' (encargo, fondos, envíos de horas, Socio en OT); desde 0817-180 es Gerente de encargos y no
 -- recibía, p. ej., fund.request.submitted_for_approval. Quedan fuera Riesgos, cuotas/cobranza y clientes.
+-- 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval (-2 concesiones);
+-- conserva engagement.sqr_assigned y los demás avisos de encargo.
 
 insert into public.notification_types
   (type_key, module_key, label_key, delivery, display_order, is_active, email_enabled) values
@@ -299,7 +301,6 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('senior', 'worksheet.sent_to_quality', 'assigned'),
   ('senior_partner', 'wo.submitted_partner', 'assigned'),
   ('partner', 'wo.submitted_partner', 'assigned'),
-  ('sqr', 'wo.submitted_partner', 'assigned'),
   ('director', 'wo.submitted_partner', 'assigned'),
   ('senior', 'wo.submitted_partner', 'assigned'),
   ('risk_partner', 'wo.submitted_risk', 'department'),
@@ -340,7 +341,6 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('risk_supervisor', 'wo.risk.resubmitted', 'department'),
   ('senior_partner', 'wo.payment_plan.pending_approval', 'assigned'),
   ('partner', 'wo.payment_plan.pending_approval', 'assigned'),
-  ('sqr', 'wo.payment_plan.pending_approval', 'assigned'),
   ('director', 'wo.payment_plan.pending_approval', 'assigned'),
   ('senior', 'wo.payment_plan.pending_approval', 'assigned'),
   ('collections_analyst', 'wo.payment_plan.pending_approval', 'department'),
@@ -930,7 +930,6 @@ delete from public.notification_role_types
    ('senior', 'worksheet.sent_to_quality'),
    ('senior_partner', 'wo.submitted_partner'),
    ('partner', 'wo.submitted_partner'),
-   ('sqr', 'wo.submitted_partner'),
    ('director', 'wo.submitted_partner'),
    ('senior', 'wo.submitted_partner'),
    ('risk_partner', 'wo.submitted_risk'),
@@ -971,7 +970,6 @@ delete from public.notification_role_types
    ('risk_supervisor', 'wo.risk.resubmitted'),
    ('senior_partner', 'wo.payment_plan.pending_approval'),
    ('partner', 'wo.payment_plan.pending_approval'),
-   ('sqr', 'wo.payment_plan.pending_approval'),
    ('director', 'wo.payment_plan.pending_approval'),
    ('senior', 'wo.payment_plan.pending_approval'),
    ('collections_analyst', 'wo.payment_plan.pending_approval'),

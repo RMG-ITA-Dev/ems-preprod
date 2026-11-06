@@ -374,8 +374,9 @@ BEGIN
   IF pg_temp.count_as(u2, 'work_orders') <> 1 OR pg_temp.count_as(u3, 'work_orders') <> 1 THEN
     RAISE EXCEPTION 'B3c FAIL — cada gerente debía ver la OT de su encargo';
   END IF;
-  IF pg_temp.count_as(u4, 'work_orders') <> 2 THEN
-    RAISE EXCEPTION 'B3c FAIL — el socio/SQR debía ver las 2 OT con la RLS de engagements activa';
+  -- 1028-213 (D-21): u4 es socio de E1 y SQR de E2; el SQR ya no lee la OT, así que ve solo la OT de E1 (donde es socio).
+  IF pg_temp.count_as(u4, 'work_orders') <> 1 THEN
+    RAISE EXCEPTION 'B3c FAIL — el socio de E1 (y SQR de E2) debía ver solo la OT de E1 con la RLS de engagements activa (ve %)', pg_temp.count_as(u4, 'work_orders');
   END IF;
   IF pg_temp.count_as(u8, 'work_orders') <> v_wo OR pg_temp.count_as(u7, 'work_orders') <> v_wo THEN
     RAISE EXCEPTION 'B3c FAIL — cobranza y contabilidad debían ver las % OT (work_order.read department) y ven % / %', v_wo,
@@ -414,7 +415,9 @@ BEGIN
    WHERE schemaname = 'public' AND tablename NOT IN ('clients', 'engagements')
      AND (coalesce(qual, '') || coalesce(with_check, '')) ~* '\m(clients|engagements)\M'
      AND (tablename, policyname) NOT IN (
-       ('work_orders', 'Assigned SQR can view work orders'), ('work_orders', 'Assigned SQR can update work orders'),
+       -- 1028-213 (D-21, D-37): las dos políticas "Assigned SQR ..." de work_orders ya no existen. (D-42, H-2): las dos políticas de
+       -- creación por permiso comprueban inline que quien inserta es el gerente del encargo (engagements.manager_id), como las de plan de pagos.
+       ('work_orders', 'wo_create_by_permission'), ('activity_worksheets', 'worksheet_create_by_permission'),
        ('wo_payment_plan', 'Manager can manage payment plans'), ('wo_payment_installments', 'Manager can manage payment installments'),
        ('timesheet_line_approvals', 'Approvers can view assigned line approvals'));
   IF v_cols IS NOT NULL THEN

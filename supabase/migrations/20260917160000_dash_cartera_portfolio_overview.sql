@@ -320,7 +320,7 @@ BEGIN
   -- 2026-09-20: el conjunto ya no es fijo "donde soy manager_id" -- depende del rol que mi
   -- categoría implica. engagements solo tiene columna estructural para partner/manager/sqr;
   -- cualquier otra categoría (Director, Senior, Asistente, especialistas...) o una sin
-  -- default_role_key poblado cae al ELSE: los encargos donde ocupo CUALQUIER rol estructural.
+  -- default_role_key poblado cae al ELSE: los encargos donde soy socio o gerente (1028-213, D-41: ser SQR ya no cuenta).
   -- No se cae a "toda la cartera" a propósito -- para un admin firm-wide eso compararía sus
   -- horas personales contra el presupuesto de toda la firma.
   my_role_scope_fy AS (
@@ -333,7 +333,7 @@ BEGIN
             WHEN 'partner' THEN sf.partner_id = c.staff_id
             WHEN 'manager' THEN sf.manager_id = c.staff_id
             WHEN 'sqr'     THEN sf.sqr_id = c.staff_id
-            ELSE (sf.partner_id = c.staff_id OR sf.manager_id = c.staff_id OR sf.sqr_id = c.staff_id)
+            ELSE (sf.partner_id = c.staff_id OR sf.manager_id = c.staff_id) -- 1028-213 (D-41): ya no se cuenta ser SQR
           END
   ),
 

@@ -573,6 +573,52 @@ describe("notificationRoute", () => {
     expect(notificationRoute(event("n1", "work_order"))).toBeNull();
   });
 
+  // 1028-213 (D-17, AC-32): los avisos de Riesgos llevan al detalle de /risks para quien tiene
+  // work_order.risk.read; si no, a la OT solo si puede abrirla; si no, sin enlace.
+  describe("avisos de Riesgos (1028-213)", () => {
+    // Incluye el aviso del paso 1 de emergencia: lo recibe el risk_partner, que debe firmar el paso 2 en /risks (review R3-1).
+    const RISK_TYPES = [
+      "wo.submitted_risk",
+      "wo.risk.resubmitted",
+      "wo.emergency.step1_done",
+      "wo.emergency.deadline_passed",
+    ];
+    const riskEvent = (type_key: string) => ({
+      ...event("n1", "work_order"),
+      type_key,
+      entity_id: "wo-7",
+    });
+
+    it.each(RISK_TYPES)("%s lleva a /risks/:woId para un rol de Riesgos", (type) => {
+      // risk_supervisor: tiene work_order.risk.read y YA NO work_order.read (D-24).
+      const can = (p: string) => p === "work_order.risk.read";
+      expect(notificationRoute(riskEvent(type), can)).toBe("/risks/wo-7");
+    });
+
+    it.each(RISK_TYPES)("%s cae a la OT para quien no tiene work_order.risk.read pero puede abrirla", (type) => {
+      const can = (p: string) => p === "work_order.read";
+      expect(notificationRoute(riskEvent(type), can)).toBe("/work-orders/wo-7");
+    });
+
+    it.each(RISK_TYPES)("%s no ofrece enlace a quien no puede abrir ninguna de las dos pantallas", (type) => {
+      expect(notificationRoute(riskEvent(type), () => false)).toBeNull();
+    });
+
+    it("sin `can` conserva el destino histórico: la OT", () => {
+      expect(notificationRoute(riskEvent("wo.submitted_risk"))).toBe("/work-orders/wo-7");
+    });
+
+    it("un aviso de Riesgos sin entity_id no rutea", () => {
+      const e = { ...event("n1", "work_order"), type_key: "wo.submitted_risk", entity_id: null };
+      expect(notificationRoute(e, () => true)).toBeNull();
+    });
+
+    it("el resto de avisos de OT sigue yendo a la OT aunque tenga work_order.risk.read", () => {
+      const e = { ...event("n1", "work_order"), type_key: "wo.approved_partner", entity_id: "wo-7" };
+      expect(notificationRoute(e, () => true)).toBe("/work-orders/wo-7");
+    });
+  });
+
   it("la hoja enviada a calidad lleva a su hoja (FASE 3.g)", () => {
     // /worksheets/:id existe desde antes que el modulo (App.tsx) y exige `worksheet.read`, que
     // es justo el permiso de los cinco roles que pueden ocupar la funcion SQR (D-07). Sin el

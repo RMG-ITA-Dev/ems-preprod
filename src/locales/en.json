@@ -91,6 +91,7 @@
     "administrativeEngagements": "Administrative Engagements",
     "workMatrix": "Work Matrix",
     "workOrders": "Work Orders",
+    "risks": "Risk",
     "timeSheet": "Time Sheet",
     "myAssignments": "My Assignments",
     "timesheetApprovals": "Approvals",
@@ -448,7 +449,45 @@
       "specialist_tax": "Tax Specialist"
     }
   },
+  "risks": {
+    "title": "Risk",
+    "subtitle": "Risk assessments of work orders",
+    "searchPlaceholder": "Search by engagement or client...",
+    "statusFilter": "Status",
+    "filter": {
+      "emergency": "Emergency",
+      "pending": "Pending approval",
+      "rejected": "Rejected",
+      "approved": "Approved by Risk",
+      "finalized": "Finalized",
+      "all": "All"
+    },
+    "columns": {
+      "engagement": "Engagement",
+      "client": "Client",
+      "san": "SAN (ID/date)",
+      "ceac": "CEAC (ID/date)",
+      "level": "Risk level",
+      "status": "Status"
+    },
+    "emergency": "Emergency",
+    "dueOn": "due {{date}}",
+    "partnerLabel": "Partner",
+    "managerLabel": "Manager",
+    "loadError": "We could not load the risk assessments. Please try again.",
+    "retry": "Retry",
+    "backToList": "Back to Risk",
+    "detailNotFound": "The risk assessment for this work order was not found or is not available."
+  },
   "authz": {
+    "perm": {
+      "work_order": {
+        "risk": {
+          "read": "View the Risk module",
+          "emergency_sign": "Sign the emergency as Risk Partner"
+        }
+      }
+    },
     "role": {
       "admin": "Administrator",
       "it_security_manager": "National IT Security Manager",
@@ -1849,10 +1888,6 @@
     "tabsNotVisited": "You must review all tabs of the form before submitting the Work Order for approval.",
     "ceacNumber": "CEAC Number",
     "sanApprovalId": "SAN Approval ID",
-    "ceacNumberPlaceholder": "0000000000",
-    "sanApprovalIdPlaceholder": "0000000000 or 00000-00000",
-    "ceacNumberInvalid": "Must be exactly 10 digits",
-    "sanApprovalIdInvalid": "Must be 10 digits or format 00000-00000",
     "riskLevel": "Risk Level",
     "riskLevelNone": "None",
     "riskLevelBajo": "Low",
@@ -1881,6 +1916,7 @@
     "approvalReverted": "Approval reverted",
     "partnerActionsLabel": "Partner",
     "riskActionsLabel": "Risk",
+    "emergencyAwaitingPartner": "Risk approval is still missing: the Risk Partner's signature (step 2) of the emergency is pending. You can still reject the risk even if the emergency does not apply.",
     "submitEmergencyTitle": "Submit without Risk data",
     "submitEmergencyMessage": "You are submitting without Risk data. This data is required, and if you do not have it the work order will be sent for emergency approval. In that case, make sure you have the corresponding approval.",
     "submitEmergencyJustificationLabel": "Reason / Reference of the request to Risk",
@@ -1903,7 +1939,6 @@
     "unsubmit": "Withdraw from Approval",
     "unsubmitted": "Work order returned to draft",
     "riskSavedOnSubmit": "Risk data will be saved when submitting for approval",
-    "riskOnlyAdministrative": "This work order belongs to an administrative engagement and has no risk assessment.",
     "confirmParametersTitle": "Confirm Work Order Parameters",
     "confirmParametersDescription": "Currency and Season cannot be changed after creation. Please verify these settings are correct.",
     "selectedCurrency": "Currency",

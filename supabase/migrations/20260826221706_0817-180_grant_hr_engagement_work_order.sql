@@ -45,7 +45,6 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
   ('hr_manager', 'work_order.create',                'assigned_engagements'),
   ('hr_manager', 'work_order.update',                'assigned_engagements'),
   ('hr_manager', 'work_order.payment_plan.approve',  'assigned_engagements'),
-  ('hr_manager', 'work_order.risk.approve',          'assigned_engagements'),
   ('hr_manager', 'timesheet_approval.read',          'assigned_engagements'),
   ('hr_manager', 'timesheet_approval.approve',       'assigned_engagements'),
   ('hr_manager', 'timesheet_approval.reject',        'assigned_engagements'),
