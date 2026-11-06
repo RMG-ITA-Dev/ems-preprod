@@ -3,7 +3,7 @@ import { BOB_ROUNDING, compareLegacyControls, holidayApplies, legacyExpectations
 
 const exec = (id: string, cot: string, profile: string, date: string, hours: string) => ({ legacy_execution_id: id, legacy_cot: cot, legacy_profile_id: profile, legacy_worked_at: date, legacy_hours: hours, approval_evidence_count: "1", approved_evidence_count: "1", legacy_pending_approval: "0", disposition: "migrable_aprobada" });
 const inputs = {
-  clientEngagements: [{ legacy_cot: "C1" }, { legacy_cot: "C2" }],
+  clientEngagements: [{ legacy_cot: "C1", legacy_risk_code: "1" }, { legacy_cot: "C2", legacy_risk_code: "2" }],
   administrativeEngagements: [{ legacy_cot: "A1" }],
   planHours: [{ legacy_budget_hours: "10.5" }, { legacy_budget_hours: "4" }],
   expenses: [
@@ -44,7 +44,7 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
   });
   const actualFor = (expected: ReturnType<typeof legacyExpectations>) => ({
     clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55",
-    expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]],
+    expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
     hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]],
     holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" }, _expected: expected,
@@ -56,6 +56,19 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     const result = compareLegacyControls(expected, drifted);
     expect(result.ok).toBe(false);
     expect(result.rows.filter((row) => !row.ok).map((row) => row.id).sort()).toEqual(["L6d", "L7c", "L8a"]);
+  });
+  it("L4 compara el nivel de riesgo cargado con el traducido del código legacy y falla ante una diferencia o un nulo", () => {
+    const expected = legacyExpectations(base);
+    expect([...expected.riskLevelByCot]).toEqual([["C1", "Bajo"], ["C2", "Moderado"]]);
+    const swapped = compareLegacyControls(expected, { ...actualFor(expected), riskLevelByWo: [["wo1", "Alto"], ["wo2", "Moderado"]] });
+    expect(swapped.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L4"]);
+    expect(swapped.rows.find((row) => row.id === "L4")?.actual).toContain("C1: esperado Bajo / real Alto");
+    // Como quedaron las OT de la primera carga: nivel nulo (el SQL lo devuelve como "(nulo)").
+    const nulls = compareLegacyControls(expected, { ...actualFor(expected), riskLevelByWo: [["wo1", "(nulo)"], ["wo2", "(nulo)"]] });
+    expect(nulls.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L4"]);
+    // Falta una OT con nivel.
+    const missing = compareLegacyControls(expected, { ...actualFor(expected), riskLevelByWo: [["wo1", "Bajo"]] });
+    expect(missing.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L4"]);
   });
   it("L7d falla si las horas de feriado de la fuente no quedaron cargadas", () => {
     const expected = legacyExpectations(base);

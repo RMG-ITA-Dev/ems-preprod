@@ -50,11 +50,23 @@ export function readInput(file, name) {
   return parseCsv(readFileSync(file, "utf8"), headers, name);
 }
 
+// Nivel de riesgo de la OT (enmienda F3-Q12, 06/11/2026): el legacy guarda OrdenTrabajoCliente.riesgo como entero y TI confirmó con su
+// interfaz que 1 = Bajo, 2 = Moderado y 3 = Alto (los tres valores que admite work_orders_risk_level_check). Cualquier otro valor,
+// nulo o vacío bloquea la carga: no se infiere.
+export const RISK_LEVEL_BY_LEGACY_CODE = Object.freeze({ 1: "Bajo", 2: "Moderado", 3: "Alto" });
+export function riskLevelFromLegacy(code, cot = "") {
+  const key = text(code);
+  const level = /^[123]$/.test(key) ? RISK_LEVEL_BY_LEGACY_CODE[key] : undefined;
+  if (!level) throw new Fase3InputError(`riesgo legacy no reconocido (COT ${cot || "?"}): '${key}'`);
+  return level;
+}
+
 export function validateClientEngagements(rows) {
   unique(rows, (row) => row.legacy_cot, "COT cliente");
   for (const row of rows) {
     if (text(row.legacy_cot) === CLIENT_EXCLUSION || text(row.legacy_client_id) === "65") throw new Fase3InputError(`COT/cliente excluido en alcance cliente: ${row.legacy_cot}`);
     if (!["2026", "2027"].includes(text(row.gestion)) || !["1", "2"].includes(text(row.legacy_approval_status))) throw new Fase3InputError(`encargo cliente fuera de alcance: ${row.legacy_cot}`);
+    riskLevelFromLegacy(row.legacy_risk_code, row.legacy_cot);
   }
   return rows;
 }

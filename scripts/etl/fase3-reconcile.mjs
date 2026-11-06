@@ -1,7 +1,7 @@
 // Reconciliación F3 contra el legacy (solo lectura, Fase 4 §7). Los totales esperados salen de los seis CSV con
 // aritmética entera escalada; los reales, de consultas agregadas a la base. El journal solo aporta identidades
 // (qué UUID corresponde a qué COT), nunca un valor esperado: así una carga no se valida contra su propia salida.
-import { isMigrableExecution } from "./fase3-input.mjs";
+import { isMigrableExecution, riskLevelFromLegacy } from "./fase3-input.mjs";
 import { decimalUnits, formatUnits } from "./fase3-transform.mjs";
 
 const text = (value) => String(value ?? "").trim();
@@ -19,6 +19,8 @@ export function holidayApplies({ date, officeOfStaff, holidaysByDate }) {
 
 export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n }) {
   const clientCots = inputs.clientEngagements.map((row) => text(row.legacy_cot));
+  // L4: nivel de riesgo de cada OT, traducido del código legacy (1 Bajo, 2 Moderado, 3 Alto; enmienda F3-Q12).
+  const riskLevelByCot = new Map(inputs.clientEngagements.map((row) => [text(row.legacy_cot), riskLevelFromLegacy(row.legacy_risk_code, text(row.legacy_cot))]));
   // L3: horas presupuestadas por origen de planificación.
   const planHours = sum(inputs.planHours, (row) => decimalUnits(row.legacy_budget_hours));
   // L5: gastos positivos; USD conserva el importe, BOB multiplica por el TC legacy de la fila y redondea a centavos.
@@ -42,7 +44,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   for (const row of kept) { const units = decimalUnits(row.legacy_hours); bump(hoursByCot, text(row.legacy_cot), units); const staffId = staffByLegacyProfile.get(text(row.legacy_profile_id)); if (staffId) bump(hoursByStaff, staffId, units); }
   const unmappedProfiles = [...new Set(kept.filter((row) => !staffByLegacyProfile.has(text(row.legacy_profile_id))).map((row) => text(row.legacy_profile_id)))];
   return {
-    clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
+    riskLevelByCot, clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
     expensesPositive: BigInt(positives.length), expensesZeroOmitted: BigInt(inputs.expenses.length - positives.length), expensesSourceUsd: sum(positives, (row) => decimalUnits(row.legacy_amount_usd)), expensesEmsUnits: sum(positives, emsExpenseUnits), expenseByCot,
     plans: BigInt(plansCount), installments: BigInt(billable.length), notes: BigInt(notes.length), feeByCot,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
@@ -64,6 +66,12 @@ export function compareLegacyControls(expected, actual) {
   rows.push(eq("L1a", "encargos cliente en la base (por identidad del journal)", expected.clientEngagements, actual.clientEngagements));
   rows.push(eq("L1b", "encargos administrativos en la base", expected.administrativeEngagements, actual.administrativeEngagements));
   rows.push(eq("L3", "horas presupuestadas en matrices", formatUnits(expected.planHoursUnits), units(actual.matrixHours)));
+  // L4: el nivel de riesgo de cada OT cargada es el que traduce su código legacy (por COT; nulo en la base cuenta como diferencia).
+  const riskActual = new Map((actual.riskLevelByWo ?? []).map(([wo, level]) => [actual.cotByWo[wo], level]));
+  const riskDiffs = [...expected.riskLevelByCot].filter(([cot, level]) => riskActual.get(cot) !== level).map(([cot, level]) => `${cot}: esperado ${level} / real ${riskActual.get(cot) ?? "∅"}`);
+  if (riskActual.size !== expected.riskLevelByCot.size) riskDiffs.push(`OT con nivel: esperadas ${expected.riskLevelByCot.size} / reales ${riskActual.size}`);
+  const riskCounts = (map) => [...map.values()].reduce((acc, level) => ({ ...acc, [level]: (acc[level] ?? 0) + 1 }), {});
+  rows.push({ id: "L4", label: "nivel de riesgo de la OT (1 Bajo, 2 Moderado, 3 Alto)", expected: "iguales", actual: riskDiffs.length ? riskDiffs.slice(0, 5).join(" | ") : "iguales", ok: !riskDiffs.length, note: `fuente ${JSON.stringify(riskCounts(expected.riskLevelByCot))}` });
   rows.push(eq("L5a", "gastos positivos cargados", expected.expensesPositive, actual.expensesCount));
   rows.push(eq("L5b", "importe de gastos cargado (USD + BOB convertido)", formatUnits(expected.expensesEmsUnits), units(actual.expensesAmount)));
   const expenseDiffs = mapDiff(expected.expenseByCot, toMap(actual.expenseByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));

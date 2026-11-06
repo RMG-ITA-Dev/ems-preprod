@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ADMINISTRATIVE_HEADERS, EXECUTION_HEADERS, EXPENSE_HEADERS, PAYMENT_HEADERS, PLAN_NOTE_KEYS, validateExecutions, validateExpenses, validateInputs, validatePayments, validateExecutionStarts } from "../fase3-input.mjs";
+import { ADMINISTRATIVE_HEADERS, EXECUTION_HEADERS, EXPENSE_HEADERS, PAYMENT_HEADERS, PLAN_NOTE_KEYS, riskLevelFromLegacy, validateExecutions, validateExpenses, validateInputs, validatePayments, validateExecutionStarts } from "../fase3-input.mjs";
 import { ENGAGEMENT_HEADERS, PLAN_HEADERS } from "../fase3-matrix.mjs";
 
 const row = (headers: string[], values: Record<string, string>) => Object.fromEntries(headers.map((header) => [header, values[header] ?? ""]));
-const client = (cot = "2026.11.001") => row(ENGAGEMENT_HEADERS, { legacy_cot: cot, gestion: "2026", legacy_client_id: "62", legacy_approval_status: "1" });
+const client = (cot = "2026.11.001", risk = "1") => row(ENGAGEMENT_HEADERS, { legacy_cot: cot, gestion: "2026", legacy_client_id: "62", legacy_approval_status: "1", legacy_risk_code: risk });
 const admin = () => row(ADMINISTRATIVE_HEADERS, { legacy_cot: "ADM-1", legacy_fiscal_year: "2027", legacy_active_flag: "1", selector_profile_count: "138", total_administrative_engagements: "10", legacy_internal_client_id: "62", legacy_partner_profile_id: "68", legacy_engagement_name: "Administrativo" });
 const plan = () => row(PLAN_HEADERS, { legacy_plan_hours_id: "p1", legacy_cot: "2026.11.001", legacy_budget_hours: "1", legacy_category_id: "1", legacy_specialty_id: "2" });
 
@@ -11,6 +11,17 @@ describe("ETL fase 3: contratos de entrada", () => {
   it("rechaza COT cliente excluido y duplicidades", () => {
     expect(() => validateInputs({ clientEngagements: [client("2026.11.108")], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] })).toThrow(/excluido/);
     expect(() => validateInputs({ clientEngagements: [client(), client()], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] })).toThrow(/duplicada/);
+  });
+  it("traduce el código de riesgo legacy (1 Bajo, 2 Moderado, 3 Alto, confirmado por TI el 06/11/2026) y rechaza cualquier otro", () => {
+    expect(riskLevelFromLegacy("1")).toBe("Bajo"); expect(riskLevelFromLegacy("2")).toBe("Moderado"); expect(riskLevelFromLegacy("3")).toBe("Alto");
+    expect(riskLevelFromLegacy(" 2 ")).toBe("Moderado"); // el legacy trae espacios
+    for (const bad of ["", "0", "4", "10", "12", "-1", "1.5", "Bajo", null, undefined]) expect(() => riskLevelFromLegacy(bad as any, "2026.11.001")).toThrow(/riesgo legacy no reconocido/);
+    expect(() => riskLevelFromLegacy("9", "2026.11.001")).toThrow(/2026\.11\.001/);
+  });
+  it("la validación offline de los encargos cliente falla en `validate` ante un código de riesgo no reconocido", () => {
+    const inputs = (risk: string) => ({ clientEngagements: [client("2026.11.001", risk)], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] });
+    expect(() => validateInputs(inputs("0"))).toThrow(/riesgo legacy no reconocido/);
+    expect(() => validateInputs(inputs(""))).toThrow(/riesgo legacy no reconocido/);
   });
   it("deriva las cuatro notas exclusivamente por COT/cuota", () => {
     const cot = "2026.22.003"; const payments = [row(PAYMENT_HEADERS, { legacy_plan_payment_id: "x", legacy_cot: cot, legacy_installment_number: "13", legacy_percentage: "4", legacy_invoice_date: "2026-01-01", proposed_disposition: "nota_plan_confirmada" })];

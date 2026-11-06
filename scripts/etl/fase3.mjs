@@ -7,7 +7,7 @@ import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProbl
 import { acquireLock, readJournal, sha256 } from "./fase1.mjs";
 import { STATES as F2_STATES } from "./fase2.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
-import { isMigrableExecution, isPlanNote, readInput, validateInputs } from "./fase3-input.mjs";
+import { isMigrableExecution, isPlanNote, readInput, riskLevelFromLegacy, validateInputs } from "./fase3-input.mjs";
 import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
@@ -510,7 +510,7 @@ async function loadPayments(ctx, blueprint, unit) {
 const riskHash = (risks) => sha256(stable(risks));
 async function loadRisks(ctx, inputs, unit) {
   const workOrders = unit?.workOrders; if (!Array.isArray(workOrders) || workOrders.length !== 124 || !unit.paymentsCompletedAt) throw new Fase1Error("BLOQUEADO", "riesgos requiere pagos confirmados para las 124 OTs");
-  const risks = inputs.clientEngagements.map((source) => { const workOrder = workOrders.find((row) => row.sourceKey === source.legacy_cot); if (!workOrder) throw new Fase1Error("BLOQUEADO", `riesgo sin OT: ${source.legacy_cot}`); return { sourceKey: source.legacy_cot, woId: workOrder.woId, riskNotes: `Código de riesgo legacy: ${source.legacy_risk_code}`, ceacNumber: source.legacy_ceac_number, ceacCompletedAt: source.legacy_ceac_approved_date, sanApprovalId: source.legacy_san_request_id, sanCompletedAt: source.legacy_san_approved_date, approvedAt: `${source.legacy_approved_date}T00:00:00-04:00` }; }).sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
+  const risks = inputs.clientEngagements.map((source) => { const workOrder = workOrders.find((row) => row.sourceKey === source.legacy_cot); if (!workOrder) throw new Fase1Error("BLOQUEADO", `riesgo sin OT: ${source.legacy_cot}`); return { sourceKey: source.legacy_cot, woId: workOrder.woId, riskLevel: riskLevelFromLegacy(source.legacy_risk_code, source.legacy_cot), riskNotes: `Código de riesgo legacy: ${source.legacy_risk_code}`, ceacNumber: source.legacy_ceac_number, ceacCompletedAt: source.legacy_ceac_approved_date, sanApprovalId: source.legacy_san_request_id, sanCompletedAt: source.legacy_san_approved_date, approvedAt: `${source.legacy_approved_date}T00:00:00-04:00` }; }).sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
   const hash = riskHash(risks); if (unit.riskHash && unit.riskHash !== hash) throw new Fase1Error("BLOQUEADO", "riesgos: cambió el payload respecto de la intención durable");
   if (!unit.riskHash) { unit.riskHash = hash; unit.risks = risks; unit.risksIntendedAt = new Date().toISOString(); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
   const status = new Map((await ctx.db.findRiskMatches({ risks: unit.risks })).matches.map((row) => [row.sourceKey, row]));

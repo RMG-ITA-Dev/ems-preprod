@@ -148,6 +148,9 @@ Fase 3 prepara y carga por bloques los encargos, matrices, OTs y horas aprobadas
 Producción, Dev 2.0 y Lovable siguen rechazados, sin bandera para saltarse la guarda. `ETL_F3_STATE_DIR` es
 absoluto y externo al repositorio. La consola no ejecuta migraciones. Un plan de pago BOB toma el DEFAULT
 efectivo de `wo_payment_plan.exchange_rate` (P-02), que queda registrado en R4 y no es un TC legacy.
+El nivel de riesgo de cada OT se traduce del código legacy `legacy_risk_code` (1 → Bajo, 2 → Moderado, 3 → Alto,
+confirmado por TI con la interfaz del legacy); cualquier otro valor, nulo o vacío bloquea ya en `validate`, y
+`reconcile-legacy` lo verifica por COT (control L4). El código original se conserva en `risk_notes`.
 
 ```bash
 node scripts/etl/fase3.mjs validate --config scripts/etl/fase3.local.config.json
@@ -165,7 +168,7 @@ datos automáticamente. `fase3.config.example.json` es ficticio y no contiene cr
 
 `reconcile-legacy` (solo lectura) concilia lo cargado contra los seis CSV legacy: los totales esperados se
 recalculan desde los CSV y los reales salen de consultas agregadas; el journal solo aporta qué UUID
-corresponde a cada COT. Controla conjuntos, horas presupuestadas, gastos, honorarios y cuotas por COT, horas
+corresponde a cada COT. Controla conjuntos, horas presupuestadas, nivel de riesgo, gastos, honorarios y cuotas por COT, horas
 por COT y por persona (descontados los feriados aplicables) y que no existan períodos, aprobaciones ni correos
 enviados. Escribe `fase3-<installationId>.legacy-reconciliation.json` (conteos y sumas, sin PII) y termina en
 `BLOQUEADO` ante cualquier diferencia. El `verify` de la consola solo inventaría períodos, aprobaciones y cola de
