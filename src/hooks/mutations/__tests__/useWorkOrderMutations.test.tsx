@@ -17,6 +17,7 @@ import {
   useCompleteRiskAssessment,
   useRejectWorkOrder,
   useUnsubmitWorkOrder,
+  useUpdateWorkOrder,
 } from "../useWorkOrderMutations";
 
 function createWrapper() {
@@ -413,6 +414,22 @@ describe("useWorkOrderMutations", () => {
         const { result, spy } = renderWithSpy(() => (useHook as () => any)());
 
         result.current.mutate(vars);
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        const keys = keysOf(spy);
+        expect(keys).toContainEqual(["risk_work_orders"]);
+        expect(keys).toContainEqual(["risk_work_order", "wo-9"]);
+        for (const k of [["work_orders"], ["dashboard"], ["work_order"]]) {
+          expect(keys).toContainEqual(k);
+        }
+      });
+
+      // Review 1028-213, R9-1: el reenvío de la pista del Socio tras un rechazo (Rejected -> Pending_Approval) usa el
+      // hook genérico de actualización; el detalle de /risks muestra ese estado, así que también invalida.
+      it("useUpdateWorkOrder (reenvío del Socio) invalida la lista y el detalle de /risks", async () => {
+        const { result, spy } = renderWithSpy(() => useUpdateWorkOrder());
+
+        result.current.mutate({ id: "wo-9", data: { approval_status: "Pending_Approval" } });
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         const keys = keysOf(spy);
