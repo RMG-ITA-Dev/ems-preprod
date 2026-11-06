@@ -233,6 +233,9 @@ describe("ClientForm — industry_id en el payload (1028-211)", () => {
       await save(user);
       expect(savedClient()).not.toHaveProperty("industry_id");
       expect(savedClient().address).toBe("Calle 1 2");
+      // 1028-211 (review Codex): la ficha nunca manda is_active; si no, un guardado con el formulario sucio
+      // revertía una activación hecha con el botón de la cabecera.
+      expect(savedClient()).not.toHaveProperty("is_active");
     });
 
     it("quitar la industria: manda null", async () => {

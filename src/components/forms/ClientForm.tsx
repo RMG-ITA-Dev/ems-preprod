@@ -256,7 +256,10 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       tax_id: data.tax_id,
       ...(industryChanged ? { industry_id: nextIndustryId } : {}),
       address: data.address || undefined,
-      is_active: data.is_active,
+      // 1028-211: el estado solo se elige en el alta. En la ficha lo cambia el botón Activar/Desactivar
+      // (set_client_active) y el formulario no se recarga mientras tiene cambios: si mandara is_active,
+      // un guardado posterior revertiría en silencio esa activación. Clave ausente = la RPC conserva.
+      ...(isNew ? { is_active: data.is_active } : {}),
     };
 
     // Cobranzas Fase 5: los contactos se guardan aparte, con su propia RPC, que valida el
