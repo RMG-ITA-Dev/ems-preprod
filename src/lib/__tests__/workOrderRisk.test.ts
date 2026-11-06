@@ -183,6 +183,26 @@ describe("workOrderRisk — grupos de la lista /risks (D-10…D-12, D-46)", () =
   it("otros overrides no cambian los grupos", () => {
     expect(groupsOf(row({ risk_status: "Pending", engagement_state_override: 4 }))).toEqual(["pending"]);
   });
+
+  // Review 1028-213, R7-1: risk_status es nullable y el servidor lo trata como 'Pending' (COALESCE).
+  it("un risk_status nulo se trata como Pendiente, igual que en el servidor (R7-1)", () => {
+    expect(groupsOf(row({ risk_status: null }))).toEqual(["pending"]);
+  });
+
+  it("un risk_status nulo con los 5 campos vacíos es Emergencia y Pendiente (R7-1)", () => {
+    expect(groupsOf(emergencyRow({ risk_status: null }))).toEqual(["emergency", "pending"]);
+  });
+
+  it("un risk_status nulo hace que el filtro por defecto sea Emergencia si hay una emergencia (R7-1)", () => {
+    expect(defaultRiskFilter([row({ risk_status: "Approved" }), emergencyRow({ risk_status: null })])).toBe(
+      "emergency",
+    );
+    expect(defaultRiskFilter([row({ risk_status: null })])).toBe("pending");
+  });
+
+  it("un encargo finalizado con risk_status nulo sigue siendo solo Finalizado (R7-1)", () => {
+    expect(groupsOf(row({ risk_status: null, engagement_state_override: 7 }))).toEqual(["finalized"]);
+  });
 });
 
 describe("workOrderRisk — filtro por defecto (D-11, AC-09)", () => {

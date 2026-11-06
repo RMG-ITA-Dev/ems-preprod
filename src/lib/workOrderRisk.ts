@@ -167,9 +167,18 @@ export const RISK_LIST_FILTERS: readonly RiskListFilter[] = [
   "all",
 ];
 
+/**
+ * `risk_status` es nullable en el esquema (DEFAULT 'Pending', sin NOT NULL) y las funciones del servidor lo
+ * normalizan con COALESCE(risk_status, 'Pending'): una OT sin estado espera revisión. Se normaliza igual aquí,
+ * una sola vez, para que la lista y la emergencia coincidan con el servidor (review 1028-213, R7-1).
+ */
+function normalizedRiskStatus(row: RiskWorkOrderRow): string {
+  return row.risk_status ?? "Pending";
+}
+
 export function riskRowToTrack(row: RiskWorkOrderRow): RiskTrackInput {
   return {
-    riskStatus: row.risk_status,
+    riskStatus: normalizedRiskStatus(row),
     ceacCompletedAt: row.ceac_completed_at,
     ceacNumber: row.ceac_number,
     sanCompletedAt: row.san_completed_at,
@@ -195,9 +204,10 @@ export function riskListGroups(row: RiskWorkOrderRow): Set<RiskListGroup> {
     return groups;
   }
   if (isEmergencyTrack(riskRowToTrack(row))) groups.add("emergency");
-  if (row.risk_status === "Pending") groups.add("pending");
-  if (row.risk_status === "Rejected") groups.add("rejected");
-  if (row.risk_status === "Approved") groups.add("approved");
+  const status = normalizedRiskStatus(row);
+  if (status === "Pending") groups.add("pending");
+  if (status === "Rejected") groups.add("rejected");
+  if (status === "Approved") groups.add("approved");
   return groups;
 }
 
