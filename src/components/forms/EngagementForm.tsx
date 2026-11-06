@@ -620,6 +620,16 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
 
   const selectedFuncion = form.watch("funcion");
   const selectedClientId = form.watch("client_id");
+  // 1028-211: un encargo solo se crea sobre un cliente activo (el backend lo exige:
+  // trg_engagements_enforce_client_active). El inactivo que llega por deep-link sigue visible en el
+  // selector, rotulado "(Inactivo)", para que se vea cuál es; lo que se corta es el guardado. En edición
+  // se permite seguir con el cliente del encargo aunque se haya inactivado después.
+  const selectedClientInactive = useMemo(() => {
+    if (!selectedClientId) return false;
+    if (isEdit && selectedClientId === engagement?.client_id) return false;
+    const option = clients?.find((c) => c.client_id === selectedClientId);
+    return option ? !option.is_active : false;
+  }, [clients, engagement?.client_id, isEdit, selectedClientId]);
   const selectedSocietyId = form.watch("society_id");
   const isAdministrativeFunction = selectedFuncion != null && selectedFuncion !== FUNCION_CLIENTE;
   const administrativeSocietyIdByNit = useMemo<Record<string, string | undefined>>(() => ({
@@ -1091,6 +1101,10 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   };
 
   const onSubmit = async (data: FormData) => {
+    if (selectedClientInactive) {
+      form.setError("client_id", { message: t("engagement.clientPendingActivation") });
+      return;
+    }
     // BUG #0206-19 + #0220-48: skip for internal engagements; BUG #0602-134: admin has no floor.
     // BUG 0923-198: una fecha de inicio histórica ya guardada (la fijó un admin) que sigue sin
     // cambios no bloquea el guardado del resto del encargo; el piso aplica solo a un valor nuevo.
@@ -1774,6 +1788,11 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                           ))}
                         </SelectContent>
                       </Select>
+                      {selectedClientInactive && !form.formState.errors.client_id && (
+                        <Alert variant="destructive" className="mt-2">
+                          <AlertDescription>{t("engagement.clientPendingActivation")}</AlertDescription>
+                        </Alert>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

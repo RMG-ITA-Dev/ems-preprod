@@ -158,10 +158,13 @@ BEGIN
   END LOOP;
   -- Cobranza (client.read departamento) desde el alcance por sociedad (2026-10-28): solo clientes con algún encargo de su sociedad.
   -- El corte completo se prueba en rls-accounting-society-scope.sql.
-  IF pg_temp.count_as(u8, 'clients') <> (SELECT count(DISTINCT e.client_id) FROM public.engagements e
-                                          WHERE e.society_id = (SELECT society_id FROM public.society ORDER BY name LIMIT 1)) THEN
-    RAISE EXCEPTION 'B3c FAIL — cobranza debía ver los clientes con encargos de su sociedad y ve %', pg_temp.count_as(u8, 'clients');
-  END IF;
+  -- 1028-211: el Gerente de Contabilidad (u7) también tiene client.read departamento, con el mismo corte.
+  FOREACH v_who IN ARRAY ARRAY[u7, u8] LOOP
+    IF pg_temp.count_as(v_who, 'clients') <> (SELECT count(DISTINCT e.client_id) FROM public.engagements e
+                                               WHERE e.society_id = (SELECT society_id FROM public.society ORDER BY name LIMIT 1)) THEN
+      RAISE EXCEPTION 'B3c FAIL — % debía ver los clientes con encargos de su sociedad y ve %', v_who, pg_temp.count_as(v_who, 'clients');
+    END IF;
+  END LOOP;
   -- Cada gerente, el cliente de su encargo; el socio, el de los dos (socio de E1 y SQR de E2).
   IF pg_temp.count_as(u2, 'clients') <> 1 OR pg_temp.count_as(u3, 'clients') <> 1 THEN
     RAISE EXCEPTION 'B3c FAIL — cada gerente debía ver 1 cliente (U2 %, U3 %)', pg_temp.count_as(u2, 'clients'), pg_temp.count_as(u3, 'clients');
@@ -169,13 +172,14 @@ BEGIN
   IF pg_temp.count_as(u4, 'clients') <> 2 THEN
     RAISE EXCEPTION 'B3c FAIL — el socio (socio de E1 y SQR de E2) debía ver 2 clientes y ve %', pg_temp.count_as(u4, 'clients');
   END IF;
-  -- Sin client.read: asistente, senior, contabilidad y supervisor de riesgos no ven ninguno.
-  FOREACH v_who IN ARRAY ARRAY[u5, u6, u7, u9] LOOP
+  -- Sin client.read: asistente, senior y supervisor de riesgos no ven ninguno (el Gerente de Contabilidad sí
+  -- desde 1028-211, arriba).
+  FOREACH v_who IN ARRAY ARRAY[u5, u6, u9] LOOP
     IF pg_temp.count_as(v_who, 'clients') <> 0 THEN
       RAISE EXCEPTION 'B3c FAIL — % no tiene client.read y no debía ver clientes', v_who;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — clientes: admin, cobranza y riesgos todos; gerentes y socio los de sus encargos; asistente, senior, contabilidad y supervisor de riesgos 0';
+  RAISE NOTICE 'PASS — clientes: admin y riesgos todos; cobranza y gerente de contabilidad los de su sociedad; gerentes y socio los de sus encargos; asistente, senior y supervisor de riesgos 0';
 
   -- No-vacuidad: la visibilidad sale del permiso y de la relación con el encargo.
   DELETE FROM public.authorization_role_permissions WHERE role_key = 'manager' AND permission_key = 'client.read';

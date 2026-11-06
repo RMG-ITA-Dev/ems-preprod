@@ -127,6 +127,11 @@ export interface Client {
 // Full client interface for admin use only (includes tax ID)
 export interface ClientFull extends Client {
   tax_id: string;
+  // 1028-211: última activación/desactivación (las llena el trigger con la sesión) y el nombre de quién.
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  activated_by?: { first_name: string; last_name: string } | null;
+  deactivated_by?: { first_name: string; last_name: string } | null;
 }
 
 // B3c (RLS de clients): el cliente que viaja embebido en encargos, OT y aprobaciones sale de la vista
@@ -810,11 +815,14 @@ export function useClientsFull() {
         .from('clients')
         .select(`
           *,
-          industry:industries(*)
+          industry:industries(*),
+          activated_by:staff!clients_activated_by_staff_id_fkey(first_name, last_name),
+          deactivated_by:staff!clients_deactivated_by_staff_id_fkey(first_name, last_name)
         `)
         .order('client_legal_name');
       if (error) throw error;
-      return data as ClientFull[];
+      // `as unknown as`: types.ts no conoce las columnas de activación (1028-211) hasta regenerarlo.
+      return data as unknown as ClientFull[];
     },
   });
 }

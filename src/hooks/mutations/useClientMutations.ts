@@ -92,6 +92,30 @@ export function useDeleteClient() {
   });
 }
 
+// 1028-211: activar o desactivar un cliente. Solo Cobranzas, el Gerente de Contabilidad y admin
+// (client.activate); la RPC lo vuelve a exigir y limita a Cobranzas/Contabilidad a su sociedad. No
+// pasa por client.update, que daría edición de toda la ficha.
+export function useSetClientActive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ clientId, active }: { clientId: string; active: boolean }) => {
+      const { error } = await rpcUntyped("set_client_active", {
+        p_client_id: clientId,
+        p_active: active,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      // ['clients'] cubre la lista y el directorio (['clients', 'directory']); la ficha lee
+      // ['clients_full'], que es otra clave: sin invalidarla, la ficha seguía mostrando el estado viejo.
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients_full"] });
+      toast.success(i18n.t(v.active ? "client.activatedSuccess" : "client.deactivatedSuccess"));
+    },
+    onError: createMutationErrorHandler("updating client status"),
+  });
+}
+
 // ── Cobranzas Fase 5 (issue #352): contactos del cliente ─────────────────────────────────
 // Reemplaza el juego completo de contactos. La RPC valida el mínimo —al menos un contacto
 // activo de tipo `general` y uno de tipo `cobranza` (decisión Q52)— y decide quién puede

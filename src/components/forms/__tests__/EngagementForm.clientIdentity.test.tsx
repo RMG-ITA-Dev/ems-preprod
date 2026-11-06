@@ -129,6 +129,16 @@ describe("EngagementForm — clientes homónimos (1028-211)", () => {
     expect(texts).toContain("1Fideicomiso X");
   });
 
+  it("Fase 2: un cliente inactivo por deep-link avisa que está pendiente de activación", () => {
+    render(<EngagementForm initialClientId={ID_D} />);
+    expect(screen.getByText("engagement.clientPendingActivation")).toBeInTheDocument();
+  });
+
+  it("Fase 2: un cliente activo no muestra el aviso", () => {
+    render(<EngagementForm initialClientId={ID_A} />);
+    expect(screen.queryByText("engagement.clientPendingActivation")).not.toBeInTheDocument();
+  });
+
   it("el chip lleva el título traducible con el número", async () => {
     const user = userEvent.setup();
     render(<EngagementForm />);

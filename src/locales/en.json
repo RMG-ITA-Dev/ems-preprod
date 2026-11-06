@@ -736,6 +736,24 @@
     }
   },
   "client": {
+    "activatedBy": "Activated by {{name}} on {{date}}",
+    "activatedOn": "Activated on {{date}}",
+    "deactivatedBy": "Deactivated by {{name}} on {{date}}",
+    "deactivatedOn": "Deactivated on {{date}}",
+    "readOnlyNotice": "Only an administrator can edit the client record.",
+    "readOnlyActivateHint": "You can activate it with the button above.",
+    "activate": "Activate client",
+    "deactivate": "Deactivate client",
+    "activateShort": "Activate",
+    "activatedSuccess": "Client activated",
+    "deactivatedSuccess": "Client deactivated",
+    "pendingActivation": "Pending activation",
+    "pendingActivationHint": "The client will stay pending until Collections, Accounting or an administrator activates it.",
+    "activateConfirmTitle": "Activate this client?",
+    "activateConfirmDescription": "Once active, the client can be used in new engagements.",
+    "deactivateConfirmTitle": "Deactivate this client?",
+    "deactivateConfirmDescription": "No new engagements can be created for this client. Existing engagements do not change.",
+    "newEngagementInactive": "The client is pending activation: Collections or Accounting must activate it before an engagement can be created.",
     "homonymTag": "Same-name client no. {{n}}",
     "placeholderLegalName": "Company Name S.A.",
     "placeholderContactName": "John Doe",
@@ -779,6 +797,7 @@
     "cannotDelete": "Cannot delete this client"
   },
   "engagement": {
+    "clientPendingActivation": "The selected client is pending activation or inactive. Collections or Accounting must activate it before the engagement is created.",
     "code": "Code",
     "engagementCode": "Engagement Code",
     "codePreviewHelp": "This code will be assigned automatically when you save.",
@@ -980,6 +999,9 @@
     "noStaffRecord": "No staff profile is linked to your account. Please contact an administrator."
   },
   "errors": {
+    "clientDeactivationForbidden": "Only an administrator can deactivate a client.",
+    "clientActivationForbidden": "Only Collections, Accounting or an administrator can activate or deactivate a client.",
+    "engagementClientInactive": "The client is pending activation or inactive. Collections or Accounting must activate it before the engagement is created.",
     "duplicateCheckFailed": "We couldn't check for duplicate client names (connection issue). Please try again.",
     "duplicateEmail": "A staff member with this email already exists",
     "categoryPracticeMismatch": "The selected category does not belong to the chosen practice. Please select it again.",
@@ -2557,7 +2579,9 @@
       "client": {
         "created": "New client: {{client_legal_name}}",
         "updated": "{{client_legal_name}} details were edited",
-        "deactivated": "Client deactivated: {{client_legal_name}}"
+        "deactivated": "Client deactivated: {{client_legal_name}}",
+        "pending_activation": "Client pending activation: {{client_legal_name}}",
+        "activated": "Client activated: {{client_legal_name}}"
       },
       "scheduler": {
         "coverage_gap": "Positions to cover"

@@ -25,6 +25,10 @@ const SOCIETY_ERROR_KEYS: ReadonlyArray<readonly [token: string, i18nKey: string
   ["FUND_REQUEST_ENGAGEMENT_FORBIDDEN", "errors.fundRequestEngagementForbidden"],
   ["ENGAGEMENT_SOCIETY_LOCKED", "errors.engagementSocietyLocked"],
   ["SOCIETY_SCOPE_FORBIDDEN", "errors.societyScopeForbidden"],
+  // 1028-211: tampoco son de sociedad, pero usan el mismo mecanismo de prefijo estable.
+  ["CLIENT_ACTIVATION_FORBIDDEN", "errors.clientActivationForbidden"],
+  ["CLIENT_DEACTIVATION_FORBIDDEN", "errors.clientDeactivationForbidden"],
+  ["ENGAGEMENT_CLIENT_INACTIVE", "errors.engagementClientInactive"],
 ];
 
 /** La clave de traducción del rechazo por sociedad que trae el mensaje, o null si no es uno de ellos. */

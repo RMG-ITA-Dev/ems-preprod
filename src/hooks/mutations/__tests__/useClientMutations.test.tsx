@@ -9,6 +9,7 @@ import {
   useUpdateClient,
   useDeleteClient,
   useSaveClientWithContacts,
+  useSetClientActive,
 } from "../useClientMutations";
 
 function createWrapper() {
@@ -164,6 +165,42 @@ describe("useClientMutations", () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true));
       expect(toast.error).toHaveBeenCalledWith("Error creating client", expect.anything());
+    });
+  });
+
+  // 1028-211 Fase 2: activar o desactivar pasa por la RPC set_client_active, no por client.update.
+  describe("useSetClientActive", () => {
+    it("llama a set_client_active con el cliente y el estado", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      const { result } = renderHook(() => useSetClientActive(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      });
+
+      result.current.mutate({ clientId: "c-1", active: true });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("set_client_active", { p_client_id: "c-1", p_active: true });
+      // La ficha lee ['clients_full']: tiene que refrescarse junto con la lista.
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["clients"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["clients_full"] });
+      expect(toast.success).toHaveBeenCalledWith("client.activatedSuccess");
+    });
+
+    it("un rechazo del servidor va al manejador de errores", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { code: "42501", message: "CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas..." },
+      } as any);
+      const { result } = renderHook(() => useSetClientActive(), { wrapper: createWrapper() });
+
+      result.current.mutate({ clientId: "c-1", active: true });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalled();
     });
   });
 

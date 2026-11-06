@@ -46,7 +46,7 @@ import { useDeleteClient, useSaveClientWithContacts } from "@/hooks/mutations";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Info, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useClientContacts, firstContactOfType } from "@/hooks/useClientContacts";
@@ -120,6 +120,14 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
   const isEdit = !!client;
   // Al editar, el guardado exige client.update; al crear, la ruta ya gatea client.create.
   const canSave = !isEdit || can("client.update");
+  // 1028-211: solo Cobranzas, el Gerente de Contabilidad y admin activan clientes. Sin el permiso el
+  // alta nace inactiva (el backend lo fuerza igual: trg_clients_enforce_activation) y el switch queda
+  // deshabilitado, con el aviso de que el cliente quedará pendiente.
+  const canActivate = can("client.activate");
+  // 1028-211: sin client.update (solo lo tiene admin) la ficha es de solo lectura. Antes los campos se
+  // veían editables aunque no hubiera botón Guardar; Cobranzas y el Gerente de Contabilidad la abren
+  // para activar el cliente, y eso lo hacen con el botón de la cabecera (ClientActivationButton).
+  const readOnly = isEdit && !canSave;
   const { data: industries } = useIndustries();
   // 1028-211: para asignar se ofrecen solo las industrias activas, más la que el cliente ya tiene
   // guardada aunque esté inactiva (si no, Radix no tendría <SelectItem> para el valor hidratado y
@@ -188,7 +196,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
       contact_cobranza_email: "",
       contact_cobranza_phone: "",
       address: "",
-      is_active: true,
+      is_active: canActivate,
     },
   });
 
@@ -337,6 +345,15 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
             <fieldset disabled={!loaded} className="contents">
+            {readOnly && (
+              // Recuadro propio y no <Alert>: el Alert fija el ícono a top-4 y, con el texto chico de este layout,
+              // el ícono quedaba debajo de la línea.
+              <div role="note" className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{t("client.readOnlyNotice")}{canActivate && !client?.is_active ? ` ${t("client.readOnlyActivateHint")}` : ""}</span>
+              </div>
+            )}
+            <fieldset disabled={readOnly} className="contents">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <FormField
                 control={form.control}
@@ -399,18 +416,9 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="is_active"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-2 pt-5">
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <FormLabel className="text-sm">{t("common.active")}</FormLabel>
-                  </FormItem>
-                )}
-              />
+              {/* 1028-211: en la ficha (este layout es el de edición) el estado no se edita aquí: lo muestra
+                  la etiqueta "Pendiente de activación" de la cabecera y lo cambia el botón Activar/Desactivar
+                  (ClientEdit). Un switch además duplicaba el control, y deshabilitado parecía roto. */}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -510,6 +518,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               />
             </div>
 
+            </fieldset>
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="cancel" size="sm" onClick={() => onCancel ? onCancel() : navigate("/clients")}>
                 {t("common.cancel")}
@@ -586,6 +595,13 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <fieldset disabled={!loaded} className="contents">
+            {readOnly && (
+              <div role="note" className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{t("client.readOnlyNotice")}{canActivate && !client?.is_active ? ` ${t("client.readOnlyActivateHint")}` : ""}</span>
+              </div>
+            )}
+            <fieldset disabled={readOnly} className="contents">
             <div className="space-y-4">
               <h3 className="font-medium text-lg">{t("common.basicInfo")}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -654,6 +670,8 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                   )}
                 />
 
+                {/* 1028-211: el switch solo existe en el alta; en la ficha el estado se cambia con el botón. */}
+                {!isEdit && (
                 <FormField
                   control={form.control}
                   name="is_active"
@@ -662,15 +680,16 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
                       <div className="space-y-0.5">
                         <FormLabel className="text-base">{t("common.active")}</FormLabel>
                         <FormDescription>
-                          {t("client.activeDescription")}
+                          {canActivate ? t("client.activeDescription") : t("client.pendingActivationHint")}
                         </FormDescription>
                       </div>
                       <FormControl>
-                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        <Switch checked={field.value} onCheckedChange={field.onChange} disabled={!canActivate} />
                       </FormControl>
                     </FormItem>
                   )}
                 />
+                )}
               </div>
             </div>
 
@@ -775,6 +794,7 @@ export function ClientForm({ client, compact = false, onDirtyChange, onCancel, o
               />
             </div>
 
+            </fieldset>
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 sm:gap-4 pt-4">
               <Button type="button" variant="cancel" onClick={() => onCancel ? onCancel() : navigate("/clients")} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
                 {t("common.cancel")}

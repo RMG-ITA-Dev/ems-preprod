@@ -11,6 +11,7 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { useCanSeeAllEngagements } from "@/hooks/useCanSeeAllEngagements";
 import { byNameAndTaxId, findRepeated, orderHomonymsBySeq } from "@/lib/clientLabels";
 import { ClientHomonymTag } from "@/components/clients/ClientHomonymTag";
+import { ClientActivationButton } from "@/components/clients/ClientActivationButton";
 
 const Clients = () => {
   const { t, i18n } = useTranslation();
@@ -110,12 +111,16 @@ const Clients = () => {
       filterKey: "is_active",
       mobilePriority: 'primary',
       render: (row) => (
-        <Badge
-          variant="outline"
-          className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
-        >
-          {row.is_active ? t("status.active") : t("status.inactive")}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className={row.is_active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
+          >
+            {row.is_active ? t("status.active") : t("status.inactive")}
+          </Badge>
+          {/* 1028-211: quien activa clientes lo hace desde la fila, sin abrir la ficha. */}
+          <ClientActivationButton clientId={row.client_id} isActive={!!row.is_active} variant="compact" />
+        </div>
       ),
     },
     {

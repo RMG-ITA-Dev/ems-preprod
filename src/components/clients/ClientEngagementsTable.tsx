@@ -14,6 +14,7 @@ import {
 } from "@/lib/engagementStatus";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,12 +37,14 @@ import { format } from "date-fns";
 
 interface ClientEngagementsTableProps {
   clientId: string;
+  /** 1028-211: un cliente inactivo (pendiente de activación) no admite encargos nuevos. */
+  clientActive?: boolean;
 }
 
 type SortField = "engagement_code" | "engagement_name" | "partner" | "manager" | "start_date" | "end_date" | "fecha_cierre" | "status";
 type SortDirection = "asc" | "desc" | null;
 
-export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps) {
+export function ClientEngagementsTable({ clientId, clientActive = true }: ClientEngagementsTableProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: engagements, isLoading } = usePortfolioEngagements();
@@ -238,7 +241,7 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
             ))}
           </SelectContent>
         </Select>
-        {canCreateEngagement && (
+        {canCreateEngagement && clientActive && (
           <Button
             size="sm"
             className="h-8"
@@ -247,6 +250,24 @@ export function ClientEngagementsTable({ clientId }: ClientEngagementsTableProps
             <Plus className="h-4 w-4 mr-1" />
             {t("engagement.newEngagement")}
           </Button>
+        )}
+        {/* 1028-211: el backend rechaza el encargo sobre un cliente inactivo; acá se explica antes. */}
+        {canCreateEngagement && !clientActive && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button size="sm" className="h-8" disabled>
+                    <Plus className="h-4 w-4 mr-1" />
+                    {t("engagement.newEngagement")}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{t("client.newEngagementInactive")}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
 

@@ -2233,6 +2233,12 @@ GRANT ALL ON TABLE public.client_contacts TO service_role;
 REVOKE EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.save_client_with_contacts(p_client_id uuid, p_is_new boolean, p_client jsonb, p_contacts jsonb) TO authenticated, service_role;
 
+-- 1028-211: activacion de clientes. La RPC la llama la app; las dos funciones de trigger no se llaman directo.
+REVOKE ALL ON FUNCTION public.set_client_active(p_client_id uuid, p_active boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.set_client_active(p_client_id uuid, p_active boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.enforce_client_activation() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.enforce_engagement_client_active() FROM PUBLIC, anon, authenticated;
+
 REVOKE EXECUTE ON FUNCTION public.save_client_contacts(p_client_id uuid, p_contacts jsonb) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.client_has_required_contacts(p_client_id uuid) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.get_wo_client_contacts(p_wo_id uuid) FROM PUBLIC, anon;
