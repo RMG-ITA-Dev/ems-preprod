@@ -221,11 +221,13 @@ function renderPage() {
 
 describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () => {
   const originalApprovalStatus = mockWorkOrder.approval_status;
+  const originalCurrency = mockWorkOrder.currency;
 
   beforeEach(() => {
     vi.clearAllMocks();
     capturedFormProps = {};
     mockWorkOrder.approval_status = originalApprovalStatus;
+    mockWorkOrder.currency = originalCurrency;
     authRole.roleKey = "admin";
   });
 
@@ -324,5 +326,36 @@ describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () 
     // inst-2 still Pending: both columns sync to the new Fijo plan rate.
     expect(inst2.invoice_exchange_rate).toBe(7.0);
     expect(inst2.payment_exchange_rate).toBe(7.0);
+  });
+
+  // OT en BOB sin plan todavía: la pantalla manda exchange_rate null y la columna toma su
+  // DEFAULT latest_exchange_rate(). El guard de modo fijo exige que la cuota nueva traiga
+  // ese mismo TC; con el null local, el primer guardado rebotaba con EXCHANGE_RATE_LOCKED y
+  // la cuota se perdía (el segundo guardado sí pasaba porque ya hidrataba el TC del plan).
+  it("WEX3: en modo Fijo con TC null, las cuotas salen con el TC que el plan guardó (DEFAULT de la base)", async () => {
+    mockWorkOrder.currency = "BOB";
+    renderPage();
+
+    act(() => {
+      capturedFormProps.onPaymentPlanChange({
+        wo_id: "wo-1",
+        exchange_rate: null,
+        payment_days: 30,
+        exchange_rate_mode: "fijo",
+      });
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmit();
+    });
+
+    expect(mockUpsertPaymentPlanAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: null, exchange_rate_mode: "fijo" }),
+    );
+    const sentInstallments = mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments;
+    const inst2 = sentInstallments.find((i: any) => i.installment_id === "inst-2");
+    // 6.96 = lo que devolvió el upsert del plan (mock), no el null que se mandó.
+    expect(inst2.invoice_exchange_rate).toBe(6.96);
+    expect(inst2.payment_exchange_rate).toBe(6.96);
   });
 });
