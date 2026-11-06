@@ -472,6 +472,8 @@
     },
     "emergency": "Emergency",
     "dueOn": "due {{date}}",
+    "partnerLabel": "Partner",
+    "managerLabel": "Manager",
     "loadError": "We could not load the risk assessments. Please try again.",
     "retry": "Retry",
     "backToList": "Back to Risk",
@@ -1557,6 +1559,10 @@
         "partnerHours": {
           "title": "My hours as partner"
         },
+        "sqrHours": {
+          "title": "My hours as SQR",
+          "inEngagements": "in {{count}} engagements"
+        },
         "hoursOfBudget": "{{logged}} / {{budget}} h",
         "alerts": {
           "title": "Review",
@@ -1863,8 +1869,6 @@
     "tabsNotVisited": "You must review all tabs of the form before submitting the Work Order for approval.",
     "ceacNumber": "CEAC Number",
     "sanApprovalId": "SAN Approval ID",
-    "ceacNumberPlaceholder": "",
-    "sanApprovalIdPlaceholder": "",
     "riskLevel": "Risk Level",
     "riskLevelNone": "None",
     "riskLevelBajo": "Low",
@@ -1893,6 +1897,7 @@
     "approvalReverted": "Approval reverted",
     "partnerActionsLabel": "Partner",
     "riskActionsLabel": "Risk",
+    "emergencyAwaitingPartner": "Risk approval is still missing: the Risk Partner's signature (step 2) of the emergency is pending. You can still reject the risk even if the emergency does not apply.",
     "submitEmergencyTitle": "Submit without Risk data",
     "submitEmergencyMessage": "You are submitting without Risk data. This data is required, and if you do not have it the work order will be sent for emergency approval. In that case, make sure you have the corresponding approval.",
     "submitEmergencyJustificationLabel": "Reason / Reference of the request to Risk",

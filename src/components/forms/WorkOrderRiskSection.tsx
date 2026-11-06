@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -363,7 +364,6 @@ export function WorkOrderRiskSection({
               {riskFieldsEditable ? (
                 <Input
                   type="text"
-                  placeholder={t("workOrders.sanApprovalIdPlaceholder")}
                   value={sanApprovalId || ""}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\s/g, "");
@@ -384,7 +384,6 @@ export function WorkOrderRiskSection({
               {riskFieldsEditable ? (
                 <Input
                   type="text"
-                  placeholder={t("workOrders.ceacNumberPlaceholder")}
                   value={ceacNumber || ""}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\s/g, "");
@@ -485,7 +484,15 @@ export function WorkOrderRiskSection({
       </Card>
 
       {showRiskActions && hasRiskAction && (
-        <div className="flex justify-end">
+        <div className="flex flex-col items-end gap-3">
+          {/* Emergencia con el paso 1 hecho y el paso 2 pendiente, para quien NO puede firmarlo
+              (risk_supervisor): falta la firma del Socio de Riesgos, pero puede rechazar igual. */}
+          {emergencyPartnerPending && !canSignEmergency && (
+            <Alert className="border-warning/40 bg-warning/10" data-testid="risk-emergency-awaiting-partner">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+              <AlertDescription>{t("workOrders.emergencyAwaitingPartner")}</AlertDescription>
+            </Alert>
+          )}
           <div className="relative rounded-md border p-3 pt-4">
             <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
               {t("workOrders.riskActionsLabel")}

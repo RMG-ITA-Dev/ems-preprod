@@ -28,6 +28,8 @@ function row(over: Partial<RiskWorkOrderRow> = {}): RiskWorkOrderRow {
     engagement_code: "2027.100.001",
     engagement_name: "Auditoría",
     client_name: "Cliente",
+    partner_name: "Socio",
+    manager_name: "Gerente",
     san_approval_id: "SAN-1",
     san_completed_at: "2026-04-15",
     ceac_number: "CEAC-1",

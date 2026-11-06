@@ -46,11 +46,12 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
 -- handle_new_user puede haber creado ya la fila del usuario (según el ambiente): se pisa con el rol del fixture.
 ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role, role_key = EXCLUDED.role_key;
 
-INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id)
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id, short_name)
 SELECT ('52130000-0000-4000-8000-00000000000' || n)::uuid, ('a2130000-0000-4000-8000-00000000000' || n)::uuid,
        'U' || n, 'Staff2130',
        (SELECT practica_id FROM public.practicas WHERE code = 1),
-       (SELECT society_id FROM public.society ORDER BY name LIMIT 1)
+       (SELECT society_id FROM public.society ORDER BY name LIMIT 1),
+       CASE WHEN n = '2' THEN 'rp.2130' ELSE NULL END
 FROM (VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7')) AS v(n);
 
 -- Encargos y OT con triggers apagados: el fixture fija estados de Riesgos que el flujo normal solo alcanza paso a paso.
@@ -58,13 +59,14 @@ SET LOCAL session_replication_role = replica;
 
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, practica,
                                 fecha_cierre, work_order_required, approval_required, society_id,
-                                manager_id, sqr_id, engagement_state_override)
+                                manager_id, partner_id, sqr_id, engagement_state_override)
 SELECT ('e2130000-0000-4000-8000-00000000000' || n)::uuid,
        CASE WHEN n = '2' THEN 'c2130000-0000-4000-8000-000000000002' ELSE 'c2130000-0000-4000-8000-000000000001' END::uuid,
        'Riesgos 2130 ' || n, '2130-E' || n, f, 1, '2027-12-31', true, false,
        CASE WHEN n = '2' THEN '52130000-0000-4000-8000-0000000000b0'::uuid
             ELSE (SELECT society_id FROM public.society ORDER BY name LIMIT 1) END,
        '52130000-0000-4000-8000-000000000004',
+       CASE WHEN n = '1' THEN '52130000-0000-4000-8000-000000000002'::uuid ELSE NULL END,
        CASE WHEN n = '1' THEN '52130000-0000-4000-8000-000000000005'::uuid ELSE NULL END,
        ov
 FROM (VALUES ('1', 1::smallint, NULL::smallint), ('2', 1::smallint, NULL::smallint),
@@ -212,13 +214,13 @@ BEGIN
   SELECT string_agg(a.name, ',' ORDER BY a.ord) INTO v_cols
     FROM pg_proc p, unnest(p.proargnames, p.proargmodes) WITH ORDINALITY AS a(name, mode, ord)
    WHERE p.oid = 'public.list_risk_work_orders()'::regprocedure AND a.mode = 't';
-  IF v_cols IS DISTINCT FROM 'wo_id,engagement_id,engagement_code,engagement_name,client_name,san_approval_id,san_completed_at,ceac_number,ceac_completed_at,risk_level,risk_status,emergency_review_at,emergency_partner_at,emergency_deadline_at,has_emergency_justification,engagement_state_override' THEN
+  IF v_cols IS DISTINCT FROM 'wo_id,engagement_id,engagement_code,engagement_name,client_name,partner_name,manager_name,san_approval_id,san_completed_at,ceac_number,ceac_completed_at,risk_level,risk_status,emergency_review_at,emergency_partner_at,emergency_deadline_at,has_emergency_justification,engagement_state_override' THEN
     RAISE EXCEPTION 'RISKS FAIL — L4: columnas de list_risk_work_orders inesperadas (%)', v_cols;
   END IF;
   SELECT string_agg(a.name, ',' ORDER BY a.ord) INTO v_cols
     FROM pg_proc p, unnest(p.proargnames, p.proargmodes) WITH ORDINALITY AS a(name, mode, ord)
    WHERE p.oid = 'public.get_risk_work_order(uuid)'::regprocedure AND a.mode = 't';
-  IF v_cols IS DISTINCT FROM 'wo_id,engagement_id,engagement_code,engagement_name,client_name,san_approval_id,san_completed_at,ceac_number,ceac_completed_at,risk_level,risk_status,emergency_review_at,emergency_partner_at,emergency_deadline_at,has_emergency_justification,engagement_state_override,approval_status,approved_at,risk_notes,emergency_justification,risk_approved_at,risk_approved_by,emergency_review_by,emergency_partner_by' THEN
+  IF v_cols IS DISTINCT FROM 'wo_id,engagement_id,engagement_code,engagement_name,client_name,partner_name,manager_name,san_approval_id,san_completed_at,ceac_number,ceac_completed_at,risk_level,risk_status,emergency_review_at,emergency_partner_at,emergency_deadline_at,has_emergency_justification,engagement_state_override,approval_status,approved_at,risk_notes,emergency_justification,risk_approved_at,risk_approved_by,emergency_review_by,emergency_partner_by' THEN
     RAISE EXCEPTION 'RISKS FAIL — L4: columnas de get_risk_work_order inesperadas (%)', v_cols;
   END IF;
   -- Y los valores libres de SAN/CEAC (letras, símbolos, espacios internos) llegan tal cual (D-01).
@@ -226,7 +228,28 @@ BEGIN
   IF v_row.san_approval_id IS DISTINCT FROM 'SAN-ÑÜ_1/x' OR v_row.ceac_number IS DISTINCT FROM 'CEAC #1!' THEN
     RAISE EXCEPTION 'RISKS FAIL — L4: SAN/CEAC en texto libre no llegaron intactos (% / %)', v_row.san_approval_id, v_row.ceac_number;
   END IF;
-  RAISE NOTICE 'PASS — L4: columnas exactas de lista y detalle (sin montos ni horas); SAN/CEAC de texto libre intactos';
+  -- Socio y gerente llegan como etiquetas (short_name, o nombre + apellido si no hay): E1 tiene socio con short_name y gerente sin él;
+  -- E2 no tiene socio (NULL, no cadena vacía). Son solo etiquetas: ninguna otra columna personal ni de montos/horas.
+  IF v_row.partner_name IS DISTINCT FROM 'rp.2130' OR v_row.manager_name IS DISTINCT FROM 'U4 Staff2130' THEN
+    RAISE EXCEPTION 'RISKS FAIL — L4: la lista no trae socio y gerente de E1 (% / %)', v_row.partner_name, v_row.manager_name;
+  END IF;
+  SELECT * INTO v_row FROM public.list_risk_work_orders() WHERE wo_id = pg_temp.wo(2);
+  IF v_row.partner_name IS NOT NULL OR v_row.manager_name IS DISTINCT FROM 'U4 Staff2130' THEN
+    RAISE EXCEPTION 'RISKS FAIL — L4: E2 debía venir sin socio y con gerente en la lista (% / %)', v_row.partner_name, v_row.manager_name;
+  END IF;
+  SELECT * INTO v_row FROM public.get_risk_work_order(pg_temp.wo(1));
+  IF v_row.partner_name IS DISTINCT FROM 'rp.2130' OR v_row.manager_name IS DISTINCT FROM 'U4 Staff2130' THEN
+    RAISE EXCEPTION 'RISKS FAIL — L4: el detalle no trae socio y gerente de E1 (% / %)', v_row.partner_name, v_row.manager_name;
+  END IF;
+  -- Ninguna columna de montos, presupuesto, plan de pagos u horas, en ninguna de las dos formas.
+  SELECT string_agg(a.name, ',') INTO v_cols
+    FROM pg_proc p, unnest(p.proargnames, p.proargmodes) AS a(name, mode)
+   WHERE p.oid IN ('public.list_risk_work_orders()'::regprocedure, 'public.get_risk_work_order(uuid)'::regprocedure)
+     AND a.mode = 't' AND a.name ~* '(amount|fee|budget|hours|honorari|monto|rate|currency|payment|installment)';
+  IF v_cols IS NOT NULL THEN
+    RAISE EXCEPTION 'RISKS FAIL — L4: columnas de montos u horas expuestas (%)', v_cols;
+  END IF;
+  RAISE NOTICE 'PASS — L4: columnas exactas de lista y detalle (sin montos ni horas) con socio y gerente como etiquetas; SAN/CEAC de texto libre intactos';
 
   -- ═════════════════════════════════════════════════════════════════
   -- Escritura: approve_wo_risk / reject_wo_risk

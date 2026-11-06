@@ -70,6 +70,8 @@ function wo(over: Partial<RiskWorkOrderRow> & { wo_id: string; engagement_code: 
     engagement_id: `eng-${over.wo_id}`,
     engagement_name: `Encargo ${over.engagement_code}`,
     client_name: `Cliente ${over.engagement_code}`,
+    partner_name: `Socio ${over.engagement_code}`,
+    manager_name: `Gerente ${over.engagement_code}`,
     san_approval_id: "SAN-1",
     san_completed_at: "2026-04-15",
     ceac_number: "CEAC-1",
@@ -283,6 +285,68 @@ describe("Risks — etiqueta de emergencia (D-11, AC-13)", () => {
     expect(within(row).getByText(/risks\.dueOn\(12\/11\/2026\)/)).toBeInTheDocument();
     // Y no se rotula como "Aprobado por Riesgos".
     expect(within(row).queryByText("risks.filter.approved")).not.toBeInTheDocument();
+  });
+});
+
+describe("Risks — colores del estado y chips (seguimiento de 1028-213)", () => {
+  const rowOf = (code: string) => screen.getByText(code).closest("tr") as HTMLElement;
+
+  it("cada estado lleva su color del sistema: pendiente warning, aprobado success, rechazado destructive tenue, finalizado muted", () => {
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    expect(within(rowOf("2027.100.001")).getByText("risks.filter.pending").className).toMatch(/text-warning/);
+    expect(within(rowOf("2027.100.004")).getByText("risks.filter.approved").className).toMatch(/text-success/);
+    const rejected = within(rowOf("2027.100.005")).getByText("risks.filter.rejected").className;
+    expect(rejected).toMatch(/text-destructive/);
+    expect(rejected).not.toMatch(/\bbg-destructive\b(?!\/)/);
+    expect(within(rowOf("2027.100.006")).getByText("risks.filter.finalized").className).toMatch(/text-muted-foreground/);
+  });
+
+  it("la emergencia conserva su estilo claro original (borde y letra naranja sobre fondo tenue), distinto del Rechazado", () => {
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    const emergency = within(rowOf("2027.100.002")).getByText(/risks\.emergency/);
+    const badge = emergency.closest("div.inline-flex") as HTMLElement;
+    expect(badge.className).toMatch(/border-orange-300/);
+    expect(badge.className).toMatch(/bg-orange-50/);
+    expect(badge.className).toMatch(/text-orange-800/);
+    expect(badge.className).not.toMatch(/\bbg-destructive\b(?!\/)/);
+  });
+
+  it("con dos chips (estado + Emergencia con 'vence …') el contenedor hace wrap", () => {
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    const due = within(rowOf("2027.100.003")).getByText(/risks\.dueOn/);
+    const container = due.closest("div.flex") as HTMLElement;
+    expect(container.className).toMatch(/flex-wrap/);
+    expect(container.className).toMatch(/gap-/);
+  });
+
+  it("la columna Cliente muestra los chips Socio · nombre y Gerente · nombre bajo el cliente", () => {
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    const row = rowOf("2027.100.001");
+    expect(within(row).getByText("Cliente 2027.100.001")).toBeInTheDocument();
+    expect(within(row).getByText("Socio 2027.100.001")).toBeInTheDocument();
+    expect(within(row).getByText("Gerente 2027.100.001")).toBeInTheDocument();
+    expect(within(row).getAllByText("risks.partnerLabel").length).toBeGreaterThan(0);
+    expect(within(row).getAllByText("risks.managerLabel").length).toBeGreaterThan(0);
+  });
+
+  it("no crea una columna nueva ni un chip vacío cuando el nombre es null", () => {
+    hookState = loaded([
+      wo({ wo_id: "n1", engagement_code: "2027.100.001", partner_name: null, manager_name: "Solo Gerente" }),
+      wo({ wo_id: "n2", engagement_code: "2027.100.002", partner_name: null, manager_name: null }),
+    ]);
+    render(<Risks />);
+    fireEvent.change(filterSelect(), { target: { value: "all" } });
+    expect(screen.getAllByRole("columnheader")).toHaveLength(6);
+    const first = rowOf("2027.100.001");
+    expect(within(first).queryByText("risks.partnerLabel")).not.toBeInTheDocument();
+    expect(within(first).getByText("Solo Gerente")).toBeInTheDocument();
+    const second = rowOf("2027.100.002");
+    expect(within(second).queryByText("risks.partnerLabel")).not.toBeInTheDocument();
+    expect(within(second).queryByText("risks.managerLabel")).not.toBeInTheDocument();
   });
 });
 

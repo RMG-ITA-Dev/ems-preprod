@@ -27,16 +27,37 @@ import {
 
 const dash = <span className="text-muted-foreground">—</span>;
 
-/** Clave de i18n del estado de Riesgos de una fila; Finalizado prevalece (D-12). */
-function statusKey(row: RiskWorkOrderRow): string | null {
+/**
+ * Estado de Riesgos de una fila (clave de i18n + color); Finalizado prevalece (D-12). Colores del
+ * sistema (docs/skills/component-patterns.md, Status Badges): pendiente = warning, aprobado =
+ * success, rechazado = destructive tenue, finalizado = muted.
+ */
+function statusBadge(row: RiskWorkOrderRow): { key: string; className: string } | null {
   const groups = riskListGroups(row);
-  if (groups.has("finalized")) return "risks.filter.finalized";
-  if (groups.has("pending")) return "risks.filter.pending";
-  if (groups.has("rejected")) return "risks.filter.rejected";
-  if (groups.has("approved")) return "risks.filter.approved";
+  if (groups.has("finalized")) {
+    return { key: "risks.filter.finalized", className: "bg-muted text-muted-foreground border-border" };
+  }
+  if (groups.has("pending")) {
+    return { key: "risks.filter.pending", className: "bg-warning/10 text-warning border-warning/20" };
+  }
+  if (groups.has("rejected")) {
+    return {
+      key: "risks.filter.rejected",
+      className: "bg-destructive/10 text-destructive border-destructive/20",
+    };
+  }
+  if (groups.has("approved")) {
+    return { key: "risks.filter.approved", className: "bg-success/10 text-success border-success/20" };
+  }
   // Emergency_Approved: solo la etiqueta de Emergencia (D-46, no es "Aprobado por Riesgos").
   return null;
 }
+
+/** Emergencia: chip claro (borde y letra naranja sobre fondo tenue), el estilo original aprobado por el operador. */
+const EMERGENCY_BADGE_CLASS = "border-orange-300 bg-orange-50 text-orange-800";
+
+/** Chip pequeño con etiqueta, igual que el de sociedad en la lista de Encargos. */
+const TEAM_CHIP_CLASS = "bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0";
 
 /**
  * Lista de Riesgos (1028-213): las OT enviadas a Riesgos, solo con campos de Riesgos (sin montos
@@ -83,7 +104,38 @@ const Risks = () => {
       key: "client_name",
       label: t("risks.columns.client"),
       mobilePriority: "primary",
-      render: (row) => <span className="line-clamp-1">{row.client_name ?? "-"}</span>,
+      // Cliente + Socio y Gerente del encargo como chips (mismo patrón que la lista de Encargos).
+      render: (row) => (
+        <div className="min-w-0">
+          <span className="line-clamp-1">{row.client_name ?? "-"}</span>
+          {(row.partner_name || row.manager_name) && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              {row.partner_name && (
+                <Badge
+                  variant="outline"
+                  className={TEAM_CHIP_CLASS}
+                  title={`${t("risks.partnerLabel")}: ${row.partner_name}`}
+                >
+                  <span className="opacity-70">{t("risks.partnerLabel")}</span>
+                  <span className="mx-1 opacity-40">·</span>
+                  {row.partner_name}
+                </Badge>
+              )}
+              {row.manager_name && (
+                <Badge
+                  variant="outline"
+                  className={TEAM_CHIP_CLASS}
+                  title={`${t("risks.managerLabel")}: ${row.manager_name}`}
+                >
+                  <span className="opacity-70">{t("risks.managerLabel")}</span>
+                  <span className="mx-1 opacity-40">·</span>
+                  {row.manager_name}
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+      ),
     },
     // D-04: SAN primero y CEAC segundo.
     {
@@ -109,15 +161,20 @@ const Risks = () => {
       label: t("risks.columns.status"),
       mobilePriority: "primary",
       render: (row) => {
-        const key = statusKey(row);
+        const status = statusBadge(row);
         const emergency = riskListGroups(row).has("emergency");
         return (
+          // flex-wrap: con dos chips (estado + Emergencia con "vence …") el segundo baja de línea.
           <div className="flex flex-wrap items-center gap-1.5">
-            {key && <Badge variant="outline">{t(key)}</Badge>}
+            {status && (
+              <Badge variant="outline" className={status.className}>
+                {t(status.key)}
+              </Badge>
+            )}
             {emergency && (
               <Badge
                 variant="outline"
-                className="border-orange-300 bg-orange-50 text-orange-800"
+                className={`${EMERGENCY_BADGE_CLASS} whitespace-normal`}
               >
                 <ShieldAlert className="mr-1 h-3 w-3" />
                 {t("risks.emergency")}

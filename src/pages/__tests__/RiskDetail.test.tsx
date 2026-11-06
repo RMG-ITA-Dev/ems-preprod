@@ -97,6 +97,8 @@ const BASE: RiskWorkOrderDetail = {
   engagement_code: "2027.261.014",
   engagement_name: "Obligaciones - Seguridad Social",
   client_name: "MDGI DRILLING BOLIVIA",
+  partner_name: "socio.riesgos",
+  manager_name: "gerente.rmg",
   san_approval_id: "11111-11111",
   san_completed_at: "2026-09-11",
   ceac_number: "1111111111",
@@ -159,6 +161,25 @@ describe("RiskDetail — campos de D-14 (AC-15)", () => {
     expect(screen.getByText("11/09/2026")).toBeInTheDocument();
     expect(screen.getByText("10/09/2026")).toBeInTheDocument();
     expect(screen.getByText("workOrders.riskLevelBajo")).toBeInTheDocument();
+  });
+
+  it("muestra Socio y Gerente a la derecha del encabezado, y el encargo y cliente a la izquierda", () => {
+    show();
+    const dl = document.querySelector("dl") as HTMLElement;
+    expect(within(dl).getByText("risks.partnerLabel:")).toBeInTheDocument();
+    expect(within(dl).getByText("socio.riesgos")).toBeInTheDocument();
+    expect(within(dl).getByText("risks.managerLabel:")).toBeInTheDocument();
+    expect(within(dl).getByText("gerente.rmg")).toBeInTheDocument();
+    // La lista de definiciones es el último bloque del encabezado (derecha); el primero trae el encargo.
+    const header = dl.parentElement as HTMLElement;
+    expect(header.firstElementChild?.textContent).toMatch(/2027\.261\.014/);
+    expect(header.lastElementChild).toBe(dl);
+  });
+
+  it("no pinta Socio ni Gerente cuando el servidor no los trae", () => {
+    show({ partner_name: null, manager_name: null });
+    expect(document.querySelector("dl")).toBeNull();
+    expect(screen.queryByText("risks.partnerLabel:")).not.toBeInTheDocument();
   });
 
   it("no expone montos, presupuesto, plan de pagos ni horas", () => {
@@ -271,6 +292,35 @@ describe("RiskDetail — emergencia en dos pasos (AC-18, AC-20, H-6)", () => {
     auth.perms = new Set();
     show(step2);
     expect(screen.getByText("workOrders.approveRiskPartner")).toBeInTheDocument();
+  });
+
+  it("supervisor con el paso 1 hecho: banner de que falta la firma del Socio de Riesgos y Rechazar sigue visible", () => {
+    auth.roleKey = "risk_supervisor";
+    auth.perms = PERMS_RS;
+    show(step2);
+    expect(screen.getByTestId("risk-emergency-awaiting-partner")).toHaveTextContent(
+      "workOrders.emergencyAwaitingPartner",
+    );
+    expect(screen.getByText("workOrders.rejectRisk")).toBeInTheDocument();
+  });
+
+  it("sin banner para quien sí puede firmar el paso 2 (risk_partner y admin)", () => {
+    auth.roleKey = "risk_partner";
+    auth.perms = PERMS_RP;
+    const { unmount } = show(step2);
+    expect(screen.queryByTestId("risk-emergency-awaiting-partner")).not.toBeInTheDocument();
+    unmount();
+    auth.roleKey = "admin";
+    auth.perms = new Set();
+    show(step2);
+    expect(screen.queryByTestId("risk-emergency-awaiting-partner")).not.toBeInTheDocument();
+  });
+
+  it("sin banner mientras el paso 1 no está hecho", () => {
+    auth.roleKey = "risk_supervisor";
+    auth.perms = PERMS_RS;
+    show(step1);
+    expect(screen.queryByTestId("risk-emergency-awaiting-partner")).not.toBeInTheDocument();
   });
 
   it("paso 2 oculto para risk_supervisor, que conserva Rechazar", () => {

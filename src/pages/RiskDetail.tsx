@@ -91,11 +91,32 @@ const RiskDetail = () => {
         <div>{backToList}</div>
         <Card className="bg-muted/30">
           <CardContent className="py-4">
-            <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
-            <p className="font-semibold">
-              {wo.engagement_code} - {wo.engagement_name}
-            </p>
-            <p className="text-sm text-muted-foreground">{wo.client_name}</p>
+            {/* Izquierda: encargo y cliente. Derecha: Socio y Gerente (en móvil pasan debajo). */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm text-muted-foreground">{t("entities.engagement")}</p>
+                <p className="font-semibold">
+                  {wo.engagement_code} - {wo.engagement_name}
+                </p>
+                <p className="text-sm text-muted-foreground">{wo.client_name}</p>
+              </div>
+              {(wo.partner_name || wo.manager_name) && (
+                <dl className="space-y-1 text-sm sm:text-right">
+                  {wo.partner_name && (
+                    <div className="flex flex-wrap gap-x-2 sm:justify-end">
+                      <dt className="text-muted-foreground">{t("risks.partnerLabel")}:</dt>
+                      <dd className="font-medium">{wo.partner_name}</dd>
+                    </div>
+                  )}
+                  {wo.manager_name && (
+                    <div className="flex flex-wrap gap-x-2 sm:justify-end">
+                      <dt className="text-muted-foreground">{t("risks.managerLabel")}:</dt>
+                      <dd className="font-medium">{wo.manager_name}</dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+            </div>
             <WorkOrderTrackStatus
               approvalStatus={approvalStatus}
               approvedAt={wo.approved_at}

@@ -218,8 +218,9 @@ BEGIN
   -- cartera principal (este CTE, y todo lo que se arma sobre scope_all/scope: KPI1, Bloques
   -- A-H, KPI5) por ser SOCIO del encargo (partner_id = yo). Ser SQR de un encargo (sqr_id =
   -- yo) YA NO alcanza aqui -- ese encargo no cuenta como "de tu cartera", sos parte del
-  -- equipo. 1028-213 (D-41): el KPI "Horas SQR" (kpis.my_sqr_hours y sus CTEs my_sqr_*) se retiro:
-  -- ningun dashboard cuenta encargos por ser SQR; solo cuentan los encargos donde se es socio.
+  -- equipo. Las horas de SQR siguen visibles, pero SOLO via kpis.my_sqr_hours (CTEs
+  -- my_sqr_engagements/my_sqr_budget/my_sqr_hours mas abajo, seccion 12), que ya eran
+  -- siempre personales y NUNCA dependieron de este CTE -- no requieren cambio.
   role_scope AS (
     SELECT es.*
     FROM eng_state es
@@ -598,11 +599,21 @@ BEGIN
     SELECT es.* FROM eng_state es CROSS JOIN caller c
     WHERE es.state IN (4, 5) AND es.funcion = 1 AND c.staff_id IS NOT NULL AND es.partner_id = c.staff_id
   ),
+  my_sqr_engagements AS (
+    SELECT es.* FROM eng_state es CROSS JOIN caller c
+    WHERE es.state IN (4, 5) AND es.funcion = 1 AND c.staff_id IS NOT NULL AND es.sqr_id = c.staff_id
+  ),
   my_partner_budget AS (
     SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS hours
     FROM my_partner_engagements mpe
     JOIN public.wo_budget_lines bl ON bl.wo_id = mpe.wo_id AND mpe.approval_status = 'Approved'
     JOIN public.categories cat ON cat.category_id = bl.category_id AND cat.category_name = 'Socio'
+  ),
+  my_sqr_budget AS (
+    SELECT COALESCE(SUM(bl.budgeted_hours), 0) AS hours
+    FROM my_sqr_engagements mse
+    JOIN public.wo_budget_lines bl ON bl.wo_id = mse.wo_id AND mse.approval_status = 'Approved'
+    JOIN public.categories cat ON cat.category_id = bl.category_id AND cat.category_name = 'SQR'
   ),
   my_partner_hours AS (
     SELECT
@@ -615,6 +626,24 @@ BEGIN
       ON te.engagement_id = mpe.engagement_id AND te.staff_id = c.staff_id AND COALESCE(te.is_forecast, false) = false
     LEFT JOIN public.timesheet_line_approvals tla
       ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+  ),
+  my_sqr_hours AS (
+    SELECT
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'approved'), 0) AS approved,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND (tla.status IS NULL OR tla.status = 'pending')), 0) AS pending,
+      COALESCE(SUM(te.hours_logged) FILTER (WHERE te.date_worked BETWEEN p_start AND p_end AND tla.status = 'rejected'), 0) AS rejected
+    FROM my_sqr_engagements mse
+    CROSS JOIN caller c
+    JOIN public.time_entries te
+      ON te.engagement_id = mse.engagement_id AND te.staff_id = c.staff_id AND COALESCE(te.is_forecast, false) = false
+    LEFT JOIN public.timesheet_line_approvals tla
+      ON tla.engagement_id = te.engagement_id AND tla.period_id = te.period_id AND tla.activity_id = te.activity_id
+  ),
+  my_sqr_engagement_list AS (
+    SELECT
+      COUNT(*) AS cnt,
+      COALESCE(jsonb_agg(jsonb_build_object('engagement_id', engagement_id, 'engagement_name', engagement_name)), '[]'::jsonb) AS items
+    FROM my_sqr_engagements
   ),
 
   -- ── 13. wo_pending: OT pendientes/riesgo pendiente, TODOS los estados (KPI 5) ───────
@@ -952,6 +981,10 @@ BEGIN
       'my_partner_hours', jsonb_build_object(
         'budget', mpb.hours, 'approved', mph.approved, 'pending', mph.pending, 'rejected', mph.rejected
       ),
+      'my_sqr_hours', jsonb_build_object(
+        'budget', msb.hours, 'approved', msh.approved, 'pending', msh.pending, 'rejected', msh.rejected,
+        'engagement_count', msel.cnt, 'engagements', msel.items
+      ),
       'alerts', jsonb_build_object(
         'over_budget_count', oba.cnt, 'portfolio_count', sc.scope_count,
         'pending_wo_count', wp.pending_wo_count, 'pending_risk_count', wp.pending_risk_count
@@ -1002,6 +1035,9 @@ BEGIN
   CROSS JOIN fees_monthly_agg fma
   CROSS JOIN my_partner_budget mpb
   CROSS JOIN my_partner_hours mph
+  CROSS JOIN my_sqr_budget msb
+  CROSS JOIN my_sqr_hours msh
+  CROSS JOIN my_sqr_engagement_list msel
   CROSS JOIN wo_pending wp
   CROSS JOIN over_budget_agg oba
   CROSS JOIN profitability_agg pa

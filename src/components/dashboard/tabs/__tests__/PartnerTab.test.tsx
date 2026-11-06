@@ -146,14 +146,14 @@ describe("PartnerTab", () => {
     expect(screen.getByText("dashboard.tabError.title(tab=Socio)")).toBeInTheDocument();
   });
 
-  it("PT5: con payload mock renderiza los 4 títulos de KPI, sin la tarjeta de Horas SQR (1028-213, AC-36)", () => {
+  it("PT5: con payload mock renderiza los 5 títulos de KPI", () => {
     mockUsePartnerOverview.mockReturnValue({ isLoading: false, isError: false, data: payloadWith() });
     render(<PartnerTab />, { wrapper: createWrapper() });
 
     expect(screen.getByText("dashboard.socio.kpi.engagements.title")).toBeInTheDocument();
     expect(screen.getByText("dashboard.socio.kpi.fees.title")).toBeInTheDocument();
     expect(screen.getByText("dashboard.socio.kpi.partnerHours.title")).toBeInTheDocument();
-    expect(screen.queryByText("dashboard.socio.kpi.sqrHours.title")).not.toBeInTheDocument();
+    expect(screen.getByText("dashboard.socio.kpi.sqrHours.title")).toBeInTheDocument();
     expect(screen.getByText("dashboard.socio.kpi.alerts.title")).toBeInTheDocument();
   });
 

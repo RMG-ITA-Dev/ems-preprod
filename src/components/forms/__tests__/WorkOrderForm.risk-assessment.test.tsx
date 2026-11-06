@@ -193,10 +193,11 @@ describe("WorkOrderForm — Risk dual-track + emergency (feat/0306-78)", () => {
       onRiskAssessmentChange: handler,
     });
     expect(screen.getByText("workOrders.riskAssessment")).toBeInTheDocument();
-    const [ceacInput] = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
-    expect(ceacInput.readOnly).toBe(false);
-    fireEvent.change(ceacInput, { target: { value: "2026-05-01" } });
-    expect(handler).toHaveBeenCalledWith("ceacCompletedAt", "2026-05-01");
+    // SAN es el primer campo de fecha (D-04): SAN a la izquierda, CEAC a la derecha.
+    const [sanInput] = container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+    expect(sanInput.readOnly).toBe(false);
+    fireEvent.change(sanInput, { target: { value: "2026-05-01" } });
+    expect(handler).toHaveBeenCalledWith("sanCompletedAt", "2026-05-01");
   });
 
   it("WF6: Risk section visible read-only when Approved and has risk data", () => {

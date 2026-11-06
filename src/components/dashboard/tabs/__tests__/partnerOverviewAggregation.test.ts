@@ -265,16 +265,6 @@ describe("partnerOverviewAggregation", () => {
       expect(Number.isFinite(vm.kpis.engagements.total)).toBe(true);
     });
 
-    it("ya no normaliza my_sqr_hours aunque un backend viejo todavía lo mande (1028-213, AC-36)", () => {
-      const raw = emptyPartnerOverviewPayload();
-      (raw.kpis as unknown as Record<string, unknown>).my_sqr_hours = {
-        budget: 100, approved: 40, pending: 10, rejected: 0, engagement_count: 2, engagements: [],
-      };
-
-      expect("my_sqr_hours" in toViewModel(raw).kpis).toBe(false);
-      expect("my_sqr_hours" in emptyPartnerOverviewPayload().kpis).toBe(false);
-    });
-
     it("returns the empty payload for null/undefined input", () => {
       expect(toViewModel(null)).toEqual(emptyPartnerOverviewPayload());
       expect(toViewModel(undefined)).toEqual(emptyPartnerOverviewPayload());

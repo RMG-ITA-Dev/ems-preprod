@@ -35,6 +35,14 @@ export interface PartnerOverviewKpis {
     sparkline: { month: string; value_bob: number }[];
   };
   my_partner_hours: { budget: number; approved: number; pending: number; rejected: number };
+  my_sqr_hours: {
+    budget: number;
+    approved: number;
+    pending: number;
+    rejected: number;
+    engagement_count: number;
+    engagements: { engagement_id: string; engagement_name: string }[];
+  };
   alerts: {
     over_budget_count: number;
     portfolio_count: number;
@@ -228,6 +236,7 @@ export function emptyPartnerOverviewPayload(): PartnerOverviewPayload {
       engagements: { total: 0, approved: 0, emergency: 0, finalized_in_period: 0 },
       fees: { total_bob: 0, previous_total_bob: 0, sparkline: [] },
       my_partner_hours: { budget: 0, approved: 0, pending: 0, rejected: 0 },
+      my_sqr_hours: { budget: 0, approved: 0, pending: 0, rejected: 0, engagement_count: 0, engagements: [] },
       alerts: { over_budget_count: 0, portfolio_count: 0, pending_wo_count: 0, pending_risk_count: 0 },
     },
     profitability: {

@@ -472,6 +472,8 @@
     },
     "emergency": "Emergencia",
     "dueOn": "vence {{date}}",
+    "partnerLabel": "Socio",
+    "managerLabel": "Gerente",
     "loadError": "No se pudieron cargar las evaluaciones de riesgo. Intente de nuevo.",
     "retry": "Reintentar",
     "backToList": "Volver a Riesgos",
@@ -1557,6 +1559,10 @@
         "partnerHours": {
           "title": "Mis horas como socio"
         },
+        "sqrHours": {
+          "title": "Mis horas como SQR",
+          "inEngagements": "en {{count}} encargos"
+        },
         "hoursOfBudget": "{{logged}} / {{budget}} h",
         "alerts": {
           "title": "Revisión",
@@ -1863,8 +1869,6 @@
     "tabsNotVisited": "Debe revisar todas las pestañas del formulario antes de enviar la OT a aprobación.",
     "ceacNumber": "Nro CEAC",
     "sanApprovalId": "ID Aprobación SAN",
-    "ceacNumberPlaceholder": "",
-    "sanApprovalIdPlaceholder": "",
     "riskLevel": "Nivel de Riesgo",
     "riskLevelNone": "Ninguno",
     "riskLevelBajo": "Bajo",
@@ -1893,6 +1897,7 @@
     "approvalReverted": "Aprobación revertida",
     "partnerActionsLabel": "Socio",
     "riskActionsLabel": "Riesgos",
+    "emergencyAwaitingPartner": "Falta la aprobación de Riesgos: la firma del Socio de Riesgos (paso 2) de la emergencia está pendiente. Aun así, puede rechazar el riesgo aunque no corresponda la emergencia.",
     "submitEmergencyTitle": "Enviar sin datos de Riesgo",
     "submitEmergencyMessage": "Está enviando sin datos de Riesgo, estos datos son necesarios y si no tiene estos datos se enviará por aprobación de emergencia. En este caso, asegúrese de tener la aprobación correspondiente.",
     "submitEmergencyJustificationLabel": "Motivo / Referencia de la solicitud a Riesgos",

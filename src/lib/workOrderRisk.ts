@@ -26,6 +26,10 @@ export type RiskWorkOrderRow = {
   engagement_code: string | null;
   engagement_name: string | null;
   client_name: string | null;
+  /** Etiqueta del socio del encargo (short_name o "nombre apellido"), resuelta en el servidor. */
+  partner_name: string | null;
+  /** Etiqueta del gerente del encargo, resuelta en el servidor. */
+  manager_name: string | null;
   san_approval_id: string | null;
   san_completed_at: string | null;
   ceac_number: string | null;

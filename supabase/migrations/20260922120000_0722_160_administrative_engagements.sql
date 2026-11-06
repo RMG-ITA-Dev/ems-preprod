@@ -221,6 +221,8 @@ RETURNS TABLE (
   engagement_code character varying,
   engagement_name character varying,
   client_name character varying,
+  partner_name text,
+  manager_name text,
   san_approval_id text,
   san_completed_at date,
   ceac_number text,
@@ -253,6 +255,8 @@ BEGIN
          e.engagement_code,
          e.engagement_name,
          c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
          wo.san_approval_id,
          wo.san_completed_at,
          wo.ceac_number,
@@ -267,6 +271,8 @@ BEGIN
     FROM public.work_orders wo
     JOIN public.engagements e ON e.engagement_id = wo.engagement_id
     JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
    WHERE wo.approval_status <> 'Draft'                                         -- D-10: sin borradores
      AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)                        -- sin encargos administrativos
      AND e.engagement_state_override IS DISTINCT FROM 6                        -- H-5: sin encargos cancelados
@@ -284,6 +290,8 @@ RETURNS TABLE (
   engagement_code character varying,
   engagement_name character varying,
   client_name character varying,
+  partner_name text,
+  manager_name text,
   san_approval_id text,
   san_completed_at date,
   ceac_number text,
@@ -324,6 +332,8 @@ BEGIN
          e.engagement_code,
          e.engagement_name,
          c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
          wo.san_approval_id,
          wo.san_completed_at,
          wo.ceac_number,
@@ -346,6 +356,8 @@ BEGIN
     FROM public.work_orders wo
     JOIN public.engagements e ON e.engagement_id = wo.engagement_id
     JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
    WHERE wo.wo_id = p_wo_id
      AND wo.approval_status <> 'Draft'
      AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)

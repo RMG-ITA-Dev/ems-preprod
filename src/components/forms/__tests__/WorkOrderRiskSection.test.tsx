@@ -167,7 +167,8 @@ describe("WorkOrderRiskSection — captura de SAN y CEAC", () => {
       unmount();
     }
     // Las claves se arman por partes para que un grep por su nombre solo encuentre código vivo.
-    const removedKeys = ["ceacNumber" + "Invalid", "sanApprovalId" + "Invalid"];
+    // Los placeholders vacíos tampoco existen como clave: el parity test prohíbe hojas en blanco, y sin clave no hay atributo.
+    const removedKeys = ["ceacNumber" + "Invalid", "sanApprovalId" + "Invalid", "ceacNumber" + "Placeholder", "sanApprovalId" + "Placeholder"];
     for (const L of [es, en]) {
       for (const key of removedKeys) expect(key in L.workOrders).toBe(false);
     }
@@ -269,6 +270,37 @@ describe("WorkOrderRiskSection — acciones de Riesgos", () => {
       expect(screen.queryByText(es.workOrders.approveRiskPartner)).not.toBeInTheDocument();
       expect(screen.queryByText(es.workOrders.approveRiskAssistant)).not.toBeInTheDocument();
       expect(screen.getByText(es.workOrders.rejectRisk)).toBeInTheDocument();
+    });
+
+    it("sin canSignEmergency y con el paso 1 hecho, el banner avisa que falta la firma del Socio de Riesgos y que aún puede rechazar (es y en)", () => {
+      i18nState.lang = "es";
+      const { unmount } = renderSection({ ...step2, canSignEmergency: false });
+      expect(screen.getByTestId("risk-emergency-awaiting-partner")).toHaveTextContent(
+        es.workOrders.emergencyAwaitingPartner,
+      );
+      expect(es.workOrders.emergencyAwaitingPartner).toMatch(/Socio de Riesgos/);
+      expect(es.workOrders.emergencyAwaitingPartner).toMatch(/rechazar/);
+      unmount();
+
+      i18nState.lang = "en";
+      renderSection({ ...step2, canSignEmergency: false });
+      expect(screen.getByTestId("risk-emergency-awaiting-partner")).toHaveTextContent(
+        en.workOrders.emergencyAwaitingPartner,
+      );
+      expect(en.workOrders.emergencyAwaitingPartner).toMatch(/Risk Partner/);
+      expect(en.workOrders.emergencyAwaitingPartner).toMatch(/reject/);
+    });
+
+    it("con canSignEmergency no hay banner (esa persona firma el paso 2)", () => {
+      i18nState.lang = "es";
+      renderSection({ ...step2, canSignEmergency: true });
+      expect(screen.queryByTestId("risk-emergency-awaiting-partner")).not.toBeInTheDocument();
+    });
+
+    it("sin el paso 1 hecho no hay banner aunque no pueda firmar", () => {
+      i18nState.lang = "es";
+      renderSection({ ...step2, emergencyReviewAt: null, canSignEmergency: false });
+      expect(screen.queryByTestId("risk-emergency-awaiting-partner")).not.toBeInTheDocument();
     });
   });
 
