@@ -80,6 +80,9 @@ CREATE TRIGGER trg_engagements_guard_society_change BEFORE UPDATE OF society_id 
 -- Dispara despues de trg_enforce_administrative_engagement_rules (orden alfabetico).
 CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF start_date, is_internal, created_at ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.engagements_guard_start_date_floor();
 
+-- 1028-211: un encargo solo se crea sobre un cliente activo, o pasa a uno activo al cambiar de cliente.
+CREATE TRIGGER trg_engagements_enforce_client_active BEFORE INSERT OR UPDATE OF client_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_client_active();
+
 
 --
 --
@@ -247,6 +250,17 @@ CREATE TRIGGER trg_check_wo_approved BEFORE INSERT OR UPDATE ON public.time_entr
 --
 
 CREATE TRIGGER trg_clients_created_by BEFORE INSERT OR UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.set_client_created_by();
+
+
+--
+--
+-- Name: clients trg_clients_enforce_activation; Type: TRIGGER; Schema: public; Owner: -
+--
+-- 1028-211: sin client.activate el alta nace inactiva y no se puede cambiar is_active; además registra quién y
+-- cuándo activó o desactivó. Dispara en todo UPDATE (no solo OF is_active) para que nadie escriba las columnas
+-- de trazabilidad a mano.
+
+CREATE TRIGGER trg_clients_enforce_activation BEFORE INSERT OR UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.enforce_client_activation();
 
 
 --
@@ -664,6 +678,13 @@ ALTER TABLE ONLY public.categories
 
 ALTER TABLE ONLY public.clients
     ADD CONSTRAINT clients_created_by_staff_id_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id);
+
+-- 1028-211: trazabilidad de la activación. Borrar la ficha de quien activó no borra el dato del cliente.
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_activated_by_staff_id_fkey FOREIGN KEY (activated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_deactivated_by_staff_id_fkey FOREIGN KEY (deactivated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
 
 
 --

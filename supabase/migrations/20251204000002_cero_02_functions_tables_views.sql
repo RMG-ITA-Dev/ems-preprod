@@ -1367,6 +1367,15 @@ CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
     AS $$
   -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
   SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+  UNION
+  -- 1028-211: un cliente SIN encargos todavía no tiene sociedad; se toma la de quien lo creó, para que Cobranzas y
+  -- Contabilidad de esa sociedad lo encuentren y lo activen. Desde su primer encargo manda la sociedad del encargo.
+  -- Creador sin sociedad o cliente sin creador (carga ETL): no lo ve ningún rol con alcance por sociedad.
+  SELECT c.client_id
+    FROM public.clients c
+    JOIN public.staff s ON s.staff_id = c.created_by_staff_id
+   WHERE s.society_id = public.my_society_id()
+     AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = c.client_id)
 $$;
 
 --
@@ -7768,7 +7777,13 @@ CREATE TABLE public.clients (
     parent_client_id uuid,
     parent_relationship text,
     client_origin text,
-    billing_tax_treatment text
+    billing_tax_treatment text,
+    -- 1028-211: quién activó o desactivó el cliente por última vez, y cuándo. Los llena el trigger
+    -- trg_clients_enforce_activation con la sesión; no se escriben desde la app.
+    activated_at timestamp with time zone,
+    activated_by_staff_id uuid,
+    deactivated_at timestamp with time zone,
+    deactivated_by_staff_id uuid
 );
 
 
@@ -7786,6 +7801,11 @@ COMMENT ON COLUMN public.clients.tax_id IS 'NIT del cliente. NO es único: proye
 --
 
 COMMENT ON COLUMN public.clients.created_by_staff_id IS 'Staff que creó el cliente. La puebla un trigger desde get_my_staff_id(); no la envía el cliente HTTP. Habilita que el creador vea el cliente antes de tener un encargo que lo haga "asignado". NULL en las filas previas a esta migración.';
+
+COMMENT ON COLUMN public.clients.activated_at IS '1028-211: última activación (alta activa incluida). La fija trg_clients_enforce_activation; NULL si nunca se activó con esta trazabilidad.';
+COMMENT ON COLUMN public.clients.activated_by_staff_id IS '1028-211: quién hizo la última activación (get_my_staff_id() de la sesión; NULL si fue el sistema, p. ej. la carga ETL).';
+COMMENT ON COLUMN public.clients.deactivated_at IS '1028-211: última desactivación. La fija trg_clients_enforce_activation.';
+COMMENT ON COLUMN public.clients.deactivated_by_staff_id IS '1028-211: quién hizo la última desactivación (NULL si fue el sistema).';
 
 
 --
@@ -10096,6 +10116,132 @@ BEGIN
   END IF;
 
   PERFORM public.save_client_contacts(p_client_id, p_contacts);
+END;
+$$;
+
+
+--
+--
+-- Name: enforce_client_activation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1028-211: solo Cobranzas, el Gerente de Contabilidad y admin (client.activate) deciden si un cliente esta activo,
+-- y queda registrado quien y cuando lo activo o desactivo por ultima vez (activated_*/deactivated_*).
+-- Un alta de quien no tiene el permiso nace INACTIVA (sin error: la ficha se guarda, pendiente de activacion), y
+-- cambiar is_active sin el permiso se rechaza. Cubre las dos vias de escritura: save_client_with_contacts y el
+-- INSERT directo de useCreateClient. El sistema sin sesion (carga ETL, scripts del dueno) queda fuera: carga el
+-- estado historico tal cual.
+CREATE FUNCTION public.enforce_client_activation() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- 1. Permiso: solo con una petición de la API y sin client.activate.
+  IF auth.uid() IS NOT NULL AND NOT public.has_permission('client.activate') THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.is_active := false;
+    ELSIF NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+      RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- 1b. Desactivar es solo de admin (decisión del operador, 2026-11-06): Cobranzas y el Gerente de Contabilidad
+  -- activan, no desactivan. Admin por role_key (current_role_key), no por el enum legacy de is_admin().
+  IF TG_OP = 'UPDATE' AND auth.uid() IS NOT NULL
+     AND OLD.is_active IS TRUE AND NEW.is_active IS NOT TRUE
+     AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Trazabilidad: quién y cuándo, siempre desde la sesión (NULL si es el sistema). Las cuatro columnas no se
+  -- escriben a mano: en un UPDATE sin cambio de estado se conservan; en un alta solo cuenta si nace activa.
+  IF TG_OP = 'INSERT' THEN
+    NEW.activated_at            := CASE WHEN NEW.is_active IS TRUE THEN now() END;
+    NEW.activated_by_staff_id   := CASE WHEN NEW.is_active IS TRUE THEN public.get_my_staff_id() END;
+    NEW.deactivated_at          := NULL;
+    NEW.deactivated_by_staff_id := NULL;
+  ELSE
+    NEW.activated_at            := OLD.activated_at;
+    NEW.activated_by_staff_id   := OLD.activated_by_staff_id;
+    NEW.deactivated_at          := OLD.deactivated_at;
+    NEW.deactivated_by_staff_id := OLD.deactivated_by_staff_id;
+    IF NEW.is_active IS TRUE AND OLD.is_active IS NOT TRUE THEN
+      NEW.activated_at          := now();
+      NEW.activated_by_staff_id := public.get_my_staff_id();
+    ELSIF NEW.is_active IS NOT TRUE AND OLD.is_active IS TRUE THEN
+      NEW.deactivated_at          := now();
+      NEW.deactivated_by_staff_id := public.get_my_staff_id();
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: enforce_engagement_client_active(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1028-211: un encargo solo se crea sobre un cliente ACTIVO, y un encargo existente solo puede pasar a un cliente
+-- activo. Editar otro campo de un encargo cuyo cliente se inactivo despues sigue permitido. Aplica tambien a admin
+-- (activa primero y despues crea). El sistema sin sesion (carga ETL de encargos historicos) queda fuera.
+CREATE FUNCTION public.enforce_engagement_client_active() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.client_id IS NOT DISTINCT FROM OLD.client_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.client_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = NEW.client_id AND c.is_active IS TRUE) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CLIENT_INACTIVE: el cliente esta pendiente de activacion o inactivo; Cobranzas o Contabilidad deben activarlo antes de crear el encargo';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: set_client_active(uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1028-211: activar o desactivar un cliente sin abrir client.update (que daria edicion de toda la ficha). Exige
+-- client.activate; desactivar, ademas, ser admin (Cobranzas y Contabilidad solo activan). Cobranzas y Contabilidad solo sobre clientes de su sociedad (incluye los que todavia no tienen
+-- encargos y los creo alguien de su sociedad); fuera de ella responde como si el cliente no existiera.
+CREATE FUNCTION public.set_client_active(p_client_id uuid, p_active boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF p_client_id IS NULL OR p_active IS NULL THEN
+    RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan el cliente o el estado';
+  END IF;
+  IF NOT public.has_permission('client.activate') THEN
+    RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_active IS FALSE AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF public.is_society_scoped_role()
+     AND p_client_id NOT IN (SELECT public.my_society_client_ids()) THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+
+  UPDATE public.clients SET is_active = p_active WHERE client_id = p_client_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
 END;
 $$;
 

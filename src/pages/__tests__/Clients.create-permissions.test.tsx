@@ -24,6 +24,8 @@ vi.mock("@/hooks/useAuthorization", () => ({
 
 vi.mock("@/hooks/useEmsData", () => ({
   useClients: () => ({ data: [], isLoading: false }),
+  // 1028-211: la lista lee del directorio el número de homónimo.
+  useClientDirectory: () => ({ data: [], isLoading: false }),
   useEngagements: () => ({ data: [], isLoading: false }),
   useIndustries: () => ({ data: [], isLoading: false }),
 }));

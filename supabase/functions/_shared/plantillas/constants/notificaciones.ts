@@ -79,6 +79,15 @@ export const TEXTOS_NOTIFICACION: Record<string, Copia> = {
     boton: "Ver mi hoja de tiempo",
   },
 
+  // ── Clientes ──
+  // 1028-211: el alta de quien no puede activar clientes queda pendiente hasta que la active Cobranzas,
+  // Contabilidad o un administrador; mientras tanto el cliente no admite encargos.
+  "client.pending_activation": {
+    asunto: "Cliente pendiente de activación",
+    intro: "Se registró un cliente nuevo que necesita su activación para poder usarse en encargos.",
+    boton: "Ver cliente",
+  },
+
   // ── Encargos ──
   "timesheet.team_submitted_for_approval": {
     asunto: "Boleta semanal pendiente de aprobación",
@@ -409,6 +418,10 @@ export const DETALLES_PAYLOAD: { clave: string; etiqueta: string; formato?: "fec
   // repite entre clientes, y un correo sin boton —ver `engagement.specialist_assigned`— no
   // tiene pantalla a la que ir a averiguar de cual se trata.
   { clave: "client_name", etiqueta: "Cliente" },
+  // 1028-211: los avisos de cliente traen la razón social, el NIT y, en el alta pendiente, quién lo registró.
+  { clave: "client_legal_name", etiqueta: "Cliente" },
+  { clave: "unique_tax_id", etiqueta: "NIT" },
+  { clave: "creator_name", etiqueta: "Registrado por" },
   // Codigo y nombre del encargo viajan en claves distintas y se muestran en UNA linea:
   // "Encargo: 12-06" y "Nombre: Auditoria Externa 2026" son dos renglones para un solo dato.
   // Los compone `detallesDeEvento`, igual que hace con la semana.
