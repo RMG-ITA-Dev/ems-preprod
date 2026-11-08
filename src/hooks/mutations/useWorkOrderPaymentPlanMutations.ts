@@ -390,6 +390,7 @@ export function useUpdateInstallmentStatus() {
       invoiceExchangeRate,
       invoiceExchangeRateDate,
       paymentExchangeRate,
+      paymentExchangeRateDate,
     }: {
       installmentId: string;
       newStatus: PaymentInstallmentStatus;
@@ -397,9 +398,11 @@ export function useUpdateInstallmentStatus() {
       woId: string;
       paymentDays?: number;
       invoiceExchangeRate?: number | null;
-      /** Cobranzas Fase 6: de qué fecha salió el TC; null = se escribió a mano (Q49). */
+      /** Cobranzas Fase 6: de qué cotización salió el TC; null = a mano o TC del plan (Q49). */
       invoiceExchangeRateDate?: string | null;
       paymentExchangeRate?: number | null;
+      /** 1028-214: lo mismo para el TC de pago. */
+      paymentExchangeRateDate?: string | null;
     }) => {
       if (newStatus === "Invoiced" && prevStatus === "Pending") {
         const today = todayInLaPaz();
@@ -422,6 +425,7 @@ export function useUpdateInstallmentStatus() {
           p_expected_status: prevStatus,
           p_payment_date: todayInLaPaz(),
           p_payment_exchange_rate: paymentExchangeRate ?? null,
+          p_payment_exchange_rate_date: paymentExchangeRateDate ?? null,
         });
         if (error) throw error;
         return;
@@ -670,16 +674,24 @@ export function useUpdateInstallmentExchangeRate() {
       installmentId,
       field,
       value,
+      rateDate,
       woId,
     }: {
       installmentId: string;
       field: "invoice_exchange_rate" | "payment_exchange_rate";
       value: number | null;
+      /**
+       * 1028-214: de qué cotización salió el TC (null = escrito a mano). Sin este campo
+       * (undefined) solo se escribe el TC, como antes.
+       */
+      rateDate?: string | null;
       woId: string;
     }) => {
+      const update: Record<string, number | string | null> = { [field]: value };
+      if (rateDate !== undefined) update[`${field}_date`] = rateDate;
       const { error } = await supabase
         .from("wo_payment_installments")
-        .update({ [field]: value })
+        .update(update as never)
         .eq("installment_id", installmentId);
       if (error) throw error;
     },

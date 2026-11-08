@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict btWnxUcDL0eknHsW9FJgirhqvLnRbkDgFnKZeMDGfdnOizCIgLfY3MabhcMFc8r
+\restrict 1wysQTGD2gNzqyjOYmTGjbiX4EC1sas4BFzkADmvAqCg2aC3T7CWd1ksnPTSyCb
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
@@ -1240,6 +1240,237 @@ $$;
 
 
 --
+-- Name: approve_wo_emergency_partner(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.approve_wo_emergency_partner(p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  -- D-38 / H-6: el paso 2 (firma del Socio de Riesgos) lo hacen risk_partner y admin, no risk_supervisor.
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.emergency_sign')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.emergency_review_at, wo.emergency_partner_at,
+         wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion (showEmergencyPartner): enviada, pista pendiente, 5 campos vacios, paso 1 firmado y paso 2 sin firmar.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NOT NULL
+     OR COALESCE(v_wo.ceac_number, '') <> ''
+     OR v_wo.san_completed_at IS NOT NULL
+     OR COALESCE(v_wo.san_approval_id, '') <> ''
+     OR COALESCE(v_wo.risk_level, '') <> ''
+     OR v_wo.emergency_review_at IS NULL
+     OR v_wo.emergency_partner_at IS NOT NULL THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  -- Fecha limite: +7 dias calendario sobre la fecha de Bolivia (la columna es date; now() en UTC adelantaria el dia).
+  UPDATE public.work_orders
+     SET emergency_partner_by  = v_staff,
+         emergency_partner_at  = now(),
+         risk_status           = 'Emergency_Approved',
+         emergency_deadline_at = (now() AT TIME ZONE 'America/La_Paz')::date + 7
+   WHERE wo_id = p_wo_id;
+
+  -- Cierre atomico: la OT pasa a Approved solo si la pista del socio ya esta firmada.
+  UPDATE public.work_orders
+     SET approval_status = 'Approved'
+   WHERE wo_id = p_wo_id
+     AND approved_at IS NOT NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION approve_wo_emergency_partner(p_wo_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.approve_wo_emergency_partner(p_wo_id uuid) IS '1028-213: paso 2 de la emergencia (firma del Socio de Riesgos; risk_partner y admin, permiso work_order.risk.emergency_sign). Escribe emergency_partner_by/at, risk_status = Emergency_Approved, emergency_deadline_at (fecha de La Paz + 7) y, si el socio ya firmo, approval_status. El primero gana.';
+
+
+--
+-- Name: approve_wo_emergency_review(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.approve_wo_emergency_review(p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.emergency_review_at,
+         wo.ceac_completed_at, wo.ceac_number, wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion (showEmergencyReview): enviada, pista pendiente, los 5 campos vacios (emergencia) y paso 1 sin firmar.
+  -- "El primero gana": un segundo clic encuentra emergency_review_at ya escrito y recibe CONFLICT.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NOT NULL
+     OR COALESCE(v_wo.ceac_number, '') <> ''
+     OR v_wo.san_completed_at IS NOT NULL
+     OR COALESCE(v_wo.san_approval_id, '') <> ''
+     OR COALESCE(v_wo.risk_level, '') <> ''
+     OR v_wo.emergency_review_at IS NOT NULL THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  UPDATE public.work_orders
+     SET emergency_review_by = v_staff,
+         emergency_review_at = now()
+   WHERE wo_id = p_wo_id;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION approve_wo_emergency_review(p_wo_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.approve_wo_emergency_review(p_wo_id uuid) IS '1028-213: paso 1 de la emergencia (revision de Riesgos). Escribe solo emergency_review_by/at; no inicia la fecha limite ni cierra la OT. El primero gana (CONFLICT si ya esta firmado).';
+
+
+--
+-- Name: approve_wo_risk(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.approve_wo_risk(p_wo_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid;
+  v_wo    record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  -- Antes de mirar la fila: quien no puede aprobar Riesgos en ningun encargo no distingue entre "no existe" y "no puedo".
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  v_staff := public.get_my_staff_id();
+  IF v_staff IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status, wo.ceac_completed_at, wo.ceac_number,
+         wo.san_completed_at, wo.san_approval_id, wo.risk_level
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion: enviada (no Draft), pista de Riesgos pendiente de revision (no Approved/Rejected/Emergency_Approved:
+  -- una emergencia firmada se regulariza cuando el gerente completa los datos y la pista vuelve a Pending) y los 5
+  -- campos de riesgo completos.
+  IF v_wo.approval_status = 'Draft'
+     OR COALESCE(v_wo.risk_status, 'Pending') <> 'Pending'
+     OR v_wo.ceac_completed_at IS NULL
+     OR COALESCE(btrim(v_wo.ceac_number), '') = ''
+     OR v_wo.san_completed_at IS NULL
+     OR COALESCE(btrim(v_wo.san_approval_id), '') = ''
+     OR v_wo.risk_level IS NULL OR v_wo.risk_level NOT IN ('Bajo', 'Moderado', 'Alto') THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  UPDATE public.work_orders
+     SET risk_approved_by = v_staff,
+         risk_approved_at = now(),
+         risk_status      = 'Approved'
+   WHERE wo_id = p_wo_id;
+
+  -- Cierre atomico: la OT pasa a Approved solo si la pista del socio ya esta firmada.
+  UPDATE public.work_orders
+     SET approval_status = 'Approved'
+   WHERE wo_id = p_wo_id
+     AND approved_at IS NOT NULL;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION approve_wo_risk(p_wo_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.approve_wo_risk(p_wo_id uuid) IS '1028-213: aprobacion normal de Riesgos (tambien regulariza una emergencia ya completada). Escribe solo risk_approved_by/at, risk_status y, si el socio ya firmo, approval_status. Guarda: admin o can_approve_wo_risk; fila bloqueada; CONFLICT si no cumple la precondicion.';
+
+
+--
 -- Name: assert_fund_request_society_scope(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2211,6 +2442,7 @@ CREATE TABLE public.wo_payment_installments (
     net_amount numeric,
     currency text,
     invoice_exchange_rate_date date,
+    payment_exchange_rate_date date,
     confirmation_status text DEFAULT 'sin_gestionar'::text NOT NULL,
     confirmed_for_date date,
     confirmed_by uuid,
@@ -2229,10 +2461,10 @@ CREATE TABLE public.wo_payment_installments (
 
 
 --
--- Name: collect_installment(uuid, text, date, numeric); Type: FUNCTION; Schema: public; Owner: -
+-- Name: collect_installment(uuid, text, date, numeric, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL::date, p_payment_exchange_rate numeric DEFAULT NULL::numeric) RETURNS public.wo_payment_installments
+CREATE FUNCTION public.collect_installment(p_installment_id uuid, p_expected_status text, p_payment_date date DEFAULT NULL::date, p_payment_exchange_rate numeric DEFAULT NULL::numeric, p_payment_exchange_rate_date date DEFAULT NULL::date) RETURNS public.wo_payment_installments
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -2267,7 +2499,12 @@ BEGIN
   UPDATE public.wo_payment_installments
      SET status = 'Completed',
          payment_date_actual = v_payment_date,
-         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate)
+         payment_exchange_rate = COALESCE(p_payment_exchange_rate, payment_exchange_rate),
+         -- 1028-214: la fecha de la cotizacion del TC que se confirmo al cobrar (NULL = a mano).
+         -- Si no vino TC, se conserva lo que ya tenia la cuota, igual que el TC.
+         payment_exchange_rate_date = CASE WHEN p_payment_exchange_rate IS NOT NULL
+                                           THEN p_payment_exchange_rate_date
+                                           ELSE payment_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -3556,6 +3793,84 @@ $$;
 
 
 --
+-- Name: enforce_client_activation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_client_activation() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- 1. Permiso: solo con una petición de la API y sin client.activate.
+  IF auth.uid() IS NOT NULL AND NOT public.has_permission('client.activate') THEN
+    IF TG_OP = 'INSERT' THEN
+      NEW.is_active := false;
+    ELSIF NEW.is_active IS DISTINCT FROM OLD.is_active THEN
+      RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- 1b. Desactivar es solo de admin (decisión del operador, 2026-11-06): Cobranzas y el Gerente de Contabilidad
+  -- activan, no desactivan. Admin por role_key (current_role_key), no por el enum legacy de is_admin().
+  IF TG_OP = 'UPDATE' AND auth.uid() IS NOT NULL
+     AND OLD.is_active IS TRUE AND NEW.is_active IS NOT TRUE
+     AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- 2. Trazabilidad: quién y cuándo, siempre desde la sesión (NULL si es el sistema). Las cuatro columnas no se
+  -- escriben a mano: en un UPDATE sin cambio de estado se conservan; en un alta solo cuenta si nace activa.
+  IF TG_OP = 'INSERT' THEN
+    NEW.activated_at            := CASE WHEN NEW.is_active IS TRUE THEN now() END;
+    NEW.activated_by_staff_id   := CASE WHEN NEW.is_active IS TRUE THEN public.get_my_staff_id() END;
+    NEW.deactivated_at          := NULL;
+    NEW.deactivated_by_staff_id := NULL;
+  ELSE
+    NEW.activated_at            := OLD.activated_at;
+    NEW.activated_by_staff_id   := OLD.activated_by_staff_id;
+    NEW.deactivated_at          := OLD.deactivated_at;
+    NEW.deactivated_by_staff_id := OLD.deactivated_by_staff_id;
+    IF NEW.is_active IS TRUE AND OLD.is_active IS NOT TRUE THEN
+      NEW.activated_at          := now();
+      NEW.activated_by_staff_id := public.get_my_staff_id();
+    ELSIF NEW.is_active IS NOT TRUE AND OLD.is_active IS TRUE THEN
+      NEW.deactivated_at          := now();
+      NEW.deactivated_by_staff_id := public.get_my_staff_id();
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: enforce_engagement_client_active(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_engagement_client_active() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.client_id IS NOT DISTINCT FROM OLD.client_id THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.client_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM public.clients c WHERE c.client_id = NEW.client_id AND c.is_active IS TRUE) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_CLIENT_INACTIVE: el cliente esta pendiente de activacion o inactivo; Cobranzas o Contabilidad deben activarlo antes de crear el encargo';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: enforce_engagement_creator_team(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4729,7 +5044,19 @@ CREATE FUNCTION public.exchange_rate_on(p_date date) RETURNS numeric
     LANGUAGE sql STABLE
     SET search_path TO 'public'
     AS $$
-  SELECT h.compra
+  SELECT d.compra FROM public.exchange_rate_on_detail(p_date) d;
+$$;
+
+
+--
+-- Name: exchange_rate_on_detail(date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.exchange_rate_on_detail(p_date date) RETURNS TABLE(compra numeric, fecha_vigencia date)
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT h.compra, h.fecha_vigencia
     FROM public.exchange_rate_history h
    WHERE h.fecha_vigencia <= p_date
    ORDER BY h.fecha_vigencia DESC
@@ -7502,6 +7829,74 @@ $$;
 
 
 --
+-- Name: get_risk_work_order(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_risk_work_order(p_wo_id uuid) RETURNS TABLE(wo_id uuid, engagement_id uuid, engagement_code character varying, engagement_name character varying, client_name character varying, partner_name text, manager_name text, san_approval_id text, san_completed_at date, ceac_number text, ceac_completed_at date, risk_level text, risk_status text, emergency_review_at timestamp with time zone, emergency_partner_at timestamp with time zone, emergency_deadline_at date, has_emergency_justification boolean, engagement_state_override smallint, approval_status character varying, approved_at timestamp with time zone, risk_notes text, emergency_justification text, risk_approved_at timestamp with time zone, risk_approved_by uuid, emergency_review_by uuid, emergency_partner_by uuid)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+#variable_conflict use_column
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.read')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT wo.wo_id,
+         e.engagement_id,
+         e.engagement_code,
+         e.engagement_name,
+         c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
+         wo.san_approval_id,
+         wo.san_completed_at,
+         wo.ceac_number,
+         wo.ceac_completed_at,
+         wo.risk_level,
+         wo.risk_status,
+         wo.emergency_review_at,
+         wo.emergency_partner_at,
+         wo.emergency_deadline_at,
+         (COALESCE(btrim(wo.emergency_justification), '') <> ''),
+         e.engagement_state_override,
+         wo.approval_status,
+         wo.approved_at,
+         wo.risk_notes,
+         wo.emergency_justification,
+         wo.risk_approved_at,
+         wo.risk_approved_by,
+         wo.emergency_review_by,
+         wo.emergency_partner_by
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
+   WHERE wo.wo_id = p_wo_id
+     AND wo.approval_status <> 'Draft'
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION get_risk_work_order(p_wo_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_risk_work_order(p_wo_id uuid) IS '1028-213: detalle de /risks/:woId. La fila de la lista mas aprobacion del socio, notas de rechazo, motivo de emergencia y actores de la pista de Riesgos; sin montos, presupuesto, plan de pagos ni horas. NOT_FOUND si la OT no existe, es borrador, administrativa o de un encargo cancelado.';
+
+
+--
 -- Name: get_staff_assignment_segments(uuid, date, date); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8199,12 +8594,17 @@ BEGIN
   -- Cobranzas Fase 6: tambien se guarda DE QUE FECHA salio el TC. NULL = se escribio a mano
   -- (decision Q49), y eso es informacion, no un hueco: distingue un TC elegido del calendario
   -- de uno tecleado.
+  -- 1028-214 (review de Codex): la fecha acompana al TC. Si no vino TC, se conserva el que ya
+  -- tenia la cuota (COALESCE) y tambien su fecha: borrarla dejaba ese mismo TC registrado como
+  -- "a mano". Misma regla que collect_installment.
   UPDATE public.wo_payment_installments
      SET status = 'Invoiced',
          collection_invoice_date = v_invoice_date,
          collection_payment_date = p_payment_due_date,
          invoice_exchange_rate = COALESCE(p_invoice_exchange_rate, invoice_exchange_rate),
-         invoice_exchange_rate_date = p_invoice_exchange_rate_date
+         invoice_exchange_rate_date = CASE WHEN p_invoice_exchange_rate IS NOT NULL
+                                           THEN p_invoice_exchange_rate_date
+                                           ELSE invoice_exchange_rate_date END
    WHERE installment_id = p_installment_id
   RETURNING * INTO v_row;
 
@@ -9246,6 +9646,62 @@ COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3
 
 
 --
+-- Name: list_risk_work_orders(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.list_risk_work_orders() RETURNS TABLE(wo_id uuid, engagement_id uuid, engagement_code character varying, engagement_name character varying, client_name character varying, partner_name text, manager_name text, san_approval_id text, san_completed_at date, ceac_number text, ceac_completed_at date, risk_level text, risk_status text, emergency_review_at timestamp with time zone, emergency_partner_at timestamp with time zone, emergency_deadline_at date, has_emergency_justification boolean, engagement_state_override smallint)
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+#variable_conflict use_column
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.read')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  SELECT wo.wo_id,
+         e.engagement_id,
+         e.engagement_code,
+         e.engagement_name,
+         c.client_legal_name,
+         COALESCE(NULLIF(btrim(sp.short_name), ''), NULLIF(btrim(concat_ws(' ', sp.first_name, sp.last_name)), ''))::text,
+         COALESCE(NULLIF(btrim(sm.short_name), ''), NULLIF(btrim(concat_ws(' ', sm.first_name, sm.last_name)), ''))::text,
+         wo.san_approval_id,
+         wo.san_completed_at,
+         wo.ceac_number,
+         wo.ceac_completed_at,
+         wo.risk_level,
+         wo.risk_status,
+         wo.emergency_review_at,
+         wo.emergency_partner_at,
+         wo.emergency_deadline_at,
+         (COALESCE(btrim(wo.emergency_justification), '') <> ''),
+         e.engagement_state_override
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+    JOIN public.clients c ON c.client_id = e.client_id
+    LEFT JOIN public.staff sp ON sp.staff_id = e.partner_id
+    LEFT JOIN public.staff sm ON sm.staff_id = e.manager_id
+   WHERE wo.approval_status <> 'Draft'                                         -- D-10: sin borradores
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)                        -- sin encargos administrativos
+     AND e.engagement_state_override IS DISTINCT FROM 6                        -- H-5: sin encargos cancelados
+   ORDER BY e.engagement_code, wo.wo_id;                                       -- D-39
+END;
+$$;
+
+
+--
+-- Name: FUNCTION list_risk_work_orders(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.list_risk_work_orders() IS '1028-213: lista de /risks. Solo columnas de Riesgos (sin montos ni horas); todas las OT no borrador de encargos de cliente no cancelados, de cualquier sociedad (D-18), ordenadas por codigo de encargo. Guarda: admin o work_order.risk.read.';
+
+
+--
 -- Name: log_engagement_assignment_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9649,6 +10105,15 @@ CREATE FUNCTION public.my_society_client_ids() RETURNS SETOF uuid
     AS $$
   -- Un cliente es de mi sociedad si tiene al menos un encargo de ella (con o sin OT). Un cliente compartido lo ven ambas sociedades.
   SELECT DISTINCT e.client_id FROM public.engagements e WHERE e.engagement_id IN (SELECT public.my_society_engagement_ids())
+  UNION
+  -- 1028-211: un cliente SIN encargos todavía no tiene sociedad; se toma la de quien lo creó, para que Cobranzas y
+  -- Contabilidad de esa sociedad lo encuentren y lo activen. Desde su primer encargo manda la sociedad del encargo.
+  -- Creador sin sociedad o cliente sin creador (carga ETL): no lo ve ningún rol con alcance por sociedad.
+  SELECT c.client_id
+    FROM public.clients c
+    JOIN public.staff s ON s.staff_id = c.created_by_staff_id
+   WHERE s.society_id = public.my_society_id()
+     AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = c.client_id)
 $$;
 
 
@@ -10926,14 +11391,11 @@ CREATE FUNCTION public.notif_engagement_partners(p_engagement_id uuid) RETURNS T
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- sqr_id incluido a propósito (D-19): la función SQR la ocupan Socio, Senior Partner,
-  -- Senior o Director, y para ellos "asignados" significa justamente "el encargo donde soy
-  -- el SQR". Quien la ocupe con un rol que la matriz no contempla lo filtra notify_staff().
-  SELECT s FROM (
-    SELECT e.partner_id AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-    UNION
-    SELECT e.sqr_id     FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-  ) q WHERE s IS NOT NULL
+  -- 1028-213 (D-22, A10): el SQR ya no recibe avisos de OT; el conjunto devuelve solo al socio.
+  -- Antes incluía sqr_id (D-19). El SQR conserva los avisos de encargo (engagement.sqr_assigned) y los
+  -- de horas (notif_timesheet_period_leads agrega sqr_id por su cuenta).
+  SELECT e.partner_id AS s FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id AND e.partner_id IS NOT NULL
 $$;
 
 
@@ -10941,7 +11403,7 @@ $$;
 -- Name: FUNCTION notif_engagement_partners(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_engagement_partners(p_engagement_id uuid) IS 'Alcance `assigned` de la banda alta de un encargo: partner_id + sqr_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+COMMENT ON FUNCTION public.notif_engagement_partners(p_engagement_id uuid) IS 'Alcance `assigned` de la banda alta de un encargo: solo partner_id (1028-213: el SQR ya no recibe avisos de OT). Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
 
 --
@@ -11515,6 +11977,9 @@ CREATE FUNCTION public.notif_timesheet_period_leads(p_period_id uuid) RETURNS TA
     CROSS JOIN LATERAL (
       SELECT staff_id FROM public.notif_engagement_partners(g.engagement_id)
       UNION
+      -- 1028-213: notif_engagement_partners ya no incluye al SQR; el aviso de envío de la boleta sí lo conserva.
+      SELECT e.sqr_id FROM public.engagements e WHERE e.engagement_id = g.engagement_id
+      UNION
       SELECT staff_id FROM public.notif_engagement_managers(g.engagement_id)
     ) r
    WHERE r.staff_id IS NOT NULL
@@ -11843,7 +12308,11 @@ DECLARE
   v_base        jsonb;
   v_rec         record;
   v_deactivated boolean;
+  v_society     uuid;
   c_firma constant text[] := ARRAY['senior_partner'];
+  -- 1028-211: quien activa clientes. notif_staff_by_roles_in_society deja a admin siempre y a los dos roles con
+  -- alcance por sociedad solo si son de la sociedad pedida.
+  c_activadores constant text[] := ARRAY['admin', 'accounting_manager', 'collections_analyst'];
 BEGIN
   v_base := jsonb_build_object(
     'client_id',         NEW.client_id,
@@ -11863,6 +12332,48 @@ BEGIN
     LOOP
       PERFORM public.notify_staff('client.created', v_rec.staff_id,
                                   NEW.client_id::text, v_base);
+    END LOOP;
+
+    -- 1028-211: el alta de quien no tiene client.activate nace inactiva (trg_clients_enforce_activation) y
+    -- espera a que la active Cobranzas o Contabilidad de la sociedad del creador, o admin. Creador sin
+    -- sociedad: solo admin. El aviso nombra al creador para que sepan a quién preguntar.
+    IF NOT COALESCE(NEW.is_active, true) THEN
+      SELECT s.society_id INTO v_society FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id;
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_activadores, v_society)
+      LOOP
+        PERFORM public.notify_staff('client.pending_activation', v_rec.staff_id, NEW.client_id::text,
+          v_base || jsonb_build_object('creator_name',
+            (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+               FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id)));
+      END LOOP;
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  -- ── Activación (1028-211) ──
+  -- Al creador (para que sepa que ya puede abrir encargos) y a quien activa, solo por campana. La sociedad es la
+  -- de los encargos del cliente; si todavía no tiene, la del creador (la misma regla que my_society_client_ids).
+  -- La activación no cuenta además como edición.
+  IF NOT COALESCE(OLD.is_active, true) AND COALESCE(NEW.is_active, true) THEN
+    FOR v_rec IN
+      SELECT NEW.created_by_staff_id AS staff_id WHERE NEW.created_by_staff_id IS NOT NULL
+      UNION
+      SELECT a.staff_id
+        FROM (SELECT DISTINCT e.society_id FROM public.engagements e WHERE e.client_id = NEW.client_id
+              UNION
+              SELECT s.society_id FROM public.staff s
+               WHERE s.staff_id = NEW.created_by_staff_id
+                 AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = NEW.client_id)) soc
+        CROSS JOIN LATERAL public.notif_staff_by_roles_in_society(c_activadores, soc.society_id) a
+      UNION
+      -- admin aunque no haya ninguna sociedad (cliente de la carga ETL sin creador ni encargos).
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+    LOOP
+      PERFORM public.notify_staff('client.activated', v_rec.staff_id, NEW.client_id::text,
+        v_base || jsonb_build_object('activated_by_name',
+          (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+             FROM public.staff s WHERE s.staff_id = NEW.activated_by_staff_id)));
     END LOOP;
     RETURN NULL;
   END IF;
@@ -11922,7 +12433,7 @@ $$;
 -- Name: FUNCTION notify_client_events(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notify_client_events() IS 'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. Degrada a WARNING.';
+COMMENT ON FUNCTION public.notify_client_events() IS 'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. 1028-211: el alta inactiva avisa a quien activa (client.pending_activation) y la activacion al creador y a quien activa (client.activated). Degrada a WARNING.';
 
 
 --
@@ -12559,14 +13070,28 @@ BEGIN
   --
   -- Marcarlo, y no omitir el aviso: que no pueda abrir la pantalla no significa que el hecho no
   -- le importe. El correo sale igual, con su resumen, y el botón lleva al inicio de EMS.
-  v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
-  IF v_permiso IS NOT NULL
-     AND NOT EXISTS (
+  --
+  -- 1028-213 (D-17, AC-32): los avisos de Riesgos de la OT (submitted_risk, risk.resubmitted, emergency.step1_done y emergency.deadline_passed) llevan a /risks/:woId para los roles que
+  -- tienen work_order.risk.read (risk_partner, risk_supervisor, admin). Se marca con payload.ruta = 'risks'
+  -- (lo lee rutas.ts) y NO se marca sin_ruta: risk_supervisor ya no tiene work_order.read, que es el
+  -- permiso del destino /work-orders. Para cualquier otro rol sigue la lógica de siempre.
+  IF p_type_key IN ('wo.submitted_risk', 'wo.risk.resubmitted', 'wo.emergency.step1_done', 'wo.emergency.deadline_passed')
+     AND EXISTS (
        SELECT 1 FROM public.authorization_role_permissions arp
         WHERE arp.role_key = v_role_key
-          AND arp.permission_key = v_permiso
+          AND arp.permission_key = 'work_order.risk.read'
      ) THEN
-    v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+    v_payload := v_payload || jsonb_build_object('ruta', 'risks');
+  ELSE
+    v_permiso := public.notif_permiso_de_ruta(p_type_key, v_module_key, v_payload);
+    IF v_permiso IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM public.authorization_role_permissions arp
+          WHERE arp.role_key = v_role_key
+            AND arp.permission_key = v_permiso
+       ) THEN
+      v_payload := v_payload || jsonb_build_object('sin_ruta', true);
+    END IF;
   END IF;
 
   -- La campana, sólo para los tipos que viven ahí.
@@ -15291,7 +15816,7 @@ BEGIN
   -- 2026-09-20: el conjunto ya no es fijo "donde soy manager_id" -- depende del rol que mi
   -- categoría implica. engagements solo tiene columna estructural para partner/manager/sqr;
   -- cualquier otra categoría (Director, Senior, Asistente, especialistas...) o una sin
-  -- default_role_key poblado cae al ELSE: los encargos donde ocupo CUALQUIER rol estructural.
+  -- default_role_key poblado cae al ELSE: los encargos donde soy socio o gerente (1028-213, D-41: ser SQR ya no cuenta).
   -- No se cae a "toda la cartera" a propósito -- para un admin firm-wide eso compararía sus
   -- horas personales contra el presupuesto de toda la firma.
   my_role_scope_fy AS (
@@ -15304,7 +15829,7 @@ BEGIN
             WHEN 'partner' THEN sf.partner_id = c.staff_id
             WHEN 'manager' THEN sf.manager_id = c.staff_id
             WHEN 'sqr'     THEN sf.sqr_id = c.staff_id
-            ELSE (sf.partner_id = c.staff_id OR sf.manager_id = c.staff_id OR sf.sqr_id = c.staff_id)
+            ELSE (sf.partner_id = c.staff_id OR sf.manager_id = c.staff_id) -- 1028-213 (D-41): ya no se cuenta ser SQR
           END
   ),
 
@@ -16895,6 +17420,70 @@ $$;
 
 
 --
+-- Name: reject_wo_risk(uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_wo_risk(p_wo_id uuid, p_risk_notes text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_wo record;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (public.is_admin() OR public.has_permission('work_order.risk.approve')) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wo.engagement_id, wo.approval_status, wo.risk_status
+    INTO v_wo
+    FROM public.work_orders wo
+    JOIN public.engagements e ON e.engagement_id = wo.engagement_id
+   WHERE wo.wo_id = p_wo_id
+     -- Misma elegibilidad que list_/get_risk_work_order: sin encargos administrativos ni cancelados (H-5).
+     -- Una OT que /risks trata como inexistente tampoco se puede escribir llamando a la funcion (review R3-2).
+     AND NOT (e.funcion IS NOT NULL AND e.funcion <> 1)
+     AND e.engagement_state_override IS DISTINCT FROM 6
+     FOR UPDATE OF wo;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (public.is_admin() OR public.can_approve_wo_risk(v_wo.engagement_id)) THEN
+    RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501';
+  END IF;
+
+  -- Precondicion: enviada y la pista de Riesgos sin resolver (showRiskActions).
+  IF v_wo.approval_status = 'Draft' OR COALESCE(v_wo.risk_status, 'Pending') IN ('Approved', 'Rejected') THEN
+    RAISE EXCEPTION 'CONFLICT' USING ERRCODE = '23000';
+  END IF;
+
+  -- Pistas independientes (D-15): no toca approval_status ni la aprobacion del socio. Limpia las marcas de emergencia
+  -- para que un reenvio reinicie el flujo de dos firmas desde el paso 1 (igual que useRejectRisk).
+  UPDATE public.work_orders
+     SET risk_status             = 'Rejected',
+         risk_notes              = p_risk_notes,
+         emergency_review_by     = NULL,
+         emergency_review_at     = NULL,
+         emergency_partner_by    = NULL,
+         emergency_partner_at    = NULL,
+         emergency_deadline_at   = NULL,
+         emergency_justification = NULL
+   WHERE wo_id = p_wo_id;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION reject_wo_risk(p_wo_id uuid, p_risk_notes text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.reject_wo_risk(p_wo_id uuid, p_risk_notes text) IS '1028-213: rechazo de Riesgos. Escribe risk_status = Rejected, risk_notes y limpia las columnas emergency_*; no toca approval_status ni approved_* (D-15). Guarda: admin o can_approve_wo_risk; fila bloqueada.';
+
+
+--
 -- Name: reject_work_order_engagement_move(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -18143,6 +18732,39 @@ $$;
 
 
 --
+-- Name: set_client_active(uuid, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_client_active(p_client_id uuid, p_active boolean) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF p_client_id IS NULL OR p_active IS NULL THEN
+    RAISE EXCEPTION 'CLIENT_PAYLOAD_INVALID: faltan el cliente o el estado';
+  END IF;
+  IF NOT public.has_permission('client.activate') THEN
+    RAISE EXCEPTION 'CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF p_active IS FALSE AND public.current_role_key() IS DISTINCT FROM 'admin' THEN
+    RAISE EXCEPTION 'CLIENT_DEACTIVATION_FORBIDDEN: solo un administrador puede desactivar un cliente'
+      USING ERRCODE = '42501';
+  END IF;
+  IF public.is_society_scoped_role()
+     AND p_client_id NOT IN (SELECT public.my_society_client_ids()) THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+
+  UPDATE public.clients SET is_active = p_active WHERE client_id = p_client_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CLIENT_NOT_FOUND: el cliente no existe';
+  END IF;
+END;
+$$;
+
+
+--
 -- Name: set_client_created_by(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -19155,17 +19777,23 @@ BEGIN
     END IF;
 
     -- Con sesión: admin, o work_order.create / work_order.update con su alcance (con
-    -- assigned_engagements, asignado al encargo; mismo criterio que wo_create_by_permission).
+    -- assigned_engagements, gerente del encargo; mismo criterio que wo_create_by_permission).
+    -- 1028-213 (D-42, H-2): antes bastaba is_assigned_to_engagement (socio, gerente, SQR o
+    -- encargado); ahora solo el gerente del encargo (o admin).
     -- Sin sesión (migraciones como 0825-183, service_role): permitido. anon, nunca.
     IF auth.uid() IS NOT NULL THEN
         IF NOT (
             public.is_admin()
             OR (public.has_permission('work_order.update')
                 AND (public.permission_scope('work_order.update') IS DISTINCT FROM 'assigned_engagements'
-                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+                     OR EXISTS (SELECT 1 FROM public.engagements e
+                          WHERE e.engagement_id = v_wo.engagement_id
+                            AND e.manager_id = public.get_my_staff_id())))
             OR (public.has_permission('work_order.create')
                 AND (public.permission_scope('work_order.create') IS DISTINCT FROM 'assigned_engagements'
-                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+                     OR EXISTS (SELECT 1 FROM public.engagements e
+                          WHERE e.engagement_id = v_wo.engagement_id
+                            AND e.manager_id = public.get_my_staff_id())))
         ) THEN
             RAISE EXCEPTION 'NOT_AUTHORIZED';
         END IF;
@@ -19857,10 +20485,19 @@ CREATE FUNCTION public.wo_installment_log_event() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  v_converts boolean;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status THEN
+    -- 1028-214 (review de Codex): una cuota en Bs no convierte nada. Si es de una OT en otra
+    -- moneda, sus columnas de TC pueden seguir con el TC del plan, y registrarlo hacia que el
+    -- historial lo mostrara como el TC "con que se facturo". Misma regla de moneda efectiva
+    -- que invoice_installment usa para exigir TC.
+    SELECT COALESCE(NEW.currency, w.currency) <> 'BOB' INTO v_converts
+      FROM public.work_orders w WHERE w.wo_id = NEW.wo_id;
     INSERT INTO public.wo_installment_events (
-      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id
+      installment_id, wo_id, action, from_status, to_status, new_date, amount, actor_staff_id,
+      exchange_rate, exchange_rate_date
     ) VALUES (
       NEW.installment_id, NEW.wo_id, 'status_change', OLD.status, NEW.status,
       -- La fecha que estampa esa transicion: facturacion real al facturar, pago real al cobrar.
@@ -19869,7 +20506,20 @@ BEGIN
         WHEN 'Completed' THEN NEW.payment_date_actual
         ELSE NULL
       END,
-      NEW.amount, public.get_my_staff_id()
+      NEW.amount, public.get_my_staff_id(),
+      -- 1028-214: el TC que queda congelado en esa transicion, y su cotizacion.
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate
+          WHEN 'Completed' THEN NEW.payment_exchange_rate
+        END
+      END,
+      CASE WHEN v_converts THEN
+        CASE NEW.status
+          WHEN 'Invoiced'  THEN NEW.invoice_exchange_rate_date
+          WHEN 'Completed' THEN NEW.payment_exchange_rate_date
+        END
+      END
     );
   END IF;
 
@@ -19976,6 +20626,12 @@ BEGIN
     END IF;
     IF NEW.status <> 'Pending' THEN
       RAISE EXCEPTION 'INSTALLMENT_LOCKED: una cuota nueva debe crearse en estado Pending';
+    END IF;
+    -- 1028-214 (review de Codex): de que cotizacion salio un TC se registra despues, al
+    -- capturarlo (Contabilidad o admin, OT aprobada; ver mas abajo). Una cuota nueva no la
+    -- trae: el alta la hace el gerente con la OT en Draft, y por aca podia inventarla.
+    IF NEW.invoice_exchange_rate_date IS NOT NULL OR NEW.payment_exchange_rate_date IS NOT NULL THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: una cuota nueva no puede traer la cotizacion de origen del tipo de cambio';
     END IF;
 
     -- MUST FIX review iteracion 18 #1: se resuelve el plan por NEW.plan_id (la
@@ -20100,6 +20756,12 @@ BEGIN
        -- la fila de los gastos ejecutados, y por su RPC. En una cuota de HONORARIOS el monto
        -- sigue siendo del gerente del encargo: ahi el monto es el contrato con el cliente.
        OR (NEW.amount IS DISTINCT FROM OLD.amount
+           AND OLD.installment_type <> 'expense_reimbursement')
+       -- La moneda de una cuota de HONORARIOS es parte del contrato que arma el gerente
+       -- (Q29). Faltaba en esta lista: con la OT en Borrador la pantalla le dejaba elegirla
+       -- a Contabilidad, y aca nada lo frenaba. La de la fila de gastos SI la cambia
+       -- Contabilidad (Fase 9, useSetInstallmentCurrency), igual que su monto.
+       OR (NEW.currency IS DISTINCT FROM OLD.currency
            AND OLD.installment_type <> 'expense_reimbursement')
        OR NEW.installment_number IS DISTINCT FROM OLD.installment_number
        OR NEW.created_at IS DISTINCT FROM OLD.created_at
@@ -20245,6 +20907,67 @@ BEGIN
     FROM public.wo_payment_plan p
     JOIN public.work_orders wo ON wo.wo_id = p.wo_id
     WHERE p.plan_id = NEW.plan_id;
+  END IF;
+
+  -- 1028-214: de que cotizacion salio cada TC. Se congela en la misma ventana que el TC al
+  -- que acompana -- si no, la trazabilidad que pidio Q49 se podria reescribir despues de
+  -- facturar o de cobrar. Quien puede escribirla se controla en el bloque siguiente.
+  IF NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+     AND OLD.status <> 'Pending' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de facturacion de esta cuota ya esta congelada';
+  END IF;
+  IF NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+     AND OLD.status = 'Completed' THEN
+    RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio de pago de esta cuota ya esta congelada';
+  END IF;
+  -- Y la escribe solo quien captura el TC por cuota: Contabilidad o un admin, con la OT
+  -- aprobada (review de Codex sobre el PR de 1028-214). La policy "Manager can manage..." le
+  -- deja al gerente actualizar la fila, y sin esto podia inventar de que cotizacion salio un
+  -- TC que despues la bitacora y la pantalla muestran como cierto. Ningun camino legitimo del
+  -- gerente toca estas fechas: ni el guardado del plan, ni el resincronizado de modo fijo.
+  -- Admin por role_key, no is_admin() (enum legacy): mismo criterio que la pantalla.
+  -- Este bloque es el de REGISTRAR una fecha; borrarla tiene su propia regla abajo, porque el
+  -- resincronizado de modo fijo (corre como el gerente, con la OT en Draft) la borra cuando
+  -- reemplaza el TC de una cuota por el del plan.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NOT NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NOT NULL) THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede registrar de que cotizacion salio el tipo de cambio';
+    END IF;
+    SELECT wo.approval_status INTO v_approval_status
+    FROM public.wo_payment_plan p
+    JOIN public.work_orders wo ON wo.wo_id = p.wo_id
+    WHERE p.plan_id = NEW.plan_id;
+    IF v_approval_status IS DISTINCT FROM 'Approved' THEN
+      RAISE EXCEPTION 'EXCHANGE_RATE_LOCKED: la fecha del tipo de cambio solo puede registrarse con la orden de trabajo aprobada';
+    END IF;
+  END IF;
+  -- Borrarla tampoco queda libre (review de Codex sobre el PR de 1028-214): si el gerente
+  -- borra la fecha sin tocar el TC, ese TC -- que salio de una cotizacion -- pasa a verse como
+  -- escrito a mano o del plan. Fuera de Contabilidad o un admin, solo se borra en el
+  -- resincronizado de modo fijo: el plan esta en 'fijo' y la cuota queda con el TC del plan,
+  -- que no sale de ninguna cotizacion. Cualquier otro cambio del TC por el gerente ya lo
+  -- rechazan los bloques de abajo.
+  IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+      AND NEW.invoice_exchange_rate_date IS NULL)
+     OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+      AND NEW.payment_exchange_rate_date IS NULL) THEN
+    IF NOT (public.current_role_key() IS NOT DISTINCT FROM 'admin' OR public.is_collections_role()) THEN
+      SELECT p.exchange_rate_mode, p.exchange_rate
+      INTO v_exchange_rate_mode, v_plan_exchange_rate
+      FROM public.wo_payment_plan p
+      WHERE p.plan_id = NEW.plan_id;
+      IF (NEW.invoice_exchange_rate_date IS DISTINCT FROM OLD.invoice_exchange_rate_date
+          AND NOT (v_exchange_rate_mode = 'fijo'
+                   AND NEW.invoice_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate))
+         OR (NEW.payment_exchange_rate_date IS DISTINCT FROM OLD.payment_exchange_rate_date
+          AND NOT (v_exchange_rate_mode = 'fijo'
+                   AND NEW.payment_exchange_rate IS NOT DISTINCT FROM v_plan_exchange_rate)) THEN
+        RAISE EXCEPTION 'EXCHANGE_RATE_FORBIDDEN: solo contabilidad (o un administrador) puede borrar de que cotizacion salio el tipo de cambio';
+      END IF;
+    END IF;
   END IF;
 
   IF NEW.invoice_exchange_rate IS DISTINCT FROM OLD.invoice_exchange_rate THEN
@@ -20448,13 +21171,20 @@ BEGIN
     NEW.exchange_rate IS DISTINCT FROM OLD.exchange_rate
     OR NEW.exchange_rate_mode IS DISTINCT FROM OLD.exchange_rate_mode
   ) THEN
+    -- 1028-214 (review de Codex): el TC del plan no sale de ninguna cotizacion. Si la cuota
+    -- traia uno de una fecha (capturado en modo variable), al reemplazarlo se borra tambien
+    -- esa fecha: si no, el TC del plan quedaba atribuido a una cotizacion que no es la suya.
     UPDATE public.wo_payment_installments
     SET invoice_exchange_rate = NEW.exchange_rate,
-        payment_exchange_rate = NEW.exchange_rate
+        payment_exchange_rate = NEW.exchange_rate,
+        invoice_exchange_rate_date = NULL,
+        payment_exchange_rate_date = NULL
     WHERE plan_id = NEW.plan_id
       AND status = 'Pending'
       AND (invoice_exchange_rate IS DISTINCT FROM NEW.exchange_rate
-           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate);
+           OR payment_exchange_rate IS DISTINCT FROM NEW.exchange_rate
+           OR invoice_exchange_rate_date IS NOT NULL
+           OR payment_exchange_rate_date IS NOT NULL);
   END IF;
   RETURN NULL;
 END;
@@ -23059,6 +23789,10 @@ CREATE TABLE public.clients (
     parent_relationship text,
     client_origin text,
     billing_tax_treatment text,
+    activated_at timestamp with time zone,
+    activated_by_staff_id uuid,
+    deactivated_at timestamp with time zone,
+    deactivated_by_staff_id uuid,
     CONSTRAINT clients_billing_tax_treatment_check CHECK ((billing_tax_treatment = ANY (ARRAY['nit_propio'::text, 'nit_generico_99001'::text, 'pendiente'::text]))),
     CONSTRAINT clients_client_origin_check CHECK ((client_origin = ANY (ARRAY['nacional'::text, 'extranjero'::text, 'diplomatico'::text]))),
     CONSTRAINT clients_client_type_check CHECK ((client_type = ANY (ARRAY['entidad'::text, 'sucursal'::text, 'proyecto'::text, 'fideicomiso'::text]))),
@@ -23084,14 +23818,51 @@ COMMENT ON COLUMN public.clients.created_by_staff_id IS 'Staff que creó el clie
 
 
 --
+-- Name: COLUMN clients.activated_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.activated_at IS '1028-211: última activación (alta activa incluida). La fija trg_clients_enforce_activation; NULL si nunca se activó con esta trazabilidad.';
+
+
+--
+-- Name: COLUMN clients.activated_by_staff_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.activated_by_staff_id IS '1028-211: quién hizo la última activación (get_my_staff_id() de la sesión; NULL si fue el sistema, p. ej. la carga ETL).';
+
+
+--
+-- Name: COLUMN clients.deactivated_at; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.deactivated_at IS '1028-211: última desactivación. La fija trg_clients_enforce_activation.';
+
+
+--
+-- Name: COLUMN clients.deactivated_by_staff_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.clients.deactivated_by_staff_id IS '1028-211: quién hizo la última desactivación (NULL si fue el sistema).';
+
+
+--
 -- Name: clients_directory; Type: VIEW; Schema: public; Owner: -
 --
 
 CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
  SELECT client_id,
     client_legal_name,
-    is_active
-   FROM public.clients c
+    is_active,
+    homonym_seq
+   FROM ( SELECT cl.client_id,
+            cl.client_legal_name,
+            cl.is_active,
+                CASE
+                    WHEN (count(*) OVER same_name > 1) THEN row_number() OVER (same_name ORDER BY cl.created_at, cl.client_id)
+                    ELSE NULL::bigint
+                END AS homonym_seq
+           FROM public.clients cl
+          WINDOW same_name AS (PARTITION BY (lower(btrim((cl.client_legal_name)::text))))) c
   WHERE ((public.get_my_staff_id() IS NOT NULL) AND ((NOT public.is_society_scoped_role()) OR (client_id IN ( SELECT public.my_society_client_ids() AS my_society_client_ids))));
 
 
@@ -23099,7 +23870,7 @@ CREATE VIEW public.clients_directory WITH (security_invoker='false') AS
 -- Name: VIEW clients_directory; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON VIEW public.clients_directory IS 'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated.';
+COMMENT ON VIEW public.clients_directory IS 'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated. homonym_seq (1028-211): número del cliente entre los de igual razón social, por fecha de alta; NULL si el nombre es único.';
 
 
 --
@@ -24275,6 +25046,8 @@ CREATE TABLE public.wo_installment_events (
     reason text,
     actor_staff_id uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    exchange_rate numeric,
+    exchange_rate_date date,
     CONSTRAINT wo_installment_events_action_check CHECK ((action = ANY (ARRAY['status_change'::text, 'rescheduled'::text, 'confirmation'::text, 'adjustment'::text, 'adjustment_removed'::text, 'payment_date_corrected'::text, 'reimbursement_amount_changed'::text])))
 );
 
@@ -24420,38 +25193,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_03; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_03 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_11_04; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_04 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_11_05; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -24488,6 +25229,38 @@ CREATE TABLE realtime.messages_2026_11_06 (
 --
 
 CREATE TABLE realtime.messages_2026_11_07 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_08; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_08 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_09; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_09 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -24780,20 +25553,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_03; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_03 FOR VALUES FROM ('2026-11-03 00:00:00') TO ('2026-11-04 00:00:00');
-
-
---
--- Name: messages_2026_11_04; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_04 FOR VALUES FROM ('2026-11-04 00:00:00') TO ('2026-11-05 00:00:00');
-
-
---
 -- Name: messages_2026_11_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -24812,6 +25571,20 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_06
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_07 FOR VALUES FROM ('2026-11-07 00:00:00') TO ('2026-11-08 00:00:00');
+
+
+--
+-- Name: messages_2026_11_08; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_08 FOR VALUES FROM ('2026-11-08 00:00:00') TO ('2026-11-09 00:00:00');
+
+
+--
+-- Name: messages_2026_11_09; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_09 FOR VALUES FROM ('2026-11-09 00:00:00') TO ('2026-11-10 00:00:00');
 
 
 --
@@ -25781,22 +26554,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_03 messages_2026_11_03_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_03
-    ADD CONSTRAINT messages_2026_11_03_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_11_04 messages_2026_11_04_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_04
-    ADD CONSTRAINT messages_2026_11_04_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_11_05 messages_2026_11_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -25818,6 +26575,22 @@ ALTER TABLE ONLY realtime.messages_2026_11_06
 
 ALTER TABLE ONLY realtime.messages_2026_11_07
     ADD CONSTRAINT messages_2026_11_07_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_08 messages_2026_11_08_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_08
+    ADD CONSTRAINT messages_2026_11_08_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_09 messages_2026_11_09_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_09
+    ADD CONSTRAINT messages_2026_11_09_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -26943,20 +27716,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_03_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_03_inserted_at_topic_idx ON realtime.messages_2026_11_03 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_11_04_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_04_inserted_at_topic_idx ON realtime.messages_2026_11_04 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -26975,6 +27734,20 @@ CREATE INDEX messages_2026_11_06_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_07_inserted_at_topic_idx ON realtime.messages_2026_11_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_08_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_08_inserted_at_topic_idx ON realtime.messages_2026_11_08 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_09_inserted_at_topic_idx ON realtime.messages_2026_11_09 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -27076,34 +27849,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_03_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_03_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_03_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_03_pkey;
-
-
---
--- Name: messages_2026_11_04_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_04_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_04_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_04_pkey;
-
-
---
 -- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -27143,6 +27888,34 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_07_pkey;
+
+
+--
+-- Name: messages_2026_11_08_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_08_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_08_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_08_pkey;
+
+
+--
+-- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_09_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_09_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_09_pkey;
 
 
 --
@@ -27552,6 +28325,13 @@ CREATE TRIGGER trg_clients_created_by BEFORE INSERT OR UPDATE ON public.clients 
 
 
 --
+-- Name: clients trg_clients_enforce_activation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_clients_enforce_activation BEFORE INSERT OR UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.enforce_client_activation();
+
+
+--
 -- Name: time_entries trg_enforce_activity_default; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -27626,6 +28406,13 @@ CREATE TRIGGER trg_engagements_created_by BEFORE INSERT OR UPDATE ON public.enga
 --
 
 CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_creator_team();
+
+
+--
+-- Name: engagements trg_engagements_enforce_client_active; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_enforce_client_active BEFORE INSERT OR UPDATE OF client_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_client_active();
 
 
 --
@@ -28207,11 +28994,27 @@ ALTER TABLE ONLY public.client_contacts
 
 
 --
+-- Name: clients clients_activated_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_activated_by_staff_id_fkey FOREIGN KEY (activated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
+
+
+--
 -- Name: clients clients_created_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.clients
     ADD CONSTRAINT clients_created_by_staff_id_fkey FOREIGN KEY (created_by_staff_id) REFERENCES public.staff(staff_id);
+
+
+--
+-- Name: clients clients_deactivated_by_staff_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_deactivated_by_staff_id_fkey FOREIGN KEY (deactivated_by_staff_id) REFERENCES public.staff(staff_id) ON DELETE SET NULL;
 
 
 --
@@ -29400,24 +30203,6 @@ CREATE POLICY "Approvers can view assigned timesheets" ON public.timesheet_perio
 
 
 --
--- Name: work_orders Assigned SQR can update work orders; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Assigned SQR can update work orders" ON public.work_orders FOR UPDATE TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id())))));
-
-
---
--- Name: work_orders Assigned SQR can view work orders; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders FOR SELECT TO authenticated USING ((engagement_id IN ( SELECT public.my_sqr_visible_engagement_ids() AS my_sqr_visible_engagement_ids)));
-
-
---
 -- Name: staff Authenticated staff can view active staff directory; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -29788,7 +30573,7 @@ CREATE POLICY authz_rp_select_admin ON public.authorization_role_permissions FOR
 -- Name: wo_budget_lines budget_lines assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "budget_lines assigned read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_assigned_wo_ids() AS my_assigned_wo_ids))));
+CREATE POLICY "budget_lines assigned read" ON public.wo_budget_lines FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids))));
 
 
 --
@@ -30020,7 +30805,7 @@ ALTER TABLE public.exchange_rate_history ENABLE ROW LEVEL SECURITY;
 -- Name: wo_expense_budget expense_budget assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_assigned_wo_ids() AS my_assigned_wo_ids))));
+CREATE POLICY "expense_budget assigned read" ON public.wo_expense_budget FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (wo_id IN ( SELECT public.my_team_wo_ids() AS my_team_wo_ids))));
 
 
 --
@@ -30810,7 +31595,9 @@ ALTER TABLE public.wo_budget_lines ENABLE ROW LEVEL SECURITY;
 -- Name: work_orders wo_create_by_permission; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND ((public.permission_scope('work_order.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
+CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND ((public.permission_scope('work_order.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR (EXISTS ( SELECT 1
+   FROM public.engagements e
+  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.manager_id = public.get_my_staff_id())))))));
 
 
 --
@@ -30987,7 +31774,7 @@ ALTER TABLE public.work_orders ENABLE ROW LEVEL SECURITY;
 -- Name: work_orders work_orders assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "work_orders assigned read" ON public.work_orders FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (engagement_id IN ( SELECT public.my_assigned_engagement_ids() AS my_assigned_engagement_ids))));
+CREATE POLICY "work_orders assigned read" ON public.work_orders FOR SELECT TO authenticated USING ((( SELECT public.has_permission('work_order.read'::text) AS has_permission) AND (( SELECT public.permission_scope('work_order.read'::text) AS permission_scope) = 'assigned_engagements'::text) AND (engagement_id IN ( SELECT public.my_team_engagement_ids() AS my_team_engagement_ids))));
 
 
 --
@@ -31003,7 +31790,7 @@ CREATE POLICY "work_orders firm read" ON public.work_orders FOR SELECT TO authen
 
 CREATE POLICY "worksheet cells assigned read" ON public.activity_worksheet_cells FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND (EXISTS ( SELECT 1
    FROM public.activity_worksheets w
-  WHERE ((w.id = activity_worksheet_cells.worksheet_id) AND public.is_assigned_to_engagement(w.engagement_id))))));
+  WHERE ((w.id = activity_worksheet_cells.worksheet_id) AND public.is_engagement_team_member(w.engagement_id))))));
 
 
 --
@@ -31017,7 +31804,9 @@ CREATE POLICY "worksheet cells firm read" ON public.activity_worksheet_cells FOR
 -- Name: activity_worksheets worksheet_create_by_permission; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY worksheet_create_by_permission ON public.activity_worksheets FOR INSERT TO authenticated WITH CHECK ((public.has_permission('worksheet.create'::text) AND ((public.permission_scope('worksheet.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
+CREATE POLICY worksheet_create_by_permission ON public.activity_worksheets FOR INSERT TO authenticated WITH CHECK ((public.has_permission('worksheet.create'::text) AND ((public.permission_scope('worksheet.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR (EXISTS ( SELECT 1
+   FROM public.engagements e
+  WHERE ((e.engagement_id = activity_worksheets.engagement_id) AND (e.manager_id = public.get_my_staff_id())))))));
 
 
 --
@@ -31031,7 +31820,7 @@ CREATE POLICY worksheet_team_update ON public.activity_worksheets FOR UPDATE TO 
 -- Name: activity_worksheets worksheets assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "worksheets assigned read" ON public.activity_worksheets FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND public.is_assigned_to_engagement(engagement_id)));
+CREATE POLICY "worksheets assigned read" ON public.activity_worksheets FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND public.is_engagement_team_member(engagement_id)));
 
 
 --
@@ -31239,5 +32028,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict btWnxUcDL0eknHsW9FJgirhqvLnRbkDgFnKZeMDGfdnOizCIgLfY3MabhcMFc8r
+\unrestrict 1wysQTGD2gNzqyjOYmTGjbiX4EC1sas4BFzkADmvAqCg2aC3T7CWd1ksnPTSyCb
 

@@ -16,8 +16,11 @@
 -- LIMPIAN el claim al terminar.
 --
 -- Fixture (ids con prefijo 1028216): A admin, P socio y gerente del encargo, R risk_partner que es el
--- SQR asignado (así llega a la OT por "Assigned SQR can update work orders"), pero NO es socio ni
--- gerente: no pasa worksheet_team_update. E1..E4 encargos de cliente, una OT cada uno:
+-- SQR asignado pero NO es socio ni gerente: no pasa worksheet_team_update. 1028-213 (D-21, D-37): el SQR
+-- ya no tiene política de UPDATE sobre work_orders (se retiró "Assigned SQR can update work orders"), así
+-- que R aprueba Riesgos por la función approve_wo_risk (SECURITY DEFINER); el resto de las escrituras de
+-- Riesgos de la suite (rechazo, revisión/firma de emergencia) las hace el admin con la misma sentencia
+-- de useWorkOrderMutations. E1..E4 encargos de cliente, una OT cada uno:
 --   WO1 flujo normal (matrices WS1 draft y WS1A archived), WO2 aislamiento (WS2; WS0 sin wo_id en E2),
 --   WO3 flujo de emergencia (WS3), WO4 estado forzado (WS4).
 -- "No se reescribió" se mide con ctid: updated_at no sirve porque now() es fijo en la transacción.
@@ -70,6 +73,12 @@ INSERT INTO public.activity_worksheets (id, engagement_id, wo_id, version, statu
   ('f1028216-0000-4000-8000-000000000003', 'e1028216-0000-4000-8000-000000000003', '01028216-0000-4000-8000-000000000003', 1, 'draft'),
   ('f1028216-0000-4000-8000-000000000004', 'e1028216-0000-4000-8000-000000000004', '01028216-0000-4000-8000-000000000004', 1, 'draft'),
   ('f1028216-0000-4000-8000-000000000000', 'e1028216-0000-4000-8000-000000000002', NULL,                                   2, 'draft');
+-- WO1 llega con los cinco campos de Riesgos completos: approve_wo_risk los exige (1028-213). Con triggers
+-- apagados (replica) este UPDATE no toca las matrices.
+UPDATE public.work_orders
+   SET ceac_completed_at = current_date, san_completed_at = current_date,
+       ceac_number = 'C-1', san_approval_id = 'S-1', risk_level = 'Bajo'
+ WHERE wo_id = '01028216-0000-4000-8000-000000000001';
 SET LOCAL session_replication_role = origin;
 
 -- Ejecuta como `authenticated` con el claim de p_sub. Si falla, limpia el claim y re-lanza.
@@ -137,6 +146,8 @@ DECLARE
   -- Sentencias de useWorkOrderMutations (wo_id con %L).
   socio_sign    constant text := 'UPDATE public.work_orders SET approved_by = %L, approved_at = now(), notes = NULL WHERE wo_id = %L';
   socio_close   constant text := 'UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L AND risk_status IN (''Approved'', ''Emergency_Approved'')';
+  -- 1028-213: la aprobación de Riesgos del SQR/risk_partner va por la función (la única vía sin política de UPDATE).
+  risk_rpc      constant text := 'SELECT public.approve_wo_risk(%L)';
   risk_approve  constant text := 'UPDATE public.work_orders SET risk_approved_by = %L, risk_approved_at = now(), risk_status = ''Approved'' WHERE wo_id = %L';
   risk_close    constant text := 'UPDATE public.work_orders SET approval_status = ''Approved'' WHERE wo_id = %L AND approved_at IS NOT NULL';
   risk_reject   constant text := 'UPDATE public.work_orders SET risk_status = ''Rejected'', emergency_review_by = NULL, emergency_review_at = NULL, emergency_partner_by = NULL, emergency_partner_at = NULL, emergency_deadline_at = NULL, emergency_justification = NULL WHERE wo_id = %L';
@@ -180,14 +191,11 @@ BEGIN
   PERFORM pg_temp.expect('1 solo Socio', ws1, 'draft');
 
   -- 12. Riesgos aprueba el SQR (risk_partner), que no es del equipo de la matriz (no pasa worksheet_team_update).
-  v_r := pg_temp.try_as(r, format(risk_approve, r_s, wo1));
+  -- 1028-213: approve_wo_risk aprueba la pista Y cierra la OT en la misma transacción (el Socio ya firmó),
+  -- así que ya no hay un paso intermedio "ambas pistas, OT sin cerrar" observable desde fuera.
+  v_r := pg_temp.try_as(r, format(risk_rpc, wo1));
   IF v_r <> '1' THEN
-    RAISE EXCEPTION 'FAIL (12): la aprobación de Riesgos del risk_partner debía alcanzar 1 fila, dio %', v_r;
-  END IF;
-  PERFORM pg_temp.expect('2 ambas pistas, OT sin cerrar', ws1, 'draft');
-  v_r := pg_temp.try_as(r, format(risk_close, wo1));
-  IF v_r <> '1' THEN
-    RAISE EXCEPTION 'FAIL (12): el cierre de Riesgos debía alcanzar 1 fila (sin 42501 por la matriz), dio %', v_r;
+    RAISE EXCEPTION 'FAIL (12): la aprobación de Riesgos del risk_partner por approve_wo_risk falló (sin 42501 por la matriz), dio %', v_r;
   END IF;
   PERFORM pg_temp.expect('3/12 Socio + Riesgos, cerrada por Riesgos', ws1, 'approved');
   PERFORM pg_temp.expect('9 archived intacta', ws1a, 'archived');
@@ -219,12 +227,11 @@ BEGIN
   PERFORM pg_temp.exec_as(a, format(risk_revert, wo1));
   PERFORM pg_temp.exec_as(a, format(reopen, wo1));
   PERFORM pg_temp.expect('5 Riesgos deshecho', ws1, 'draft');
-  PERFORM pg_temp.exec_as(r, format(risk_approve, r_s, wo1));
-  PERFORM pg_temp.exec_as(r, format(risk_close, wo1));
+  PERFORM pg_temp.exec_as(r, format(risk_rpc, wo1));
   PERFORM pg_temp.expect('5 Riesgos re-aprobado', ws1, 'approved');
 
   -- 6. Riesgos rechaza una OT cerrada: approval_status sigue 'Approved' (pistas independientes).
-  PERFORM pg_temp.exec_as(r, format(risk_reject, wo1));
+  PERFORM pg_temp.exec_as(a, format(risk_reject, wo1));
   IF (SELECT approval_status FROM public.work_orders WHERE wo_id = wo1::uuid) <> 'Approved' THEN
     RAISE EXCEPTION 'FIXTURE (6): el rechazo de Riesgos no debía tocar approval_status';
   END IF;
@@ -242,10 +249,12 @@ BEGIN
   PERFORM pg_temp.expect('8 OT Draft con firma conservada', ws1, 'draft');
   PERFORM pg_temp.expect('9 archived intacta tras todo el flujo normal', ws1a, 'archived');
 
-  -- 13. Firma rechazada por autorización: el risk_partner no puede firmar como Socio.
+  -- 13. Firma rechazada por autorización: el risk_partner no puede firmar como Socio. 1028-213: sin la política
+  -- de UPDATE del SQR, la fila de WO2 ni siquiera le es visible a R, así que la sentencia alcanza 0 filas
+  -- (antes llegaba al trigger y daba 42501); en ambos casos la firma no se registra.
   v_r := pg_temp.try_as(r, format(socio_sign, r_s, wo2));
-  IF v_r <> 'ERR 42501' THEN
-    RAISE EXCEPTION 'FAIL (13): la firma del Socio por un risk_partner debía fallar con 42501, dio %', v_r;
+  IF v_r <> '0' OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2::uuid) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL (13): la firma del Socio por un risk_partner debía alcanzar 0 filas y no registrarse, dio %', v_r;
   END IF;
   IF pg_temp.ws_ctid(ws2) <> v_ctid2 OR pg_temp.ws(ws2) <> 'draft' THEN
     RAISE EXCEPTION 'FAIL (13): la matriz cambió tras una aprobación rechazada';
@@ -253,10 +262,10 @@ BEGIN
   RAISE NOTICE 'OK (13): aprobación rechazada por autorización deja la matriz intacta';
 
   -- ── Flujo de emergencia (WO3) ───────────────────────────────────────────────────────────────
-  PERFORM pg_temp.exec_as(r, format(emerg_review, r_s, wo3));
+  PERFORM pg_temp.exec_as(a, format(emerg_review, r_s, wo3));
   PERFORM pg_temp.expect('7a firma de Riesgo', ws3, 'draft');
-  PERFORM pg_temp.exec_as(r, format(emerg_partner, r_s, wo3));
-  PERFORM pg_temp.exec_as(r, format(risk_close, wo3));   -- 0 filas: el Socio no firmó
+  PERFORM pg_temp.exec_as(a, format(emerg_partner, r_s, wo3));
+  PERFORM pg_temp.exec_as(a, format(risk_close, wo3));   -- 0 filas: el Socio no firmó
   PERFORM pg_temp.expect('7b Emergency_Approved sin Socio', ws3, 'draft');
   PERFORM pg_temp.exec_as(p, format(socio_sign, p_s, wo3));
   PERFORM pg_temp.exec_as(p, format(socio_close, wo3));
@@ -275,14 +284,14 @@ BEGIN
   END IF;
 
   -- 7d. Riesgos aprueba la revisión posterior.
-  PERFORM pg_temp.exec_as(r, format(risk_approve, r_s, wo3));
+  PERFORM pg_temp.exec_as(r, format(risk_rpc, wo3));
   PERFORM pg_temp.expect('7d revisión posterior aprobada', ws3, 'approved');
 
   -- 7e. Desde la compleción, Riesgos rechaza (limpia emergency_*).
   PERFORM pg_temp.exec_as(a, format('UPDATE public.work_orders SET risk_status = ''Emergency_Approved'' WHERE wo_id = %L', wo3));
   PERFORM pg_temp.exec_as(a, format(complete_risk, wo3));
   PERFORM pg_temp.expect('7e pre: de nuevo en compleción', ws3, 'approved');
-  PERFORM pg_temp.exec_as(r, format(risk_reject, wo3));
+  PERFORM pg_temp.exec_as(a, format(risk_reject, wo3));
   PERFORM pg_temp.expect('7e rechazo tras compleción', ws3, 'draft');
 
   -- 7f. Desde la compleción, el admin deshace Riesgos (limpia emergency_* y reabre).

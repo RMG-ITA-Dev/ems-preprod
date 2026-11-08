@@ -61,8 +61,11 @@ export interface PaymentInstallmentInput {
   // Cobranzas Fase 6 (decisión Q29): la cuota puede ir en otra moneda que la OT. null/undefined
   // = la de la OT, que es el caso normal.
   currency?: 'BOB' | 'USD' | 'USDT' | null;
-  // De qué fecha salió el TC de facturación; null = se escribió a mano (Q49).
+  // De qué cotización salió el TC de facturación (su fecha_vigencia); null = se escribió a
+  // mano o es el TC del plan (Q49, 1028-214).
   invoice_exchange_rate_date?: string | null;
+  // Lo mismo para el TC de pago (1028-214).
+  payment_exchange_rate_date?: string | null;
   // Cobranzas Fase 7: 'fee' es una cuota del plan de honorarios, que reparte el 100% del
   // honorario con IVA. 'expense_reimbursement' es la fila con la que Contabilidad le cobra al
   // cliente los gastos ya ejecutados: va fuera del reparto (porcentaje 0), la crea y la edita

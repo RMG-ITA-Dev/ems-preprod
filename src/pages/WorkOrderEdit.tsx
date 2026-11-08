@@ -285,6 +285,7 @@ const WorkOrderEdit = () => {
             confirmed_at: i.confirmed_at,
             currency: i.currency,
             invoice_exchange_rate_date: i.invoice_exchange_rate_date,
+            payment_exchange_rate_date: i.payment_exchange_rate_date,
             installment_type: i.installment_type ?? "fee",
             net_amount: i.net_amount !== null && i.net_amount !== undefined ? Number(i.net_amount) : null,
           }));
@@ -446,7 +447,7 @@ const WorkOrderEdit = () => {
 
   // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
   // ya no por categoría (can_approve_wo).
-  const { can, scope, roleKey } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
   const isAdmin = roleKey === "admin";
   // Escribir la OT (incluida la aprobación, que es un UPDATE más) exige ser Socio o
   // Gerente DEL encargo, o admin: es el predicado real de la policy "wo_team_update"
@@ -457,8 +458,8 @@ const WorkOrderEdit = () => {
   // a SQR y Encargado (decisión de negocio: solo lectura). Sin este gate veían los
   // campos de presupuesto editables y el guardado fallaba por RLS.
   //
-  // La aprobación de RIESGOS del SQR NO se ve afectada: va por `canApproveRisk`,
-  // que WorkOrderForm recibe como prop independiente de `isLocked` (líneas 402/408).
+  // La aprobación de RIESGOS (admin y roles de Riesgos) va por `canApproveRisk`,
+  // que WorkOrderForm recibe como prop independiente de `isLocked`.
   const isEngagementTeamMember =
     !!staffRecord &&
     (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
@@ -485,12 +486,6 @@ const WorkOrderEdit = () => {
   // ruta se abre sola; lo que faltaba era acotar QUÉ ven. Admin queda fuera: ve la OT entera.
   const isCollectionsRole = isCollectionsRoleKey(roleKey);
   const collectionsOnlyView = !isAdmin && isCollectionsRole;
-  // Decisión del operador 2026-10-26: el Supervisor de Riesgos abre la OT solo para la
-  // evaluación de riesgos, así que ve únicamente esa pestaña (sin Presupuesto, Plan de pagos
-  // ni Dotación) y en solo lectura, salvo sus botones de aprobar/rechazar Riesgos, que siguen
-  // por `canApproveRisk`. No escribe la OT: no es socio ni gerente del encargo
-  // (`canWriteWorkOrder`), así que la policy "wo_team_update" igual lo rechazaría.
-  const riskOnlyView = !isAdmin && roleKey === "risk_supervisor";
   // Cobranzas Fase 4 (decisión Q16): el hilo de notas lo escriben los cinco que participan de
   // él. Es un conjunto más amplio que `canEditPaymentPlan`: incluye al SOCIO del encargo, que
   // sigue sin poder tocar el plan de pagos y para quien ésta es justamente la vía de dejar
@@ -506,20 +501,13 @@ const WorkOrderEdit = () => {
   // real de escritura (`canWriteWorkOrder`) — igual que `canApproveRisk` ya hace con su
   // propio scope — en vez de solo chequear el permiso (iteración 6, review.md).
   const canApprove = can("work_order.submit") && canWriteWorkOrder;
-  // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk
-  // (migración Ola E). Requiere el permiso 'work_order.risk.approve' de la matriz:
-  //   - admin                                -> siempre.
-  //   - scope 'assigned_engagements' (gerente/ita/tax) -> SOLO si son el SQR del encargo.
-  //   - scope 'department' (socio/supervisor de Riesgos) -> cualquier encargo.
+  // Aprobación de la sección de Riesgos: espeja el guard backend can_approve_wo_risk.
+  // 1028-213 (D-23): solo admin y los roles de Riesgos (risk_partner / risk_supervisor, que
+  // tienen 'work_order.risk.approve') aprueban o rechazan; el SQR del encargo ya no.
   // Necesita staff record porque risk_approved_by referencia staff(staff_id).
-  const isAssignedSqr =
-    !!staffRecord && workOrder?.engagement?.sqr_id === staffRecord.staff_id;
-  const riskApproveScope = scope("work_order.risk.approve");
-  const canApproveRisk =
-    !!staffRecord &&
-    (isAdmin ||
-      (can("work_order.risk.approve") &&
-        (riskApproveScope !== "assigned_engagements" || isAssignedSqr)));
+  const canApproveRisk = !!staffRecord && (isAdmin || can("work_order.risk.approve"));
+  // D-38 / H-6: el paso 2 de emergencia (firma del Socio de Riesgos) es solo de risk_partner y admin.
+  const canSignEmergency = isAdmin || can("work_order.risk.emergency_sign");
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
 
@@ -651,7 +639,15 @@ const WorkOrderEdit = () => {
         payment_days: paymentPlan?.payment_days ?? 30,
         exchange_rate_mode: mode,
       });
-      const syncedInstallments = applyExchangeRateMode(mode, exchangeRate, paymentInstallments);
+      // El TC de las cuotas sale del plan YA GUARDADO, no del que se mandó: si se mandó null
+      // (OT en BOB, que nunca captura TC), la columna toma su DEFAULT latest_exchange_rate()
+      // y, en modo fijo, el guard exige que la cuota nueva traiga ese mismo TC. Con el null
+      // local, el primer guardado de una OT en BOB sin plan rebotaba con EXCHANGE_RATE_LOCKED.
+      const syncedInstallments = applyExchangeRateMode(
+        mode,
+        exchangeRate ?? savedPlan.exchange_rate,
+        paymentInstallments,
+      );
       await batchUpsertInstallments.mutateAsync({
         planId: savedPlan.plan_id,
         woId: workOrder.wo_id,
@@ -762,11 +758,10 @@ const WorkOrderEdit = () => {
       });
       return;
     }
-    const CEAC_NUM_RE = /^\d{10}$/;
-    const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
+    // El formato de los códigos va a cambiar: basta con que no estén vacíos.
     const allComplete =
-      !!ceacCompletedAt && CEAC_NUM_RE.test(ceacNumber ?? '')
-      && !!sanCompletedAt && SAN_ID_RE.test(sanApprovalId ?? '')
+      !!ceacCompletedAt && (ceacNumber ?? '').trim().length > 0
+      && !!sanCompletedAt && (sanApprovalId ?? '').trim().length > 0
       && !!riskLevel;
     const allEmpty =
       !ceacCompletedAt && !ceacNumber && !sanCompletedAt && !sanApprovalId && !riskLevel;
@@ -811,29 +806,20 @@ const WorkOrderEdit = () => {
   };
 
   const handleApproveRisk = async () => {
-    if (!workOrder || !staffRecord) return;
-    await approveRisk.mutateAsync({
-      woId: workOrder.wo_id,
-      staffId: staffRecord.staff_id,
-    });
+    if (!workOrder) return;
+    await approveRisk.mutateAsync({ woId: workOrder.wo_id });
   };
 
   // Emergency step 1: Riesgo (assistant).
   const handleApproveEmergencyReview = async () => {
-    if (!workOrder || !staffRecord) return;
-    await approveEmergencyReview.mutateAsync({
-      woId: workOrder.wo_id,
-      staffId: staffRecord.staff_id,
-    });
+    if (!workOrder) return;
+    await approveEmergencyReview.mutateAsync({ woId: workOrder.wo_id });
   };
 
   // Emergency step 2: Socio de Riesgos (starts the deadline, closes the OT).
   const handleApproveEmergencyPartner = async () => {
-    if (!workOrder || !staffRecord) return;
-    await approveEmergencyPartner.mutateAsync({
-      woId: workOrder.wo_id,
-      staffId: staffRecord.staff_id,
-    });
+    if (!workOrder) return;
+    await approveEmergencyPartner.mutateAsync({ woId: workOrder.wo_id });
   };
 
   const handleRejectRisk = async (riskNotes: string | null) => {
@@ -952,8 +938,16 @@ const WorkOrderEdit = () => {
   if (!workOrder) {
     return (
       <AppLayout title={t("entities.workOrder")} focusMode>
-        <div className="text-center py-12 text-muted-foreground">
-          {t("common.noResults")}
+        <div className="flex flex-col items-center gap-3 py-12 text-center">
+          <h1 className="text-2xl font-semibold text-foreground">
+            {t("authz.accessDenied.title", "Sin acceso")}
+          </h1>
+          <p className="max-w-md text-muted-foreground">
+            {t(
+              "authz.accessDenied.description",
+              "No tienes permiso para ver esta sección. Si crees que es un error, contacta a un administrador.",
+            )}
+          </p>
         </div>
       </AppLayout>
     );
@@ -982,7 +976,7 @@ const WorkOrderEdit = () => {
               </div>
               <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
                 {/* Show linked worksheet buttons if exists - always in same position */}
-                {linkedWorksheet?.wo_id === workOrder.wo_id && !riskOnlyView && (
+                {linkedWorksheet?.wo_id === workOrder.wo_id && (
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
@@ -1070,6 +1064,7 @@ const WorkOrderEdit = () => {
           isLocked={isLocked}
           canApprove={canApprove}
           canApproveRisk={canApproveRisk}
+          canSignEmergency={canSignEmergency}
           riskStatus={workOrder.risk_status}
           emergencyDeadlineAt={workOrder.emergency_deadline_at}
           emergencyReviewAt={workOrder.emergency_review_at}
@@ -1081,8 +1076,8 @@ const WorkOrderEdit = () => {
           onApproveEmergencyPartner={handleApproveEmergencyPartner}
           // Riesgos solo lee los datos de riesgo: cargarlos, limpiarlos y reenviarlos es del
           // gerente del encargo. Sin estos callbacks WorkOrderForm deja los campos en lectura.
-          onCompleteRisk={riskOnlyView ? undefined : handleCompleteRisk}
-          onClearRiskData={riskOnlyView ? undefined : handleClearRiskData}
+          onCompleteRisk={handleCompleteRisk}
+          onClearRiskData={handleClearRiskData}
           riskNote={workOrder.risk_notes}
           canRevert={isAdmin}
           onRevertSocio={handleRevertSocio}
@@ -1094,7 +1089,7 @@ const WorkOrderEdit = () => {
           ceacNumber={ceacNumber}
           sanApprovalId={sanApprovalId}
           riskLevel={riskLevel}
-          onRiskAssessmentChange={isAdministrativeEngagement || riskOnlyView ? undefined : handleRiskAssessmentChange}
+          onRiskAssessmentChange={isAdministrativeEngagement ? undefined : handleRiskAssessmentChange}
           woId={workOrder.wo_id}
           paymentPlan={isAdministrativeEngagement ? null : paymentPlan}
           paymentInstallments={isAdministrativeEngagement ? [] : paymentInstallments}
@@ -1103,7 +1098,12 @@ const WorkOrderEdit = () => {
           // Contabilidad, y sólo con la OT aprobada — antes de aprobar no hay nada ejecutado.
           // El servidor lo verifica igual en create_expense_reimbursement_row().
           canBillExpenses={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
-          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && can("work_order.payment_plan.approve")}
+          // Es el bypass de ADMIN para corregir fechas del plan fuera del flujo del gerente
+          // (ver WorkOrderPaymentPlanSection, dateEditable). Antes miraba el permiso
+          // work_order.payment_plan.approve, que también tienen Cobranzas, Gerente de
+          // Contabilidad, socios, SQR y directores: con la OT en Borrador o Rechazada todos
+          // ellos veían editables la fecha acordada y la moneda de cada cuota.
+          isAdminDateEditable={(approvalStatus === "Draft" || approvalStatus === "Rejected") && isAdmin}
           // 0722-156b (Amendment 2026-09-07): Cobranza/Estado/TC por cuota son el registro de
           // lo que efectivamente pasa -- solo tiene sentido, y solo hay boton "Guardar" de
           // pagina, una vez que la OT esta Approved (antes de eso, define el "contrato":
@@ -1116,7 +1116,6 @@ const WorkOrderEdit = () => {
           // is_collections_role().
           isStatusEditable={(isAdmin || isCollectionsRole) && approvalStatus === "Approved"}
           collectionsOnly={collectionsOnlyView}
-          riskOnly={riskOnlyView}
           canWriteNotes={canWriteNotes}
           currentStaffId={staffRecord?.staff_id ?? null}
           isAdminViewer={isAdmin}

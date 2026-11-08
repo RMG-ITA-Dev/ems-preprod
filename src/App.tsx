@@ -33,6 +33,8 @@ const WorkOrders = lazy(() => import("./pages/WorkOrders"));
 const Collections = lazy(() => import("./pages/Collections"));
 const WorkOrderNew = lazy(() => import("./pages/WorkOrderNew"));
 const WorkOrderEdit = lazy(() => import("./pages/WorkOrderEdit"));
+const Risks = lazy(() => import("./pages/Risks"));
+const RiskDetail = lazy(() => import("./pages/RiskDetail"));
 const TimeSheet = lazy(() => import("./pages/TimeSheet"));
 const MyAssignments = lazy(() => import("./pages/MyAssignments"));
 const FundRequests = lazy(() => import("./pages/FundRequests"));
@@ -133,6 +135,10 @@ const router = createBrowserRouter([
       { path: "/work-orders", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrders /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders/new", element: <ProtectedRoute><PermissionRoute permission="work_order.create"><WorkOrderNew /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders/:id", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrderEdit /></PermissionRoute></ProtectedRoute> },
+      // 1028-213: módulo de Riesgos (lista + detalle). Permiso propio: solo admin, risk_partner y
+      // risk_supervisor; sin él, PermissionRoute muestra "Sin acceso" (D-34).
+      { path: "/risks", element: <ProtectedRoute><PermissionRoute permission="work_order.risk.read"><Risks /></PermissionRoute></ProtectedRoute> },
+      { path: "/risks/:woId", element: <ProtectedRoute><PermissionRoute permission="work_order.risk.read"><RiskDetail /></PermissionRoute></ProtectedRoute> },
       // Cobranzas Fase 8: la puerta es por ROL (Contabilidad), no por permiso de la matriz, asi
       // que el gate vive dentro de la pagina -- mismo patron que las pantallas del Scheduler.
       // La autoridad real es la RPC, que rechaza a cualquier otro rol.

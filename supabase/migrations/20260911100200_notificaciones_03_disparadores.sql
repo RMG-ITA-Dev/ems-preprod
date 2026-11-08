@@ -420,18 +420,15 @@ CREATE FUNCTION public.notif_engagement_partners(p_engagement_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $BODY$
-  -- sqr_id incluido a propósito (D-19): la función SQR la ocupan Socio, Senior Partner,
-  -- Senior o Director, y para ellos "asignados" significa justamente "el encargo donde soy
-  -- el SQR". Quien la ocupe con un rol que la matriz no contempla lo filtra notify_staff().
-  SELECT s FROM (
-    SELECT e.partner_id AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-    UNION
-    SELECT e.sqr_id     FROM public.engagements e WHERE e.engagement_id = p_engagement_id
-  ) q WHERE s IS NOT NULL
+  -- 1028-213 (D-22, A10): el SQR ya no recibe avisos de OT; el conjunto devuelve solo al socio.
+  -- Antes incluía sqr_id (D-19). El SQR conserva los avisos de encargo (engagement.sqr_assigned) y los
+  -- de horas (notif_timesheet_period_leads agrega sqr_id por su cuenta).
+  SELECT e.partner_id AS s FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id AND e.partner_id IS NOT NULL
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_engagement_partners(uuid) IS
-  'Alcance `assigned` de la banda alta de un encargo: partner_id + sqr_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+  'Alcance `assigned` de la banda alta de un encargo: solo partner_id (1028-213: el SQR ya no recibe avisos de OT). Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
 DROP FUNCTION IF EXISTS public.notif_engagement_managers(uuid);
 
@@ -1777,6 +1774,9 @@ CREATE FUNCTION public.notif_timesheet_period_leads(p_period_id uuid)
     CROSS JOIN LATERAL (
       SELECT staff_id FROM public.notif_engagement_partners(g.engagement_id)
       UNION
+      -- 1028-213: notif_engagement_partners ya no incluye al SQR; el aviso de envío de la boleta sí lo conserva.
+      SELECT e.sqr_id FROM public.engagements e WHERE e.engagement_id = g.engagement_id
+      UNION
       SELECT staff_id FROM public.notif_engagement_managers(g.engagement_id)
     ) r
    WHERE r.staff_id IS NOT NULL
@@ -2762,7 +2762,11 @@ DECLARE
   v_base        jsonb;
   v_rec         record;
   v_deactivated boolean;
+  v_society     uuid;
   c_firma constant text[] := ARRAY['senior_partner'];
+  -- 1028-211: quien activa clientes. notif_staff_by_roles_in_society deja a admin siempre y a los dos roles con
+  -- alcance por sociedad solo si son de la sociedad pedida.
+  c_activadores constant text[] := ARRAY['admin', 'accounting_manager', 'collections_analyst'];
 BEGIN
   v_base := jsonb_build_object(
     'client_id',         NEW.client_id,
@@ -2782,6 +2786,48 @@ BEGIN
     LOOP
       PERFORM public.notify_staff('client.created', v_rec.staff_id,
                                   NEW.client_id::text, v_base);
+    END LOOP;
+
+    -- 1028-211: el alta de quien no tiene client.activate nace inactiva (trg_clients_enforce_activation) y
+    -- espera a que la active Cobranzas o Contabilidad de la sociedad del creador, o admin. Creador sin
+    -- sociedad: solo admin. El aviso nombra al creador para que sepan a quién preguntar.
+    IF NOT COALESCE(NEW.is_active, true) THEN
+      SELECT s.society_id INTO v_society FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id;
+      FOR v_rec IN
+        SELECT staff_id FROM public.notif_staff_by_roles_in_society(c_activadores, v_society)
+      LOOP
+        PERFORM public.notify_staff('client.pending_activation', v_rec.staff_id, NEW.client_id::text,
+          v_base || jsonb_build_object('creator_name',
+            (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+               FROM public.staff s WHERE s.staff_id = NEW.created_by_staff_id)));
+      END LOOP;
+    END IF;
+    RETURN NULL;
+  END IF;
+
+  -- ── Activación (1028-211) ──
+  -- Al creador (para que sepa que ya puede abrir encargos) y a quien activa, solo por campana. La sociedad es la
+  -- de los encargos del cliente; si todavía no tiene, la del creador (la misma regla que my_society_client_ids).
+  -- La activación no cuenta además como edición.
+  IF NOT COALESCE(OLD.is_active, true) AND COALESCE(NEW.is_active, true) THEN
+    FOR v_rec IN
+      SELECT NEW.created_by_staff_id AS staff_id WHERE NEW.created_by_staff_id IS NOT NULL
+      UNION
+      SELECT a.staff_id
+        FROM (SELECT DISTINCT e.society_id FROM public.engagements e WHERE e.client_id = NEW.client_id
+              UNION
+              SELECT s.society_id FROM public.staff s
+               WHERE s.staff_id = NEW.created_by_staff_id
+                 AND NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.client_id = NEW.client_id)) soc
+        CROSS JOIN LATERAL public.notif_staff_by_roles_in_society(c_activadores, soc.society_id) a
+      UNION
+      -- admin aunque no haya ninguna sociedad (cliente de la carga ETL sin creador ni encargos).
+      SELECT staff_id FROM public.notif_staff_by_roles(ARRAY['admin'])
+    LOOP
+      PERFORM public.notify_staff('client.activated', v_rec.staff_id, NEW.client_id::text,
+        v_base || jsonb_build_object('activated_by_name',
+          (SELECT NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')
+             FROM public.staff s WHERE s.staff_id = NEW.activated_by_staff_id)));
     END LOOP;
     RETURN NULL;
   END IF;
@@ -2837,7 +2883,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notify_client_events() IS
-  'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. Degrada a WARNING.';
+  'FASE 3.f: alta, edicion e inactivacion de un cliente. El alta suma al creador porque el alcance `assigned` esta vacio ese dia (D-37); la inactivacion no cuenta ademas como edicion. 1028-211: el alta inactiva avisa a quien activa (client.pending_activation) y la activacion al creador y a quien activa (client.activated). Degrada a WARNING.';
 
 DROP TRIGGER IF EXISTS tr_notify_client ON public.clients;
 CREATE TRIGGER tr_notify_client

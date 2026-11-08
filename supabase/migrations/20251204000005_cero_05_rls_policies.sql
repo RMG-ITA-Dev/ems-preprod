@@ -275,24 +275,16 @@ CREATE POLICY "Approvers can view assigned timesheets" ON public.timesheet_perio
 
 --
 --
--- Name: work_orders Assigned SQR can update work orders; Type: POLICY; Schema: public; Owner: -
+-- 1028-213 (D-37, A2): la politica "Assigned SQR can update work orders" ya no se crea. Riesgos aprueba,
+-- rechaza y firma emergencia por funciones SECURITY DEFINER (approve_wo_risk, reject_wo_risk,
+-- approve_wo_emergency_review, approve_wo_emergency_partner), no por UPDATE directo sobre work_orders.
 --
-
-CREATE POLICY "Assigned SQR can update work orders" ON public.work_orders FOR UPDATE TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id())))));
 
 
 --
 --
--- Name: work_orders Assigned SQR can view work orders; Type: POLICY; Schema: public; Owner: -
+-- 1028-213 (D-21, A1): la politica "Assigned SQR can view work orders" ya no se crea; el SQR no lee la OT.
 --
-
-CREATE POLICY "Assigned SQR can view work orders" ON public.work_orders FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
-   FROM public.engagements e
-  WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.sqr_id = public.get_my_staff_id())))));
 
 
 --
@@ -1707,7 +1699,8 @@ ALTER TABLE public.user_lifecycle_audit_log ENABLE ROW LEVEL SECURITY;
 -- Name: work_orders wo_create_by_permission; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND ((public.permission_scope('work_order.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
+-- 1028-213 (D-42, H-2): con alcance assigned_engagements solo el gerente del encargo crea la OT (antes: socio, gerente, SQR o encargado).
+CREATE POLICY wo_create_by_permission ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND ((public.permission_scope('work_order.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR EXISTS ( SELECT 1 FROM public.engagements e WHERE ((e.engagement_id = work_orders.engagement_id) AND (e.manager_id = public.get_my_staff_id()))))));
 
 
 --
@@ -1840,7 +1833,7 @@ CREATE POLICY "work_orders firm read" ON public.work_orders FOR SELECT TO authen
 
 CREATE POLICY "worksheet cells assigned read" ON public.activity_worksheet_cells FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND (EXISTS ( SELECT 1
    FROM public.activity_worksheets w
-  WHERE ((w.id = activity_worksheet_cells.worksheet_id) AND public.is_assigned_to_engagement(w.engagement_id))))));
+  WHERE ((w.id = activity_worksheet_cells.worksheet_id) AND public.is_engagement_team_member(w.engagement_id))))));
 
 
 --
@@ -1856,7 +1849,8 @@ CREATE POLICY "worksheet cells firm read" ON public.activity_worksheet_cells FOR
 -- Name: activity_worksheets worksheet_create_by_permission; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY worksheet_create_by_permission ON public.activity_worksheets FOR INSERT TO authenticated WITH CHECK ((public.has_permission('worksheet.create'::text) AND ((public.permission_scope('worksheet.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR public.is_assigned_to_engagement(engagement_id))));
+-- 1028-213 (D-42, H-2): con alcance assigned_engagements solo el gerente del encargo crea la matriz.
+CREATE POLICY worksheet_create_by_permission ON public.activity_worksheets FOR INSERT TO authenticated WITH CHECK ((public.has_permission('worksheet.create'::text) AND ((public.permission_scope('worksheet.create'::text) IS DISTINCT FROM 'assigned_engagements'::text) OR EXISTS ( SELECT 1 FROM public.engagements e WHERE ((e.engagement_id = activity_worksheets.engagement_id) AND (e.manager_id = public.get_my_staff_id()))))));
 
 
 --
@@ -1872,7 +1866,7 @@ CREATE POLICY worksheet_team_update ON public.activity_worksheets FOR UPDATE TO 
 -- Name: activity_worksheets worksheets assigned read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "worksheets assigned read" ON public.activity_worksheets FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND public.is_assigned_to_engagement(engagement_id)));
+CREATE POLICY "worksheets assigned read" ON public.activity_worksheets FOR SELECT TO authenticated USING ((public.has_permission('worksheet.read'::text) AND (public.permission_scope('worksheet.read'::text) = 'assigned_engagements'::text) AND public.is_engagement_team_member(engagement_id)));
 
 
 --

@@ -109,6 +109,8 @@ DECLARE
   v_note   uuid;
   v_i3x    uuid;
   v_i4     uuid;
+  v_i4b    uuid;
+  v_i4c    uuid;
   v_plan3  uuid;
   v_plan4  uuid;
   v_rate   numeric;
@@ -118,6 +120,7 @@ DECLARE
   v_fr1    uuid := 'f4000000-0000-4000-8000-0000000000f1';
   v_fr2    uuid := 'f4000000-0000-4000-8000-0000000000f2';
   denied   boolean;
+  v_actor  uuid;
 BEGIN
   -- ══════════════════════════════════════════════════════════════════
   -- 1. installment_calendar_state(): la regla unica
@@ -409,6 +412,23 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - reprogramar no es de Contabilidad';
 
+  -- La moneda de una cuota de honorarios tambien es contrato: la arma el gerente (Q29). Con la
+  -- OT en Borrador la pantalla se la dejaba elegir a Contabilidad y el guard no la frenaba.
+  FOREACH v_actor IN ARRAY ARRAY[c_acctmgr, c_collections] LOOP
+    PERFORM pg_temp.impersonate(v_actor);
+    denied := false;
+    BEGIN
+      UPDATE public.wo_payment_installments
+         SET currency = 'USD' WHERE installment_id = v_i2;
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM LIKE 'INSTALLMENT_FIELD_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+    END;
+    IF NOT denied THEN
+      RAISE EXCEPTION 'TEST FAIL - Contabilidad pudo cambiar la moneda de una cuota de honorarios';
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS - la moneda de una cuota de honorarios no es de Contabilidad';
+
   -- ══════════════════════════════════════════════════════════════════
   -- 7. Bitacora: se escribe sola y nadie la edita
   -- ══════════════════════════════════════════════════════════════════
@@ -494,7 +514,6 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - sin work_order.read el correo de cobranza sigue sin enlace (% de 2)', v_n;
   END IF;
   RAISE NOTICE 'PASS - el correo de cobranza ya puede incluir el enlace a la OT';
-
 
   -- ══════════════════════════════════════════════════════════════════
   -- 9. Fase 3: confirmacion con el cliente y reprogramacion (issue #352)
@@ -686,7 +705,6 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el gerente no recibe el recordatorio de confirmacion';
   END IF;
   RAISE NOTICE 'PASS - los tres avisos de la Fase 3, con su canal y sus destinatarios';
-
 
   -- ══════════════════════════════════════════════════════════════════
   -- 10. Fase 4: notas entre el encargo y Contabilidad (issue #352)
@@ -1180,6 +1198,28 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - el TC por fecha cae a la ultima cotizacion anterior, y avisa cuando no hay';
 
+  -- 12.a2 (1028-214) exchange_rate_on_detail(): el mismo TC con la fecha de la cotizacion que
+  -- se uso, para que la pantalla avise cuando salio de un dia anterior al elegido.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.exchange_rate_on_detail('2026-10-09') d
+     WHERE d.compra = 6.90 AND d.fecha_vigencia = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - el detalle de una fecha con cotizacion deberia traer ese mismo dia';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.exchange_rate_on_detail('2026-10-11') d
+     WHERE d.compra = 6.90 AND d.fecha_vigencia = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - el detalle de una fecha sin cotizacion deberia traer la fecha de la ultima anterior';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.exchange_rate_on_detail('2020-01-01')) THEN
+    RAISE EXCEPTION 'TEST FAIL - sin ninguna cotizacion anterior el detalle no deberia devolver filas';
+  END IF;
+  IF has_function_privilege('anon', 'public.exchange_rate_on_detail(date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL - anon no deberia poder ejecutar exchange_rate_on_detail';
+  END IF;
+  RAISE NOTICE 'PASS - el detalle del TC por fecha trae la fecha real de la cotizacion';
+
   -- 12.b Una cuota puede ir en otra moneda que la OT (c_wo1 esta en BOB).
   PERFORM pg_temp.impersonate(c_manager);
   UPDATE public.wo_payment_installments SET currency = 'USD' WHERE installment_id = v_i3x;
@@ -1216,9 +1256,10 @@ BEGIN
   PERFORM pg_temp.impersonate(c_admin);
   INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
   VALUES (c_wo3, 30, 6.96, 'fijo') RETURNING plan_id INTO v_plan3;
+  -- En USD (c_wo3 esta en BOB): la bitacora solo registra el TC de una cuota que convierte.
   INSERT INTO public.wo_payment_installments
-    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
-  VALUES (v_plan3, c_wo3, 1, 100, 700, 'Pending', v_today, v_today + 30, 6.96, 6.96)
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate, currency)
+  VALUES (v_plan3, c_wo3, 1, 100, 700, 'Pending', v_today, v_today + 30, 6.96, 6.96, 'USD')
   RETURNING installment_id INTO v_i4;
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo3;
 
@@ -1244,14 +1285,78 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS - en modo fijo el TC se corrige al facturar, y solo ahi';
 
+  -- 12.d2 (1028-214, Q49 "registrar el cambio en wo_installment_events"): la bitacora guarda
+  -- el TC con que se facturo y de que cotizacion salio.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4 AND action = 'status_change' AND to_status = 'Invoiced'
+       AND exchange_rate = 7.10 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no registro el TC de facturacion ni su cotizacion';
+  END IF;
+
+  -- La fecha de la cotizacion se congela con el TC: ni un admin la reescribe ya facturada.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-02' WHERE installment_id = v_i4;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se reescribio la cotizacion del TC de una cuota ya facturada';
+  END IF;
+
+  -- Al cobrar tambien queda la cotizacion del TC de pago, en la cuota y en la bitacora.
+  PERFORM pg_temp.impersonate(c_collections);
+  v_row := public.collect_installment(v_i4, 'Invoiced', v_today, 7.15, '2026-10-09');
+  IF v_row.payment_exchange_rate <> 7.15 OR v_row.payment_exchange_rate_date IS DISTINCT FROM '2026-10-09' THEN
+    RAISE EXCEPTION 'TEST FAIL - no se guardo el TC de pago con su cotizacion (quedo % del %)',
+      v_row.payment_exchange_rate, v_row.payment_exchange_rate_date;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4 AND action = 'status_change' AND to_status = 'Completed'
+       AND exchange_rate = 7.15 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora no registro el TC de pago ni su cotizacion';
+  END IF;
+
+  -- Y ya cobrada, tampoco se reescribe.
+  PERFORM pg_temp.impersonate(c_admin);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate_date = NULL WHERE installment_id = v_i4;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se reescribio la cotizacion del TC de pago de una cuota cobrada';
+  END IF;
+  IF has_function_privilege('anon', 'public.collect_installment(uuid, text, date, numeric, date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL - anon no deberia poder ejecutar collect_installment';
+  END IF;
+  RAISE NOTICE 'PASS - la cotizacion de cada TC queda en la cuota y en la bitacora, y se congela con el';
+
+  -- 12.d3 (1028-214, review de Codex) Una cuota en Bs no convierte: aunque sus columnas tengan
+  -- un TC, la bitacora no lo registra. v_i2 es de c_wo1 (BOB) y se facturo con 6.96 en 3.g.
+  IF EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i2 AND action = 'status_change' AND to_status = 'Invoiced'
+       AND (exchange_rate IS NOT NULL OR exchange_rate_date IS NOT NULL)
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora registro un TC en una cuota en Bs';
+  END IF;
+  RAISE NOTICE 'PASS - una cuota en Bs no deja TC en la bitacora';
+
   -- 12.e El resincronizado del plan sigue funcionando: corre con la OT en Draft y sin rol de
   -- cobranza, y los chequeos nuevos no lo pueden romper.
   PERFORM pg_temp.impersonate(c_manager);
   INSERT INTO public.wo_payment_plan (wo_id, payment_days, exchange_rate, exchange_rate_mode)
   VALUES (c_wo4, 30, 6.50, 'fijo') RETURNING plan_id INTO v_plan4;
   INSERT INTO public.wo_payment_installments
-    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate)
-  VALUES (v_plan4, c_wo4, 1, 100, 500, 'Pending', v_today + 10, v_today + 40, 6.50, 6.50);
+    (plan_id, wo_id, installment_number, percentage, amount, status, agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate, currency)
+  VALUES (v_plan4, c_wo4, 1, 100, 500, 'Pending', v_today + 10, v_today + 40, 6.50, 6.50, 'USD');
 
   UPDATE public.wo_payment_plan SET exchange_rate = 6.75 WHERE plan_id = v_plan4;
   SELECT invoice_exchange_rate INTO v_rate FROM public.wo_payment_installments
@@ -1260,6 +1365,91 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - editar el TC del plan dejo de resincronizar las cuotas (quedo %)', v_rate;
   END IF;
   RAISE NOTICE 'PASS - editar el TC del plan sigue resincronizando las cuotas pendientes';
+
+  -- 12.f (1028-214, review de Codex) De que cotizacion salio un TC lo registra solo quien
+  -- captura el TC: el gerente puede actualizar la fila, pero no inventar ese origen.
+  SELECT installment_id INTO v_i4b FROM public.wo_payment_installments
+   WHERE plan_id = v_plan4 AND installment_number = 1;
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente registro de que cotizacion salio un TC';
+  END IF;
+
+  -- Contabilidad tampoco, mientras la OT no este aprobada (c_wo4 sigue en Draft).
+  PERFORM pg_temp.impersonate(c_collections);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_LOCKED%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se registro la cotizacion de un TC con la OT sin aprobar';
+  END IF;
+  RAISE NOTICE 'PASS - la cotizacion de un TC solo la registra Contabilidad o un admin, con la OT aprobada';
+
+  -- 12.g (1028-214, review de Codex) Una cuota nueva no trae cotizacion de origen: el alta es
+  -- del gerente, y por ahi podia inventarla.
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Draft' WHERE wo_id = c_wo4;
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    INSERT INTO public.wo_payment_installments
+      (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate, currency, invoice_exchange_rate_date)
+    VALUES (v_plan4, c_wo4, 2, 0, 0, 'Pending', 6.75, 6.75, 'USD', '2026-10-09');
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - se creo una cuota con una cotizacion de origen inventada';
+  END IF;
+
+  -- Y cuando el modo fijo reemplaza el TC de una cuota por el del plan, borra tambien la
+  -- cotizacion que traia: el TC del plan no sale de ninguna. El resincronizado corre como el
+  -- gerente; borrar el origen no le esta prohibido, registrarlo si.
+  INSERT INTO public.wo_payment_installments
+    (plan_id, wo_id, installment_number, percentage, amount, status, invoice_exchange_rate, payment_exchange_rate, currency)
+  VALUES (v_plan4, c_wo4, 2, 0, 0, 'Pending', 6.75, 6.75, 'USD')
+  RETURNING installment_id INTO v_i4c;
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo4;
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4c;
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Draft' WHERE wo_id = c_wo4;
+  PERFORM pg_temp.impersonate(c_manager);
+  UPDATE public.wo_payment_plan SET exchange_rate = 6.80 WHERE plan_id = v_plan4;
+  IF (SELECT invoice_exchange_rate FROM public.wo_payment_installments WHERE installment_id = v_i4c) <> 6.80
+     OR (SELECT invoice_exchange_rate_date FROM public.wo_payment_installments WHERE installment_id = v_i4c) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL - el modo fijo reemplazo el TC pero dejo la cotizacion de otro';
+  END IF;
+  RAISE NOTICE 'PASS - el modo fijo borra la cotizacion del TC que reemplaza, y una cuota nueva no la trae';
+
+  -- 12.h (1028-214, review de Codex) Facturar sin mandar TC conserva el TC de la cuota Y su
+  -- fecha de cotizacion: borrarla registraba ese mismo TC como "a mano".
+  PERFORM pg_temp.impersonate(c_admin);
+  UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id = c_wo4;
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = '2026-10-09' WHERE installment_id = v_i4b;
+  v_row := public.invoice_installment(v_i4b, 'Pending', v_today + 40, v_today, NULL, NULL);
+  IF v_row.invoice_exchange_rate <> 6.80 OR v_row.invoice_exchange_rate_date IS DISTINCT FROM '2026-10-09' THEN
+    RAISE EXCEPTION 'TEST FAIL - facturar sin TC no conservo el TC y su cotizacion (quedo % del %)',
+      v_row.invoice_exchange_rate, v_row.invoice_exchange_rate_date;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.wo_installment_events
+     WHERE installment_id = v_i4b AND action = 'status_change' AND to_status = 'Invoiced'
+       AND exchange_rate = 6.80 AND exchange_rate_date = '2026-10-09'
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL - la bitacora registro como a mano un TC que salio de una cotizacion';
+  END IF;
+  RAISE NOTICE 'PASS - facturar sin TC conserva el TC y su cotizacion';
 
   -- ══════════════════════════════════════════════════════════════════
   -- 13. Fase 7: los gastos ejecutados se le facturan al cliente (Q37-Q41)
@@ -1280,6 +1470,44 @@ BEGIN
 
   PERFORM pg_temp.impersonate(c_admin);
   UPDATE public.work_orders SET approval_status = 'Approved' WHERE wo_id IN (c_wo5, c_wo6);
+
+  -- 12.i (1028-214, review de Codex) Borrar de que cotizacion salio un TC tampoco es del
+  -- gerente: el TC quedaba y pasaba a verse como escrito a mano. Va aca porque necesita un
+  -- plan en modo variable con la OT aprobada (wo5); el modo fijo ya lo cubre 12.g.
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments
+     SET invoice_exchange_rate_date = '2026-10-09', payment_exchange_rate_date = '2026-10-09'
+   WHERE installment_id = v_i5;
+  PERFORM pg_temp.impersonate(c_manager);
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET invoice_exchange_rate_date = NULL WHERE installment_id = v_i5;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente borro de que cotizacion salio el TC de facturacion';
+  END IF;
+  denied := false;
+  BEGIN
+    UPDATE public.wo_payment_installments SET payment_exchange_rate_date = NULL WHERE installment_id = v_i5;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'EXCHANGE_RATE_FORBIDDEN%' THEN denied := true; ELSE RAISE; END IF;
+  END;
+  IF NOT denied THEN
+    RAISE EXCEPTION 'TEST FAIL - el gerente borro de que cotizacion salio el TC de pago';
+  END IF;
+  -- Contabilidad si puede: es quien la registra.
+  PERFORM pg_temp.impersonate(c_collections);
+  UPDATE public.wo_payment_installments
+     SET invoice_exchange_rate_date = NULL, payment_exchange_rate_date = NULL
+   WHERE installment_id = v_i5;
+  IF (SELECT invoice_exchange_rate_date IS NOT NULL OR payment_exchange_rate_date IS NOT NULL
+        FROM public.wo_payment_installments WHERE installment_id = v_i5) THEN
+    RAISE EXCEPTION 'TEST FAIL - Contabilidad no pudo borrar de que cotizacion salio el TC';
+  END IF;
+  RAISE NOTICE 'PASS - borrar la cotizacion de un TC es de Contabilidad o un admin, salvo el resincronizado de modo fijo';
+  PERFORM pg_temp.impersonate(c_admin);
 
   INSERT INTO public.fund_requests (fund_request_id, requester_staff_id, total_requested_amount, currency, status, expense_period_month) VALUES
     (v_fr1, '51c00000-0000-4000-8000-0000000000f2', 1500, 'BOB', 'fondos_entregados', date_trunc('month', v_today)::date),

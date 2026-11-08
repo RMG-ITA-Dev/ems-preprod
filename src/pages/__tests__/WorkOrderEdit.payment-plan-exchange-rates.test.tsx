@@ -134,8 +134,11 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-1", category: { can_approve_wo: true } } }),
 }));
 
+// El rol lo cambia cada test; `can` sigue concediendo todo, como el seed le concede
+// work_order.payment_plan.approve a Cobranzas, Gerente de Contabilidad, socios, etc.
+const authRole = vi.hoisted(() => ({ roleKey: "admin" }));
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: "admin" }),
+  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: authRole.roleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
@@ -218,11 +221,43 @@ function renderPage() {
 
 describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () => {
   const originalApprovalStatus = mockWorkOrder.approval_status;
+  const originalCurrency = mockWorkOrder.currency;
 
   beforeEach(() => {
     vi.clearAllMocks();
     capturedFormProps = {};
     mockWorkOrder.approval_status = originalApprovalStatus;
+    mockWorkOrder.currency = originalCurrency;
+    authRole.roleKey = "admin";
+  });
+
+  // La fecha acordada y la moneda de cada cuota se habilitaban por el permiso
+  // work_order.payment_plan.approve, que también tienen Cobranzas y el Gerente de
+  // Contabilidad: con la OT en Borrador podían editar el contrato del gerente.
+  it("WEX-ADE1: el bypass de fechas del plan en Borrador o Rechazada es solo de admin", () => {
+    for (const status of ["Draft", "Rejected"]) {
+      mockWorkOrder.approval_status = status;
+      authRole.roleKey = "admin";
+      const { unmount } = renderPage();
+      expect(capturedFormProps.isAdminDateEditable).toBe(true);
+      unmount();
+    }
+  });
+
+  it("WEX-ADE2: Cobranzas y el Gerente de Contabilidad no reciben el bypass, aunque tengan el permiso", () => {
+    mockWorkOrder.approval_status = "Draft";
+    for (const role of ["collections_analyst", "accounting_manager", "partner"]) {
+      authRole.roleKey = role;
+      const { unmount } = renderPage();
+      expect(capturedFormProps.isAdminDateEditable).toBe(false);
+      unmount();
+    }
+  });
+
+  it("WEX-ADE3: con la OT aprobada no hay bypass, ni para admin", () => {
+    mockWorkOrder.approval_status = "Approved";
+    renderPage();
+    expect(capturedFormProps.isAdminDateEditable).toBe(false);
   });
 
   // Amendment 2026-09-07: Cobranza/Estado/TC por cuota (isStatusEditable) solo se
@@ -291,5 +326,36 @@ describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () 
     // inst-2 still Pending: both columns sync to the new Fijo plan rate.
     expect(inst2.invoice_exchange_rate).toBe(7.0);
     expect(inst2.payment_exchange_rate).toBe(7.0);
+  });
+
+  // OT en BOB sin plan todavía: la pantalla manda exchange_rate null y la columna toma su
+  // DEFAULT latest_exchange_rate(). El guard de modo fijo exige que la cuota nueva traiga
+  // ese mismo TC; con el null local, el primer guardado rebotaba con EXCHANGE_RATE_LOCKED y
+  // la cuota se perdía (el segundo guardado sí pasaba porque ya hidrataba el TC del plan).
+  it("WEX3: en modo Fijo con TC null, las cuotas salen con el TC que el plan guardó (DEFAULT de la base)", async () => {
+    mockWorkOrder.currency = "BOB";
+    renderPage();
+
+    act(() => {
+      capturedFormProps.onPaymentPlanChange({
+        wo_id: "wo-1",
+        exchange_rate: null,
+        payment_days: 30,
+        exchange_rate_mode: "fijo",
+      });
+    });
+
+    await act(async () => {
+      await capturedFormProps.onSubmit();
+    });
+
+    expect(mockUpsertPaymentPlanAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ exchange_rate: null, exchange_rate_mode: "fijo" }),
+    );
+    const sentInstallments = mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments;
+    const inst2 = sentInstallments.find((i: any) => i.installment_id === "inst-2");
+    // 6.96 = lo que devolvió el upsert del plan (mock), no el null que se mandó.
+    expect(inst2.invoice_exchange_rate).toBe(6.96);
+    expect(inst2.payment_exchange_rate).toBe(6.96);
   });
 });

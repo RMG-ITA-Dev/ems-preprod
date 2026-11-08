@@ -1787,6 +1787,28 @@
  service_role  | public       | client_contacts                                | updated_at                       | REFERENCES
  service_role  | public       | client_contacts                                | updated_at                       | SELECT
  service_role  | public       | client_contacts                                | updated_at                       | UPDATE
+ authenticated | public       | clients                                        | activated_at                     | INSERT
+ authenticated | public       | clients                                        | activated_at                     | SELECT
+ authenticated | public       | clients                                        | activated_at                     | UPDATE
+ postgres      | public       | clients                                        | activated_at                     | INSERT
+ postgres      | public       | clients                                        | activated_at                     | REFERENCES
+ postgres      | public       | clients                                        | activated_at                     | SELECT
+ postgres      | public       | clients                                        | activated_at                     | UPDATE
+ service_role  | public       | clients                                        | activated_at                     | INSERT
+ service_role  | public       | clients                                        | activated_at                     | REFERENCES
+ service_role  | public       | clients                                        | activated_at                     | SELECT
+ service_role  | public       | clients                                        | activated_at                     | UPDATE
+ authenticated | public       | clients                                        | activated_by_staff_id            | INSERT
+ authenticated | public       | clients                                        | activated_by_staff_id            | SELECT
+ authenticated | public       | clients                                        | activated_by_staff_id            | UPDATE
+ postgres      | public       | clients                                        | activated_by_staff_id            | INSERT
+ postgres      | public       | clients                                        | activated_by_staff_id            | REFERENCES
+ postgres      | public       | clients                                        | activated_by_staff_id            | SELECT
+ postgres      | public       | clients                                        | activated_by_staff_id            | UPDATE
+ service_role  | public       | clients                                        | activated_by_staff_id            | INSERT
+ service_role  | public       | clients                                        | activated_by_staff_id            | REFERENCES
+ service_role  | public       | clients                                        | activated_by_staff_id            | SELECT
+ service_role  | public       | clients                                        | activated_by_staff_id            | UPDATE
  authenticated | public       | clients                                        | address                          | INSERT
  authenticated | public       | clients                                        | address                          | SELECT
  authenticated | public       | clients                                        | address                          | UPDATE
@@ -1875,6 +1897,28 @@
  service_role  | public       | clients                                        | created_by_staff_id              | REFERENCES
  service_role  | public       | clients                                        | created_by_staff_id              | SELECT
  service_role  | public       | clients                                        | created_by_staff_id              | UPDATE
+ authenticated | public       | clients                                        | deactivated_at                   | INSERT
+ authenticated | public       | clients                                        | deactivated_at                   | SELECT
+ authenticated | public       | clients                                        | deactivated_at                   | UPDATE
+ postgres      | public       | clients                                        | deactivated_at                   | INSERT
+ postgres      | public       | clients                                        | deactivated_at                   | REFERENCES
+ postgres      | public       | clients                                        | deactivated_at                   | SELECT
+ postgres      | public       | clients                                        | deactivated_at                   | UPDATE
+ service_role  | public       | clients                                        | deactivated_at                   | INSERT
+ service_role  | public       | clients                                        | deactivated_at                   | REFERENCES
+ service_role  | public       | clients                                        | deactivated_at                   | SELECT
+ service_role  | public       | clients                                        | deactivated_at                   | UPDATE
+ authenticated | public       | clients                                        | deactivated_by_staff_id          | INSERT
+ authenticated | public       | clients                                        | deactivated_by_staff_id          | SELECT
+ authenticated | public       | clients                                        | deactivated_by_staff_id          | UPDATE
+ postgres      | public       | clients                                        | deactivated_by_staff_id          | INSERT
+ postgres      | public       | clients                                        | deactivated_by_staff_id          | REFERENCES
+ postgres      | public       | clients                                        | deactivated_by_staff_id          | SELECT
+ postgres      | public       | clients                                        | deactivated_by_staff_id          | UPDATE
+ service_role  | public       | clients                                        | deactivated_by_staff_id          | INSERT
+ service_role  | public       | clients                                        | deactivated_by_staff_id          | REFERENCES
+ service_role  | public       | clients                                        | deactivated_by_staff_id          | SELECT
+ service_role  | public       | clients                                        | deactivated_by_staff_id          | UPDATE
  authenticated | public       | clients                                        | industry_id                      | INSERT
  authenticated | public       | clients                                        | industry_id                      | SELECT
  authenticated | public       | clients                                        | industry_id                      | UPDATE
@@ -1970,6 +2014,15 @@
  service_role  | public       | clients_directory                              | client_legal_name                | REFERENCES
  service_role  | public       | clients_directory                              | client_legal_name                | SELECT
  service_role  | public       | clients_directory                              | client_legal_name                | UPDATE
+ authenticated | public       | clients_directory                              | homonym_seq                      | SELECT
+ postgres      | public       | clients_directory                              | homonym_seq                      | INSERT
+ postgres      | public       | clients_directory                              | homonym_seq                      | REFERENCES
+ postgres      | public       | clients_directory                              | homonym_seq                      | SELECT
+ postgres      | public       | clients_directory                              | homonym_seq                      | UPDATE
+ service_role  | public       | clients_directory                              | homonym_seq                      | INSERT
+ service_role  | public       | clients_directory                              | homonym_seq                      | REFERENCES
+ service_role  | public       | clients_directory                              | homonym_seq                      | SELECT
+ service_role  | public       | clients_directory                              | homonym_seq                      | UPDATE
  authenticated | public       | clients_directory                              | is_active                        | SELECT
  postgres      | public       | clients_directory                              | is_active                        | INSERT
  postgres      | public       | clients_directory                              | is_active                        | REFERENCES
@@ -6815,6 +6868,28 @@
  service_role  | public       | wo_installment_events                          | event_id                         | REFERENCES
  service_role  | public       | wo_installment_events                          | event_id                         | SELECT
  service_role  | public       | wo_installment_events                          | event_id                         | UPDATE
+ authenticated | public       | wo_installment_events                          | exchange_rate                    | INSERT
+ authenticated | public       | wo_installment_events                          | exchange_rate                    | SELECT
+ authenticated | public       | wo_installment_events                          | exchange_rate                    | UPDATE
+ postgres      | public       | wo_installment_events                          | exchange_rate                    | INSERT
+ postgres      | public       | wo_installment_events                          | exchange_rate                    | REFERENCES
+ postgres      | public       | wo_installment_events                          | exchange_rate                    | SELECT
+ postgres      | public       | wo_installment_events                          | exchange_rate                    | UPDATE
+ service_role  | public       | wo_installment_events                          | exchange_rate                    | INSERT
+ service_role  | public       | wo_installment_events                          | exchange_rate                    | REFERENCES
+ service_role  | public       | wo_installment_events                          | exchange_rate                    | SELECT
+ service_role  | public       | wo_installment_events                          | exchange_rate                    | UPDATE
+ authenticated | public       | wo_installment_events                          | exchange_rate_date               | INSERT
+ authenticated | public       | wo_installment_events                          | exchange_rate_date               | SELECT
+ authenticated | public       | wo_installment_events                          | exchange_rate_date               | UPDATE
+ postgres      | public       | wo_installment_events                          | exchange_rate_date               | INSERT
+ postgres      | public       | wo_installment_events                          | exchange_rate_date               | REFERENCES
+ postgres      | public       | wo_installment_events                          | exchange_rate_date               | SELECT
+ postgres      | public       | wo_installment_events                          | exchange_rate_date               | UPDATE
+ service_role  | public       | wo_installment_events                          | exchange_rate_date               | INSERT
+ service_role  | public       | wo_installment_events                          | exchange_rate_date               | REFERENCES
+ service_role  | public       | wo_installment_events                          | exchange_rate_date               | SELECT
+ service_role  | public       | wo_installment_events                          | exchange_rate_date               | UPDATE
  authenticated | public       | wo_installment_events                          | from_status                      | INSERT
  authenticated | public       | wo_installment_events                          | from_status                      | SELECT
  authenticated | public       | wo_installment_events                          | from_status                      | UPDATE
@@ -7343,6 +7418,17 @@
  service_role  | public       | wo_payment_installments                        | payment_exchange_rate            | REFERENCES
  service_role  | public       | wo_payment_installments                        | payment_exchange_rate            | SELECT
  service_role  | public       | wo_payment_installments                        | payment_exchange_rate            | UPDATE
+ authenticated | public       | wo_payment_installments                        | payment_exchange_rate_date       | INSERT
+ authenticated | public       | wo_payment_installments                        | payment_exchange_rate_date       | SELECT
+ authenticated | public       | wo_payment_installments                        | payment_exchange_rate_date       | UPDATE
+ postgres      | public       | wo_payment_installments                        | payment_exchange_rate_date       | INSERT
+ postgres      | public       | wo_payment_installments                        | payment_exchange_rate_date       | REFERENCES
+ postgres      | public       | wo_payment_installments                        | payment_exchange_rate_date       | SELECT
+ postgres      | public       | wo_payment_installments                        | payment_exchange_rate_date       | UPDATE
+ service_role  | public       | wo_payment_installments                        | payment_exchange_rate_date       | INSERT
+ service_role  | public       | wo_payment_installments                        | payment_exchange_rate_date       | REFERENCES
+ service_role  | public       | wo_payment_installments                        | payment_exchange_rate_date       | SELECT
+ service_role  | public       | wo_payment_installments                        | payment_exchange_rate_date       | UPDATE
  authenticated | public       | wo_payment_installments                        | percentage                       | INSERT
  authenticated | public       | wo_payment_installments                        | percentage                       | SELECT
  authenticated | public       | wo_payment_installments                        | percentage                       | UPDATE
@@ -8769,5 +8855,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                       | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                       | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                       | SELECT
-(8769 rows)
+(8855 rows)
 

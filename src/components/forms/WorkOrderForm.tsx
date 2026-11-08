@@ -26,11 +26,9 @@ import {
   AlertTriangle,
   AlertCircle,
   Undo2,
-  Eraser,
   Users,
   Sun,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -58,6 +56,13 @@ import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
 import { selectableExpenseTypes } from "@/lib/expenseTypes";
+import {
+  isEmergencyTrack,
+  isRiskAllEmpty,
+  isRiskApprovalReady,
+  isRiskSubmitAllowed,
+} from "@/lib/workOrderRisk";
+import { WorkOrderRiskSection, WorkOrderRiskNoteBanner } from "./WorkOrderRiskSection";
 import {
   STAFFING_PROFICIENCY_LEVELS,
   createEmptyRequirement,
@@ -147,17 +152,6 @@ interface WorkOrderFormProps {
    * is_collections_role().
    */
   collectionsOnly?: boolean;
-  /**
-   * Decisión del operador 2026-10-26: vista del Supervisor de Riesgos. Abre la OT solo para
-   * la evaluación de riesgos, así que ve únicamente la pestaña de Riesgos —nunca Presupuesto,
-   * Plan de pagos ni Dotación— y ninguna acción global de la OT (guardar, enviar, retirar).
-   * Conserva sus botones de aprobar/rechazar Riesgos, que dependen de `canApproveRisk`.
-   * En una OT administrativa no hay pista de Riesgos, así que solo ve un aviso.
-   *
-   * No reemplaza al control del servidor: la OT la escriben admin y el socio o gerente del
-   * encargo (policy "wo_team_update"), y la decisión de riesgos la gatea can_approve_wo_risk.
-   */
-  riskOnly?: boolean;
   /** Cobranzas Fase 4: quién participa del hilo de notas (gerente, socio, Contabilidad, admin). */
   canWriteNotes?: boolean;
   currentStaffId?: string | null;
@@ -196,6 +190,8 @@ interface WorkOrderFormProps {
   onCancel?: () => void;
   // Riesgos (Administrator) track
   canApproveRisk?: boolean;
+  /** 1028-213 (D-38, H-6): el paso 2 de emergencia es solo de risk_partner y admin. */
+  canSignEmergency?: boolean;
   onApproveRisk?: () => void;
   onRejectRisk?: (riskNotes: string | null) => void;
   onApproveEmergencyReview?: () => void;
@@ -424,6 +420,7 @@ export function WorkOrderForm({
   onUnsubmit,
   onCancel,
   canApproveRisk = false,
+  canSignEmergency = true,
   onApproveRisk,
   onRejectRisk,
   onApproveEmergencyReview,
@@ -445,7 +442,6 @@ export function WorkOrderForm({
   isAdminDateEditable = false,
   isStatusEditable = false,
   collectionsOnly = false,
-  riskOnly = false,
   canWriteNotes = false,
   currentStaffId = null,
   isAdminViewer = false,
@@ -469,14 +465,12 @@ export function WorkOrderForm({
   // Emergency confirmation now lives at submit time (Manager), capturing a mandatory
   // motive/reference into emergency_justification. Riesgos approvers enter nothing.
   const [submitEmergencyDialogOpen, setSubmitEmergencyDialogOpen] = useState(false);
+  // 1028-214 (review de Codex): mientras el plan de pagos trae el TC del encabezado desde una
+  // fecha, guardar o enviar a aprobación persistiría el TC anterior.
+  const [paymentRateLookupPending, setPaymentRateLookupPending] = useState(false);
   const [submitJustification, setSubmitJustification] = useState("");
   // "submit" = Draft con campos vacíos → onSubmitForApproval; "resend" = Rechazado con campos vacíos → onCompleteRisk.
   const [emergencyDialogMode, setEmergencyDialogMode] = useState<"submit" | "resend">("submit");
-  const [rejectRiskDialogOpen, setRejectRiskDialogOpen] = useState(false);
-  const [rejectRiskNotes, setRejectRiskNotes] = useState("");
-  // Risk fields stay locked after an emergency approval until the Manager explicitly
-  // opts to add the data via the "Agregar datos de Riesgo" button.
-  const [addingRiskData, setAddingRiskData] = useState(false);
   // Fase 8 (0817-176): pestaña activa + pestañas "visitadas" (para el "!" de aún-no-
   // revisada en pest. 1/4, que se limpia al visitar la pestaña o al enviar). Abre la
   // pista rechazada al montar (operador #4): Socio rechazado -> pest.1; si no, Riesgos
@@ -485,19 +479,12 @@ export function WorkOrderForm({
     // Cobranzas Fase 2: Contabilidad entra a cobrar, así que aterriza en Plan de pagos; las
     // pistas de rechazo (Socio/Riesgos) no son suyas y además no ve esa pestaña.
     if (collectionsOnly) return "payment";
-    // Riesgos entra solo a la evaluación de riesgos: es la única pestaña que ve.
-    if (riskOnly && !isAdministrative) return "risk";
     if (isAdministrative) return "budget";
     if (approvalStatus === "Rejected") return "budget";
     if (riskStatus === "Rejected") return "risk";
     return "budget";
   });
   const [visitedTabs, setVisitedTabs] = useState<Set<WorkOrderFormTabId>>(() => new Set([activeTab]));
-  // El rol puede resolverse después del primer render: si la vista de Riesgos llega tarde, la
-  // pestaña activa quedaría en una que no se renderiza y el panel se vería vacío.
-  useEffect(() => {
-    if (riskOnly && !isAdministrative && activeTab !== "risk") setActiveTab("risk");
-  }, [riskOnly, isAdministrative, activeTab]);
   const { currentLanguage } = useLanguage();
   const { data: categories } = useCategories();
   const { data: expenseTypes } = useExpenseTypes();
@@ -619,102 +606,38 @@ export function WorkOrderForm({
   const isStaffingEditable = isDraft && !isLocked && !socioApproved &&
     !staffingLoading && !staffingError && staffingServiceResolved;
 
-  const CEAC_NUM_RE = /^\d{10}$/;
-  const SAN_ID_RE = /^\d{10}$|^\d{5}-\d{5}$/;
-  const RISK_LEVELS = ["Bajo", "Moderado", "Alto"] as const;
-  // Sentinel for the "Ninguno" option: Radix Select forbids an empty-string
-  // SelectItem value, so this maps back to `null` in onValueChange.
-  const RISK_LEVEL_NONE = "__none__";
-
-  const ceacNumberValid = CEAC_NUM_RE.test(ceacNumber ?? "");
-  const sanApprovalValid = SAN_ID_RE.test(sanApprovalId ?? "");
-  const riskLevelValid = RISK_LEVELS.includes(
-    riskLevel as (typeof RISK_LEVELS)[number],
-  );
-  const riskApprovalReady =
-    !!ceacCompletedAt &&
-    ceacNumberValid &&
-    !!sanCompletedAt &&
-    sanApprovalValid &&
-    riskLevelValid;
+  // Las derivaciones de la pista de Riesgos viven en src/lib/workOrderRisk.ts (1028-213);
+  // la tarjeta, sus campos editables y la caja de acciones están en WorkOrderRiskSection.
+  const riskTrack = {
+    riskStatus,
+    ceacCompletedAt,
+    ceacNumber,
+    sanCompletedAt,
+    sanApprovalId,
+    riskLevel,
+    emergencyReviewAt,
+    emergencyPartnerAt,
+  };
+  const riskApprovalReady = isRiskApprovalReady(riskTrack);
   // Emergency: all 5 risk fields left empty so the OT can be submitted before
   // Riesgos provides the data (the request to Riesgos happens externally by email).
-  const riskAllEmpty =
-    !ceacCompletedAt &&
-    !ceacNumber &&
-    !sanCompletedAt &&
-    !sanApprovalId &&
-    !riskLevel;
+  const riskAllEmpty = isRiskAllEmpty(riskTrack);
   // Submit is all-or-nothing: fully complete (normal) or fully empty (emergency).
   // Partial risk data is blocked.
-  const canSubmitForApproval = isAdministrative || riskApprovalReady || riskAllEmpty;
+  const canSubmitForApproval = isRiskSubmitAllowed(riskTrack, isAdministrative);
 
   const isEmergencyApproved = riskStatus === "Emergency_Approved";
   // Riesgos rejected its track: the OT stays Pending/Approved (Socio untouched); the
   // Manager corrects the risk data and re-sends only the Risk track.
   const isRiskRejected = riskStatus === "Rejected";
-  // The track is (or was) going through emergency: pending sign-offs, already approved in
-  // emergency mode, or pending with empty risk data (just submitted).
-  // Once risk_status reaches "Approved" (post-emergency normalization), the emergency
-  // track is fully resolved — banner and emergency-specific UI must not persist.
-  const isEmergencyTrack =
-    (isEmergencyApproved || !!emergencyReviewAt || !!emergencyPartnerAt || (riskStatus === "Pending" && riskAllEmpty))
-    && riskStatus !== "Approved";
-  const showEmergencyReason = !!emergencyJustification && isEmergencyTrack;
+  const showEmergencyReason = !!emergencyJustification && isEmergencyTrack(riskTrack);
   const hasRiskData = !!(ceacCompletedAt || sanCompletedAt);
-  // After an emergency approval the Manager must click "Agregar datos de Riesgo"
-  // before the fields unlock for completion. Gate on the risk track only (isEmergencyApproved),
-  // not on the global approval_status: the deadline starts when the risk track is signed off,
-  // which can happen before the Socio track completes.
-  const canCompleteRiskData = isEmergencyApproved && !!onCompleteRisk;
-  // Risk fields are editable by the creator/Manager in Draft, again when an
-  // emergency-approved OT completes its data, and when Riesgos rejected (to correct).
-  // Una pista de Riesgos aprobada (Approved/Emergency_Approved) queda bloqueada aunque la
-  // OT vuelva a Draft por "Retirar": al retirar solo se corrige lo que NO está aprobado.
-  const riskFieldsEditable =
-    (isDraft && !riskApproved && !!onRiskAssessmentChange) ||
-    (canCompleteRiskData && addingRiskData) ||
-    (isRiskRejected && !!onRiskAssessmentChange);
-  // "Limpiar" en Draft normal (primera carga, sin rechazo aún): scoped al primer
-  // disyunto de riskFieldsEditable para no duplicar el botón del bloque isRiskRejected.
-  const showDraftClearRiskData =
-    isDraft && !riskApproved && !isRiskRejected && !!onRiskAssessmentChange && !!onClearRiskData;
   // Risk section visibility.
-  // Riesgos la ve siempre: es lo único que muestra su vista, aunque la OT siga en Draft.
   const showRiskSection =
-    riskOnly ||
     (isDraft && !!onRiskAssessmentChange) ||
     showEmergencyReason ||
     ((isPending || isApproved || isRejected) &&
       (canApproveRisk || hasRiskData || isEmergencyApproved || isRiskRejected));
-  // The Riesgos approver acts while risk is pending review — never on a rejected risk
-  // track (waits for re-submission). The Socio and Riesgos tracks are independent, so a
-  // Socio rejection must NOT hide the Risk actions: Riesgos can still sign off on its own
-  // track even when the Socio has rejected the OT.
-  const showRiskActions =
-    canApproveRisk &&
-    !isDraft &&
-    riskStatus !== "Approved" &&
-    riskStatus !== "Rejected";
-  // Emergency (risk data empty) requires two sequential sign-offs. Normal/post-completion
-  // (data present) requires a single approval — but only once the data has been SENT for
-  // review (risk_status back to Pending), never while still Emergency_Approved (i.e. while
-  // the Manager is still completing the data).
-  const showNormalRiskApprove =
-    riskApprovalReady && !isEmergencyApproved && !!onApproveRisk;
-  const showEmergencyReview =
-    riskAllEmpty &&
-    !isEmergencyApproved &&
-    !emergencyReviewAt &&
-    !!onApproveEmergencyReview;
-  const showEmergencyPartner =
-    riskAllEmpty &&
-    !isEmergencyApproved &&
-    !!emergencyReviewAt &&
-    !emergencyPartnerAt &&
-    !!onApproveEmergencyPartner;
-  const hasRiskAction =
-    showNormalRiskApprove || showEmergencyReview || showEmergencyPartner;
   // Socio can act only while pending AND not yet approved (once approved, the button is
   // replaced by the track status indicator below).
   const socioCanAct = isPending && canApprove && !approvedAt;
@@ -1449,6 +1372,7 @@ export function WorkOrderForm({
           isAdminDateEditable={isAdminDateEditable}
           canEditPaymentPlan={canEditPaymentPlan}
           isPaymentPlanDirty={isPaymentPlanDirty}
+          onPlanRateLookupChange={setPaymentRateLookupPending}
           onPlanChange={onPaymentPlanChange}
           onInstallmentsChange={onPaymentInstallmentsChange}
         />
@@ -1737,351 +1661,35 @@ export function WorkOrderForm({
   );
 
   const riskAssessmentCard = (
-    <>
-      {/* Risk Assessment Section - editable by creator/Manager in Draft (or emergency
-          completion); read-only for the Riesgos approver in Pending/Approved */}
-        <Card
-          className={cn(
-            "transition-all duration-500",
-            riskLevel === "Alto" &&
-              "border-destructive/60 bg-destructive/5 shadow-[0_0_16px_hsl(var(--destructive)/0.25)]",
-            riskLevel === "Moderado" &&
-              "border-warning/60 bg-warning/5 shadow-[0_0_16px_hsl(var(--warning)/0.25)]",
-            riskLevel === "Bajo" &&
-              "border-success/60 bg-success/5 shadow-[0_0_16px_hsl(var(--success)/0.25)]",
-            !riskLevel && "border-info/30 bg-info/5",
-          )}
-        >
-          <CardHeader className="py-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-info" />
-                  {t("workOrders.riskAssessment")}
-                </CardTitle>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {t("workOrders.riskAssessmentDescription")}
-                </p>
-                {riskFieldsEditable && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    <span className="text-destructive">*</span>{" "}
-                    {t("workOrders.riskRequiredHint")}
-                  </p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Label className="text-sm whitespace-nowrap">
-                  {t("workOrders.riskLevel")}:
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <Select
-                    value={riskLevel || ""}
-                    onValueChange={(value) =>
-                      onRiskAssessmentChange?.(
-                        "riskLevel",
-                        value === RISK_LEVEL_NONE ? null : value || null,
-                      )
-                    }
-                  >
-                    <SelectTrigger className="w-36">
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={RISK_LEVEL_NONE}>
-                        {t("workOrders.riskLevelNone")}
-                      </SelectItem>
-                      <SelectItem value="Bajo">
-                        {t("workOrders.riskLevelBajo")}
-                      </SelectItem>
-                      <SelectItem value="Moderado">
-                        {t("workOrders.riskLevelModerado")}
-                      </SelectItem>
-                      <SelectItem value="Alto">
-                        {t("workOrders.riskLevelAlto")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <span className={cn("text-sm font-semibold", riskLevelColorClass)}>
-                    {riskLevel
-                      ? t(`workOrders.riskLevel${riskLevel}`)
-                      : <span className="text-muted-foreground">—</span>
-                    }
-                  </span>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-4">
-            {showEmergencyReason && (
-              <div className="flex items-start gap-3 rounded-md border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-                <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5 text-orange-500" />
-                <p>
-                  <span className="font-medium">{t("workOrders.emergencyReasonLabel")}</span>{" "}
-                  {emergencyJustification}
-                </p>
-              </div>
-            )}
-            {isEmergencyApproved && (
-              <div className="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3">
-                <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <p className="text-sm font-semibold text-warning">
-                    {t("workOrders.riskApprovedEmergency")}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t("workOrders.emergencyDeadlineBanner", {
-                      date: emergencyDeadlineAt
-                        ? new Date(
-                            emergencyDeadlineAt + "T00:00:00",
-                          ).toLocaleDateString("es-BO", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                          })
-                        : "—",
-                    })}
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.ceacDate")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <Input
-                    type="date"
-                    value={ceacCompletedAt ? ceacCompletedAt.split("T")[0] : ""}
-                    onChange={(e) =>
-                      onRiskAssessmentChange?.(
-                        "ceacCompletedAt",
-                        e.target.value || null,
-                      )
-                    }
-                  />
-                ) : (
-                  <p className="text-sm py-2">
-                    {ceacCompletedAt ? (
-                      new Date(
-                        ceacCompletedAt + "T00:00:00",
-                      ).toLocaleDateString("es-BO", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                      })
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.sanDate")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <Input
-                    type="date"
-                    value={sanCompletedAt ? sanCompletedAt.split("T")[0] : ""}
-                    onChange={(e) =>
-                      onRiskAssessmentChange?.(
-                        "sanCompletedAt",
-                        e.target.value || null,
-                      )
-                    }
-                  />
-                ) : (
-                  <p className="text-sm py-2">
-                    {sanCompletedAt ? (
-                      new Date(sanCompletedAt + "T00:00:00").toLocaleDateString(
-                        "es-BO",
-                        { day: "2-digit", month: "2-digit", year: "numeric" },
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.ceacNumber")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <>
-                    <Input
-                      type="text"
-                      placeholder={t("workOrders.ceacNumberPlaceholder")}
-                      value={ceacNumber || ""}
-                      onChange={(e) => {
-                        const val = e.target.value
-                          .replace(/[^\d]/g, "")
-                          .slice(0, 10);
-                        onRiskAssessmentChange?.("ceacNumber", val || null);
-                      }}
-                    />
-                    {(ceacNumber?.length ?? 0) > 0 &&
-                      !CEAC_NUM_RE.test(ceacNumber ?? "") && (
-                        <p className="text-xs text-destructive">
-                          {t("workOrders.ceacNumberInvalid")}
-                        </p>
-                      )}
-                  </>
-                ) : (
-                  <p className="text-sm py-2">
-                    {ceacNumber || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>
-                  {t("workOrders.sanApprovalId")}
-                  {riskFieldsEditable && (
-                    <span className="text-destructive"> *</span>
-                  )}
-                </Label>
-                {riskFieldsEditable ? (
-                  <>
-                    <Input
-                      type="text"
-                      placeholder={t("workOrders.sanApprovalIdPlaceholder")}
-                      value={sanApprovalId || ""}
-                      onChange={(e) => {
-                        const val = e.target.value
-                          .replace(/[^\d-]/g, "")
-                          .replace(/(.*-.*)-/g, "$1")
-                          .slice(0, 11);
-                        onRiskAssessmentChange?.("sanApprovalId", val || null);
-                      }}
-                    />
-                    {(sanApprovalId?.length ?? 0) > 0 &&
-                      !SAN_ID_RE.test(sanApprovalId ?? "") && (
-                        <p className="text-xs text-destructive">
-                          {t("workOrders.sanApprovalIdInvalid")}
-                        </p>
-                      )}
-                  </>
-                ) : (
-                  <p className="text-sm py-2">
-                    {sanApprovalId || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </p>
-                )}
-              </div>
-            </div>
-            {/* Notas CEAC/SAN retiradas del formulario (0306-78): las observaciones de
-                rechazo se capturan en el diálogo de rechazo de Riesgos (risk_notes). */}
-            {/* "Limpiar" en Draft normal: permite reiniciar los 5 campos para el envío
-                de emergencia sin tener que borrar cada uno a mano. */}
-            {showDraftClearRiskData && (
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  onClick={onClearRiskData}
-                  disabled={riskAllEmpty || isSubmitting}
-                  className="btn-action"
-                >
-                  <Eraser className="h-4 w-4 mr-2" />
-                  {t("workOrders.clearRiskData")}
-                </Button>
-              </div>
-            )}
-            {/* Manager completes risk data after an emergency approval. Fields stay
-                locked until "Agregar datos de Riesgo" is pressed; then the data is
-                sent back to Riesgos for a single approval. */}
-            {canCompleteRiskData && (
-              <div className="flex justify-end">
-                {!addingRiskData ? (
-                  <Button
-                    onClick={() => setAddingRiskData(true)}
-                    className="bg-info hover:bg-info/90 btn-action"
-                    disabled={isSubmitting}
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-2" />
-                    {t("workOrders.addRiskData")}
-                  </Button>
-                ) : (
-                  <LoadingButton
-                    onClick={() => onCompleteRisk?.()}
-                    className="bg-info hover:bg-info/90 btn-action"
-                    loading={isSubmitting}
-                    disabled={!riskApprovalReady || isSubmitting}
-                    title={
-                      !riskApprovalReady
-                        ? t("workOrders.riskAssessmentRequired")
-                        : undefined
-                    }
-                  >
-                    <Send className="h-4 w-4 mr-2" />
-                    {t("workOrders.sendRiskForApproval")}
-                  </LoadingButton>
-                )}
-              </div>
-            )}
-            {/* Riesgos rejected its track: correct the data and re-send only to Riesgos.
-                Todo-o-nada: 5 campos completos → reenvío normal; 5 vacíos → emergencia (modal).
-                Parcial → deshabilitado. Botón Limpiar para facilitar el path de emergencia. */}
-            {isRiskRejected && onCompleteRisk && (
-              <div className="flex justify-end gap-2">
-                {onClearRiskData && (
-                  <Button
-                    variant="outline"
-                    onClick={onClearRiskData}
-                    disabled={riskAllEmpty || isSubmitting}
-                    className="btn-action"
-                  >
-                    <Eraser className="h-4 w-4 mr-2" />
-                    {t("workOrders.clearRiskData")}
-                  </Button>
-                )}
-                <LoadingButton
-                  onClick={() => {
-                    if (riskAllEmpty) {
-                      setSubmitJustification("");
-                      setEmergencyDialogMode("resend");
-                      setSubmitEmergencyDialogOpen(true);
-                    } else {
-                      onCompleteRisk();
-                    }
-                  }}
-                  className="bg-info hover:bg-info/90 btn-action"
-                  loading={isSubmitting}
-                  disabled={!(riskApprovalReady || riskAllEmpty) || isSubmitting}
-                  title={
-                    !(riskApprovalReady || riskAllEmpty)
-                      ? t("workOrders.riskAssessmentRequiredOrEmpty")
-                      : undefined
-                  }
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {t("workOrders.sendRiskForReapproval")}
-                </LoadingButton>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-    </>
+    <WorkOrderRiskSection
+      approvalStatus={approvalStatus}
+      isAdministrative={isAdministrative}
+      riskStatus={riskStatus}
+      ceacCompletedAt={ceacCompletedAt}
+      sanCompletedAt={sanCompletedAt}
+      ceacNumber={ceacNumber}
+      sanApprovalId={sanApprovalId}
+      riskLevel={riskLevel}
+      emergencyDeadlineAt={emergencyDeadlineAt}
+      emergencyReviewAt={emergencyReviewAt}
+      emergencyPartnerAt={emergencyPartnerAt}
+      emergencyJustification={emergencyJustification}
+      isSubmitting={isSubmitting}
+      canApproveRisk={canApproveRisk}
+      canSignEmergency={canSignEmergency}
+      onRiskAssessmentChange={onRiskAssessmentChange}
+      onClearRiskData={onClearRiskData}
+      onCompleteRisk={onCompleteRisk}
+      onRequestEmergencyResend={() => {
+        setSubmitJustification("");
+        setEmergencyDialogMode("resend");
+        setSubmitEmergencyDialogOpen(true);
+      }}
+      onApproveRisk={onApproveRisk}
+      onRejectRisk={onRejectRisk}
+      onApproveEmergencyReview={onApproveEmergencyReview}
+      onApproveEmergencyPartner={onApproveEmergencyPartner}
+    />
   );
 
   return (
@@ -2155,23 +1763,17 @@ export function WorkOrderForm({
           {staffingSection}
           {showRiskSection && riskAssessmentCard}
         </>
-      ) : riskOnly && isAdministrative ? (
-        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          {t("workOrders.riskOnlyAdministrative")}
-        </div>
       ) : (
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="flex w-full justify-start overflow-x-auto">
-            {!riskOnly && (
-              <TabsTrigger value="budget" className="shrink-0">
-                {t("workOrders.tabs.budget")}
-                {renderTabIndicator(
-                  budgetIndicatorKind,
-                  ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
-                )}
-              </TabsTrigger>
-            )}
-            {!isAdministrative && !riskOnly && (
+            <TabsTrigger value="budget" className="shrink-0">
+              {t("workOrders.tabs.budget")}
+              {renderTabIndicator(
+                budgetIndicatorKind,
+                ariaLabelForIndicator(budgetIndicatorKind, "workOrders.tabs.status.notReviewed"),
+              )}
+            </TabsTrigger>
+            {!isAdministrative && (
               <TabsTrigger value="payment" className="shrink-0">
                 {t("workOrders.tabs.payment")}
                 {renderTabIndicator(
@@ -2189,7 +1791,7 @@ export function WorkOrderForm({
                 )}
               </TabsTrigger>
             )}
-            {isSchedulerEnabled() && !collectionsOnly && !riskOnly && (
+            {isSchedulerEnabled() && !collectionsOnly && (
               <TabsTrigger value="staffing" className="shrink-0">
                 {t("workOrders.tabs.staffing")}
                 {renderTabIndicator(
@@ -2199,8 +1801,6 @@ export function WorkOrderForm({
               </TabsTrigger>
             )}
           </TabsList>
-          {/* Riesgos: igual que Cobranzas, se condiciona también el contenido (forceMount). */}
-          {!riskOnly && (
           <TabsContent value="budget" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
             {budgetGridCard}
             {expensesSummaryGrid}
@@ -2236,8 +1836,7 @@ export function WorkOrderForm({
               </div>
             )}
           </TabsContent>
-          )}
-          {!isAdministrative && !riskOnly && (
+          {!isAdministrative && (
             <TabsContent value="payment" forceMount className="mt-4 data-[state=inactive]:hidden">
               {paymentPlanSection}
             </TabsContent>
@@ -2248,67 +1847,9 @@ export function WorkOrderForm({
           {!isAdministrative && !collectionsOnly && (
             <TabsContent value="risk" forceMount className="mt-4 space-y-4 data-[state=inactive]:hidden">
               {riskAssessmentCard}
-              {showRiskActions && hasRiskAction && (
-              <div className="flex justify-end">
-          <div className="relative rounded-md border p-3 pt-4">
-            <span className="absolute -top-2 left-3 bg-background px-1 text-xs font-medium text-muted-foreground">
-              {t("workOrders.riskActionsLabel")}
-            </span>
-            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
-              {onRejectRisk && (
-                <LoadingButton
-                  variant="outline"
-                  onClick={() => {
-                    setRejectRiskNotes("");
-                    setRejectRiskDialogOpen(true);
-                  }}
-                  className="text-destructive border-destructive btn-action"
-                  loading={isSubmitting}
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  {t("workOrders.rejectRisk")}
-                </LoadingButton>
-              )}
-              {showNormalRiskApprove && (
-                <LoadingButton
-                  onClick={onApproveRisk}
-                  className="bg-success hover:bg-success/90 btn-action"
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                >
-                  <ShieldCheck className="h-4 w-4 mr-2" />
-                  {t("workOrders.approveRisk")}
-                </LoadingButton>
-              )}
-              {showEmergencyReview && (
-                <LoadingButton
-                  onClick={onApproveEmergencyReview}
-                  className="bg-orange-500 hover:bg-orange-600 text-white btn-action"
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                >
-                  <ShieldAlert className="h-4 w-4 mr-2" />
-                  {t("workOrders.approveRiskAssistant")}
-                </LoadingButton>
-              )}
-              {showEmergencyPartner && (
-                <LoadingButton
-                  onClick={onApproveEmergencyPartner}
-                  className="bg-orange-500 hover:bg-orange-600 text-white btn-action"
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                >
-                  <ShieldAlert className="h-4 w-4 mr-2" />
-                  {t("workOrders.approveRiskPartner")}
-                </LoadingButton>
-              )}
-            </div>
-          </div>
-              </div>
-              )}
             </TabsContent>
           )}
-          {isSchedulerEnabled() && !collectionsOnly && !riskOnly && (
+          {isSchedulerEnabled() && !collectionsOnly && (
             <TabsContent value="staffing" forceMount className="mt-4 data-[state=inactive]:hidden">
               {staffingSection}
             </TabsContent>
@@ -2344,12 +1885,7 @@ export function WorkOrderForm({
         </div>
       )}
       {/* Nota de rechazo de Riesgos — visible mientras se corrige (risk_status='Rejected'). */}
-      {isRiskRejected && riskNote && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          <span className="font-medium">{t("workOrders.riskRejectionNoteLabel")}</span>{" "}
-          {riskNote}
-        </div>
-      )}
+      <WorkOrderRiskNoteBanner riskStatus={riskStatus} riskNote={riskNote} />
 
       {/* Actions: botones globales transversales. Las cajas de acción de Socio y
           Riesgos viven ahora dentro de sus pestañas (pest. 1 y 3). */}
@@ -2368,13 +1904,13 @@ export function WorkOrderForm({
               Contabilidad entra a cobrar; sus acciones viven dentro del Plan de pagos y se
               guardan solas. Sin esto, con la OT en Draft (que sí puede abrir, decisión Q19)
               le aparecían dos botones que el servidor le iba a rechazar. */}
-          {isDraft && !collectionsOnly && !riskOnly && (
+          {isDraft && !collectionsOnly && (
             <>
               <LoadingButton
                 onClick={onSubmit}
                 loading={isSubmitting}
                 className="btn-action"
-                disabled={isDirty && !hasNonRiskDirty}
+                disabled={(isDirty && !hasNonRiskDirty) || paymentRateLookupPending}
                 title={
                   isDirty && !hasNonRiskDirty
                     ? t("workOrders.riskSavedOnSubmit")
@@ -2412,7 +1948,7 @@ export function WorkOrderForm({
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}
-                  disabled={!canSubmitForApproval}
+                  disabled={!canSubmitForApproval || paymentRateLookupPending}
                   title={
                     !canSubmitForApproval
                       ? t("workOrders.riskAssessmentRequired")
@@ -2432,12 +1968,13 @@ export function WorkOrderForm({
               reenvía SOLO la pista Socio (el riesgo decidido permanece bloqueado y visible).
               No usa el flujo de emergencia (riesgo ya resuelto). "Guardar" sigue disponible
               para quien prefiera guardar sin reenviar todavía. */}
-          {socioCorrecting && !riskOnly && (
+          {socioCorrecting && (
             <>
               <LoadingButton
                 onClick={onSubmit}
                 loading={isSubmitting}
                 className="btn-action"
+                disabled={paymentRateLookupPending}
               >
                 {t("common.save")}
               </LoadingButton>
@@ -2451,6 +1988,7 @@ export function WorkOrderForm({
                       : "bg-info hover:bg-info/90",
                   )}
                   loading={isSubmitting}
+                  disabled={paymentRateLookupPending}
                   title={missingRequiredTab ? t("workOrders.tabsNotVisited") : undefined}
                 >
                   <Send className="h-4 w-4 mr-2" />
@@ -2463,7 +2001,7 @@ export function WorkOrderForm({
               riskPending). Devuelve la OT a Draft; al editar, solo se corrige la pista no
               aprobada. Con ambas pistas rechazadas (o una aprobada + otra rechazada) no hay
               pendiente => no se muestra: la corrección se hace en sitio. */}
-          {showWithdraw && !collectionsOnly && !riskOnly && (
+          {showWithdraw && !collectionsOnly && (
             <LoadingButton
               variant="outline"
               onClick={onUnsubmit}
@@ -2507,7 +2045,7 @@ export function WorkOrderForm({
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={submitJustification.trim().length === 0}
+              disabled={submitJustification.trim().length === 0 || paymentRateLookupPending}
               onClick={() => {
                 const justif = submitJustification.trim();
                 if (emergencyDialogMode === "resend") {
@@ -2526,36 +2064,6 @@ export function WorkOrderForm({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reject risk dialog — optional notes */}
-      <AlertDialog open={rejectRiskDialogOpen} onOpenChange={setRejectRiskDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("workOrders.rejectRiskDialogTitle")}
-            </AlertDialogTitle>
-          </AlertDialogHeader>
-          <div className="space-y-2 py-2">
-            <Label>{t("workOrders.riskRejectionNoteLabel")}</Label>
-            <Textarea
-              value={rejectRiskNotes}
-              onChange={(e) => setRejectRiskNotes(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90"
-              onClick={() => {
-                onRejectRisk?.(rejectRiskNotes.trim() || null);
-                setRejectRiskDialogOpen(false);
-              }}
-            >
-              {t("workOrders.rejectRisk")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

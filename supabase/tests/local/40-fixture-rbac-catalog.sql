@@ -6,6 +6,8 @@
 -- Conteos objetivo: 23 roles, 84 permisos, 737 concesiones.
 -- Ajuste manual posterior (docs/plan-contabilidad-gastos.md, Fase 1.2, 2026-10-08): +2 concesiones
 -- fund_disbursement.read/update para accounting_analyst (paridad con accounting_manager). Total 739.
+-- Ajuste 1028-213 (decisiones D-23, H-3): -3 concesiones work_order.risk.approve (manager, ita_manager,
+-- tax_manager) y risk_partner worksheet.read pasa de department a assigned_engagements. Total 736.
 -- =====================================================================
 
 -- A) Roles (23). legacy_app_role: nivel jerárquico equivalente (drift real de Dev 2.0, nunca
@@ -399,7 +401,7 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('manager', 'worksheet.read', 'assigned_engagements'),
   ('ita_manager', 'worksheet.read', 'assigned_engagements'),
   ('tax_manager', 'worksheet.read', 'assigned_engagements'),
-  ('risk_partner', 'worksheet.read', 'department'),
+  ('risk_partner', 'worksheet.read', 'assigned_engagements'),
   ('admin', 'worksheet.create', 'firm'),
   ('manager', 'worksheet.create', 'assigned_engagements'),
   ('ita_manager', 'worksheet.create', 'assigned_engagements'),
@@ -446,9 +448,6 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('accounting_manager', 'work_order.payment_plan.approve', 'department'),
   ('collections_analyst', 'work_order.payment_plan.approve', 'department'),
   ('admin', 'work_order.risk.approve', 'assigned_engagements'),
-  ('manager', 'work_order.risk.approve', 'assigned_engagements'),
-  ('ita_manager', 'work_order.risk.approve', 'assigned_engagements'),
-  ('tax_manager', 'work_order.risk.approve', 'assigned_engagements'),
   ('risk_partner', 'work_order.risk.approve', 'department'),
   ('risk_supervisor', 'work_order.risk.approve', 'department'),
   ('admin', 'time_entry.read', 'own'),

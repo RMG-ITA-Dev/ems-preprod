@@ -249,7 +249,13 @@ const WorkOrderNew = () => {
         await batchUpsertInstallments.mutateAsync({
           planId: savedPlan.plan_id,
           woId: wo.wo_id,
-          installments: applyExchangeRateMode(mode, exchangeRate, paymentInstallments),
+          // TC del plan ya guardado: en BOB se manda null y la columna toma su DEFAULT
+          // latest_exchange_rate(); el guard de modo fijo exige que la cuota traiga ese TC.
+          installments: applyExchangeRateMode(
+            mode,
+            exchangeRate ?? savedPlan.exchange_rate,
+            paymentInstallments,
+          ),
         });
       }
 

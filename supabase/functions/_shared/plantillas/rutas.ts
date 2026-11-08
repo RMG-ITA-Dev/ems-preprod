@@ -81,6 +81,18 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
 
   // Todos los eventos del módulo llevan wo_id en entity_id, incluidos los de cuota: la cuota no
   // tiene pantalla propia, se edita en la pestaña "Plan de pagos" de su orden.
+  //
+  // 1028-213 (D-17, AC-32): los avisos de Riesgos de la OT (incluido el del paso 1 de emergencia, que recibe quien debe firmar el paso 2) van a /risks/:woId cuando `notify_staff`
+  // marcó `payload.ruta = 'risks'` (el destinatario tiene work_order.risk.read). Espejo de
+  // `notificationRoute` (src/lib/notifications.ts): si una ruta cambia en la app, se toca acá.
+  if (
+    (typeKey === "wo.submitted_risk" || typeKey === "wo.risk.resubmitted" ||
+      typeKey === "wo.emergency.step1_done" || typeKey === "wo.emergency.deadline_passed") &&
+    payload.ruta === "risks"
+  ) {
+    return entidad ? `/risks/${entidad}` : null;
+  }
+
   if (typeKey.startsWith("wo.")) {
     return entidad ? `/work-orders/${entidad}` : null;
   }
@@ -131,6 +143,11 @@ export function rutaDeNotificacion(datos: DatosRuta): string | null {
   if (typeKey === "timesheet.own_submit_confirmed") return "/timesheet";
   if (typeKey.startsWith("timesheet.")) {
     return entidad ? `/timesheet/approvals/${entidad}` : null;
+  }
+
+  // 1028-211: los avisos de cliente llevan a la ficha (entity_id = client_id), como `notificationRoute`.
+  if (typeKey.startsWith("client.")) {
+    return entidad ? `/clients/${entidad}` : null;
   }
 
   // Los eventos de cuenta nacen en `user_roles`, donde lo que hay es un user_id: el disparador

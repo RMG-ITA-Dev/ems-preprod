@@ -2,7 +2,7 @@
 -- (20261009120000_rls_carril_b.sql: BAR-009 sync_worksheet_to_wo_budget, BAR-014
 --  update_timesheet_minmax_settings, BAR-015 submit_timesheet_safe, y la sección B1.2 de permisos:
 --  timesheet.self_approve, lectura de OT para risk_partner/risk_supervisor, risk_partner sin
---  worksheet.create/update.)
+--  worksheet.create/update; 1028-213: work_order.risk.read/emergency_sign, RS sin work_order.read.)
 --
 -- Corre desde supabase/tests/local/run-rls-tests.sh, después de aplicar la migración del Carril B.
 -- Transacción única, SIEMPRE hace ROLLBACK. Salida de éxito: una NOTICE por chequeo, terminando
@@ -469,9 +469,9 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — P1: timesheet.self_approve existe y lo tienen solo admin/senior_partner/director/partner/risk_partner (own)';
 
-  -- P2: risk_partner — gana lectura de OT y los permisos de socio que le faltaban...
+  -- P2: risk_partner — lee OT solo de sus encargos (1028-213, D-25: assigned_engagements) y gana los permisos de socio que le faltaban...
   IF pg_temp.scope_of('risk_partner', 'activity_code.read')              IS DISTINCT FROM 'none'
-  OR pg_temp.scope_of('risk_partner', 'work_order.read')                 IS DISTINCT FROM 'department'
+  OR pg_temp.scope_of('risk_partner', 'work_order.read')                 IS DISTINCT FROM 'assigned_engagements'
   OR pg_temp.scope_of('risk_partner', 'work_order.submit')               IS DISTINCT FROM 'assigned_engagements'
   OR pg_temp.scope_of('risk_partner', 'work_order.payment_plan.approve') IS DISTINCT FROM 'assigned_engagements'
   OR pg_temp.scope_of('risk_partner', 'client.create')                   IS DISTINCT FROM 'assigned_clients' THEN
@@ -482,7 +482,8 @@ BEGIN
   OR pg_temp.scope_of('risk_partner', 'worksheet.update') IS NOT NULL THEN
     RAISE EXCEPTION 'B1 CALLERS FAIL — P2: risk_partner conserva worksheet.create/update';
   END IF;
-  IF pg_temp.scope_of('risk_partner', 'worksheet.read')        IS NULL
+  -- 1028-213 (H-3): worksheet.read pasa de department a assigned_engagements.
+  IF pg_temp.scope_of('risk_partner', 'worksheet.read')        IS DISTINCT FROM 'assigned_engagements'
   OR pg_temp.scope_of('risk_partner', 'worksheet.approve')     IS NULL
   OR pg_temp.scope_of('risk_partner', 'work_order.risk.approve') IS NULL THEN
     RAISE EXCEPTION 'B1 CALLERS FAIL — P2: risk_partner perdió worksheet.read/approve o work_order.risk.approve (no-regresión)';
@@ -494,13 +495,33 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — P2: risk_partner gana lectura de OT/socio, pierde worksheet.create/update, sin escritura de OT';
 
-  -- P3: risk_supervisor lee OT y el encargo de la OT; conserva su aprobación de riesgo.
-  IF pg_temp.scope_of('risk_supervisor', 'work_order.read')         IS DISTINCT FROM 'department'
+  -- P3: risk_supervisor (1028-213, D-24): ya NO lee OT; conserva el encargo, su aprobación de riesgo y recibe work_order.risk.read.
+  IF pg_temp.scope_of('risk_supervisor', 'work_order.read')         IS NOT NULL
   OR pg_temp.scope_of('risk_supervisor', 'engagement.read')         IS DISTINCT FROM 'department'
-  OR pg_temp.scope_of('risk_supervisor', 'work_order.risk.approve') IS NULL THEN
-    RAISE EXCEPTION 'B1 CALLERS FAIL — P3: risk_supervisor no quedó con work_order.read/engagement.read (department) + risk.approve';
+  OR pg_temp.scope_of('risk_supervisor', 'work_order.risk.approve') IS NULL
+  OR pg_temp.scope_of('risk_supervisor', 'work_order.risk.read')    IS DISTINCT FROM 'department'
+  OR pg_temp.scope_of('risk_supervisor', 'work_order.risk.emergency_sign') IS NOT NULL THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — P3: risk_supervisor debía quedar sin work_order.read y sin emergency_sign, con engagement.read (department) + risk.approve + risk.read (department)';
   END IF;
-  RAISE NOTICE 'PASS — P3: risk_supervisor lee OT y encargo (department) y conserva work_order.risk.approve';
+  RAISE NOTICE 'PASS — P3: risk_supervisor no lee OT, ve el encargo (department), conserva work_order.risk.approve y gana work_order.risk.read';
+
+  -- P3b (1028-213, D-07, D-23, D-38, H-6): permisos nuevos y quién los tiene; manager/ita/tax/hr pierden risk.approve.
+  SELECT string_agg(role_key || ':' || scope_key, ',' ORDER BY role_key) INTO v_roles
+    FROM public.authorization_role_permissions WHERE permission_key = 'work_order.risk.read';
+  IF v_roles IS DISTINCT FROM 'admin:firm,risk_partner:department,risk_supervisor:department' THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — P3b: roles con work_order.risk.read inesperados (%)', v_roles;
+  END IF;
+  SELECT string_agg(role_key || ':' || scope_key, ',' ORDER BY role_key) INTO v_roles
+    FROM public.authorization_role_permissions WHERE permission_key = 'work_order.risk.emergency_sign';
+  IF v_roles IS DISTINCT FROM 'admin:firm,risk_partner:department' THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — P3b: roles con work_order.risk.emergency_sign inesperados (%)', v_roles;
+  END IF;
+  SELECT string_agg(role_key, ',' ORDER BY role_key) INTO v_roles
+    FROM public.authorization_role_permissions WHERE permission_key = 'work_order.risk.approve';
+  IF v_roles IS DISTINCT FROM 'admin,risk_partner,risk_supervisor' THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — P3b: work_order.risk.approve debe quedar solo en admin/risk_partner/risk_supervisor (hay %)', v_roles;
+  END IF;
+  RAISE NOTICE 'PASS — P3b: work_order.risk.read (admin/RP/RS), emergency_sign (admin/RP) y risk.approve solo en admin/RP/RS';
 
   -- P4: ningún otro rol cambió. Puntos de control sobre los que NO debían tocarse.
   IF pg_temp.scope_of('manager', 'worksheet.create')  IS DISTINCT FROM 'assigned_engagements'
@@ -519,8 +540,9 @@ BEGIN
     RAISE EXCEPTION 'B1 CALLERS FAIL — P5: has_permission() de risk_partner no refleja lectura sí / escritura no de OT';
   END IF;
   PERFORM pg_temp.impersonate('a0b10000-0000-4000-8000-000000000007');
-  IF NOT public.has_permission('work_order.read') OR NOT public.has_permission('engagement.read') THEN
-    RAISE EXCEPTION 'B1 CALLERS FAIL — P5: has_permission() de risk_supervisor no ve OT/encargo';
+  IF public.has_permission('work_order.read') OR NOT public.has_permission('engagement.read')
+     OR NOT public.has_permission('work_order.risk.read') THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — P5: has_permission() de risk_supervisor debía negar work_order.read y permitir engagement.read y work_order.risk.read';
   END IF;
   RAISE NOTICE 'PASS — P5: has_permission() con sesión coincide con la matriz para risk_partner y risk_supervisor';
 

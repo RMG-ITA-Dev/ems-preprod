@@ -158,10 +158,13 @@ BEGIN
   END LOOP;
   -- Cobranza (client.read departamento) desde el alcance por sociedad (2026-10-28): solo clientes con algún encargo de su sociedad.
   -- El corte completo se prueba en rls-accounting-society-scope.sql.
-  IF pg_temp.count_as(u8, 'clients') <> (SELECT count(DISTINCT e.client_id) FROM public.engagements e
-                                          WHERE e.society_id = (SELECT society_id FROM public.society ORDER BY name LIMIT 1)) THEN
-    RAISE EXCEPTION 'B3c FAIL — cobranza debía ver los clientes con encargos de su sociedad y ve %', pg_temp.count_as(u8, 'clients');
-  END IF;
+  -- 1028-211: el Gerente de Contabilidad (u7) también tiene client.read departamento, con el mismo corte.
+  FOREACH v_who IN ARRAY ARRAY[u7, u8] LOOP
+    IF pg_temp.count_as(v_who, 'clients') <> (SELECT count(DISTINCT e.client_id) FROM public.engagements e
+                                               WHERE e.society_id = (SELECT society_id FROM public.society ORDER BY name LIMIT 1)) THEN
+      RAISE EXCEPTION 'B3c FAIL — % debía ver los clientes con encargos de su sociedad y ve %', v_who, pg_temp.count_as(v_who, 'clients');
+    END IF;
+  END LOOP;
   -- Cada gerente, el cliente de su encargo; el socio, el de los dos (socio de E1 y SQR de E2).
   IF pg_temp.count_as(u2, 'clients') <> 1 OR pg_temp.count_as(u3, 'clients') <> 1 THEN
     RAISE EXCEPTION 'B3c FAIL — cada gerente debía ver 1 cliente (U2 %, U3 %)', pg_temp.count_as(u2, 'clients'), pg_temp.count_as(u3, 'clients');
@@ -169,13 +172,14 @@ BEGIN
   IF pg_temp.count_as(u4, 'clients') <> 2 THEN
     RAISE EXCEPTION 'B3c FAIL — el socio (socio de E1 y SQR de E2) debía ver 2 clientes y ve %', pg_temp.count_as(u4, 'clients');
   END IF;
-  -- Sin client.read: asistente, senior, contabilidad y supervisor de riesgos no ven ninguno.
-  FOREACH v_who IN ARRAY ARRAY[u5, u6, u7, u9] LOOP
+  -- Sin client.read: asistente, senior y supervisor de riesgos no ven ninguno (el Gerente de Contabilidad sí
+  -- desde 1028-211, arriba).
+  FOREACH v_who IN ARRAY ARRAY[u5, u6, u9] LOOP
     IF pg_temp.count_as(v_who, 'clients') <> 0 THEN
       RAISE EXCEPTION 'B3c FAIL — % no tiene client.read y no debía ver clientes', v_who;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — clientes: admin, cobranza y riesgos todos; gerentes y socio los de sus encargos; asistente, senior, contabilidad y supervisor de riesgos 0';
+  RAISE NOTICE 'PASS — clientes: admin y riesgos todos; cobranza y gerente de contabilidad los de su sociedad; gerentes y socio los de sus encargos; asistente, senior y supervisor de riesgos 0';
 
   -- No-vacuidad: la visibilidad sale del permiso y de la relación con el encargo.
   DELETE FROM public.authorization_role_permissions WHERE role_key = 'manager' AND permission_key = 'client.read';
@@ -232,8 +236,8 @@ BEGIN
   -- 4. Directorio de clientes ───────────────────────────────────────────────────────────────────────
   SELECT string_agg(column_name, ',' ORDER BY ordinal_position) INTO v_cols
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
-  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
-    RAISE EXCEPTION 'B3c FAIL — clients_directory debe tener solo client_id, client_legal_name e is_active y tiene %', v_cols;
+  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active,homonym_seq' THEN
+    RAISE EXCEPTION 'B3c FAIL — clients_directory debe tener solo client_id, client_legal_name, is_active y homonym_seq y tiene %', v_cols;
   END IF;
   -- Asistente y senior (sin client.read) leen el nombre de TODOS los clientes por el directorio...
   IF pg_temp.count_as(u5, 'clients_directory') <> v_cli OR pg_temp.count_as(u6, 'clients_directory') <> v_cli THEN
@@ -245,6 +249,22 @@ BEGIN
   IF v_err IS NULL OR v_err NOT LIKE '42703%' THEN
     RAISE EXCEPTION 'B3c FAIL — contact_email no debía existir en el directorio (err=%)', v_err;
   END IF;
+  -- 1028-211: homonym_seq numera a los homónimos por fecha de alta (desempate client_id), sin distinguir mayúsculas ni
+  -- espacios en los bordes; un nombre único queda en NULL. Se insertan como dueño y se leen como el asistente.
+  INSERT INTO public.clients (client_id, client_legal_name, tax_id, created_at) VALUES
+    ('c0b3cc00-0000-4000-8000-0000000000f2', 'B3C HOMONIMO', '99001', '2026-01-02'),
+    ('c0b3cc00-0000-4000-8000-0000000000f1', ' b3c homonimo ', '99001', '2026-01-01'),
+    ('c0b3cc00-0000-4000-8000-0000000000f3', 'B3C HOMONIMO', '12345', '2026-01-02'),
+    ('c0b3cc00-0000-4000-8000-0000000000f4', 'B3C NOMBRE UNICO', '99001', '2026-01-01');
+  IF pg_temp.scalar_as(u5, $q$SELECT count(*) FROM public.clients_directory
+                              WHERE (client_id = 'c0b3cc00-0000-4000-8000-0000000000f1' AND homonym_seq = 1)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f2' AND homonym_seq = 2)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f3' AND homonym_seq = 3)
+                                 OR (client_id = 'c0b3cc00-0000-4000-8000-0000000000f4' AND homonym_seq IS NULL)$q$) <> 4 THEN
+    RAISE EXCEPTION 'B3c FAIL — homonym_seq debía numerar 1, 2, 3 a los homónimos por fecha de alta y dejar NULL al nombre único';
+  END IF;
+  DELETE FROM public.clients WHERE client_id::text LIKE 'c0b3cc00-0000-4000-8000-0000000000f_';
+  RAISE NOTICE 'PASS — directorio: homonym_seq numera homónimos por fecha de alta y deja NULL a los nombres únicos';
   -- Sin ficha de staff el directorio no devuelve filas (misma regla que fund_request_selectable_work_orders).
   IF pg_temp.count_as(u1, 'clients_directory') <> 0 THEN
     RAISE EXCEPTION 'B3c FAIL — el admin del fixture no tiene ficha de staff y no debía ver filas del directorio';
@@ -257,7 +277,9 @@ BEGIN
         'INSERT INTO public.clients_directory (client_id, client_legal_name) VALUES (gen_random_uuid(), ''x'')',
         'UPDATE public.engagement_wo_state SET risk_status = risk_status'] LOOP
       v_err := pg_temp.try_as(v_who, v);
-      IF v_err IS NULL OR v_err NOT LIKE '42501%' THEN
+      -- 1028-211: con homonym_seq (función de ventana) clients_directory dejó de ser auto-updatable, así que
+      -- Postgres corta la escritura antes de mirar privilegios: 55000 "cannot update view". Sigue denegada.
+      IF v_err IS NULL OR NOT (v_err LIKE '42501%' OR (v LIKE '%clients_directory%' AND v_err LIKE '55000%')) THEN
         RAISE EXCEPTION 'B3c FAIL — % pudo escribir por una vista (%; err=%)', v_who, v, v_err;
       END IF;
     END LOOP;
@@ -352,8 +374,9 @@ BEGIN
   IF pg_temp.count_as(u2, 'work_orders') <> 1 OR pg_temp.count_as(u3, 'work_orders') <> 1 THEN
     RAISE EXCEPTION 'B3c FAIL — cada gerente debía ver la OT de su encargo';
   END IF;
-  IF pg_temp.count_as(u4, 'work_orders') <> 2 THEN
-    RAISE EXCEPTION 'B3c FAIL — el socio/SQR debía ver las 2 OT con la RLS de engagements activa';
+  -- 1028-213 (D-21): u4 es socio de E1 y SQR de E2; el SQR ya no lee la OT, así que ve solo la OT de E1 (donde es socio).
+  IF pg_temp.count_as(u4, 'work_orders') <> 1 THEN
+    RAISE EXCEPTION 'B3c FAIL — el socio de E1 (y SQR de E2) debía ver solo la OT de E1 con la RLS de engagements activa (ve %)', pg_temp.count_as(u4, 'work_orders');
   END IF;
   IF pg_temp.count_as(u8, 'work_orders') <> v_wo OR pg_temp.count_as(u7, 'work_orders') <> v_wo THEN
     RAISE EXCEPTION 'B3c FAIL — cobranza y contabilidad debían ver las % OT (work_order.read department) y ven % / %', v_wo,
@@ -392,7 +415,9 @@ BEGIN
    WHERE schemaname = 'public' AND tablename NOT IN ('clients', 'engagements')
      AND (coalesce(qual, '') || coalesce(with_check, '')) ~* '\m(clients|engagements)\M'
      AND (tablename, policyname) NOT IN (
-       ('work_orders', 'Assigned SQR can view work orders'), ('work_orders', 'Assigned SQR can update work orders'),
+       -- 1028-213 (D-21, D-37): las dos políticas "Assigned SQR ..." de work_orders ya no existen. (D-42, H-2): las dos políticas de
+       -- creación por permiso comprueban inline que quien inserta es el gerente del encargo (engagements.manager_id), como las de plan de pagos.
+       ('work_orders', 'wo_create_by_permission'), ('activity_worksheets', 'worksheet_create_by_permission'),
        ('wo_payment_plan', 'Manager can manage payment plans'), ('wo_payment_installments', 'Manager can manage payment installments'),
        ('timesheet_line_approvals', 'Approvers can view assigned line approvals'));
   IF v_cols IS NOT NULL THEN

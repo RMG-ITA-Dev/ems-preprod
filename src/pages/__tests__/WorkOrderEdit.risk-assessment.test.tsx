@@ -11,6 +11,14 @@ const mockApproveEmergencyPartnerAsync = vi.hoisted(() => vi.fn().mockResolvedVa
 const mockRejectRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const mockCompleteRiskAsync = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 
+// 1028-213: rol, permisos y existencia de la fila, mutables por prueba. Por defecto: admin con
+// todos los permisos y la OT visible (lo que asumían WE1-WE8).
+const authState = vi.hoisted(() => ({
+  roleKey: "admin" as string,
+  perms: null as null | Set<string>,
+  woMissing: false,
+}));
+
 // Capture the latest props WorkOrderEdit passes to WorkOrderForm.
 // The mock is hoisted so it runs before any import of WorkOrderEdit.
 let capturedFormProps: Record<string, any> = {};
@@ -74,6 +82,7 @@ const mockWorkOrder = {
   budget_lines: [],
   expense_budget: [],
   engagement: {
+    sqr_id: null as string | null,
     engagement_code: "E-001",
     engagement_name: "Auditoria",
     client: { client_legal_name: "Cliente Demo" },
@@ -88,7 +97,10 @@ vi.mock("@/hooks/useEmsData", () => {
   // this suite's focus (risk assessment) is orthogonal to Staffing state.
   const staffingRows = [{ id: "req-1", category_id: "cat-1", staff_count: 1, requirement_skills: [] }];
   return {
-    useWorkOrderById: () => ({ data: mockWorkOrder, isLoading: false }),
+    useWorkOrderById: () => ({
+      data: authState.woMissing ? undefined : mockWorkOrder,
+      isLoading: false,
+    }),
     useSetting: () => "0.13",
     useCategories: () => ({ data: [] }),
     useExpenseTypes: () => ({ data: [] }),
@@ -105,7 +117,11 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 }));
 
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, scope: () => "firm", roleKey: "admin" }),
+  useAuthorization: () => ({
+    can: (p: string) => (authState.perms ? authState.perms.has(p) : true),
+    scope: () => "firm",
+    roleKey: authState.roleKey,
+  }),
 }));
 
 // Administrator => Riesgos approver.
@@ -198,6 +214,10 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedFormProps = {};
+    authState.roleKey = "admin";
+    authState.perms = null;
+    authState.woMissing = false;
+    mockWorkOrder.engagement.sqr_id = null;
   });
 
   it("WE1: hydrates CEAC/SAN state and passes risk_status/emergency props to WorkOrderForm", () => {
@@ -234,10 +254,8 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     await act(async () => {
       await capturedFormProps.onApproveRisk();
     });
-    expect(mockApproveRiskAsync).toHaveBeenCalledWith({
-      woId: "wo-1",
-      staffId: "staff-1",
-    });
+    // 1028-213: el actor sale del servidor (get_my_staff_id()); el cliente ya no manda staffId.
+    expect(mockApproveRiskAsync).toHaveBeenCalledWith({ woId: "wo-1" });
   });
 
   it("WE5: emergency two-step handlers call the right mutations", async () => {
@@ -245,17 +263,11 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     await act(async () => {
       await capturedFormProps.onApproveEmergencyReview();
     });
-    expect(mockApproveEmergencyReviewAsync).toHaveBeenCalledWith({
-      woId: "wo-1",
-      staffId: "staff-1",
-    });
+    expect(mockApproveEmergencyReviewAsync).toHaveBeenCalledWith({ woId: "wo-1" });
     await act(async () => {
       await capturedFormProps.onApproveEmergencyPartner();
     });
-    expect(mockApproveEmergencyPartnerAsync).toHaveBeenCalledWith({
-      woId: "wo-1",
-      staffId: "staff-1",
-    });
+    expect(mockApproveEmergencyPartnerAsync).toHaveBeenCalledWith({ woId: "wo-1" });
   });
 
   it("WE6: handleRejectRisk calls useRejectRisk with the notes", async () => {
@@ -275,6 +287,61 @@ describe("WorkOrderEdit — Risk dual-track + emergency (feat/0306-78)", () => {
     expect(typeof capturedFormProps.onApproveEmergencyPartner).toBe("function");
     expect(typeof capturedFormProps.onCompleteRisk).toBe("function");
     expect(capturedFormProps.onEmergencyApprove).toBeUndefined();
+  });
+
+  // ── 1028-213: quién aprueba Riesgos y quién firma el paso 2 ─────────────────────
+  it("WE9: canApproveRisk es false para un gerente que además es el SQR del encargo (AC-28, D-23)", () => {
+    authState.roleKey = "manager";
+    // Tras D-23 el gerente ya no tiene work_order.risk.approve; antes el scope asignado + ser SQR bastaba.
+    authState.perms = new Set(["work_order.read", "work_order.submit"]);
+    mockWorkOrder.engagement.sqr_id = "staff-1";
+    renderPage();
+    expect(capturedFormProps.canApproveRisk).toBe(false);
+    expect(capturedFormProps.canSignEmergency).toBe(false);
+  });
+
+  it("WE10: canApproveRisk es true para risk_partner con work_order.risk.approve, sin ser SQR", () => {
+    authState.roleKey = "risk_partner";
+    authState.perms = new Set([
+      "work_order.read",
+      "work_order.risk.approve",
+      "work_order.risk.emergency_sign",
+    ]);
+    renderPage();
+    expect(capturedFormProps.canApproveRisk).toBe(true);
+    expect(capturedFormProps.canSignEmergency).toBe(true);
+  });
+
+  it("WE11: risk_supervisor aprueba pero NO puede firmar el paso 2 de emergencia (D-38, H-6)", () => {
+    authState.roleKey = "risk_supervisor";
+    authState.perms = new Set(["work_order.risk.approve"]);
+    renderPage();
+    expect(capturedFormProps.canApproveRisk).toBe(true);
+    expect(capturedFormProps.canSignEmergency).toBe(false);
+  });
+
+  it("WE12: el admin puede firmar el paso 2 aunque su matriz no lo liste", () => {
+    authState.roleKey = "admin";
+    authState.perms = new Set();
+    renderPage();
+    expect(capturedFormProps.canApproveRisk).toBe(true);
+    expect(capturedFormProps.canSignEmergency).toBe(true);
+  });
+
+  it("WE13: sin fila visible (la RLS la oculta) muestra 'Sin acceso', no 'sin resultados' (D-34)", () => {
+    authState.woMissing = true;
+    const { getByText, queryByText, queryByTestId } = renderPage();
+    expect(getByText("authz.accessDenied.title")).toBeInTheDocument();
+    expect(getByText("authz.accessDenied.description")).toBeInTheDocument();
+    expect(queryByText("common.noResults")).not.toBeInTheDocument();
+    expect(queryByTestId("work-order-form")).not.toBeInTheDocument();
+  });
+
+  it("WE14: WorkOrderEdit ya no pasa la prop de la vista de solo Riesgos a WorkOrderForm (D-26, AC-30)", () => {
+    authState.roleKey = "risk_supervisor";
+    authState.perms = new Set(["work_order.risk.approve"]);
+    renderPage();
+    expect("risk" + "Only" in capturedFormProps).toBe(false);
   });
 
   it("WE8: isDirty becomes true after onRiskAssessmentChange modifies CEAC date", async () => {

@@ -382,17 +382,23 @@ BEGIN
     END IF;
 
     -- Con sesión: admin, o work_order.create / work_order.update con su alcance (con
-    -- assigned_engagements, asignado al encargo; mismo criterio que wo_create_by_permission).
+    -- assigned_engagements, gerente del encargo; mismo criterio que wo_create_by_permission).
+    -- 1028-213 (D-42, H-2): antes bastaba is_assigned_to_engagement (socio, gerente, SQR o
+    -- encargado); ahora solo el gerente del encargo (o admin).
     -- Sin sesión (migraciones como 0825-183, service_role): permitido. anon, nunca.
     IF auth.uid() IS NOT NULL THEN
         IF NOT (
             public.is_admin()
             OR (public.has_permission('work_order.update')
                 AND (public.permission_scope('work_order.update') IS DISTINCT FROM 'assigned_engagements'
-                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+                     OR EXISTS (SELECT 1 FROM public.engagements e
+                          WHERE e.engagement_id = v_wo.engagement_id
+                            AND e.manager_id = public.get_my_staff_id())))
             OR (public.has_permission('work_order.create')
                 AND (public.permission_scope('work_order.create') IS DISTINCT FROM 'assigned_engagements'
-                     OR public.is_assigned_to_engagement(v_wo.engagement_id)))
+                     OR EXISTS (SELECT 1 FROM public.engagements e
+                          WHERE e.engagement_id = v_wo.engagement_id
+                            AND e.manager_id = public.get_my_staff_id())))
         ) THEN
             RAISE EXCEPTION 'NOT_AUTHORIZED';
         END IF;
@@ -477,6 +483,8 @@ $$;
 -- ── B1.2 Permisos ─────────────────────────────────────────────────────────────────────────
 -- En la matriz solo cambian risk_partner y risk_supervisor (decisión del operador, 09/10/2026),
 -- más el permiso nuevo timesheet.self_approve. Ningún otro rol gana ni pierde permisos.
+-- 1028-213: además los permisos nuevos work_order.risk.read y work_order.risk.emergency_sign
+-- (módulo /risks), y risk_supervisor deja de leer OT.
 
 -- timesheet.self_approve: lo consulta is_auto_approved_category() pero no existía en el catálogo,
 -- así que tras un reset nadie se autoaprobaba por la app.
@@ -491,18 +499,35 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
   ('director',       'timesheet.self_approve', 'own'),
   ('partner',        'timesheet.self_approve', 'own'),
   ('risk_partner',   'timesheet.self_approve', 'own'),
-  -- risk_partner: los permisos de partner que le faltaban. Ve todas las OT (department = firma en
-  -- la política "work_orders firm read") porque aprueba riesgos; envía OT, aprueba plan de pagos y
-  -- crea clientes solo donde es socio del encargo.
+  -- risk_partner: los permisos de partner que le faltaban. 1028-213 (D-25): lee las OT solo de los
+  -- encargos donde es socio (assigned_engagements); revisa Riesgos de todas las OT desde /risks
+  -- (work_order.risk.read). Envía OT, aprueba plan de pagos y crea clientes solo donde es socio
+  -- del encargo.
   ('risk_partner',   'activity_code.read',              'none'),
-  ('risk_partner',   'work_order.read',                 'department'),
+  ('risk_partner',   'work_order.read',                 'assigned_engagements'),
   ('risk_partner',   'work_order.submit',               'assigned_engagements'),
   ('risk_partner',   'work_order.payment_plan.approve', 'assigned_engagements'),
   ('risk_partner',   'client.create',                   'assigned_clients'),
-  -- risk_supervisor: tenía work_order.risk.approve pero no podía ver ninguna OT. engagement.read
-  -- para que la OT siga mostrando su encargo cuando engagements tenga RLS (B3).
-  ('risk_supervisor', 'work_order.read',                'department'),
+  -- risk_supervisor: 1028-213 (D-24) pierde work_order.read: ve solo /risks (work_order.risk.read).
+  -- engagement.read para que otras pantallas sigan mostrando el encargo cuando engagements tenga RLS (B3).
   ('risk_supervisor', 'engagement.read',                'department')
+ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
+
+-- 1028-213 (D-07, D-38, H-6): permisos del módulo /risks. Los lee has_permission() dentro de las
+-- funciones list_risk_work_orders / get_risk_work_order (lectura) y approve_wo_emergency_partner
+-- (firma del paso 2 de emergencia: risk_partner y admin, no risk_supervisor).
+INSERT INTO public.authorization_permissions (permission_key, module_key, action_key, label_key, display_order)
+VALUES
+  ('work_order.risk.read',           'work_order', 'risk.read',           'authz.perm.work_order.risk.read',           91),
+  ('work_order.risk.emergency_sign', 'work_order', 'risk.emergency_sign', 'authz.perm.work_order.risk.emergency_sign', 92)
+ON CONFLICT (permission_key) DO NOTHING;
+
+INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
+  ('admin',           'work_order.risk.read',           'firm'),
+  ('risk_partner',    'work_order.risk.read',           'department'),
+  ('risk_supervisor', 'work_order.risk.read',           'department'),
+  ('admin',           'work_order.risk.emergency_sign', 'firm'),
+  ('risk_partner',    'work_order.risk.emergency_sign', 'department')
 ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
 
 -- risk_partner deja de crear y editar hojas, igual que partner.

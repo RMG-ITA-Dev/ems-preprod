@@ -16,6 +16,7 @@ import {
   CalendarRange,
   ChartColumnDecreasing,
   HandCoins,
+  ShieldCheck,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
@@ -97,6 +98,13 @@ export function AppSidebar() {
   ].filter((i) => i.show);
 
   const operationsItems: NavItem[] = [
+    // 1028-213: módulo de Riesgos, por permiso propio (no por nombre de rol).
+    {
+      title: t("nav.risks"),
+      url: "/risks",
+      icon: ShieldCheck,
+      show: can("work_order.risk.read"),
+    },
     {
       title: t("nav.tracker"),
       url: "/tracker",

@@ -349,11 +349,11 @@ BEGIN
   IF v_err IS NULL OR v_err NOT LIKE '%HOLIDAYS_CONFLICT%' THEN RAISE EXCEPTION 'FAIL T08: un autor contradictorio debía abortar (dio %)', v_err; END IF;
   RAISE NOTICE 'PASS T08: autor contradictorio aborta la llamada';
 
-  -- Directorio de clientes: exactamente 3 columnas.
+  -- Directorio de clientes: exactamente 4 columnas (1028-211 suma homonym_seq, el número entre homónimos).
   SELECT string_agg(column_name::text, ',' ORDER BY column_name) INTO v_cols
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'clients_directory';
-  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,is_active' THEN
-    RAISE EXCEPTION 'FAIL T08: clients_directory debe exponer solo client_id, client_legal_name, is_active (expone %)', v_cols;
+  IF v_cols IS DISTINCT FROM 'client_id,client_legal_name,homonym_seq,is_active' THEN
+    RAISE EXCEPTION 'FAIL T08: clients_directory debe exponer solo client_id, client_legal_name, is_active, homonym_seq (expone %)', v_cols;
   END IF;
   RAISE NOTICE 'PASS T08: clients_directory no expone NIT, industria, atributos nuevos ni contactos';
 

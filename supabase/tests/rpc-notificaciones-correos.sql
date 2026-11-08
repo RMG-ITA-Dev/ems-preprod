@@ -83,8 +83,9 @@ BEGIN
   --   salen por campana Y correo. El tercer tipo nuevo, rescheduled, es solo campana (Q45):
   --   avisa que algo se movio, no es una tarea que alguien tenga que hacer hoy.
   -- + 1 de la Fase 7: expense_row_created (el cambio de monto es solo campana).
-  IF v_n <> 44 THEN
-    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 44', v_n;
+  -- + 1 de 1028-211: client.pending_activation (client.activated es solo campana).
+  IF v_n <> 45 THEN
+    RAISE EXCEPTION 'TEST FAIL - hay % tipos con email_enabled, se esperaban 45', v_n;
   END IF;
   SELECT COUNT(*) INTO v_n
     FROM public.notification_types

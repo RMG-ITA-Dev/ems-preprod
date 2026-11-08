@@ -57,9 +57,18 @@ END $$;
 
 -- Directorio de clientes: solo nombre y estado, solo lectura.
 DROP VIEW IF EXISTS public.clients_directory;
+-- 1028-211: la razón social puede repetirse (ETL 02). `homonym_seq` numera a los homónimos (mismo nombre sin
+-- distinguir mayúsculas ni espacios en los bordes) por fecha de alta, con client_id como desempate; es NULL para un
+-- nombre único. Se calcula en la subconsulta, sobre TODOS los clientes y ANTES del corte por sociedad, para que el
+-- mismo cliente tenga el mismo número en todas las pantallas y para todos los usuarios. No expone NIT ni contacto.
 CREATE VIEW public.clients_directory WITH (security_invoker = false) AS
-  SELECT c.client_id, c.client_legal_name, c.is_active
-    FROM public.clients c
+  SELECT c.client_id, c.client_legal_name, c.is_active, c.homonym_seq
+    FROM (SELECT cl.client_id, cl.client_legal_name, cl.is_active,
+                 CASE WHEN count(*) OVER same_name > 1
+                      THEN row_number() OVER (same_name ORDER BY cl.created_at, cl.client_id)
+                 END AS homonym_seq
+            FROM public.clients cl
+          WINDOW same_name AS (PARTITION BY lower(btrim(cl.client_legal_name)))) c
    WHERE public.get_my_staff_id() IS NOT NULL
      -- Alcance por sociedad (2026-10-28): la vista es del dueño y no pasa por la RESTRICTIVE "society scope" de clients (d1), así
      -- que repite el corte. Los conjuntos viven en d1 (posterior); la vista solo se consulta con todas las migraciones aplicadas.
@@ -67,7 +76,8 @@ CREATE VIEW public.clients_directory WITH (security_invoker = false) AS
 
 COMMENT ON VIEW public.clients_directory IS
   'B3c: directorio de nombres de cliente para quien no tiene client.read. SECURITY DEFINER a proposito (lee por '
-  'encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated.';
+  'encima de la RLS de clients): NUNCA agregar contacto, NIT ni industria. Solo SELECT para authenticated. '
+  'homonym_seq (1028-211): número del cliente entre los de igual razón social, por fecha de alta; NULL si el nombre es único.';
 
 -- El privilegio por defecto del esquema le da todo a anon y authenticated al crear la vista: se limpia.
 REVOKE ALL ON public.clients_directory FROM PUBLIC, anon, authenticated;

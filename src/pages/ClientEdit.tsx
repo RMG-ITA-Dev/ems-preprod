@@ -2,10 +2,13 @@ import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, History } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ClientForm } from "@/components/forms/ClientForm";
 import { ClientEngagementsTable } from "@/components/clients/ClientEngagementsTable";
+import { ClientActivationButton } from "@/components/clients/ClientActivationButton";
+import { Badge } from "@/components/ui/badge";
+import { clientActivationInfo } from "@/lib/clientActivation";
 import { useClientsFull } from "@/hooks/useEmsData";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,6 +25,13 @@ const ClientEdit = () => {
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   const client = clients?.find((c) => c.client_id === id);
+  // 1028-211: quién activó o desactivó el cliente por última vez, y cuándo.
+  const activationInfo = client ? clientActivationInfo(client) : null;
+  const statusBadge = client?.is_active
+    ? { label: t("status.active"), className: "bg-success/10 text-success border-success/20" }
+    : client?.deactivated_at
+      ? { label: t("status.inactive"), className: "bg-muted text-muted-foreground" }
+      : { label: t("client.pendingActivation"), className: "bg-warning/10 text-warning border-warning/20" };
 
   const handleCancel = () => {
     allowNextNavigation();
@@ -107,8 +117,24 @@ const ClientEdit = () => {
     <AppLayout title={t("nav.clients")} focusMode>
       <div className="flex flex-col h-[calc(100vh-8rem)]">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-lg font-semibold">{t("client.editClient")}</h1>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold">{t("client.editClient")}</h1>
+              {/* 1028-211: el estado siempre a la vista. Pendiente = nunca se activó (no admite encargos);
+                  Inactivo = se desactivó después de haber estado activo. */}
+              <Badge variant="outline" className={statusBadge.className}>
+                {statusBadge.label}
+              </Badge>
+            </div>
+            {activationInfo && (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <History className="h-3 w-3 shrink-0" aria-hidden="true" />
+                {t(activationInfo.key, activationInfo.params)}
+              </p>
+            )}
+          </div>
+          <ClientActivationButton clientId={client.client_id} isActive={!!client.is_active} />
         </div>
 
         {/* Client Form - Top 1/3 */}
@@ -124,7 +150,7 @@ const ClientEdit = () => {
 
         {/* Engagements Table - Bottom 2/3 */}
         <div className="flex-1 min-h-0">
-          {id && <ClientEngagementsTable clientId={id} />}
+          {id && <ClientEngagementsTable clientId={id} clientActive={!!client.is_active} />}
         </div>
       </div>
       <LeavePageDialog blocker={blocker} isDirty={isDirty} />

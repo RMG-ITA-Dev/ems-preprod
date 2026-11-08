@@ -91,6 +91,7 @@
     "administrativeEngagements": "Encargos Administrativos",
     "workMatrix": "Matriz de Trabajo",
     "workOrders": "Órdenes de Trabajo",
+    "risks": "Riesgos",
     "timeSheet": "Hoja de Tiempo",
     "myAssignments": "Mis Asignaciones",
     "timesheetApprovals": "Aprobaciones",
@@ -448,7 +449,45 @@
       "specialist_tax": "Especialista Tax"
     }
   },
+  "risks": {
+    "title": "Riesgos",
+    "subtitle": "Evaluaciones de riesgo de las órdenes de trabajo",
+    "searchPlaceholder": "Buscar por encargo o cliente...",
+    "statusFilter": "Estado",
+    "filter": {
+      "emergency": "Emergencia",
+      "pending": "Pendiente de aprobación",
+      "rejected": "Rechazado",
+      "approved": "Aprobado por Riesgos",
+      "finalized": "Finalizado",
+      "all": "Todas"
+    },
+    "columns": {
+      "engagement": "Encargo",
+      "client": "Cliente",
+      "san": "SAN (ID/fecha)",
+      "ceac": "CEAC (ID/fecha)",
+      "level": "Nivel de riesgo",
+      "status": "Estado"
+    },
+    "emergency": "Emergencia",
+    "dueOn": "vence {{date}}",
+    "partnerLabel": "Socio",
+    "managerLabel": "Gerente",
+    "loadError": "No se pudieron cargar las evaluaciones de riesgo. Intente de nuevo.",
+    "retry": "Reintentar",
+    "backToList": "Volver a Riesgos",
+    "detailNotFound": "No se encontró la evaluación de riesgos de esta orden de trabajo o no está disponible."
+  },
   "authz": {
+    "perm": {
+      "work_order": {
+        "risk": {
+          "read": "Ver el módulo de Riesgos",
+          "emergency_sign": "Firmar la emergencia como Socio de Riesgos"
+        }
+      }
+    },
     "role": {
       "admin": "Administrador",
       "it_security_manager": "Gerente Nacional de Seguridad TI",
@@ -736,6 +775,25 @@
     }
   },
   "client": {
+    "activatedBy": "Activado por {{name}} el {{date}}",
+    "activatedOn": "Activado el {{date}}",
+    "deactivatedBy": "Desactivado por {{name}} el {{date}}",
+    "deactivatedOn": "Desactivado el {{date}}",
+    "readOnlyNotice": "Solo un administrador puede editar la ficha del cliente.",
+    "readOnlyActivateHint": "Puede activarlo con el botón de arriba.",
+    "activate": "Activar cliente",
+    "deactivate": "Desactivar cliente",
+    "activateShort": "Activar",
+    "activatedSuccess": "Cliente activado",
+    "deactivatedSuccess": "Cliente desactivado",
+    "pendingActivation": "Pendiente de activación",
+    "pendingActivationHint": "El cliente quedará pendiente hasta que lo active Cobranzas, Contabilidad o un administrador.",
+    "activateConfirmTitle": "¿Activar este cliente?",
+    "activateConfirmDescription": "Una vez activo, el cliente se podrá usar en encargos nuevos.",
+    "deactivateConfirmTitle": "¿Desactivar este cliente?",
+    "deactivateConfirmDescription": "No se podrán crear encargos nuevos para este cliente. Los encargos existentes no cambian.",
+    "newEngagementInactive": "El cliente está pendiente de activación: Cobranzas o Contabilidad deben activarlo antes de crear un encargo.",
+    "homonymTag": "Cliente homónimo n.º {{n}}",
     "placeholderLegalName": "Empresa S.A.",
     "placeholderContactName": "Juan Pérez",
     "placeholderEmail": "contacto@empresa.com",
@@ -778,6 +836,7 @@
     "cannotDelete": "No se puede eliminar este cliente"
   },
   "engagement": {
+    "clientPendingActivation": "El cliente elegido está pendiente de activación o inactivo. Cobranzas o Contabilidad deben activarlo antes de crear el encargo.",
     "code": "Código",
     "engagementCode": "Código del Encargo",
     "codePreviewHelp": "Este código se asignará automáticamente al guardar.",
@@ -979,10 +1038,9 @@
     "noStaffRecord": "No hay un perfil de personal vinculado a su cuenta. Contacte al administrador."
   },
   "errors": {
-    "duplicateNit": "Ya existe un cliente con NIT {{nit}}: {{name}}",
-    "duplicateNitExists": "Ya existe un cliente con ese NIT. Si no lo ves en tu lista de clientes, solicita acceso a un administrador.",
-    "duplicateClientName": "El nombre de cliente ya existe.",
-    "duplicateClientNameWithNit": "El nombre de cliente ya existe (NIT: {{nit}}).",
+    "clientDeactivationForbidden": "Solo un administrador puede desactivar un cliente.",
+    "clientActivationForbidden": "Solo Cobranzas, Contabilidad o un administrador pueden activar o desactivar un cliente.",
+    "engagementClientInactive": "El cliente está pendiente de activación o inactivo. Cobranzas o Contabilidad deben activarlo antes de crear el encargo.",
     "duplicateCheckFailed": "No pudimos verificar si el nombre del cliente ya existe (problema de conexión). Intente nuevamente.",
     "duplicateEmail": "Ya existe un miembro del personal con este correo",
     "categoryPracticeMismatch": "La categoría seleccionada no pertenece a la práctica elegida. Vuelva a seleccionarla.",
@@ -1830,10 +1888,6 @@
     "tabsNotVisited": "Debe revisar todas las pestañas del formulario antes de enviar la OT a aprobación.",
     "ceacNumber": "Nro CEAC",
     "sanApprovalId": "ID Aprobación SAN",
-    "ceacNumberPlaceholder": "0000000000",
-    "sanApprovalIdPlaceholder": "0000000000 o 00000-00000",
-    "ceacNumberInvalid": "Debe tener exactamente 10 dígitos",
-    "sanApprovalIdInvalid": "Debe tener 10 dígitos o el formato 00000-00000",
     "riskLevel": "Nivel de Riesgo",
     "riskLevelNone": "Ninguno",
     "riskLevelBajo": "Bajo",
@@ -1862,6 +1916,7 @@
     "approvalReverted": "Aprobación revertida",
     "partnerActionsLabel": "Socio",
     "riskActionsLabel": "Riesgos",
+    "emergencyAwaitingPartner": "Falta la aprobación de Riesgos: la firma del Socio de Riesgos (paso 2) de la emergencia está pendiente. Aun así, puede rechazar el riesgo aunque no corresponda la emergencia.",
     "submitEmergencyTitle": "Enviar sin datos de Riesgo",
     "submitEmergencyMessage": "Está enviando sin datos de Riesgo, estos datos son necesarios y si no tiene estos datos se enviará por aprobación de emergencia. En este caso, asegúrese de tener la aprobación correspondiente.",
     "submitEmergencyJustificationLabel": "Motivo / Referencia de la solicitud a Riesgos",
@@ -1884,7 +1939,6 @@
     "unsubmit": "Retirar de Aprobación",
     "unsubmitted": "Orden de trabajo devuelta a borrador",
     "riskSavedOnSubmit": "Los datos de Riesgo se guardarán al enviar para aprobación",
-    "riskOnlyAdministrative": "Esta OT es de un encargo administrativo: no tiene evaluación de riesgos.",
     "confirmParametersTitle": "Confirmar Parámetros de Orden de Trabajo",
     "confirmParametersDescription": "La Moneda y Temporada no se pueden cambiar después de la creación. Por favor verifique que estos parámetros sean correctos.",
     "selectedCurrency": "Moneda",
@@ -1949,6 +2003,15 @@
       "statusBillingLate": "Facturación atrasada",
       "invoiceRateFromDate": "o tómelo de una fecha",
       "invoiceRateNotFound": "No hay cotización para esa fecha ni para ninguna anterior. Cárguelo a mano.",
+      "rateFromDatePick": "Elegir fecha",
+      "rateFromDateAria": "Tomar el TC de una fecha",
+      "rateFromEarlierDate": "No hay cotización para el {{requested}}; se usó la del {{used}}.",
+      "rateOriginDate": "Cotización del {{date}}",
+      "rateOriginManual": "Ingresado a mano o TC del plan",
+      "historyExchangeRate": " · TC {{rate}}",
+      "historyExchangeRateDate": " (cotización del {{date}})",
+      "historyExchangeRateManual": " (a mano o TC del plan)",
+      "collectionDateRateMismatch": "El TC de facturación ({{rate}}) es de la cotización del {{rateDate}}. Para el {{newDate}} la cotización es {{newRate}} (del {{newRateDate}}). El TC ya está congelado y no cambia.",
       "totalsByCurrency": "Totales por moneda",
       "contactsTitle": "Contactos del cliente",
       "contactGeneral": "Contacto del cliente",
@@ -2346,6 +2409,7 @@
     "complete": "¡Configuración completa! Bienvenido a EMS."
   },
   "validation": {
+    "taxIdMax15": "El NIT no puede superar 15 dígitos",
     "firstNameRequired": "El nombre es requerido",
     "lastNameRequired": "El apellido es requerido",
     "emailRequired": "El correo electrónico es requerido",
@@ -2550,7 +2614,9 @@
       "client": {
         "created": "Nuevo cliente: {{client_legal_name}}",
         "updated": "Se edito la ficha de {{client_legal_name}}",
-        "deactivated": "Cliente inactivado: {{client_legal_name}}"
+        "deactivated": "Cliente inactivado: {{client_legal_name}}",
+        "pending_activation": "Cliente pendiente de activación: {{client_legal_name}}",
+        "activated": "Cliente activado: {{client_legal_name}}"
       },
       "scheduler": {
         "coverage_gap": "Posiciones por cubrir"

@@ -8,6 +8,8 @@ import {
   useCreateClient,
   useUpdateClient,
   useDeleteClient,
+  useSaveClientWithContacts,
+  useSetClientActive,
 } from "../useClientMutations";
 
 function createWrapper() {
@@ -119,92 +121,15 @@ describe("useClientMutations", () => {
     });
   });
 
-  describe("duplicate client name handling (BUG 0220-18)", () => {
-    it("shows duplicateClientName toast on 23505 with clients_client_legal_name_unique", async () => {
-      const error = {
-        code: "23505",
-        message: "duplicate key value violates unique constraint",
-        constraint: "clients_client_legal_name_unique",
-      };
-      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
-      // para los roles con alcance 'assigned_clients'. Resuelve directo.
-      const mockInsert = vi.fn().mockResolvedValue({ error });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
-
-      const { result } = renderHook(() => useCreateClient(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate({
-        client_legal_name: "Duplicate Corp",
-        tax_id: "999",
-      });
-
-      await waitFor(() => expect(result.current.isError).toBe(true));
-      expect(toast.error).toHaveBeenCalledWith("errors.duplicateClientName");
-    });
-
-    it("shows duplicateNitExists toast (sin variables) on 23505 with clients_unique_tax_id_key", async () => {
-      const error = {
-        code: "23505",
-        message: "duplicate key value violates unique constraint",
-        constraint: "clients_unique_tax_id_key",
-      };
-      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
-      // para los roles con alcance 'assigned_clients'. Resuelve directo.
-      const mockInsert = vi.fn().mockResolvedValue({ error });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
-
-      const { result } = renderHook(() => useCreateClient(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate({
-        client_legal_name: "Some Corp",
-        tax_id: "DUPLICATE-NIT",
-      });
-
-      await waitFor(() => expect(result.current.isError).toBe(true));
-      // B3c: con la RLS de clients el chequeo previo no ve un cliente ajeno y el NIT duplicado llega
-      // aquí como 23505, sin {nit, name}. El mensaje con variables (errors.duplicateNit) sacaría los
-      // marcadores sin reemplazar.
-      expect(toast.error).toHaveBeenCalledWith("errors.duplicateNitExists");
-      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
-    });
-
-    it("falls back to generic error handler for non-23505 errors", async () => {
-      const error = {
-        code: "42501",
-        message: "permission denied",
-      };
-      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
-      // para los roles con alcance 'assigned_clients'. Resuelve directo.
-      const mockInsert = vi.fn().mockResolvedValue({ error });
-      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
-
-      const { result } = renderHook(() => useCreateClient(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate({
-        client_legal_name: "Test",
-        tax_id: "123",
-      });
-
-      await waitFor(() => expect(result.current.isError).toBe(true));
-      // Should NOT call toast.error with duplicate-specific messages
-      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateClientName");
-      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
-    });
-
-    it("falls back to generic error handler for 23505 with unknown constraint", async () => {
+  // 1028-211: NIT y razón social ya no son únicos (ETL retiró las dos constraints), así que no
+  // hay toasts de duplicado: todo error de cliente va al manejador genérico.
+  describe("errores de cliente: manejador genérico", () => {
+    it("un 23505 (de cualquier constraint) cae en el manejador genérico", async () => {
       const error = {
         code: "23505",
         message: "duplicate key value violates unique constraint",
         constraint: "some_other_constraint",
       };
-      // El insert ya no encadena .select(): el RETURNING hacía fallar la creación
-      // para los roles con alcance 'assigned_clients'. Resuelve directo.
       const mockInsert = vi.fn().mockResolvedValue({ error });
       vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
 
@@ -218,8 +143,106 @@ describe("useClientMutations", () => {
       });
 
       await waitFor(() => expect(result.current.isError).toBe(true));
-      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateClientName");
-      expect(toast.error).not.toHaveBeenCalledWith("errors.duplicateNit");
+      expect(toast.error).toHaveBeenCalledWith("Error creating client", expect.anything());
+    });
+
+    it("un error que no es 23505 también cae en el manejador genérico", async () => {
+      const error = {
+        code: "42501",
+        message: "permission denied",
+      };
+      const mockInsert = vi.fn().mockResolvedValue({ error });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateClient(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({
+        client_legal_name: "Test",
+        tax_id: "123",
+      });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalledWith("Error creating client", expect.anything());
+    });
+  });
+
+  // 1028-211 Fase 2: activar o desactivar pasa por la RPC set_client_active, no por client.update.
+  describe("useSetClientActive", () => {
+    it("llama a set_client_active con el cliente y el estado", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+      const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+      const { result } = renderHook(() => useSetClientActive(), {
+        wrapper: ({ children }: { children: React.ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        ),
+      });
+
+      result.current.mutate({ clientId: "c-1", active: true });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(supabase.rpc).toHaveBeenCalledWith("set_client_active", { p_client_id: "c-1", p_active: true });
+      // La ficha lee ['clients_full']: tiene que refrescarse junto con la lista.
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["clients"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["clients_full"] });
+      expect(toast.success).toHaveBeenCalledWith("client.activatedSuccess");
+    });
+
+    it("un rechazo del servidor va al manejador de errores", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { code: "42501", message: "CLIENT_ACTIVATION_FORBIDDEN: solo Cobranzas..." },
+      } as any);
+      const { result } = renderHook(() => useSetClientActive(), { wrapper: createWrapper() });
+
+      result.current.mutate({ clientId: "c-1", active: true });
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(toast.error).toHaveBeenCalled();
+    });
+  });
+
+  // 1028-211: en save_client_with_contacts, una clave AUSENTE conserva el valor guardado y `null`
+  // lo limpia. El hook tiene que reenviar el payload tal cual, sin rellenar ni quitar claves.
+  describe("useSaveClientWithContacts — industry_id", () => {
+    const contacts = [
+      { contact_type: "general" as const, full_name: "Ana", email: "ana@x.com" },
+      { contact_type: "cobranza" as const, full_name: "Luis", email: "luis@x.com" },
+    ];
+
+    it("reenvía industry_id = null a la RPC", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
+      const { result } = renderHook(() => useSaveClientWithContacts(), { wrapper: createWrapper() });
+
+      result.current.mutate({
+        clientId: "c-1",
+        isNew: false,
+        client: { client_legal_name: "Acme", tax_id: "99001", industry_id: null },
+        contacts,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      const [fn, args] = vi.mocked(supabase.rpc).mock.calls[0] as [string, Record<string, any>];
+      expect(fn).toBe("save_client_with_contacts");
+      expect(args.p_client).toHaveProperty("industry_id", null);
+    });
+
+    it("no agrega industry_id cuando no viene", async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null } as any);
+      const { result } = renderHook(() => useSaveClientWithContacts(), { wrapper: createWrapper() });
+
+      result.current.mutate({
+        clientId: "c-1",
+        isNew: false,
+        client: { client_legal_name: "Acme", tax_id: "99001" },
+        contacts,
+      });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      const [, args] = vi.mocked(supabase.rpc).mock.calls[0] as [string, Record<string, any>];
+      expect(args.p_client).not.toHaveProperty("industry_id");
     });
   });
 });
