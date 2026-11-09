@@ -1888,6 +1888,18 @@
     "riskReviewApproved": "Aprobación de Riesgo registrada",
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
+    "listStatus": {
+      "notFinalized": "No finalizadas",
+      "all": "Todas",
+      "draft": "Borrador",
+      "pendingPartner": "Pendiente de Socio",
+      "pendingRisk": "Pendiente de Riesgos",
+      "pendingBoth": "Pendiente de Socio y Riesgos",
+      "approved": "Aprobado",
+      "rejected": "Rechazado",
+      "cancelled": "Cancelado",
+      "finalized": "Finalizado"
+    },
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
     "noAssignedEngagementsAvailable": "No tiene encargos activos asignados sin orden de trabajo.",
     "createEngagementFirst": "Crear un nuevo encargo",

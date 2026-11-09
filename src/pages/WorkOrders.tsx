@@ -43,6 +43,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useMobile";
+import {
+  DEFAULT_WO_STATUS_FILTER,
+  STATUS_FILTER_I18N_KEY,
+  STATUS_FILTER_OPTIONS,
+  matchesWorkOrderStatusFilter,
+  normalizeStatusParam,
+  type WorkOrderStatusFilter,
+} from "@/lib/workOrderListStatus";
 
 const statusDotColors: Record<string, string> = {
   Draft: "bg-warning",
@@ -73,6 +81,7 @@ const WorkOrders = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // dash_socio: deep-link desde KPI 5 del tablero de Socio -- /work-orders?status=Pending_Approval.
+  // FEAT 1105-219: sin ?status= abre en "No finalizadas"; Pending_Approval queda como alias crudo.
   const [searchParams] = useSearchParams();
   const { data: workOrders, isLoading } = useWorkOrders();
   const { partnerOptions, managerOptions } = useCategoryStaff();
@@ -80,7 +89,9 @@ const WorkOrders = () => {
   const canCreate = can("work_order.create");
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get("status") ?? "all");
+  const [statusFilter, setStatusFilter] = useState<WorkOrderStatusFilter>(() =>
+    normalizeStatusParam(searchParams.get("status")),
+  );
   const [partnerFilter, setPartnerFilter] = useState<string>("all");
   const [managerFilter, setManagerFilter] = useState<string>("all");
   const [currencyTab, setCurrencyTab] = useState<"BOB" | "USD" | "USDT">("BOB");
@@ -94,7 +105,6 @@ const WorkOrders = () => {
   // Filter popover states
   const [partnerFilterOpen, setPartnerFilterOpen] = useState(false);
   const [managerFilterOpen, setManagerFilterOpen] = useState(false);
-  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
 
   const toggleRowExpanded = (id: string) => {
     const newExpanded = new Set(expandedRows);
@@ -173,7 +183,7 @@ const WorkOrders = () => {
         wo.engagement?.engagement_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         wo.engagement?.client?.client_legal_name?.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const matchesStatus = statusFilter === "all" || wo.approval_status === statusFilter;
+      const matchesStatus = matchesWorkOrderStatusFilter(wo, statusFilter);
       const matchesPartner = partnerFilter === "all" || wo.engagement?.partner_id === partnerFilter;
       const matchesManager = managerFilter === "all" || wo.engagement?.manager_id === managerFilter;
 
@@ -238,6 +248,21 @@ const WorkOrders = () => {
     return result;
   }, [workOrders, currencyTab, searchQuery, statusFilter, partnerFilter, managerFilter, sortColumn, sortDirection]);
 
+  // FEAT 1105-219: opciones del filtro de estado. El alias Pending_Approval (enlace del tablero
+  // de Socio) solo se lista cuando está activo, para que el Select no quede en blanco.
+  const statusFilterItems = (
+    <>
+      {statusFilter === "Pending_Approval" && (
+        <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
+      )}
+      {STATUS_FILTER_OPTIONS.map((option) => (
+        <SelectItem key={option} value={option}>
+          {t(STATUS_FILTER_I18N_KEY[option])}
+        </SelectItem>
+      ))}
+    </>
+  );
+
   return (
     <AppLayout title={t("workOrders.title")}>
       <div className="space-y-4">
@@ -260,6 +285,23 @@ const WorkOrders = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
+            {/* FEAT 1105-219: filtro de estado visible en la barra (escritorio y móvil). Antes vivía
+                escondido en el embudo de la cabecera «Total c/IVA». */}
+            <Select
+              value={statusFilter}
+              onValueChange={(val) => setStatusFilter(val as WorkOrderStatusFilter)}
+            >
+              <SelectTrigger
+                className={cn(
+                  "w-full sm:w-[240px] min-h-[44px] sm:min-h-0",
+                  statusFilter !== DEFAULT_WO_STATUS_FILTER && "border-accent",
+                )}
+                aria-label={t("workOrders.statusColumn")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>{statusFilterItems}</SelectContent>
+            </Select>
           </div>
           {canCreate && (
             <Button
@@ -611,38 +653,6 @@ const WorkOrders = () => {
                           {t("workOrders.totalWithVAT")} ({currencyTab})
                           {getSortIcon("totalVAT")}
                         </span>
-                        <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
-                          <PopoverTrigger asChild>
-                            <button className="p-0.5 hover:bg-muted rounded">
-                              <Filter className={`h-3 w-3 ${statusFilter !== "all" ? "text-accent" : "opacity-50"}`} />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-48 p-2" align="end">
-                            <Select value={statusFilter} onValueChange={(val) => {
-                              setStatusFilter(val);
-                              setStatusFilterOpen(false);
-                            }}>
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">{t("workOrders.allStatuses")}</SelectItem>
-                                <SelectItem value="Draft">{t("workOrders.status.draft")}</SelectItem>
-                                <SelectItem value="Pending_Approval">{t("workOrders.status.pending")}</SelectItem>
-                                <SelectItem value="Approved">{t("workOrders.status.approved")}</SelectItem>
-                                <SelectItem value="Rejected">{t("workOrders.status.rejected")}</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {statusFilter !== "all" && (
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                setStatusFilter("all");
-                                setStatusFilterOpen(false);
-                              }} className="w-full mt-2">
-                                {t("common.clear")}
-                              </Button>
-                            )}
-                          </PopoverContent>
-                        </Popover>
                       </div>
                     </TableHead>
                   </TableRow>
