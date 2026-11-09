@@ -100,11 +100,11 @@ const AdministrativeEngagements = () => {
   const canCreate = can("engagement.create");
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
-  // la cabecera de escritorio. Para móvil la página filtra con su propio Select; en escritorio
-  // este valor se ignora y manda el embudo de la tabla.
+  // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
+  // Select de la barra (móvil): sin filtros contradictorios al cruzar los 768px, y DataTable
+  // vuelve a la página 1 al cambiarlo porque es su propio filtro de estado.
   const isMobile = useIsMobile();
-  const [mobileStateFilter, setMobileStateFilter] = useState("all");
-  const applyMobileStateFilter = canCreate && isMobile && mobileStateFilter !== "all";
+  const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
     const visibleRows = administrativeRowsForViewer(
       data ?? [],
@@ -115,14 +115,11 @@ const AdministrativeEngagements = () => {
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
     // Estado efectivo, igual que Engagements.tsx y el detalle: `status` es el legacy ('active').
-    const withState = filteredRows.map((row) => ({
+    return filteredRows.map((row) => ({
       ...row,
       effective_state: administrativeEffectiveState(row) ?? row.status,
     }));
-    return applyMobileStateFilter
-      ? withState.filter((row) => String(row.effective_state) === mobileStateFilter)
-      : withState;
-  }, [canCreate, data, funcionFilter, applyMobileStateFilter, mobileStateFilter]);
+  }, [canCreate, data, funcionFilter]);
 
   const stateOptions = ENGAGEMENT_STATES.map((s) => ({
     value: String(s),
@@ -265,9 +262,11 @@ const AdministrativeEngagements = () => {
         // columna Estado, así que no lleva el filtro. En móvil (sin cabecera de tabla) el
         // filtro es el Select de headerActions.
         statusFilter={canCreate ? { key: "effective_state", options: stateOptions } : undefined}
+        statusFilterValue={canCreate ? stateFilter : undefined}
+        onStatusFilterChange={canCreate ? setStateFilter : undefined}
         headerActions={canCreate ? (
           isMobile ? (
-            <Select value={mobileStateFilter} onValueChange={setMobileStateFilter}>
+            <Select value={stateFilter} onValueChange={setStateFilter}>
               <SelectTrigger className="w-full min-h-[44px]" aria-label={t("engagement.status")}>
                 <SelectValue />
               </SelectTrigger>

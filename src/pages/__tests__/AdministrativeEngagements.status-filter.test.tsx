@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import React from "react";
@@ -134,22 +134,37 @@ describe("Encargos Administrativos — filtro de estado (1105-219)", () => {
     expect(byId).toEqual({ pend: "1", apr: "4", fin: "7" });
   });
 
-  it("en escritorio no agrega Select propio: manda el embudo de la tabla", () => {
+  it("en escritorio no agrega Select propio y el embudo usa el estado controlado", () => {
     wrap();
     expect(capturedProps.headerActions).toBeUndefined();
-    expect(capturedProps.data).toHaveLength(3);
+    expect(capturedProps.statusFilterValue).toBe("all");
+    expect(typeof capturedProps.onStatusFilterChange).toBe("function");
   });
 
-  it("en móvil hay un Select de estado en la barra y filtra las cards", async () => {
+  it("en móvil el Select de la barra cambia el MISMO estado que usa la tabla", async () => {
     auth.mobile = true;
     const user = userEvent.setup();
     wrap();
-    expect(capturedProps.data).toHaveLength(3);
 
     await user.click(screen.getByRole("combobox", { name: "engagement.status" }));
     await user.click(await screen.findByRole("option", { name: "engagementState.7" }));
 
-    expect(capturedProps.data.map((r: any) => r.engagement_id)).toEqual(["fin"]);
+    // La página no prefiltra: pasa las 3 filas y el valor; DataTable filtra y pagina.
+    expect(capturedProps.statusFilterValue).toBe("7");
+    expect(capturedProps.data).toHaveLength(3);
+  });
+
+  it("un estado elegido en escritorio se ve en el Select al pasar a móvil", () => {
+    const { rerender } = wrap();
+    // Simula el embudo de escritorio.
+    act(() => capturedProps.onStatusFilterChange("4"));
+    auth.mobile = true;
+    rerender(
+      <MemoryRouter>
+        <AdministrativeEngagements />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("combobox", { name: "engagement.status" })).toHaveTextContent("engagementState.4");
   });
 
   it("la vista de consulta (sin permiso de crear) no lleva filtro de estado", () => {
