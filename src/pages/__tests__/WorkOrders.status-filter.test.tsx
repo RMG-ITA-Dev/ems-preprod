@@ -215,6 +215,33 @@ describe("WorkOrders — filtro de estado (FEAT 1105-219)", () => {
     expect(visibleNames()).toEqual(expected);
   });
 
+  it("las OT de encargos Cancelado/Finalizado muestran un chip del encargo aparte del de aprobación", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const rowOf = (name: string) => screen.getByText(name).closest("tr") as HTMLElement;
+
+    // Cancelada: el chip de aprobación sigue diciendo Aprobado, y el del encargo dice Cancelado.
+    const cancelada = rowOf("OT Cancelada");
+    expect(within(cancelada).getByText("workOrders.status.approved")).toBeInTheDocument();
+    expect(within(cancelada).getByText("workOrders.engagementChip")).toBeInTheDocument();
+    expect(within(cancelada).getByText("workOrders.listStatus.cancelled")).toBeInTheDocument();
+
+    // Una OT de encargo vivo no lleva el chip.
+    expect(within(rowOf("OT Aprobada")).queryByText("workOrders.engagementChip")).toBeNull();
+
+    await pickStatus(user, "workOrders.listStatus.finalized");
+    const finalizada = rowOf("OT Finalizada");
+    expect(within(finalizada).getByText("workOrders.listStatus.finalized")).toBeInTheDocument();
+  });
+
+  it("en móvil la card del encargo cancelado también muestra el chip", () => {
+    setViewport(true);
+    renderPage();
+    // Por defecto la finalizada está oculta: el único chip de encargo es el de la cancelada.
+    expect(screen.getAllByText("workOrders.engagementChip")).toHaveLength(1);
+    expect(screen.getByText("workOrders.listStatus.cancelled")).toBeInTheDocument();
+  });
+
   it("«Todas» vuelve a mostrar la finalizada", async () => {
     const user = userEvent.setup();
     renderPage();

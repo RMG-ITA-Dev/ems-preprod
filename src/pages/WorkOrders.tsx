@@ -47,6 +47,7 @@ import {
   DEFAULT_WO_STATUS_FILTER,
   STATUS_FILTER_I18N_KEY,
   STATUS_FILTER_OPTIONS,
+  classifyWorkOrderListStatus,
   matchesWorkOrderStatusFilter,
   normalizeStatusParam,
   type WorkOrderStatusFilter,
@@ -248,6 +249,26 @@ const WorkOrders = () => {
     return result;
   }, [workOrders, currencyTab, searchQuery, statusFilter, partnerFilter, managerFilter, sortColumn, sortDirection]);
 
+  // FEAT 1105-219 (review Codex): el chip «Estado» muestra la aprobación de la OT, que en un
+  // encargo Cancelado o Finalizado suele seguir en «Aprobado». Este chip neutro aparte deja
+  // ver el estado del encargo, para que el filtro «Cancelado»/«Finalizado» no parezca mentir.
+  const renderEngagementTerminalChip = (wo: WorkOrder) => {
+    const listStatus = classifyWorkOrderListStatus(wo);
+    if (listStatus !== "cancelled" && listStatus !== "finalized") return null;
+    return (
+      <span
+        className={cn(
+          badgeVariants({ variant: "outline" }),
+          "bg-muted text-muted-foreground font-normal text-[10px] px-1.5 py-0 gap-1",
+        )}
+      >
+        <span className="opacity-70">{t("workOrders.engagementChip")}</span>
+        <span className="opacity-40">·</span>
+        {t(STATUS_FILTER_I18N_KEY[listStatus])}
+      </span>
+    );
+  };
+
   // FEAT 1105-219: opciones del filtro de estado. El alias Pending_Approval (enlace del tablero
   // de Socio) solo se lista cuando está activo, para que el Select no quede en blanco.
   const statusFilterItems = (
@@ -406,6 +427,7 @@ const WorkOrders = () => {
                         <span>{wo.engagement?.engagement_code}</span>
                         <span>{wo.engagement?.client?.client_legal_name}</span>
                       </div>
+                      {renderEngagementTerminalChip(wo)}
                       
                       {/* Collapsible secondary info */}
                       <Collapsible open={expandedRows.has(wo.wo_id)}>
@@ -740,6 +762,7 @@ const WorkOrders = () => {
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
+                              {renderEngagementTerminalChip(wo)}
                             </div>
                           </TableCell>
                           {/* Bug 0722-158 - «Cliente»: cliente arriba, Socio y Gerente como chips */}

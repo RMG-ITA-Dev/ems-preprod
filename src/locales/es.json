@@ -1888,6 +1888,7 @@
     "riskReviewApproved": "Aprobación de Riesgo registrada",
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
+    "engagementChip": "Encargo",
     "listStatus": {
       "notFinalized": "No finalizadas",
       "all": "Todas",
