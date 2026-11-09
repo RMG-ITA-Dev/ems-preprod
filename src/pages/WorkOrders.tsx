@@ -266,9 +266,12 @@ const WorkOrders = () => {
   return (
     <AppLayout title={t("workOrders.title")}>
       <div className="space-y-4">
-        {/* Currency Tabs + Search + Add Button */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
+        {/* Currency Tabs + Search + Status + Add Button.
+            1105-219 (review Codex): apilado hasta `md` (768px, el límite móvil del repo; entre 640 y
+            767 ya se ven cards) y con flex-wrap en fila, para que tabs + buscador + estado + botón
+            no desborden en tablets ni en escritorio angosto con la barra lateral abierta. */}
+        <div className="flex flex-col md:flex-row md:flex-wrap md:items-center justify-between gap-3 md:gap-4">
+          <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-3 md:gap-4 w-full md:w-auto">
             <Tabs value={currencyTab} onValueChange={(v) => setCurrencyTab(v as "BOB" | "USD" | "USDT")}>
               <TabsList>
                 <TabsTrigger value="BOB">BOB</TabsTrigger>
@@ -276,7 +279,7 @@ const WorkOrders = () => {
                 <TabsTrigger value="USDT">USDT</TabsTrigger>
               </TabsList>
             </Tabs>
-            <div className="relative w-full sm:min-w-[300px] sm:max-w-xl">
+            <div className="relative w-full md:min-w-[300px] md:max-w-xl">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder={t("workOrders.searchPlaceholder")}
@@ -293,7 +296,7 @@ const WorkOrders = () => {
             >
               <SelectTrigger
                 className={cn(
-                  "w-full sm:w-[240px] min-h-[44px] sm:min-h-0",
+                  "w-full md:w-[240px] min-h-[44px] md:min-h-0",
                   statusFilter !== DEFAULT_WO_STATUS_FILTER && "border-accent",
                 )}
                 aria-label={t("workOrders.statusColumn")}
@@ -307,7 +310,7 @@ const WorkOrders = () => {
             <Button
               variant="default"
               onClick={() => navigate("/work-orders/new")}
-              className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
+              className="w-full md:w-auto min-h-[44px] md:min-h-0"
             >
               <Plus className="h-4 w-4 mr-2" />
               {t("workOrders.newWorkOrder")}
