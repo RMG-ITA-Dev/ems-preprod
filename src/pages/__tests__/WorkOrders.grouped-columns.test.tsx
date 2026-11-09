@@ -245,7 +245,8 @@ describe("WorkOrders — columnas agrupadas (bug 0722-158)", () => {
     const socioFilter = within(clienteHeader).getAllByRole("button")[0];
     await user.click(socioFilter);
 
-    await user.click(await screen.findByRole("combobox"));
+    // 1105-219: la barra superior tiene su propio combobox (estado); acotar al popover.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "Victor Pelaez M." }));
 
     expect(dataRows()).toHaveLength(1);
@@ -260,7 +261,8 @@ describe("WorkOrders — columnas agrupadas (bug 0722-158)", () => {
     const gerenteFilter = within(clienteHeader).getAllByRole("button")[1];
     await user.click(gerenteFilter);
 
-    await user.click(await screen.findByRole("combobox"));
+    // 1105-219: la barra superior tiene su propio combobox (estado); acotar al popover.
+    await user.click(within(await screen.findByRole("dialog")).getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "Isaac Cori A." }));
 
     expect(dataRows()).toHaveLength(1);

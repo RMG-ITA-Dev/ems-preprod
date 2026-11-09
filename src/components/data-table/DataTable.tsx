@@ -62,6 +62,15 @@ export interface DataTableProps<T> {
     key: string;
     options: { value: string; label: string }[];
   };
+  /**
+   * 1105-219: modo controlado opcional del filtro de estado. Si se pasa, la tabla usa este
+   * valor en vez de su estado interno y avisa los cambios por `onStatusFilterChange`. Sirve
+   * para que la página ofrezca el mismo filtro fuera de la cabecera (p. ej. en móvil, donde
+   * las cards no tienen embudo) sin dos estados que se contradigan. Sin estas props, todo
+   * funciona igual que antes.
+   */
+  statusFilterValue?: string;
+  onStatusFilterChange?: (value: string) => void;
   filters?: FilterConfig[];
   headerActions?: React.ReactNode;
   getRowId: (row: T) => string;
@@ -97,6 +106,8 @@ export function DataTable<T extends Record<string, unknown>>({
   newButtonLabel,
   isLoading = false,
   statusFilter,
+  statusFilterValue,
+  onStatusFilterChange,
   filters = [],
   headerActions,
   getRowId,
@@ -107,9 +118,14 @@ export function DataTable<T extends Record<string, unknown>>({
   const [searchTerm, setSearchTerm] = useState("");
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
-  const [statusValue, setStatusValue] = useState(
+  const [internalStatusValue, setInternalStatusValue] = useState(
     () => (statusFilter && initialFilters?.[statusFilter.key]) || "all"
   );
+  const statusValue = statusFilterValue ?? internalStatusValue;
+  const setStatusValue = (value: string) => {
+    if (onStatusFilterChange) onStatusFilterChange(value);
+    if (statusFilterValue === undefined) setInternalStatusValue(value);
+  };
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       Object.entries(initialFilters ?? {}).filter(([k, v]) => v && k !== statusFilter?.key)
