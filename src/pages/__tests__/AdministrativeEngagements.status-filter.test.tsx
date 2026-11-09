@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import React from "react";
 
@@ -12,9 +13,19 @@ const capturedProps: any = {};
 vi.mock("@/components/data-table/DataTable", () => ({
   DataTable: (props: any) => {
     Object.assign(capturedProps, props);
-    return <div data-testid="data-table-stub" />;
+    return <div data-testid="data-table-stub">{props.headerActions}</div>;
   },
 }));
+
+beforeAll(() => {
+  // Radix Select en jsdom.
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: "es" } }),
@@ -42,7 +53,7 @@ const { auth, adminRows } = vi.hoisted(() => {
     work_order_required: true,
   };
   return {
-    auth: { canCreate: true },
+    auth: { canCreate: true, mobile: false },
     adminRows: [
       // Con OT pendiente → 1 Pendiente.
       {
@@ -76,6 +87,10 @@ vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({ can: () => auth.canCreate, scope: () => null, isLoading: false }),
 }));
 
+vi.mock("@/hooks/useMobile", () => ({
+  useIsMobile: () => auth.mobile,
+}));
+
 vi.mock("@/hooks/useAdministrativeEngagements", () => ({
   useAdministrativeEngagements: () => ({ data: adminRows, isLoading: false }),
 }));
@@ -92,6 +107,7 @@ const wrap = () =>
 beforeEach(() => {
   for (const k of Object.keys(capturedProps)) delete capturedProps[k];
   auth.canCreate = true;
+  auth.mobile = false;
 });
 
 describe("Encargos Administrativos — filtro de estado (1105-219)", () => {
@@ -116,6 +132,24 @@ describe("Encargos Administrativos — filtro de estado (1105-219)", () => {
       capturedProps.data.map((r: any) => [r.engagement_id, String(r.effective_state)]),
     );
     expect(byId).toEqual({ pend: "1", apr: "4", fin: "7" });
+  });
+
+  it("en escritorio no agrega Select propio: manda el embudo de la tabla", () => {
+    wrap();
+    expect(capturedProps.headerActions).toBeUndefined();
+    expect(capturedProps.data).toHaveLength(3);
+  });
+
+  it("en móvil hay un Select de estado en la barra y filtra las cards", async () => {
+    auth.mobile = true;
+    const user = userEvent.setup();
+    wrap();
+    expect(capturedProps.data).toHaveLength(3);
+
+    await user.click(screen.getByRole("combobox", { name: "engagement.status" }));
+    await user.click(await screen.findByRole("option", { name: "engagementState.7" }));
+
+    expect(capturedProps.data.map((r: any) => r.engagement_id)).toEqual(["fin"]);
   });
 
   it("la vista de consulta (sin permiso de crear) no lleva filtro de estado", () => {

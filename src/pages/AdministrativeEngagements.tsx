@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useIsMobile } from "@/hooks/useMobile";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
@@ -98,6 +99,12 @@ const AdministrativeEngagements = () => {
   const { data, isLoading } = useAdministrativeEngagements();
   const canCreate = can("engagement.create");
   const [funcionFilter, setFuncionFilter] = useState("all");
+  // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
+  // la cabecera de escritorio. Para móvil la página filtra con su propio Select; en escritorio
+  // este valor se ignora y manda el embudo de la tabla.
+  const isMobile = useIsMobile();
+  const [mobileStateFilter, setMobileStateFilter] = useState("all");
+  const applyMobileStateFilter = canCreate && isMobile && mobileStateFilter !== "all";
   const rows = useMemo(() => {
     const visibleRows = administrativeRowsForViewer(
       data ?? [],
@@ -108,8 +115,19 @@ const AdministrativeEngagements = () => {
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
     // Estado efectivo, igual que Engagements.tsx y el detalle: `status` es el legacy ('active').
-    return filteredRows.map((row) => ({ ...row, effective_state: administrativeEffectiveState(row) ?? row.status }));
-  }, [canCreate, data, funcionFilter]);
+    const withState = filteredRows.map((row) => ({
+      ...row,
+      effective_state: administrativeEffectiveState(row) ?? row.status,
+    }));
+    return applyMobileStateFilter
+      ? withState.filter((row) => String(row.effective_state) === mobileStateFilter)
+      : withState;
+  }, [canCreate, data, funcionFilter, applyMobileStateFilter, mobileStateFilter]);
+
+  const stateOptions = ENGAGEMENT_STATES.map((s) => ({
+    value: String(s),
+    label: t(engagementStateI18nKey(s)),
+  }));
 
   const viewerColumns: Column<AdministrativeEngagement>[] = [
     {
@@ -244,15 +262,24 @@ const AdministrativeEngagements = () => {
         // 1105-219: mismas 8 opciones que Encargos. `effective_state` ya viene en cada fila
         // (número de estado). Si la RPC no trae `work_order_required`, la fila guarda el
         // `status` legacy y solo aparece con "Todos". La vista de consulta no tiene la
-        // columna Estado, así que no lleva el filtro.
-        statusFilter={canCreate ? {
-          key: "effective_state",
-          options: ENGAGEMENT_STATES.map((s) => ({
-            value: String(s),
-            label: t(engagementStateI18nKey(s)),
-          })),
-        } : undefined}
-        headerActions={!canCreate ? (
+        // columna Estado, así que no lleva el filtro. En móvil (sin cabecera de tabla) el
+        // filtro es el Select de headerActions.
+        statusFilter={canCreate ? { key: "effective_state", options: stateOptions } : undefined}
+        headerActions={canCreate ? (
+          isMobile ? (
+            <Select value={mobileStateFilter} onValueChange={setMobileStateFilter}>
+              <SelectTrigger className="w-full min-h-[44px]" aria-label={t("engagement.status")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("common.all")}</SelectItem>
+                {stateOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : undefined
+        ) : (
           <Select value={funcionFilter} onValueChange={setFuncionFilter}>
             <SelectTrigger className="w-full sm:w-52" aria-label={t("engagement.funcion")}>
               <SelectValue placeholder={t("engagement.funcion")} />
@@ -266,7 +293,7 @@ const AdministrativeEngagements = () => {
               ))}
             </SelectContent>
           </Select>
-        ) : undefined}
+        )}
       />
     </AppLayout>
   );
