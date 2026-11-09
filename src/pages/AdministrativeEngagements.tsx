@@ -10,6 +10,7 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
+  ENGAGEMENT_STATES,
   EngagementState,
   effectiveEngagementState,
   engagementStateBadgeClass,
@@ -200,6 +201,8 @@ const AdministrativeEngagements = () => {
       key: "effective_state",
       label: t("engagement.status"),
       sortable: true,
+      // 1105-219: embudo de estado, igual que en Encargos (Engagements.tsx).
+      filterKey: "effective_state",
       mobilePriority: "primary",
       render: (row) => {
         const state = administrativeEffectiveState(row);
@@ -238,6 +241,17 @@ const AdministrativeEngagements = () => {
             options: [0, 2, 3].map((funcion) => ({ value: String(funcion), label: t(FUNCION_LABEL_KEYS[funcion]) })),
           },
         ] : []}
+        // 1105-219: mismas 8 opciones que Encargos. `effective_state` ya viene en cada fila
+        // (número de estado). Si la RPC no trae `work_order_required`, la fila guarda el
+        // `status` legacy y solo aparece con "Todos". La vista de consulta no tiene la
+        // columna Estado, así que no lleva el filtro.
+        statusFilter={canCreate ? {
+          key: "effective_state",
+          options: ENGAGEMENT_STATES.map((s) => ({
+            value: String(s),
+            label: t(engagementStateI18nKey(s)),
+          })),
+        } : undefined}
         headerActions={!canCreate ? (
           <Select value={funcionFilter} onValueChange={setFuncionFilter}>
             <SelectTrigger className="w-full sm:w-52" aria-label={t("engagement.funcion")}>
