@@ -960,6 +960,7 @@
       "searchStaff": "Buscar personal...",
       "empty": "Aún no hay personal asignado.",
       "match": {
+        "label": "Coincidencia",
         "full": "Coincidencia completa",
         "partial": "Coincidencia parcial",
         "categoryOnly": "Solo categoría",
@@ -985,6 +986,7 @@
       "remove": "Eliminar",
       "readOnly": "Solo lectura",
       "inactiveStaff": "Inactivo",
+      "teamSkipped": "No se precargaron por estar inactivos o no ser asignables: {{names}}",
       "pendingChanges": "Cambios sin guardar — haga clic en Deshacer para restaurar, o Guardar para confirmar.",
       "availableAfterSave": "Las asignaciones de personal estarán disponibles después de guardar este encargo.",
       "warnings": {

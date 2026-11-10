@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { render as rtlRender, screen, waitFor, within } from "@/test/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Engagement } from "@/hooks/useEmsData";
@@ -125,6 +126,8 @@ let assignmentsState: { data: unknown[]; isLoading: boolean; isError: boolean } 
   isError: false,
 };
 let staffOptionsState: unknown[] = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+// FEAT 0923-203: estado de la query de staff activo (carga / fallo agotado).
+let staffQueryState = { isLoading: false, isError: false };
 // undefined = "aún no cargó" (para probar el gate de la ventana de carga, review de Fase 5 #3).
 let servicesState: unknown[] | undefined = SERVICES;
 let servicesErrorState = false;
@@ -135,7 +138,11 @@ let categoriesQueryOverride: { isLoading?: boolean; isError?: boolean; isSuccess
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagementAssignments: () => assignmentsState,
   useEngagementAggregatedRequirements: () => ({ data: [] }),
-  useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
+  useActiveStaffWithSkills: () => ({
+    data: staffQueryState.isLoading || staffQueryState.isError ? undefined : staffOptionsState,
+    isLoading: staffQueryState.isLoading,
+    isError: staffQueryState.isError,
+  }),
   useServices: () => ({ data: servicesState, isLoading: servicesState === undefined, isError: servicesErrorState }),
   // Argumento-consciente (review #M1): distingue el fetch scoped por servicio del fetch global
   // sin filtro (serviceId undefined) para poder probar que la Card nunca usa este último.
@@ -167,6 +174,7 @@ describe("StaffAssignmentsCard", () => {
     vi.clearAllMocks();
     assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
     staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    staffQueryState = { isLoading: false, isError: false };
     servicesState = SERVICES;
     servicesErrorState = false;
     categoriesQueryOverride = null;
@@ -432,5 +440,232 @@ describe("StaffAssignmentsCard", () => {
     // The newly-added row survives the "refetch" — Save stays enabled (still dirty), it was
     // never silently reset back to the server snapshot.
     expect(screen.getAllByText("engagement.assignments.save")[0].closest("button")).not.toBeDisabled();
+  });
+});
+
+// FEAT 0923-203: con el encargo SIN asignaciones guardadas, la grilla se precarga con el equipo
+// (solo Personal + Categoría); con asignaciones guardadas solo muestra lo guardado.
+describe("StaffAssignmentsCard — precarga del equipo (FEAT 0923-203)", () => {
+  // Admin para que el permiso no dependa de que el staff logueado esté en el equipo.
+  const TEAM_ENG: Engagement = { ...ENGAGEMENT, partner_id: "staff-1", manager_id: null };
+
+  // Notas tiene una celda en la grilla desktop y otra en la tarjeta móvil por fila.
+  const notesInputs = () => screen.queryAllByLabelText("engagement.assignments.notes");
+  const staffTriggers = () =>
+    screen.getAllByRole("combobox").filter((el) => el.tagName === "BUTTON");
+  const categorySelects = () =>
+    screen.getAllByRole("combobox").filter((el) => el.tagName === "SELECT") as HTMLSelectElement[];
+  const saveButton = () => screen.getAllByText("engagement.assignments.save")[0].closest("button");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    assignmentsState = { data: [], isLoading: false, isError: false };
+    staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    staffQueryState = { isLoading: false, isError: false };
+    servicesState = SERVICES;
+    servicesErrorState = false;
+    categoriesQueryOverride = null;
+    mockRole = { isAdmin: true };
+    mockStaffRecord = { staff_id: "admin-staff" };
+    isSavingState = false;
+    mockSaveAssignments.mockResolvedValue([]);
+  });
+
+  it("an engagement without saved assignments shows one row per team member, with staff and category only — and untouched it is NOT a pending change", async () => {
+    const onDirtyChange = vi.fn();
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} onDirtyChange={onDirtyChange} />);
+
+    await waitFor(() => expect(notesInputs()).toHaveLength(2)); // 1 fila × (desktop + móvil)
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+    expect(staffTriggers().every((el) => el.textContent?.includes("Ana Alvarez"))).toBe(true);
+    expect(categorySelects().every((el) => el.value === "cat-1")).toBe(true);
+    // Fechas vacías: los 4 botones de fecha (2 por layout) muestran el placeholder.
+    expect(screen.getAllByText("common.pickDate")).toHaveLength(4);
+    // Opción "c" del QA: sin tocar, la precarga no ensucia — el Guardar del encargo sigue
+    // volviendo a la lista y no hay aviso de salida.
+    expect(saveButton()).toBeDisabled();
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+    // Abrir el encargo nunca guarda.
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+  });
+
+  it("editing a preloaded row makes it a pending change, and saving still requires the mandatory fields", async () => {
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} onDirtyChange={onDirtyChange} />);
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+
+    await user.type(notesInputs()[0], "x");
+    await waitFor(() => expect(saveButton()).not.toBeDisabled());
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(screen.getAllByText("engagement.assignments.save")[0]);
+    expect(toast.error).toHaveBeenCalledWith("engagement.assignments.errors.requiredFields");
+    expect(mockSaveAssignments).not.toHaveBeenCalled();
+  });
+
+  it("REGRESSION (codex review): switching a preloaded row to ANOTHER preloaded person is a pending change", async () => {
+    // Antes la copia de la precarga se buscaba por staff_id: la fila 1 cambiada a Bea (con la
+    // categoría de Bea) quedaba idéntica a la copia de Bea y contaba como "sin tocar" — dos filas
+    // con Bea, sin cambios pendientes y con Guardar/Descartar deshabilitados.
+    const STAFF_B = { ...STAFF_ACTIVE, staff_id: "staff-3", first_name: "Bea", last_name: "Baez", initials: "BB" };
+    staffOptionsState = [STAFF_ACTIVE, STAFF_B];
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    render(
+      <StaffAssignmentsCard engagement={{ ...TEAM_ENG, encargado_id: "staff-3" }} onDirtyChange={onDirtyChange} />
+    );
+    await waitFor(() => expect(notesInputs()).toHaveLength(4)); // 2 filas × (desktop + móvil)
+    expect(saveButton()).toBeDisabled();
+
+    // Primera fila de la grilla desktop (Ana): elegir a Bea en su lista de candidatos.
+    const firstRow = screen.getAllByRole("row")[1];
+    await user.click(within(firstRow).getByText("Bea Baez"));
+
+    await waitFor(() => expect(saveButton()).not.toBeDisabled());
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("a person holding two roles is preloaded once", async () => {
+    render(
+      <StaffAssignmentsCard engagement={{ ...TEAM_ENG, manager_id: "staff-1", encargado_id: "staff-1" }} />
+    );
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+  });
+
+  it("a non-schedulable member is not preloaded and is reported", async () => {
+    render(<StaffAssignmentsCard engagement={{ ...TEAM_ENG, encargado_id: "staff-2" }} />);
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+    expect(toast.info).toHaveBeenCalledWith("engagement.assignments.teamSkipped", {
+      id: "team-skipped-eng-1",
+    });
+  });
+
+  it("an engagement WITH saved assignments only shows them — no preload, not dirty", () => {
+    assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
+    const onDirtyChange = vi.fn();
+    render(
+      <StaffAssignmentsCard engagement={{ ...TEAM_ENG, encargado_id: "staff-2" }} onDirtyChange={onDirtyChange} />
+    );
+    expect(notesInputs()).toHaveLength(2); // solo la fila guardada
+    expect(saveButton()).toBeDisabled();
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+    expect(toast.info).not.toHaveBeenCalled();
+  });
+
+  it("Discard (after editing) clears the preload and it does not come back on rerender", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+
+    // Sin tocar, Descartar está deshabilitado (no hay cambios); se edita para habilitarlo.
+    await user.type(notesInputs()[0], "x");
+    await user.click(screen.getAllByText("engagement.assignments.discard")[0]);
+    await waitFor(() => expect(notesInputs()).toHaveLength(0));
+
+    assignmentsState = { data: [], isLoading: false, isError: false };
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={TEAM_ENG} />
+      </TooltipProvider>
+    );
+    expect(notesInputs()).toHaveLength(0);
+    expect(screen.getAllByText("engagement.assignments.empty").length).toBeGreaterThan(0);
+  });
+
+  it("a background refetch that brings saved assignments replaces the untouched preload", async () => {
+    const { rerender } = render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+
+    // Otro usuario guardó mientras tanto: llega la fila persistida (allocation 50).
+    assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={TEAM_ENG} />
+      </TooltipProvider>
+    );
+    await waitFor(() => expect(screen.getAllByDisplayValue("50").length).toBeGreaterThan(0));
+    expect(notesInputs()).toHaveLength(2); // solo la fila guardada
+    expect(saveButton()).toBeDisabled();
+  });
+
+  it("a background refetch neither duplicates nor wipes the untouched preloaded rows", async () => {
+    const { rerender } = render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+
+    assignmentsState = { data: [], isLoading: false, isError: false }; // nueva referencia
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={TEAM_ENG} />
+      </TooltipProvider>
+    );
+    expect(notesInputs()).toHaveLength(2);
+  });
+
+  it("a read-only viewer gets no preloaded rows and no dirty state", () => {
+    mockRole = { isAdmin: false };
+    mockStaffRecord = { staff_id: "someone-else" };
+    const onDirtyChange = vi.fn();
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} onDirtyChange={onDirtyChange} />);
+    expect(notesInputs()).toHaveLength(0);
+    expect(screen.getAllByText("engagement.assignments.empty").length).toBeGreaterThan(0);
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it("waits for the service categories: no preload while loading, exactly one once resolved", async () => {
+    categoriesQueryOverride = { isLoading: true, isSuccess: false };
+    const { rerender } = render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(notesInputs()).toHaveLength(0);
+
+    categoriesQueryOverride = null;
+    rerender(
+      <TooltipProvider>
+        <StaffAssignmentsCard engagement={TEAM_ENG} />
+      </TooltipProvider>
+    );
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+    expect(categorySelects().every((el) => el.value === "cat-1")).toBe(true);
+  });
+
+  it("REGRESSION (caso G): with cached data under React.StrictMode the preload survives the double effect run", async () => {
+    // Volver al encargo navegando dentro de la app = datos ya en caché en el primer render. En
+    // dev, StrictMode re-ejecuta los effects con el estado conservado: el effect de siembra
+    // volvía a poner drafts=[] DESPUÉS de la precarga y la grilla quedaba vacía.
+    render(
+      <React.StrictMode>
+        <StaffAssignmentsCard engagement={TEAM_ENG} />
+      </React.StrictMode>
+    );
+    await waitFor(() => expect(notesInputs()).toHaveLength(2));
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (codex review): a failed staff catalogue is shown as a load error, never as an empty team", () => {
+    staffQueryState = { isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+  });
+
+  it("while the staff catalogue loads, the grid waits (skeleton) instead of flashing the empty state", () => {
+    staffQueryState = { isLoading: true, isError: false };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("a staff catalogue failure does NOT hide saved assignments (preload does not apply)", () => {
+    assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
+    staffQueryState = { isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.queryByText("engagement.assignments.errors.loadFailed")).not.toBeInTheDocument();
+    expect(notesInputs()).toHaveLength(2); // la fila guardada sigue visible
+  });
+
+  it("a failed assignments load never turns into a preload", () => {
+    assignmentsState = { data: [], isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+    expect(notesInputs()).toHaveLength(0);
   });
 });

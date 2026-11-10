@@ -6,6 +6,8 @@ import {
   findForeignCategoryKeys,
   findOutOfEngagementRangeKeys,
   rpcRowToDraft,
+  buildTeamAssignmentDrafts,
+  TEAM_ROLE_FIELDS,
   HOURS_PER_WEEK_MAX,
   ALLOCATION_PERCENT_MAX,
   type AssignmentDraft,
@@ -355,5 +357,96 @@ describe("rpcRowToDraft — adopts the RPC's authoritative row as a draft/baseli
       allocation_percent: 75,
       notes: "",
     });
+  });
+});
+
+describe("buildTeamAssignmentDrafts (FEAT 0923-203)", () => {
+  const ACTIVE = new Map([
+    ["s-partner", { is_schedulable: true, category_id: "cat-aud" }],
+    ["s-manager", { is_schedulable: true, category_id: "cat-aud" }],
+    ["s-encargado", { is_schedulable: true, category_id: "cat-aud" }],
+    ["s-foreign", { is_schedulable: true, category_id: "cat-tax" }],
+    ["s-nocat", { is_schedulable: true, category_id: null }],
+    ["s-notsched", { is_schedulable: false, category_id: "cat-aud" }],
+  ]);
+  const VALID = new Set(["cat-aud"]);
+
+  function keys() {
+    let n = 0;
+    return () => `k-${++n}`;
+  }
+
+  function build(teamStaffIds: Array<string | null | undefined>, existing: string[] = []) {
+    return buildTeamAssignmentDrafts({
+      teamStaffIds,
+      existingStaffIds: new Set(existing),
+      activeStaffById: ACTIVE,
+      validCategoryIds: VALID,
+      newKey: keys(),
+    });
+  }
+
+  it("covers the six Equipo slots in a fixed order", () => {
+    expect(TEAM_ROLE_FIELDS).toEqual([
+      "partner_id",
+      "manager_id",
+      "encargado_id",
+      "sqr_id",
+      "specialist_it_id",
+      "specialist_tax_id",
+    ]);
+  });
+
+  it("builds one row per member, in slot order, preloading ONLY staff + category", () => {
+    const { drafts, skippedStaffIds } = build(["s-partner", "s-manager", "s-encargado"]);
+    expect(skippedStaffIds).toEqual([]);
+    expect(drafts.map((d) => d.staff_id)).toEqual(["s-partner", "s-manager", "s-encargado"]);
+    expect(drafts[0]).toEqual({
+      key: "k-1",
+      staff_id: "s-partner",
+      category_id: "cat-aud",
+      start_date: "",
+      end_date: "",
+      hours_per_week: 0,
+      allocation_percent: 0,
+      notes: "",
+    });
+    expect(drafts.every((d) => d.assignment_id === undefined)).toBe(true);
+    expect(new Set(drafts.map((d) => d.key)).size).toBe(3);
+  });
+
+  it("generated rows cannot be saved untouched (dates, hours and allocation are required)", () => {
+    const { drafts } = build(["s-partner"]);
+    const result = validateAssignmentDrafts(drafts);
+    expect(result.valid).toBe(false);
+    expect(result.missing.has("k-1")).toBe(true);
+    const withDates = drafts.map((d) => ({ ...d, start_date: "2026-01-01", end_date: "2026-02-01" }));
+    expect(validateAssignmentDrafts(withDates).badNumbers.has("k-1")).toBe(true);
+  });
+
+  it("ignores empty slots (No Aplica)", () => {
+    const { drafts } = build([null, "s-manager", undefined, "", null, null]);
+    expect(drafts.map((d) => d.staff_id)).toEqual(["s-manager"]);
+  });
+
+  it("a person holding two roles yields a single row", () => {
+    const { drafts } = build(["s-partner", "s-manager", "s-manager"]);
+    expect(drafts.map((d) => d.staff_id)).toEqual(["s-partner", "s-manager"]);
+  });
+
+  it("never repeats staff already present in the grid", () => {
+    const { drafts } = build(["s-partner", "s-manager"], ["s-partner"]);
+    expect(drafts.map((d) => d.staff_id)).toEqual(["s-manager"]);
+  });
+
+  it("skips non-schedulable or inactive members (once each) instead of creating a row", () => {
+    const { drafts, skippedStaffIds } = build(["s-notsched", "s-gone", "s-notsched", "s-manager"]);
+    expect(drafts.map((d) => d.staff_id)).toEqual(["s-manager"]);
+    expect(skippedStaffIds).toEqual(["s-notsched", "s-gone"]);
+  });
+
+  it("keeps the staff category only when it belongs to the engagement service", () => {
+    const { drafts } = build(["s-foreign", "s-nocat"]);
+    expect(drafts.map((d) => d.category_id)).toEqual(["", ""]);
   });
 });
