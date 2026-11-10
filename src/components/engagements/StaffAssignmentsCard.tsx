@@ -289,7 +289,8 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const engagementId = engagement.engagement_id;
   const { data: assignments, isLoading, isError } = useEngagementAssignments(engagementId);
   const { data: aggregatedReqs } = useEngagementAggregatedRequirements(engagementId);
-  const { data: staffOptions } = useActiveStaffWithSkills();
+  const staffQuery = useActiveStaffWithSkills();
+  const staffOptions = staffQuery.data;
   const servicesQuery = useServices();
   const services = servicesQuery.data;
   // Categorías por SERVICIO del engagement (issue §6/§11). O6 (CERRADA) prohíbe expresamente el
@@ -667,7 +668,17 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     }
   };
 
-  if (isLoading || catalogLoading) {
+  // FEAT 0923-203 (review de Codex): la precarga depende del catálogo de staff activo. Cuando la
+  // precarga APLICA (encargo sin asignaciones guardadas, usuario con permiso, aún no precargado),
+  // su carga y su fallo se muestran como los del resto del catálogo — si no, un fallo dejaba la
+  // grilla vacía con "Aún no hay personal asignado" como si el encargo no tuviera equipo. Fuera de
+  // ese caso no se toca nada: un encargo con asignaciones guardadas las sigue mostrando aunque
+  // este catálogo falle (solo se usa para elegir personas).
+  const prefillPending = !!assignments && assignments.length === 0 && canEdit && !teamPrefilled;
+  const staffLoadingForPrefill = prefillPending && !staffOptions && staffQuery.isLoading;
+  const staffErrorForPrefill = prefillPending && !staffOptions && staffQuery.isError;
+
+  if (isLoading || catalogLoading || staffLoadingForPrefill) {
     return (
       <div className="space-y-3">
         <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>
@@ -676,7 +687,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     );
   }
 
-  if (isError || catalogError) {
+  if (isError || catalogError || staffErrorForPrefill) {
     return (
       <div className="space-y-3">
         <h3 className="font-medium text-lg">{t("engagement.assignments.title")}</h3>

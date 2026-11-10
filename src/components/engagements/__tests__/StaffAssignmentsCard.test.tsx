@@ -126,6 +126,8 @@ let assignmentsState: { data: unknown[]; isLoading: boolean; isError: boolean } 
   isError: false,
 };
 let staffOptionsState: unknown[] = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+// FEAT 0923-203: estado de la query de staff activo (carga / fallo agotado).
+let staffQueryState = { isLoading: false, isError: false };
 // undefined = "aún no cargó" (para probar el gate de la ventana de carga, review de Fase 5 #3).
 let servicesState: unknown[] | undefined = SERVICES;
 let servicesErrorState = false;
@@ -136,7 +138,11 @@ let categoriesQueryOverride: { isLoading?: boolean; isError?: boolean; isSuccess
 vi.mock("@/hooks/useEmsData", () => ({
   useEngagementAssignments: () => assignmentsState,
   useEngagementAggregatedRequirements: () => ({ data: [] }),
-  useActiveStaffWithSkills: () => ({ data: staffOptionsState }),
+  useActiveStaffWithSkills: () => ({
+    data: staffQueryState.isLoading || staffQueryState.isError ? undefined : staffOptionsState,
+    isLoading: staffQueryState.isLoading,
+    isError: staffQueryState.isError,
+  }),
   useServices: () => ({ data: servicesState, isLoading: servicesState === undefined, isError: servicesErrorState }),
   // Argumento-consciente (review #M1): distingue el fetch scoped por servicio del fetch global
   // sin filtro (serviceId undefined) para poder probar que la Card nunca usa este último.
@@ -168,6 +174,7 @@ describe("StaffAssignmentsCard", () => {
     vi.clearAllMocks();
     assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
     staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    staffQueryState = { isLoading: false, isError: false };
     servicesState = SERVICES;
     servicesErrorState = false;
     categoriesQueryOverride = null;
@@ -454,6 +461,7 @@ describe("StaffAssignmentsCard — precarga del equipo (FEAT 0923-203)", () => {
     vi.clearAllMocks();
     assignmentsState = { data: [], isLoading: false, isError: false };
     staffOptionsState = [STAFF_ACTIVE, STAFF_NOT_SCHEDULABLE];
+    staffQueryState = { isLoading: false, isError: false };
     servicesState = SERVICES;
     servicesErrorState = false;
     categoriesQueryOverride = null;
@@ -630,6 +638,28 @@ describe("StaffAssignmentsCard — precarga del equipo (FEAT 0923-203)", () => {
     );
     await waitFor(() => expect(notesInputs()).toHaveLength(2));
     expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+  });
+
+  it("REGRESSION (codex review): a failed staff catalogue is shown as a load error, never as an empty team", () => {
+    staffQueryState = { isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.getByText("engagement.assignments.errors.loadFailed")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+  });
+
+  it("while the staff catalogue loads, the grid waits (skeleton) instead of flashing the empty state", () => {
+    staffQueryState = { isLoading: true, isError: false };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.queryByText("engagement.assignments.empty")).not.toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("a staff catalogue failure does NOT hide saved assignments (preload does not apply)", () => {
+    assignmentsState = { data: [PERSISTED_ROW], isLoading: false, isError: false };
+    staffQueryState = { isLoading: false, isError: true };
+    render(<StaffAssignmentsCard engagement={TEAM_ENG} />);
+    expect(screen.queryByText("engagement.assignments.errors.loadFailed")).not.toBeInTheDocument();
+    expect(notesInputs()).toHaveLength(2); // la fila guardada sigue visible
   });
 
   it("a failed assignments load never turns into a preload", () => {
