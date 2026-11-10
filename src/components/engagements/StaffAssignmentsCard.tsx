@@ -40,12 +40,14 @@ import { useSaveEngagementAssignments, type AssignmentDraft } from "@/hooks/muta
 import {
   ALLOCATION_PERCENT_MAX,
   AUDITORIA_SERVICE_CODE,
+  buildTeamAssignmentDrafts,
   findForeignCategoryKeys,
   findOutOfEngagementRangeKeys,
   findStaffSegmentOverlap,
   HOURS_PER_WEEK_MAX,
   resolveStaffLabel,
   rpcRowToDraft,
+  TEAM_ROLE_FIELDS,
   validateAssignmentDrafts,
 } from "@/lib/engagementAssignments";
 import {
@@ -115,6 +117,14 @@ function draftsEqual(a: AssignmentDraft, b: AssignmentDraft): boolean {
     Number(a.allocation_percent) === Number(b.allocation_percent) &&
     (a.notes || "") === (b.notes || "")
   );
+}
+
+// FEAT 0923-203: fila precargada del equipo que el usuario todavía no editó (sin assignment_id
+// e idéntica, salvo la key, a como se generó).
+function isPristinePrefill(draft: AssignmentDraft, snapshot: ReadonlyMap<string, AssignmentDraft>): boolean {
+  if (draft.assignment_id) return false;
+  const original = snapshot.get(draft.staff_id);
+  return !!original && draftsEqual(draft, original);
 }
 
 function staffDisplayName(staff: { first_name: string; last_name: string }): string {
@@ -336,6 +346,14 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const [dateErrorKeys, setDateErrorKeys] = useState<Set<string>>(new Set());
   const [numberErrorKeys, setNumberErrorKeys] = useState<Set<string>>(new Set());
   const [overlapKeys, setOverlapKeys] = useState<Set<string>>(new Set());
+  // FEAT 0923-203 (opción "c" del QA): copia de cada fila precargada del equipo TAL COMO se
+  // generó, por staff_id. Una fila precargada que el usuario no tocó NO cuenta como cambio
+  // pendiente: no bloquea el Guardar del encargo ni dispara el aviso de salida. En cuanto se edita
+  // (o se cambia la persona) deja de coincidir y pasa a ser un cambio normal. Indexada por staff_id
+  // y no por key para que la doble ejecución de StrictMode (keys distintas) no la desincronice.
+  const [prefillSnapshot, setPrefillSnapshot] = useState<Map<string, AssignmentDraft>>(() => new Map());
+  const prefillSnapshotRef = useRef(prefillSnapshot);
+  prefillSnapshotRef.current = prefillSnapshot;
 
   const requirements: AggregatedRequirement[] = useMemo(() => aggregatedReqs ?? [], [aggregatedReqs]);
 
@@ -354,15 +372,17 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
 
   const dirty = useMemo(() => {
     if (deletedIds.size > 0) return true;
-    if (drafts.some((d) => !d.assignment_id)) return true;
-    const draftKeys = new Set(drafts.map((d) => d.key));
+    // Las filas precargadas sin tocar se ignoran por completo (no existen para el dirty).
+    const relevant = drafts.filter((d) => !isPristinePrefill(d, prefillSnapshot));
+    if (relevant.some((d) => !d.assignment_id)) return true;
+    const draftKeys = new Set(relevant.map((d) => d.key));
     if (baseline.some((b) => !draftKeys.has(b.key))) return true;
     const byKey = new Map(baseline.map((b) => [b.key, b]));
-    return drafts.some((d) => {
+    return relevant.some((d) => {
       const base = byKey.get(d.key);
       return !base || !draftsEqual(d, base);
     });
-  }, [drafts, baseline, deletedIds]);
+  }, [drafts, baseline, deletedIds, prefillSnapshot]);
 
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -380,7 +400,14 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     if (!firstSeed && dirtyRef.current) return;
     seededEngagementIdRef.current = engagementId;
     const seeded = assignments.map(toDraft);
-    setDrafts(seeded);
+    // FEAT 0923-203: con la grilla "limpia" solo por tener filas precargadas sin tocar, un refetch
+    // de fondo que sigue sin asignaciones NO debe borrarlas. Si llegaron asignaciones guardadas
+    // (p. ej. otro usuario guardó), se muestran esas y la precarga se descarta.
+    setDrafts((prev) => {
+      if (seeded.length > 0) return seeded;
+      const keep = prev.filter((d) => isPristinePrefill(d, prefillSnapshotRef.current));
+      return keep.length > 0 ? keep : seeded;
+    });
     setBaseline(seeded);
     setDeletedIds(new Set());
   }, [assignments, engagementId]);
@@ -404,6 +431,83 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
     }
     return map;
   }, [assignments]);
+
+  // FEAT 0923-203: precarga del equipo del encargo. Solo cuando el encargo NO tiene asignaciones
+  // guardadas — con asignaciones, la grilla solo muestra lo guardado. Corre una vez por montaje y
+  // solo con todo resuelto: assignments sin error, catálogo del servicio, staff activo y permiso de
+  // escritura (un lector nunca recibe filas precargadas). Las filas entran a `drafts` pero NO al
+  // baseline, y mientras no se editen no cuentan como cambios (ver `prefillSnapshot`): el Guardar
+  // del encargo sigue volviendo a la lista. Para guardarlas, el usuario completa fechas, horas y
+  // allocation. "Descartar" no la repite (el flag queda marcado); volver a abrir el encargo sí
+  // (montaje nuevo).
+  //
+  // El "ya precargado" es ESTADO y no ref (caso G del QA): al volver al encargo navegando dentro de
+  // la app, los datos ya están en caché y la precarga corre en el mismo commit del montaje. En dev,
+  // React.StrictMode re-ejecuta los effects conservando estado y refs: el effect de siembra volvía
+  // a poner drafts=[] DESPUÉS de la precarga y un ref ya marcado impedía repetirla — grilla vacía.
+  // Con estado, la re-ejecución ve el closure del primer render (aún sin precargar) y la vuelve a
+  // aplicar; el updater deduplica por staff_id para que nunca quede una fila repetida.
+  const [teamPrefilled, setTeamPrefilled] = useState(false);
+  useEffect(() => {
+    if (teamPrefilled) return;
+    if (isLoading || isError || !assignments || assignments.length > 0) return;
+    if (!canEdit || !categoriesResolved || !staffOptions) return;
+    if (drafts.length > 0 || dirtyRef.current) return;
+    setTeamPrefilled(true);
+
+    const { drafts: teamDrafts, skippedStaffIds } = buildTeamAssignmentDrafts({
+      teamStaffIds: TEAM_ROLE_FIELDS.map((field) => engagement[field]),
+      existingStaffIds: new Set<string>(),
+      activeStaffById: staffById,
+      validCategoryIds,
+      newKey: () => crypto.randomUUID(),
+    });
+    if (teamDrafts.length > 0) {
+      setPrefillSnapshot(new Map(teamDrafts.map((d) => [d.staff_id, d])));
+      setDrafts((prev) => {
+        const present = new Set(prev.map((d) => d.staff_id));
+        const missing = teamDrafts.filter((d) => !present.has(d.staff_id));
+        return missing.length > 0 ? [...prev, ...missing] : prev;
+      });
+    }
+    if (skippedStaffIds.length > 0) {
+      // Nombres desde el staff embebido en el encargo (llega con el portafolio); un integrante
+      // ausente de la lista activa y sin nombre embebido se muestra como "Inactivo".
+      const embedded = [
+        engagement.partner,
+        engagement.manager,
+        engagement.encargado,
+        engagement.sqr,
+        engagement.specialist_it,
+        engagement.specialist_tax,
+      ];
+      const names = skippedStaffIds.map((id) => {
+        const person = embedded.find((s) => s?.staff_id === id);
+        return person
+          ? staffDisplayName(person)
+          : activeStaffNames.get(id) ?? t("engagement.assignments.inactiveStaff");
+      });
+      // `id` fijo: sonner reemplaza en vez de apilar si el effect corre dos veces (StrictMode).
+      toast.info(t("engagement.assignments.teamSkipped", { names: names.join(", ") }), {
+        id: `team-skipped-${engagementId}`,
+      });
+    }
+  }, [
+    teamPrefilled,
+    engagementId,
+    engagement,
+    isLoading,
+    isError,
+    assignments,
+    canEdit,
+    categoriesResolved,
+    staffOptions,
+    drafts.length,
+    staffById,
+    validCategoryIds,
+    activeStaffNames,
+    t,
+  ]);
 
   // Candidatos para FILAS NUEVAS: solo staff activo Y schedulable (issue: "solo permiten
   // seleccionar staff activo y schedulable"). Filas históricas siguen mostrando su staff vía

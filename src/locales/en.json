@@ -960,6 +960,7 @@
       "searchStaff": "Search staff...",
       "empty": "No staff assigned yet.",
       "match": {
+        "label": "Match",
         "full": "Full match",
         "partial": "Partial match",
         "categoryOnly": "Category only",
@@ -985,6 +986,7 @@
       "remove": "Remove",
       "readOnly": "Read-only",
       "inactiveStaff": "Inactive",
+      "teamSkipped": "Not preloaded because they are inactive or not schedulable: {{names}}",
       "pendingChanges": "Unsaved changes — click Undo to restore, or Save to confirm.",
       "availableAfterSave": "Staff assignments will be available after you save this engagement.",
       "warnings": {
