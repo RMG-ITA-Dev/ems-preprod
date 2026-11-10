@@ -120,10 +120,12 @@ function draftsEqual(a: AssignmentDraft, b: AssignmentDraft): boolean {
 }
 
 // FEAT 0923-203: fila precargada del equipo que el usuario todavía no editó (sin assignment_id
-// e idéntica, salvo la key, a como se generó).
+// e idéntica a como se generó). La copia se busca por la KEY de la fila, que es estable — nunca
+// por staff_id, que el usuario puede cambiar: una fila cambiada a otro integrante precargado
+// quedaba idéntica a la copia de ESE integrante y contaba como "sin tocar" (review de Codex).
 function isPristinePrefill(draft: AssignmentDraft, snapshot: ReadonlyMap<string, AssignmentDraft>): boolean {
   if (draft.assignment_id) return false;
-  const original = snapshot.get(draft.staff_id);
+  const original = snapshot.get(draft.key);
   return !!original && draftsEqual(draft, original);
 }
 
@@ -347,10 +349,11 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const [numberErrorKeys, setNumberErrorKeys] = useState<Set<string>>(new Set());
   const [overlapKeys, setOverlapKeys] = useState<Set<string>>(new Set());
   // FEAT 0923-203 (opción "c" del QA): copia de cada fila precargada del equipo TAL COMO se
-  // generó, por staff_id. Una fila precargada que el usuario no tocó NO cuenta como cambio
+  // generó, por key de fila. Una fila precargada que el usuario no tocó NO cuenta como cambio
   // pendiente: no bloquea el Guardar del encargo ni dispara el aviso de salida. En cuanto se edita
-  // (o se cambia la persona) deja de coincidir y pasa a ser un cambio normal. Indexada por staff_id
-  // y no por key para que la doble ejecución de StrictMode (keys distintas) no la desincronice.
+  // (o se cambia la persona) deja de coincidir y pasa a ser un cambio normal. La copia ACUMULA
+  // las filas de cada ejecución de la precarga: bajo StrictMode corre dos veces con keys
+  // distintas y, sea cual sea el lote que sobreviva en `drafts`, su copia está.
   const [prefillSnapshot, setPrefillSnapshot] = useState<Map<string, AssignmentDraft>>(() => new Map());
   const prefillSnapshotRef = useRef(prefillSnapshot);
   prefillSnapshotRef.current = prefillSnapshot;
@@ -463,7 +466,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
       newKey: () => crypto.randomUUID(),
     });
     if (teamDrafts.length > 0) {
-      setPrefillSnapshot(new Map(teamDrafts.map((d) => [d.staff_id, d])));
+      setPrefillSnapshot((prev) => new Map([...prev, ...teamDrafts.map((d) => [d.key, d] as const)]));
       setDrafts((prev) => {
         const present = new Set(prev.map((d) => d.staff_id));
         const missing = teamDrafts.filter((d) => !present.has(d.staff_id));

@@ -496,6 +496,28 @@ describe("StaffAssignmentsCard — precarga del equipo (FEAT 0923-203)", () => {
     expect(mockSaveAssignments).not.toHaveBeenCalled();
   });
 
+  it("REGRESSION (codex review): switching a preloaded row to ANOTHER preloaded person is a pending change", async () => {
+    // Antes la copia de la precarga se buscaba por staff_id: la fila 1 cambiada a Bea (con la
+    // categoría de Bea) quedaba idéntica a la copia de Bea y contaba como "sin tocar" — dos filas
+    // con Bea, sin cambios pendientes y con Guardar/Descartar deshabilitados.
+    const STAFF_B = { ...STAFF_ACTIVE, staff_id: "staff-3", first_name: "Bea", last_name: "Baez", initials: "BB" };
+    staffOptionsState = [STAFF_ACTIVE, STAFF_B];
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    render(
+      <StaffAssignmentsCard engagement={{ ...TEAM_ENG, encargado_id: "staff-3" }} onDirtyChange={onDirtyChange} />
+    );
+    await waitFor(() => expect(notesInputs()).toHaveLength(4)); // 2 filas × (desktop + móvil)
+    expect(saveButton()).toBeDisabled();
+
+    // Primera fila de la grilla desktop (Ana): elegir a Bea en su lista de candidatos.
+    const firstRow = screen.getAllByRole("row")[1];
+    await user.click(within(firstRow).getByText("Bea Baez"));
+
+    await waitFor(() => expect(saveButton()).not.toBeDisabled());
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+  });
+
   it("a person holding two roles is preloaded once", async () => {
     render(
       <StaffAssignmentsCard engagement={{ ...TEAM_ENG, manager_id: "staff-1", encargado_id: "staff-1" }} />
