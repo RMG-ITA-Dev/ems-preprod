@@ -131,7 +131,7 @@ const WorkOrders = () => {
     ) || 0;
     
     const totalWithoutVAT = adjustedFee + totalExpenses;
-    const taxRate = Number(wo.tax_rate) || 0.13;
+    const taxRate = Number(wo.tax_rate) || 0.16;
     const totalWithVAT = totalWithoutVAT / (1 - taxRate);
 
     return { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT };

@@ -8,8 +8,8 @@ const text = (value) => String(value ?? "").trim();
 const sum = (rows, pick) => rows.reduce((total, row) => total + pick(row), 0n);
 const day = (value) => text(value).slice(0, 10);
 const bump = (map, key, units) => map.set(key, (map.get(key) ?? 0n) + units);
-// Importe (centavos) x TC (centésimas) → centavos redondeados half-up, como pide plan_v2 §3 («redondea a centavos»).
-export const BOB_ROUNDING = (amountUnits, rateUnits) => (amountUnits * rateUnits + 50n) / 100n;
+// Importe (centavos) x TC (centésimas) → centavos redondeados HACIA ARRIBA (D29, 11/11/2026; antes half-up, plan_v2 §3).
+export const BOB_ROUNDING = (amountUnits, rateUnits) => (amountUnits * rateUnits + 99n) / 100n;
 
 // Feriado aplicable por oficina del staff (documento 10 §2.8): esas horas se cargan como excepción histórica, pero se contabilizan aparte. Las oficinas 0 (Firmwide) aplican a todos.
 export function holidayApplies({ date, officeOfStaff, holidaysByDate }) {

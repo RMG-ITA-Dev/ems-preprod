@@ -165,7 +165,7 @@ export async function prepareWorkOrderBlueprint(ctx, inputs) {
     if (!clientId || !f2Client || !client?.industryEnd || !worksheet || worksheet.engagementId !== engagementId) throw new Fase1Error("BLOQUEADO", `OT sin cruce cliente/matriz: ${row.legacy_cot}`);
     const seasonMode = seasonFromIndustry(f2Client.industry_ref, client.industryEnd); const currency = ({ 0: "BOB", 1: "USD" })[Number(row.legacy_currency_raw)];
     if (!currency) throw new Fase1Error("BLOQUEADO", `moneda legacy inválida: ${row.legacy_cot}`);
-    return { sourceKey: row.legacy_cot, engagementId, worksheetId: worksheet.worksheetId, currency, seasonMode, taxRate: "0.13", adjustmentAmount: "0" };
+    return { sourceKey: row.legacy_cot, engagementId, worksheetId: worksheet.worksheetId, currency, seasonMode, taxRate: "0.16", adjustmentAmount: "0" };
   }).sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
 }
 const reserveWorkOrders = (blueprint) => blueprint.map((row) => ({ ...row, woId: randomUUID(), state: "PENDIENTE" }));

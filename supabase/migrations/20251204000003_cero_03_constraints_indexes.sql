@@ -1262,7 +1262,7 @@ CREATE OR REPLACE VIEW public.work_order_summary WITH (security_invoker='true') 
             WHEN (COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) > (0)::numeric) THEN ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric))
             ELSE (1)::numeric
         END AS realization_percent,
-    ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.13))) AS fee_with_tax_gross_up
+    ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.16))) AS fee_with_tax_gross_up
    FROM (public.work_orders wo
      LEFT JOIN public.wo_budget_lines bl ON ((wo.wo_id = bl.wo_id)))
   GROUP BY wo.wo_id;

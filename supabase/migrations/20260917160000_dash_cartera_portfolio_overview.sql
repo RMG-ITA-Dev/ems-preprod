@@ -351,7 +351,7 @@ BEGIN
   wo_raw AS (
     SELECT
       s.engagement_id, s.wo_id, s.currency, s.season_mode,
-      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.tax_rate, 0.16) AS tax_rate,
       COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
       s.approval_status,
       COALESCE(bl.fee, 0) AS total_standard_fee,

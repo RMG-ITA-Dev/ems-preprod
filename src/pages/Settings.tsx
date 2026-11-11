@@ -400,7 +400,7 @@ const Settings = () => {
     const persistedCompact = getSetting("COMPACT_FONT") === "true";
     const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
     const persistedAuthMode = getSetting(AUTH_MODE_SETTING_KEY) || "password";
-    const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
+    const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.16") * 100).toString();
     const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
     const persistedDailyMin = getSetting("DAILY_MIN") || "8";
     const persistedDailyMax = getSetting("DAILY_MAX") || "8";
@@ -1507,7 +1507,7 @@ const Settings = () => {
                       <div className="flex items-center gap-2 max-w-[200px]">
                         <NumericInput
                           id="taxRate"
-                          value={taxRate || (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString()}
+                          value={taxRate || (parseFloat(getSetting("TAX_RATE") || "0.16") * 100).toString()}
                           onValueChange={(value) => setTaxRate(value)}
                           placeholder="13"
                           decimals={2}

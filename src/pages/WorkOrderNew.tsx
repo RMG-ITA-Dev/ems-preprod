@@ -77,7 +77,7 @@ const WorkOrderNew = () => {
 
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
-  const taxRate = parseFloat(globalTaxRate || "0.13");
+  const taxRate = parseFloat(globalTaxRate || "0.16");
 
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];

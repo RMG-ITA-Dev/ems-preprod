@@ -7896,7 +7896,7 @@ CREATE TABLE public.work_orders (
     engagement_id uuid NOT NULL,
     currency text NOT NULL,
     season_mode character varying(4) NOT NULL,
-    tax_rate numeric(5,4) DEFAULT 0.13,
+    tax_rate numeric(5,4) DEFAULT 0.16,
     adjustment_amount numeric(15,2) DEFAULT 0,
     notes text,
     created_at timestamp with time zone DEFAULT now(),
@@ -10436,7 +10436,7 @@ BEGIN
   --
   -- net_amount guarda lo REALMENTE gastado y amount lo que se factura. Los dos se guardan
   -- porque la diferencia entre ambos es justamente lo que hay que poder explicar.
-  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.13), 0), 2);
+  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.16), 0), 2);
 
   -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
   -- Nace en BOB, que es la moneda en la que los gastos se rinden

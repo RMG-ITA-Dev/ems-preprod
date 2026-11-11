@@ -27,10 +27,11 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     expect(holidayApplies({ date: "2026-06-05", officeOfStaff: 2, holidaysByDate })).toBe(false);
     expect(holidayApplies({ date: "2026-01-01T00:00:00", officeOfStaff: 2, holidaysByDate })).toBe(true);
   });
-  it("el gasto BOB se redondea half-up a centavos (centavos x centésimas)", () => {
+  it("el gasto BOB se redondea hacia arriba a centavos (centavos x centésimas)", () => {
     expect(BOB_ROUNDING(1010n, 696n)).toBe(7030n);
     expect(BOB_ROUNDING(1n, 50n)).toBe(1n);
-    expect(BOB_ROUNDING(1n, 49n)).toBe(0n);
+    expect(BOB_ROUNDING(1n, 49n)).toBe(1n); // hacia arriba (D29)
+    expect(BOB_ROUNDING(100n, 100n)).toBe(100n); // exacto: no sube
   });
   it("calcula esperados independientes: todas las horas (el feriado se contabiliza aparte), gastos positivos y suma de cuotas", () => {
     const expected = legacyExpectations(base);

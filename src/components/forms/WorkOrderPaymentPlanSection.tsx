@@ -124,7 +124,7 @@ interface WorkOrderPaymentPlanSectionProps {
   canBillExpenses?: boolean;
   /**
    * La alícuota de la OT, para mostrar cuánto del monto facturado es impuesto. Sale de la orden
-   * y no de un 0,13 escrito acá: si alguna vez cambia, cambia en un solo lugar.
+   * y no de un 0,16 escrito acá: si alguna vez cambia, cambia en un solo lugar.
    */
   taxRate?: number;
   /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
@@ -196,7 +196,7 @@ export function WorkOrderPaymentPlanSection({
   canWriteNotes = false,
   expenseRows = [],
   canBillExpenses = false,
-  taxRate = 0.13,
+  taxRate = 0.16,
   currentStaffId = null,
   isAdminViewer = false,
   isPaymentPlanDirty = false,

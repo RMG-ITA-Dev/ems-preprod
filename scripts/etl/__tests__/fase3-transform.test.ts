@@ -24,7 +24,7 @@ describe("ETL fase 3: transformaciones", () => {
     expect(() => executionContributions({ ...base, legacy_department_id: "1", legacy_specialty_id: "1" })).toThrow(/colisión/);
   });
   it("calcula temporadas, honorario y calendario sin flotantes acumulados", () => {
-    expect(seasonForIndustry(10)).toBe("Low"); expect(seasonForIndustry(11)).toBe("High"); expect(decimalUnits("2.0000")).toBe(200n); expect(adjustedFee("10", "12.34")).toBe("2.34"); expect(feeWithTax("87")).toBe("100");
+    expect(seasonForIndustry(10)).toBe("Low"); expect(seasonForIndustry(11)).toBe("High"); expect(decimalUnits("2.0000")).toBe(200n); expect(adjustedFee("10", "12.34")).toBe("2.34"); expect(feeWithTax("84")).toBe("100"); expect(feeWithTax("100")).toBe("119.05"); expect(feeWithTax("2940")).toBe("3500");
     // Lunes a viernes, sin feriados: el 25/12 (feriado) cuenta como día laborable y el fin de semana se salta.
     expect(addBusinessDays("2026-12-24", 1)).toBe("2026-12-25"); expect(addBusinessDays("2026-12-25", 1)).toBe("2026-12-28");
   });
@@ -70,9 +70,12 @@ describe("ETL fase 3: transformaciones", () => {
 
 describe("ETL fase 3: redondeo de gastos BOB", () => {
   const bob = (amount: string) => expensePayload({ legacy_expense_budget_id: "g-bob", legacy_currency_raw: "0", legacy_exchange_rate: "6.96", legacy_amount_usd: amount, legacy_expense_type_id: "2" });
-  it("redondea half-up a centavos, igual que la conciliación (BOB_ROUNDING), sin truncar", () => {
-    expect(bob("10.10")).toMatchObject({ amount: "70.3" }); // 70,296 → 70,30 (truncar daba 70,29)
-    expect(bob("10.01")).toMatchObject({ amount: "69.67" }); // 69,6696 → 69,67 (truncar daba 69,66)
+  it("redondea HACIA ARRIBA a centavos (D29), igual que la conciliación (BOB_ROUNDING), sin truncar ni perder centavos", () => {
+    expect(bob("10.10")).toMatchObject({ amount: "70.3" }); // 70,296 → 70,30
+    expect(bob("10.01")).toMatchObject({ amount: "69.67" }); // 69,6696 → 69,67
+    expect(bob("10.02")).toMatchObject({ amount: "69.74" }); // 69,7392 → 69,74 (half-up también daba 69,74)
+    expect(bob("10.11")).toMatchObject({ amount: "70.37" }); // 70,3656 → 70,37
+    expect(bob("0.13")).toMatchObject({ amount: "0.91" }); // 0,9048 → 0,91: hacia arriba (half-up daba 0,90)
     expect(bob("100")).toMatchObject({ amount: "696" });
   });
 });

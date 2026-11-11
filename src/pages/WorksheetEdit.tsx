@@ -78,7 +78,7 @@ const WorksheetEdit = () => {
   const [woSeasonMode, setWOSeasonMode] = useState<"High" | "Low">("High");
   const [confirmCreate, setConfirmCreate] = useState(false);
 
-  const taxRate = parseFloat(globalTaxRate || "0.13");
+  const taxRate = parseFloat(globalTaxRate || "0.16");
 
   // Initialize notes when worksheet loads
   useEffect(() => {

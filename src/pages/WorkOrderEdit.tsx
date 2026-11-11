@@ -211,7 +211,7 @@ const WorkOrderEdit = () => {
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
   const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseBudgetInput[]>([]);
 
-  const taxRate = parseFloat(globalTaxRate || "0.13");
+  const taxRate = parseFloat(globalTaxRate || "0.16");
 
   // Load work order data
   useEffect(() => {
