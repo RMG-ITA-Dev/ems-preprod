@@ -284,3 +284,90 @@ export function findOutOfEngagementRangeKeys(
   }
   return result;
 }
+
+/**
+ * FEAT 0923-203: los seis slots del bloque Equipo del encargo, en el orden en que se precargan
+ * en la grilla de asignaciones (socio, gerente, encargado, SQR, especialista IT, especialista Tax).
+ */
+export const TEAM_ROLE_FIELDS = [
+  "partner_id",
+  "manager_id",
+  "encargado_id",
+  "sqr_id",
+  "specialist_it_id",
+  "specialist_tax_id",
+] as const;
+
+/** Subconjunto estructural del staff activo que necesita la precarga del equipo. */
+export interface TeamPrefillStaff {
+  is_schedulable?: boolean | null;
+  category_id: string | null;
+}
+
+export interface BuildTeamDraftsInput {
+  /** IDs de los slots del equipo, en el orden de TEAM_ROLE_FIELDS (null = No Aplica). */
+  teamStaffIds: ReadonlyArray<string | null | undefined>;
+  /** staff_id ya presentes en la grilla — nunca se repiten. */
+  existingStaffIds: ReadonlySet<string>;
+  /** Staff activo (useActiveStaffWithSkills) indexado por staff_id. */
+  activeStaffById: ReadonlyMap<string, TeamPrefillStaff>;
+  /** Categorías del servicio del encargo. */
+  validCategoryIds: ReadonlySet<string>;
+  /** Generador de la key estable del draft (crypto.randomUUID en producción). */
+  newKey: () => string;
+}
+
+export interface BuildTeamDraftsResult {
+  drafts: AssignmentDraft[];
+  /** Integrantes que no se precargan por estar inactivos o no ser schedulable. */
+  skippedStaffIds: string[];
+}
+
+/**
+ * FEAT 0923-203: arma una fila nueva por cada integrante distinto del equipo del encargo.
+ *
+ * Solo se precargan Personal y Categoría (decisión del operador, 2026-11-10): fechas vacías y
+ * horas/allocation en 0, para que `validateAssignmentDrafts` impida guardar hasta que el usuario
+ * las complete — nunca se persiste una dedicación inventada. La categoría es la del staff solo si
+ * pertenece al servicio del encargo (misma regla que la selección manual); si no, queda vacía.
+ *
+ * Un staff inactivo o no schedulable no genera fila (la RPC lo rechazaría con
+ * EAS_STAFF_INELIGIBLE y haría fallar todo el guardado): se devuelve en `skippedStaffIds` para
+ * que el caller lo informe.
+ */
+export function buildTeamAssignmentDrafts({
+  teamStaffIds,
+  existingStaffIds,
+  activeStaffById,
+  validCategoryIds,
+  newKey,
+}: BuildTeamDraftsInput): BuildTeamDraftsResult {
+  const drafts: AssignmentDraft[] = [];
+  const skippedStaffIds: string[] = [];
+  const seen = new Set<string>();
+
+  for (const staffId of teamStaffIds) {
+    if (!staffId || seen.has(staffId)) continue;
+    seen.add(staffId);
+    if (existingStaffIds.has(staffId)) continue;
+
+    const staff = activeStaffById.get(staffId);
+    if (!staff || staff.is_schedulable === false) {
+      skippedStaffIds.push(staffId);
+      continue;
+    }
+
+    drafts.push({
+      key: newKey(),
+      staff_id: staffId,
+      category_id: staff.category_id && validCategoryIds.has(staff.category_id) ? staff.category_id : "",
+      start_date: "",
+      end_date: "",
+      hours_per_week: 0,
+      allocation_percent: 0,
+      notes: "",
+    });
+  }
+
+  return { drafts, skippedStaffIds };
+}

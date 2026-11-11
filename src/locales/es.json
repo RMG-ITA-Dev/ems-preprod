@@ -960,6 +960,7 @@
       "searchStaff": "Buscar personal...",
       "empty": "Aún no hay personal asignado.",
       "match": {
+        "label": "Coincidencia",
         "full": "Coincidencia completa",
         "partial": "Coincidencia parcial",
         "categoryOnly": "Solo categoría",
@@ -985,6 +986,7 @@
       "remove": "Eliminar",
       "readOnly": "Solo lectura",
       "inactiveStaff": "Inactivo",
+      "teamSkipped": "No se precargaron por estar inactivos o no ser asignables: {{names}}",
       "pendingChanges": "Cambios sin guardar — haga clic en Deshacer para restaurar, o Guardar para confirmar.",
       "availableAfterSave": "Las asignaciones de personal estarán disponibles después de guardar este encargo.",
       "warnings": {
@@ -1924,6 +1926,19 @@
     "riskReviewApproved": "Aprobación de Riesgo registrada",
     "rejectRiskDialogTitle": "Rechazar Evaluación de Riesgo",
     "allStatuses": "Todos los Estados",
+    "engagementChip": "Encargo",
+    "listStatus": {
+      "notFinalized": "No finalizadas",
+      "all": "Todas",
+      "draft": "Borrador",
+      "pendingPartner": "Pendiente de Socio",
+      "pendingRisk": "Pendiente de Riesgos",
+      "pendingBoth": "Pendiente de Socio y Riesgos",
+      "approved": "Aprobado",
+      "rejected": "Rechazado",
+      "cancelled": "Cancelado",
+      "finalized": "Finalizado"
+    },
     "allEngagementsHaveWorkOrders": "Todos los encargos activos ya tienen una orden de trabajo.",
     "noAssignedEngagementsAvailable": "No tiene encargos activos asignados sin orden de trabajo.",
     "createEngagementFirst": "Crear un nuevo encargo",

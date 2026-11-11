@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { useIsMobile } from "@/hooks/useMobile";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
+  ENGAGEMENT_STATES,
   EngagementState,
   effectiveEngagementState,
   engagementStateBadgeClass,
@@ -97,6 +99,12 @@ const AdministrativeEngagements = () => {
   const { data, isLoading } = useAdministrativeEngagements();
   const canCreate = can("engagement.create");
   const [funcionFilter, setFuncionFilter] = useState("all");
+  // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
+  // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
+  // Select de la barra (móvil): sin filtros contradictorios al cruzar los 768px, y DataTable
+  // vuelve a la página 1 al cambiarlo porque es su propio filtro de estado.
+  const isMobile = useIsMobile();
+  const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
     const visibleRows = administrativeRowsForViewer(
       data ?? [],
@@ -107,8 +115,16 @@ const AdministrativeEngagements = () => {
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
     // Estado efectivo, igual que Engagements.tsx y el detalle: `status` es el legacy ('active').
-    return filteredRows.map((row) => ({ ...row, effective_state: administrativeEffectiveState(row) ?? row.status }));
+    return filteredRows.map((row) => ({
+      ...row,
+      effective_state: administrativeEffectiveState(row) ?? row.status,
+    }));
   }, [canCreate, data, funcionFilter]);
+
+  const stateOptions = ENGAGEMENT_STATES.map((s) => ({
+    value: String(s),
+    label: t(engagementStateI18nKey(s)),
+  }));
 
   const viewerColumns: Column<AdministrativeEngagement>[] = [
     {
@@ -200,6 +216,8 @@ const AdministrativeEngagements = () => {
       key: "effective_state",
       label: t("engagement.status"),
       sortable: true,
+      // 1105-219: embudo de estado, igual que en Encargos (Engagements.tsx).
+      filterKey: "effective_state",
       mobilePriority: "primary",
       render: (row) => {
         const state = administrativeEffectiveState(row);
@@ -238,7 +256,29 @@ const AdministrativeEngagements = () => {
             options: [0, 2, 3].map((funcion) => ({ value: String(funcion), label: t(FUNCION_LABEL_KEYS[funcion]) })),
           },
         ] : []}
-        headerActions={!canCreate ? (
+        // 1105-219: mismas 8 opciones que Encargos. `effective_state` ya viene en cada fila
+        // (número de estado). Si la RPC no trae `work_order_required`, la fila guarda el
+        // `status` legacy y solo aparece con "Todos". La vista de consulta no tiene la
+        // columna Estado, así que no lleva el filtro. En móvil (sin cabecera de tabla) el
+        // filtro es el Select de headerActions.
+        statusFilter={canCreate ? { key: "effective_state", options: stateOptions } : undefined}
+        statusFilterValue={canCreate ? stateFilter : undefined}
+        onStatusFilterChange={canCreate ? setStateFilter : undefined}
+        headerActions={canCreate ? (
+          isMobile ? (
+            <Select value={stateFilter} onValueChange={setStateFilter}>
+              <SelectTrigger className="w-full min-h-[44px]" aria-label={t("engagement.status")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("common.all")}</SelectItem>
+                {stateOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : undefined
+        ) : (
           <Select value={funcionFilter} onValueChange={setFuncionFilter}>
             <SelectTrigger className="w-full sm:w-52" aria-label={t("engagement.funcion")}>
               <SelectValue placeholder={t("engagement.funcion")} />
@@ -252,7 +292,7 @@ const AdministrativeEngagements = () => {
               ))}
             </SelectContent>
           </Select>
-        ) : undefined}
+        )}
       />
     </AppLayout>
   );

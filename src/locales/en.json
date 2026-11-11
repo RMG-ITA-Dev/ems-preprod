@@ -960,6 +960,7 @@
       "searchStaff": "Search staff...",
       "empty": "No staff assigned yet.",
       "match": {
+        "label": "Match",
         "full": "Full match",
         "partial": "Partial match",
         "categoryOnly": "Category only",
@@ -985,6 +986,7 @@
       "remove": "Remove",
       "readOnly": "Read-only",
       "inactiveStaff": "Inactive",
+      "teamSkipped": "Not preloaded because they are inactive or not schedulable: {{names}}",
       "pendingChanges": "Unsaved changes — click Undo to restore, or Save to confirm.",
       "availableAfterSave": "Staff assignments will be available after you save this engagement.",
       "warnings": {
@@ -1924,6 +1926,19 @@
     "riskReviewApproved": "Risk approval recorded",
     "rejectRiskDialogTitle": "Reject Risk Assessment",
     "allStatuses": "All Statuses",
+    "engagementChip": "Engagement",
+    "listStatus": {
+      "notFinalized": "Not finalized",
+      "all": "All",
+      "draft": "Draft",
+      "pendingPartner": "Pending Partner",
+      "pendingRisk": "Pending Risk",
+      "pendingBoth": "Pending Partner and Risk",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "cancelled": "Cancelled",
+      "finalized": "Finalized"
+    },
     "allEngagementsHaveWorkOrders": "All active engagements already have a work order.",
     "noAssignedEngagementsAvailable": "You have no assigned active engagements without a work order.",
     "createEngagementFirst": "Create a new engagement",
