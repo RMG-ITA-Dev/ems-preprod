@@ -11,10 +11,14 @@ export const DISPOSITION_HEADERS = ["legacy_plan_hours_id", "legacy_cot", "legac
 
 const PRACTICE_BY_DEPARTMENT = Object.freeze({ 1: "AUD", 2: "COM", 3: "TAX" });
 const BASE_CATEGORY = Object.freeze({ 1: "Socio", 2: "Director", 3: "Gerente", 4: "Gerente", 5: "Senior", 9: "Asistente", 13: "Supervisor", 16: "Semi Senior" });
-const SPECIALIST_CATEGORY = Object.freeze({
-  irm: Object.freeze({ 3: "Gerente - Especialista ITA", 4: "Gerente - Especialista ITA", 5: "Senior - Especialista ITA", 9: "Asistente - Especialista ITA", 13: "Gerente - Especialista ITA", 16: "Senior - Especialista ITA" }),
-  tax: Object.freeze({ 3: "Gerente - Especialista Tax", 4: "Gerente - Especialista Tax", 5: "Senior - Especialista Tax", 9: "Asistente - Especialista Tax", 16: "Senior - Especialista Tax" }),
-});
+// D35 (11/11/2026, S3): en Auditoría TODA fila legacy con especialidad ITA (1) o Tax (3) va a la categoría de especialista de su nivel, haya o no
+// un especialista asignado a la OT (EMS lo admite: ni el trigger de la matriz ni el front lo condicionan; probado en la base local). EMS tiene 3 niveles
+// de especialista (Gerente, Senior, Asistente) y el legacy 5; se asignan por la tarifa que trae el legacy (USD 80 / 80 / 80 / 18 / 18):
+// Gerente, Gerente(4) y Supervisor (80) → Gerente; Senior (80) → Senior; Semi Senior y Asistente (18) → Asistente. Socio y Director no tienen
+// categoría de especialista (la misma tarifa que la general) y siguen en su categoría. Con esto ninguna categoría de EMS junta tarifas legacy distintas
+// en las 155 OT del 06/11 y el estándar de la opción A (D32) coincide con el legacy al centavo.
+const SPECIALIST_LEVEL = Object.freeze({ 3: "Gerente", 4: "Gerente", 5: "Senior", 9: "Asistente", 13: "Gerente", 16: "Asistente" });
+const SPECIALIST_KIND = Object.freeze({ irm: Object.freeze({ label: "ITA", activity: "AUD-A5" }), tax: Object.freeze({ label: "Tax", activity: "AUD-A6" }) });
 
 const asNumber = (value, label) => {
   const parsed = Number(value);
@@ -37,11 +41,9 @@ function destination(row, engagement) {
   const categoryId = Number(row.legacy_category_id);
   const specialtyId = Number(row.legacy_specialty_id);
   if (!practice || !BASE_CATEGORY[categoryId]) throw new Error(`categoría o práctica no resuelta (${row.legacy_plan_hours_id})`);
-  const hasIt = present(engagement.legacy_it_specialist_profile_id);
-  const hasTax = present(engagement.legacy_tax_specialist_profile_id);
-  const specialist = practice === "AUD" && specialtyId === 1 && hasIt ? { kind: "irm", activity: "AUD-A5" } : practice === "AUD" && specialtyId === 3 && hasTax ? { kind: "tax", activity: "AUD-A6" } : null;
-  const specialistCategory = specialist ? SPECIALIST_CATEGORY[specialist.kind][categoryId] : null;
-  if (specialistCategory) return [{ category: specialistCategory, activity: specialist.activity, percent: 100 }];
+  const kind = practice === "AUD" ? ({ 1: SPECIALIST_KIND.irm, 3: SPECIALIST_KIND.tax })[specialtyId] : undefined;
+  const level = kind ? SPECIALIST_LEVEL[categoryId] : undefined;
+  if (kind && level) return [{ category: `${level} - Especialista ${kind.label}`, activity: kind.activity, percent: 100 }];
   const category = categoryId === 16 && practice === "AUD" ? "Semi-Senior" : BASE_CATEGORY[categoryId];
   if (category === "Socio" || category === "Director") return [{ category, activity: activity(practice, "plan"), percent: 50 }, { category, activity: activity(practice, "report"), percent: 50 }];
   if (category === "Gerente" || category === "Supervisor") return [{ category, activity: activity(practice, "plan"), percent: 25 }, { category, activity: activity(practice, "execution"), percent: 50 }, { category, activity: activity(practice, "report"), percent: 25 }];
