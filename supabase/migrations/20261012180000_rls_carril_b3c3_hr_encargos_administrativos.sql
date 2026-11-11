@@ -41,18 +41,20 @@ CREATE POLICY "engagements hr administrative read" ON public.engagements
     AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst', 'secretariat_head')
   );
 
+-- 1110-220: secretariat_head NO entra aquí. Ve todos los administrativos (política de lectura de arriba y bucket
+-- hr_administrative), pero edita solo los que creó o gerencia ("creator update" / "engagements write update").
 DROP POLICY IF EXISTS "engagements hr administrative update" ON public.engagements;
 CREATE POLICY "engagements hr administrative update" ON public.engagements
   FOR UPDATE TO authenticated
   USING (
     funcion <> 1
     AND public.has_permission('engagement.update')
-    AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst', 'secretariat_head')
+    AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst')
   )
   WITH CHECK (
     funcion <> 1
     AND public.has_permission('engagement.update')
-    AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst', 'secretariat_head')
+    AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst')
   );
 
 DROP FUNCTION IF EXISTS public.list_portfolio_engagements();
@@ -156,8 +158,14 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
        -- 3b. hr_administrative (B3c-3): hr_manager y hr_analyst administran TODOS los encargos Administrativa,
        --     Capacitación y Calidad (funcion <> 1), incluidos los creados por otros. Espejo exacto de las políticas
        --     "engagements hr administrative read/update": esta lista nunca debe mostrar lo que la RLS no deja leer.
-       --     1110-220 (D3): secretariat_head (Jefe de Secretaría) hereda este bucket de Talento Humano.
+       --     1110-220 (D3): secretariat_head (Jefe de Secretaría) hereda este bucket de Talento Humano solo para VER:
+       --     no entra en "hr administrative update", edita solo lo que creó o gerencia.
        OR (caller.role_key IN ('hr_manager', 'hr_analyst', 'secretariat_head') AND e.funcion <> 1)
+       -- 3c. accounting_administrative (1110-220): el Gerente de Contabilidad VE los encargos no-Cliente de SU
+       --     sociedad, igual que ya los lee por RLS (engagement.read department + "society scope" restrictiva), para
+       --     que la ficha abra lo que lista Encargos Administrativos. Solo lectura: no está en "hr administrative
+       --     update"; edita solo lo que creó o gerencia. La sociedad la recorta el filtro is_society_scoped_role() de abajo.
+       OR (caller.role_key = 'accounting_manager' AND e.funcion <> 1)
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
      )
@@ -170,7 +178,7 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
      AND (NOT public.is_society_scoped_role() OR e.society_id = cs.society_id)
 $$;
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, edita solo los suyos desde 1110-220), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager/secretariat_head por manager_id) y hr_administrative (hr_manager/hr_analyst/secretariat_head: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, edita solo los suyos desde 1110-220), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager/secretariat_head por manager_id) y hr_administrative (hr_manager/hr_analyst/secretariat_head: todos los encargos con funcion <> 1, espejo de la politica "engagements hr administrative read"; la de update es solo hr_manager/hr_analyst: secretariat_head edita solo lo que creo o gerencia), accounting_administrative (accounting_manager: encargos con funcion <> 1 de su sociedad, solo lectura; 1110-220). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 -- anon: el DROP + CREATE devuelve los privilegios por defecto de Supabase (EXECUTE a anon); la función no tiene uso
 -- sin sesión (sin auth.uid() no devuelve filas), así que se retira aquí en vez de esperar a B5.

@@ -287,7 +287,7 @@ BEGIN
   RAISE NOTICE 'PASS — aprobación: el Gerente aprueba su encargo y no el ajeno de la misma boleta; aprobadores por asignación';
 END $$;
 
--- ── 5. Edición: creador / Gerente asignado; Secretaría además todos los administrativos ───────────────────────────────
+-- ── 5. Edición: creador / Gerente asignado; nadie edita un administrativo ajeno (Secretaría tampoco) ─────────────────
 DO $$
 DECLARE
   upd_own constant text := 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name = ''R1102 alta %s''';
@@ -303,21 +303,20 @@ BEGIN
       RAISE EXCEPTION '1110-220 FAIL — el sujeto % editó un encargo de Cliente ajeno', v_n;
     END IF;
   END LOOP;
-  -- Contabilidad y Riesgos LEEN EM (department) pero no lo editan: no son creador ni Gerente.
-  IF pg_temp.rows_as(pg_temp.u(1), upd_em) <> 0 OR pg_temp.rows_as(pg_temp.u(2), upd_em) <> 0 THEN
-    RAISE EXCEPTION '1110-220 FAIL — Contabilidad/Riesgos editaron un administrativo ajeno';
-  END IF;
-  -- Secretaría hereda de Talento Humano la edición de todos los administrativos.
-  IF pg_temp.rows_as(pg_temp.u(3), upd_em) <> 1 THEN
-    RAISE EXCEPTION '1110-220 FAIL — secretariat_head debía editar un administrativo ajeno (política hr administrative update)';
-  END IF;
+  -- Contabilidad y Riesgos LEEN EM (department) y Secretaría lo ve (hr administrative read), pero ninguno lo edita:
+  -- no son creador ni Gerente. Secretaría NO hereda "hr administrative update" de Talento Humano.
+  FOREACH v_n IN ARRAY ARRAY[1, 2, 3] LOOP
+    IF pg_temp.rows_as(pg_temp.u(v_n), upd_em) <> 0 THEN
+      RAISE EXCEPTION '1110-220 FAIL — el sujeto % editó un administrativo ajeno', v_n;
+    END IF;
+  END LOOP;
   -- Gerente asignado (no creador): A pasa a Gerente de EC y ahora sí lo edita.
   UPDATE public.engagements SET manager_id = pg_temp.s(1) WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
   IF pg_temp.rows_as(pg_temp.u(1), upd_ec) <> 1 THEN
     RAISE EXCEPTION '1110-220 FAIL — el Gerente asignado (accounting_manager) debía poder editar el encargo';
   END IF;
   UPDATE public.engagements SET manager_id = pg_temp.s(4) WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
-  RAISE NOTICE 'PASS — edición: creador y Gerente asignado editan; Secretaría todos los administrativos; nadie un Cliente ajeno';
+  RAISE NOTICE 'PASS — edición: creador y Gerente asignado editan; nadie un administrativo ni un Cliente ajeno';
 END $$;
 
 -- ── 6. Lectura de Secretaría: administrativos de la firma sí, Cliente ajeno no ───────────────────────────────────────
@@ -332,6 +331,24 @@ BEGIN
       pg_temp.count_as(pg_temp.u(3), rd), pg_temp.count_as(pg_temp.u(3), por), pg_temp.count_as(pg_temp.u(3), vis);
   END IF;
   RAISE NOTICE 'PASS — Secretaría ve los administrativos ajenos (RLS, portafolio y conjunto) y no los de Cliente';
+
+  -- Contabilidad: la ficha (portafolio) abre el administrativo ajeno de su sociedad que ya lee por RLS; el de Cliente no.
+  IF pg_temp.count_as(pg_temp.u(1), por) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — accounting_manager debía ver EM en el portafolio y no EC (ve %)', pg_temp.count_as(pg_temp.u(1), por);
+  END IF;
+  -- Otra sociedad: no lo ve (espejo de la política restrictiva "society scope"). Triggers apagados: solo se mueve
+  -- la sociedad del fixture.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET society_id = (SELECT society_id FROM public.society WHERE society_id IS DISTINCT FROM
+         (SELECT society_id FROM public.staff WHERE staff_id = pg_temp.s(1)) ORDER BY name LIMIT 1)
+   WHERE engagement_id = 'e1102000-0000-4000-8000-000000000001';
+  IF pg_temp.count_as(pg_temp.u(1), por) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — accounting_manager vio en el portafolio un administrativo de otra sociedad';
+  END IF;
+  UPDATE public.engagements SET society_id = (SELECT society_id FROM public.staff WHERE staff_id = pg_temp.s(1))
+   WHERE engagement_id = 'e1102000-0000-4000-8000-000000000001';
+  PERFORM set_config('session_replication_role', 'origin', true);
+  RAISE NOTICE 'PASS — Contabilidad abre los administrativos ajenos de su sociedad (portafolio), no los de otra ni los de Cliente';
 END $$;
 
 -- ── 7. Avisos (D9) ───────────────────────────────────────────────────────────────────────────────────────────────────

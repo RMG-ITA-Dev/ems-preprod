@@ -157,8 +157,19 @@ describe("EngagementForm — edición según asignación (1110-220, D8)", () => 
     expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
   });
 
-  it("secretariat_head edita un administrativo ajeno (hereda la regla de Talento Humano)", () => {
+  it("secretariat_head ve un administrativo ajeno en solo lectura (no hereda la edición de Talento Humano)", () => {
     mockRoleKey = "secretariat_head";
+    render(
+      <EngagementForm
+        engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-other", funcion: 0 }}
+      />,
+    );
+    expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
+    expect(screen.queryByText("common.saveChanges")).not.toBeInTheDocument();
+  });
+
+  it("hr_manager sigue editando un administrativo ajeno", () => {
+    mockRoleKey = "hr_manager";
     render(
       <EngagementForm
         engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-other", funcion: 0 }}

@@ -63,6 +63,20 @@ describe("AppSidebar — Encargos para el Analista de Talento Humano", () => {
     expect(screen.getByText("nav.administrativeEngagements")).toBeInTheDocument();
   });
 
+  // 1110-220: Contabilidad y Secretaría no ven encargos de Cliente; Riesgos sí los consulta.
+  it.each(["accounting_manager", "secretariat_head"])("oculta Encargos para %s", (roleKey) => {
+    Object.assign(authState, { can: () => true, roleKey });
+    renderSidebar();
+    expect(screen.queryByText("nav.engagements")).not.toBeInTheDocument();
+    expect(screen.getByText("nav.administrativeEngagements")).toBeInTheDocument();
+  });
+
+  it("muestra Encargos a risk_supervisor (consulta los de Cliente)", () => {
+    Object.assign(authState, { can: () => true, roleKey: "risk_supervisor" });
+    renderSidebar();
+    expect(screen.getByText("nav.engagements")).toBeInTheDocument();
+  });
+
   it("muestra Encargos a hr_manager con engagement.read", () => {
     Object.assign(authState, { can: () => true, roleKey: "hr_manager" });
     renderSidebar();

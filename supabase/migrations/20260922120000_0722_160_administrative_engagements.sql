@@ -1159,6 +1159,11 @@ BEGIN
           -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
           'work_order_required', e.work_order_required,
           'engagement_state_override', e.engagement_state_override,
+          -- 1110-220: pestaña "Mis encargos" (creados o gerenciados = lo que las políticas UPDATE dejan editar por
+          -- asignación). Solo UUIDs de staff, sin nombres: no amplía lo que se ve del encargo.
+          'created_by_staff_id', e.created_by_staff_id,
+          'manager_id', e.manager_id,
+          'partner_id', e.partner_id,
           'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
             'approval_status', wo.approval_status,
             'approved_at', wo.approved_at,
@@ -1183,7 +1188,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;

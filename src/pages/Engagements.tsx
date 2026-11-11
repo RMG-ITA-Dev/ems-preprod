@@ -11,6 +11,7 @@ import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isAdministrativeOnlyCreator } from "@/lib/engagementRoleAccess";
 import {
   effectiveEngagementState,
   engagementStateI18nKey,
@@ -35,8 +36,10 @@ const Engagements = () => {
   const { data: engagements, isLoading } = usePortfolioEngagements();
   const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
-  const { can } = useAuthorization();
-  const canCreate = can("engagement.create");
+  const { can, roleKey } = useAuthorization();
+  // 1110-220: quien solo crea encargos no-Cliente (p. ej. el Supervisor de Riesgos, que sí consulta
+  // este listado) los da de alta desde Encargos Administrativos, no desde aquí.
+  const canCreate = can("engagement.create") && !isAdministrativeOnlyCreator(roleKey);
 
   // Administrativa, Capacitación y Calidad tienen su propio módulo. El listado
   // general queda reservado para Cliente. Las filas históricas sin función se

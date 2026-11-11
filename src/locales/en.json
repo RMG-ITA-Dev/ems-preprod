@@ -860,6 +860,8 @@
     "status": "Status",
     "newEngagement": "New Engagement",
     "newAdministrativeEngagement": "New Administrative Engagement",
+    "administrativeTabMine": "My engagements",
+    "administrativeTabAll": "All",
     "editEngagement": "Edit Engagement",
     "createEngagement": "Create Engagement",
     "deleteEngagement": "Delete Engagement",

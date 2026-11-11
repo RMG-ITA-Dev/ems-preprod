@@ -51,6 +51,8 @@ const { auth, adminRows } = vi.hoisted(() => {
     end_date: null,
     status: "active",
     work_order_required: true,
+    // 1110-220: la pestaña por defecto es "Mis encargos"; las 3 filas son del usuario.
+    created_by_staff_id: "me",
   };
   return {
     auth: { canCreate: true, mobile: false },
@@ -93,6 +95,14 @@ vi.mock("@/hooks/useMobile", () => ({
 
 vi.mock("@/hooks/useAdministrativeEngagements", () => ({
   useAdministrativeEngagements: () => ({ data: adminRows, isLoading: false }),
+}));
+
+vi.mock("@/hooks/useCurrentStaff", () => ({
+  useCurrentStaff: () => ({ data: { staff_id: "me" } }),
+}));
+
+vi.mock("@/hooks/usePortfolioEngagements", () => ({
+  usePortfolioEngagements: () => ({ data: [], isLoading: false }),
 }));
 
 import AdministrativeEngagements from "@/pages/AdministrativeEngagements";

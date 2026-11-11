@@ -860,6 +860,8 @@
     "status": "Estado",
     "newEngagement": "Nuevo Encargo",
     "newAdministrativeEngagement": "Nuevo Encargo Administrativo",
+    "administrativeTabMine": "Mis encargos",
+    "administrativeTabAll": "Todos",
     "editEngagement": "Editar Encargo",
     "createEngagement": "Crear Encargo",
     "deleteEngagement": "Eliminar Encargo",

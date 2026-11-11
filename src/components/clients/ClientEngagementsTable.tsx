@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useStaff, type Engagement } from "@/hooks/useEmsData";
 import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isAdministrativeOnlyCreator } from "@/lib/engagementRoleAccess";
 import { useCategoryStaff } from "@/hooks/useCategoryStaff";
 import {
   effectiveEngagementState,
@@ -50,8 +51,9 @@ export function ClientEngagementsTable({ clientId, clientActive = true }: Client
   const { data: engagements, isLoading } = usePortfolioEngagements();
   const { data: staff } = useStaff();
   const { partners, managers } = useCategoryStaff();
-  const { can } = useAuthorization();
-  const canCreateEngagement = can("engagement.create");
+  const { can, roleKey } = useAuthorization();
+  // 1110-220: quien solo crea encargos no-Cliente no los da de alta desde la ficha del cliente.
+  const canCreateEngagement = can("engagement.create") && !isAdministrativeOnlyCreator(roleKey);
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField | null>(null);

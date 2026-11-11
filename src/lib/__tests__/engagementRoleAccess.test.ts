@@ -87,7 +87,7 @@ describe("canEditEngagement — espejo de las políticas UPDATE de engagements",
     expect(access({ roleKey: "accounting_manager" })).toBe(false);
   });
 
-  it.each(["secretariat_head", "hr_manager", "hr_analyst"])(
+  it.each(["hr_manager", "hr_analyst"])(
     "%s edita encargos no-Cliente ajenos, pero no los de Cliente",
     (roleKey) => {
       expect(access({ roleKey, target: engagement({ funcion: 0 }) })).toBe(true);
@@ -98,9 +98,14 @@ describe("canEditEngagement — espejo de las políticas UPDATE de engagements",
     },
   );
 
-  it("accounting_manager no hereda la edición de administrativos ajenos de Talento Humano", () => {
-    expect(access({ roleKey: "accounting_manager", target: engagement({ funcion: 0 }) })).toBe(false);
-  });
+  it.each(["accounting_manager", "secretariat_head", "risk_supervisor"])(
+    "%s no edita administrativos ajenos, solo los que creó o gerencia",
+    (roleKey) => {
+      expect(access({ roleKey, target: engagement({ funcion: 0 }) })).toBe(false);
+      expect(access({ roleKey, target: engagement({ funcion: 0, created_by_staff_id: ME }) })).toBe(true);
+      expect(access({ roleKey, target: engagement({ funcion: 0, manager_id: ME }) })).toBe(true);
+    },
+  );
 
   it("sin staff resuelto queda en solo lectura (fail-closed)", () => {
     expect(access({ myStaffId: null, target: engagement({ created_by_staff_id: ME, manager_id: ME }) })).toBe(false);

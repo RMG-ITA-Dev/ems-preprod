@@ -25,9 +25,22 @@ export function isAdministrativeOnlyCreator(roleKey: string | null | undefined):
 
 /**
  * `role_key` que editan TODOS los encargos no-Cliente de la firma. Espejo de la política
- * "engagements hr administrative update" (B3c-3 + 1110-220).
+ * "engagements hr administrative update" (B3c-3). El Jefe de Secretaría (1110-220) NO está: ve todos
+ * los administrativos, pero edita solo los que creó o gerencia.
  */
-export const ADMINISTRATIVE_EDITOR_ROLE_KEYS = ["hr_manager", "hr_analyst", "secretariat_head"] as const;
+export const ADMINISTRATIVE_EDITOR_ROLE_KEYS = ["hr_manager", "hr_analyst"] as const;
+
+/**
+ * `role_key` a los que se oculta el menú "Encargos" (/engagements, que lista solo encargos de Cliente):
+ * no ven encargos de Cliente en el portafolio y todo lo suyo vive en "Encargos Administrativos".
+ * El Supervisor de Riesgos NO está: consulta todos los encargos de Cliente (bucket firm de
+ * list_portfolio_engagements), solo que no los crea desde ahí (ver `isAdministrativeOnlyCreator`).
+ */
+export const HIDDEN_CLIENT_ENGAGEMENTS_MENU_ROLE_KEYS = ["hr_analyst", "accounting_manager", "secretariat_head"] as const;
+
+export function showsClientEngagementsMenu(roleKey: string | null | undefined): boolean {
+  return !roleKey || !(HIDDEN_CLIENT_ENGAGEMENTS_MENU_ROLE_KEYS as readonly string[]).includes(roleKey);
+}
 
 export interface EngagementEditTarget {
   manager_id: string | null;

@@ -1,13 +1,16 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
@@ -86,6 +89,22 @@ export function administrativeEffectiveState(row: AdministrativeEngagement): Eng
   return effectiveEngagementState(row, row.work_order);
 }
 
+/**
+ * 1110-220: pestaña "Mis encargos" = los que creé o donde soy Gerente o Socio. Es el mismo conjunto
+ * que las políticas UPDATE de `engagements` dejan editar por asignación ("creator update" y
+ * "engagements write update"). Sin staff resuelto no hay nada propio.
+ */
+export function isMyAdministrativeEngagement(row: AdministrativeEngagement, myStaffId: string | null | undefined): boolean {
+  if (!myStaffId) return false;
+  return row.created_by_staff_id === myStaffId || row.manager_id === myStaffId || row.partner_id === myStaffId;
+}
+
+export type AdministrativeTab = "mine" | "all";
+
+export function parseAdministrativeTab(value: string | null): AdministrativeTab {
+  return value === "all" ? "all" : "mine";
+}
+
 export function administrativeSearchKeys(canCreate: boolean): string[] {
   return canCreate
     ? ["engagement_code", "engagement_name", "client_name", "society_name"]
@@ -98,6 +117,20 @@ const AdministrativeEngagements = () => {
   const { can } = useAuthorization();
   const { data, isLoading } = useAdministrativeEngagements();
   const canCreate = can("engagement.create");
+  // 1110-220: quien crea encargos tiene dos pestañas, "Mis encargos" (lo que gestiona) y "Todos" (consulta).
+  // La pestaña vive en la URL para que volver desde el detalle (returnTo) caiga en la misma.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseAdministrativeTab(searchParams.get("tab"));
+  const { data: currentStaff } = useCurrentStaff();
+  const myStaffId = currentStaff?.staff_id ?? null;
+  // La lista muestra todos los administrativos, pero el detalle (EngagementEdit) solo abre lo que devuelve
+  // list_portfolio_engagements: la fila es clicable solo si el portafolio la trae, para no llevar a
+  // "Este encargo no está disponible para usted".
+  const { data: portfolio } = usePortfolioEngagements();
+  const openableIds = useMemo(
+    () => new Set((portfolio ?? []).map((e) => e.engagement_id)),
+    [portfolio],
+  );
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
   // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
@@ -106,11 +139,14 @@ const AdministrativeEngagements = () => {
   const isMobile = useIsMobile();
   const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
-    const visibleRows = administrativeRowsForViewer(
+    const viewerRows = administrativeRowsForViewer(
       data ?? [],
       canCreate,
       currentBoliviaFiscalYear(),
     );
+    const visibleRows = canCreate && tab === "mine"
+      ? viewerRows.filter((row) => isMyAdministrativeEngagement(row, myStaffId))
+      : viewerRows;
     const filteredRows = funcionFilter === "all"
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
@@ -119,7 +155,7 @@ const AdministrativeEngagements = () => {
       ...row,
       effective_state: administrativeEffectiveState(row) ?? row.status,
     }));
-  }, [canCreate, data, funcionFilter]);
+  }, [canCreate, data, funcionFilter, tab, myStaffId]);
 
   const stateOptions = ENGAGEMENT_STATES.map((s) => ({
     value: String(s),
@@ -239,6 +275,18 @@ const AdministrativeEngagements = () => {
 
   return (
     <AppLayout title={t("nav.administrativeEngagements")}>
+      <div className="space-y-4">
+      {canCreate && (
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setSearchParams(parseAdministrativeTab(v) === "all" ? { tab: "all" } : {}, { replace: true })}
+        >
+          <TabsList>
+            <TabsTrigger value="mine">{t("engagement.administrativeTabMine")}</TabsTrigger>
+            <TabsTrigger value="all">{t("engagement.administrativeTabAll")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       <DataTable
         data={rows}
         columns={canCreate ? columns : viewerColumns}
@@ -247,7 +295,12 @@ const AdministrativeEngagements = () => {
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("engagement.newAdministrativeEngagement") : undefined}
         onNewClick={canCreate ? () => navigate("/engagements/new?mode=administrative") : undefined}
-        onRowClick={canCreate ? (row) => navigate(`/engagements/${row.engagement_id}`, { state: { returnTo: "/administrative-engagements" } }) : undefined}
+        onRowClick={canCreate ? (row) => {
+          if (!openableIds.has(row.engagement_id)) return;
+          navigate(`/engagements/${row.engagement_id}`, {
+            state: { returnTo: tab === "all" ? "/administrative-engagements?tab=all" : "/administrative-engagements" },
+          });
+        } : undefined}
         getRowId={(row) => row.engagement_id}
         filters={canCreate ? [
           {
@@ -294,6 +347,7 @@ const AdministrativeEngagements = () => {
           </Select>
         )}
       />
+      </div>
     </AppLayout>
   );
 };

@@ -5,6 +5,8 @@ import {
   administrativeRowsForViewer,
   administrativeSearchKeys,
   currentBoliviaFiscalYear,
+  isMyAdministrativeEngagement,
+  parseAdministrativeTab,
 } from "../AdministrativeEngagements";
 
 const row = (anio_fiscal: number | null) => ({
@@ -96,5 +98,25 @@ describe("administrativeEffectiveState", () => {
     const legacy = { ...row(2027) } as Record<string, unknown>;
     delete legacy.work_order_required;
     expect(administrativeEffectiveState(legacy as never)).toBeNull();
+  });
+});
+
+describe("pestañas de Encargos Administrativos (1110-220)", () => {
+  it("Mis encargos = creados, gerenciados o donde soy Socio", () => {
+    expect(isMyAdministrativeEngagement({ ...row(2027), created_by_staff_id: "me" }, "me")).toBe(true);
+    expect(isMyAdministrativeEngagement({ ...row(2027), manager_id: "me" }, "me")).toBe(true);
+    expect(isMyAdministrativeEngagement({ ...row(2027), partner_id: "me" }, "me")).toBe(true);
+    expect(isMyAdministrativeEngagement({ ...row(2027), created_by_staff_id: "other", manager_id: "other" }, "me")).toBe(false);
+  });
+
+  it("sin staff resuelto o sin los campos de la RPC no hay nada propio", () => {
+    expect(isMyAdministrativeEngagement({ ...row(2027), created_by_staff_id: "me" }, null)).toBe(false);
+    expect(isMyAdministrativeEngagement(row(2027), "me")).toBe(false);
+  });
+
+  it("la pestaña sale de ?tab: solo 'all' abre Todos; cualquier otra cosa, Mis encargos", () => {
+    expect(parseAdministrativeTab("all")).toBe("all");
+    expect(parseAdministrativeTab(null)).toBe("mine");
+    expect(parseAdministrativeTab("otra")).toBe("mine");
   });
 });
