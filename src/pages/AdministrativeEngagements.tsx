@@ -10,7 +10,6 @@ import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useIsMobile } from "@/hooks/useMobile";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { usePortfolioEngagements } from "@/hooks/usePortfolioEngagements";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
 import {
@@ -117,20 +116,15 @@ const AdministrativeEngagements = () => {
   const { can } = useAuthorization();
   const { data, isLoading } = useAdministrativeEngagements();
   const canCreate = can("engagement.create");
-  // 1110-220: quien crea encargos tiene dos pestañas, "Mis encargos" (lo que gestiona) y "Todos" (consulta).
-  // La pestaña vive en la URL para que volver desde el detalle (returnTo) caiga en la misma.
+  // 1110-220: quien crea encargos tiene dos pestañas. "Mis encargos" (lo que gestiona) es la vista
+  // operativa completa: columnas, filtros, histórico y detalle. "Todos" es la MISMA vista de consulta
+  // que tienen los demás roles: nombre y código, año fiscal vigente o futuro, sin detalle.
+  // La pestaña vive en la URL (?tab=all) para conservarla al recargar.
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseAdministrativeTab(searchParams.get("tab"));
+  const fullView = canCreate && tab === "mine";
   const { data: currentStaff } = useCurrentStaff();
   const myStaffId = currentStaff?.staff_id ?? null;
-  // La lista muestra todos los administrativos, pero el detalle (EngagementEdit) solo abre lo que devuelve
-  // list_portfolio_engagements: la fila es clicable solo si el portafolio la trae, para no llevar a
-  // "Este encargo no está disponible para usted".
-  const { data: portfolio } = usePortfolioEngagements();
-  const openableIds = useMemo(
-    () => new Set((portfolio ?? []).map((e) => e.engagement_id)),
-    [portfolio],
-  );
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
   // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
@@ -139,14 +133,9 @@ const AdministrativeEngagements = () => {
   const isMobile = useIsMobile();
   const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
-    const viewerRows = administrativeRowsForViewer(
-      data ?? [],
-      canCreate,
-      currentBoliviaFiscalYear(),
-    );
-    const visibleRows = canCreate && tab === "mine"
-      ? viewerRows.filter((row) => isMyAdministrativeEngagement(row, myStaffId))
-      : viewerRows;
+    const visibleRows = fullView
+      ? (data ?? []).filter((row) => isMyAdministrativeEngagement(row, myStaffId))
+      : administrativeRowsForViewer(data ?? [], false, currentBoliviaFiscalYear());
     const filteredRows = funcionFilter === "all"
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
@@ -155,7 +144,7 @@ const AdministrativeEngagements = () => {
       ...row,
       effective_state: administrativeEffectiveState(row) ?? row.status,
     }));
-  }, [canCreate, data, funcionFilter, tab, myStaffId]);
+  }, [fullView, data, funcionFilter, myStaffId]);
 
   const stateOptions = ENGAGEMENT_STATES.map((s) => ({
     value: String(s),
@@ -289,20 +278,15 @@ const AdministrativeEngagements = () => {
       )}
       <DataTable
         data={rows}
-        columns={canCreate ? columns : viewerColumns}
+        columns={fullView ? columns : viewerColumns}
         searchPlaceholder={t("engagement.searchPlaceholder")}
-        searchKeys={administrativeSearchKeys(canCreate)}
+        searchKeys={administrativeSearchKeys(fullView)}
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("engagement.newAdministrativeEngagement") : undefined}
         onNewClick={canCreate ? () => navigate("/engagements/new?mode=administrative") : undefined}
-        onRowClick={canCreate ? (row) => {
-          if (!openableIds.has(row.engagement_id)) return;
-          navigate(`/engagements/${row.engagement_id}`, {
-            state: { returnTo: tab === "all" ? "/administrative-engagements?tab=all" : "/administrative-engagements" },
-          });
-        } : undefined}
+        onRowClick={fullView ? (row) => navigate(`/engagements/${row.engagement_id}`, { state: { returnTo: "/administrative-engagements" } }) : undefined}
         getRowId={(row) => row.engagement_id}
-        filters={canCreate ? [
+        filters={fullView ? [
           {
             key: "funcion",
             label: t("engagement.funcion"),
@@ -314,10 +298,10 @@ const AdministrativeEngagements = () => {
         // `status` legacy y solo aparece con "Todos". La vista de consulta no tiene la
         // columna Estado, así que no lleva el filtro. En móvil (sin cabecera de tabla) el
         // filtro es el Select de headerActions.
-        statusFilter={canCreate ? { key: "effective_state", options: stateOptions } : undefined}
-        statusFilterValue={canCreate ? stateFilter : undefined}
-        onStatusFilterChange={canCreate ? setStateFilter : undefined}
-        headerActions={canCreate ? (
+        statusFilter={fullView ? { key: "effective_state", options: stateOptions } : undefined}
+        statusFilterValue={fullView ? stateFilter : undefined}
+        onStatusFilterChange={fullView ? setStateFilter : undefined}
+        headerActions={fullView ? (
           isMobile ? (
             <Select value={stateFilter} onValueChange={setStateFilter}>
               <SelectTrigger className="w-full min-h-[44px]" aria-label={t("engagement.status")}>

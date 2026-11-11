@@ -4,9 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import React from "react";
 
-// 1110-220: quien crea encargos ve dos pestañas en Encargos Administrativos: "Mis encargos" (creados,
-// gerenciados o donde es Socio: lo que puede editar) y "Todos" (consulta). La fila solo abre el detalle
-// si list_portfolio_engagements la trae; si no, el detalle diría "no está disponible para usted".
+// 1110-220: quien crea encargos ve dos pestañas en Encargos Administrativos. "Mis encargos" (creados,
+// gerenciados o donde es Socio: lo que puede editar) es la vista operativa completa. "Todos" es la
+// misma vista de consulta que tienen los demás roles: nombre y código, FY vigente o futuro, sin detalle.
 
 const capturedProps: any = {};
 const mockNavigate = vi.fn();
@@ -54,11 +54,14 @@ const { state, adminRows } = vi.hoisted(() => {
     partner_id: null,
   };
   return {
-    state: { canCreate: true, portfolioIds: ["creado", "gerenciado"] as string[] },
+    state: { canCreate: true },
     adminRows: [
       { ...base, engagement_id: "creado", engagement_name: "Creado", created_by_staff_id: "me" },
-      { ...base, engagement_id: "gerenciado", engagement_name: "Gerenciado", manager_id: "me" },
+      // Propio pero de un FY pasado: "Mis encargos" conserva el histórico.
+      { ...base, engagement_id: "gerenciado", engagement_name: "Gerenciado", manager_id: "me", anio_fiscal: 2000 },
       { ...base, engagement_id: "ajeno", engagement_name: "Ajeno" },
+      // Ajeno y de un FY pasado: la vista de consulta no lo muestra.
+      { ...base, engagement_id: "ajeno-viejo", engagement_name: "Ajeno viejo", anio_fiscal: 2000 },
     ],
   };
 });
@@ -73,12 +76,6 @@ vi.mock("@/hooks/useAdministrativeEngagements", () => ({
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ data: { staff_id: "me" } }),
 }));
-vi.mock("@/hooks/usePortfolioEngagements", () => ({
-  usePortfolioEngagements: () => ({
-    data: state.portfolioIds.map((engagement_id) => ({ engagement_id })),
-    isLoading: false,
-  }),
-}));
 
 import AdministrativeEngagements from "@/pages/AdministrativeEngagements";
 
@@ -90,63 +87,53 @@ const wrap = (url = "/administrative-engagements") =>
   );
 
 const ids = () => capturedProps.data.map((r: any) => r.engagement_id);
+const columnKeys = () => capturedProps.columns.map((c: any) => c.key);
 
 beforeEach(() => {
   for (const k of Object.keys(capturedProps)) delete capturedProps[k];
   mockNavigate.mockClear();
   state.canCreate = true;
-  state.portfolioIds = ["creado", "gerenciado"];
 });
 
 describe("Encargos Administrativos — pestañas (1110-220)", () => {
-  it("abre en Mis encargos: solo los creados o gerenciados, con el botón Nuevo", () => {
+  it("abre en Mis encargos: lo propio con histórico, vista completa, detalle y botón Nuevo", () => {
     wrap();
     expect(screen.getByRole("tab", { name: "engagement.administrativeTabMine" })).toHaveAttribute("aria-selected", "true");
     expect(ids()).toEqual(["creado", "gerenciado"]);
+    expect(columnKeys()).toContain("effective_state");
+    expect(capturedProps.statusFilter).toBeDefined();
     expect(capturedProps.newButtonLabel).toBe("engagement.newAdministrativeEngagement");
-  });
-
-  it("Todos lista también los ajenos y mantiene el botón Nuevo", async () => {
-    const user = userEvent.setup();
-    wrap();
-    await user.click(screen.getByRole("tab", { name: "engagement.administrativeTabAll" }));
-    expect(ids()).toEqual(["creado", "gerenciado", "ajeno"]);
-    expect(capturedProps.newButtonLabel).toBe("engagement.newAdministrativeEngagement");
-  });
-
-  it("?tab=all abre directo en Todos y el detalle vuelve a la misma pestaña", () => {
-    state.portfolioIds = ["creado", "gerenciado", "ajeno"];
-    wrap("/administrative-engagements?tab=all");
-    expect(ids()).toHaveLength(3);
-    capturedProps.onRowClick(adminRows[2]);
-    expect(mockNavigate).toHaveBeenCalledWith("/engagements/ajeno", {
-      state: { returnTo: "/administrative-engagements?tab=all" },
-    });
-  });
-
-  it("una fila que el portafolio no trae no navega (evita 'no está disponible para usted')", () => {
-    wrap("/administrative-engagements?tab=all");
-    capturedProps.onRowClick(adminRows[2]);
-    expect(mockNavigate).not.toHaveBeenCalled();
-    capturedProps.onRowClick(adminRows[0]);
-    expect(mockNavigate).toHaveBeenCalledWith("/engagements/creado", {
-      state: { returnTo: "/administrative-engagements?tab=all" },
-    });
-  });
-
-  it("desde Mis encargos el detalle vuelve a Mis encargos", () => {
-    wrap();
     capturedProps.onRowClick(adminRows[1]);
     expect(mockNavigate).toHaveBeenCalledWith("/engagements/gerenciado", {
       state: { returnTo: "/administrative-engagements" },
     });
   });
 
-  it("sin permiso de crear no hay pestañas, ni botón Nuevo, y se listan todos", () => {
+  it("Todos es la vista de consulta de los demás roles, con el botón Nuevo", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await user.click(screen.getByRole("tab", { name: "engagement.administrativeTabAll" }));
+    expect(ids()).toEqual(["creado", "ajeno"]);
+    expect(columnKeys()).toEqual(["engagement_name"]);
+    expect(capturedProps.statusFilter).toBeUndefined();
+    expect(capturedProps.onRowClick).toBeUndefined();
+    expect(capturedProps.searchKeys).toEqual(["engagement_code", "engagement_name"]);
+    expect(capturedProps.newButtonLabel).toBe("engagement.newAdministrativeEngagement");
+  });
+
+  it("?tab=all abre directo en Todos", () => {
+    wrap("/administrative-engagements?tab=all");
+    expect(screen.getByRole("tab", { name: "engagement.administrativeTabAll" })).toHaveAttribute("aria-selected", "true");
+    expect(capturedProps.onRowClick).toBeUndefined();
+  });
+
+  it("sin permiso de crear: sin pestañas ni botón Nuevo, la misma vista de consulta", () => {
     state.canCreate = false;
     wrap();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(capturedProps.newButtonLabel).toBeUndefined();
-    expect(ids()).toEqual(["creado", "gerenciado", "ajeno"]);
+    expect(ids()).toEqual(["creado", "ajeno"]);
+    expect(columnKeys()).toEqual(["engagement_name"]);
+    expect(capturedProps.onRowClick).toBeUndefined();
   });
 });
