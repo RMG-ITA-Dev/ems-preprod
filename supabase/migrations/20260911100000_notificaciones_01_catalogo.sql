@@ -298,7 +298,7 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
     WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
       THEN 'timesheet_approval.read'
-    -- El recordatorio de aprobaciones resume TRES colas que viven en pantallas distintas, y el
+    -- El recordatorio de aprobaciones resume CUATRO colas (1110-220: + por_aprobar) en pantallas distintas, y el
     -- botón apunta a la del primer contador con número (`DESTINOS_POR_CONCEPTO`, en
     -- supabase/functions/_shared/plantillas/constants/recordatorios.ts). El permiso tiene que
     -- salir del MISMO contador: gatear el tipo entero por el permiso de su módulo mandaba a
@@ -310,6 +310,8 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- divergen, el correo gatea por una pantalla y linkea a otra.
     WHEN p_type_key = 'approval.reminder.weekly' THEN
       CASE
+        -- 1110-220 (D10): las líneas de horas que el destinatario aprueba van primero, a la bandeja.
+        WHEN public.notif_contador(p_payload, 'por_aprobar')  > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'capacitacion') > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'encargos')     > 0 THEN 'engagement.read'
         WHEN public.notif_contador(p_payload, 'lineas')       > 0 THEN 'timesheet.read'
@@ -1202,6 +1204,40 @@ $fn$;
 COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
   'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
 
+-- 1110-220 (D10): lo que el APROBADOR tiene pendiente. El contador de arriba mira las semanas que
+-- el destinatario ENVIO; este, las lineas que tiene que APROBAR: mismo criterio que la alarma viva
+-- `timesheet_pending_approval` de vw_staffing_alerts (approved_by = el aprobador asignado, linea en
+-- pending, semana enviada), recortado a la misma ventana que los demas contadores (p_from). Lo
+-- consume el recordatorio semanal approval.reminder.weekly; quien no aprueba nada da 0.
+CREATE OR REPLACE FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date)
+    RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $fn$
+  SELECT jsonb_build_object(
+           'count', COALESCE(SUM(lineas), 0),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start', week_start, 'lineas', lineas, 'cots', cots) ORDER BY week_start DESC),
+                    '[]'::jsonb))
+    FROM (
+      SELECT tp.week_start_date AS week_start,
+             COUNT(*)           AS lineas,
+             COALESCE(jsonb_agg(DISTINCT e.engagement_code)
+                      FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
+        FROM public.timesheet_line_approvals tla
+        JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+        JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+       WHERE tla.approved_by = p_staff_id
+         AND tla.status = 'pending'
+         AND tp.submitted_at IS NOT NULL
+         AND tp.week_start_date >= p_from
+       GROUP BY tp.week_start_date
+    ) q;
+$fn$;
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date) IS
+  '1110-220: lineas en pending asignadas a p_staff_id como aprobador (approved_by), de semanas enviadas desde p_from. Contador "por aprobar" del recordatorio semanal.';
+
 -- =====================================================================
 -- G.6) Quien puede llamar a los contadores
 -- =====================================================================
@@ -1236,6 +1272,7 @@ REVOKE ALL ON FUNCTION public.notif_timesheet_window_start()                    
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)                FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)               FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date)  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date)  FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.engagement_approval_bucket(uuid, text)           TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_fund_disbursement_pending(uuid)        TO service_role;
@@ -1250,6 +1287,7 @@ GRANT EXECUTE ON FUNCTION public.notif_timesheet_window_start()                 
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)               TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date) TO service_role;
 
 
 DROP FUNCTION IF EXISTS public.get_my_notification_aggregates();

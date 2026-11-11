@@ -560,6 +560,32 @@ describe("renderizarCorreoNotificacion — recordatorios", () => {
       expect(correo.cuerpoTexto).toContain("línea de capacitación por aprobar: 1");
     });
 
+    // 1110-220 (D10): lo que el destinatario tiene que APROBAR, primero en el resumen y en el botón.
+    it("las lineas de horas por aprobar llevan a aprobaciones y ganan a todo lo demas", () => {
+      const solo = recordatorioDeAprobaciones({ por_aprobar: { count: 1 } });
+      expect(solo.cuerpoTexto).toContain("https://ems.ruizmier.com/timesheet/approvals");
+      expect(solo.cuerpoTexto).toContain("línea de horas por aprobar: 1");
+      expect(solo.cuerpoTexto).toContain("Tiene horas esperando su aprobación.");
+
+      const varios = recordatorioDeAprobaciones({
+        lineas: { count: 2 },
+        encargos: { count: 1 },
+        por_aprobar: { count: 5 },
+      });
+      expect(varios.cuerpoTexto).toContain("https://ems.ruizmier.com/timesheet/approvals");
+      expect(varios.cuerpoTexto).toContain("líneas de horas por aprobar: 5");
+      expect(varios.cuerpoTexto).toContain("semanas suyas esperando aprobación: 2");
+      expect(varios.cuerpoTexto.indexOf("líneas de horas por aprobar")).toBeLessThan(
+        varios.cuerpoTexto.indexOf("semanas suyas esperando aprobación"),
+      );
+    });
+
+    it("un por_aprobar en cero no decide el destino", () => {
+      const correo = recordatorioDeAprobaciones({ por_aprobar: { count: 0 }, lineas: { count: 1 } });
+      expect(correo.cuerpoTexto).not.toContain("/timesheet/approvals");
+      expect(correo.cuerpoTexto).not.toContain("por aprobar:");
+    });
+
     it("el boton nombra la pantalla a la que lleva, no siempre 'aprobaciones'", () => {
       // Un boton que dice "Ir a aprobaciones" sobre un enlace a la hoja de tiempo propia es la
       // misma mentira que el enlace roto, solo que mas dificil de notar.

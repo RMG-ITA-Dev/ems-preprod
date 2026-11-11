@@ -3156,7 +3156,7 @@ $BODY$;
 COMMENT ON FUNCTION public.notif_emit_timesheet_reminder_daily() IS
   'Recordatorio diario de horas: semanas sin cargar y semanas devueltas. Devuelve a cuantas personas se les emitio (el dedupe puede descartar alguna si el cron corre dos veces el mismo dia).';
 
--- 2. Semanal: lo que tengo que aprobar.
+-- 2. Semanal: lo que tengo que aprobar (1110-220: + las lineas de horas por aprobar) y lo que espera a otro.
 CREATE OR REPLACE FUNCTION public.notif_emit_approval_reminder_weekly()
 RETURNS integer
     LANGUAGE plpgsql SECURITY DEFINER
@@ -3166,6 +3166,7 @@ DECLARE
   v_from      date := public.notif_timesheet_window_start();
   v_semana    text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
   v_lineas    jsonb;
+  v_por_aprobar jsonb;
   v_capac     jsonb;
   v_encargos  jsonb;
   v_total     integer;
@@ -3188,6 +3189,14 @@ BEGIN
     v_lineas := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'timesheet.pending_approval')
                      THEN public.notif_agg_timesheet_pending_approval(v_rec.staff_id, v_from)
                      ELSE NULL END;
+    -- 1110-220 (D10): `lineas` son las semanas que el destinatario ENVIO y siguen esperando; lo que
+    -- el destinatario tiene que APROBAR no estaba en ningun contador, asi que un gerente que no abre
+    -- la app nunca recibia un correo recordandoselo. Se calcula para todo destinatario: cuenta por
+    -- approved_by, asi que quien no es aprobador asignado da 0 y no cambia nada para el.
+    v_por_aprobar := public.notif_agg_timesheet_lines_to_approve(v_rec.staff_id, v_from);
+    IF COALESCE((v_por_aprobar->>'count')::integer, 0) = 0 THEN
+      v_por_aprobar := NULL;
+    END IF;
     v_capac  := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'approval.training_pending')
                      THEN public.notif_agg_approval_training_pending()
                      ELSE NULL END;
@@ -3196,6 +3205,7 @@ BEGIN
                        ELSE NULL END;
 
     v_total := COALESCE((v_lineas->>'count')::integer, 0)
+             + COALESCE((v_por_aprobar->>'count')::integer, 0)
              + COALESCE((v_capac->>'count')::integer, 0)
              + COALESCE((v_encargos->>'count')::integer, 0);
     CONTINUE WHEN v_total = 0;
@@ -3204,6 +3214,7 @@ BEGIN
               jsonb_build_object('dedupe',    v_semana,
                                  'total',     v_total,
                                  'lineas',    v_lineas,
+                                 'por_aprobar', v_por_aprobar,
                                  'capacitacion', v_capac,
                                  'encargos',  v_encargos));
     v_avisados := v_avisados + 1;
@@ -3214,7 +3225,7 @@ END;
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS
-  'Recordatorio semanal de aprobaciones: lineas de timesheet, cola de capacitacion y encargos esperando al Socio. Cada pieza entra solo si la matriz le concede ese contador al rol.';
+  'Recordatorio semanal de aprobaciones: lineas de horas por aprobar (1110-220, por approved_by), semanas propias esperando aprobacion, cola de capacitacion y encargos esperando al Socio. Las piezas de la matriz entran solo si la matriz le concede ese contador al rol; por_aprobar entra para todo destinatario con lineas asignadas.';
 
 -- 3. Semanal: fondos.
 CREATE OR REPLACE FUNCTION public.notif_emit_fund_reminder_weekly()
