@@ -14,7 +14,7 @@ import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
 import { buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
-import { budgetInOtCurrency, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
+import { budgetInOtCurrency, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
 
 export const BLOCKS = Object.freeze(["client-engagements", "administrative-engagements", "matrices", "work-orders", "hours"]);
 export const STATES = Object.freeze(["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "ENCARGOS_CLIENTE_ACEPTADOS", "ADMINISTRATIVOS_ACEPTADOS", "MATRICES_ACEPTADAS", "OTS_ACEPTADAS", "HORAS_VERIFICADAS", "ACEPTADO"]);
@@ -164,6 +164,24 @@ export async function prepareMatrixBlueprint(ctx, matrix) {
   if (!countOk(ctx, f3(ctx).matrices, byCot.size, "f3.matrices")) throw new Fase1Error("BLOQUEADO", `matrices incompletas: ${byCot.size} de ${f3(ctx).matrices} COT con celdas`);
   return [...byCot.entries()].map(([sourceKey, cells]) => ({ sourceKey, engagementId: engagementByCot.get(sourceKey), cells: cells.sort((a, b) => `${a.categoryId}|${a.activityId}`.localeCompare(`${b.categoryId}|${b.activityId}`)) })).sort((a, b) => a.sourceKey.localeCompare(b.sourceKey));
 }
+// Opción A (D32): tarifa del presupuesto de cada categoría de cada OT = tarifa legacy × TC (hacia arriba), con el id de categoría de EMS.
+// Map<cot, [{ categoryId, rate }]> ordenado por categoryId. Falla si alguna categoría de la matriz no tiene tarifa o no existe en el catálogo.
+export async function prepareBudgetRates(ctx, validated) {
+  const catalog = await ctx.db.matrixCatalog();
+  const categories = mapUnique(catalog.categories, (row) => `${row.practice}|${nameKey(row.name)}`, "categoría");
+  let byCot; try { byCot = budgetRatesByWorkOrder({ contributions: validated.matrix.contributions, planRows: validated.inputs.planHours, engagements: validated.inputs.clientEngagements }); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); }
+  const result = new Map();
+  for (const [cot, list] of byCot) {
+    const rates = list.map((row) => {
+      const category = categories.get(`${MATRIX_PRACTICE[row.practice]}|${nameKey(row.categoryName)}`);
+      if (!category) throw new Fase1Error("BLOQUEADO", `tarifa de presupuesto sin categoría EMS: ${cot}/${row.categoryName}`);
+      return { categoryId: category.id, rate: row.rate };
+    }).sort((a, b) => String(a.categoryId).localeCompare(String(b.categoryId)));
+    if (new Set(rates.map((row) => row.categoryId)).size !== rates.length) throw new Fase1Error("BLOQUEADO", `tarifas de presupuesto con categoría repetida: ${cot}`);
+    result.set(cot, rates);
+  }
+  return result;
+}
 const reserveMatrices = (blueprint) => blueprint.map((matrix) => ({ ...matrix, worksheetId: randomUUID(), cells: matrix.cells.map((cell) => ({ ...cell, cellId: randomUUID() })) }));
 const seasonFromIndustry = (legacyIndustryRef, fiscalYearEnd) => {
   const legacyId = Number(String(legacyIndustryRef ?? "").match(/^(\d+):/)?.[1]); const season = [10, 12, 37].includes(legacyId) ? "Low" : "High";
@@ -219,7 +237,7 @@ const formatMoney = (units) => {
 // honorario antes de IVA, mientras PlanPago contiene su equivalente con IVA.
 export async function preparePaymentBlueprint(ctx, inputs) {
   const workOrders = ctx.journal.units["work-orders"]?.workOrders;
-  if (!Array.isArray(workOrders) || !countOk(ctx, f3(ctx).workOrders, workOrders.length, "f3.workOrders") || workOrders.some((row) => row.state !== "CONFIRMADA" || row.syncState !== "CONFIRMADA")) throw new Fase1Error("BLOQUEADO", `pagos requiere las ${f3(ctx).workOrders} OTs sincronizadas`);
+  if (!Array.isArray(workOrders) || !countOk(ctx, f3(ctx).workOrders, workOrders.length, "f3.workOrders") || workOrders.some((row) => row.state !== "CONFIRMADA" || row.syncState !== "CONFIRMADA" || row.rateState !== "CONFIRMADA")) throw new Fase1Error("BLOQUEADO", `pagos requiere las ${f3(ctx).workOrders} OTs sincronizadas y con las tarifas legacy aplicadas (opción A)`);
   const sourceByCot = new Map(inputs.clientEngagements.map((row) => [row.legacy_cot, row])); const groups = paymentRowsByCot(inputs.payments);
   const billable = inputs.payments.filter((row) => !["nota_plan_confirmada", "plan_note"].includes(String(row.proposed_disposition).trim()));
   const notes = inputs.payments.filter((row) => ["nota_plan_confirmada", "plan_note"].includes(String(row.proposed_disposition).trim()));
@@ -397,32 +415,46 @@ async function loadWorkOrders(ctx, blueprint, unit) {
 // `numeric` llega desde psql como texto o como número JSON según la versión
 // local. Las diferencias se comparan de forma exacta en SQL; aquí sólo se
 // comprueba que ambos agregados sean positivos y que no haya diferencias.
-const syncIsExact = (result) => Number(result?.linked) === 1 && Number(result?.matrixCategories) > 0 && Number(result?.budgetCategories) > 0 && Number(result?.matrixCategories) === Number(result?.budgetCategories) && Number(result?.matrixHours) > 0 && Number(result?.budgetHours) > 0 && Number(result?.differences) === 0;
-async function syncWorkOrders(ctx, unit) {
+const syncHoursExact = (result) => Number(result?.linked) === 1 && Number(result?.matrixCategories) > 0 && Number(result?.budgetCategories) > 0 && Number(result?.matrixCategories) === Number(result?.budgetCategories) && Number(result?.matrixHours) > 0 && Number(result?.budgetHours) > 0 && Number(result?.differences) === 0;
+// Opción A (D32): la sincronización sólo está completa si, además de las horas, la tarifa de cada categoría es exactamente la del legacy × TC.
+const syncIsExact = (result) => syncHoursExact(result) && Number(result?.rateMismatches) === 0;
+// `ratesByCot`: Map<cot, [{ categoryId, rate }]> de prepareBudgetRates. Orden por OT: sincronizar (borra y regenera las líneas con las tarifas del
+// catálogo, UNA sola vez) → aplicar las tarifas legacy → releer. Si una corrida se cae entre los dos pasos, la relectura ve horas exactas con tarifas
+// distintas y sólo se aplican las tarifas (sin volver a sincronizar, que las borraría).
+export async function syncWorkOrders(ctx, unit, ratesByCot) {
   if (unit?.state !== "CONFIRMADA" || !Array.isArray(unit.workOrders) || !countOk(ctx, f3(ctx).workOrders, unit.workOrders.length, "f3.workOrders")) throw new Fase1Error("BLOQUEADO", `sincronización requiere las ${f3(ctx).workOrders} OTs confirmadas`);
+  if (!(ratesByCot instanceof Map) || unit.workOrders.some((row) => !ratesByCot.get(row.sourceKey)?.length)) throw new Fase1Error("BLOQUEADO", "sincronización requiere las tarifas de presupuesto (opción A) de todas las OTs");
   const syncHash = sha256(stable(unit.workOrders.map(({ sourceKey, worksheetId, woId }) => ({ sourceKey, worksheetId, woId }))));
+  const ratesHash = sha256(stable(unit.workOrders.map(({ sourceKey }) => ({ sourceKey, rates: ratesByCot.get(sourceKey) }))));
   if (unit.syncHash && unit.syncHash !== syncHash) throw new Fase1Error("BLOQUEADO", "sincronización: cambió el mapa OT/matriz");
-  if (!unit.syncHash) { unit.syncHash = syncHash; unit.syncIntentAt = new Date().toISOString(); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
-  let budgetLines = 0; let matrixHours = 0; let budgetHours = 0;
+  if (unit.ratesHash && unit.ratesHash !== ratesHash) throw new Fase1Error("BLOQUEADO", "sincronización: cambiaron las tarifas de presupuesto respecto de la intención durable");
+  if (!unit.syncHash || !unit.ratesHash) { unit.syncHash = syncHash; unit.ratesHash = ratesHash; unit.syncIntentAt ??= new Date().toISOString(); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
+  let budgetLines = 0; let matrixHours = 0; let budgetHours = 0; let ratesApplied = 0;
   for (const workOrder of unit.workOrders) {
-    let verification = await ctx.db.findWorkOrderSync({ worksheetId: workOrder.worksheetId, woId: workOrder.woId });
-    if (syncIsExact(verification)) { workOrder.syncState = "CONFIRMADA"; } else {
-      const before = verification;
-    if (Number(before.linked) || Number(before.budgetCategories) || Number(before.budgetHours)) throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización parcial o divergente: ${workOrder.sourceKey}`);
-    if (workOrder.syncState === "CONFIRMADA") throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización confirmada ausente: ${workOrder.sourceKey}`);
-    await ctx.db.syncWorksheetToWorkOrder({ technicalAdminId: ctx.config.technicalAdminId, worksheetId: workOrder.worksheetId, woId: workOrder.woId });
-    const after = await ctx.db.findWorkOrderSync({ worksheetId: workOrder.worksheetId, woId: workOrder.woId });
-    if (!syncIsExact(after)) throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización no conciliable: ${workOrder.sourceKey}`);
-      verification = after;
-    workOrder.syncState = "CONFIRMADA";
-    checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...unit, workOrders: unit.workOrders } } });
+    const rates = ratesByCot.get(workOrder.sourceKey); const probe = { worksheetId: workOrder.worksheetId, woId: workOrder.woId, rates };
+    let verification = await ctx.db.findWorkOrderSync(probe); let wrote = false;
+    if (!syncHoursExact(verification)) {
+      if (Number(verification.linked) || Number(verification.budgetCategories) || Number(verification.budgetHours)) throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización parcial o divergente: ${workOrder.sourceKey}`);
+      if (workOrder.syncState === "CONFIRMADA") throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización confirmada ausente: ${workOrder.sourceKey}`);
+      await ctx.db.syncWorksheetToWorkOrder({ technicalAdminId: ctx.config.technicalAdminId, worksheetId: workOrder.worksheetId, woId: workOrder.woId });
+      verification = await ctx.db.findWorkOrderSync(probe); wrote = true;
+      if (!syncHoursExact(verification)) throw new Fase1Error("RECONCILIACION_REQUERIDA", `sincronización no conciliable: ${workOrder.sourceKey}`);
     }
+    if (Number(verification.rateMismatches) !== 0) {
+      if (workOrder.rateState === "CONFIRMADA") throw new Fase1Error("RECONCILIACION_REQUERIDA", `tarifas de presupuesto confirmadas ausentes o alteradas: ${workOrder.sourceKey}`);
+      const applied = await ctx.db.applyBudgetRates({ technicalAdminId: ctx.config.technicalAdminId, woId: workOrder.woId, rates });
+      if (Number(applied?.updated) !== rates.length || Number(applied?.expected) !== rates.length) throw new Fase1Error("RECONCILIACION_REQUERIDA", `tarifas de presupuesto no aplicadas (OT no Draft o líneas distintas de las esperadas): ${workOrder.sourceKey}`);
+      verification = await ctx.db.findWorkOrderSync(probe); wrote = true; ratesApplied += 1;
+      if (!syncIsExact(verification)) throw new Fase1Error("RECONCILIACION_REQUERIDA", `tarifas de presupuesto no conciliables: ${workOrder.sourceKey}`);
+    }
+    workOrder.syncState = "CONFIRMADA"; workOrder.rateState = "CONFIRMADA";
+    if (wrote) checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...unit, workOrders: unit.workOrders } } });
     budgetLines += Number(verification.budgetCategories);
     matrixHours += Number(verification.matrixHours);
     budgetHours += Number(verification.budgetHours);
   }
-  if (unit.workOrders.some((row) => row.syncState !== "CONFIRMADA")) throw new Fase1Error("RECONCILIACION_REQUERIDA", "sincronización incompleta");
-  return { recovered: Boolean(unit.syncCompletedAt), workOrders: unit.workOrders.length, budgetLines, matrixHours, budgetHours };
+  if (unit.workOrders.some((row) => row.syncState !== "CONFIRMADA" || row.rateState !== "CONFIRMADA")) throw new Fase1Error("RECONCILIACION_REQUERIDA", "sincronización incompleta");
+  return { recovered: Boolean(unit.syncCompletedAt), workOrders: unit.workOrders.length, budgetLines, matrixHours, budgetHours, ratesApplied };
 }
 const expenseStatus = (result, expenses) => {
   const matches = new Map((result?.matches ?? []).map((row) => [row.sourceKey, row]));
@@ -651,7 +683,7 @@ export async function load(ctx, block, operation = "create") {
   if (!BLOCKS.includes(block)) bad("bloque F3 inválido"); const prior = previousBlock(block); if (prior && !ctx.journal.blocks[prior]?.acceptedAt) throw new Fase1Error("BLOQUEADO", `falta acta aceptada de ${prior}`);
   if (operation === "sync-work-orders") {
     if (block !== "work-orders") bad("sync-work-orders sólo admite el bloque work-orders");
-    const unit = ctx.journal.units["work-orders"]; const result = await syncWorkOrders(ctx, unit);
+    const validated = await validate(ctx); const unit = ctx.journal.units["work-orders"]; const result = await syncWorkOrders(ctx, unit, await prepareBudgetRates(ctx, validated));
     checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...unit, syncResult: result, syncCompletedAt: new Date().toISOString() } } });
     return result;
   }

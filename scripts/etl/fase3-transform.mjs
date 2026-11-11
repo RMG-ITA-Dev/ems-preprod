@@ -140,6 +140,37 @@ export function budgetInOtCurrency(row) {
   if (rate <= 0n) throw new Error(`TC BOB ausente o inválido: ${row.legacy_cot}`);
   return formatUnits((usd * rate + 99n) / 100n);
 }
+// D32 (opción A, 11/11/2026): tarifa del presupuesto de cada categoría EMS = tarifa legacy (`ratePresupuestado` del detalle) × TC acordado de la OT
+// (BOB; en USD no se convierte), redondeada HACIA ARRIBA al centavo (D29). `wo_budget_lines` guarda UNA tarifa por categoría y el legacy puede traer
+// varias filas con tarifas distintas que convergen en la misma categoría EMS: la tarifa es el promedio ponderado por horas (también hacia arriba).
+// Con los datos del 06/11 (155 OT) eso mueve el estándar por menos de BOB 12 en 62 OT; el ajuste se recalcula contra la base, así que el honorario ajustado queda exacto.
+// Entrada: `contributions` y `planRows` de buildMatrixArtifacts/CSV, y `engagements` (legacy_cot, legacy_currency_raw, legacy_exchange_rate).
+// Salida: Map<cot, [{ practice, categoryName, rate }]> ordenado por práctica y categoría; `rate` es texto decimal exacto.
+export function budgetRatesByWorkOrder({ contributions, planRows, engagements }) {
+  const rowById = new Map(planRows.map((row) => [String(row.legacy_plan_hours_id), row]));
+  const engagementByCot = new Map(engagements.map((row) => [row.legacy_cot, row]));
+  const groups = new Map();
+  for (const item of contributions) {
+    const row = rowById.get(String(item.legacy_plan_hours_id)); const engagement = engagementByCot.get(item.legacy_cot);
+    if (!row || !engagement) throw new Error(`tarifa de presupuesto sin fila legacy o encargo: ${item.legacy_plan_hours_id}`);
+    const hours = decimalUnits(item.allocated_budget_hours, 4); const rate = decimalUnits(row.legacy_budget_rate, 6);
+    if (hours <= 0n || rate <= 0n) throw new Error(`tarifa legacy o horas no positivas: ${item.legacy_plan_hours_id}`);
+    const key = `${item.legacy_cot}|${item.practica_abbreviation}|${item.target_category_name}`;
+    const group = groups.get(key) ?? { cot: item.legacy_cot, practice: item.practica_abbreviation, categoryName: item.target_category_name, hours: 0n, amount: 0n };
+    group.hours += hours; group.amount += hours * rate; groups.set(key, group);
+  }
+  const result = new Map();
+  for (const group of [...groups.values()].sort((a, b) => `${a.cot}|${a.practice}|${a.categoryName}`.localeCompare(`${b.cot}|${b.practice}|${b.categoryName}`))) {
+    const engagement = engagementByCot.get(group.cot); const currency = String(engagement.legacy_currency_raw ?? "").trim();
+    let exchange = 100n; // escala 2; USD = 1,00
+    if (currency === "0") { exchange = decimalUnits(engagement.legacy_exchange_rate); if (exchange <= 0n) throw new Error(`TC BOB ausente o inválido: ${group.cot}`); } else if (currency !== "1") throw new Error(`moneda legacy inválida: ${group.cot}`);
+    // amount: horas(4) × tarifa(6) = escala 10; × TC(2) = escala 12; ÷ horas(4) = escala 8 → a escala 2 dividiendo por 10^6, hacia arriba.
+    const denominator = group.hours * POW10(6); const rate = (group.amount * exchange + denominator - 1n) / denominator;
+    if (rate <= 0n || rate > 99999999n) throw new Error(`tarifa de presupuesto fuera de rango (numeric(10,2)): ${group.cot}/${group.categoryName}`);
+    const list = result.get(group.cot) ?? []; list.push({ practice: group.practice, categoryName: group.categoryName, rate: formatUnits(rate) }); result.set(group.cot, list);
+  }
+  return result;
+}
 // D33 (11/11/2026): TODAS las OT migradas llevan temporada Alta. El legacy no tiene temporada: calculó cada OT con una sola tarifa (la alta), incluso en las industrias con cierre en marzo (10, 12 y 37), que en EMS usarían Baja. El parámetro se conserva por compatibilidad.
 export function seasonForIndustry(_legacyIndustryId) { return "High"; }
 export function adjustedFee(standardFee, budgetHours) { return formatUnits(decimalUnits(budgetHours) - decimalUnits(standardFee)); }

@@ -286,13 +286,34 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         SELECT public.sync_worksheet_to_wo_budget((x->>'worksheetId')::uuid,(x->>'woId')::uuid) FROM p;
         SELECT json_build_object('synced',true)::text;`, { technicalAdminId, worksheetId, woId });
     },
-    async findWorkOrderSync({ worksheetId, woId }) {
+    // `rates` (opción A, D32) es opcional: [{ categoryId, rate }]. Con ella, `rateMismatches` cuenta las categorías del presupuesto cuya
+    // tarifa no es exactamente la esperada y las categorías del presupuesto o de `rates` sin pareja; sin ella vale 0 y no se mira la tarifa.
+    async findWorkOrderSync({ worksheetId, woId, rates }) {
       if (!worksheetId || !woId) throw new Fase1Error("BLOQUEADO", "relectura de sincronización F3 inválida");
+      if (rates !== undefined && (!Array.isArray(rates) || !rates.length || rates.some((row) => !row?.categoryId || !/^\d+(\.\d{1,2})?$/.test(String(row.rate ?? ""))))) throw new Fase1Error("BLOQUEADO", "tarifas de presupuesto F3 inválidas");
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
         m AS (SELECT c.category_id,sum(c.budget_hours) hours FROM public.activity_worksheet_cells c WHERE c.worksheet_id=(SELECT (x->>'worksheetId')::uuid FROM p) GROUP BY c.category_id),
-        b AS (SELECT l.category_id,sum(l.budgeted_hours) hours, min(l.standard_rate) rate FROM public.wo_budget_lines l WHERE l.wo_id=(SELECT (x->>'woId')::uuid FROM p) GROUP BY l.category_id),
-        differences AS (SELECT 1 FROM m FULL JOIN b USING(category_id) WHERE m.hours IS DISTINCT FROM b.hours OR b.rate IS NULL OR b.rate <= 0)
-        SELECT json_build_object('linked',(SELECT count(*) FROM public.activity_worksheets w WHERE w.id=(SELECT (x->>'worksheetId')::uuid FROM p) AND w.wo_id=(SELECT (x->>'woId')::uuid FROM p)),'matrixCategories',(SELECT count(*) FROM m),'budgetCategories',(SELECT count(*) FROM b),'matrixHours',(SELECT COALESCE(sum(hours),0) FROM m),'budgetHours',(SELECT COALESCE(sum(hours),0) FROM b),'differences',(SELECT count(*) FROM differences))::text FROM p;`, { worksheetId, woId }));
+        b AS (SELECT l.category_id,sum(l.budgeted_hours) hours, min(l.standard_rate) rate, max(l.standard_rate) max_rate FROM public.wo_budget_lines l WHERE l.wo_id=(SELECT (x->>'woId')::uuid FROM p) GROUP BY l.category_id),
+        e AS (SELECT (r->>'categoryId')::uuid category_id,(r->>'rate')::numeric rate FROM p CROSS JOIN LATERAL jsonb_array_elements(COALESCE(p.x->'rates','[]'::jsonb)) r),
+        differences AS (SELECT 1 FROM m FULL JOIN b USING(category_id) WHERE m.hours IS DISTINCT FROM b.hours OR b.rate IS NULL OR b.rate <= 0),
+        rate_mismatches AS (SELECT 1 FROM b FULL JOIN e USING(category_id) WHERE (SELECT jsonb_typeof(x->'rates')='array' FROM p) AND (b.rate IS DISTINCT FROM e.rate OR b.max_rate IS DISTINCT FROM e.rate))
+        SELECT json_build_object('linked',(SELECT count(*) FROM public.activity_worksheets w WHERE w.id=(SELECT (x->>'worksheetId')::uuid FROM p) AND w.wo_id=(SELECT (x->>'woId')::uuid FROM p)),'matrixCategories',(SELECT count(*) FROM m),'budgetCategories',(SELECT count(*) FROM b),'matrixHours',(SELECT COALESCE(sum(hours),0) FROM m),'budgetHours',(SELECT COALESCE(sum(hours),0) FROM b),'differences',(SELECT count(*) FROM differences),'rateMismatches',(SELECT count(*) FROM rate_mismatches))::text FROM p;`, { worksheetId, woId, ...(rates === undefined ? {} : { rates }) }));
+    },
+    // Opción A (D32): reemplaza la tarifa de catálogo de cada línea de presupuesto por la del legacy × TC. Sólo con la OT en Draft, sólo líneas de
+    // las categorías esperadas y exactamente una línea por categoría; el resultado es idempotente (reaplicar no cambia nada).
+    async applyBudgetRates({ technicalAdminId, woId, rates }) {
+      if (!technicalAdminId || !woId || !Array.isArray(rates) || !rates.length || rates.some((row) => !row?.categoryId || !/^\d+(\.\d{1,2})?$/.test(String(row.rate ?? "")))) throw new Fase1Error("BLOQUEADO", "tarifas de presupuesto F3 inválidas");
+      return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
+        SELECT set_config('request.jwt.claims', json_build_object('sub',p.x->>'technicalAdminId','role','authenticated')::text,true) FROM p;
+        SET LOCAL ROLE authenticated;
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
+        e AS (SELECT (r->>'categoryId')::uuid category_id,(r->>'rate')::numeric(10,2) rate FROM p CROSS JOIN LATERAL jsonb_array_elements(p.x->'rates') r),
+        guard AS (SELECT EXISTS (SELECT 1 FROM public.work_orders w,p WHERE w.wo_id=(p.x->>'woId')::uuid AND w.approval_status='Draft')
+          AND (SELECT count(*) FROM public.wo_budget_lines l,p WHERE l.wo_id=(p.x->>'woId')::uuid)=(SELECT count(*) FROM e)
+          AND NOT EXISTS (SELECT 1 FROM public.wo_budget_lines l,p WHERE l.wo_id=(p.x->>'woId')::uuid AND l.category_id NOT IN (SELECT category_id FROM e)) ok),
+        updated AS (UPDATE public.wo_budget_lines l SET standard_rate=e.rate FROM e,p,guard WHERE guard.ok AND l.wo_id=(p.x->>'woId')::uuid AND l.category_id=e.category_id RETURNING l.wo_line_id)
+        SELECT json_build_object('updated',(SELECT count(*) FROM updated),'expected',(SELECT count(*) FROM e))::text;`, { technicalAdminId, woId, rates });
     },
     async createExpenses({ technicalAdminId, expenses }) {
       if (!technicalAdminId || !Array.isArray(expenses) || !expenses.length || expenses.some((row) => !row.expenseId || !row.woId || !row.expenseTypeId || !row.amount)) throw new Fase1Error("BLOQUEADO", "gastos F3 inválidos");
