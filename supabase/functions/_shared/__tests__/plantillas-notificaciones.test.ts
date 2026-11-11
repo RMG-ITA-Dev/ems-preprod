@@ -207,6 +207,18 @@ describe("renderizarCorreoNotificacion — eventos", () => {
     expect(porCategoria.cuerpoTexto).toContain("/staff/s-1");
   });
 
+  it("1110-220: el rol nuevo Jefe de Secretaría sale con su nombre, no con la clave técnica", () => {
+    const correo = renderizarCorreoNotificacion(
+      base({
+        typeKey: "auth.role.changed",
+        entityId: null,
+        payload: { staff_id: "s-1", previous_role_key: "assistant", role_key: "secretariat_head" },
+      }),
+    );
+    expect(correo.cuerpoTexto).toContain("- Rol actual: Jefe de Secretaría");
+    expect(correo.cuerpoTexto).not.toContain("secretariat_head");
+  });
+
   it("un cambio de rol muestra nombres legibles y conserva un role_key futuro como fallback", () => {
     const correo = renderizarCorreoNotificacion(
       base({

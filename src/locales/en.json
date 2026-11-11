@@ -511,7 +511,8 @@
       "risk_partner": "Risk Partner",
       "risk_supervisor": "Risk Supervisor",
       "hr_manager": "HR Manager",
-      "hr_analyst": "HR Analyst"
+      "hr_analyst": "HR Analyst",
+      "secretariat_head": "Head of Secretariat"
     },
     "loadFailed": "Could not verify your permissions. Please try again.",
     "retry": "Retry",

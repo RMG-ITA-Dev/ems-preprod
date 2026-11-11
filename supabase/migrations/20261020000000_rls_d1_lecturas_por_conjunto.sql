@@ -156,7 +156,7 @@ CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO aut
   USING ((SELECT public.has_permission('engagement.read')) AND created_by_staff_id IS NOT NULL AND created_by_staff_id = (SELECT public.get_my_staff_id()));
 DROP POLICY IF EXISTS "engagements hr administrative read" ON public.engagements;
 CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated
-  USING (funcion <> 1 AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst'])));
+  USING (funcion <> 1 AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst', 'secretariat_head'])));  -- 1110-220: + Jefe de Secretaría
 DROP POLICY IF EXISTS "engagements read" ON public.engagements;
 CREATE POLICY "engagements read" ON public.engagements FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('engagement.read'))

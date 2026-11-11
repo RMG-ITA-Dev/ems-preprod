@@ -67,8 +67,9 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
 //   · Gerente             → `manager`, `hr_manager` (0817-180: "no hagamos casos especiales") y
 //                           desde 0828-185 también `ita_manager`/`tax_manager` — un Especialista
 //                           TI/Impuestos puede además actuar como Gerente de CUALQUIER encargo,
-//                           no solo del suyo. Fuera: `it_security_manager`, `accounting_manager`,
-//                           `risk_supervisor`.
+//                           no solo del suyo. Desde 1110-220 también `accounting_manager`,
+//                           `risk_supervisor` y `secretariat_head` (Gerentes de sus encargos
+//                           administrativos). Fuera: `it_security_manager`.
 //   · Encargado           → `senior`, `semisenior`. Fuera: `ita_senior`, `tax_senior` y los
 //                           tres `*_analyst` (incluido `hr_analyst`: mismo criterio que
 //                           `accounting_analyst`/`collections_analyst`, ninguno es candidato).
@@ -83,6 +84,9 @@ export const ROLE_KEY_TO_GROUPS: Record<string, readonly TeamCandidateGroup[]> =
   risk_partner: ["partner_director"],
   manager: ["manager"],
   hr_manager: ["manager"],
+  accounting_manager: ["manager"],
+  risk_supervisor: ["manager"],
+  secretariat_head: ["manager"],
   senior: ["encargado"],
   semisenior: ["encargado"],
   ita_manager: ["specialist_it", "manager"],

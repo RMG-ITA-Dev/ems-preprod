@@ -565,6 +565,9 @@ assert_suite supabase/tests/trigger-0923-198-engagement-start-date-floor.sql 'ST
 assert_suite supabase/tests/rpc-1028-213-risks.sql 'RISKS RPC 1028-213: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-1028-213-work-order-scope.sql 'WO SCOPE 1028-213: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-1028-211-client-activation.sql 'CLIENT ACTIVATION 1028-211: ALL CHECKS PASSED'
+# 1110-220: Contabilidad y Riesgos crean encargos administrativos, son Gerentes y aprueban horas; Jefe de Secretaría
+# (secretariat_head) = Talento Humano sin competencias/feriados/capacitación ni Cliente. Va después de D1 (estado definitivo).
+assert_suite supabase/tests/rls-1110-220-role-permissions.sql '1110-220 ROLES: ALL CHECKS PASSED'
 
 # ETL fase 1 (T03/T04/T08): modelo de clientes, carga inicial vs guardado operativo, privilegios y
 # comportamiento de seed_initial_holidays, directorio de clientes y B6. Va al final: verifica los

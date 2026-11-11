@@ -54,6 +54,41 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
   ('hr_analyst', 'engagement.update', 'assigned_engagements')
 ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
 
+-- 1110-220 (decisiones D2/D7/D8 del desarrollador, 2026-11-11): el Gerente de Contabilidad y el
+-- Supervisor de Riesgos crean encargos administrativos (funcion 0/2/3, nunca Cliente; lo cierra
+-- enforce_engagement_profile_scope), quedan como Gerente y aprueban las horas que se les carguen,
+-- igual que Talento Humano. Mismo patrón y mismo alcance 'assigned_engagements'.
+--
+-- OJO, filas EXCLUIDAS a propósito: el ON CONFLICT de abajo hace DO UPDATE del scope, así que
+-- repetir un permiso que el rol ya tiene con alcance más amplio lo DEGRADARÍA:
+--   - engagement.read: ambos ya lo tienen con 'department' (Carril B / B3p).
+--   - work_order.read: accounting_manager ya lo tiene con 'department' (B3p); risk_supervisor no
+--     lo tiene (1028-213 se lo quitó) y aquí lo recibe solo para SUS encargos.
+--   - work_order.payment_plan.approve: las OT administrativas no facturan (0722-160), así que no
+--     aplica; accounting_manager conserva el suyo con 'department' para Cobranzas.
+INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
+  ('accounting_manager', 'engagement.create',          'assigned_engagements'),
+  ('accounting_manager', 'engagement.update',          'assigned_engagements'),
+  ('accounting_manager', 'worksheet.read',             'assigned_engagements'),
+  ('accounting_manager', 'worksheet.create',           'assigned_engagements'),
+  ('accounting_manager', 'work_order.create',          'assigned_engagements'),
+  ('accounting_manager', 'work_order.update',          'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.read',    'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.approve', 'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.reject',  'assigned_engagements'),
+
+  ('risk_supervisor',    'engagement.create',          'assigned_engagements'),
+  ('risk_supervisor',    'engagement.update',          'assigned_engagements'),
+  ('risk_supervisor',    'worksheet.read',             'assigned_engagements'),
+  ('risk_supervisor',    'worksheet.create',           'assigned_engagements'),
+  ('risk_supervisor',    'work_order.read',            'assigned_engagements'),
+  ('risk_supervisor',    'work_order.create',          'assigned_engagements'),
+  ('risk_supervisor',    'work_order.update',          'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.read',    'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.approve', 'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.reject',  'assigned_engagements')
+ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
+
 
 -- Decisión del operador, 2026-08-27: "no hagamos casos especiales" — el Gerente de Talento
 -- Humano se comporta como cualquier otro Gerente: crea su encargo, queda autoasignado como

@@ -214,10 +214,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'director' AND permission_key = 'work_order.read' AND scope_key = 'assigned_engagements')
      OR NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'manager' AND permission_key = 'work_order.create' AND scope_key = 'assigned_engagements')
      OR NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'manager' AND permission_key = 'worksheet.create' AND scope_key = 'assigned_engagements')
-     OR EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'risk_supervisor' AND permission_key = 'work_order.read')
+     -- 1110-220 (D7): RS lee OT solo de SUS encargos administrativos; en este fixture no gerencia ninguno, así que sigue en 0.
+     OR EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'risk_supervisor' AND permission_key = 'work_order.read' AND scope_key IS DISTINCT FROM 'assigned_engagements')
      OR NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'risk_partner' AND permission_key = 'work_order.read' AND scope_key = 'assigned_engagements')
      OR NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'risk_partner' AND permission_key = 'worksheet.read' AND scope_key = 'assigned_engagements') THEN
-    RAISE EXCEPTION 'WO SCOPE FAIL — R3: premisa de permisos (director con work_order.read assigned; manager con work_order/worksheet.create assigned; RS sin work_order.read; RP con work_order.read y worksheet.read assigned)';
+    RAISE EXCEPTION 'WO SCOPE FAIL — R3: premisa de permisos (director con work_order.read assigned; manager con work_order/worksheet.create assigned; RS sin work_order.read más allá de assigned; RP con work_order.read y worksheet.read assigned)';
   END IF;
   RAISE NOTICE 'PASS — R3: premisas de permisos (los roles probados SÍ tienen el permiso y el alcance asignado; la denegación sale de la relación con el encargo)';
 

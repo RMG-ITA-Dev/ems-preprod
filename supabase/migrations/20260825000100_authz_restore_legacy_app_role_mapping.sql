@@ -57,7 +57,8 @@ from (values
   ('semisenior',              'semisenior'), -- exacto
   ('assistant',               'staff'),      -- equivalencia Fase 1
   ('ita_assistant',           'staff'),      -- nivel: asistente
-  ('tax_assistant',           'staff')       -- nivel: asistente
+  ('tax_assistant',           'staff'),      -- nivel: asistente
+  ('secretariat_head',        'manager')     -- 1110-220: nivel gerente (Jefe de Secretaría)
 ) as m(role_key, legacy)
 where ar.role_key = m.role_key;
 

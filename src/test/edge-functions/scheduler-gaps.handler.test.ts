@@ -192,6 +192,8 @@ describe("role gate (I-P6-2): the firmwide-only slice of the D5 matrix", () => {
     "hr_manager",
     "hr_analyst",
     "it_security_manager",
+    // 1110-220: Jefe de Secretaría (legacy "manager"), sin acceso igual que Talento Humano.
+    "secretariat_head",
   ];
   const ALLOWED = new Set(["admin", "senior_partner", "partner", "director"]);
 

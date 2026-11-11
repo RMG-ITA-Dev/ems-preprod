@@ -55,7 +55,7 @@ describe("TEAM_FIELD_GROUPS — mapa campo → grupo de candidatura", () => {
 });
 
 describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo del RPC)", () => {
-  it("mapea los 14 role_key elegibles a su(s) grupo(s)", () => {
+  it("mapea los 17 role_key elegibles a su(s) grupo(s)", () => {
     expect(ROLE_KEY_TO_GROUPS).toEqual({
       partner: ["partner_director"],
       director: ["partner_director"],
@@ -63,6 +63,9 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
       risk_partner: ["partner_director"],
       manager: ["manager"],
       hr_manager: ["manager"],
+      accounting_manager: ["manager"],
+      risk_supervisor: ["manager"],
+      secretariat_head: ["manager"],
       senior: ["encargado"],
       semisenior: ["encargado"],
       ita_manager: ["specialist_it", "manager"],
@@ -72,8 +75,17 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
       tax_senior: ["specialist_tax"],
       tax_assistant: ["specialist_tax"],
     });
-    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(14);
+    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(17);
   });
+
+  // 1110-220 (D5): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría son Gerentes
+  // de sus encargos administrativos, igual que Talento Humano.
+  it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
+    "%s cae solo en el grupo manager",
+    (roleKey) => {
+      expect(ROLE_KEY_TO_GROUPS[roleKey]).toEqual(["manager"]);
+    },
+  );
 
   // BUG 0817-180 (2026-08-27): hr_manager se agregó al grupo "manager" — decisión del operador
   // de no tratar a Talento Humano como caso especial. hr_analyst se queda FUERA a propósito,
@@ -110,9 +122,7 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
     ["admin", "rol técnico, no de negocio"],
     ["assistant", "no es Encargado"],
     ["viewer", "sin rol operativo"],
-    ["risk_supervisor", "Gerente/Supervisor pide solo `manager`/`hr_manager`/`ita_manager`/`tax_manager`"],
     ["it_security_manager", "seguridad TI interna, no Especialista TI del encargo"],
-    ["accounting_manager", "Gerente/Supervisor pide solo `manager`/`hr_manager`/`ita_manager`/`tax_manager`"],
     ["accounting_analyst", "Encargado pide solo senior/semisenior"],
     ["collections_analyst", "Encargado pide solo senior/semisenior"],
     ["hr_analyst", "Encargado pide solo senior/semisenior — hr_manager es el único hr_* elegible"],

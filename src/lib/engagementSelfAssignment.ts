@@ -48,8 +48,19 @@ export const SELF_ASSIGN_PARTNER_ROLE_KEYS = ["partner", "director"] as const;
  * `ita_manager`/`tax_manager` — ya tienen `engagement.create` y ya eran candidatos de
  * Especialista; ahora también se autoasignan como manager_id igual que Gerente, en línea con
  * que 0828-185 los suma al grupo de candidatura 'manager' (doble grupo).
+ *
+ * 1110-220 (D5): `accounting_manager`, `risk_supervisor` y `secretariat_head` crean solo encargos
+ * administrativos y quedan como su Gerente, igual que Talento Humano.
  */
-export const SELF_ASSIGN_MANAGER_ROLE_KEYS = ["manager", "hr_manager", "ita_manager", "tax_manager"] as const;
+export const SELF_ASSIGN_MANAGER_ROLE_KEYS = [
+  "manager",
+  "hr_manager",
+  "ita_manager",
+  "tax_manager",
+  "accounting_manager",
+  "risk_supervisor",
+  "secretariat_head",
+] as const;
 
 export interface SelfAssignmentInput {
   /** En edición no se autoasigna ni se bloquea: el packet pide la regla solo en creación. */

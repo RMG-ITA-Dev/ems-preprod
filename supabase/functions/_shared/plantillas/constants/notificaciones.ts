@@ -45,6 +45,7 @@ export const NOMBRES_ROL_CORREO: Record<string, string> = {
   risk_supervisor: "Supervisor de Riesgos",
   hr_manager: "Gerente de Talento Humano",
   hr_analyst: "Analista de Talento Humano",
+  secretariat_head: "Jefe de Secretaría",
 };
 
 export const TEXTOS_NOTIFICACION: Record<string, Copia> = {

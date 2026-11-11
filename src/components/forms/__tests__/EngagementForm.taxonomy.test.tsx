@@ -123,7 +123,9 @@ let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
   // Estos tests mockean isAdmin: false; con isAdmin derivado de role_key,
   // roleKey debe ser NO-admin para seguir ejercitando el mismo caso.
-  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

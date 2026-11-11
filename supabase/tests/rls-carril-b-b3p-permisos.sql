@@ -110,7 +110,13 @@ BEGIN
    WHERE role_key IN ('collections_analyst', 'accounting_manager', 'accounting_analyst')
      AND permission_key IN ('work_order.create', 'work_order.update', 'work_order.submit',
                             'engagement.create', 'engagement.update',
-                            'client.create', 'client.update', 'client.delete');
+                            'client.create', 'client.update', 'client.delete')
+     -- 1110-220 (D2/D7/D8): el Gerente de Contabilidad crea y gestiona SUS encargos administrativos
+     -- (engagement.create/update y work_order.create/update con alcance assigned_engagements). Envío de
+     -- OT y escrituras de cliente siguen negadas; los dos analistas sin cambio.
+     AND NOT (role_key = 'accounting_manager'
+              AND permission_key IN ('engagement.create', 'engagement.update', 'work_order.create', 'work_order.update')
+              AND scope_key = 'assigned_engagements');
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'B3p PERMISOS FAIL — estos roles no debían ganar escritura: %', v_bad;
   END IF;

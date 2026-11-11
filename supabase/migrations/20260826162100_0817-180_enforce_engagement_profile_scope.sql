@@ -49,6 +49,17 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- 1110-220 (D2): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría crean
+    -- SOLO encargos no-Cliente (funcion 0/2/3). Mismo criterio que hr_analyst, con mensaje propio
+    -- para no tocar el del Analista. Espejo de ADMINISTRATIVE_ONLY_CREATOR_ROLE_KEYS en
+    -- EngagementNew.tsx. La funcion es inmutable después de crear (0722-160), así que basta con
+    -- el INSERT.
+    IF v_role IN ('accounting_manager', 'risk_supervisor', 'secretariat_head')
+       AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: este rol solo puede crear encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
     -- senior_partner no tiene engagement.create en el seed vigente (decisión del operador,
     -- 0817-180 OQ2/OQ6): el chequeo de arriba ya lo rechaza antes de llegar acá, pero la exención
@@ -110,7 +121,7 @@ END;
 $$;
 
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) para accounting_manager/risk_supervisor/secretariat_head y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 GRANT ALL ON FUNCTION public.enforce_engagement_profile_scope() TO anon;

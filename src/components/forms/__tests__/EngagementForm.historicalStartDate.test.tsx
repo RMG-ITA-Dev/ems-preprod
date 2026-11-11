@@ -105,7 +105,9 @@ vi.mock("@/components/engagements/StaffAssignmentsCard", () => ({
 // `isAdmin` del formulario sale de `roleKey === "admin"`. "manager" = editor restringido.
 let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey, isLoading: false, isFetching: false, isError: false }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: mockRoleKey, isLoading: false, isFetching: false, isError: false }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

@@ -267,8 +267,28 @@ BEGIN
   -- + 14 de 1028-211: client.pending_activation (admin + los 2 de alcance por sociedad) y client.activated
   --   (los mismos 3 + los 8 roles que crean clientes, con alcance own).
   -- - 2 de 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval.
-  IF v_grants <> 638 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 638', v_grants;
+  -- + 75 de 1110-220 (D9): avisos de gerente para accounting_manager (21 + 2 reversiones), risk_supervisor
+  --   (23 + 2) y secretariat_head (23 + 2 avisos de cuenta + 2 reversiones).
+  IF v_grants <> 713 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 713', v_grants;
+  END IF;
+  -- 1110-220: los tres Gerentes de encargos administrativos reciben el envío de horas a aprobar.
+  IF (SELECT count(*) FROM public.notification_role_types
+       WHERE type_key = 'timesheet.team_submitted_for_approval' AND scope_key = 'assigned'
+         AND role_key IN ('accounting_manager', 'risk_supervisor', 'secretariat_head')) <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL — accounting_manager/risk_supervisor/secretariat_head deben recibir timesheet.team_submitted_for_approval';
+  END IF;
+  -- 1110-220: el Gerente de Contabilidad conserva el alcance department de sus avisos de fondos.
+  IF (SELECT count(*) FROM public.notification_role_types
+       WHERE role_key = 'accounting_manager' AND scope_key = 'department'
+         AND type_key IN ('fund.expense.manager_auto_approved', 'fund.expense.review_auto_approved')) <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL — accounting_manager perdió el alcance department de sus avisos de fondos';
+  END IF;
+  -- 1110-220: Secretaría sin alta/baja de personal, capacitación ni semanas propias (no carga horas).
+  IF EXISTS (SELECT 1 FROM public.notification_role_types
+              WHERE role_key = 'secretariat_head'
+                AND (type_key LIKE 'staff.%' OR type_key IN ('approval.training_pending', 'timesheet.pending_approval'))) THEN
+    RAISE EXCEPTION 'TEST FAIL — secretariat_head no debe recibir avisos de personal, capacitación ni timesheet.pending_approval';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
                   WHERE role_key = 'hr_manager' AND type_key = 'fund.request.submitted_for_approval'
@@ -279,10 +299,10 @@ BEGIN
               WHERE role_key = 'hr_manager' AND (type_key LIKE 'wo.installment.%' OR type_key LIKE '%risk%')) THEN
     RAISE EXCEPTION 'TEST FAIL — hr_manager no debe recibir avisos de cuotas ni de Riesgos';
   END IF;
-  IF v_roles <> 23 THEN
-    RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
+  IF v_roles <> 24 THEN
+    RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 24', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 97 tipos, 638 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 97 tipos, 713 concesiones, 24 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

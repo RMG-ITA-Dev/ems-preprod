@@ -176,6 +176,8 @@ vi.mock("@/hooks/useAuthorization", async () => {
   const { useUserRole } = await import("@/hooks/useUserRole");
   return {
     useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const,
       can: () => true,
       roleKey: (useUserRole() as unknown as { isAdmin?: boolean })?.isAdmin
         ? "admin"

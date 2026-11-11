@@ -49,6 +49,13 @@ describe("resolveSelfAssignedTeamField — roles que SÍ se autoasignan", () => 
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "ita_manager" })).toBe("manager_id");
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "tax_manager" })).toBe("manager_id");
   });
+
+  it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
+    "%s → manager_id (1110-220: Gerente de sus encargos administrativos)",
+    (roleKey) => {
+      expect(resolveSelfAssignedTeamField({ ...base, roleKey })).toBe("manager_id");
+    },
+  );
 });
 
 describe("resolveSelfAssignedTeamField — exenciones", () => {
@@ -83,8 +90,8 @@ describe("resolveSelfAssignedTeamField — exenciones", () => {
 });
 
 describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
-  // Los 16 role_key restantes del catálogo de 23 (admin/partner/director/manager/hr_manager/
-  // ita_manager/tax_manager se cubren arriba). Esta lista es la que impide que un rol se cuele
+  // Los 14 role_key restantes del catálogo de 24 (admin/partner/director/manager/hr_manager/
+  // ita_manager/tax_manager/accounting_manager/risk_supervisor/secretariat_head se cubren arriba). Esta lista es la que impide que un rol se cuele
   // por descuido al tocar el mapa.
   it.each([
     ["senior"],
@@ -93,13 +100,11 @@ describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
     ["sqr"],
     ["senior_partner"],
     ["risk_partner"],
-    ["risk_supervisor"],
     ["it_security_manager"],
     ["ita_senior"],
     ["ita_assistant"],
     ["tax_senior"],
     ["tax_assistant"],
-    ["accounting_manager"],
     ["accounting_analyst"],
     ["collections_analyst"],
     ["hr_analyst"],

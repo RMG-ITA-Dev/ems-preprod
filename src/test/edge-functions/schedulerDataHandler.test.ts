@@ -210,6 +210,8 @@ describe("visibilityRuleFor (pure, per role_key)", () => {
       "hr_analyst",
       "ita_senior",
       "tax_senior",
+      // 1110-220: Jefe de Secretaría (legacy "manager").
+      "secretariat_head",
     ];
     for (const role of filtered) {
       expect(visibilityRuleFor(role, SEN)).toEqual({ kind: "denied" });

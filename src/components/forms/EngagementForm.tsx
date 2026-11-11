@@ -58,6 +58,7 @@ import {
   selfCandidateOption,
 } from "@/lib/engagementSelfAssignment";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
+import { canEditEngagement } from "@/lib/engagementRoleAccess";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check, Upload, X, FileText } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -312,7 +313,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // Este archivo ya NO usa el enum legacy: todo sale de `role_key` y de los
   // permisos. El toggle de congelamiento del Gerente (`isManager`) se eliminó
   // (0722-157); el estado "Congelado" se retiró del sistema (0817-179).
-  const { can, roleKey, isLoading: roleLoading, isFetching: roleFetching, isError: roleError } = useAuthorization();
+  const { can, scope, roleKey, isLoading: roleLoading, isFetching: roleFetching, isError: roleError } = useAuthorization();
   const isAdmin = roleKey === "admin";
   // BUG 0817-180: Super Admin (role_key admin) y Senior Partner eligen sociedad/practica/oficina
   // libres al crear; el resto queda clasificado por su ficha. Espejo exacto del trigger de BD
@@ -323,8 +324,8 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // el personal, así que necesita el mismo control total que Admin en este campo.
   const canChooseFuncionFreely = roleKey === "admin" || roleKey === "hr_manager" || roleKey === "hr_analyst";
   const isEdit = !!engagement;
-  // Al editar, el guardado exige engagement.update; al crear, la ruta ya gatea engagement.create.
-  const canSave = !isEdit || can("engagement.update");
+  // Al editar, el guardado exige poder editar ESTE encargo (`canEditThisEngagement`, más abajo,
+  // tras resolver la ficha del usuario); al crear, la ruta ya gatea engagement.create.
   // BUG 0828-185 (plan_v2 §c.3): esta pantalla se llega vía la ruta /engagements/:id, gateada
   // solo por engagement.read -- un caller sin engagement.update (p.ej. quien ve el encargo por
   // own_society/own_management del nuevo portafolio) hasta ahora veía todos los campos
@@ -333,7 +334,8 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // del contrato autorizada y StaffAssignmentsCard (autorización propia del Scheduler) siguen
   // intactos. Equivale a `!canSave` (canSave ya es exactamente `can("engagement.update")` en
   // edición) -- se deriva aparte por trazabilidad con la decisión del operador.
-  const readOnly = isEdit && !can("engagement.update");
+  // 1110-220 (D8): `readOnly`/`canSave`/`canEditClosing` se definen más abajo con
+  // `canEditThisEngagement`, que necesita el staff_id del usuario.
   // BUG #0604-143: closing date (and the FY it derives) may be edited by Admin/Gerente/Socio/Director;
   // oficina/practica/funcion/engagement_code remain fully immutable after create.
   // BUG 0817-180: sociedad se suma a la lista de campos con edición restringida tras la creación
@@ -345,7 +347,6 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // campo a roles sin `engagement.update`: veían el campo editable y después no
   // tenían botón de guardar. No cambia lo que nadie PUEDE hacer — solo deja de
   // ofrecer una edición que no se puede persistir.
-  const canEditClosing = can("engagement.update");
   // FEAT 0602-135: control del estado del encargo, ahora en el encabezado de "Información
   // Básica" — Admin edita con <Select> (los 8 estados + "Automático"); el resto ve un badge
   // de solo lectura (0722-157: se retira el toggle de congelar/descongelar del Gerente).
@@ -386,6 +387,24 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     isError: teamCandidatesError,
   } = useEngagementTeamCandidates();
   const { staffRecord, isLoading: currentStaffLoading, isFetching: currentStaffFetching, isError: currentStaffError } = useCurrentStaff();
+
+  // 1110-220 (D8): `can("engagement.update")` ignora el alcance. Con `assigned_engagements` la base
+  // solo deja guardar al creador, al Gerente/Socio asignado o (no-Cliente) a los editores
+  // administrativos; sin este espejo, quien ve el encargo por otro camino (p. ej. Riesgos, que lee
+  // toda la firma, o Contabilidad, toda su sociedad) lo veía editable y el guardado fallaba por RLS.
+  // Fail-closed mientras la ficha carga.
+  const canEditThisEngagement = !!engagement && canEditEngagement({
+    can,
+    scope,
+    roleKey,
+    myStaffId: staffRecord?.staff_id ?? null,
+    engagement,
+  });
+  const canSave = !isEdit || canEditThisEngagement;
+  const readOnly = isEdit && !canEditThisEngagement;
+  // En creación conserva la regla previa (el permiso): `canEditClosing` también decide si el alta
+  // persiste la fecha de cierre.
+  const canEditClosing = isEdit ? canEditThisEngagement : can("engagement.update");
 
   // ── BUG 0817-180: sociedad/práctica/oficina derivadas de la ficha del creador restringido ────
   //

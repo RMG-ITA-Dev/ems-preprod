@@ -56,10 +56,15 @@ vi.mock("@/components/engagements/StaffAssignmentsCard", () => ({
 
 // `can` is per-test controllable: engagement.update is the one permission this suite flips.
 let mockCanUpdate = false;
+// 1110-220: canEditEngagement() lee el alcance. "firm" (default) conserva la semántica previa de este
+// suite; el bloque 1110-220 de abajo lo baja a assigned_engagements.
+let mockScope: string = "firm";
+let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
+    scope: () => mockScope,
     can: (perm: string) => (perm === "engagement.update" ? mockCanUpdate : true),
-    roleKey: "manager",
+    roleKey: mockRoleKey,
     isLoading: false,
     isFetching: false,
     isError: false,
@@ -120,9 +125,54 @@ const mockEngagement: Engagement = {
   work_order: null,
 };
 
+describe("EngagementForm — edición según asignación (1110-220, D8)", () => {
+  beforeEach(() => {
+    mockCanUpdate = true;
+    mockScope = "assigned_engagements";
+    mockRoleKey = "accounting_manager";
+  });
+
+  it("con engagement.update asignado y siendo el Gerente del encargo: editable", () => {
+    render(<EngagementForm engagement={mockEngagement} />);
+    expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
+    expect(screen.getByText("common.saveChanges")).toBeInTheDocument();
+  });
+
+  it("con engagement.update asignado pero sin ser creador, Gerente ni Socio: solo lectura", () => {
+    render(
+      <EngagementForm
+        engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-other" }}
+      />,
+    );
+    expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
+    expect(screen.queryByText("common.saveChanges")).not.toBeInTheDocument();
+  });
+
+  it("el creador edita aunque no sea el Gerente", () => {
+    render(
+      <EngagementForm
+        engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-manager" }}
+      />,
+    );
+    expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
+  });
+
+  it("secretariat_head edita un administrativo ajeno (hereda la regla de Talento Humano)", () => {
+    mockRoleKey = "secretariat_head";
+    render(
+      <EngagementForm
+        engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-other", funcion: 0 }}
+      />,
+    );
+    expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
+  });
+});
+
 describe("EngagementForm — modo de solo lectura (0828-185)", () => {
   beforeEach(() => {
     mockCanUpdate = false;
+    mockScope = "firm";
+    mockRoleKey = "manager";
   });
 
   it("sin engagement.update: muestra el aviso de solo lectura", () => {

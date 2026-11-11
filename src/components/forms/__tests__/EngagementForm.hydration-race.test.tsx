@@ -151,7 +151,9 @@ vi.mock("@/hooks/mutations", () => ({
 // this bug) keep seeing the pre-existing behavior.
 let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({

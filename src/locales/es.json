@@ -511,7 +511,8 @@
       "risk_partner": "Socio de Riesgos",
       "risk_supervisor": "Supervisor de Riesgos",
       "hr_manager": "Gerente de Talento Humano",
-      "hr_analyst": "Analista de Talento Humano"
+      "hr_analyst": "Analista de Talento Humano",
+      "secretariat_head": "Jefe de Secretaría"
     },
     "loadFailed": "No se pudo verificar tus permisos. Intenta de nuevo.",
     "retry": "Reintentar",

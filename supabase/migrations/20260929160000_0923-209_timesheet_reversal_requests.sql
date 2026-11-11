@@ -576,7 +576,11 @@ INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUE
   ('director',      'approval.reversal_executed', 'assigned'),
   ('sqr',           'approval.reversal_executed', 'assigned'),
   ('risk_partner',  'approval.reversal_executed', 'assigned'),
-  ('admin',         'approval.reversal_executed', 'assigned')
+  ('admin',         'approval.reversal_executed', 'assigned'),
+  -- 1110-220 (D9): Gerentes de encargos administrativos.
+  ('accounting_manager', 'approval.reversal_executed', 'assigned'),
+  ('risk_supervisor',    'approval.reversal_executed', 'assigned'),
+  ('secretariat_head',   'approval.reversal_executed', 'assigned')
 ON CONFLICT (role_key, type_key) DO NOTHING;
 
 -- approval.reversal_rejected -> el solicitante, alcance own. Cualquier rol que pueda ser dueño
@@ -603,5 +607,9 @@ INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUE
   ('director',            'approval.reversal_rejected', 'own'),
   ('sqr',                 'approval.reversal_rejected', 'own'),
   ('risk_partner',        'approval.reversal_rejected', 'own'),
-  ('it_security_manager', 'approval.reversal_rejected', 'own')
+  ('it_security_manager', 'approval.reversal_rejected', 'own'),
+  -- 1110-220 (D9): piden reversiones de alcance ENCARGO como Gerentes de sus encargos administrativos.
+  ('accounting_manager',  'approval.reversal_rejected', 'own'),
+  ('risk_supervisor',     'approval.reversal_rejected', 'own'),
+  ('secretariat_head',    'approval.reversal_rejected', 'own')
 ON CONFLICT (role_key, type_key) DO NOTHING;

@@ -131,3 +131,38 @@ describe("EngagementNew — hr_analyst always creates administrative engagements
     expect(screen.getByTestId("administrative-mode")).toHaveTextContent("false");
   });
 });
+
+// 1110-220 (D2): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría tampoco crean
+// encargos de Cliente. Espejo del trigger enforce_engagement_profile_scope.
+describe("EngagementNew — roles administrativos de 1110-220", () => {
+  it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
+    "forces administrativeMode for %s without ?mode=administrative",
+    (roleKey) => {
+      mockRoleKey = roleKey;
+      try {
+        render(
+          <MemoryRouter initialEntries={["/engagements/new"]}>
+            <EngagementNew />
+          </MemoryRouter>
+        );
+        expect(screen.getByTestId("administrative-mode")).toHaveTextContent("true");
+      } finally {
+        mockRoleKey = "manager";
+      }
+    },
+  );
+
+  it("hr_manager keeps the client flow (Talento Humano sin cambios)", () => {
+    mockRoleKey = "hr_manager";
+    try {
+      render(
+        <MemoryRouter initialEntries={["/engagements/new"]}>
+          <EngagementNew />
+        </MemoryRouter>
+      );
+      expect(screen.getByTestId("administrative-mode")).toHaveTextContent("false");
+    } finally {
+      mockRoleKey = "manager";
+    }
+  });
+});

@@ -117,6 +117,8 @@ vi.mock("@/hooks/useUserRole", () => ({
 // isAdmin que ya usaban estos tests para no cambiar lo que ejercitan.
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const,
     // `engagement.update` es lo que ahora gatea la fecha de cierre (y el guardado),
     // así que se ata a la misma banda que estos tests ya modelaban con
     // isAdmin/isManager. El resto de permisos se deja en true para no alterar
