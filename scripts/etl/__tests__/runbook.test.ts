@@ -11,7 +11,7 @@ const hasBash = (() => { try { execFileSync("bash", ["-c", "true"], { stdio: "ig
 
 describe("runbook ETL F1→F3: guardas estáticas", () => {
   it("existen los pasos 00–50, la biblioteca y el orquestador", () => {
-    expect(scripts).toEqual(["00-preflight.sh", "10-reset.sh", "11-recover-reset.sh", "20-f1.sh", "30-f2.sh", "35-bajas.sh", "40-f3.sh", "50-reconcile.sh", "lib.sh", "run.sh"]);
+    expect(scripts).toEqual(["00-preflight.sh", "10-reset.sh", "11-recover-reset.sh", "15-crones.sh", "20-f1.sh", "30-f2.sh", "35-bajas.sh", "40-f3.sh", "50-reconcile.sh", "lib.sh", "run.sh"]);
   });
   it.skipIf(!hasBash)("todos los scripts pasan bash -n", () => {
     for (const name of scripts) expect(() => execFileSync("bash", ["-n", path.join(dir, name)], { stdio: "pipe" }), name).not.toThrow();
@@ -37,15 +37,16 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     const lib = read("lib.sh");
     expect(lib).toMatch(/--yes-local solo existe para el ensayo local/);
     expect(lib).toMatch(/\[\[ "\$ENV_NAME" == "local" && "\$ASSUME_LOCAL_YES" == "1" \]\]/);
-    expect(read("35-bajas.sh")).toContain('rb_confirm "APLICAR 8 BAJAS"');
+    expect(read("35-bajas.sh")).toContain('rb_confirm "APLICAR ${N_INACTIVE} BAJAS"');
+    expect(read("15-crones.sh")).toContain('rb_confirm "PAUSAR CRONES"');
     expect(read("11-recover-reset.sh")).toContain('rb_confirm "DROP fund_request_number_seq"');
     expect(read("40-f3.sh")).toContain('rb_confirm "ACEPTO ${block}"');
     expect(read("lib.sh")).toContain('rb_confirm "VENTANA ${PROJECT_REF}"');
   });
   it("F3 corre después de las bajas y los bloques respetan el orden de dependencias", () => {
     const f3 = read("40-f3.sh");
-    expect(f3).toContain('"$inactive" == "8"');
-    const order = ["engagement_block client-engagements", "engagement_block administrative-engagements", "engagement_block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
+    expect(f3).toContain('"$inactive" == "$N_INACTIVE"');
+    const order = ["engagement_block client-engagements", "engagement_block administrative-engagements", "engagement_block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation invoices", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
     expect(order.every((index) => index > 0)).toBe(true);
     expect([...order]).toEqual([...order].sort((a, b) => a - b));
   });
@@ -57,7 +58,7 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     for (const mark of ["wo.state === 'CONFIRMADA'", "wo.syncCompletedAt", "wo.expensesCompletedAt", "wo.paymentsCompletedAt", "wo.risksCompletedAt", "wo.emailsContainedAt"]) expect(f3, mark).toContain(mark);
     expect(f3).toContain("acceptedAt");
     const second = read("50-reconcile.sh").split('rb_info "2. Segunda pasada de F3')[1] ?? "";
-    for (const op of ["sync-work-orders expenses risks contain-emails", "--operation hours", "client-engagements", "administrative-engagements"]) expect(second, op).toContain(op);
+    for (const op of ["sync-work-orders expenses risks invoices contain-emails", "--operation hours", "client-engagements", "administrative-engagements"]) expect(second, op).toContain(op);
     expect(second).not.toMatch(/--block matrices/);
     expect(second).not.toMatch(/--operation payments/);
     expect(second).not.toMatch(/load --block work-orders\s*$/m);
@@ -81,6 +82,29 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(reconcile).toContain('[[ "$RECORD_FP" != "1" || "$ENV_NAME" == "local" ]] || rb_die');
     expect(reconcile.indexOf('"$RECORD_FP" != "1" || "$ENV_NAME" == "local"')).toBeLessThan(reconcile.indexOf("rb_etl 3 fingerprint"));
     expect(reconcile).toContain('[[ "$base_env" == "local" ]] || rb_die');
+  });
+  // Las cifras del runbook salen del manifiesto del snapshot, no de constantes (8 bajas, 145 activas, 124 OT, 15/11…).
+  it("el runbook toma corte, bajas, conteos y fecha límite del manifiesto del snapshot", () => {
+    const lib = read("lib.sh");
+    expect(lib).toContain("rb_manifest()"); expect(lib).toContain("rb_manifest_required()"); expect(lib).toContain("scripts/etl/snapshots/");
+    const bajas = read("35-bajas.sh");
+    for (const key of ["dates.staffCut", "f2.inactiveStaff", "f2.activeStaff", "f2.schedulableStaff"]) expect(bajas, key).toContain(key);
+    expect(bajas).not.toMatch(/145\|8\|8\|145|CUT="2026-10-23"|== "8"/);
+    const f3 = read("40-f3.sh");
+    for (const key of ["f2.inactiveStaff", "f3.clientEngagements", "f3.workOrders", "f3.payments.billable", "invoicedInstallments"]) expect(f3, key).toContain(key);
+    expect(f3).not.toMatch(/124 OT|75 presupuestos|277 cuotas|horas \(25\.226/);
+    const pre = read("00-preflight.sh");
+    expect(pre).toContain("preflight.executionDeadline"); expect(pre).not.toContain("<= 15/11/2026");
+    expect(read("30-f2.sh")).not.toMatch(/268 clientes|153 fichas|las 8 bajas/);
+  });
+  // D24 (10/11/2026): los crones de notificaciones quedan pausados (y verificados) antes de cargar; los correos salen por Railway después de la migración.
+  it("el paso 15 pausa y verifica los crones notif-% sin reactivarlos, y F3 puede fijar TS_TRACKING_START_DATE al lunes de arranque", () => {
+    const crones = read("15-crones.sh");
+    expect(crones).toContain("jobname like 'notif-%'"); expect(crones).toContain("cron.alter_job(jobid, active := false)"); expect(crones).not.toMatch(/active := true/);
+    expect(crones).toContain("quedan ${still} crones notif-% activos");
+    const f3 = read("40-f3.sh");
+    expect(f3).toContain("--tracking-start"); expect(f3).toContain("TS_TRACKING_START_DATE"); expect(f3).toMatch(/PENDIENTE \(D24\)/); expect(f3).toMatch(/debe ser un lunes/);
+    expect(read("00-preflight.sh")).toContain("Crones de notificaciones pausados (paso 15)");
   });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");

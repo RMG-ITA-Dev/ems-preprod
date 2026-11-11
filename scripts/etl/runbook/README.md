@@ -13,10 +13,11 @@ corrida.
 | 00 | `00-preflight.sh` | Rama, commit subido, 61 migraciones, coherencia del ref, estado actual, huellas de los CSV, `validate` offline de F2/F3 | no |
 | 10 | `10-reset.sh` | Reset desde cero y verificación `preinit` (test: `reset-desde-cero.sh`; local: `supabase db reset --local`) | **borra todo** |
 | 11 | `11-recover-reset.sh` | Solo Test, solo si el 10 cayó en el hallazgo §6.1: DROP de la secuencia suelta, `db push`, borrado de Auth, verificación | sí |
+| 15 | `15-crones.sh` | **Pausa verificada** de los crones `notif-%` (D24): los pausa con la frase `PAUSAR CRONES`, verifica que ninguno quede activo y **no** los reactiva (los correos salen por Railway después de la migración) | sí |
 | 20 | `20-f1.sh` | F1: `preflight`/`initialize`/`verify`, `verify-seed`, `verify-auth-bootstrap`, segunda `initialize` sin cambios | sí |
 | 30 | `30-f2.sh` | F2: `validate`/`preflight`/`load`/`verify`/`report`, segunda `load` sin cambios, sondeos opcionales (`--probe legacy:N`) | sí |
-| 35 | `35-bajas.sh` | Paso manual de las 8 bajas (145 activas / 8 inactivas), verificado por SQL contra el journal de F2 | sí |
-| 40 | `40-f3.sh` | F3 por bloques con acta de aceptación escrita por Marcelo (`ACEPTO <bloque>`) | sí |
+| 35 | `35-bajas.sh` | Paso manual de las bajas (al 06/11: 151 activas / 16 inactivas, corte 2026-11-06), verificado por SQL contra el journal de F2; frase `APLICAR <n> BAJAS` | sí |
+| 40 | `40-f3.sh` | F3 por bloques con acta de aceptación escrita por Marcelo (`ACEPTO <bloque>`); incluye las cuotas facturadas (`--operation invoices`, D19) y, con `--tracking-start <lunes>`, fija `TS_TRACKING_START_DATE` (D24) | sí |
 | 50 | `50-reconcile.sh` | `reconcile-legacy` (L1–L8), segunda pasada de F3 con huella md5 de las tablas del lote, resumen sin PII | no (relecturas) |
 | — | `run.sh` | Encadena los pasos con una pausa `SIGUE` entre cada uno | según paso |
 

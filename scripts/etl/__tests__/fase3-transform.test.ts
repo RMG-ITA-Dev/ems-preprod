@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addBusinessDays, adjustedFee, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, executionContributions, expensePayload, feeWithTax, paymentArtifacts, seasonForIndustry } from "../fase3-transform.mjs";
+import { addBusinessDays, adjustedFee, aliasProfile, budgetInOtCurrency, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, executionContributions, expensePayload, feeWithTax, paymentArtifacts, seasonForIndustry } from "../fase3-transform.mjs";
 
 describe("ETL fase 3: transformaciones", () => {
   it("mantiene 30/70 como residuo y consolida sin período/forecast", () => {
@@ -24,7 +24,7 @@ describe("ETL fase 3: transformaciones", () => {
     expect(() => executionContributions({ ...base, legacy_department_id: "1", legacy_specialty_id: "1" })).toThrow(/colisión/);
   });
   it("calcula temporadas, honorario y calendario sin flotantes acumulados", () => {
-    expect(seasonForIndustry(10)).toBe("Low"); expect(seasonForIndustry(11)).toBe("High"); expect(decimalUnits("2.0000")).toBe(200n); expect(adjustedFee("10", "12.34")).toBe("2.34"); expect(feeWithTax("84")).toBe("100"); expect(feeWithTax("100")).toBe("119.05"); expect(feeWithTax("2940")).toBe("3500");
+    expect(seasonForIndustry(10)).toBe("High"); expect(seasonForIndustry(12)).toBe("High"); expect(seasonForIndustry(37)).toBe("High"); expect(seasonForIndustry(11)).toBe("High"); expect(decimalUnits("2.0000")).toBe(200n); expect(adjustedFee("10", "12.34")).toBe("2.34"); expect(feeWithTax("84")).toBe("100"); expect(feeWithTax("100")).toBe("119.05"); expect(feeWithTax("2940")).toBe("3500"); expect(feeWithTax("170352.96")).toBe("202801.15"); expect(feeWithTax("28352")).toBe("33752.39"); expect(feeWithTax("10")).toBe("11.91");
     // Lunes a viernes, sin feriados: el 25/12 (feriado) cuenta como día laborable y el fin de semana se salta.
     expect(addBusinessDays("2026-12-24", 1)).toBe("2026-12-25"); expect(addBusinessDays("2026-12-25", 1)).toBe("2026-12-28");
   });
@@ -49,16 +49,57 @@ describe("ETL fase 3: transformaciones", () => {
     expect(bob.installments[0]).toMatchObject({ percentage: "100", exchange_rate_mode: null, payment_days: 30, payment_due_date: "2027-02-04" });
     expect(usd.installments[0]).toMatchObject({ exchange_rate_mode: "fijo", amount: "100" });
   });
-  it("construye encargos cliente y administrativos sólo con los cruces aprobados", () => {
-    const maps = {
-      clients: { "legacy:9": { id: "client", name: "Cliente Legal" }, "NEW-RP": { id: "internal", name: "Ruizmier Pelaez S.R.L." } },
-      services: { "17": { id: "service", name: "Auditoría" } }, staff: { "legacy:1": "partner", "legacy:2": "manager" },
-      societies: { Pelaez: "rp", Jauregui: "rj" }, internalClientId: "internal", officeByStaffId: { partner: 2 },
-    };
-    const [client] = buildClientEngagementPayloads([{ legacy_cot: "2026.21.098", gestion: "2026", legacy_department_id: "1", legacy_client_id: "9", legacy_service_id: "17", legacy_partner_profile_id: "1", legacy_manager_profile_id: "2", legacy_sqr_profile_id: "", legacy_manager_in_charge_profile_id: "", legacy_it_specialist_profile_id: "", legacy_tax_specialist_profile_id: "", legacy_city_id: "1", ems_start_date: "2026-03-29" }], maps);
-    expect(client).toMatchObject({ name: "Cliente Legal - FY 2026 - Auditoría", startDate: "2026-03-29", endDate: "2026-11-15", societyId: "rp", practice: 1, function: 1 });
-    const [admin] = buildAdministrativeEngagementPayloads([{ legacy_cot: "2027.10.101", legacy_engagement_name: "  Administrativo  ", legacy_partner_profile_id: "1", legacy_created_date: "2026-10-01" }], maps);
-    expect(admin).toMatchObject({ name: "Administrativo", clientId: "internal", partnerId: "partner", managerId: null, encargadoId: null, office: 2, practice: 0, function: 0, societyId: "rp" });
+  const engagementMaps = {
+    clients: { "legacy:9": { id: "client", name: "Cliente Legal" }, "NEW-RP": { id: "internal-rp", name: "Ruizmier Pelaez S.R.L." }, "NEW-RJ": { id: "internal-rj", name: "Ruizmier Jauregui S.R.L." } },
+    services: { "17": { id: "service", name: "Auditoría" } }, staff: { "legacy:1": "partner", "legacy:2": "manager", "legacy:62": "mary", "legacy:68": "partner-rj", "legacy:94": "hr" },
+    societies: { Pelaez: "rp", Jauregui: "rj" }, internalClientId: "internal-rp", internalClients: { Pelaez: "internal-rp", Jauregui: "internal-rj" },
+    officeByStaffId: { partner: 2, "partner-rj": 1 }, societyKeyByStaffId: { partner: "Pelaez", "partner-rj": "Jauregui" },
+  };
+  const clientRow = { legacy_cot: "2026.21.098", gestion: "2026", legacy_department_id: "1", legacy_client_id: "9", legacy_service_id: "17", legacy_partner_profile_id: "1", legacy_manager_profile_id: "2", legacy_sqr_profile_id: "", legacy_manager_in_charge_profile_id: "", legacy_it_specialist_profile_id: "", legacy_tax_specialist_profile_id: "", legacy_city_id: "1", ems_start_date: "2026-03-29", ems_end_date: "2026-11-30" };
+  const endDates = { allowed: ["2026-11-30", "2027-09-30"], byYear: null, counts: { "2026-11-30": 1, "2027-09-30": 1 } };
+  it("construye encargos cliente: nombre {cliente} - {servicio} - {COT}, fin desde el CSV validado por el manifiesto, años fiscales 2024 a 2027", () => {
+    const [client] = buildClientEngagementPayloads([clientRow], engagementMaps, { endDates });
+    expect(client).toMatchObject({ name: "Cliente Legal - Auditoría - 2026.21.098", startDate: "2026-03-29", endDate: "2026-11-30", closingDate: "2026-09-30", fiscalYear: 2026, societyId: "rp", practice: 1, function: 1 });
+    const [old] = buildClientEngagementPayloads([{ ...clientRow, legacy_cot: "2024.22.007", gestion: "2024", ems_end_date: "2027-09-30" }], engagementMaps, { endDates });
+    expect(old).toMatchObject({ name: "Cliente Legal - Auditoría - 2024.22.007", endDate: "2027-09-30", closingDate: "2024-09-30", fiscalYear: 2024 });
+    // Un fin que el manifiesto no permite, o ausente sin fin por gestión, bloquea.
+    expect(() => buildClientEngagementPayloads([{ ...clientRow, ems_end_date: "2026-11-15" }], engagementMaps, { endDates })).toThrow(/no permitido/);
+    expect(() => buildClientEngagementPayloads([{ ...clientRow, ems_end_date: "" }], engagementMaps, { endDates })).toThrow(/no resuelto/);
+    expect(() => buildClientEngagementPayloads([clientRow], engagementMaps)).toThrow(/exige endDates/);
+    // Regresión del 23/10: sin ems_end_date el manifiesto da el fin por gestión.
+    const legacyDates = { allowed: ["2026-11-15", "2027-09-30"], byYear: { "2026": "2026-11-15", "2027": "2027-09-30" }, counts: null };
+    expect(buildClientEngagementPayloads([{ ...clientRow, ems_end_date: "" }], engagementMaps, { endDates: legacyDates })[0].endDate).toBe("2026-11-15");
+  });
+  it("el perfil legacy 89 se absorbe en el 62 en cualquier responsable", () => {
+    expect(aliasProfile(89)).toBe("62"); expect(aliasProfile("62")).toBe("62"); expect(aliasProfile(" 94 ")).toBe("94");
+    const [client] = buildClientEngagementPayloads([{ ...clientRow, legacy_manager_profile_id: "89" }], engagementMaps, { endDates });
+    expect(client.managerId).toBe("mary");
+  });
+  it("administrativas: socio y gerente (el aprobador), sociedad y cliente interno según el socio", () => {
+    const row = { legacy_cot: "2027.10.101", legacy_engagement_name: "  Administrativo  ", legacy_partner_profile_id: "1", legacy_approver_profile_id: "94", legacy_created_date: "2026-10-01" };
+    const [admin] = buildAdministrativeEngagementPayloads([row], engagementMaps);
+    expect(admin).toMatchObject({ name: "Administrativo", clientId: "internal-rp", partnerId: "partner", managerId: "hr", sqrId: null, encargadoId: null, itSpecialistId: null, taxSpecialistId: null, office: 2, practice: 0, function: 0, societyId: "rp", endDate: "2027-09-30" });
+    const [jauregui] = buildAdministrativeEngagementPayloads([{ ...row, legacy_partner_profile_id: "68", legacy_approver_profile_id: "89" }], engagementMaps);
+    expect(jauregui).toMatchObject({ clientId: "internal-rj", societyId: "rj", partnerId: "partner-rj", managerId: "mary", office: 1 });
+    expect(() => buildAdministrativeEngagementPayloads([{ ...row, legacy_approver_profile_id: "999" }], engagementMaps)).toThrow(/aprobador administrativo/);
+    expect(() => buildAdministrativeEngagementPayloads([row], { ...engagementMaps, societyKeyByStaffId: {} })).toThrow(/sociedad del socio/);
+  });
+  it("D26: el honorario de una OT en BOB es presupuestoHoras × TC de la OT (hacia arriba al centavo); en USD no cambia", () => {
+    const bob = (fee: string, rate: string) => budgetInOtCurrency({ legacy_cot: "x", legacy_fee_with_tax: fee, legacy_currency_raw: "0", legacy_exchange_rate: rate });
+    expect(bob("24476", "6.96")).toBe("170352.96"); expect(bob("112452", "12.26")).toBe("1378661.52");
+    expect(bob("0.13", "6.96")).toBe("0.91");
+    expect(budgetInOtCurrency({ legacy_cot: "x", legacy_fee_with_tax: "2940", legacy_currency_raw: "1", legacy_exchange_rate: "6.96" })).toBe("2940");
+    expect(() => bob("100", "0")).toThrow(/TC BOB/);
+    expect(() => budgetInOtCurrency({ legacy_cot: "x", legacy_fee_with_tax: "1", legacy_currency_raw: "7", legacy_exchange_rate: "1" })).toThrow(/moneda legacy/);
+  });
+  it("D18: solo los COT con tolerancia aprobada pueden sumar 100,03 % (la última cuota absorbe el exceso); D19: marca las cuotas facturadas", () => {
+    const rows = (cot: string, total: number) => Array.from({ length: 7 }, (_, index) => ({ legacy_cot: cot, legacy_installment_number: String(index + 1), legacy_percentage: index < 6 ? "14.290000" : `${(total - 85.74).toFixed(6)}`, legacy_invoice_date: "2024-06-15", legacy_currency_raw: "1", proposed_disposition: index === 0 ? "cuota_facturada" : "cuota_facturable" }));
+    const result = paymentArtifacts(rows("2024.22.002", 100.03), "16890.80", { toleranceCots: ["2024.22.002"] });
+    expect(result.installments).toHaveLength(7); expect(result.installments[0].invoiced).toBe(true); expect(result.installments[1].invoiced).toBe(false);
+    expect(result.installments.reduce((sum, row) => sum + Math.round(Number(row.amount) * 100), 0)).toBe(1689080);
+    expect(() => paymentArtifacts(rows("2024.22.002", 100.03), "16890.80")).toThrow(/no conciliable/);
+    expect(() => paymentArtifacts(rows("2024.22.009", 100.03), "16890.80", { toleranceCots: ["2024.22.002"] })).toThrow(/no conciliable/);
+    expect(() => paymentArtifacts(rows("2024.22.002", 100.04), "16890.80", { toleranceCots: ["2024.22.002"] })).toThrow(/no conciliable/);
   });
   it("reconsolida perfiles legacy equivalentes en la clave única EMS", () => {
     const common = { engagementId: "e", activityId: "a", dateWorked: "2026-06-01", isForecast: false, periodId: null };

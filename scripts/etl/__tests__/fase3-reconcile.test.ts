@@ -45,7 +45,7 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
   });
   const actualFor = (expected: ReturnType<typeof legacyExpectations>) => ({
     clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55",
-    expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
+    expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, installmentsInvoiced: 0, installmentsPending: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
     hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]],
     holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" }, _expected: expected,

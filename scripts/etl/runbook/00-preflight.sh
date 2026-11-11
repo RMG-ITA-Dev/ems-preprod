@@ -64,11 +64,24 @@ TECH_ADMIN_ID="00000000-0000-4000-8000-000000000001" rb_write_config 3
 rb_etl 3 validate
 rm -f "$(rb_config_path 3)"   # se regenera con el actor técnico verdadero en el paso 40
 
+# Fecha límite de ejecución: la declara el manifiesto del snapshot (al 06/11/2026: 30/11/2026, fin de vigencia de las 45 OT terminadas).
+DEADLINE_ISO="$(rb_manifest preflight.executionDeadline)"
+if [[ "$DEADLINE_ISO" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  DEADLINE_TXT="${DEADLINE_ISO:8:2}/${DEADLINE_ISO:5:2}/${DEADLINE_ISO:0:4}"
+  if [[ "$(date +%F)" > "$DEADLINE_ISO" ]]; then
+    if [[ "$ENV_NAME" == "local" ]]; then rb_warn "hoy supera la fecha límite del manifiesto (${DEADLINE_TXT}): en local no bloquea"; else { rb_warn "hoy supera la fecha límite de ejecución del manifiesto (${DEADLINE_TXT}): las OT con fin de vigencia en esa fecha quedarían bloqueadas"; fail=1; }; fi
+  else rb_pass "fecha de ejecución dentro del límite del manifiesto (<= ${DEADLINE_TXT})"; fi
+else
+  DEADLINE_TXT="(sin declarar en el manifiesto)"
+  [[ "$ENV_NAME" == "local" ]] && rb_warn "el manifiesto no declara preflight.executionDeadline" || { rb_warn "el manifiesto no declara preflight.executionDeadline (obligatorio fuera de local)"; fail=1; }
+fi
+
 rb_info "6. Confirmaciones humanas pendientes (no verificables desde el repositorio)"
-cat >&2 <<'EOF'
+cat >&2 <<EOF
    [ ] Respaldo de Test restaurable.            [ ] MAIL_ENABLED=false en Test.
    [ ] Registro público cerrado.                [ ] Ventana exclusiva de altas.
-   [ ] Fecha de ejecución <= 15/11/2026 (fin FY2026; F3-Q07).
+   [ ] Fecha de ejecución <= ${DEADLINE_TXT} (manifiesto del snapshot; fin de vigencia de las OT terminadas).
    [ ] El front que se despliegue en Test trae tax_id.
+   [ ] Crones de notificaciones pausados (paso 15) y correos por Railway solo DESPUÉS de la migración (D24).
 EOF
 [[ "$fail" == "0" ]] && { rb_pass "PRE-VUELO COMPLETO: sin hallazgos"; exit 0; } || rb_die "PRE-VUELO CON HALLAZGOS: corríjalos antes de escribir en ${ENV_NAME}"

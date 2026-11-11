@@ -12,6 +12,9 @@ export const HEADERS = Object.freeze({
   services: ["legacy_service_id", "ems_service_name", "equivalence_basis"],
 });
 
+// Un control sin declarar (null/undefined) en el manifiesto no se aplica aquí: parseConfig ya bloquea los null fuera de local.
+const off = (expected, actual) => expected !== null && expected !== undefined && expected !== actual;
+// Valores del snapshot 23/10 (regresión y pruebas); la fuente de verdad por snapshot es scripts/etl/snapshots/<base>.json.
 export const EXPECTED = Object.freeze({ clients: 268, contacts: 111, staff: 153, users: 153, rates: 15, services: 46, activeStaff: 145, inactiveStaff: 8, schedulableStaff: 145 });
 export const EXCLUDED_CLIENT_REFS = Object.freeze(["legacy:1", "legacy:2", "legacy:3", "legacy:65", "legacy:199"]);
 export const REQUIRED_CLIENT_REFS = Object.freeze(["legacy:89", "NEW-CAINCO", "NEW-AEV", "NEW-RP", "NEW-RJ"]);
@@ -121,19 +124,81 @@ export function validateClients(rows, { expected = EXPECTED, enforceExpected = t
     if (!CLIENT_TYPES.has(row.client_type) || (row.parent_relationship && !PARENT_RELATIONSHIPS.has(row.parent_relationship)) || (row.client_type === "fideicomiso" && row.parent_relationship === "sucursal_de")) throw new Fase2InputError(`clientes: tipo o relación no permitidos (${row.source_ref})`);
   }
   for (const ref of REQUIRED_CLIENT_REFS) if (!refs.has(ref)) throw new Fase2InputError(`clientes: falta ${ref}`);
-  if (enforceExpected && rows.length !== expected.clients) throw new Fase2InputError(`clientes: se esperaban ${expected.clients}, llegaron ${rows.length}`);
+  if (enforceExpected && off(expected.clients, rows.length)) throw new Fase2InputError(`clientes: se esperaban ${expected.clients}, llegaron ${rows.length}`);
   return topoOrder(rows);
 }
 
-export function validateContacts(rows, clients, { expected = EXPECTED, enforceExpected = true } = {}) {
-  const refs = new Set(clients.map((row) => row.source_ref)); const found = new Set();
+// Nombre del contacto «línea corporativa» (D23, 10/11/2026): lleva el teléfono (y el correo, si existiera) de la organización cuando el
+// legacy no lo guarda como persona. Un cliente sin teléfono ni correo no tiene este contacto.
+export const CORPORATE_LINE_NAME = "Línea corporativa";
+
+/**
+ * Identidad de un contacto dentro de un cliente (D23, criterio por confirmar con Marcelo): el nombre normalizado
+ * (minúsculas, sin acentos, sin signos y con espacios colapsados). Dos filas del mismo cliente con la misma clave son el mismo contacto.
+ * Se aísla aquí para poder cambiar el criterio (por correo, o nombre + correo) sin tocar el validador ni el cargador.
+ */
+export function contactIdentityKey(fullName) {
+  return String(fullName ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Criterios de «contacto distinto» dentro de un cliente (D23). Aislados aquí para cambiarlos sin tocar el validador:
+ *   "name"        (anterior: 238 contactos al 06/11) → la misma persona = el mismo nombre normalizado.
+ *   "email-first" (226 contactos)                    → primero por correo válido; sin correo, por nombre normalizado, salvo que ese nombre
+ *                                                      ya esté en un contacto CON correo del mismo cliente (entonces es el mismo contacto).
+ *   "channel"     (VIGENTE, cerrado por Marcelo el 11/11/2026; 226 contactos: 208 + 3 + 15) → el contacto es el CANAL: la clave es el correo
+ *                 válido; si no hay, el teléfono válido; si no hay ninguno, el nombre. Un correo con varios nombres es UN contacto (nombre
+ *                 más largo); un nombre con varios correos o teléfonos son varios contactos con el mismo nombre. Un teléfono que ya viaja
+ *                 en un contacto con correo del mismo cliente no genera otro contacto, y una fila solo con nombre no genera contacto si ese
+ *                 nombre ya está en un contacto con correo o teléfono del mismo cliente.
+ * Devuelve las filas repetidas ({ clientRef, reason }) para que el validador las rechace: el CSV debe llegar ya deduplicado.
+ */
+export const CONTACT_CRITERIA = Object.freeze(["name", "email-first", "channel"]);
+export const DEFAULT_CONTACT_CRITERION = "channel";
+const VALID_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phoneDigits = (value) => { const digits = String(value ?? "").replace(/\D+/g, ""); return digits.length >= 7 ? digits : ""; };
+export function duplicateContacts(rows, criterion = DEFAULT_CONTACT_CRITERION) {
+  if (!CONTACT_CRITERIA.includes(criterion)) throw new Fase2InputError(`contactos: criterio de contacto distinto desconocido (${criterion})`);
+  const duplicates = []; const byClient = new Map();
+  for (const row of rows) byClient.set(row.client_source_ref, [...(byClient.get(row.client_source_ref) ?? []), row]);
+  for (const [clientRef, contacts] of byClient) {
+    const seen = new Set(); const emailNames = new Set(); const emailPhones = new Set(); const channelNames = new Set();
+    for (const row of contacts) {
+      const hasEmail = VALID_EMAIL.test(String(row.email ?? "").trim()); const digits = phoneDigits(row.phone);
+      if (criterion === "email-first" && hasEmail) emailNames.add(contactIdentityKey(row.full_name));
+      if (criterion === "channel") { if (hasEmail && digits) emailPhones.add(digits); if (hasEmail || digits) channelNames.add(contactIdentityKey(row.full_name)); }
+    }
+    for (const row of contacts) {
+      const name = contactIdentityKey(row.full_name); const email = String(row.email ?? "").trim().toLowerCase(); const hasEmail = VALID_EMAIL.test(email); const digits = phoneDigits(row.phone);
+      let key; let covered = false;
+      if (criterion === "name") key = `name:${name}`;
+      else if (hasEmail) key = `email:${email}`;
+      else if (criterion === "channel" && digits) { key = `phone:${digits}`; covered = emailPhones.has(digits); }
+      else { key = `name:${name}`; covered = criterion === "email-first" ? emailNames.has(name) : channelNames.has(name); }
+      if (covered || seen.has(key)) duplicates.push({ clientRef, reason: covered ? `${name || digits} ya está en un contacto con correo o teléfono` : key.replace(/^(name|email|phone):/, "") });
+      seen.add(key);
+    }
+  }
+  return duplicates;
+}
+
+// Reglas D23/D25 (10/11/2026): un cliente puede tener VARIOS contactos distintos; solo el nombre es obligatorio; una celda vacía es dato
+// ausente (NULL, nunca ''); el cargo del contacto no se carga (client_contacts no tiene columna de cargo).
+export function validateContacts(rows, clients, { expected = EXPECTED, enforceExpected = true, contactCriterion = DEFAULT_CONTACT_CRITERION } = {}) {
+  const refs = new Set(clients.map((row) => row.client_source_ref ?? row.source_ref));
   for (const row of rows) {
     if (!refs.has(row.client_source_ref)) throw new Fase2InputError(`contactos: cliente huérfano ${row.client_source_ref}`);
-    if (found.has(row.client_source_ref)) throw new Fase2InputError(`contactos: duplicado ${row.client_source_ref}`);
-    found.add(row.client_source_ref);
-    if (row.contact_type !== "general" || !row.full_name || !row.email || !row.phone || bool(row.is_active, `contactos ${row.client_source_ref}.is_active`) !== true) throw new Fase2InputError(`contactos: fila inválida para ${row.client_source_ref}`);
+    if (row.contact_type !== "general" || bool(row.is_active, `contactos ${row.client_source_ref}.is_active`) !== true) throw new Fase2InputError(`contactos: fila inválida para ${row.client_source_ref}`);
+    const name = String(row.full_name ?? ""); const identity = contactIdentityKey(name);
+    if (!name.trim() || !identity) throw new Fase2InputError(`contactos: el nombre es obligatorio (${row.client_source_ref})`);
+    if (name !== name.trim()) throw new Fase2InputError(`contactos: nombre con espacios sobrantes (${row.client_source_ref})`);
+    for (const field of ["email", "phone"]) if (row[field] !== "" && row[field] !== row[field].trim()) throw new Fase2InputError(`contactos: ${field} con espacios sobrantes o vacío escrito (${row.client_source_ref}); una celda vacía debe quedar sin texto`);
+    // «Línea corporativa» existe solo para llevar el teléfono o el correo de la organización: sin ninguno de los dos no se crea (D23).
+    if (identity === contactIdentityKey(CORPORATE_LINE_NAME) && !row.email && !row.phone) throw new Fase2InputError(`contactos: «${CORPORATE_LINE_NAME}» sin teléfono ni correo (${row.client_source_ref})`);
   }
-  if (enforceExpected && rows.length !== expected.contacts) throw new Fase2InputError(`contactos: se esperaban ${expected.contacts}, llegaron ${rows.length}`);
+  const repeated = duplicateContacts(rows, contactCriterion);
+  if (repeated.length) throw new Fase2InputError(`contactos: contacto repetido en ${repeated[0].clientRef} (${repeated[0].reason}; criterio ${contactCriterion}; ${repeated.length} repetido(s))`);
+  if (enforceExpected && off(expected.contacts, rows.length)) throw new Fase2InputError(`contactos: se esperaban ${expected.contacts}, llegaron ${rows.length}`);
   return rows;
 }
 
@@ -156,7 +221,7 @@ export function validateStaff(rows, { expected = EXPECTED, enforceExpected = tru
     active += isActive ? 1 : 0; inactive += isActive ? 0 : 1; schedulable += isSchedulable ? 1 : 0;
   }
   if (![...rows].some((row) => row.legacy_profile_ids.split(",").map((x) => x.trim()).includes("62"))) throw new Fase2InputError("staff: falta perfil 62");
-  if (enforceExpected && (rows.length !== expected.staff || active !== expected.activeStaff || inactive !== expected.inactiveStaff || schedulable !== expected.schedulableStaff)) throw new Fase2InputError("staff: conteos aprobados no coinciden");
+  if (enforceExpected && (off(expected.staff, rows.length) || off(expected.activeStaff, active) || off(expected.inactiveStaff, inactive) || off(expected.schedulableStaff, schedulable))) throw new Fase2InputError("staff: conteos aprobados no coinciden");
   return rows;
 }
 
@@ -168,7 +233,7 @@ export function validateUsers(rows, staff, { expected = EXPECTED, allowedDomain 
     if (!email.endsWith(`@${allowedDomain}`) || row.expected_role_key === "admin" || !row.expected_role_key || !row.expected_legacy_role || row.email_confirm !== "true" || row.password_strategy !== "random_ephemeral" || row.activation_method !== "password_reset_after_production") throw new Fase2InputError(`usuarios: atributos inválidos ${row.staff_source_ref}`);
     seen.add(row.staff_source_ref);
   }
-  if (seen.size !== staffByRef.size || (enforceExpected && rows.length !== expected.users)) throw new Fase2InputError("usuarios: cobertura o conteo inválido");
+  if (seen.size !== staffByRef.size || (enforceExpected && off(expected.users, rows.length))) throw new Fase2InputError("usuarios: cobertura o conteo inválido");
   return rows;
 }
 
@@ -182,7 +247,7 @@ export function validateRates(rows, { expected = EXPECTED, enforceExpected = tru
     for (const field of RATE_FIELDS) if (!/^\d+(\.\d+)?$/.test(String(row[field] ?? "").trim())) throw new Fase2InputError(`tarifas: ${field} no numérico en ${key}`);
     seen.add(key);
   }
-  if (enforceExpected && rows.length !== expected.rates) throw new Fase2InputError(`tarifas: se esperaban ${expected.rates} filas y hay ${rows.length}`);
+  if (enforceExpected && off(expected.rates, rows.length)) throw new Fase2InputError(`tarifas: se esperaban ${expected.rates} filas y hay ${rows.length}`);
   return rows;
 }
 
@@ -194,7 +259,7 @@ export function validateServices(rows, { expected = EXPECTED, enforceExpected = 
     if (seen.has(id)) throw new Fase2InputError(`servicios: código legacy duplicado ${id}`);
     seen.add(id);
   }
-  if (enforceExpected && rows.length !== expected.services) throw new Fase2InputError(`servicios: se esperaban ${expected.services} filas y hay ${rows.length}`);
+  if (enforceExpected && off(expected.services, rows.length)) throw new Fase2InputError(`servicios: se esperaban ${expected.services} filas y hay ${rows.length}`);
   return rows;
 }
 

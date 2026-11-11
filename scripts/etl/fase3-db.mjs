@@ -42,8 +42,8 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         'email_ids',(SELECT COALESCE(json_agg(email_id::text),'[]'::json) FROM public.notification_emails)
       )::text;`);
     },
-    async containOwnEmails({ engagementIds }) {
-      if (!Array.isArray(engagementIds) || engagementIds.length !== 134) throw new Fase1Error("BLOQUEADO", "contención F3 requiere exactamente 134 encargos propios");
+    async containOwnEmails({ engagementIds, expectedCount = null }) {
+      if (!Array.isArray(engagementIds) || !engagementIds.length || (expectedCount !== null && engagementIds.length !== expectedCount)) throw new Fase1Error("BLOQUEADO", `contención F3 requiere exactamente ${expectedCount ?? "los"} encargos propios`);
       return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), ids AS (SELECT jsonb_array_elements_text(x->'engagementIds') entity_id FROM p), updated AS (
           UPDATE public.notification_emails n SET status='failed',attempts=0,sent_at=NULL,last_error='ETL_F3_NO_DELIVERY',claimed_at=NULL
@@ -55,7 +55,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         'clients',(SELECT COALESCE(json_agg(json_build_object('id',client_id,'name',client_legal_name)),'[]'::json) FROM public.clients WHERE is_active),
         -- Los responsables históricos pueden estar inactivos hoy; F3 conserva esas
         -- referencias, por lo que el catálogo de personal no se filtra por activo.
-        'staff',(SELECT COALESCE(json_agg(json_build_object('id',staff_id,'city',city)),'[]'::json) FROM public.staff),
+        'staff',(SELECT COALESCE(json_agg(json_build_object('id',staff_id,'city',city,'societyId',society_id)),'[]'::json) FROM public.staff),
         'societies',(SELECT COALESCE(json_agg(json_build_object('id',society_id,'name',name)),'[]'::json) FROM public.society WHERE is_active),
         'services',(SELECT COALESCE(json_agg(json_build_object('id',taxonomy_id,'name',name)),'[]'::json) FROM public.servicios WHERE is_active)
       )::text;`);
@@ -85,6 +85,8 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'expenseByWo',(SELECT COALESCE(json_agg(json_build_array(q.wo_id::text,q.amount::text)),'[]'::json) FROM (SELECT b.wo_id,sum(b.budgeted_amount) amount FROM public.wo_expense_budget b JOIN wo ON wo.id=b.wo_id GROUP BY b.wo_id) q),
           'plans',(SELECT count(*) FROM public.wo_payment_plan z JOIN wo ON wo.id=z.wo_id),
           'installments',(SELECT count(*) FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee'),
+          'installmentsInvoiced',(SELECT count(*) FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee' AND z.status='Invoiced' AND z.collection_invoice_date IS NOT NULL AND z.collection_payment_date IS NOT NULL),
+          'installmentsPending',(SELECT count(*) FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee' AND z.status='Pending'),
           'notes',(SELECT count(*) FROM public.wo_installment_notes z JOIN wo ON wo.id=z.wo_id WHERE z.deleted_at IS NULL),
           'installmentSumByWo',(SELECT COALESCE(json_agg(json_build_array(q.wo_id::text,q.amount::text)),'[]'::json) FROM (SELECT z.wo_id,sum(z.amount) amount FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee' GROUP BY z.wo_id) q),
           'riskLevelByWo',(SELECT COALESCE(json_agg(json_build_array(w.wo_id::text,COALESCE(w.risk_level,'(nulo)'))),'[]'::json) FROM public.work_orders w JOIN wo ON wo.id=w.wo_id),
@@ -102,8 +104,8 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
     },
     // L9 (Fase 4 §7): hashes por clave natural, sin UUID ni marcas de tiempo, para comparar Test con el ensayo local.
     // El TC de los planes BOB es el DEFAULT del ambiente (depende de su historial de TC): solo se compara que sea positivo.
-    async fingerprintSnapshot({ engagements }) {
-      if (!Array.isArray(engagements) || engagements.length !== 134) throw new Fase1Error("BLOQUEADO", "huella L9 requiere los 134 encargos del journal");
+    async fingerprintSnapshot({ engagements, expectedCount = null }) {
+      if (!Array.isArray(engagements) || !engagements.length || (expectedCount !== null && engagements.length !== expectedCount)) throw new Fase1Error("BLOQUEADO", `huella L9 requiere los ${expectedCount ?? "(sin declarar)"} encargos del journal`);
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
         cot AS (SELECT e->>'sourceKey' AS cot, (e->>'engagementId')::uuid AS eid, e->>'kind' AS kind FROM p, jsonb_array_elements(p.x->'engagements') e),
         sh AS (SELECT staff_id, md5(lower(btrim(email))) AS h FROM public.staff),
@@ -131,7 +133,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
             LEFT JOIN LATERAL (SELECT sum(l.budgeted_hours) AS hours, count(*) AS n FROM public.wo_budget_lines l WHERE l.wo_id=wo.wo_id) bl ON true
             LEFT JOIN LATERAL (SELECT sum(b.budgeted_amount) AS amount, count(*) AS n FROM public.wo_expense_budget b WHERE b.wo_id=wo.wo_id) ex ON true
             LEFT JOIN public.wo_payment_plan pl ON pl.wo_id=wo.wo_id
-            LEFT JOIN LATERAL (SELECT md5(string_agg(row(i.installment_number,i.percentage,i.amount,i.currency,i.status,i.installment_type,i.agreed_invoice_date,i.agreed_payment_date,CASE WHEN wo.currency='USD' THEN i.invoice_exchange_rate::text ELSE (i.invoice_exchange_rate>0)::text END)::text,'|' ORDER BY i.installment_number)) AS h, count(*) AS n FROM public.wo_payment_installments i WHERE i.wo_id=wo.wo_id) ins ON true
+            LEFT JOIN LATERAL (SELECT md5(string_agg(row(i.installment_number,i.percentage,i.amount,i.currency,i.status,i.installment_type,i.agreed_invoice_date,i.agreed_payment_date,i.collection_invoice_date,i.collection_payment_date,CASE WHEN wo.currency='USD' THEN i.invoice_exchange_rate::text ELSE (i.invoice_exchange_rate>0)::text END)::text,'|' ORDER BY i.installment_number)) AS h, count(*) AS n FROM public.wo_payment_installments i WHERE i.wo_id=wo.wo_id) ins ON true
             LEFT JOIN LATERAL (SELECT count(*) AS n, md5(COALESCE(string_agg(nn.body,'|' ORDER BY nn.body),'')) AS h FROM public.wo_installment_notes nn WHERE nn.wo_id=wo.wo_id AND nn.deleted_at IS NULL) nt ON true
             LEFT JOIN LATERAL (SELECT sum(t.hours_logged) AS hours, count(*) AS n, md5(COALESCE(string_agg(row(t.date_worked,s2.h,ac.activity_code,t.hours_logged,t.is_forecast,t.etl_split_index)::text,'|' ORDER BY t.date_worked,s2.h,ac.activity_code,t.etl_split_index),'')) AS h FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id LEFT JOIN public.activity_codes ac ON ac.activity_id=t.activity_id WHERE t.engagement_id=e.engagement_id) th ON true),
           'administrative',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,ck.k,so.name,hp.h,hm.h,
@@ -408,6 +410,23 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         SELECT src->>'sourceKey' source_key,count(w.wo_id) for_work_order,count(w.wo_id) FILTER (WHERE w.risk_level IS NOT DISTINCT FROM src->>'riskLevel' AND w.risk_notes=src->>'riskNotes' AND w.ceac_number IS NOT DISTINCT FROM NULLIF(src->>'ceacNumber','') AND w.ceac_completed_at IS NOT DISTINCT FROM NULLIF(src->>'ceacCompletedAt','')::date AND w.san_approval_id IS NOT DISTINCT FROM NULLIF(src->>'sanApprovalId','') AND w.san_completed_at IS NOT DISTINCT FROM NULLIF(src->>'sanCompletedAt','')::date AND w.risk_status='Approved' AND w.risk_approved_by IS NULL AND w.risk_approved_at IS NULL AND w.approval_status='Approved' AND w.approved_by=e.partner_id AND w.approved_at=(src->>'approvedAt')::timestamptz) exact
         FROM expected LEFT JOIN public.work_orders w ON w.wo_id=(src->>'woId')::uuid LEFT JOIN public.engagements e ON e.engagement_id=w.engagement_id GROUP BY src
       ) SELECT json_build_object('matches',COALESCE((SELECT json_agg(json_build_object('sourceKey',source_key,'exact',exact,'forWorkOrder',for_work_order) ORDER BY source_key) FROM matched),'[]'::json))::text;`, { risks }));
+    },
+    // D19/D20/D21: relectura y paso a Facturada de las cuotas «ya fue facturado». Se ejecuta como el administrador técnico (la guarda de
+    // wo_payment_installments exige OT Aprobada y las dos fechas de cobranza; en modo fijo no se toca el TC).
+    async findInvoicedInstallments({ invoices }) {
+      if (!Array.isArray(invoices) || !invoices.length) throw new Fase1Error("BLOQUEADO", "relectura de cuotas facturadas F3 inválida");
+      return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), expected AS (SELECT i FROM p CROSS JOIN LATERAL jsonb_array_elements(p.x->'invoices') i)
+        SELECT json_build_object('installments',COALESCE((SELECT json_agg(json_build_object('installmentId',z.installment_id,'status',z.status,'invoiceDate',z.collection_invoice_date,'dueDate',z.collection_payment_date) ORDER BY z.installment_id) FROM expected JOIN public.wo_payment_installments z ON z.installment_id=(i->>'installmentId')::uuid),'[]'::json))::text;`, { invoices }));
+    },
+    async invoiceInstallments({ technicalAdminId, invoices }) {
+      if (!technicalAdminId || !Array.isArray(invoices) || !invoices.length) throw new Fase1Error("BLOQUEADO", "cuotas facturadas F3 inválidas");
+      return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
+        SELECT set_config('request.jwt.claims', json_build_object('sub',p.x->>'technicalAdminId','role','authenticated')::text,true) FROM p;
+        SET LOCAL ROLE authenticated;
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), expected AS (SELECT i FROM p CROSS JOIN LATERAL jsonb_array_elements(p.x->'invoices') i),
+        updated AS (UPDATE public.wo_payment_installments z SET status='Invoiced',collection_invoice_date=(i->>'invoiceDate')::date,collection_payment_date=(i->>'dueDate')::date FROM expected WHERE z.installment_id=(i->>'installmentId')::uuid AND z.status='Pending' AND z.installment_type='fee' RETURNING z.installment_id)
+        SELECT json_build_object('invoiced',(SELECT count(*) FROM updated))::text;`, { technicalAdminId, invoices });
     },
     async createRisks({ technicalAdminId, risks }) {
       if (!technicalAdminId || !Array.isArray(risks) || !risks.length) throw new Fase1Error("BLOQUEADO", "riesgos F3 inválidos");

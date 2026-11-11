@@ -157,6 +157,22 @@ rb_confirm_window() {
 # F3 se genera más tarde (necesita el actor técnico, que existe solo tras F1).
 rb_config_path() { printf '%s/scripts/etl/fase%s.%s-%s.config.json' "$REPO_ROOT" "$1" "$ENV_NAME" "$RUN_ID"; }
 
+# --- Manifiesto del snapshot (scripts/etl/snapshots/<base>.json) -------------------------------
+# Las cifras y fechas que dependen del respaldo legacy (corte de bajas, activas/inactivas, conteos de F3, fecha límite) salen del manifiesto
+# del snapshot de la configuración base, no de constantes del runbook. rb_manifest <ruta.con.puntos> imprime el valor; null/ausente → vacío.
+# rb_manifest_required exige un valor fuera de local (un control sin declarar bloquea en Test y producción).
+rb_manifest() {
+  BASE="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}" KEYPATH="$1" node -e '
+    const fs = require("fs"); const e = process.env;
+    const snapshot = JSON.parse(fs.readFileSync(e.BASE, "utf8")).snapshot;
+    if (!/^[A-Za-z0-9_]+$/.test(snapshot ?? "")) { console.error("snapshot inválido en la configuración base"); process.exit(1); }
+    let value = JSON.parse(fs.readFileSync("scripts/etl/snapshots/" + snapshot + ".json", "utf8"));
+    for (const part of e.KEYPATH.split(".")) value = value?.[part];
+    process.stdout.write(value === null || value === undefined ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value)));
+  ' || rb_die "no se pudo leer $1 del manifiesto del snapshot (¿existe scripts/etl/snapshots/<base>.json?)"
+}
+rb_manifest_required() { local v; v="$(rb_manifest "$1")"; [[ -n "$v" || "$ENV_NAME" == "local" ]] || rb_die "el manifiesto no declara $1 (obligatorio fuera de local)"; printf '%s' "$v"; }
+
 rb_write_config() {
   local phase="$1" out; out="$(rb_config_path "$phase")"
   BASE_F1="${BASE_F1_CONFIG:-scripts/etl/fase1.local.config.json}" BASE_F2="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}" BASE_F3="${BASE_F3_CONFIG:-scripts/etl/fase3.local.config.json}" \

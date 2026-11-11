@@ -45,7 +45,7 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         'roles',(SELECT COALESCE(json_agg(json_build_object('role_key',role_key,'legacy_app_role',legacy_app_role)),'[]'::json) FROM public.authorization_roles)
       )::text;`);
     },
-    async insertClientUnit({ client, contact, clientId, parentClientId, industryId }) {
+    async insertClientUnit({ client, contacts = [], clientId, parentClientId, industryId }) {
       await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         INSERT INTO public.clients (client_id,client_legal_name,operating_name,tax_id,client_type,parent_client_id,parent_relationship,client_origin,billing_tax_treatment,industry_id,address,is_active)
@@ -53,8 +53,8 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         ON CONFLICT (client_id) DO NOTHING;
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         INSERT INTO public.client_contacts (contact_id,client_id,contact_type,full_name,email,phone,is_active)
-        SELECT (x->>'contactId')::uuid,(x->>'clientId')::uuid,'general',x->'contact'->>'full_name',x->'contact'->>'email',x->'contact'->>'phone',true FROM p WHERE jsonb_typeof(x->'contact') = 'object'
-        ON CONFLICT (contact_id) DO NOTHING;`, { client, contact, clientId, contactId: contact ? randomUUID() : null, parentClientId, industryId });
+        SELECT (c->>'contactId')::uuid,(x->>'clientId')::uuid,'general',c->>'full_name',NULLIF(c->>'email',''),NULLIF(c->>'phone',''),true FROM p, jsonb_array_elements(x->'contacts') c
+        ON CONFLICT (contact_id) DO NOTHING;`, { client, contacts: contacts.map((contact) => ({ full_name: contact.full_name, email: contact.email, phone: contact.phone, contactId: randomUUID() })), clientId, parentClientId, industryId });
     },
     async insertStaff({ staff, staffId, societyId, practicaId, categoryId }) {
       await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));

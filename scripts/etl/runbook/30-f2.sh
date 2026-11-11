@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Paso 30 — Fase 2: 268 clientes, 111 contactos y 153 fichas/cuentas/roles (+ bootstrap).
+# Paso 30 — Fase 2: clientes, contactos y fichas/cuentas/roles (+ bootstrap). Las cifras esperadas salen del manifiesto del snapshot
+# (scripts/etl/snapshots/<base>.json): al 06/11/2026, 269 clientes y 167 fichas.
 #   bash scripts/etl/runbook/30-f2.sh --env test|local [--run-id 0001] [--probe legacy:N ...] [--dry-run]
 # Reanudable: si el canal remoto se interrumpe, vuelva a ejecutarlo; `load` retoma desde el journal.
 # --probe legacy:N (repetible): sondeo de acceso de 2–3 cuentas activas de prácticas distintas (rota la clave al terminar).
@@ -16,7 +17,7 @@ done
 rb_etl 2 validate
 rb_etl 2 preflight
 rb_etl_mut 2 load
-rb_etl 2 verify          # esperado: PENDIENTE_CAMBIO_MANUAL (153 activas; las 8 bajas se aplican en el paso 35)
+rb_etl 2 verify          # esperado: PENDIENTE_CAMBIO_MANUAL (todas activas; las bajas del manifiesto se aplican en el paso 35)
 rb_etl 2 report
 
 rb_info "Idempotencia: una segunda load no debe escribir nada"
@@ -34,4 +35,4 @@ for ref in "${probes[@]}"; do rb_etl_mut 2 probe-access --staff-ref "$ref"; done
 f3="$(rb_scalar "select (select count(*) from public.engagements)+(select count(*) from public.work_orders)+(select count(*) from public.time_entries)+(select count(*) from public.skills)")"
 [[ "$f3" == "0" ]] || rb_die "F2-CA14: hay $f3 filas de fase 3 (encargos/OT/horas/skills) antes de cargar F3"
 rb_counts
-rb_pass "FASE 2 completa en ${ENV_NAME}. Siga con 35-bajas.sh (paso manual de las 8 bajas) ANTES de F3"
+rb_pass "FASE 2 completa en ${ENV_NAME}. Siga con 35-bajas.sh (paso manual de las bajas del manifiesto) ANTES de F3"

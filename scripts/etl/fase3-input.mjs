@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { ENGAGEMENT_HEADERS, PLAN_HEADERS } from "./fase3-matrix.mjs";
 import { parseCsv } from "./fase2-input.mjs";
+import { declared as declaredCount } from "./snapshot-manifest.mjs";
 
 export const EXPENSE_HEADERS = ["legacy_expense_budget_id", "legacy_cot", "legacy_currency_raw", "legacy_exchange_rate", "legacy_expense_type_id", "legacy_amount_usd", "disposition"];
 export const PAYMENT_HEADERS = ["legacy_plan_payment_id", "legacy_cot", "legacy_installment_number", "legacy_detail", "legacy_percentage", "legacy_invoice_date", "legacy_currency_raw", "legacy_exchange_rate", "legacy_fee_with_tax", "proposed_disposition"];
@@ -18,7 +19,6 @@ export const INPUT_HEADERS = Object.freeze({
   executions: EXECUTION_HEADERS,
 });
 export const CLIENT_EXCLUSION = "2026.11.108";
-export const PLAN_NOTE_KEYS = new Set(["2026.22.002|13", "2026.22.003|13", "2026.22.005|13", "2026.22.007|13"]);
 
 export class Fase3InputError extends Error {
   constructor(message, code = "BLOQUEADO") { super(message); this.code = code; }
@@ -61,11 +61,20 @@ export function riskLevelFromLegacy(code, cot = "") {
   return level;
 }
 
+// El reparto de niveles de riesgo (137 Bajo y 18 Moderado al 06/11) lo declara el manifiesto; null = sin declarar (no se aplica).
+export function assertRiskLevelCounts(levels, declared) {
+  if (!declared) return;
+  const actual = { Bajo: 0, Moderado: 0, Alto: 0 }; for (const level of levels) { if (!(level in actual)) throw new Fase3InputError(`nivel de riesgo desconocido: ${level}`); actual[level] += 1; }
+  const diffs = Object.keys(actual).filter((level) => actual[level] !== (declared[level] ?? 0)).map((level) => `${level}: ${actual[level]} de ${declared[level] ?? 0}`);
+  if (diffs.length) throw new Fase3InputError(`niveles de riesgo distintos de los del manifiesto (${diffs.join("; ")})`);
+}
+
 export function validateClientEngagements(rows) {
   unique(rows, (row) => row.legacy_cot, "COT cliente");
   for (const row of rows) {
     if (text(row.legacy_cot) === CLIENT_EXCLUSION || text(row.legacy_client_id) === "65") throw new Fase3InputError(`COT/cliente excluido en alcance cliente: ${row.legacy_cot}`);
-    if (!["2026", "2027"].includes(text(row.gestion)) || !["1", "2"].includes(text(row.legacy_approval_status))) throw new Fase3InputError(`encargo cliente fuera de alcance: ${row.legacy_cot}`);
+    // Gestiones 2024 a 2027 (D16: las OT de gestión anterior con horas aprobadas desde el 01/01/2026 entran; EMS admite años fiscales 2020 a 2100).
+    if (!["2024", "2025", "2026", "2027"].includes(text(row.gestion)) || !["1", "2"].includes(text(row.legacy_approval_status))) throw new Fase3InputError(`encargo cliente fuera de alcance: ${row.legacy_cot}`);
     riskLevelFromLegacy(row.legacy_risk_code, row.legacy_cot);
   }
   return rows;
@@ -74,8 +83,10 @@ export function validateClientEngagements(rows) {
 export function validateAdministrativeEngagements(rows) {
   unique(rows, (row) => row.legacy_cot, "COT administrativo");
   for (const row of rows) {
-    if (text(row.legacy_fiscal_year) !== "2027" || !bool01(row.legacy_active_flag, "active_flag") || text(row.selector_profile_count) !== "138" || text(row.total_administrative_engagements) !== "10") throw new Fase3InputError(`administrativo fuera de alcance: ${row.legacy_cot}`);
-    if (!text(row.legacy_internal_client_id) || !text(row.legacy_partner_profile_id) || !text(row.legacy_engagement_name)) throw new Fase3InputError(`administrativo incompleto: ${row.legacy_cot}`);
+    // D12/D22 (10/11/2026): todas las administrativas activas de gestión 2027, sin selector de personal; el total sale del manifiesto.
+    if (text(row.legacy_fiscal_year) !== "2027" || !bool01(row.legacy_active_flag, "active_flag")) throw new Fase3InputError(`administrativo fuera de alcance: ${row.legacy_cot}`);
+    // El equipo administrativo es socio + gerente (el aprobador del legacy): ambos son obligatorios.
+    if (!text(row.legacy_internal_client_id) || !text(row.legacy_partner_profile_id) || !text(row.legacy_approver_profile_id) || !text(row.legacy_engagement_name)) throw new Fase3InputError(`administrativo incompleto: ${row.legacy_cot}`);
   }
   return rows;
 }
@@ -101,13 +112,29 @@ export function validateExpenses(rows, clientCots) {
   return rows;
 }
 
-export function isPlanNote(row) { return PLAN_NOTE_KEYS.has(key(row.legacy_cot, row.legacy_installment_number)); }
-const paymentDispositionMatches = (row, note) => (note ? ["nota_plan_confirmada", "plan_note"] : ["cuota_facturable", "installment"]).includes(text(row.proposed_disposition));
-export function validatePayments(rows, clientCots) {
-  unique(rows, (row) => row.legacy_plan_payment_id, "PK pago"); unique(rows, (row) => key(row.legacy_cot, row.legacy_installment_number), "COT/cuota");
+// Disposiciones de una fila del plan de pagos (columna proposed_disposition del CSV):
+//   nota_plan_confirmada | plan_note   → nota del plan («no facturar»); no es una cuota.
+//   cuota_facturable | installment      → cuota que nace Pendiente.
+//   cuota_facturada | invoiced          → cuota cuyo detalle legacy dice que ya fue facturada (D19/D20): se carga Facturada (no Cobrada).
+// El conjunto de notas y de cuotas facturadas lo declara el manifiesto del snapshot (lista explícita COT|cuota, nunca por texto: R-09).
+const NOTE_DISPOSITIONS = ["nota_plan_confirmada", "plan_note"]; const INSTALLMENT_DISPOSITIONS = ["cuota_facturable", "installment"]; const INVOICED_DISPOSITIONS = ["cuota_facturada", "invoiced"];
+export const paymentKey = (row) => key(row.legacy_cot, row.legacy_installment_number);
+export function isPlanNote(row) { return NOTE_DISPOSITIONS.includes(text(row.proposed_disposition)); }
+export function isInvoicedInstallment(row) { return INVOICED_DISPOSITIONS.includes(text(row.proposed_disposition)); }
+const paymentDispositionKnown = (row) => [...NOTE_DISPOSITIONS, ...INSTALLMENT_DISPOSITIONS, ...INVOICED_DISPOSITIONS].includes(text(row.proposed_disposition));
+const sameSet = (actual, expected) => actual.size === expected.size && [...actual].every((item) => expected.has(item));
+const diffText = (actual, expected) => `faltan [${[...expected].filter((item) => !actual.has(item)).join(", ")}] y sobran [${[...actual].filter((item) => !expected.has(item)).join(", ")}]`;
+export function validatePayments(rows, clientCots, { manifest = null } = {}) {
+  unique(rows, (row) => row.legacy_plan_payment_id, "PK pago"); unique(rows, paymentKey, "COT/cuota");
   for (const row of rows) {
     if (!clientCots.has(row.legacy_cot) || number(row.legacy_percentage, "porcentaje") < 0 || !text(row.legacy_invoice_date)) throw new Fase3InputError(`pago inválido: ${row.legacy_plan_payment_id}`);
-    if (!paymentDispositionMatches(row, isPlanNote(row))) throw new Fase3InputError(`disposición de pago contradice fuente: ${row.legacy_plan_payment_id}`);
+    if (!paymentDispositionKnown(row)) throw new Fase3InputError(`disposición de pago contradice fuente: ${row.legacy_plan_payment_id}`);
+  }
+  if (manifest) {
+    const notes = new Set(rows.filter(isPlanNote).map(paymentKey)); const expectedNotes = new Set(manifest.planNotes);
+    if (!sameSet(notes, expectedNotes)) throw new Fase3InputError(`las notas del plan no coinciden con el manifiesto ${manifest.snapshot}: ${diffText(notes, expectedNotes)}`);
+    const invoiced = new Set(rows.filter(isInvoicedInstallment).map(paymentKey)); const expectedInvoiced = new Set(manifest.invoicedInstallments);
+    if (!sameSet(invoiced, expectedInvoiced)) throw new Fase3InputError(`las cuotas facturadas no coinciden con el manifiesto ${manifest.snapshot}: ${diffText(invoiced, expectedInvoiced)}`);
   }
   return rows;
 }
@@ -136,11 +163,16 @@ export function validateExecutionStarts(executions, clientEngagements) {
   return executions;
 }
 
-export function validateInputs(inputs, { enforceExpected = false } = {}) {
+export function validateInputs(inputs, { enforceExpected = false, manifest = null, environment = "local" } = {}) {
   const clientEngagements = validateClientEngagements(inputs.clientEngagements);
   const clientCots = new Set(clientEngagements.map((row) => row.legacy_cot));
   validateAdministrativeEngagements(inputs.administrativeEngagements);
-  validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots); validateExecutions(inputs.executions, clientCots); validateExecutionStarts(inputs.executions, clientEngagements);
-  if (enforceExpected && (clientEngagements.length !== 124 || inputs.administrativeEngagements.length !== 10)) throw new Fase3InputError("el alcance F3 exige 124 COT cliente y 10 administrativos");
+  validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots, { manifest }); validateExecutions(inputs.executions, clientCots); validateExecutionStarts(inputs.executions, clientEngagements);
+  if (enforceExpected) {
+    if (!manifest) throw new Fase3InputError("enforceExpected exige el manifiesto del snapshot", "CONFIG");
+    // null = sin declarar: en local no se aplica; en Test y producción bloquea (declared lanza).
+    const wantClient = declaredCount(environment, manifest.f3.clientEngagements, "f3.clientEngagements"); const wantAdmin = declaredCount(environment, manifest.f3.administrativeEngagements, "f3.administrativeEngagements");
+    if ((wantClient !== null && clientEngagements.length !== wantClient) || (wantAdmin !== null && inputs.administrativeEngagements.length !== wantAdmin)) throw new Fase3InputError(`el alcance F3 exige ${wantClient} COT cliente y ${wantAdmin} administrativos (manifiesto ${manifest.snapshot})`);
+  }
   return Object.freeze({ ...inputs, fingerprints: Object.fromEntries(Object.entries(inputs).map(([name, rows]) => [name, fingerprint(rows)])), clientCots });
 }

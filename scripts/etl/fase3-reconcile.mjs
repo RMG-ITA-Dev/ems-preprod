@@ -30,6 +30,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   // L6: cuotas facturables y notas; el honorario con IVA es único por COT en el extracto de pagos.
   const isNote = (row) => ["nota_plan_confirmada", "plan_note"].includes(text(row.proposed_disposition));
   const billable = inputs.payments.filter((row) => !isNote(row)); const notes = inputs.payments.filter(isNote);
+  const invoicedRows = inputs.payments.filter((row) => ["cuota_facturada", "invoiced"].includes(text(row.proposed_disposition)));
   const feeByCot = new Map(); for (const row of inputs.payments) feeByCot.set(text(row.legacy_cot), decimalUnits(row.legacy_fee_with_tax));
   const plansCount = new Set(inputs.payments.map((row) => text(row.legacy_cot))).size;
   // L7: horas ejecutadas aprobadas; todas se cargan. Las de feriado aplicable se contabilizan aparte (L7d).
@@ -46,7 +47,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   return {
     riskLevelByCot, clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
     expensesPositive: BigInt(positives.length), expensesZeroOmitted: BigInt(inputs.expenses.length - positives.length), expensesSourceUsd: sum(positives, (row) => decimalUnits(row.legacy_amount_usd)), expensesEmsUnits: sum(positives, emsExpenseUnits), expenseByCot,
-    plans: BigInt(plansCount), installments: BigInt(billable.length), notes: BigInt(notes.length), feeByCot,
+    plans: BigInt(plansCount), installments: BigInt(billable.length), installmentsInvoiced: BigInt(invoicedRows.length), notes: BigInt(notes.length), feeByCot,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
     holidayKeptRows: BigInt(holiday.length), holidayKeptHours: sum(holiday, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(holiday.map((row) => day(row.legacy_worked_at)))].sort(),
     expectedHoursUnits: sum(kept, (row) => decimalUnits(row.legacy_hours)), hoursByCot, hoursByStaff, unmappedProfiles, scaleFactor,
@@ -77,6 +78,8 @@ export function compareLegacyControls(expected, actual) {
   const expenseDiffs = mapDiff(expected.expenseByCot, toMap(actual.expenseByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));
   rows.push({ id: "L5c", label: "gastos por COT", expected: "iguales", actual: expenseDiffs.length ? expenseDiffs.slice(0, 5).join(" | ") : "iguales", ok: !expenseDiffs.length, note: "" });
   rows.push(eq("L6a", "planes de pago", expected.plans, actual.plans)); rows.push(eq("L6b", "cuotas facturables", expected.installments, actual.installments)); rows.push(eq("L6c", "notas de plan activas", expected.notes, actual.notes));
+  // D19/D20/D21: las cuotas «ya fue facturado» quedan Facturadas (con las dos fechas de cobranza) y las demás Pendientes.
+  rows.push(eq("L6e", "cuotas facturadas (D19) con sus fechas de cobranza", expected.installmentsInvoiced, actual.installmentsInvoiced)); rows.push(eq("L6f", "cuotas pendientes", expected.installments - expected.installmentsInvoiced, actual.installmentsPending));
   const feeDiffs = mapDiff(expected.feeByCot, toMap(actual.installmentSumByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));
   rows.push({ id: "L6d", label: "suma de cuotas por COT = honorario c/IVA legacy", expected: "iguales", actual: feeDiffs.length ? feeDiffs.slice(0, 5).join(" | ") : "iguales", ok: !feeDiffs.length, note: "" });
   rows.push(eq("L7a", "horas ejecutadas cargadas = fuente aprobada", formatUnits(expected.expectedHoursUnits), units(actual.hoursTotal), `fuente aprobada ${formatUnits(expected.executionsMigrableHours)} h; de ellas, en feriado aplicable ${expected.holidayKeptRows} filas / ${formatUnits(expected.holidayKeptHours)} h en ${expected.holidayDates.join(", ")}`));

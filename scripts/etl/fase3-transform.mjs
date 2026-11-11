@@ -1,5 +1,6 @@
 // Transformaciones puras F3: los importes se conservan como enteros escalados, nunca Number acumulado.
-import { isPlanNote } from "./fase3-input.mjs";
+import { isInvoicedInstallment, isPlanNote } from "./fase3-input.mjs";
+import { resolveEndDate } from "./snapshot-manifest.mjs";
 
 const POW10 = (scale) => 10n ** BigInt(scale);
 export function decimalUnits(value, scale = 2) {
@@ -15,23 +16,28 @@ const pctOf = (units, pct) => units * BigInt(pct) / 100n;
 const act = (practice, phase) => ({ AUD: { plan: "AUD-A2", execution: "AUD-A3", specialistIt: "AUD-A5", specialistTax: "AUD-A6" }, COM: { plan: "COM-A1", execution: "COM-A2" }, TAX: { plan: "TAX-A1", execution: "TAX-A2" } })[practice]?.[phase];
 const practiceFor = (department) => ({ 1: "AUD", 2: "COM", 3: "TAX" })[Number(department)];
 const categoryFor = (id, practice) => ({ 1: "Socio", 2: "Director", 3: "Gerente", 4: "Gerente", 5: "Senior", 9: "Asistente", 12: "Asistente", 13: "Supervisor", 16: practice === "AUD" ? "Semi-Senior" : "Semi Senior" })[Number(id)];
-const CLIENT_END_DATES = Object.freeze({ 2026: "2026-11-15", 2027: "2027-09-30" });
+// El perfil legacy 89 es la misma persona que el 62 (cuenta duplicada): toda referencia a un responsable lo absorbe en el 62.
+export const LEGACY_PROFILE_ALIASES = Object.freeze({ 89: 62 });
+export const aliasProfile = (profile) => { const id = String(profile ?? "").trim(); return String(LEGACY_PROFILE_ALIASES[id] ?? id); };
 const societyForDepartment = (department) => ({ 1: "Pelaez", 2: "Jauregui", 3: "Jauregui" })[Number(department)];
 const required = (value, label) => { if (!value) throw new Error(`referencia F3 no resuelta: ${label}`); return value; };
 
-export function buildClientEngagementPayloads(rows, maps) {
+// options.endDates: { allowed, byYear } del manifiesto del snapshot (fines de vigencia permitidos). El fin sale de la columna ems_end_date del CSV.
+export function buildClientEngagementPayloads(rows, maps, { endDates } = {}) {
+  if (!endDates) throw new Error("buildClientEngagementPayloads exige endDates del manifiesto del snapshot");
   return rows.map((row) => {
     const fiscalYear = Number(row.gestion); const department = Number(row.legacy_department_id);
     const client = required(maps.clients[`legacy:${row.legacy_client_id}`], `cliente ${row.legacy_client_id}`);
     const service = required(maps.services[row.legacy_service_id], `servicio ${row.legacy_service_id}`);
-    const staff = (profile, label) => profile ? required(maps.staff[`legacy:${profile}`], `${label} ${profile}`) : null;
+    const staff = (profile, label) => profile ? required(maps.staff[`legacy:${aliasProfile(profile)}`], `${label} ${profile}`) : null;
     return {
       sourceKey: row.legacy_cot,
-      name: `${client.name} - FY ${fiscalYear} - ${service.name}`,
+      // D (09/11/2026): {cliente} - {servicio} - {COT legacy}; el COT hace único el nombre y se puede buscar por él.
+      name: `${client.name} - ${service.name} - ${row.legacy_cot}`,
       clientId: client.id, partnerId: staff(row.legacy_partner_profile_id, "socio"), managerId: staff(row.legacy_manager_profile_id, "gerente"),
       sqrId: staff(row.legacy_sqr_profile_id, "SQR"), encargadoId: staff(row.legacy_manager_in_charge_profile_id, "encargado"),
       itSpecialistId: staff(row.legacy_it_specialist_profile_id, "especialista IT"), taxSpecialistId: staff(row.legacy_tax_specialist_profile_id, "especialista Tax"),
-      startDate: String(row.ems_start_date), endDate: required(CLIENT_END_DATES[fiscalYear], `fin FY ${fiscalYear}`),
+      startDate: String(row.ems_start_date), endDate: resolveEndDate(row, endDates),
       closingDate: `${fiscalYear}-09-30`, status: "active", office: Number(row.legacy_city_id), practice: department, function: 1, fiscalYear,
       workOrderRequired: true, activityRequired: true, internal: false, approvalRequired: true, fiscalOverride: false,
       societyId: required(maps.societies[societyForDepartment(department)], `sociedad práctica ${department}`), taxonomyId: service.id, contractFilePath: null,
@@ -39,12 +45,15 @@ export function buildClientEngagementPayloads(rows, maps) {
   });
 }
 
+// D12/D22/D27: la sociedad y el cliente interno salen del socio (Pelaez o Jauregui); el equipo es socio + gerente (el aprobador legacy).
 export function buildAdministrativeEngagementPayloads(rows, maps) {
   return rows.map((row) => {
-    const partner = required(maps.staff[`legacy:${row.legacy_partner_profile_id}`], `socio administrativo ${row.legacy_partner_profile_id}`);
-    return { sourceKey: row.legacy_cot, name: required(String(row.legacy_engagement_name).trim(), `nombre administrativo ${row.legacy_cot}`), clientId: required(maps.internalClientId, "cliente interno Pelaez"), partnerId: partner,
-      managerId: null, sqrId: null, encargadoId: null, itSpecialistId: null, taxSpecialistId: null, startDate: String(row.legacy_created_date), endDate: "2027-09-30", closingDate: "2027-09-30", status: "active", office: required(maps.officeByStaffId[partner], `oficina socio ${row.legacy_partner_profile_id}`), practice: 0, function: 0, fiscalYear: 2027,
-      workOrderRequired: false, activityRequired: false, internal: true, approvalRequired: true, fiscalOverride: false, societyId: required(maps.societies.Pelaez, "sociedad Pelaez"), taxonomyId: null, contractFilePath: null };
+    const partner = required(maps.staff[`legacy:${aliasProfile(row.legacy_partner_profile_id)}`], `socio administrativo ${row.legacy_partner_profile_id}`);
+    const manager = required(maps.staff[`legacy:${aliasProfile(row.legacy_approver_profile_id)}`], `aprobador administrativo ${row.legacy_approver_profile_id}`);
+    const societyKey = required(maps.societyKeyByStaffId?.[partner], `sociedad del socio ${row.legacy_partner_profile_id}`);
+    return { sourceKey: row.legacy_cot, name: required(String(row.legacy_engagement_name).trim(), `nombre administrativo ${row.legacy_cot}`), clientId: required(maps.internalClients?.[societyKey], `cliente interno ${societyKey}`), partnerId: partner,
+      managerId: manager, sqrId: null, encargadoId: null, itSpecialistId: null, taxSpecialistId: null, startDate: String(row.legacy_created_date), endDate: "2027-09-30", closingDate: "2027-09-30", status: "active", office: required(maps.officeByStaffId[partner], `oficina socio ${row.legacy_partner_profile_id}`), practice: 0, function: 0, fiscalYear: 2027,
+      workOrderRequired: false, activityRequired: false, internal: true, approvalRequired: true, fiscalOverride: false, societyId: required(maps.societies[societyKey], `sociedad ${societyKey}`), taxonomyId: null, contractFilePath: null };
   });
 }
 
@@ -120,9 +129,21 @@ export function consolidateResolvedHours(rows) {
   return cells.map(({ units, ...row }) => ({ ...row, hours: formatUnits(units) }));
 }
 
-export function seasonForIndustry(legacyIndustryId) { return [10, 12, 37].includes(Number(legacyIndustryId)) ? "Low" : "High"; }
+// D26 (10/11/2026): todo el legacy está en dólares; una OT en BOB tiene su honorario ajustado en USD (presupuestoHoras) y se convierte con el
+// TC acordado de la OT. Redondeo hacia arriba al centavo (D29); con los datos del 06/11 el producto es exacto a 2 decimales (0 centavos de ajuste).
+// La fila es la del encargo cliente del CSV: legacy_fee_with_tax = presupuestoHoras, legacy_currency_raw (0 = BOB, 1 = USD) y legacy_exchange_rate.
+export function budgetInOtCurrency(row) {
+  const usd = decimalUnits(row.legacy_fee_with_tax); const currency = String(row.legacy_currency_raw ?? "").trim();
+  if (currency === "1") return formatUnits(usd);
+  if (currency !== "0") throw new Error(`moneda legacy inválida: ${row.legacy_cot}`);
+  const rate = decimalUnits(row.legacy_exchange_rate);
+  if (rate <= 0n) throw new Error(`TC BOB ausente o inválido: ${row.legacy_cot}`);
+  return formatUnits((usd * rate + 99n) / 100n);
+}
+// D33 (11/11/2026): TODAS las OT migradas llevan temporada Alta. El legacy no tiene temporada: calculó cada OT con una sola tarifa (la alta), incluso en las industrias con cierre en marzo (10, 12 y 37), que en EMS usarían Baja. El parámetro se conserva por compatibilidad.
+export function seasonForIndustry(_legacyIndustryId) { return "High"; }
 export function adjustedFee(standardFee, budgetHours) { return formatUnits(decimalUnits(budgetHours) - decimalUnits(standardFee)); }
-export function feeWithTax(adjusted) { const units = decimalUnits(adjusted); return formatUnits((units * 100n + 42n) / 84n); } // honorario con impuesto = ajustado / (1 - 0,16), half-up a centavos como computeAmount de EMS (D28)
+export function feeWithTax(adjusted) { const units = decimalUnits(adjusted); return formatUnits((units * 100n + 83n) / 84n); } // honorario con impuesto = ajustado / (1 - 0,16) redondeado HACIA ARRIBA a centavos (D28 y D29, 11/11/2026); las cuotas se reparten y la última absorbe el residuo
 export function expensePayload(row) {
   // BOB: importe × TC redondeado HACIA ARRIBA a centavos (D29, 11/11/2026), igual que BOB_ROUNDING de fase3-reconcile.mjs. Con los datos del 06/11 el producto ya es exacto a 2 decimales: no cambia ningún importe.
   const amount = decimalUnits(row.legacy_amount_usd); const currency = String(row.legacy_currency_raw ?? "").trim() === "1" ? "USD" : "BOB"; const rate = currency === "BOB" ? decimalUnits(row.legacy_exchange_rate) : null;
@@ -131,17 +152,19 @@ export function expensePayload(row) {
 }
 
 const roundRatio = (numerator, denominator) => (numerator * 2n + denominator) / (2n * denominator);
-export function paymentArtifacts(rows, feeWithTaxValue) {
+// options.toleranceCots: COT cuyo plan puede sumar hasta 100,03 % (D18: 2024.22.002; la última cuota absorbe el exceso). Ningún otro COT.
+export function paymentArtifacts(rows, feeWithTaxValue, { toleranceCots = [] } = {}) {
   const billable = rows.filter((row) => !isPlanNote(row)).sort((a, b) => Number(a.legacy_installment_number) - Number(b.legacy_installment_number)); const notes = rows.filter(isPlanNote);
   const scale = Math.max(...billable.map((row) => (String(row.legacy_percentage ?? "").trim().split(".")[1] ?? "").length));
   if (!billable.length || scale > 6) throw new Error(`porcentaje de cuotas no conciliable: precisión ${scale}`);
   const denominator = 100n * POW10(scale); const original = billable.reduce((sum, row) => sum + decimalUnits(row.legacy_percentage, scale), 0n); const correction = denominator - original;
   const tolerance = scale >= 2 ? POW10(scale - 2) : 1n;
-  if (correction < -tolerance || correction > 4n * tolerance) throw new Error(`porcentaje de cuotas no conciliable: ${formatUnits(original, scale)}`);
+  const approved = new Set(toleranceCots).has(String(rows[0]?.legacy_cot ?? "")); const lowest = approved ? -3n * tolerance : -tolerance;
+  if (correction < lowest || correction > 4n * tolerance) throw new Error(`porcentaje de cuotas no conciliable: ${formatUnits(original, scale)}`);
   const fee = decimalUnits(feeWithTaxValue);
   // Es el equivalente entero de computeAmount(percentage, feeWithTax): el producto
   // se redondea a dos decimales para CADA cuota, no al total acumulado.
-  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = roundRatio(fee * percentage, denominator); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
+  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = roundRatio(fee * percentage, denominator); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30), invoiced: isInvoicedInstallment(row), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
   const expected = fee; const actual = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); const residual = expected - actual; const cot = String(rows[0]?.legacy_cot ?? "");
   if (residual !== 0n) installments[installments.length - 1].amount = formatUnits(decimalUnits(installments.at(-1).amount) + residual);
   const reconciled = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); if (expected !== reconciled) throw new Error(`residuo monetario de cuotas: ${formatUnits(expected - reconciled)}`);

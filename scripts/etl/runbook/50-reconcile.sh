@@ -48,7 +48,7 @@ if [[ "$SKIP_SECOND" == "0" ]]; then
   before="$(fingerprint)"; echo "huella antes:   $before" >&2
   rb_etl_mut 3 load --block client-engagements
   rb_etl_mut 3 load --block administrative-engagements
-  for op in sync-work-orders expenses risks contain-emails; do rb_etl_mut 3 load --block work-orders --operation "$op"; done
+  for op in sync-work-orders expenses risks invoices contain-emails; do rb_etl_mut 3 load --block work-orders --operation "$op"; done
   rb_etl_mut 3 load --block hours --operation hours
   after="$(fingerprint)"; echo "huella después: $after" >&2
   [[ "$before" == "$after" ]] || rb_die "la segunda pasada MODIFICÓ filas del lote (las huellas difieren): no es un no-op. Revise antes de continuar"
