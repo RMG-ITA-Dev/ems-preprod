@@ -77,9 +77,10 @@ describe("AppSidebar — Encargos para el Analista de Talento Humano", () => {
     expect(screen.getByText("nav.engagements")).toBeInTheDocument();
   });
 
-  it("muestra Encargos a hr_manager con engagement.read", () => {
+  // 1110-220 plan_v3 (N9): el Gerente de TH tampoco gestiona encargos de Cliente.
+  it("oculta Encargos a hr_manager aunque tenga engagement.read", () => {
     Object.assign(authState, { can: () => true, roleKey: "hr_manager" });
     renderSidebar();
-    expect(screen.getByText("nav.engagements")).toBeInTheDocument();
+    expect(screen.queryByText("nav.engagements")).not.toBeInTheDocument();
   });
 });

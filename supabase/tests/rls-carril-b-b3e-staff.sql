@@ -242,7 +242,10 @@ BEGIN
      OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo1) IS NOT NULL THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el SQR alcanzó la OT por UPDATE (debía tocar 0 filas) o la firma quedó escrita';
   END IF;
-  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', wo2)) <> 'ERR 42501' THEN
+  -- 1110-220 plan_v3: en una OT administrativa el Gerente que no es TH ya no alcanza la fila (RESTRICTIVE
+  -- "administrative write update" de work_orders): toca 0 filas en vez de llegar al trigger de firma.
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approved_by = %L, approved_at = now() WHERE wo_id = %L', '50b3e000-0000-4000-8000-000000000002', wo2)) NOT IN ('ERR 42501', '0')
+     OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2) IS NOT NULL THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente firmó una OT administrativa';
   END IF;
   -- Lo demás de la OT sigue editable por el gerente (la guarda solo cubre la firma).
@@ -309,24 +312,27 @@ BEGIN
   -- 9b. Revisión del PR (Greptile): el gerente no borra la firma de una OT administrativa por el ESTADO. Cambiar solo
   --     approval_status a Draft no toca approved_by/approved_at, pero enforce_administrative_work_order_rules las limpia
   --     DESPUÉS: la guarda tiene que mirar la fila ya normalizada (por eso su trigger corre al final).
-  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) <> 'ERR 42501' THEN
+  -- 1110-220 plan_v3: el Gerente que no es TH ya no alcanza la fila de una OT administrativa (0 filas).
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) NOT IN ('ERR 42501', '0') THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el gerente retiró a Draft una OT administrativa firmada (borró la firma del socio)';
   END IF;
   IF (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2) IS NULL
      OR (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2) <> 'Approved' THEN
     RAISE EXCEPTION 'B3e-2 FAIL — la OT administrativa firmada debía conservar su firma y su estado tras el intento del gerente';
   END IF;
-  -- El socio sí puede retirarla (y eso limpia su firma), y el gerente retira una OT administrativa SIN firma (flujo normal).
+  -- El socio sí puede retirarla (y eso limpia su firma). 1110-220 plan_v3: el gerente normal ya NO retira una OT
+  -- administrativa (solo Talento Humano, admin y el Socio escriben las OTs no-Cliente).
   v_r := pg_temp.try_as(p, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2));
   IF v_r <> '1' OR (SELECT approved_at FROM public.work_orders WHERE wo_id = wo2) IS NOT NULL THEN
     RAISE EXCEPTION 'B3e-2 FAIL — el socio debía poder retirar la OT administrativa y limpiar su firma (resultado %, estado %, firma %)',
       v_r, (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2), (SELECT approved_at IS NOT NULL FROM public.work_orders WHERE wo_id = wo2);
   END IF;
   UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = wo2;
-  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) <> '1' THEN
-    RAISE EXCEPTION 'B3e-2 FAIL — el gerente debía poder retirar una OT administrativa sin firma';
+  IF pg_temp.try_as(m, format('UPDATE public.work_orders SET approval_status = ''Draft'' WHERE wo_id = %L', wo2)) <> '0'
+     OR (SELECT approval_status FROM public.work_orders WHERE wo_id = wo2) <> 'Pending_Approval' THEN
+    RAISE EXCEPTION 'B3e-2 FAIL — el gerente normal no debía alcanzar una OT administrativa (1110-220)';
   END IF;
-  RAISE NOTICE 'PASS — el gerente no borra la firma por el estado; el socio retira; el gerente retira una OT sin firma';
+  RAISE NOTICE 'PASS — el gerente no borra la firma por el estado; el socio retira; el gerente normal no toca la OT administrativa';
 
   -- 9c. Revisión del PR (Codex): el INSERT también pasa por la guarda. wo_create_by_permission deja crear la OT al gerente
   --     del encargo (1028-213, D-42: ya no al SQR ni al encargado) y las tres columnas de firma tienen INSERT para authenticated: sin guarda en el INSERT, el gerente creaba

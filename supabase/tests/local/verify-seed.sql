@@ -242,7 +242,11 @@ BEGIN
   --   timesheet_admin_training_approval.manage) + 9 de accounting_manager y 10 de risk_supervisor (0817-180_grant:
   --   engagement.create/update, worksheet.read/create, work_order.create/update [+ work_order.read solo Riesgos],
   --   timesheet_approval.read/approve/reject).
-  IF n <> 824 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 824, encontrado %', n; END IF;
+  -- - 13 de 1110-220 plan_v3 (solo TH y Sistemas crean lo administrativo): secretariat_head -6 (engagement.create/
+  --   update, worksheet.create, work_order.create/update/payment_plan.approve), accounting_manager -5 y
+  --   risk_supervisor -5 (engagement.create/update, worksheet.create, work_order.create/update), y hr_analyst +3
+  --   (work_order.read/create/update: crea las OTs del encargo no-Cliente que crea).
+  IF n <> 811 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 811, encontrado %', n; END IF;
 
   -- 1110-220: Jefe de Secretaría hereda Talento Humano SIN competencias, feriados ni aprobación de capacitación.
   SELECT count(*) INTO n FROM public.authorization_role_permissions
@@ -250,7 +254,7 @@ BEGIN
      AND (permission_key LIKE 'competency.%' OR permission_key LIKE 'holiday.%'
           OR permission_key = 'timesheet_admin_training_approval.manage');
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL — secretariat_head no debe tener competencias, feriados ni capacitación (% filas)', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 24 roles / 89 permisos / 824 concesiones';
+  RAISE NOTICE 'PASS — catálogo RBAC: 24 roles / 89 permisos / 811 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

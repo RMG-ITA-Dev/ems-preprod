@@ -149,6 +149,7 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
+  managerAdministrativeOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],
@@ -285,7 +286,9 @@ const mockEngagementAdministrative: Engagement = {
   client_id:           "int-jauregui",
   engagement_name:     "Administrativa Jauregui",
   engagement_code:     "2026.010.003",
-  partner_id:          null,
+  // 1110-220 plan_v3: en un no-Cliente solo escriben Talento Humano, admin y el Socio. El editor
+  // no-admin de este suite es `manager`, así que figura como Socio para seguir pudiendo editar.
+  partner_id:          "staff-self",
   manager_id:          null,
   status:              "active",
   start_date:          "2025-10-01",

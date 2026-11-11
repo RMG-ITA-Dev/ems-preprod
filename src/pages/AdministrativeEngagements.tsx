@@ -12,6 +12,7 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { isAdministrativeCreator } from "@/lib/engagementRoleAccess";
 import {
   ENGAGEMENT_STATES,
   EngagementState,
@@ -98,6 +99,20 @@ export function isMyAdministrativeEngagement(row: AdministrativeEngagement, mySt
   return row.created_by_staff_id === myStaffId || row.manager_id === myStaffId || row.partner_id === myStaffId;
 }
 
+/**
+ * 1110-220 plan_v3: ¿tiene la pestaña "Mis encargos"? Quien crea (Sistemas y Talento Humano) siempre;
+ * el resto (Gerente normal, Contabilidad, Riesgos, Secretaría, Socio) solo si gerencia o firma alguno,
+ * para abrir en solo lectura lo que aprueba. Sin filas propias, solo la vista de consulta.
+ */
+export function hasAdministrativeMineTab(
+  canCreate: boolean,
+  rows: AdministrativeEngagement[] | undefined,
+  myStaffId: string | null | undefined,
+): boolean {
+  if (canCreate) return true;
+  return (rows ?? []).some((row) => isMyAdministrativeEngagement(row, myStaffId));
+}
+
 export type AdministrativeTab = "mine" | "all";
 
 export function parseAdministrativeTab(value: string | null): AdministrativeTab {
@@ -113,18 +128,21 @@ export function administrativeSearchKeys(canCreate: boolean): string[] {
 const AdministrativeEngagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { can } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
   const { data, isLoading } = useAdministrativeEngagements();
-  const canCreate = can("engagement.create");
-  // 1110-220: quien crea encargos tiene dos pestañas. "Mis encargos" (lo que gestiona) es la vista
-  // operativa completa: columnas, filtros, histórico y detalle. "Todos" es la MISMA vista de consulta
-  // que tienen los demás roles: nombre y código, año fiscal vigente o futuro, sin detalle.
-  // La pestaña vive en la URL (?tab=all) para conservarla al recargar.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab = parseAdministrativeTab(searchParams.get("tab"));
-  const fullView = canCreate && tab === "mine";
+  // 1110-220 plan_v3 (N1): el alta administrativa es solo de Sistemas y Talento Humano, aunque otro
+  // rol (Gerente normal, ITA/Tax) tenga engagement.create. Espejo de enforce_engagement_profile_scope.
+  const canCreate = can("engagement.create") && isAdministrativeCreator(roleKey);
   const { data: currentStaff } = useCurrentStaff();
   const myStaffId = currentStaff?.staff_id ?? null;
+  // 1110-220: dos pestañas. "Mis encargos" (lo que creo, gerencio o firmo) es la vista operativa
+  // completa: columnas, filtros, histórico y detalle (en solo lectura para quien no es TH ni admin).
+  // "Todos" es la MISMA vista de consulta que tienen los demás roles: nombre y código, año fiscal
+  // vigente o futuro, sin detalle. La pestaña vive en la URL (?tab=all) para conservarla al recargar.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseAdministrativeTab(searchParams.get("tab"));
+  const hasMineTab = hasAdministrativeMineTab(canCreate, data, myStaffId);
+  const fullView = hasMineTab && tab === "mine";
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
   // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
@@ -265,7 +283,7 @@ const AdministrativeEngagements = () => {
   return (
     <AppLayout title={t("nav.administrativeEngagements")}>
       <div className="space-y-4">
-      {canCreate && (
+      {hasMineTab && (
         <Tabs
           value={tab}
           onValueChange={(v) => setSearchParams(parseAdministrativeTab(v) === "all" ? { tab: "all" } : {}, { replace: true })}

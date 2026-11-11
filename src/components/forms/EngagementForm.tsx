@@ -283,21 +283,16 @@ export function shouldSeedAdministrativePolicyDefaults(
  * Valores por defecto del alta administrativa (plan_v2 §3 de 0722-160). `activity_required` no
  * entra acá: se deriva de `funcion` en el payload de guardado.
  *
- * `workOrderRequired: false` es el punto fino. Con `true` el encargo administrativo nace en
- * estado 1 Pendiente (deriveEngagementState en `src/lib/engagementStatus.ts`) y
- * `list_loggable_engagements()` lo deja fuera hasta que exista una OT con
- * approval_status='Approved' — o sea, NADIE puede cargarle horas, que es justamente para lo que
- * existe el encargo administrativo. Peor todavía: el switch está deshabilitado para no-admin
- * (`disabled={!isAdmin}`), y `hr_analyst` —uno de los tres roles que pueden elegir función
- * libremente— no tiene `work_order.create`, así que ni él ni el Gerente asignado pueden destrabar
- * el encargo (WorkOrderNew.tsx filtra por `created_by_staff_id`). Quedaba esperando a un Admin.
- *
- * `false` significa "la OT no es obligatoria", NO "no puede haber OT": el Admin puede prender el
- * switch cuando el encargo necesita presupuestar gastos, y la OT solo-gastos se sigue pudiendo
- * crear después (plan_v2 §3).
+ * `workOrderRequired: true` desde 1110-220 plan_v3 (decisión del operador, 2026-11-11): lo que
+ * crea Talento Humano siempre exige OT aprobada por el Socio, y el trigger
+ * `enforce_engagement_profile_scope` lo fuerza para hr_manager/hr_analyst aunque llegue `false`.
+ * El encargo nace en estado 1 Pendiente y nadie le carga horas hasta que la OT queda aprobada.
+ * Antes el valor era `false` porque hr_analyst no podía crear OTs y el encargo quedaba trabado
+ * esperando a un Admin; ahora el Analista crea las OTs del encargo que crea (is_engagement_team_member
+ * lo cuenta como equipo). Admin, que sí ve el switch, puede apagarlo.
  */
 export const ADMINISTRATIVE_POLICY_DEFAULTS = {
-  workOrderRequired: false,
+  workOrderRequired: true,
   approvalRequired: true,
 } as const;
 
@@ -380,6 +375,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const {
     partnerDirectorOptions,
     managerRoleOptions,
+    managerAdministrativeOptions,
     encargadoOptions,
     specialistItOptions,
     specialistTaxOptions,
@@ -1425,13 +1421,17 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // en las opciones ANTES de `withSelfCandidate` -- si el creador autoasignado como Gerente ya
   // estuviera elegido como especialista, igual se re-ofrece por la siembra, pero el guard de
   // `onSubmit` de más abajo es el freno real; esto es la primera línea, no la única.
+  // 1110-220 plan_v3 (N12): el Gerente de un encargo no-Cliente sale de su propio grupo (Gerente de TH,
+  // Contabilidad, Riesgos, Secretaría); el de Cliente, del grupo de gerentes. Espejo del guard de BD en
+  // enforce_engagement_profile_scope.
+  const managerCandidates = isAdministrativeFunction ? managerAdministrativeOptions : managerRoleOptions;
   const managerFieldOptions = useMemo(() => {
-    const base = withSavedStaff(managerRoleOptions, engagement?.manager, wManagerId).filter(
+    const base = withSavedStaff(managerCandidates, engagement?.manager, wManagerId).filter(
       (o) => o.value !== wSpecialistItId && o.value !== wSpecialistTaxId
     );
     return managerLocked ? withSelfCandidate(base, selfOption) : base;
   }, [
-    managerRoleOptions,
+    managerCandidates,
     engagement?.manager,
     wManagerId,
     managerLocked,

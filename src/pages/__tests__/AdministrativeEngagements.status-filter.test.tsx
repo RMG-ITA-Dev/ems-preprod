@@ -55,7 +55,7 @@ const { auth, adminRows } = vi.hoisted(() => {
     created_by_staff_id: "me",
   };
   return {
-    auth: { canCreate: true, mobile: false },
+    auth: { canCreate: true, mobile: false, staffId: "me" as string },
     adminRows: [
       // Con OT pendiente → 1 Pendiente.
       {
@@ -86,7 +86,7 @@ const { auth, adminRows } = vi.hoisted(() => {
 });
 
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => auth.canCreate, scope: () => null, isLoading: false }),
+  useAuthorization: () => ({ can: () => auth.canCreate, scope: () => null, roleKey: "hr_manager", isLoading: false }),
 }));
 
 vi.mock("@/hooks/useMobile", () => ({
@@ -98,7 +98,7 @@ vi.mock("@/hooks/useAdministrativeEngagements", () => ({
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ data: { staff_id: "me" } }),
+  useCurrentStaff: () => ({ data: { staff_id: auth.staffId } }),
 }));
 
 vi.mock("@/hooks/usePortfolioEngagements", () => ({
@@ -118,6 +118,7 @@ beforeEach(() => {
   for (const k of Object.keys(capturedProps)) delete capturedProps[k];
   auth.canCreate = true;
   auth.mobile = false;
+  auth.staffId = "me";
 });
 
 describe("Encargos Administrativos — filtro de estado (1105-219)", () => {
@@ -177,8 +178,9 @@ describe("Encargos Administrativos — filtro de estado (1105-219)", () => {
     expect(screen.getByRole("combobox", { name: "engagement.status" })).toHaveTextContent("engagementState.4");
   });
 
-  it("la vista de consulta (sin permiso de crear) no lleva filtro de estado", () => {
+  it("la vista de consulta (sin permiso de crear ni encargos propios) no lleva filtro de estado", () => {
     auth.canCreate = false;
+    auth.staffId = "nadie";
     wrap();
     expect(capturedProps.statusFilter).toBeUndefined();
     expect(capturedProps.columns.find((c: any) => c.key === "effective_state")).toBeUndefined();

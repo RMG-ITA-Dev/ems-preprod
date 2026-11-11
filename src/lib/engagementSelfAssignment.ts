@@ -49,17 +49,15 @@ export const SELF_ASSIGN_PARTNER_ROLE_KEYS = ["partner", "director"] as const;
  * Especialista; ahora también se autoasignan como manager_id igual que Gerente, en línea con
  * que 0828-185 los suma al grupo de candidatura 'manager' (doble grupo).
  *
- * 1110-220 (D5): `accounting_manager`, `risk_supervisor` y `secretariat_head` crean solo encargos
- * administrativos y quedan como su Gerente, igual que Talento Humano.
+ * 1110-220 plan_v3 (N4): `accounting_manager`, `risk_supervisor` y `secretariat_head` ya no crean
+ * encargos, así que no se autoasignan: son candidatos a Gerente y los elige quien crea (Analista de
+ * Talento Humano o admin). `hr_analyst` tampoco: crea el encargo administrativo y elige al Gerente.
  */
 export const SELF_ASSIGN_MANAGER_ROLE_KEYS = [
   "manager",
   "hr_manager",
   "ita_manager",
   "tax_manager",
-  "accounting_manager",
-  "risk_supervisor",
-  "secretariat_head",
 ] as const;
 
 export interface SelfAssignmentInput {

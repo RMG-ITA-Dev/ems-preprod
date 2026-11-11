@@ -149,7 +149,9 @@ vi.mock("@/hooks/mutations", () => ({
 // `isAdmin` derives from `roleKey === "admin"`, not from a separate isAdmin hook) to exercise the
 // policy switches (only rendered/interactive for admin). Default "manager" so Tests 1-7 (unaware of
 // this bug) keep seeing the pre-existing behavior.
-let mockRoleKey = "manager";
+// 1110-220 plan_v3: el fixture es un no-Cliente (funcion 0), que un Gerente normal ya solo puede
+// mirar; "hr_manager" (Talento Humano) lo sigue editando, que es lo que estos tests necesitan.
+let mockRoleKey = "hr_manager";
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
     // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
@@ -209,7 +211,7 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     servicesIsError = false;
     societiesIsError = false;
     clientsIsError = false;
-    mockRoleKey = "manager";
+    mockRoleKey = "hr_manager";
   });
 
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {

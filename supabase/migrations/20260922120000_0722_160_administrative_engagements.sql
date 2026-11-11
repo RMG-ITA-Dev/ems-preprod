@@ -1112,12 +1112,17 @@ AS $$
 DECLARE
   v_can_see_history boolean;
   v_current_fiscal_year int;
+  v_me uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN '[]'::jsonb;
   END IF;
 
   v_can_see_history := public.has_permission('engagement.create');
+  -- 1110-220 (plan_v3): quien no crea pero gerencia o firma (Contabilidad, Riesgos, Secretaría, Gerente
+  -- normal) ve el histórico de LO SUYO: su pestaña "Mis encargos" no puede perder un encargo al cambiar
+  -- el año fiscal. Solo amplía filas donde ya figura como creador, Gerente o Socio.
+  v_me := public.get_my_staff_id();
 
   -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
   -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
@@ -1178,7 +1183,9 @@ BEGIN
         LEFT JOIN public.practicas p ON p.code = e.practica
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
-         AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         AND (v_can_see_history
+              OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year)
+              OR (v_me IS NOT NULL AND v_me IN (e.created_by_staff_id, e.manager_id, e.partner_id)))
          -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
          AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),

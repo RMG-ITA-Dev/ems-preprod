@@ -110,7 +110,9 @@ const mockEngagement: Engagement = {
   approval_required: true,
   oficina: 1,
   practica: 2,
-  funcion: 0,
+  // Cliente: la edición por asignación de Cliente no cambia con 1110-220 plan_v3. Los no-Cliente se prueban
+  // explícitamente con `funcion: 0`.
+  funcion: 1,
   anio_fiscal: 2027,
   anio_fiscal_override: false,
   fecha_cierre: "2027-09-30",
@@ -125,11 +127,11 @@ const mockEngagement: Engagement = {
   work_order: null,
 };
 
-describe("EngagementForm — edición según asignación (1110-220, D8)", () => {
+describe("EngagementForm — edición según asignación (1110-220, D8 y plan_v3)", () => {
   beforeEach(() => {
     mockCanUpdate = true;
     mockScope = "assigned_engagements";
-    mockRoleKey = "accounting_manager";
+    mockRoleKey = "manager";
   });
 
   it("con engagement.update asignado y siendo el Gerente del encargo: editable", () => {
@@ -168,13 +170,30 @@ describe("EngagementForm — edición según asignación (1110-220, D8)", () => 
     expect(screen.queryByText("common.saveChanges")).not.toBeInTheDocument();
   });
 
-  it("hr_manager sigue editando un administrativo ajeno", () => {
+  it.each(["manager", "accounting_manager"])(
+    "%s, Gerente de un no-Cliente, lo ve en solo lectura (solo aprueba horas)",
+    (roleKey) => {
+      mockRoleKey = roleKey;
+      render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0 }} />);
+      expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
+      expect(screen.queryByText("common.saveChanges")).not.toBeInTheDocument();
+    },
+  );
+
+  // 1110-220 plan_v3 (N10): Talento Humano ve todos los administrativos, pero cada uno edita solo lo suyo.
+  it("hr_manager ve un administrativo ajeno en solo lectura", () => {
     mockRoleKey = "hr_manager";
     render(
       <EngagementForm
         engagement={{ ...mockEngagement, manager_id: "staff-other", created_by_staff_id: "staff-other", funcion: 0 }}
       />,
     );
+    expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
+  });
+
+  it("hr_manager edita el administrativo que gerencia", () => {
+    mockRoleKey = "hr_manager";
+    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0 }} />);
     expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
   });
 });

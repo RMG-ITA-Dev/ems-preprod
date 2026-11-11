@@ -37,8 +37,8 @@ const Engagements = () => {
   const { data: societies } = useSocieties();
   const { partnerOptions, managerOptions } = useCategoryStaff();
   const { can, roleKey } = useAuthorization();
-  // 1110-220: quien solo crea encargos no-Cliente (p. ej. el Supervisor de Riesgos, que sí consulta
-  // este listado) los da de alta desde Encargos Administrativos, no desde aquí.
+  // 1110-220: quien solo crea encargos no-Cliente (el Analista de Talento Humano) los da de alta
+  // desde Encargos Administrativos, no desde aquí.
   const canCreate = can("engagement.create") && !isAdministrativeOnlyCreator(roleKey);
 
   // Administrativa, Capacitación y Calidad tienen su propio módulo. El listado

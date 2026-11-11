@@ -22,6 +22,7 @@ DECLARE
   v_city          text;
   v_practica_code smallint;
   v_oficina       smallint;
+  v_manager_role  text;
 BEGIN
   -- Sin identidad autenticada no hay perfil que comparar: seeds, imports, migraciones y
   -- cualquier operación con service_role pasan intactas.
@@ -30,6 +31,31 @@ BEGIN
   END IF;
 
   v_role := public.current_role_key();
+
+  -- 1110-220 (plan_v3, N12, 2026-11-11): quién puede ser Gerente depende de la función del encargo.
+  --   · No-Cliente (0/2/3): solo Gerente de TH, Contabilidad, Riesgos y Secretaría.
+  --   · Cliente (1 o NULL): cualquiera MENOS esos cuatro.
+  -- Corre al crear y cuando cambia manager_id (también para admin: es una regla del encargo, no del
+  -- llamador). Espejo del grupo manager_administrative de get_engagement_team_candidates() y de
+  -- EngagementForm. Va antes del resto porque la autoasignación (trg_engagements_creator_team) ya corrió.
+  IF NEW.manager_id IS NOT NULL
+     AND (TG_OP = 'INSERT' OR NEW.manager_id IS DISTINCT FROM OLD.manager_id) THEN
+    SELECT ur.role_key INTO v_manager_role
+      FROM public.staff s
+      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+     WHERE s.staff_id = NEW.manager_id;
+
+    IF COALESCE(NEW.funcion, 1) <> 1
+       AND COALESCE(v_manager_role, '') NOT IN ('hr_manager', 'accounting_manager', 'risk_supervisor', 'secretariat_head') THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Gerente de un encargo Administrativa, Capacitacion o Calidad debe ser Gerente de Talento Humano, Contabilidad, Riesgos o Secretaria'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF COALESCE(NEW.funcion, 1) = 1
+       AND v_manager_role IN ('hr_manager', 'accounting_manager', 'risk_supervisor', 'secretariat_head') THEN
+      RAISE EXCEPTION 'FORBIDDEN: Gerente de Talento Humano, Contabilidad, Riesgos y Secretaria no son Gerentes de encargos de Cliente'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
 
   IF TG_OP = 'INSERT' THEN
     -- El RPC create_engagement_with_code es SECURITY DEFINER y saltea la RLS de INSERT
@@ -49,15 +75,32 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    -- 1110-220 (D2): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría crean
-    -- SOLO encargos no-Cliente (funcion 0/2/3). Mismo criterio que hr_analyst, con mensaje propio
-    -- para no tocar el del Analista. Espejo de ADMINISTRATIVE_ONLY_CREATOR_ROLE_KEYS en
-    -- EngagementNew.tsx. La funcion es inmutable después de crear (0722-160), así que basta con
-    -- el INSERT.
-    IF v_role IN ('accounting_manager', 'risk_supervisor', 'secretariat_head')
-       AND COALESCE(NEW.funcion, 1) = 1 THEN
-      RAISE EXCEPTION 'FORBIDDEN: este rol solo puede crear encargos Administrativa, Capacitacion o Calidad'
+    -- 1110-220 (plan_v3, N9, 2026-11-11): el Gerente de Talento Humano tampoco crea encargos de
+    -- Cliente, igual que el Analista: TH solo gestiona Administrativa/Capacitación/Calidad. Bloque
+    -- propio para no tocar el mensaje del Analista (test #18). Espejo de
+    -- ADMINISTRATIVE_ONLY_CREATOR_ROLE_KEYS.
+    IF v_role = 'hr_manager' AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Gerente de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
         USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3, N1, 2026-11-11): los encargos no-Cliente (funcion 0/2/3) los crean SOLO
+    -- Sistemas (admin) y Talento Humano (hr_manager, hr_analyst). Ni el Gerente normal, ni ITA/Tax,
+    -- ni Contabilidad, Riesgos o Secretaría: esos solo aprueban las horas de lo que gerencian.
+    -- Espejo de ADMINISTRATIVE_CREATOR_ROLE_KEYS (src/lib/engagementRoleAccess.ts). La funcion es
+    -- inmutable después de crear (0722-160), así que basta con el INSERT.
+    IF COALESCE(NEW.funcion, 1) <> 1
+       AND v_role NOT IN ('admin', 'hr_manager', 'hr_analyst') THEN
+      RAISE EXCEPTION 'FORBIDDEN: solo Talento Humano y Sistemas crean encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3): lo que crea Talento Humano siempre exige OT aprobada por el Socio. Sin
+    -- esto el alta administrativa nacía con work_order_required=false (ADMINISTRATIVE_POLICY_DEFAULTS,
+    -- de cuando hr_analyst no podía crear OTs) y el switch solo lo ve admin. Admin elige libre.
+    IF COALESCE(NEW.funcion, 1) <> 1 AND v_role IN ('hr_manager', 'hr_analyst') THEN
+      NEW.work_order_required := true;
+      NEW.approval_required   := true;
     END IF;
 
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
@@ -121,7 +164,7 @@ END;
 $$;
 
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) para accounting_manager/risk_supervisor/secretariat_head y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst y fuerza work_order_required/approval_required=true en lo que crea Talento Humano; valida que el Gerente sea del grupo de la función (no-Cliente: hr_manager/accounting_manager/risk_supervisor/secretariat_head; Cliente: cualquiera menos esos); y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 GRANT ALL ON FUNCTION public.enforce_engagement_profile_scope() TO anon;

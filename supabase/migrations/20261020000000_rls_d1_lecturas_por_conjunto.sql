@@ -15,9 +15,13 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.my_team_engagement_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  -- Espejo de is_engagement_team_member(): gerente o socio.
+  -- Espejo de is_engagement_team_member(): gerente o socio; 1110-220 plan_v3: y el Analista de TH creador de un
+  -- encargo no-Cliente (crea y gestiona sus OTs sin ser su Gerente).
   SELECT e.engagement_id FROM public.engagements e
    WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id())
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = (SELECT public.get_my_staff_id())
+          AND (SELECT public.current_role_key()) = 'hr_analyst')
 $$;
 
 CREATE OR REPLACE FUNCTION public.my_staffed_engagement_ids() RETURNS SETOF uuid
@@ -156,7 +160,7 @@ CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO aut
   USING ((SELECT public.has_permission('engagement.read')) AND created_by_staff_id IS NOT NULL AND created_by_staff_id = (SELECT public.get_my_staff_id()));
 DROP POLICY IF EXISTS "engagements hr administrative read" ON public.engagements;
 CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated
-  USING (funcion <> 1 AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst', 'secretariat_head'])));  -- 1110-220: + Jefe de Secretaría
+  USING (funcion <> 1 AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst'])));  -- 1110-220 plan_v3: Jefe de Secretaría ve solo lo que gerencia
 DROP POLICY IF EXISTS "engagements read" ON public.engagements;
 CREATE POLICY "engagements read" ON public.engagements FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('engagement.read'))

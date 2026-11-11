@@ -982,7 +982,7 @@
       "startDate": "Fecha inicial",
       "endDate": "Fecha final",
       "hoursPerWeek": "Horas/semana",
-      "allocationPct": "Allocation %",
+      "allocationPct": "Dedicación %",
       "notes": "Notas",
       "selectStaff": "Seleccionar personal...",
       "selectCategory": "Seleccionar categoría...",
@@ -998,7 +998,7 @@
       "errors": {
         "requiredFields": "Personal, categoría y ambas fechas son obligatorios.",
         "dateRange": "La fecha final debe ser igual o posterior a la fecha inicial.",
-        "numericRange": "Las horas y el allocation deben ser mayores a 0 y estar dentro del rango permitido.",
+        "numericRange": "Las horas y la dedicación deben ser mayores a 0 y estar dentro del rango permitido.",
         "outOfEngagementRange": "El segmento debe estar dentro de las fechas del encargo.",
         "categoryForeignService": "Esta categoría no pertenece al servicio del encargo.",
         "staffIneligible": "Este miembro del personal está inactivo o no es asignable.",

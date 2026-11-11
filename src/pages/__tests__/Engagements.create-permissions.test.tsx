@@ -96,8 +96,10 @@ describe("Engagements — create permissions (FASE 5)", () => {
     expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
   });
 
-  // 1110-220: estos roles solo crean encargos no-Cliente; los dan de alta desde Encargos Administrativos.
-  it.each(["hr_analyst", "accounting_manager", "risk_supervisor", "secretariat_head"])(
+  // Talento Humano (Analista y, desde 1110-220 plan_v3, Gerente) solo crea encargos no-Cliente; los da de
+  // alta desde Encargos Administrativos.
+  // (1110-220 plan_v3: Contabilidad, Riesgos y Secretaría ya no tienen engagement.create.)
+  it.each(["hr_analyst", "hr_manager"])(
     "hides Nuevo Encargo on the client list and client card for %s even with engagement.create",
     (roleKey) => {
       mockCan = (perm) => perm === "engagement.create";

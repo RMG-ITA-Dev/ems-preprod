@@ -7,6 +7,8 @@ import React from "react";
 // 1110-220: quien crea encargos ve dos pestañas en Encargos Administrativos. "Mis encargos" (creados,
 // gerenciados o donde es Socio: lo que puede editar) es la vista operativa completa. "Todos" es la
 // misma vista de consulta que tienen los demás roles: nombre y código, FY vigente o futuro, sin detalle.
+// plan_v3: el alta es solo de Sistemas y Talento Humano; quien no crea pero gerencia o firma alguno también
+// tiene "Mis encargos" (detalle en solo lectura), sin botón Nuevo.
 
 const capturedProps: any = {};
 const mockNavigate = vi.fn();
@@ -54,7 +56,7 @@ const { state, adminRows } = vi.hoisted(() => {
     partner_id: null,
   };
   return {
-    state: { canCreate: true },
+    state: { canCreate: true, roleKey: "hr_manager" as string, myStaffId: "me" as string },
     adminRows: [
       { ...base, engagement_id: "creado", engagement_name: "Creado", created_by_staff_id: "me" },
       // Propio pero de un FY pasado: "Mis encargos" conserva el histórico.
@@ -67,14 +69,14 @@ const { state, adminRows } = vi.hoisted(() => {
 });
 
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => state.canCreate, scope: () => null, isLoading: false }),
+  useAuthorization: () => ({ can: () => state.canCreate, scope: () => null, roleKey: state.roleKey, isLoading: false }),
 }));
 vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/hooks/useAdministrativeEngagements", () => ({
   useAdministrativeEngagements: () => ({ data: adminRows, isLoading: false }),
 }));
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ data: { staff_id: "me" } }),
+  useCurrentStaff: () => ({ data: { staff_id: state.myStaffId } }),
 }));
 
 import AdministrativeEngagements from "@/pages/AdministrativeEngagements";
@@ -93,6 +95,8 @@ beforeEach(() => {
   for (const k of Object.keys(capturedProps)) delete capturedProps[k];
   mockNavigate.mockClear();
   state.canCreate = true;
+  state.roleKey = "hr_manager";
+  state.myStaffId = "me";
 });
 
 describe("Encargos Administrativos — pestañas (1110-220)", () => {
@@ -127,8 +131,29 @@ describe("Encargos Administrativos — pestañas (1110-220)", () => {
     expect(capturedProps.onRowClick).toBeUndefined();
   });
 
-  it("sin permiso de crear: sin pestañas ni botón Nuevo, la misma vista de consulta", () => {
+  it("Gerente normal con engagement.create: no da de alta administrativos, pero abre los que gerencia", () => {
+    state.roleKey = "manager";
+    wrap();
+    expect(capturedProps.newButtonLabel).toBeUndefined();
+    expect(capturedProps.onNewClick).toBeUndefined();
+    expect(screen.getByRole("tab", { name: "engagement.administrativeTabMine" })).toHaveAttribute("aria-selected", "true");
+    expect(ids()).toEqual(["creado", "gerenciado"]);
+    expect(capturedProps.onRowClick).toBeDefined();
+  });
+
+  it("Contabilidad, sin permiso de crear, Gerente elegido de uno: pestaña Mis encargos con detalle", () => {
     state.canCreate = false;
+    state.roleKey = "accounting_manager";
+    wrap();
+    expect(screen.getByRole("tab", { name: "engagement.administrativeTabMine" })).toBeInTheDocument();
+    expect(capturedProps.newButtonLabel).toBeUndefined();
+    expect(ids()).toEqual(["creado", "gerenciado"]);
+  });
+
+  it("sin permiso de crear ni encargos propios: sin pestañas ni botón Nuevo, la misma vista de consulta", () => {
+    state.canCreate = false;
+    state.roleKey = "assistant";
+    state.myStaffId = "nadie";
     wrap();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(capturedProps.newButtonLabel).toBeUndefined();

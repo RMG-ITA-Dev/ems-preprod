@@ -52,7 +52,7 @@ END $$;
 -- Las cuatro políticas SELECT de engagements (cero_05 y B3c-3), en el mismo orden:
 --   a) engagement.read y (alcance distinto de 'assigned_engagements' o el llamador es socio/gerente/SQR/encargado);
 --   b) engagement.read y el llamador creó el encargo;
---   c) engagement.read, encargo administrativo (funcion <> 1) y rol hr_manager/hr_analyst/secretariat_head (1110-220);
+--   c) engagement.read, encargo administrativo (funcion <> 1) y rol hr_manager/hr_analyst (1110-220 plan_v3: secretariat_head ve solo lo que gerencia, por a);
 --   d) el encargo figura en una solicitud de fondos YA ENVIADA del llamador (como solicitante, gerente de la OT o contabilidad):
 --      solicitante y gerente de la OT por conjuntos; contabilidad la decide la propia engagement_in_my_fund_request (la de la
 --      política), no una copia de su cuerpo.
@@ -82,7 +82,7 @@ BEGIN
      AND ((v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
-      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst', 'secretariat_head'))
+      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
       -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
       --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
       --        engagement_in_my_fund_request (la que usa la política).

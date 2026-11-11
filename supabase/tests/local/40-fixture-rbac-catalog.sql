@@ -9,6 +9,7 @@
 -- Ajuste 1028-213 (decisiones D-23, H-3): -3 concesiones work_order.risk.approve (manager, ita_manager,
 -- tax_manager) y risk_partner worksheet.read pasa de department a assigned_engagements. Total 736.
 -- Ajuste 1110-220 (D3): rol 24 `secretariat_head` + 24 concesiones (bloque C.2, espejo de cero_13). Total 760.
+-- Ajuste 1110-220 plan_v3 (N4/N6): Secretaría sin crear ni editar encargos/OTs: -6 concesiones (quedan 18). Total 754.
 -- =====================================================================
 
 -- A) Roles (23). legacy_app_role: nivel jerárquico equivalente (drift real de Dev 2.0, nunca
@@ -869,13 +870,10 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('accounting_analyst', 'expense_settlement.update', 'department')
 on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
 
--- C.2) 1110-220 (decisión D3 del desarrollador, 2026-11-11): Jefe de Secretaría hereda la matriz
--- de hr_manager (bloque C de este archivo + 20260826221706_0817-180_grant_hr_engagement_work_order)
--- MENOS competency.* (4), holiday.* (4) y timesheet_admin_training_approval.manage (1): 33 - 9 = 24.
--- Filas EXPLÍCITAS, no herencia dinámica: una ampliación futura de Talento Humano no se propaga
--- sola. El resto de lo que hace Talento Humano por su role_key (candidato a Gerente, autoasignación,
--- encargos administrativos de toda la firma) se replica en cada función/política que lo nombra;
--- a diferencia de hr_manager, NO crea encargos de Cliente (enforce_engagement_profile_scope).
+-- C.2) 1110-220 (D3, ajustada por plan_v3 N4/N6, 2026-11-11): espejo de cero_13. Jefe de Secretaría
+-- parte de la matriz de hr_manager MENOS competency.*, holiday.*, timesheet_admin_training_approval.manage
+-- y todo lo que crea o edita encargos y OTs: 33 - 15 = 18. Candidata a Gerente: aprueba y mira lo que
+-- gerencia. Conserva Solicitud de Fondos.
 insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
   ('secretariat_head', 'staff.read',                       'none'),
   ('secretariat_head', 'account.password.change',          'own'),
@@ -889,15 +887,9 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('secretariat_head', 'fund_expense.create',              'own'),
   ('secretariat_head', 'fund_expense.update',              'own'),
   ('secretariat_head', 'fund_expense.delete',              'own'),
-  ('secretariat_head', 'engagement.create',                'assigned_engagements'),
   ('secretariat_head', 'engagement.read',                  'assigned_engagements'),
-  ('secretariat_head', 'engagement.update',                'assigned_engagements'),
   ('secretariat_head', 'worksheet.read',                   'assigned_engagements'),
-  ('secretariat_head', 'worksheet.create',                 'assigned_engagements'),
   ('secretariat_head', 'work_order.read',                  'assigned_engagements'),
-  ('secretariat_head', 'work_order.create',                'assigned_engagements'),
-  ('secretariat_head', 'work_order.update',                'assigned_engagements'),
-  ('secretariat_head', 'work_order.payment_plan.approve',  'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.read',          'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.approve',       'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.reject',        'assigned_engagements')

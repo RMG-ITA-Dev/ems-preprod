@@ -132,16 +132,33 @@ describe("EngagementNew — hr_analyst always creates administrative engagements
   });
 });
 
-// 1110-220 (D2): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría tampoco crean
-// encargos de Cliente. Espejo del trigger enforce_engagement_profile_scope.
-describe("EngagementNew — roles administrativos de 1110-220", () => {
-  it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
-    "forces administrativeMode for %s without ?mode=administrative",
+// 1110-220 plan_v3 (N1): el alta administrativa es solo de Sistemas y Talento Humano. Para el resto
+// `?mode=administrative` se ignora: el trigger enforce_engagement_profile_scope rechazaría 0/2/3.
+describe("EngagementNew — solo Talento Humano y Sistemas dan de alta administrativos (1110-220)", () => {
+  it.each(["manager", "ita_manager", "tax_manager"])(
+    "ignores ?mode=administrative for %s",
     (roleKey) => {
       mockRoleKey = roleKey;
       try {
         render(
-          <MemoryRouter initialEntries={["/engagements/new"]}>
+          <MemoryRouter initialEntries={["/engagements/new?mode=administrative"]}>
+            <EngagementNew />
+          </MemoryRouter>
+        );
+        expect(screen.getByTestId("administrative-mode")).toHaveTextContent("false");
+      } finally {
+        mockRoleKey = "manager";
+      }
+    },
+  );
+
+  it.each(["admin", "hr_manager"])(
+    "honors ?mode=administrative for %s",
+    (roleKey) => {
+      mockRoleKey = roleKey;
+      try {
+        render(
+          <MemoryRouter initialEntries={["/engagements/new?mode=administrative"]}>
             <EngagementNew />
           </MemoryRouter>
         );
@@ -152,7 +169,8 @@ describe("EngagementNew — roles administrativos de 1110-220", () => {
     },
   );
 
-  it("hr_manager keeps the client flow (Talento Humano sin cambios)", () => {
+  // 1110-220 plan_v3 (N9): el Gerente de TH tampoco crea Cliente; su alta es siempre administrativa.
+  it("forces administrativeMode for hr_manager without ?mode=administrative", () => {
     mockRoleKey = "hr_manager";
     try {
       render(
@@ -160,7 +178,7 @@ describe("EngagementNew — roles administrativos de 1110-220", () => {
           <EngagementNew />
         </MemoryRouter>
       );
-      expect(screen.getByTestId("administrative-mode")).toHaveTextContent("false");
+      expect(screen.getByTestId("administrative-mode")).toHaveTextContent("true");
     } finally {
       mockRoleKey = "manager";
     }

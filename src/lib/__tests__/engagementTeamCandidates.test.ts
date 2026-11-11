@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  ADMINISTRATIVE_FIELD_GROUPS,
   TEAM_FIELD_GROUPS,
   ROLE_KEY_TO_GROUPS,
   ELIGIBLE_ROLE_KEYS,
@@ -62,10 +63,10 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
       senior_partner: ["partner_director"],
       risk_partner: ["partner_director"],
       manager: ["manager"],
-      hr_manager: ["manager"],
-      accounting_manager: ["manager"],
-      risk_supervisor: ["manager"],
-      secretariat_head: ["manager"],
+      hr_manager: ["manager_administrative"],
+      accounting_manager: ["manager_administrative"],
+      risk_supervisor: ["manager_administrative"],
+      secretariat_head: ["manager_administrative"],
       senior: ["encargado"],
       semisenior: ["encargado"],
       ita_manager: ["specialist_it", "manager"],
@@ -78,21 +79,14 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
     expect(ELIGIBLE_ROLE_KEYS).toHaveLength(17);
   });
 
-  // 1110-220 (D5): Gerente de Contabilidad, Supervisor de Riesgos y Jefe de Secretaría son Gerentes
-  // de sus encargos administrativos, igual que Talento Humano.
-  it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
-    "%s cae solo en el grupo manager",
+  // 1110-220 plan_v3 (N12): Gerente de TH, Contabilidad, Riesgos y Secretaría son Gerentes SOLO de
+  // encargos no-Cliente (grupo propio) y nunca de Cliente. hr_analyst sigue FUERA (no es candidato).
+  it.each(["hr_manager", "accounting_manager", "risk_supervisor", "secretariat_head"])(
+    "%s cae solo en el grupo manager_administrative",
     (roleKey) => {
-      expect(ROLE_KEY_TO_GROUPS[roleKey]).toEqual(["manager"]);
+      expect(ROLE_KEY_TO_GROUPS[roleKey]).toEqual(["manager_administrative"]);
     },
   );
-
-  // BUG 0817-180 (2026-08-27): hr_manager se agregó al grupo "manager" — decisión del operador
-  // de no tratar a Talento Humano como caso especial. hr_analyst se queda FUERA a propósito,
-  // igual que el resto de los `*_analyst` de la lista de abajo.
-  it("hr_manager cae en el mismo grupo que manager", () => {
-    expect(ROLE_KEY_TO_GROUPS.hr_manager).toEqual(ROLE_KEY_TO_GROUPS.manager);
-  });
 
   // BUG 0828-185: senior_partner/risk_partner se suman a partner_director (visibilidad
   // firm-wide, antes excluidos del bloque Equipo); ita_manager/tax_manager caen ADEMÁS en
@@ -137,7 +131,7 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
   });
 
   it("todo grupo del mapa de roles es un grupo alcanzable desde algún campo", () => {
-    const fieldGroups = new Set(Object.values(TEAM_FIELD_GROUPS));
+    const fieldGroups = new Set([...Object.values(TEAM_FIELD_GROUPS), ...Object.values(ADMINISTRATIVE_FIELD_GROUPS)]);
     const roleGroups = new Set(Object.values(ROLE_KEY_TO_GROUPS).flat());
     expect([...roleGroups].sort()).toEqual([...fieldGroups].sort());
   });

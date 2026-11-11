@@ -27,6 +27,9 @@
 -- Ajuste 1110-220 (decisión D3 del desarrollador, 2026-11-11): rol 24 `secretariat_head` (Jefe de
 -- Secretaría) con 24 concesiones explícitas = las de hr_manager menos competency.*, holiday.* y
 -- timesheet_admin_training_approval.manage (bloque C.2). Total 760 en este archivo.
+-- Ajuste 1110-220 plan_v3 (N4/N6, 2026-11-11): Jefe de Secretaría no crea ni edita encargos ni OTs
+-- (solo Talento Humano y Sistemas): -6 concesiones (engagement.create/update, worksheet.create,
+-- work_order.create/update, work_order.payment_plan.approve). Quedan 18. Total 754 en este archivo.
 -- =====================================================================
 
 -- A) Roles (23). legacy_app_role: nivel jerárquico equivalente para las policies RLS que aún
@@ -888,13 +891,12 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('accounting_analyst', 'expense_settlement.update', 'department')
 on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
 
--- C.2) 1110-220 (decisión D3 del desarrollador, 2026-11-11): Jefe de Secretaría hereda la matriz
+-- C.2) 1110-220 (D3, ajustada por plan_v3 N4/N6, 2026-11-11): Jefe de Secretaría parte de la matriz
 -- de hr_manager (bloque C de este archivo + 20260826221706_0817-180_grant_hr_engagement_work_order)
--- MENOS competency.* (4), holiday.* (4) y timesheet_admin_training_approval.manage (1): 33 - 9 = 24.
--- Filas EXPLÍCITAS, no herencia dinámica: una ampliación futura de Talento Humano no se propaga
--- sola. El resto de lo que hace Talento Humano por su role_key (candidato a Gerente, autoasignación,
--- encargos administrativos de toda la firma) se replica en cada función/política que lo nombra;
--- a diferencia de hr_manager, NO crea encargos de Cliente (enforce_engagement_profile_scope).
+-- MENOS competency.* (4), holiday.* (4), timesheet_admin_training_approval.manage (1) y todo lo que
+-- crea o edita encargos y OTs (6): 33 - 15 = 18. Solo Talento Humano y Sistemas crean lo
+-- administrativo; Secretaría es candidata a Gerente, aprueba las horas y mira SOLO lo que gerencia.
+-- Conserva Solicitud de Fondos (decisión del operador). Filas EXPLÍCITAS, no herencia dinámica.
 insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
   ('secretariat_head', 'staff.read',                       'none'),
   ('secretariat_head', 'account.password.change',          'own'),
@@ -908,15 +910,9 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('secretariat_head', 'fund_expense.create',              'own'),
   ('secretariat_head', 'fund_expense.update',              'own'),
   ('secretariat_head', 'fund_expense.delete',              'own'),
-  ('secretariat_head', 'engagement.create',                'assigned_engagements'),
   ('secretariat_head', 'engagement.read',                  'assigned_engagements'),
-  ('secretariat_head', 'engagement.update',                'assigned_engagements'),
   ('secretariat_head', 'worksheet.read',                   'assigned_engagements'),
-  ('secretariat_head', 'worksheet.create',                 'assigned_engagements'),
   ('secretariat_head', 'work_order.read',                  'assigned_engagements'),
-  ('secretariat_head', 'work_order.create',                'assigned_engagements'),
-  ('secretariat_head', 'work_order.update',                'assigned_engagements'),
-  ('secretariat_head', 'work_order.payment_plan.approve',  'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.read',          'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.approve',       'assigned_engagements'),
   ('secretariat_head', 'timesheet_approval.reject',        'assigned_engagements')

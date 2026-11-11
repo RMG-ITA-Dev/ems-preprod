@@ -24,10 +24,15 @@
 // creador cuya práctica de ficha no tuviera un candidato con esa misma práctica. La elegibilidad
 // depende ÚNICAMENTE del rol (`ROLE_KEY_TO_GROUP` / `candidate_group`), nunca de la práctica.
 
-/** Los cinco grupos de candidatura que devuelve `get_engagement_team_candidates()`. */
+/**
+ * Los grupos de candidatura que devuelve `get_engagement_team_candidates()`.
+ * 1110-220 plan_v3 (N12): `manager_administrative` es el Gerente de un encargo NO-Cliente (Gerente de
+ * TH, Contabilidad, Riesgos, Secretaría); `manager` queda para el Gerente de un encargo de Cliente.
+ */
 export type TeamCandidateGroup =
   | "partner_director"
   | "manager"
+  | "manager_administrative"
   | "encargado"
   | "specialist_it"
   | "specialist_tax";
@@ -54,6 +59,14 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
   specialist_tax_id: "specialist_tax",
 };
 
+/**
+ * 1110-220 plan_v3 (N12): en un encargo NO-Cliente el campo Gerente se alimenta de otro grupo. Solo
+ * cambia `manager_id`; el resto de los campos usa `TEAM_FIELD_GROUPS` en cualquier función.
+ */
+export const ADMINISTRATIVE_FIELD_GROUPS: Partial<Record<TeamFieldName, TeamCandidateGroup>> = {
+  manager_id: "manager_administrative",
+};
+
 // Espejo EXACTO del mapeo (role_key, candidate_group) de get_engagement_team_candidates().
 // Está duplicado por necesidad — el filtro real tiene que ocurrir en la BD (no se puede confiar
 // en el cliente), y acá se necesita para tipar/rutear. La mitigación de la duplicación es
@@ -67,9 +80,10 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
 //   · Gerente             → `manager`, `hr_manager` (0817-180: "no hagamos casos especiales") y
 //                           desde 0828-185 también `ita_manager`/`tax_manager` — un Especialista
 //                           TI/Impuestos puede además actuar como Gerente de CUALQUIER encargo,
-//                           no solo del suyo. Desde 1110-220 también `accounting_manager`,
-//                           `risk_supervisor` y `secretariat_head` (Gerentes de sus encargos
-//                           administrativos). Fuera: `it_security_manager`.
+//                           no solo del suyo. Fuera: `it_security_manager`.
+//   · Gerente administrativo (1110-220 plan_v3, N12) → `hr_manager`, `accounting_manager`,
+//                           `risk_supervisor` y `secretariat_head`: SOLO en encargos no-Cliente, y
+//                           NO en Cliente. EngagementForm elige el grupo según la función.
 //   · Encargado           → `senior`, `semisenior`. Fuera: `ita_senior`, `tax_senior` y los
 //                           tres `*_analyst` (incluido `hr_analyst`: mismo criterio que
 //                           `accounting_analyst`/`collections_analyst`, ninguno es candidato).
@@ -83,10 +97,10 @@ export const ROLE_KEY_TO_GROUPS: Record<string, readonly TeamCandidateGroup[]> =
   senior_partner: ["partner_director"],
   risk_partner: ["partner_director"],
   manager: ["manager"],
-  hr_manager: ["manager"],
-  accounting_manager: ["manager"],
-  risk_supervisor: ["manager"],
-  secretariat_head: ["manager"],
+  hr_manager: ["manager_administrative"],
+  accounting_manager: ["manager_administrative"],
+  risk_supervisor: ["manager_administrative"],
+  secretariat_head: ["manager_administrative"],
   senior: ["encargado"],
   semisenior: ["encargado"],
   ita_manager: ["specialist_it", "manager"],

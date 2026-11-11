@@ -170,6 +170,7 @@ function resetCandidates() {
   mockCandidates = {
     partnerDirectorOptions: [SOCIO, DIRECTOR],
     managerRoleOptions: [GERENTE],
+    managerAdministrativeOptions: [GERENTE],
     encargadoOptions: [SENIOR, SEMISENIOR],
     specialistItOptions: [ESP_TI],
     specialistTaxOptions: [ESP_TAX],

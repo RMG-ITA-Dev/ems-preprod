@@ -210,14 +210,16 @@ BEGIN
       ('tax_senior',    '51c00000-0000-4000-8000-000000000010'::uuid, 'specialist_tax'),
       ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax'),
       -- BUG 0817-180 (2026-08-27): hr_manager cae en el mismo grupo que manager.
-      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager'),
+      -- 1110-220 plan_v3 (N12): hr_manager/risk_supervisor/accounting_manager pasan al grupo manager_administrative
+      -- (Gerente solo de encargos no-Cliente).
+      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager_administrative'),
       -- BUG 0828-185: senior_partner/risk_partner se suman a partner_director (staff 15/16,
       -- reutilizados del fixture -- antes estaban en la lista de "no elegibles").
       ('senior_partner','51c00000-0000-4000-8000-000000000015'::uuid, 'partner_director'),
       ('risk_partner',  '51c00000-0000-4000-8000-000000000016'::uuid, 'partner_director'),
       -- 1110-220 (D5): Gerentes de sus encargos administrativos.
-      ('risk_supervisor',    '51c00000-0000-4000-8000-000000000017'::uuid, 'manager'),
-      ('accounting_manager', '51c00000-0000-4000-8000-000000000019'::uuid, 'manager')
+      ('risk_supervisor',    '51c00000-0000-4000-8000-000000000017'::uuid, 'manager_administrative'),
+      ('accounting_manager', '51c00000-0000-4000-8000-000000000019'::uuid, 'manager_administrative')
     ) t(role_key, staff_id, expected_group)
   LOOP
     SELECT count(*) INTO v_count

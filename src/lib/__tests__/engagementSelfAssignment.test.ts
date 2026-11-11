@@ -6,7 +6,7 @@ import {
   SELF_ASSIGN_MANAGER_ROLE_KEYS,
   type SelfAssignmentInput,
 } from "@/lib/engagementSelfAssignment";
-import { ROLE_KEY_TO_GROUPS, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
+import { ADMINISTRATIVE_FIELD_GROUPS, ROLE_KEY_TO_GROUPS, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
 
 /**
  * BUG 0810-172 — autoasignación y bloqueo del Socio/Director o Gerente al crear un encargo.
@@ -51,9 +51,9 @@ describe("resolveSelfAssignedTeamField — roles que SÍ se autoasignan", () => 
   });
 
   it.each(["accounting_manager", "risk_supervisor", "secretariat_head"])(
-    "%s → manager_id (1110-220: Gerente de sus encargos administrativos)",
+    "%s no se autoasigna (1110-220 plan_v3: no crea encargos; lo eligen como Gerente)",
     (roleKey) => {
-      expect(resolveSelfAssignedTeamField({ ...base, roleKey })).toBe("manager_id");
+      expect(resolveSelfAssignedTeamField({ ...base, roleKey })).toBeNull();
     },
   );
 });
@@ -91,7 +91,8 @@ describe("resolveSelfAssignedTeamField — exenciones", () => {
 
 describe("resolveSelfAssignedTeamField — roles NO autoasignables", () => {
   // Los 14 role_key restantes del catálogo de 24 (admin/partner/director/manager/hr_manager/
-  // ita_manager/tax_manager/accounting_manager/risk_supervisor/secretariat_head se cubren arriba). Esta lista es la que impide que un rol se cuele
+  // ita_manager/tax_manager se autoasignan arriba; accounting_manager/risk_supervisor/secretariat_head se prueban
+  // arriba como NO autoasignables, 1110-220 plan_v3). Esta lista es la que impide que un rol se cuele
   // por descuido al tocar el mapa.
   it.each([
     ["senior"],
@@ -139,10 +140,12 @@ describe("coherencia estructural con la elegibilidad de 0722-162", () => {
 
   it("todo rol autoasignado al campo Gerente es candidato de ese campo", () => {
     for (const roleKey of SELF_ASSIGN_MANAGER_ROLE_KEYS) {
+      // 1110-220 plan_v3 (N12): hr_manager es candidato de manager_id en los no-Cliente (su grupo propio).
+      const managerGroups = [TEAM_FIELD_GROUPS.manager_id, ADMINISTRATIVE_FIELD_GROUPS.manager_id];
       expect(
-        ROLE_KEY_TO_GROUPS[roleKey],
+        ROLE_KEY_TO_GROUPS[roleKey].some((g) => managerGroups.includes(g)),
         `${roleKey} debe ser candidato de manager_id`
-      ).toContain(TEAM_FIELD_GROUPS.manager_id);
+      ).toBe(true);
     }
   });
 

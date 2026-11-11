@@ -493,7 +493,10 @@ BEGIN
   RAISE NOTICE 'CHECK 18 OK: hr_analyst no crea encargos de Cliente.';
 END $$;
 
--- ── #19 (1110-220, D2): Contabilidad, Riesgos y Secretaría no crean encargos de Cliente ────────
+-- ── #19 (1110-220 plan_v3, N4): Contabilidad, Riesgos y Secretaría no crean encargos ─────────────
+-- Solo Talento Humano y Sistemas crean lo administrativo, y estos tres tampoco crean Cliente: no tienen
+-- engagement.create. La regla de funcion no Cliente (solo admin/hr_manager/hr_analyst) la cubre
+-- supabase/tests/rls-1110-220-role-permissions.sql, que siembra el cliente interno que exige 0722-160.
 DO $$
 DECLARE
   v_n      integer;
@@ -503,21 +506,17 @@ BEGIN
     v_raised := false;
     PERFORM pg_temp.impersonate(pg_temp.u(v_n));
     SET LOCAL ROLE authenticated;
-    -- No-vacuidad: el rechazo sale de la regla de funcion (ficha idéntica al sujeto 1, con permiso).
-    IF NOT public.has_permission('engagement.create') THEN
-      RAISE EXCEPTION 'FIXTURE 19: el sujeto % debería tener engagement.create (1110-220).', v_n;
-    END IF;
     BEGIN
       PERFORM pg_temp.own_eng('EPS 1110-220 cliente ' || v_n);
     EXCEPTION WHEN insufficient_privilege THEN
-      v_raised := SQLERRM LIKE '%este rol solo puede crear encargos%';
+      v_raised := SQLERRM LIKE '%falta el permiso engagement.create%';
     END;
     RESET ROLE;
     IF NOT v_raised THEN
-      RAISE EXCEPTION 'CHECK 19: el sujeto % (1110-220) no debía poder crear un encargo de Cliente (funcion 1).', v_n;
+      RAISE EXCEPTION 'CHECK 19: el sujeto % (1110-220) no debía poder crear encargos (sin engagement.create).', v_n;
     END IF;
   END LOOP;
-  RAISE NOTICE 'CHECK 19 OK: accounting_manager, risk_supervisor y secretariat_head no crean encargos de Cliente.';
+  RAISE NOTICE 'CHECK 19 OK: accounting_manager, risk_supervisor y secretariat_head no crean encargos.';
 END $$;
 
 DO $$

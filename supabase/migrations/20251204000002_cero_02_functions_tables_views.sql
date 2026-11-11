@@ -1590,6 +1590,48 @@ $$;
 
 
 --
+-- Name: can_write_administrative_work(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v3, N1/N5): en un encargo no-Cliente (funcion 0/2/3) solo escriben el encargo, sus OTs, su matriz,
+-- su presupuesto y su equipo Sistemas (role_key admin), Talento Humano (hr_manager, hr_analyst) y el Socio del encargo
+-- (firma la OT). Un Gerente que no es TH -gerente normal, ITA/Tax, Contabilidad, Riesgos o Secretaría- solo aprueba
+-- horas y mira. Esto NO concede nada: lo usan las políticas RESTRICTIVE de escritura (cero_05) y las RPC definer que
+-- escriben esas tablas, siempre junto a su regla propia. Encargos de Cliente (funcion 1 o NULL): true, sin cambios.
+-- Sin sesión (seeds, cron, service_role): true. Encargo inexistente: true, la FK o la regla propia deciden.
+-- Admin por role_key y no por is_admin() (enum legacy).
+CREATE FUNCTION public.can_write_administrative_work(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+  v_partner uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN true;
+  END IF;
+
+  SELECT e.funcion, e.partner_id INTO v_funcion, v_partner
+    FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id;
+
+  IF NOT FOUND OR COALESCE(v_funcion, 1) = 1 THEN
+    RETURN true;
+  END IF;
+
+  IF public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst') THEN
+    RETURN true;
+  END IF;
+
+  RETURN v_partner IS NOT NULL AND v_partner = public.get_my_staff_id();
+END;
+$$;
+
+COMMENT ON FUNCTION public.can_write_administrative_work(uuid) IS '1110-220: en encargos no-Cliente (funcion <> 1) solo admin, hr_manager, hr_analyst y el Socio del encargo escriben encargo, OT, matriz, presupuesto y equipo. Cliente, sin sesión o encargo inexistente: true. No concede: se combina con la regla propia de cada política/RPC.';
+
+
+--
 -- Name: fund_request_assert_requester_engagement(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -5241,6 +5283,10 @@ $$;
 -- Name: is_engagement_team_member(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
+-- 1110-220 (plan_v3, N3): el Analista de Talento Humano crea encargos no-Cliente y elige a su Gerente, así que
+-- no queda en manager_id/partner_id. Como CREADOR de un encargo no-Cliente cuenta como equipo: crea y edita sus
+-- OTs, su matriz y su presupuesto (las políticas "team" de work_orders/activity_worksheets/wo_* y las RPC que
+-- llaman a esta función). No aprueba horas: can_approve_timesheet_line() mira manager_id/partner_id, no esto.
 CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
@@ -5251,6 +5297,9 @@ CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS b
     AND (
       e.manager_id = get_my_staff_id()
       OR e.partner_id = get_my_staff_id()
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = get_my_staff_id()
+          AND public.current_role_key() = 'hr_analyst')
     )
   )
 $$;
@@ -5996,6 +6045,20 @@ $$;
 
 
 --
+-- Name: resolve_worksheet_engagement_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220: encargo de una matriz, para la RESTRICTIVE de escritura de activity_worksheet_cells (cero_05). Definer,
+-- igual que resolve_wo_engagement_id, para que la política no dependa de la RLS de lectura de activity_worksheets.
+CREATE FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT aw.engagement_id FROM public.activity_worksheets aw WHERE aw.id = p_worksheet_id
+$$;
+
+
+--
 --
 -- Name: save_engagement_assignments(uuid, jsonb, uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -6041,7 +6104,13 @@ BEGIN
       USING DETAIL = jsonb_build_object('engagement_id', p_engagement_id)::text;
   END IF;
 
-  IF NOT (public.is_admin() OR public.is_engagement_responsible(p_engagement_id)) THEN
+  -- 1110-220 (plan_v3): el Analista de TH carga el equipo del encargo no-Cliente que creó
+  -- (is_engagement_team_member lo cuenta como equipo) y, en no-Cliente, solo escriben TH, admin y el
+  -- Socio (can_write_administrative_work): el Gerente que no es TH solo aprueba y mira.
+  IF NOT (public.is_admin()
+          OR public.is_engagement_responsible(p_engagement_id)
+          OR public.is_engagement_team_member(p_engagement_id))
+     OR NOT public.can_write_administrative_work(p_engagement_id) THEN
     RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -6269,11 +6338,12 @@ BEGIN
       USING DETAIL = jsonb_build_object('wo_id', p_wo_id)::text;
   END IF;
 
+  -- 1110-220 (plan_v3): en no-Cliente solo escriben TH, admin y el Socio.
   IF NOT (
     public.is_admin()
     OR public.is_engagement_team_member(v_engagement_id)
     OR public.is_engagement_responsible(v_engagement_id)
-  ) THEN
+  ) OR NOT public.can_write_administrative_work(v_engagement_id) THEN
     RAISE EXCEPTION 'WOS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
+import { canCreateWorkOrderFor } from "@/lib/engagementRoleAccess";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
@@ -89,12 +90,14 @@ const WorkOrderNew = () => {
   // TH o el admin). Quien crea siendo gerente queda igual cubierto: enforce_engagement_creator_team
   // lo pone como manager_id al crear. Admin ve todos (decisión del operador, 2026-08-31): ya
   // tiene visibilidad de firma completa vía RLS ('firm' scope en useEngagements()).
+  // 1110-220 plan_v3: en encargos no-Cliente solo crean la OT admin, el Gerente de TH y el Analista de
+  // TH que creó el encargo; el Gerente que no es TH no (canCreateWorkOrderFor, espejo de la RLS).
   const staffId = staffRecord?.staff_id;
   const availableEngagements = engagements?.filter(
     (e) =>
       e.status === "active" &&
       !engagementsWithWorkOrders.includes(e.engagement_id) &&
-      (isAdmin || (!!staffId && e.manager_id === staffId))
+      canCreateWorkOrderFor({ roleKey, myStaffId: staffId, engagement: e })
   );
 
   // BUG 0828-186: valida la preselección ?engagement= contra la lista ya filtrada -- un id

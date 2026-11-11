@@ -82,6 +82,7 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
+  managerAdministrativeOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],

@@ -2307,3 +2307,10 @@ REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM anon;
 REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM authenticated;
 REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM service_role;
+
+-- 1110-220: helpers SECURITY DEFINER de las RESTRICTIVE de escritura administrativa (cero_05). Las políticas se
+-- evalúan con los privilegios de quien consulta, así que authenticated necesita EXECUTE; PUBLIC y anon, nunca.
+REVOKE ALL ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) TO authenticated, service_role;
