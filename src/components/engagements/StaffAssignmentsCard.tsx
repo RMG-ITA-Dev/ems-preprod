@@ -76,6 +76,12 @@ import { cn } from "@/lib/utils";
 export interface StaffAssignmentsCardProps {
   engagement: Engagement;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * 1110-220: ¿la base dejaría escribir el equipo de este encargo? Espejo de can_write_administrative_work (que
+   * save_engagement_assignments aplica por dentro): en un no-Cliente solo admin, el Talento Humano creador y el Socio
+   * (Calidad: admin y Socio). Lo calcula EngagementForm; por defecto true (Cliente, sin cambios).
+   */
+  canWriteAdministrative?: boolean;
 }
 
 const VALID_LEVELS = new Set<string>(["Beginner", "Intermediate", "Advanced"]);
@@ -282,7 +288,7 @@ function DateCell({ value, onChange, disabled, invalid, minDate }: DateCellProps
   );
 }
 
-export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignmentsCardProps) {
+export function StaffAssignmentsCard({ engagement, onDirtyChange, canWriteAdministrative = true }: StaffAssignmentsCardProps) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
 
@@ -326,7 +332,7 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const { isAdmin } = useUserRole();
   const { staffRecord } = useCurrentStaff();
   const myStaffId = staffRecord?.staff_id ?? null;
-  const canEdit = canWriteEngagementAssignments({
+  const canEdit = canWriteAdministrative && canWriteEngagementAssignments({
     isAdmin,
     myStaffId,
     responsibleStaffIds: [

@@ -119,7 +119,11 @@ insert into public.notification_types
   ('fund.expense.review_auto_approved', 'fund_request', 'notifications.types.fund.expense.review_auto_approved', 'event', 81, true, true),
   ('fund.expense.expired', 'fund_request', 'notifications.types.fund.expense.expired', 'event', 82, true, true),
   ('fund.expense.rejected_by_accounting', 'fund_request', 'notifications.types.fund.expense.rejected_by_accounting', 'event', 83, true, true),
-  ('fund.settlement.confirmed', 'fund_request', 'notifications.types.fund.settlement.confirmed', 'event', 84, true, true)
+  ('fund.settlement.confirmed', 'fund_request', 'notifications.types.fund.settlement.confirmed', 'event', 84, true, true),
+  -- 1110-220 (plan_v5 §6.5): un encargo no-Cliente SIN OT espera la aprobación de su Socio (al crearlo y al reenviarlo).
+  ('engagement.partner_approval_requested', 'engagement', 'notifications.types.engagement.partner_approval_requested', 'event', 85, true, false),
+  -- 1110-220 (plan_v5): el Socio aprobó o rechazó un no-Cliente sin OT; avisa al creador.
+  ('engagement.partner_approval_decided', 'engagement', 'notifications.types.engagement.partner_approval_decided', 'event', 86, true, false)
 on conflict (type_key) do update set
   module_key    = excluded.module_key,
   label_key     = excluded.label_key,
@@ -829,6 +833,30 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('secretariat_head', 'auth.role.changed', 'own')
 on conflict (role_key, type_key) do update set scope_key = excluded.scope_key;
 
+-- 1110-220 (plan_v5): el Aprobador de horas de un no-Cliente puede ser cualquiera de 14 roles, así que los que no recibían
+-- el aviso accionable de horas lo reciben (ita_senior, tax_senior, hr_analyst; el resto ya lo tenía). El Analista de TH crea
+-- encargos, así que ve los contadores de "esperando al Socio" / "rechazados por el Socio" de lo que creó. Y los roles que
+-- pueden ser Socio de un encargo reciben el pedido de aprobación de un no-Cliente sin OT.
+insert into public.notification_role_types (role_key, type_key, scope_key) values
+  ('partner', 'engagement.partner_approval_requested', 'own'),
+  ('senior_partner', 'engagement.partner_approval_requested', 'own'),
+  ('director', 'engagement.partner_approval_requested', 'own'),
+  ('risk_partner', 'engagement.partner_approval_requested', 'own'),
+  ('hr_analyst', 'engagement.rejected_by_partner', 'assigned'),
+  ('hr_analyst', 'engagement.pending_partner_approval', 'assigned'),
+  ('hr_analyst', 'timesheet.team_submitted_for_approval', 'assigned'),
+  ('ita_senior', 'timesheet.team_submitted_for_approval', 'assigned'),
+  ('tax_senior', 'timesheet.team_submitted_for_approval', 'assigned'),
+  -- El creador de un no-Cliente recibe la decisión del Socio (sin OT) y, como los avisos de OT de un no-Cliente van al
+  -- creador (notif_engagement_managers), el Analista de TH recibe los de OT aprobada/rechazada/revertida.
+  ('admin', 'engagement.partner_approval_decided', 'own'),
+  ('hr_manager', 'engagement.partner_approval_decided', 'own'),
+  ('hr_analyst', 'engagement.partner_approval_decided', 'own'),
+  ('hr_analyst', 'wo.approved_partner', 'assigned'),
+  ('hr_analyst', 'wo.rejected_partner', 'assigned'),
+  ('hr_analyst', 'wo.approval_reverted', 'assigned')
+on conflict (role_key, type_key) do update set scope_key = excluded.scope_key;
+
 -- Filas que ya no estan en la matriz dejan de existir en el catalogo.
 delete from public.notification_role_types
  where (role_key, type_key) not in (
@@ -1511,7 +1539,22 @@ delete from public.notification_role_types
    ('secretariat_head', 'wo.rejected_partner'),
    ('secretariat_head', 'approval.reminder.weekly'),
    ('secretariat_head', 'auth.account.email'),
-   ('secretariat_head', 'auth.role.changed')
+   ('secretariat_head', 'auth.role.changed'),
+   ('partner', 'engagement.partner_approval_requested'),
+   ('senior_partner', 'engagement.partner_approval_requested'),
+   ('director', 'engagement.partner_approval_requested'),
+   ('risk_partner', 'engagement.partner_approval_requested'),
+   ('hr_analyst', 'engagement.rejected_by_partner'),
+   ('hr_analyst', 'engagement.pending_partner_approval'),
+   ('hr_analyst', 'timesheet.team_submitted_for_approval'),
+   ('ita_senior', 'timesheet.team_submitted_for_approval'),
+   ('tax_senior', 'timesheet.team_submitted_for_approval'),
+   ('admin', 'engagement.partner_approval_decided'),
+   ('hr_manager', 'engagement.partner_approval_decided'),
+   ('hr_analyst', 'engagement.partner_approval_decided'),
+   ('hr_analyst', 'wo.approved_partner'),
+   ('hr_analyst', 'wo.rejected_partner'),
+   ('hr_analyst', 'wo.approval_reverted')
  );
 delete from public.notification_types
  where type_key not in (
@@ -1608,5 +1651,7 @@ delete from public.notification_types
    'fund.expense.review_auto_approved',
    'fund.expense.expired',
    'fund.expense.rejected_by_accounting',
-   'fund.settlement.confirmed'
+   'fund.settlement.confirmed',
+   'engagement.partner_approval_requested',
+   'engagement.partner_approval_decided'
  );

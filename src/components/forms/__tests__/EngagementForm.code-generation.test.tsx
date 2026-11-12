@@ -87,7 +87,6 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const emptyTeamCandidates = {
   partnerDirectorOptions: [],
   managerRoleOptions: [],
-  managerAdministrativeOptions: [],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],
@@ -499,8 +498,8 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
     await user.click(await screen.findByRole("option", { name: "Auditoría" }));
-    await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
-    await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
+    // 1110-220 plan_v3 (N18): desde Encargos la función nace fija en Cliente (también para admin).
+    expect(screen.getByRole("combobox", { name: "engagement.funcion *" })).toBeDisabled();
 
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);

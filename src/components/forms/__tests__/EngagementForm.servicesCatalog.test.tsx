@@ -149,7 +149,6 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
-  managerAdministrativeOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],
@@ -158,6 +157,20 @@ const stableTeamCandidates = {
   isLoading: false,
   isError: false,
 };
+// 1110-220 plan_v5: candidatos a Aprobador de horas (Rol → Persona) de un no-Cliente. Referencia estable: el hook real
+// devuelve el mismo array entre renders.
+const { stableHoursApprovers } = vi.hoisted(() => ({
+  stableHoursApprovers: {
+    candidates: [{ staff_id: "m1", display_name: "Ana Manager", role_key: "manager", society_id: "soc-1" }],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  },
+}));
+vi.mock("@/hooks/useHoursApproverCandidates", () => ({
+  useHoursApproverCandidates: () => stableHoursApprovers,
+}));
+
 vi.mock("@/hooks/useEngagementTeamCandidates", () => ({
   useEngagementTeamCandidates: () => stableTeamCandidates,
 }));
@@ -627,14 +640,10 @@ describe("0625-148 — role-based service restriction", () => {
     const user = userEvent.setup();
     mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.002", engagement_id: "eng-def" });
 
-    render(<EngagementForm />);
+    // 1110-220 plan_v3 (N18): los no-Cliente se crean solo desde Encargos Administrativos.
+    render(<EngagementForm administrativeMode />);
 
     await user.type(screen.getByLabelText(/engagement\.name/), "Test Engagement Beta");
-
-    const clientSelect = screen.getByLabelText(/engagement\.client/);
-    await user.click(clientSelect);
-    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
-    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
 
     const partnerSelect = screen.getByLabelText(/engagement\.partner/);
     await user.click(partnerSelect);
@@ -643,11 +652,6 @@ describe("0625-148 — role-based service restriction", () => {
     // es el del campo Socio/Director, que va primero (mismo patrón que la prueba de arriba).
     await waitFor(() => screen.getAllByRole("option", { name: "Juan Partner" }));
     await user.click(screen.getAllByRole("option", { name: "Juan Partner" })[0]);
-
-    const managerSelect = screen.getByLabelText(/engagement\.manager/);
-    await user.click(managerSelect);
-    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
-    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
 
     const calendars = screen.getAllByTestId("calendar-mock");
     fireEvent.change(calendars[0], { target: { value: ENGAGEMENT_START_DATE } });
@@ -659,27 +663,26 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "engagement.oficina_ambos" }));
     await user.click(screen.getByRole("option", { name: "engagement.oficina_ambos" }));
 
-    const society = screen.getByLabelText(/engagement\.society/);
-    await user.click(society);
-    await waitFor(() => screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
-    await user.click(screen.getByRole("option", { name: "Ruizmier Pelaez S.R.L." }));
-
     const practica = screen.getByLabelText(/engagement\.practica/);
     await user.click(practica);
     await waitFor(() => screen.getByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("option", { name: "Auditoría" }));
 
-    const funcion = screen.getByLabelText(/engagement\.funcion/);
-    await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
-
-    // 0722-160: al cruzar a una función administrativa, un cliente externo deja de ser elegible
-    // y el formulario lo limpia — hay que elegir uno de los dos clientes internos controlados.
-    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
+    // La sociedad la deriva el cliente interno elegido.
     await user.click(screen.getByLabelText(/engagement\.client/));
     await waitFor(() => screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
     await user.click(screen.getByRole("option", { name: /Ruizmier Pelaez S\.R\.L\./ }));
+
+    // 1110-220 plan_v5: el Aprobador de horas se elige después del cliente interno, que fija la sociedad (solo se
+    // ofrecen personas de esa sociedad). Primero el rol, después la persona.
+    await user.click(document.getElementById("hours-approver-role") as HTMLElement);
+    await waitFor(() => screen.getByRole("option", { name: "authz.role.manager" }));
+    await user.click(screen.getByRole("option", { name: "authz.role.manager" }));
+    const approverSelect = screen.getByLabelText(/engagement\.hoursApprover(?!Role)/);
+    await user.click(approverSelect);
+    await waitFor(() => screen.getByRole("option", { name: "Ana Manager" }));
+    await user.click(screen.getByRole("option", { name: "Ana Manager" }));
+
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);
@@ -704,12 +707,10 @@ describe("0625-148 — role-based service restriction", () => {
     expect(screen.getByTestId("created-client-name")).toHaveTextContent("Ruizmier Pelaez S.R.L.");
   }, 15000);
 
-  // 0722-160 (review fix, Codex): elegir una función administrativa y volver a Cliente dejaba
-  // `is_internal` encendido para siempre — el efecto lo escribía al entrar y nadie lo apagaba al
-  // salir. Consecuencia: un encargo de Cliente se creaba como interno y, de paso, se salteaba el
-  // contrato obligatorio (que sólo se exige para Cliente NO interno). Hoy el valor se DERIVA de
-  // la función, así que no queda estado viejo que limpiar.
-  it("no deja is_internal encendido al volver de una función administrativa a Cliente", async () => {
+  // 1110-220 plan_v3 (N18): desde Encargos el alta es SIEMPRE Cliente, también para admin (el cruce
+  // Administrativa -> Cliente de 0722-160 ya no es alcanzable: los no-Cliente se crean en Encargos
+  // Administrativos). El payload sale Cliente y no interno.
+  it("admin en Encargos: la función queda fija en Cliente y el alta sale Cliente no interna", async () => {
     vi.mocked(useUserRole).mockReturnValue({ isAdmin: true, isLoading: false } as any);
     const user = userEvent.setup();
     mockCreateMutateAsync.mockResolvedValue({ engagement_code: "2026.011.003", engagement_id: "eng-ghi" });
@@ -754,24 +755,7 @@ describe("0625-148 — role-based service restriction", () => {
     await waitFor(() => screen.getByRole("option", { name: "Auditoría" }));
     await user.click(screen.getByRole("option", { name: "Auditoría" }));
 
-    // Ida: función administrativa -> el encargo pasa a interno.
-    const funcion = screen.getByLabelText(/engagement\.funcion/);
-    await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_adm" }));
-    await waitFor(() => expect(screen.getByLabelText(/engagement\.society/)).toBeDisabled());
-
-    // El cruce limpia el cliente externo: ya no es elegible en una función administrativa.
-    await waitFor(() => expect(screen.getByLabelText(/engagement\.client/)).toHaveTextContent("engagement.selectClient"));
-
-    // Vuelta: Cliente otra vez.
-    await user.click(screen.getByLabelText(/engagement\.funcion/));
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
-
-    await user.click(screen.getByLabelText(/engagement\.client/));
-    await waitFor(() => screen.getByRole("option", { name: "Acme Corp" }));
-    await user.click(screen.getByRole("option", { name: "Acme Corp" }));
+    expect(screen.getByLabelText(/engagement\.funcion/)).toBeDisabled();
 
     await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
     await waitFor(() => screen.getByText("Test Taxonomy"));

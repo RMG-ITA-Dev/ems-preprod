@@ -209,17 +209,12 @@ BEGIN
       ('tax_manager',   '51c00000-0000-4000-8000-000000000009'::uuid, 'specialist_tax'),
       ('tax_senior',    '51c00000-0000-4000-8000-000000000010'::uuid, 'specialist_tax'),
       ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax'),
-      -- BUG 0817-180 (2026-08-27): hr_manager cae en el mismo grupo que manager.
-      -- 1110-220 plan_v3 (N12): hr_manager/risk_supervisor/accounting_manager pasan al grupo manager_administrative
-      -- (Gerente solo de encargos no-Cliente).
-      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager_administrative'),
+      -- 1110-220 plan_v5: hr_manager/risk_supervisor/accounting_manager salen de este RPC (sección 2): el
+      -- Aprobador de horas de un no-Cliente sale de get_hours_approver_candidates().
       -- BUG 0828-185: senior_partner/risk_partner se suman a partner_director (staff 15/16,
       -- reutilizados del fixture -- antes estaban en la lista de "no elegibles").
       ('senior_partner','51c00000-0000-4000-8000-000000000015'::uuid, 'partner_director'),
-      ('risk_partner',  '51c00000-0000-4000-8000-000000000016'::uuid, 'partner_director'),
-      -- 1110-220 (D5): Gerentes de sus encargos administrativos.
-      ('risk_supervisor',    '51c00000-0000-4000-8000-000000000017'::uuid, 'manager_administrative'),
-      ('accounting_manager', '51c00000-0000-4000-8000-000000000019'::uuid, 'manager_administrative')
+      ('risk_partner',  '51c00000-0000-4000-8000-000000000016'::uuid, 'partner_director')
     ) t(role_key, staff_id, expected_group)
   LOOP
     SELECT count(*) INTO v_count
@@ -230,7 +225,7 @@ BEGIN
         v_role, v_group, v_count;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1: los 16 role_key elegibles caen en su grupo primario de candidatura';
+  RAISE NOTICE 'OK 1: los 13 role_key elegibles caen en su grupo primario de candidatura';
 
   -- ── 1b. ita_manager/tax_manager caen ADEMÁS en el grupo 'manager' (0828-185) ─────────────
   FOR v_role, v_staff IN
@@ -258,7 +253,11 @@ BEGIN
       ('it_security_manager', '51c00000-0000-4000-8000-000000000018'::uuid),
       ('accounting_analyst',  '51c00000-0000-4000-8000-000000000020'::uuid),
       ('collections_analyst', '51c00000-0000-4000-8000-000000000021'::uuid),
-      ('hr_analyst',          '51c00000-0000-4000-8000-000000000023'::uuid)
+      ('hr_analyst',          '51c00000-0000-4000-8000-000000000023'::uuid),
+      -- 1110-220 plan_v5: ya no son candidatos del Equipo (su elección como Aprobador va por otro RPC).
+      ('hr_manager',          '51c00000-0000-4000-8000-000000000022'::uuid),
+      ('risk_supervisor',     '51c00000-0000-4000-8000-000000000017'::uuid),
+      ('accounting_manager',  '51c00000-0000-4000-8000-000000000019'::uuid)
     ) t(role_key, staff_id)
   LOOP
     PERFORM 1 FROM public.get_engagement_team_candidates() c WHERE c.staff_id = v_staff;
@@ -286,7 +285,7 @@ BEGIN
 
   -- ── 5. El gate de permisos ───────────────────────────────────────────────────────────────
   -- Guarda del fixture: si alguien le diera ficha de personal a los callers, se contarían a sí
-  -- mismos (sus roles *_manager son elegibles) y el 18 de abajo dejaría de ser el número real.
+  -- mismos (sus roles *_manager son elegibles) y el 15 de abajo dejaría de ser el número real.
   -- Este chequeo falla con un mensaje claro antes que la aserción de conteo.
   PERFORM 1 FROM public.get_engagement_team_candidates() c
    WHERE c.staff_id IN ('51c00000-0000-4000-8000-000000000028',
@@ -297,14 +296,14 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 18 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 18 filas (16 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 15 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000029');  -- engagement.update
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 18 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 18 filas (16 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 15 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000030');  -- sin ninguno de los dos

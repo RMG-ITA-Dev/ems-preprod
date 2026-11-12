@@ -162,8 +162,24 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+// 1110-220 plan_v5 (N10): Talento Humano edita el no-Cliente que CREÓ, así que el usuario tiene ficha y es el creador.
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
+  useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-hr" } }),
+}));
+
+
+// 1110-220 plan_v5: candidatos a Aprobador de horas (Rol → Persona) de un no-Cliente. Referencia estable: el hook real
+// devuelve el mismo array entre renders.
+const { stableHoursApprovers } = vi.hoisted(() => ({
+  stableHoursApprovers: {
+    candidates: [{ staff_id: "m1", display_name: "Ana Manager", role_key: "manager", society_id: "soc-1" }],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  },
+}));
+vi.mock("@/hooks/useHoursApproverCandidates", () => ({
+  useHoursApproverCandidates: () => stableHoursApprovers,
 }));
 
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -180,6 +196,7 @@ const mockEngagement: Engagement = {
   engagement_code: "2026.011.003",
   partner_id: "staff-partner",
   manager_id: "staff-manager",
+  created_by_staff_id: "staff-hr",
   status: "active",
   start_date: "2025-10-01",
   end_date: "2026-09-30",

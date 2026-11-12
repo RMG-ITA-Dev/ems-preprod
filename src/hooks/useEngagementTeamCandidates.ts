@@ -31,11 +31,6 @@ export interface UseEngagementTeamCandidatesResult {
   partnerDirectorOptions: TeamCandidateOption[];
   /** Gerente de un encargo de Cliente — `manager`, `ita_manager`, `tax_manager`. */
   managerRoleOptions: TeamCandidateOption[];
-  /**
-   * Gerente de un encargo no-Cliente (1110-220 plan_v3, N12) — Gerente de TH, Contabilidad, Riesgos
-   * y Secretaría.
-   */
-  managerAdministrativeOptions: TeamCandidateOption[];
   /** Encargado — `senior` y `semisenior`. */
   encargadoOptions: TeamCandidateOption[];
   /** Especialista TI — las tres familias `ita_*`. */
@@ -88,7 +83,6 @@ export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult
     const buckets: Record<TeamCandidateGroup, TeamCandidateOption[]> = {
       partner_director: [],
       manager: [],
-      manager_administrative: [],
       encargado: [],
       specialist_it: [],
       specialist_tax: [],
@@ -108,7 +102,6 @@ export function useEngagementTeamCandidates(): UseEngagementTeamCandidatesResult
   return {
     partnerDirectorOptions: grouped.partner_director ?? EMPTY,
     managerRoleOptions: grouped.manager ?? EMPTY,
-    managerAdministrativeOptions: grouped.manager_administrative ?? EMPTY,
     encargadoOptions: grouped.encargado ?? EMPTY,
     specialistItOptions: grouped.specialist_it ?? EMPTY,
     specialistTaxOptions: grouped.specialist_tax ?? EMPTY,

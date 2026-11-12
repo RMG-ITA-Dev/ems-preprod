@@ -57,6 +57,13 @@ export const MANUAL_STATES: ReadonlySet<EngagementState> = new Set([
 export interface EngagementStateInput {
   work_order_required: boolean;
   engagement_state_override?: number | null;
+  /**
+   * 1110-220 (plan_v5): función del encargo (0/2/3 no-Cliente; 1 o null Cliente) y firma del Socio de un no-Cliente
+   * SIN OT (`partner_approval_status`: pending/approved/rejected). Opcionales: sin ellos el encargo se lee como Cliente
+   * (comportamiento anterior).
+   */
+  funcion?: number | null;
+  partner_approval_status?: string | null;
 }
 
 /** Campos mínimos de la OT necesarios para derivar el estado. */
@@ -77,8 +84,16 @@ export function deriveEngagementState(
   engagement: EngagementStateInput,
   workOrder?: WorkOrderStateInput | null,
 ): EngagementState {
-  // Administrativo: sin OT ni flujo Socio/Riesgos → Aprobado directo.
-  if (!engagement.work_order_required) return EngagementState.Aprobado;
+  // Sin OT. Cliente → Aprobado directo. No-Cliente (1110-220 plan_v5) → lo decide la firma del Socio del encargo.
+  // Espejo de effective_engagement_state(..., p_funcion, p_partner_approval_status) en SQL.
+  if (!engagement.work_order_required) {
+    if (engagement.funcion != null && engagement.funcion !== 1) {
+      if (engagement.partner_approval_status === "approved") return EngagementState.Aprobado;
+      if (engagement.partner_approval_status === "rejected") return EngagementState.Rechazado;
+      return EngagementState.Pendiente;
+    }
+    return EngagementState.Aprobado;
+  }
 
   if (!workOrder) return EngagementState.Pendiente;
 

@@ -39,20 +39,25 @@ export interface AdministrativeWorkInput {
   roleKey: string | null | undefined;
   /** staff_id del usuario actual; null mientras carga o si no tiene ficha. */
   myStaffId: string | null | undefined;
-  engagement: { funcion: number | null; partner_id: string | null };
+  engagement: { funcion: number | null; partner_id: string | null; created_by_staff_id?: string | null };
 }
 
 /**
  * 1110-220 plan_v3 (N5): ¿la base dejaría escribir el encargo, sus OTs, su matriz, su presupuesto y
  * su equipo? Espejo de `can_write_administrative_work()` (cero_02), que las políticas RESTRICTIVE
- * suman con AND a las de siempre. En un encargo no-Cliente solo escriben admin, Talento Humano y el
- * Socio del encargo; un Gerente que no es TH solo aprueba horas y mira. Cliente: sin restricción.
+ * suman con AND a las de siempre. En un encargo no-Cliente solo escriben admin, el Talento Humano que lo
+ * creó (plan_v5, N10) y el Socio del encargo; el Aprobador de horas (manager_id) solo aprueba y mira,
+ * aunque sea de TH. Cliente: sin restricción.
  * No concede nada por sí sola: se combina con la regla propia de cada pantalla.
  */
 export function canWriteAdministrativeWork({ roleKey, myStaffId, engagement }: AdministrativeWorkInput): boolean {
   if (!isNonClientFuncion(engagement.funcion)) return true;
-  if (isAdministrativeCreator(roleKey)) return true;
-  return !!myStaffId && engagement.partner_id === myStaffId;
+  // N19: Control de Calidad lo escribe solo admin (y el Socio firma su OT); Talento Humano no.
+  if (engagement.funcion === 3) return roleKey === "admin" || (!!myStaffId && engagement.partner_id === myStaffId);
+  if (roleKey === "admin") return true;
+  if (!myStaffId) return false;
+  if (isAdministrativeOnlyCreator(roleKey) && engagement.created_by_staff_id === myStaffId) return true;
+  return engagement.partner_id === myStaffId;
 }
 
 /**
@@ -102,6 +107,8 @@ export interface EngagementEditAccessInput {
  */
 export function canEditEngagement({ can, scope, roleKey, myStaffId, engagement }: EngagementEditAccessInput): boolean {
   if (!can("engagement.update")) return false;
+  // 1110-220 plan_v3 (N19): el encargo de Control de Calidad lo edita solo admin.
+  if (engagement.funcion === 3 && roleKey !== "admin") return false;
   // 1110-220 plan_v3 (N5): RESTRICTIVE "administrative write update" de engagements.
   if (!canWriteAdministrativeWork({ roleKey, myStaffId, engagement })) return false;
   if (scope("engagement.update") === "firm") return true;
@@ -123,14 +130,14 @@ export interface WorkOrderCreateInput {
  * ¿Puede crear la OT de este encargo? Espejo de las políticas INSERT de `work_orders`:
  * `wo_create_by_permission` (Gerente del encargo), "wo hr analyst administrative insert" (Analista
  * de TH creador de un no-Cliente) y la RESTRICTIVE "administrative write insert" (1110-220 plan_v3).
- * Cliente: admin o el Gerente. No-Cliente: admin, el Gerente de TH del encargo o el Analista de TH
- * que lo creó; el Gerente que no es TH no crea. El permiso `work_order.create` lo gatea la ruta.
+ * Cliente: admin o el Gerente. No-Cliente: admin o el Talento Humano (Gerente o Analista) que lo creó
+ * (plan_v5); el Aprobador de horas no crea, aunque sea de TH. El permiso `work_order.create` lo gatea la ruta.
  */
 export function canCreateWorkOrderFor({ roleKey, myStaffId, engagement }: WorkOrderCreateInput): boolean {
   if (roleKey === "admin") return true;
   if (!myStaffId) return false;
   if (!isNonClientFuncion(engagement.funcion)) return engagement.manager_id === myStaffId;
-  if (roleKey === "hr_manager") return engagement.manager_id === myStaffId;
-  if (roleKey === "hr_analyst") return engagement.created_by_staff_id === myStaffId;
+  if (engagement.funcion === 3) return false; // N19: la OT de Control de Calidad la crea solo admin.
+  if (isAdministrativeOnlyCreator(roleKey)) return engagement.created_by_staff_id === myStaffId;
   return false;
 }

@@ -100,14 +100,8 @@ CREATE OR REPLACE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE
            ('senior_partner', 'partner_director'),
            ('risk_partner',   'partner_director'),
            ('manager',        'manager'),
-           -- 1110-220 (plan_v3, N12): Gerente de un encargo NO-Cliente es un grupo propio. Gerente de TH,
-           -- Contabilidad, Riesgos y Secretaría solo son Gerentes de administrativos (el Analista de TH o
-           -- admin los eligen; el Gerente de TH se autoasigna) y nunca de Cliente. El guard de BD está en
-           -- enforce_engagement_profile_scope.
-           ('hr_manager',         'manager_administrative'),
-           ('accounting_manager', 'manager_administrative'),
-           ('risk_supervisor',    'manager_administrative'),
-           ('secretariat_head',   'manager_administrative'),
+           -- 1110-220 (plan_v5): el Aprobador de horas de un no-Cliente sale de get_hours_approver_candidates();
+           -- este RPC queda para el Gerente de Cliente y los demás campos del Equipo.
            ('senior',         'encargado'),
            ('semisenior',     'encargado'),
            -- BUG 0828-185: ita_manager/tax_manager quedan en DOS grupos -- su propia
@@ -129,7 +123,7 @@ CREATE OR REPLACE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE
    ORDER BY s.last_name, s.first_name;
 $$;
 
-COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180 y 0828-185): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) vía un mapeo (role_key, candidate_group) que admite MÚLTIPLES grupos por rol -- ita_manager/tax_manager caen en su especialidad Y en manager; senior_partner/risk_partner se agregaron a partner_director; 1110-220 plan_v3 crea el grupo manager_administrative (hr_manager/accounting_manager/risk_supervisor/secretariat_head: Gerente solo de encargos no-Cliente). NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update.';
+COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180 y 0828-185): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) vía un mapeo (role_key, candidate_group) que admite MÚLTIPLES grupos por rol -- ita_manager/tax_manager caen en su especialidad Y en manager; senior_partner/risk_partner se agregaron a partner_director; El Aprobador de horas de un no-Cliente (1110-220) sale de get_hours_approver_candidates(). NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update.';
 
 -- ── §c.5a: enforce_engagement_creator_team() -- ita_manager/tax_manager autoasignan manager_id ─
 --
@@ -179,12 +173,12 @@ BEGIN
   -- Director (sin cambios): senior_partner, risk_partner, risk_supervisor, it_security_manager,
   -- accounting_*, hr_analyst, sqr, senior, semisenior y assistant.
   --
-  -- 1110-220 (plan_v3, N4): accounting_manager, risk_supervisor y secretariat_head NO crean
-  -- encargos (enforce_engagement_profile_scope), así que no se autoasignan. hr_analyst tampoco:
-  -- crea el encargo administrativo y elige a su Gerente.
+  -- 1110-220 (plan_v3 N4, plan_v5): accounting_manager, risk_supervisor y secretariat_head NO crean
+  -- encargos (enforce_engagement_profile_scope), así que no se autoasignan. Talento Humano (hr_manager,
+  -- hr_analyst) tampoco: crea encargos no-Cliente y elige al Aprobador de horas entre 14 roles.
   IF v_role IN ('partner', 'director') THEN
     NEW.partner_id := v_staff;
-  ELSIF v_role IN ('manager', 'hr_manager', 'ita_manager', 'tax_manager') THEN
+  ELSIF v_role IN ('manager', 'ita_manager', 'tax_manager') THEN
     NEW.manager_id := v_staff;
   END IF;
 
@@ -192,4 +186,4 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180 y 0828-185): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/hr_manager/ita_manager/tax_manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
+COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180 y 0828-185): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/ita_manager/tax_manager -> manager_id; 1110-220: Talento Humano ya no se autoasigna). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';

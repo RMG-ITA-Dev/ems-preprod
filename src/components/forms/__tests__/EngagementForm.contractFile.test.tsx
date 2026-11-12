@@ -72,7 +72,6 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const emptyTeamCandidates = {
   partnerDirectorOptions: [],
   managerRoleOptions: [],
-  managerAdministrativeOptions: [],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],

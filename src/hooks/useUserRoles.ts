@@ -117,6 +117,7 @@ export function useUpdateUserRoleKey() {
       // /engagements/new dentro del staleTime global de 60s (App.tsx) y sigue viendo el set
       // viejo, con el botón Crear bloqueado.
       queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
+      queryClient.invalidateQueries({ queryKey: ["hours-approver-candidates"] });
       toast.success(t("userRoles.roleUpdated"));
     },
     onError: (error) => {
@@ -186,6 +187,7 @@ export function useSyncUserRoleFromCategory() {
       queryClient.invalidateQueries({ queryKey: ["all_user_roles"] });
       queryClient.invalidateQueries({ queryKey: ["authz_context"] });
       queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
+      queryClient.invalidateQueries({ queryKey: ["hours-approver-candidates"] });
       toast.success(t("userRoles.roleUpdated"));
     },
     onError: (error) => {
@@ -241,6 +243,7 @@ export function useDeleteAuthUser() {
       // BUG 0722-162: borrar la cuenta rompe el vínculo staff.auth_user_id, así que esa persona
       // deja de ser candidata para el bloque Equipo del encargo.
       queryClient.invalidateQueries({ queryKey: ["engagement-team-candidates"] });
+      queryClient.invalidateQueries({ queryKey: ["hours-approver-candidates"] });
       toast.success(t("userRoles.accountDeleted"));
     },
     onError: (error) => {

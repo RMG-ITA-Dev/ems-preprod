@@ -131,7 +131,6 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
 const stableTeamCandidates = {
   partnerDirectorOptions: [{ value: "p1", label: "Juan Partner", serviceId: "s1" }],
   managerRoleOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
-  managerAdministrativeOptions: [{ value: "m1", label: "Ana Manager", serviceId: "s1" }],
   encargadoOptions: [],
   specialistItOptions: [],
   specialistTaxOptions: [],
@@ -398,10 +397,7 @@ describe("EngagementForm — Sociedad required in creation (real submit, FEAT 07
     // Cliente (1), que es donde la sociedad sigue siendo una elección libre del admin; el guard
     // de sociedad corre en el bloque `missingCodeField`, antes que los de contrato y taxonomía,
     // así que sigue siendo el primer error que aparece.
-    const funcion = screen.getByLabelText(/engagement\.funcion/);
-    await user.click(funcion);
-    await waitFor(() => screen.getByRole("option", { name: "engagement.funcion_cli" }));
-    await user.click(screen.getByRole("option", { name: "engagement.funcion_cli" }));
+    // 1110-220 plan_v3 (N18): desde Encargos la función nace fija en Cliente; no hay que elegirla.
 
     const closingDate = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDate);

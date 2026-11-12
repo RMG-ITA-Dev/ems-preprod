@@ -89,8 +89,17 @@ describe("administrativeEffectiveState", () => {
     expect(administrativeEffectiveState({ ...row(2027), work_order_required: true })).toBe(EngagementState.Pendiente);
   });
 
-  it("returns Aprobado when the engagement does not require an OT", () => {
-    expect(administrativeEffectiveState({ ...row(2027), work_order_required: false })).toBe(EngagementState.Aprobado);
+  // 1110-220 plan_v5: sin OT ya no es "Aprobado directo": lo decide la firma del Socio del encargo.
+  it("sin OT: Pendiente hasta que el Socio aprueba; Aprobado o Rechazado según su firma", () => {
+    expect(administrativeEffectiveState({ ...row(2027), work_order_required: false, partner_approval_status: "pending" })).toBe(
+      EngagementState.Pendiente,
+    );
+    expect(administrativeEffectiveState({ ...row(2027), work_order_required: false, partner_approval_status: "approved" })).toBe(
+      EngagementState.Aprobado,
+    );
+    expect(administrativeEffectiveState({ ...row(2027), work_order_required: false, partner_approval_status: "rejected" })).toBe(
+      EngagementState.Rechazado,
+    );
   });
 
   // Frontend nuevo contra la RPC vieja (sin work_order_required): no debe inventar "Aprobado".

@@ -28,6 +28,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { showsClientEngagementsMenu } from "@/lib/engagementRoleAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useStaffingAlerts } from "@/hooks/useStaffingAlerts";
 import { useMarkAlertsSeen } from "@/hooks/useMarkAlertsSeen";
@@ -504,8 +505,13 @@ export function NotificationsPanel() {
   );
 
   const pendingSections = useMemo(
-    () => buildPendingSections(payload.aggregates, canOpenRoute),
-    [payload.aggregates, canOpenRoute],
+    () =>
+      buildPendingSections(
+        payload.aggregates,
+        canOpenRoute,
+        showsClientEngagementsMenu(roleKey) ? "/engagements" : "/administrative-engagements",
+      ),
+    [payload.aggregates, canOpenRoute, roleKey],
   );
   const eventGroups = useMemo(
     () => groupEventsByModule(payload.events),

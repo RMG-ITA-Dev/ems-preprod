@@ -61,6 +61,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL)
     LEFT JOIN public.clients c ON c.client_id = e.client_id
    WHERE public.has_permission('time_entry.create')
      AND e.status = 'active'
+     -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas, ni con override Aprobado.
+     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required)
      -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
      -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
      -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/8) bloquea, sin importar OT.
@@ -82,8 +84,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL)
             AND wo.approval_status = 'Approved'
             AND COALESCE(wo.risk_status, '') <> 'Rejected'
        )
-       -- Group B: administrativo (sin OT requerida).
-       OR e.work_order_required = false
+       -- Group B: Cliente sin OT requerida. 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas.
+       OR (e.work_order_required = false AND COALESCE(e.funcion, 1) = 1)
        -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
        OR e.engagement_state_override IN (4, 5)
      )

@@ -540,7 +540,7 @@ WITH base AS (
             WHEN (tla.created_at < (now() - '3 days'::interval)) THEN 'high'::text
             ELSE 'medium'::text
         END AS priority_level,
-    tla.approved_by AS staff_id,
+    apr.staff_id,
     (((s_apr.first_name)::text || ' '::text) || (s_apr.last_name)::text) AS staff_name,
     (1)::numeric AS required_count,
     tp.week_start_date AS start_date,
@@ -550,7 +550,15 @@ WITH base AS (
      JOIN public.engagements e ON ((e.engagement_id = tla.engagement_id)))
      JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
      JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
-     JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
+     -- 1110-220 (plan_v5): el aprobador ASIGNADO, no approved_by (registra a quien decidio; el envio lo deja NULL, asi que
+     -- esta alerta nunca salia). No-Cliente: el Aprobador de horas (si el encargo requiere aprobacion). Cliente: Gerente
+     -- y Socio.
+     CROSS JOIN LATERAL (
+       SELECT e.manager_id AS staff_id WHERE COALESCE(e.funcion, 1) <> 1 AND e.approval_required
+       UNION
+       SELECT x.staff_id FROM unnest(ARRAY[e.manager_id, e.partner_id]) AS x(staff_id) WHERE COALESCE(e.funcion, 1) = 1
+     ) apr
+     JOIN public.staff s_apr ON ((s_apr.staff_id = apr.staff_id)))
   -- `tp.submitted_at IS NOT NULL` no estaba, y sin eso la fila sobrevive al RETIRO de la boleta:
   -- `unsubmit_timesheet_safe` pone submitted_at en NULL y solo borra las lineas `approved` —y solo
   -- si el periodo estaba completo—, asi que las `pending` quedan ahi y el aprobador se queda con
@@ -559,7 +567,7 @@ WITH base AS (
   -- El contador nuevo del catalogo ya se protegia de esto: `notif_agg_timesheet_pending_approval`
   -- exige el periodo enviado por el MISMO motivo, y lo dice en su comentario. La vista legacy no
   -- lo aplicaba, y eso se volvio visible cuando el panel dejo de descartar esta fila.
-  WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL)
+  WHERE (((tla.status)::text = 'pending'::text)
          AND (tp.submitted_at IS NOT NULL))
 UNION ALL
  SELECT 'work_order_pending_approval'::text AS alert_type,
@@ -707,15 +715,21 @@ CREATE FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text
                       'engagement_name', e.engagement_name)
                     ORDER BY e.engagement_code), '[]'::jsonb))
     FROM public.engagements e
-    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE e.created_by_staff_id = p_staff_id
-     AND wo.approval_status = p_status
+     AND (wo.approval_status = p_status
+          -- 1110-220 (plan_v5): un no-Cliente SIN OT espera (o fue rechazado por) el Socio sobre el encargo mismo.
+          OR (wo.wo_id IS NULL
+              AND COALESCE(e.funcion, 1) <> 1
+              AND NOT e.work_order_required
+              AND e.partner_approval_status = CASE p_status WHEN 'Pending_Approval' THEN 'pending'
+                                                            WHEN 'Rejected' THEN 'rejected' END))
      AND (e.engagement_state_override IS NULL
           OR e.engagement_state_override NOT IN (6, 7));
 $$;
 
 COMMENT ON FUNCTION public.engagement_approval_bucket(uuid, text) IS
-  'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status, excluyendo Cancelado (6) y Finalizado (7).';
+  'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status (o, 1110-220, no-Cliente sin OT con la firma del Socio pendiente/rechazada), excluyendo Cancelado (6) y Finalizado (7).';
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending();
 DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending(uuid);
@@ -1204,11 +1218,13 @@ $fn$;
 COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
   'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
 
--- 1110-220 (D10): lo que el APROBADOR tiene pendiente. El contador de arriba mira las semanas que
--- el destinatario ENVIO; este, las lineas que tiene que APROBAR: mismo criterio que la alarma viva
--- `timesheet_pending_approval` de vw_staffing_alerts (approved_by = el aprobador asignado, linea en
--- pending, semana enviada), recortado a la misma ventana que los demas contadores (p_from). Lo
--- consume el recordatorio semanal approval.reminder.weekly; quien no aprueba nada da 0.
+-- 1110-220 (D10, corregido en plan_v5): lo que el APROBADOR tiene pendiente. El contador de arriba mira
+-- las semanas que el destinatario ENVIO; este, las lineas que tiene que APROBAR: linea en pending de una
+-- semana enviada, en un encargo cuyas horas decide p_staff_id HOY (is_hours_approver_of: el Aprobador de
+-- horas en no-Cliente; Gerente/Socio con permiso en Cliente), recortado a la misma ventana (p_from).
+-- NO usa approved_by: ese campo registra a quien DECIDIO, y el envio normal lo deja en NULL. Una
+-- reasignacion mueve el pendiente a la persona nueva. Lo consume approval.reminder.weekly; quien no
+-- aprueba nada da 0.
 CREATE OR REPLACE FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date)
     RETURNS jsonb
     LANGUAGE sql STABLE SECURITY DEFINER
@@ -1227,16 +1243,16 @@ CREATE OR REPLACE FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_i
         FROM public.timesheet_line_approvals tla
         JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
         JOIN public.engagements e ON e.engagement_id = tla.engagement_id
-       WHERE tla.approved_by = p_staff_id
-         AND tla.status = 'pending'
+       WHERE tla.status = 'pending'
          AND tp.submitted_at IS NOT NULL
          AND tp.week_start_date >= p_from
+         AND public.is_hours_approver_of(p_staff_id, tla.engagement_id)
        GROUP BY tp.week_start_date
     ) q;
 $fn$;
 
 COMMENT ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date) IS
-  '1110-220: lineas en pending asignadas a p_staff_id como aprobador (approved_by), de semanas enviadas desde p_from. Contador "por aprobar" del recordatorio semanal.';
+  '1110-220 (plan_v5): lineas en pending de semanas enviadas desde p_from, en encargos cuyas horas decide hoy p_staff_id (is_hours_approver_of). No usa approved_by (registra al decisor). Contador "por aprobar" del recordatorio semanal.';
 
 -- =====================================================================
 -- G.6) Quien puede llamar a los contadores

@@ -23,6 +23,7 @@ DECLARE
   v_practica_code smallint;
   v_oficina       smallint;
   v_manager_role  text;
+  v_manager_society uuid;
 BEGIN
   -- Sin identidad autenticada no hay perfil que comparar: seeds, imports, migraciones y
   -- cualquier operación con service_role pasan intactas.
@@ -32,37 +33,48 @@ BEGIN
 
   v_role := public.current_role_key();
 
-  -- 1110-220 (plan_v3, N12, 2026-11-11): quién puede ser Gerente depende de la función del encargo.
-  --   · No-Cliente (0/2/3): solo Gerente de TH, Contabilidad, Riesgos y Secretaría.
-  --   · Cliente (1 o NULL): cualquiera MENOS esos cuatro.
-  -- Corre al crear y cuando cambia manager_id (también para admin: es una regla del encargo, no del
-  -- llamador). Espejo del grupo manager_administrative de get_engagement_team_candidates() y de
-  -- EngagementForm. Va antes del resto porque la autoasignación (trg_engagements_creator_team) ya corrió.
-  IF NEW.manager_id IS NOT NULL
-     AND (TG_OP = 'INSERT' OR NEW.manager_id IS DISTINCT FROM OLD.manager_id) THEN
-    SELECT ur.role_key INTO v_manager_role
-      FROM public.staff s
-      JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
-     WHERE s.staff_id = NEW.manager_id;
-
-    IF COALESCE(NEW.funcion, 1) <> 1
-       AND COALESCE(v_manager_role, '') NOT IN ('hr_manager', 'accounting_manager', 'risk_supervisor', 'secretariat_head') THEN
-      RAISE EXCEPTION 'FORBIDDEN: el Gerente de un encargo Administrativa, Capacitacion o Calidad debe ser Gerente de Talento Humano, Contabilidad, Riesgos o Secretaria'
+  -- 1110-220 (plan_v5 §6.1, 2026-11-12): quién puede quedar en manager_id depende de la función del encargo.
+  --   · No-Cliente (0/2/3): manager_id es el "Aprobador de horas". Obligatorio y elegido entre 14 roles, igual
+  --     para admin, hr_manager y hr_analyst (no hay autoasignación), y siempre de la SOCIEDAD del encargo
+  --     (operador 2026-11-12: el encargo vive en una sociedad y lo aprueba alguien de ella; además Contabilidad, por
+  --     su alcance department, no vería uno de otra).
+  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager).
+  -- En ambos: staff activo, no borrado, con cuenta vinculada y rol activo. Corre al crear y cuando cambia la
+  -- persona; un asignado que luego pierde elegibilidad queda guardado pero no se puede volver a elegir. Espejo de
+  -- get_hours_approver_candidates() / get_engagement_team_candidates() y de EngagementForm.
+  IF TG_OP = 'INSERT' OR NEW.manager_id IS DISTINCT FROM OLD.manager_id THEN
+    IF COALESCE(NEW.funcion, 1) <> 1 AND NEW.manager_id IS NULL THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas es obligatorio en un encargo Administrativa, Capacitacion o Calidad'
         USING ERRCODE = 'insufficient_privilege';
     END IF;
-    IF COALESCE(NEW.funcion, 1) = 1
-       AND v_manager_role IN ('hr_manager', 'accounting_manager', 'risk_supervisor', 'secretariat_head') THEN
-      RAISE EXCEPTION 'FORBIDDEN: Gerente de Talento Humano, Contabilidad, Riesgos y Secretaria no son Gerentes de encargos de Cliente'
-        USING ERRCODE = 'insufficient_privilege';
+
+    IF NEW.manager_id IS NOT NULL THEN
+      SELECT ur.role_key, s.society_id INTO v_manager_role, v_manager_society
+        FROM public.staff s
+        JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+        JOIN public.authorization_roles ar ON ar.role_key = ur.role_key AND ar.is_active
+       WHERE s.staff_id = NEW.manager_id
+         AND s.is_active
+         AND s.deleted_at IS NULL;
+
+      IF COALESCE(NEW.funcion, 1) <> 1 THEN
+        IF NOT (COALESCE(v_manager_role, '') = ANY (public.hours_approver_role_keys())) THEN
+          RAISE EXCEPTION 'FORBIDDEN: Aprobador de horas no valido para un encargo Administrativa, Capacitacion o Calidad'
+            USING ERRCODE = 'insufficient_privilege';
+        END IF;
+        IF v_manager_society IS DISTINCT FROM NEW.society_id THEN
+          RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas debe ser de la sociedad del encargo'
+            USING ERRCODE = 'insufficient_privilege';
+        END IF;
+      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager'])) THEN
+        RAISE EXCEPTION 'FORBIDDEN: Gerente no valido para un encargo de Cliente'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
     END IF;
   END IF;
 
-  -- 1110-220 (plan_v3, N15, 2026-11-11): un encargo no-Cliente puede tener o no OT (eso lo elige
-  -- admin), pero sus horas SIEMPRE pasan por aprobación: approval_required queda en true para todo
-  -- rol, admin incluido, al crear y al editar. Espejo del switch deshabilitado en EngagementForm.
-  IF COALESCE(NEW.funcion, 1) <> 1 THEN
-    NEW.approval_required := true;
-  END IF;
+  -- 1110-220 (plan_v5, reemplaza N15): approval_required ya no se fuerza en no-Cliente. Lo eligen admin o el
+  -- Talento Humano creador al crear; apagado, el envío autoaprueba las líneas.
 
   IF TG_OP = 'INSERT' THEN
     -- El RPC create_engagement_with_code es SECURITY DEFINER y saltea la RLS de INSERT
@@ -109,11 +121,10 @@ BEGIN
         USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    -- 1110-220 (plan_v3, N14/N16): la "Política de Planilla" (switches del final del alta) es de admin.
+    -- 1110-220 (plan_v3 N14/N16, plan_v5 Q3): la "Política de Planilla" (switches del final del alta) es de admin.
     -- Todo encargo que crea otro rol exige OT aprobada por el Socio para cargar horas y aprobación de
-    -- las líneas de horas, SALVO un administrativo creado por Talento Humano: hay administrativos que
-    -- no pueden tener OT, así que TH elige si la lleva (único switch que ve). La aprobación de horas
-    -- de un no-Cliente la fuerza el bloque N15 de arriba para todos.
+    -- las líneas de horas, SALVO un no-Cliente creado por Talento Humano: TH elige al crear si lleva OT
+    -- y si sus horas requieren aprobación.
     IF v_role IS DISTINCT FROM 'admin'
        AND NOT (v_role IN ('hr_manager', 'hr_analyst') AND COALESCE(NEW.funcion, 1) <> 1) THEN
       NEW.work_order_required := true;
@@ -181,7 +192,7 @@ END;
 $$;
 
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst rechaza funcion 3 (Control de Calidad) para Talento Humano; fuerza work_order_required/approval_required=true en lo que crea todo rol distinto de admin, salvo la OT de un administrativo de Talento Humano (la elige); en no-Cliente approval_required=true siempre (también admin, también al editar); valida que el Gerente sea del grupo de la función (no-Cliente: hr_manager/accounting_manager/risk_supervisor/secretariat_head; Cliente: cualquiera menos esos); y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst y funcion 3 (Control de Calidad) para Talento Humano; fuerza work_order_required/approval_required=true en lo que crea todo rol distinto de admin, salvo un no-Cliente de Talento Humano (elige ambos); valida manager_id (1110-220 plan_v5): en no-Cliente es el Aprobador de horas, obligatorio, de 14 roles y de la sociedad del encargo; en Cliente, manager/ita_manager/tax_manager; siempre staff activo, no borrado, con cuenta y rol activo; y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 GRANT ALL ON FUNCTION public.enforce_engagement_profile_scope() TO anon;

@@ -211,6 +211,14 @@ describe("StaffAssignmentsCard", () => {
     expect(screen.queryByText("engagement.assignments.save")).not.toBeInTheDocument();
   });
 
+  // 1110-220: en un no-Cliente ocupar un cargo (p. ej. ser el Aprobador de horas) no alcanza; EngagementForm pasa
+  // canWriteAdministrative = false y la tarjeta queda en solo lectura, igual que save_engagement_assignments.
+  it("read-only when the engagement form says the administrative write rule denies it", () => {
+    render(<StaffAssignmentsCard engagement={ENGAGEMENT} canWriteAdministrative={false} />);
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
   it("admin can always write, regardless of responsibility", () => {
     mockRole = { isAdmin: true };
     mockStaffRecord = { staff_id: "bystander" };

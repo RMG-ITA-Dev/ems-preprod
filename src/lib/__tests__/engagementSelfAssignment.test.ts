@@ -6,7 +6,7 @@ import {
   SELF_ASSIGN_MANAGER_ROLE_KEYS,
   type SelfAssignmentInput,
 } from "@/lib/engagementSelfAssignment";
-import { ADMINISTRATIVE_FIELD_GROUPS, ROLE_KEY_TO_GROUPS, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
+import { ROLE_KEY_TO_GROUPS, TEAM_FIELD_GROUPS } from "@/lib/engagementTeamCandidates";
 
 /**
  * BUG 0810-172 — autoasignación y bloqueo del Socio/Director o Gerente al crear un encargo.
@@ -41,8 +41,8 @@ describe("resolveSelfAssignedTeamField — roles que SÍ se autoasignan", () => 
     expect(resolveSelfAssignedTeamField({ ...base, roleKey: "director" })).toBe("partner_id");
   });
 
-  it("hr_manager → manager_id (0817-180: TH se comporta como cualquier otro Gerente, decisión del operador 2026-08-27)", () => {
-    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "hr_manager" })).toBe("manager_id");
+  it("hr_manager no se autoasigna (1110-220 plan_v5: Talento Humano elige al Aprobador de horas)", () => {
+    expect(resolveSelfAssignedTeamField({ ...base, roleKey: "hr_manager" })).toBeNull();
   });
 
   it("ita_manager/tax_manager → manager_id (0828-185: se agregan al campo Gerente/Supervisor)", () => {
@@ -140,10 +140,8 @@ describe("coherencia estructural con la elegibilidad de 0722-162", () => {
 
   it("todo rol autoasignado al campo Gerente es candidato de ese campo", () => {
     for (const roleKey of SELF_ASSIGN_MANAGER_ROLE_KEYS) {
-      // 1110-220 plan_v3 (N12): hr_manager es candidato de manager_id en los no-Cliente (su grupo propio).
-      const managerGroups = [TEAM_FIELD_GROUPS.manager_id, ADMINISTRATIVE_FIELD_GROUPS.manager_id];
       expect(
-        ROLE_KEY_TO_GROUPS[roleKey].some((g) => managerGroups.includes(g)),
+        ROLE_KEY_TO_GROUPS[roleKey].includes(TEAM_FIELD_GROUPS.manager_id),
         `${roleKey} debe ser candidato de manager_id`
       ).toBe(true);
     }

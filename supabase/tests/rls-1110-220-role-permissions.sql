@@ -1,11 +1,10 @@
--- 1110-220 — Solo Talento Humano y Sistemas crean lo administrativo (bugs/1110-220/plan_v3.md, decisiones N1-N7).
+-- 1110-220 — Solo Talento Humano y Sistemas crean lo administrativo (bugs/1110-220/plan_v3.md N1-N19, plan_v5.md).
 --   · Encargos no-Cliente (funcion 0/2/3) y sus OTs: solo admin, hr_manager y hr_analyst los crean.
---   · hr_manager queda como Gerente de lo que crea; hr_analyst elige al Gerente y crea las OTs como creador.
---   · Contabilidad (accounting_manager), Riesgos (risk_supervisor) y Secretaría (secretariat_head): candidatos a Gerente,
---     aprueban horas y miran. No crean ni editan.
---   · Un Gerente que no es TH (normal, ITA/Tax o los tres de arriba) en un no-Cliente: solo aprueba y mira.
+--   · plan_v5: en un no-Cliente manager_id es el "Aprobador de horas": obligatorio, elegido entre 14 roles por admin o TH
+--     (sin autoasignación). Aprueba horas y mira; no edita aunque sea de TH. TH escribe lo que creó.
+--   · Contabilidad (accounting_manager), Riesgos (risk_supervisor) y Secretaría (secretariat_head) no crean ni editan.
 --   · Secretaría ve solo lo que gerencia.
---   · Lo que crea Talento Humano siempre exige OT (work_order_required = true).
+--   · TH elige al crear si el no-Cliente lleva OT y si sus horas requieren aprobación.
 --
 -- Corre desde supabase/tests/local/run-rls-tests.sh, al final (estado definitivo: B5/D1 aplicados). Transacción única,
 -- SIEMPRE hace ROLLBACK. Salida de éxito: una NOTICE por chequeo y "1110-220 ROLES: ALL CHECKS PASSED (rolled back)".
@@ -262,53 +261,106 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
     -- N1 (solo TH/Sistemas crean) o N12 (el Gerente normal no es Gerente de un administrativo): las dos rechazan.
-    IF SQLERRM NOT LIKE '%solo Talento Humano y Sistemas%' AND SQLERRM NOT LIKE '%debe ser Gerente de Talento Humano%' THEN
+    IF SQLERRM NOT LIKE '%solo Talento Humano y Sistemas%' AND SQLERRM NOT LIKE '%Gerente no valido%' THEN
       RAISE EXCEPTION '1110-220 FAIL — el rechazo del Gerente normal salió de otra regla: %', SQLERRM;
     END IF;
   END;
 
-  -- hr_manager: queda como Gerente aunque el payload traiga a otro, y exige OT.
+  -- hr_manager (plan_v5): ya no se autoasigna; queda el Aprobador que eligió y él como creador.
   v_eng := pg_temp.try_create_as(6, 'R1102 alta H', pg_temp.s(4));
   IF v_eng.engagement_id IS NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_manager debía poder crear un encargo administrativo';
   END IF;
-  -- N16: TH elige si el administrativo lleva OT (el payload manda false y se respeta); N15: la aprobación, siempre.
-  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) OR v_eng.work_order_required IS NOT FALSE OR v_eng.approval_required IS NOT TRUE THEN
-    RAISE EXCEPTION '1110-220 FAIL — alta de hr_manager: Gerente % (esperado él), OT obligatoria % (esperado false, la elige TH), aprobación %',
-      v_eng.manager_id, v_eng.work_order_required, v_eng.approval_required;
+  -- N16/Q3: TH elige si el administrativo lleva OT y si sus horas requieren aprobación (el payload se respeta).
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(4) OR v_eng.created_by_staff_id IS DISTINCT FROM pg_temp.s(6)
+     OR v_eng.work_order_required IS NOT FALSE OR v_eng.approval_required IS NOT TRUE THEN
+    RAISE EXCEPTION '1110-220 FAIL — alta de hr_manager: Aprobador % (esperado el elegido), creador %, OT obligatoria % (esperado false, la elige TH), aprobación %',
+      v_eng.manager_id, v_eng.created_by_staff_id, v_eng.work_order_required, v_eng.approval_required;
   END IF;
 
-  -- hr_analyst: elige a Contabilidad como Gerente; él queda como creador, y exige OT.
-  v_eng := pg_temp.try_create_as(7, 'R1102 alta Y', pg_temp.s(1));
+  -- hr_analyst: elige al Aprobador entre los 14 roles; él queda como creador.
+  v_eng := pg_temp.try_create_as(7, 'R1102 alta Y', pg_temp.s(6));
   IF v_eng.engagement_id IS NULL THEN
-    RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder crear un encargo administrativo';
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder crear un encargo administrativo con Gerente de TH';
   END IF;
-  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(1) OR v_eng.created_by_staff_id IS DISTINCT FROM pg_temp.s(7)
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) OR v_eng.created_by_staff_id IS DISTINCT FROM pg_temp.s(7)
      OR v_eng.work_order_required IS NOT FALSE OR v_eng.funcion <> 0 OR v_eng.is_internal IS NOT TRUE THEN
     RAISE EXCEPTION '1110-220 FAIL — alta de hr_analyst: Gerente %, creador %, OT obligatoria %, funcion %, interno %',
       v_eng.manager_id, v_eng.created_by_staff_id, v_eng.work_order_required, v_eng.funcion, v_eng.is_internal;
   END IF;
 
-  -- N12: un Gerente normal no puede ser Gerente de un administrativo.
+  -- plan_v5: el Analista de TH elige cualquiera de los 14 roles (Gerente normal, Contabilidad de su sociedad, Socio,
+  -- Riesgos, Secretaría, otro de TH o él mismo).
+  FOREACH v_n IN ARRAY ARRAY[4, 1, 8, 2, 3, 7] LOOP
+    IF (pg_temp.try_create_as(7, 'R1102 Y con aprobador ' || v_n, pg_temp.s(v_n))).engagement_id IS NULL THEN
+      RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder elegir como Aprobador al sujeto %', v_n;
+    END IF;
+  END LOOP;
+
+  -- plan_v5: fuera de la lista (asistente) o vacío, se rechaza.
   PERFORM pg_temp.impersonate(pg_temp.u(7));
   SET LOCAL ROLE authenticated;
   BEGIN
-    PERFORM pg_temp.create_eng('R1102 Y con gerente normal', pg_temp.s(4));
+    PERFORM pg_temp.create_eng('R1102 Y con asistente', pg_temp.s(5));
     RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — hr_analyst puso a un Gerente normal en un administrativo';
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst puso como Aprobador de horas a un asistente';
   EXCEPTION WHEN insufficient_privilege THEN
     RESET ROLE;
-    IF SQLERRM NOT LIKE '%debe ser Gerente de Talento Humano, Contabilidad, Riesgos o Secretaria%' THEN
-      RAISE EXCEPTION '1110-220 FAIL — el rechazo del Gerente normal salió de otra regla: %', SQLERRM;
+    IF SQLERRM NOT LIKE '%Aprobador de horas no valido%' THEN
+      RAISE EXCEPTION '1110-220 FAIL — el rechazo del asistente salió de otra regla: %', SQLERRM;
+    END IF;
+  END;
+  PERFORM pg_temp.impersonate(pg_temp.u(7));
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM pg_temp.create_eng('R1102 Y sin aprobador', NULL);
+    RESET ROLE;
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst creó un administrativo sin Aprobador de horas';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    IF SQLERRM NOT LIKE '%Aprobador de horas es obligatorio%' THEN
+      RAISE EXCEPTION '1110-220 FAIL — el rechazo del Aprobador vacío salió de otra regla: %', SQLERRM;
     END IF;
   END;
 
+  -- plan_v5: el Gerente de Contabilidad solo es Aprobador de encargos de su sociedad.
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
+   WHERE staff_id = pg_temp.s(1);
+  IF (pg_temp.try_create_as(7, 'R1102 Y con contabilidad ajena', pg_temp.s(1))).engagement_id IS NOT NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst eligió como Aprobador a Contabilidad de otra sociedad';
+  END IF;
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+   WHERE staff_id = pg_temp.s(1);
+  -- Operador 2026-11-12: lo mismo para cualquiera de los 14 roles (aquí el Gerente normal de otra sociedad).
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
+   WHERE staff_id = pg_temp.s(4);
+  PERFORM pg_temp.impersonate(pg_temp.u(7));
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM pg_temp.create_eng('R1102 Y con gerente ajeno', pg_temp.s(4));
+    RESET ROLE;
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst eligió como Aprobador a alguien de otra sociedad';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    IF SQLERRM NOT LIKE '%sociedad del encargo%' THEN
+      RAISE EXCEPTION '1110-220 FAIL — el rechazo por sociedad salió de otra regla: %', SQLERRM;
+    END IF;
+  END;
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+   WHERE staff_id = pg_temp.s(4);
+
+  -- Admin elige a Contabilidad como Gerente de "alta Y" (admin no está en el fixture: se simula como dueño, que es
+  -- lo que deja la regla de admin). Desde aquí Contabilidad es la Gerente elegida de ese encargo.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(1) WHERE engagement_name = 'R1102 alta Y';
+  PERFORM set_config('session_replication_role', 'origin', true);
+
   -- N13: Talento Humano no crea Control de Calidad (funcion 3); sí Capacitación (2).
   IF (pg_temp.try_create_as(6, 'R1102 calidad H', pg_temp.s(6), 3::smallint)).engagement_id IS NOT NULL
-     OR (pg_temp.try_create_as(7, 'R1102 calidad Y', pg_temp.s(1), 3::smallint)).engagement_id IS NOT NULL THEN
+     OR (pg_temp.try_create_as(7, 'R1102 calidad Y', pg_temp.s(6), 3::smallint)).engagement_id IS NOT NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — Talento Humano creó un encargo de Control de Calidad';
   END IF;
-  IF (pg_temp.try_create_as(7, 'R1102 capacitacion Y', pg_temp.s(1), 2::smallint)).engagement_id IS NULL THEN
+  IF (pg_temp.try_create_as(7, 'R1102 capacitacion Y', pg_temp.s(6), 2::smallint)).engagement_id IS NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder crear Capacitación';
   END IF;
 
@@ -330,35 +382,48 @@ BEGIN
   IF (pg_temp.try_create_as(6, 'R1102 cliente H', pg_temp.s(6), 1::smallint)).engagement_id IS NOT NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_manager creó un encargo de Cliente';
   END IF;
-  RAISE NOTICE 'PASS — alta: solo Talento Humano crea no-Cliente; hr_manager queda Gerente, hr_analyst elige; TH elige la OT, la aprobación es fija';
+  RAISE NOTICE 'PASS — alta: solo Talento Humano crea no-Cliente; TH elige al Aprobador entre los 14 roles (obligatorio), la OT y la aprobación';
 END $$;
 
--- ── 3. Candidatos a Gerente (los ve quien crea: hr_analyst) ──────────────────────────────────────────────────────────
+-- ── 3. Candidatos a Aprobador de horas (los ve quien elige: admin y TH) ────────────────────────────────────────────────
 DO $$
+DECLARE v_ids uuid[];
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(7));
   SET LOCAL ROLE authenticated;
-  -- N12: Gerente de un no-Cliente = grupo propio (TH, Contabilidad, Riesgos, Secretaría); el normal queda en manager.
-  IF (SELECT count(*) FROM public.get_engagement_team_candidates() c
-       WHERE c.candidate_group = 'manager_administrative' AND c.staff_id IN (pg_temp.s(1), pg_temp.s(2), pg_temp.s(3), pg_temp.s(6))) <> 4 THEN
-    RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — Gerente de TH, Contabilidad, Riesgos y Secretaría debían salir en manager_administrative';
+  SELECT array_agg(c.staff_id ORDER BY c.staff_id) INTO v_ids
+    FROM public.get_hours_approver_candidates() c WHERE c.staff_id::text LIKE '51102000-%';
+  RESET ROLE;
+  -- plan_v5: los 14 roles; del fixture, todos menos el asistente (5).
+  IF v_ids IS DISTINCT FROM ARRAY[pg_temp.s(1), pg_temp.s(2), pg_temp.s(3), pg_temp.s(4), pg_temp.s(6), pg_temp.s(7), pg_temp.s(8)] THEN
+    RAISE EXCEPTION '1110-220 FAIL — candidatos a Aprobador para hr_analyst: % (esperado 1,2,3,4,6,7,8)', v_ids;
   END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc pr CROSS JOIN LATERAL unnest(pr.proargnames) a(n)
+              WHERE pr.oid = 'public.get_hours_approver_candidates()'::regprocedure AND a.n IN ('email', 'auth_user_id')) THEN
+    RAISE EXCEPTION '1110-220 FAIL — get_hours_approver_candidates expone email o auth_user_id';
+  END IF;
+
+  -- Quien no elige (Gerente normal, Socio) no ve la lista aunque tenga engagement.create/.update.
+  IF pg_temp.count_as(pg_temp.u(4), 'SELECT count(*) FROM public.get_hours_approver_candidates()') <> 0
+     OR pg_temp.count_as(pg_temp.u(8), 'SELECT count(*) FROM public.get_hours_approver_candidates()') <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — un rol que no elige Aprobador vio candidatos';
+  END IF;
+  IF has_function_privilege('anon', 'public.get_hours_approver_candidates()', 'EXECUTE') THEN
+    RAISE EXCEPTION '1110-220 FAIL — anon puede ejecutar get_hours_approver_candidates';
+  END IF;
+
+  -- Los grupos del Equipo ya no traen a TH, Contabilidad, Riesgos ni Secretaría; el Gerente normal sigue en manager.
+  PERFORM pg_temp.impersonate(pg_temp.u(7));
+  SET LOCAL ROLE authenticated;
   IF EXISTS (SELECT 1 FROM public.get_engagement_team_candidates() c
-              WHERE c.candidate_group = 'manager' AND c.staff_id IN (pg_temp.s(1), pg_temp.s(2), pg_temp.s(3), pg_temp.s(6)))
+              WHERE c.staff_id IN (pg_temp.s(1), pg_temp.s(2), pg_temp.s(3), pg_temp.s(6), pg_temp.s(7)))
      OR NOT EXISTS (SELECT 1 FROM public.get_engagement_team_candidates() c
-                     WHERE c.candidate_group = 'manager' AND c.staff_id = pg_temp.s(4))
-     OR EXISTS (SELECT 1 FROM public.get_engagement_team_candidates() c
-                 WHERE c.candidate_group = 'manager_administrative' AND c.staff_id = pg_temp.s(4)) THEN
+                     WHERE c.candidate_group = 'manager' AND c.staff_id = pg_temp.s(4)) THEN
     RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — el grupo manager debía tener al Gerente normal y no a los cuatro administrativos';
-  END IF;
-  IF EXISTS (SELECT 1 FROM public.get_engagement_team_candidates() c WHERE c.staff_id = pg_temp.s(7)) THEN
-    RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — hr_analyst no es candidato a Gerente';
+    RAISE EXCEPTION '1110-220 FAIL — el Equipo debía ofrecer al Gerente normal y a ninguno de TH/Contabilidad/Riesgos/Secretaría';
   END IF;
   RESET ROLE;
-  RAISE NOTICE 'PASS — candidatos: administrativos = TH/Contabilidad/Riesgos/Secretaría; Cliente = gerentes; el Analista no es candidato';
+  RAISE NOTICE 'PASS — candidatos a Aprobador: 14 roles, solo para admin/TH, sin PII; el Equipo de Cliente sigue con sus gerentes';
 END $$;
 
 -- ── 4. Aprobación de horas: el Gerente elegido aprueba; el Analista que creó, no ──────────────────────────────────────
@@ -399,6 +464,103 @@ BEGIN
   RAISE NOTICE 'PASS — aprobación: aprueba el Gerente elegido (también el normal), no el Analista creador';
 END $$;
 
+-- ── 4b. plan_v5: el Aprobador de horas decide sin el permiso global; solo en su no-Cliente ─────────────────────────────
+-- Sujeto 9: senior (no tiene timesheet_approval.approve). EV: no-Cliente con Aprobador 9 y Socio P, sembrado como dueño.
+INSERT INTO auth.users (id) VALUES ('a1102000-0000-4000-8000-000000000009');
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES ('a1102000-0000-4000-8000-000000000009', 'staff', 'senior')
+ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, practica_id, society_id, city)
+VALUES ('51102000-0000-4000-8000-000000000009', 'a1102000-0000-4000-8000-000000000009', 'U9', 'R1102', true,
+        (SELECT practica_id FROM public.practicas WHERE code = 1),
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'), 'La Paz');
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, oficina, practica,
+                                fecha_cierre, start_date, end_date, work_order_required, approval_required, is_internal,
+                                society_id, manager_id, partner_id, created_by_staff_id)
+VALUES ('e1102000-0000-4000-8000-000000000009', 'c1000000-0000-4000-8000-000000000160', 'R1102 EV', 'R1102-EV', 0, 1, 1,
+        '2027-12-31', '2026-01-05', '2099-06-30', true, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000009', '51102000-0000-4000-8000-000000000008', '51102000-0000-4000-8000-000000000006');
+-- El senior también figura como Socio de EC (Cliente) para probar que ser Aprobador de un no-Cliente no abre Cliente.
+UPDATE public.engagements SET partner_id = '51102000-0000-4000-8000-000000000009' WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
+INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, is_forecast)
+VALUES ('51102000-0000-4000-8000-000000000005', 'e1102000-0000-4000-8000-000000000009',
+        (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1102-ACT'), '2026-03-04', 3, false),
+       ('51102000-0000-4000-8000-000000000005', 'e1102000-0000-4000-8000-000000000002',
+        (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1102-ACT'), '2026-03-04', 1, false);
+INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, submitted_at)
+VALUES ('d1102000-0000-4000-8000-000000000009', '51102000-0000-4000-8000-000000000005', '2026-03-02', 10, 2026, now())
+ON CONFLICT DO NOTHING;
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_ev uuid := 'e1102000-0000-4000-8000-000000000009';
+  v_ec uuid := 'e1102000-0000-4000-8000-000000000002';
+  v_em uuid := 'e1102000-0000-4000-8000-000000000001';
+  v_p  uuid := (SELECT period_id FROM public.timesheet_periods
+                 WHERE staff_id = pg_temp.s(5) AND week_start_date = '2026-03-02' LIMIT 1);
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.authorization_role_permissions WHERE role_key = 'senior' AND permission_key = 'timesheet_approval.approve') THEN
+    RAISE EXCEPTION '1110-220 FAIL (fixture) — senior no debía tener timesheet_approval.approve';
+  END IF;
+  IF NOT public.can_approve_timesheet_line(pg_temp.u(9)::uuid, v_p, v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el senior Aprobador de horas debía aprobar las líneas de su no-Cliente';
+  END IF;
+  IF public.can_approve_timesheet_line(pg_temp.u(9)::uuid, v_p, v_ec) THEN
+    RAISE EXCEPTION '1110-220 FAIL — ser Aprobador de un no-Cliente le abrió aprobar Cliente (Socio sin permiso)';
+  END IF;
+  -- El Socio de un no-Cliente aprueba el encargo, no las horas.
+  IF public.can_approve_timesheet_line(pg_temp.u(8)::uuid, v_p, v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio de un no-Cliente decidió horas sin ser su Aprobador';
+  END IF;
+  -- Período mixto: el senior entra a la boleta por EV y solo ve como aprobables las líneas de EV.
+  IF NOT public.can_approve_timesheet(pg_temp.u(9)::uuid, v_p) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el senior debía poder abrir la boleta que tiene líneas de su no-Cliente';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(9), format('SELECT count(*) FROM public.my_approvable_engagement_ids() id WHERE id IN (%L, %L, %L)', v_ev, v_ec, v_em)) <> 1
+     OR pg_temp.count_as(pg_temp.u(9), format('SELECT count(*) FROM public.my_approvable_engagement_ids() id WHERE id = %L', v_ev)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — my_approvable_engagement_ids del senior debía ser solo EV';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(9), format('SELECT count(*) FROM public.my_approvable_period_ids() id WHERE id = %L', v_p)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — my_approvable_period_ids del senior no trae la boleta (espejo de can_approve_timesheet)';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(9), format('SELECT count(*) FROM public.get_approvable_pairs(ARRAY[%L, %L]::uuid[], ARRAY[%L, %L]::uuid[])', v_p, v_p, v_ev, v_ec)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — get_approvable_pairs del senior debía devolver solo el par de EV';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.get_timesheet_approvers(pg_temp.s(5), '2026-03-02') a WHERE a.approver_staff_id = pg_temp.s(9)) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el senior Aprobador no aparece en get_timesheet_approvers';
+  END IF;
+
+  -- Switch de horas apagado: sus líneas se autoaprueban, el Aprobador deja de figurar como destinatario por ellas.
+  UPDATE public.engagements SET approval_required = false WHERE engagement_id = v_ev;
+  IF EXISTS (SELECT 1 FROM public.get_timesheet_approvers(pg_temp.s(5), '2026-03-02') a WHERE a.approver_staff_id = pg_temp.s(9)) THEN
+    RAISE EXCEPTION '1110-220 FAIL — con la aprobación de horas apagada el Aprobador seguía como destinatario';
+  END IF;
+  UPDATE public.engagements SET approval_required = true WHERE engagement_id = v_ev;
+
+  -- Baja o cambio de rol: la asignación guardada deja de dar el privilegio.
+  UPDATE public.staff SET is_active = false WHERE staff_id = pg_temp.s(9);
+  IF public.can_approve_timesheet_line(pg_temp.u(9)::uuid, v_p, v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un Aprobador dado de baja siguió decidiendo horas';
+  END IF;
+  UPDATE public.staff SET is_active = true WHERE staff_id = pg_temp.s(9);
+  UPDATE public.user_roles SET role_key = 'semisenior' WHERE user_id = pg_temp.u(9)::uuid;
+  IF public.can_approve_timesheet_line(pg_temp.u(9)::uuid, v_p, v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un Aprobador que pasó a un rol fuera de la lista siguió decidiendo horas';
+  END IF;
+  UPDATE public.user_roles SET role_key = 'senior' WHERE user_id = pg_temp.u(9)::uuid;
+
+  -- Cliente intacto: el Gerente normal de EC aprueba; el permiso global sigue mandando ahí.
+  IF NOT public.can_approve_timesheet_line(pg_temp.u(4)::uuid, v_p, v_ec) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Gerente de un encargo de Cliente dejó de aprobar sus horas';
+  END IF;
+  RAISE NOTICE 'PASS — Aprobador de horas: decide su no-Cliente sin permiso global, no Cliente; el Socio no decide horas; baja/rol lo cortan; switch apagado no avisa';
+END $$;
+SET LOCAL session_replication_role = replica;
+UPDATE public.engagements SET partner_id = NULL WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
+SET LOCAL session_replication_role = origin;
+
 -- ── 5. OTs: solo Talento Humano, admin y el Socio escriben las de un no-Cliente ───────────────────────────────────────
 DO $$
 DECLARE
@@ -416,9 +578,24 @@ BEGIN
   IF pg_temp.rows_as(pg_temp.u(1), format(ins, v_ey)) <> -1 THEN
     RAISE EXCEPTION '1110-220 FAIL — accounting_manager creó una OT';
   END IF;
+  -- plan_v5: con "Requiere OT" apagado (así se crearon alta Y y alta H) no se le crea OT, ni su creador.
+  IF pg_temp.rows_as(pg_temp.u(7), format(ins, v_ey)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — se creó una OT en un administrativo sin OT';
+  END IF;
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET work_order_required = true WHERE engagement_name IN ('R1102 alta Y', 'R1102 alta H');
+  PERFORM set_config('session_replication_role', 'origin', true);
   -- Analista de TH, creador de alta Y: crea.
   IF pg_temp.rows_as(pg_temp.u(7), format(ins, v_ey)) <> 1 THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía crear la OT del encargo que creó';
+  END IF;
+  -- plan_v5: el Gerente de TH crea la OT del encargo que creó aunque el Aprobador sea otro.
+  IF pg_temp.rows_as(pg_temp.u(6), format(ins, (SELECT engagement_id FROM public.engagements WHERE engagement_name = 'R1102 alta H'))) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_manager debía crear la OT del encargo que creó (Aprobador: el Gerente normal)';
+  END IF;
+  -- ...y el Gerente normal, Aprobador de ese encargo, no.
+  IF pg_temp.rows_as(pg_temp.u(4), format(ins, (SELECT engagement_id FROM public.engagements WHERE engagement_name = 'R1102 alta H'))) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador de horas creó una OT';
   END IF;
   -- Control: el Gerente normal sí crea en Cliente.
   IF pg_temp.rows_as(pg_temp.u(4), format(ins, 'e1102000-0000-4000-8000-000000000002')) <> 1 THEN
@@ -484,12 +661,57 @@ BEGIN
   IF pg_temp.rows_as(pg_temp.u(3), format(upd_name, 'R1102 EM')) > 0 THEN
     RAISE EXCEPTION '1110-220 FAIL — secretariat_head editó un administrativo';
   END IF;
-  -- N15: en un no-Cliente la aprobación de horas no se apaga, ni editando (el trigger la vuelve a true).
-  PERFORM pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagements SET approval_required = false WHERE engagement_name = ''R1102 alta H''');
-  IF (SELECT approval_required FROM public.engagements WHERE engagement_name = 'R1102 alta H') IS NOT TRUE THEN
-    RAISE EXCEPTION '1110-220 FAIL — un encargo no-Cliente quedó sin aprobación de horas';
+  -- plan_v5: TH Aprobador de un administrativo ajeno no lo edita (ser Aprobador no da edición).
+  IF pg_temp.rows_as(pg_temp.u(6), format(upd_name, 'R1102 capacitacion Y')) > 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_manager editó el administrativo donde solo es Aprobador de horas';
   END IF;
-  RAISE NOTICE 'PASS — edición no-Cliente: cada uno de TH edita lo suyo y ve lo demás; Gerente normal, Contabilidad y Secretaría no; la aprobación no se apaga';
+  -- plan_v5 (reemplaza N15): en un no-Cliente la aprobación de horas se puede apagar.
+  PERFORM pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagements SET approval_required = false WHERE engagement_name = ''R1102 alta H''');
+  IF (SELECT approval_required FROM public.engagements WHERE engagement_name = 'R1102 alta H') IS NOT FALSE THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH no pudo apagar la aprobación de horas de su no-Cliente';
+  END IF;
+  RAISE NOTICE 'PASS — edición no-Cliente: cada uno de TH edita lo que creó y ve lo demás; el Aprobador no edita; la aprobación de horas se elige';
+END $$;
+
+-- ── 6b. Control de Calidad (N19): solo admin lo edita; TH lo ve solo si es su Gerente ─────────────────────────────
+-- Lo crea admin; admin no está en el fixture, así que se siembra como dueño: EQ con Gerente de TH (H) y Socio P.
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, oficina, practica,
+                                fecha_cierre, start_date, end_date, work_order_required, approval_required, is_internal,
+                                society_id, manager_id, partner_id, created_by_staff_id)
+VALUES ('e1102000-0000-4000-8000-000000000003', 'c1000000-0000-4000-8000-000000000160', 'R1102 EQ', 'R1102-EQ', 3, 1, 1,
+        '2027-12-31', '2026-01-05', '2099-06-30', false, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000006', '51102000-0000-4000-8000-000000000008', '51102000-0000-4000-8000-000000000004');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  upd constant text := 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name = ''R1102 EQ''';
+  rd  constant text := 'SELECT count(*) FROM public.engagements WHERE engagement_name = ''R1102 EQ''';
+  por constant text := 'SELECT count(*) FROM (SELECT jsonb_array_elements(public.list_portfolio_engagements()) e) x WHERE x.e ->> ''engagement_name'' = ''R1102 EQ''';
+  adm constant text := 'SELECT count(*) FROM (SELECT jsonb_array_elements(public.list_administrative_engagements()) e) x WHERE x.e ->> ''engagement_name'' = ''R1102 EQ''';
+BEGIN
+  IF pg_temp.rows_as(pg_temp.u(6), upd) > 0 OR pg_temp.rows_as(pg_temp.u(8), upd) > 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — Control de Calidad: su Gerente de TH o su Socio editaron el encargo (solo admin)';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(6), por) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Gerente de TH del encargo de Calidad debía verlo';
+  END IF;
+  -- El detalle (RLS y portafolio) sigue cerrado; la lista "Todos" de Encargos Administrativos sí lo muestra
+  -- (operador 2026-11-12: es consulta sin detalle).
+  IF pg_temp.count_as(pg_temp.u(7), rd) <> 0 OR pg_temp.count_as(pg_temp.u(7), por) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Analista de TH abrió un encargo de Calidad ajeno (RLS %, portafolio %)',
+      pg_temp.count_as(pg_temp.u(7), rd), pg_temp.count_as(pg_temp.u(7), por);
+  END IF;
+  -- (Solo el Analista: el fixture no tiene año fiscal y quien no crea encargos solo ve el año vigente.)
+  IF pg_temp.count_as(pg_temp.u(7), adm) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el encargo de Calidad debía salir en la lista "Todos" de Encargos Administrativos';
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(6), 'INSERT INTO public.work_orders (engagement_id, currency, season_mode, tax_rate) VALUES (''e1102000-0000-4000-8000-000000000003'', ''BOB'', ''High'', 0.13)') <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Gerente de TH creó la OT de un encargo de Calidad';
+  END IF;
+  RAISE NOTICE 'PASS — Control de Calidad: solo admin lo edita; el detalle lo abre quien figura en él; la lista "Todos" lo muestra';
 END $$;
 
 -- ── 7. RPC definer: equipo del encargo ──────────────────────────────────────────────────────────────────────────────
@@ -591,6 +813,224 @@ BEGIN
     RAISE EXCEPTION '1110-220 FAIL — los tres roles reciben el recordatorio semanal de aprobaciones';
   END IF;
   RAISE NOTICE 'PASS — avisos: set de gerente para los tres, sin personal/capacitación, con recordatorio semanal';
+END $$;
+
+-- ── 10. plan_v5: firma del Socio sin OT, sin horas sin OT, candado después de la firma ──────────────────────────────
+DO $$
+DECLARE
+  v_eng  public.engagements;
+  v_id   uuid;
+  v_wo   uuid;
+  v_ok   boolean;
+  v_n    bigint;
+  -- Cambio real (un UPDATE sin cambios no lo frena el candado: no modifica nada).
+  upd    constant text := 'UPDATE public.engagements SET engagement_name = engagement_name || ''.'' WHERE engagement_id = %L';
+BEGIN
+  -- Alta de TH sin OT: nace pendiente de la firma del Socio.
+  v_eng := pg_temp.try_create_as(6, 'R1102 sin OT H', pg_temp.s(4));
+  v_id := v_eng.engagement_id;
+  IF v_id IS NULL OR v_eng.work_order_required IS NOT FALSE OR v_eng.partner_approval_status IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT debía nacer pendiente de la firma (id %, OT %, firma %)',
+      v_id, v_eng.work_order_required, v_eng.partner_approval_status;
+  END IF;
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET partner_id = pg_temp.s(8) WHERE engagement_id = v_id;
+  PERFORM set_config('session_replication_role', 'origin', true);
+
+  -- Sin OT no hay horas (Q2), ni en la lista de carga ni por API.
+  v_ok := false;
+  BEGIN
+    INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, is_forecast)
+    VALUES (pg_temp.s(5), v_id, (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1102-ACT'),
+            (now() AT TIME ZONE 'America/La_Paz')::date, 1, false);
+  EXCEPTION WHEN OTHERS THEN
+    v_ok := SQLERRM LIKE '%sin OT no admite horas%';
+  END;
+  IF NOT v_ok THEN
+    RAISE EXCEPTION '1110-220 FAIL — se cargaron horas en un no-Cliente sin OT';
+  END IF;
+  IF public.engagement_allows_hours_or_requests(v_id) THEN
+    RAISE EXCEPTION '1110-220 FAIL — engagement_allows_hours_or_requests dejó pasar un no-Cliente sin OT';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(5), format('SELECT count(*) FROM public.list_loggable_engagements() l WHERE l.engagement_id = %L', v_id)) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — list_loggable_engagements ofrece un no-Cliente sin OT';
+  END IF;
+
+  -- La firma no se fabrica por UPDATE directo.
+  IF pg_temp.rows_as(pg_temp.u(6), format('UPDATE public.engagements SET partner_approval_status = ''approved'' WHERE engagement_id = %L', v_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH aprobó el encargo con un UPDATE directo';
+  END IF;
+
+  -- Solo el Socio decide; rechazar exige motivo.
+  IF pg_temp.rows_as(pg_temp.u(6), format('SELECT public.decide_engagement_partner_approval(%L, true)', v_id)) <> -1
+     OR pg_temp.rows_as(pg_temp.u(4), format('SELECT public.decide_engagement_partner_approval(%L, true)', v_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — alguien que no es el Socio aprobó el encargo';
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(8), format('SELECT public.decide_engagement_partner_approval(%L, false, ''  '')', v_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio rechazó sin motivo';
+  END IF;
+  -- La llamada va en su propia sentencia: Postgres no garantiza el orden de evaluación de un OR.
+  v_n := pg_temp.rows_as(pg_temp.u(8), format('SELECT public.decide_engagement_partner_approval(%L, false, ''falta el detalle'')', v_id));
+  IF v_n <> 1 OR (SELECT partner_approval_status FROM public.engagements WHERE engagement_id = v_id) IS DISTINCT FROM 'rejected' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio debía poder rechazar con motivo';
+  END IF;
+  -- Rechazado: el creador TH sigue editando y lo reenvía; el Socio aprueba.
+  IF pg_temp.rows_as(pg_temp.u(6), format(upd, v_id)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH no pudo editar un encargo rechazado';
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(7), format('SELECT public.resubmit_engagement_partner_approval(%L)', v_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — un TH que no lo creó reenvió el encargo';
+  END IF;
+  v_n := pg_temp.rows_as(pg_temp.u(6), format('SELECT public.resubmit_engagement_partner_approval(%L)', v_id));
+  IF v_n <> 1 OR (SELECT partner_approval_status FROM public.engagements WHERE engagement_id = v_id) IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH debía poder reenviar el encargo rechazado';
+  END IF;
+  -- Aviso al Socio: el reenvío (rechazado -> pendiente) le pide la aprobación.
+  IF NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type_key = 'engagement.partner_approval_requested'
+                    AND recipient_staff_id = pg_temp.s(8) AND entity_id = v_id::text) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio no recibió el pedido de aprobación del encargo sin OT';
+  END IF;
+  -- Contador del creador TH: el encargo sin OT figura como "esperando al Socio".
+  IF (public.engagement_approval_bucket(pg_temp.s(6), 'Pending_Approval') ->> 'count')::int < 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el contador del creador no incluye el no-Cliente sin OT pendiente';
+  END IF;
+  IF public.engagement_is_approved_state(v_id, NULL, false) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT pendiente contó como Aprobado';
+  END IF;
+  v_n := pg_temp.rows_as(pg_temp.u(8), format('SELECT public.decide_engagement_partner_approval(%L, true)', v_id));
+  IF v_n <> 1 OR (SELECT partner_approval_status FROM public.engagements WHERE engagement_id = v_id) IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio debía poder aprobar el encargo sin OT';
+  END IF;
+  IF NOT public.engagement_is_approved_state(v_id, NULL, false) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT firmado debía contar como Aprobado';
+  END IF;
+  -- El creador TH recibe la decisión del Socio (rechazo y aprobación).
+  IF (SELECT count(*) FROM public.notifications
+       WHERE type_key = 'engagement.partner_approval_decided' AND recipient_staff_id = pg_temp.s(6)
+         AND entity_id = v_id::text) <> 2 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH debía recibir el rechazo y la aprobación del Socio';
+  END IF;
+
+  -- Candado (Q4): firmado, ni el creador TH ni el Socio lo modifican. Sigue sin aceptar horas (Q2).
+  IF pg_temp.rows_as(pg_temp.u(6), format(upd, v_id)) <> -1
+     OR pg_temp.rows_as(pg_temp.u(6), format('UPDATE public.engagements SET work_order_required = true WHERE engagement_id = %L', v_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH modificó un no-Cliente ya aprobado por el Socio';
+  END IF;
+  IF public.engagement_allows_hours_or_requests(v_id) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT firmado admitió horas';
+  END IF;
+
+  -- Con OT: mientras la OT no está aprobada se edita; aprobada, candado.
+  v_eng := pg_temp.try_create_as(6, 'R1102 con OT H', pg_temp.s(4));
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET work_order_required = true, partner_id = pg_temp.s(8) WHERE engagement_id = v_eng.engagement_id;
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, tax_rate, approval_status)
+  VALUES (v_eng.engagement_id, 'BOB', 'High', 0.13, 'Draft') RETURNING wo_id INTO v_wo;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF (SELECT partner_approval_status FROM public.engagements WHERE engagement_id = v_eng.engagement_id) IS NOT NULL THEN
+    NULL;  -- columnas escritas como dueño sin triggers: no aplica
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(6), format(upd, v_eng.engagement_id)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH no pudo editar su no-Cliente con OT sin aprobar';
+  END IF;
+  -- La firma la pone el Socio, aunque sea de OTRA sociedad que el encargo (TH de Jauregui, Socio de Pelaez).
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
+   WHERE engagement_id = v_eng.engagement_id;
+  UPDATE public.work_orders SET approval_status = 'Pending_Approval' WHERE wo_id = v_wo;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  v_n := pg_temp.rows_as(pg_temp.u(8), format(
+    'UPDATE public.work_orders SET approved_by = %L, approved_at = now(), approval_status = ''Approved'' WHERE wo_id = %L',
+    pg_temp.s(8), v_wo));
+  IF v_n <> 1 OR (SELECT approval_status FROM public.work_orders WHERE wo_id = v_wo) IS DISTINCT FROM 'Approved' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio de otra sociedad no pudo firmar la OT del no-Cliente (filas %)', v_n;
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(6), format(upd, v_eng.engagement_id)) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el creador TH modificó un no-Cliente con la OT ya aprobada';
+  END IF;
+  -- Cliente no tiene candado: el Gerente normal sigue editando EC aunque tenga OT aprobada.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  INSERT INTO public.work_orders (engagement_id, currency, season_mode, tax_rate, approval_status, approved_at)
+  VALUES ('e1102000-0000-4000-8000-000000000002', 'BOB', 'High', 0.13, 'Approved', now())
+  ON CONFLICT DO NOTHING;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF pg_temp.rows_as(pg_temp.u(4), format(upd, 'e1102000-0000-4000-8000-000000000002')) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el candado alcanzó a un encargo de Cliente';
+  END IF;
+
+  -- Control de Calidad sin OT (EQ): el Socio lo firma sin engagement.update.
+  IF pg_temp.rows_as(pg_temp.u(8), 'SELECT public.decide_engagement_partner_approval(''e1102000-0000-4000-8000-000000000003'', true)') <> -1 THEN
+    NULL;  -- EQ se sembró sin triggers: su firma vale NULL, no 'pending'; se pone pendiente para probar la firma.
+  END IF;
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET partner_approval_status = 'pending' WHERE engagement_id = 'e1102000-0000-4000-8000-000000000003';
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF pg_temp.rows_as(pg_temp.u(8), 'SELECT public.decide_engagement_partner_approval(''e1102000-0000-4000-8000-000000000003'', true)') <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio de Control de Calidad no pudo firmar su encargo sin OT';
+  END IF;
+
+  -- Estado efectivo (SQL, espejo de engagementStatus.ts).
+  IF public.effective_engagement_state(NULL, false, NULL, NULL, NULL, NULL, 0::smallint, 'pending') <> 1
+     OR public.effective_engagement_state(NULL, false, NULL, NULL, NULL, NULL, 2::smallint, 'approved') <> 4
+     OR public.effective_engagement_state(NULL, false, NULL, NULL, NULL, NULL, 3::smallint, 'rejected') <> 8
+     OR public.effective_engagement_state(NULL, false, NULL, NULL, NULL, NULL, 1::smallint, NULL) <> 4
+     OR public.effective_engagement_state(NULL, false, NULL, NULL, NULL, NULL) <> 4 THEN
+    RAISE EXCEPTION '1110-220 FAIL — effective_engagement_state no refleja la firma del Socio sin OT';
+  END IF;
+  IF has_function_privilege('anon', 'public.decide_engagement_partner_approval(uuid, boolean, text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.resubmit_engagement_partner_approval(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION '1110-220 FAIL — anon puede ejecutar las RPC de firma';
+  END IF;
+  -- El Socio de un no-Cliente de OTRA sociedad lo ve en el portafolio (para abrirlo y aprobarlo).
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
+   WHERE engagement_id = v_id;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF pg_temp.count_as(pg_temp.u(8), format('SELECT count(*) FROM (SELECT jsonb_array_elements(public.list_portfolio_engagements()) e) x WHERE x.e ->> ''engagement_id'' = %L', v_id)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio no ve en el portafolio el no-Cliente de otra sociedad del que es Socio';
+  END IF;
+
+  -- El alta sin OT con Socio ya elegido le avisa al Socio en ese momento (no solo al reenviar).
+  PERFORM pg_temp.impersonate(pg_temp.u(6));
+  SET LOCAL ROLE authenticated;
+  v_eng := public.create_engagement_with_code(
+    p_engagement_name := 'R1102 sin OT con socio', p_client_id := 'c1000000-0000-4000-8000-000000000160'::uuid,
+    p_partner_id := pg_temp.s(8), p_manager_id := pg_temp.s(4),
+    p_start_date := (now() AT TIME ZONE 'America/La_Paz')::date, p_end_date := '2099-12-31'::date, p_status := 'active',
+    p_oficina := 1::smallint, p_practica := 1::smallint, p_funcion := 0::smallint, p_anio_fiscal := 2026,
+    p_work_order_required := false, p_activity_required := false, p_is_internal := false, p_approval_required := true,
+    p_fecha_cierre := '2026-03-31'::date, p_anio_fiscal_override := false,
+    p_society_id := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'));
+  RESET ROLE;
+  IF NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type_key = 'engagement.partner_approval_requested'
+                    AND recipient_staff_id = pg_temp.s(8) AND entity_id = v_eng.engagement_id::text) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Socio no recibió el aviso al crear el no-Cliente sin OT (firma %)', v_eng.partner_approval_status;
+  END IF;
+
+  -- Creado CON OT y después apagado el switch: pasa a pendiente y el Socio recibe el aviso.
+  v_eng := pg_temp.try_create_as(6, 'R1102 OT apagada despues', pg_temp.s(4));
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET work_order_required = true, partner_id = pg_temp.s(8), partner_approval_status = NULL
+   WHERE engagement_id = v_eng.engagement_id;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  v_n := pg_temp.rows_as(pg_temp.u(6), format('UPDATE public.engagements SET work_order_required = false WHERE engagement_id = %L', v_eng.engagement_id));
+  IF v_n <> 1 OR NOT EXISTS (SELECT 1 FROM public.notifications
+                  WHERE type_key = 'engagement.partner_approval_requested'
+                    AND recipient_staff_id = pg_temp.s(8) AND entity_id = v_eng.engagement_id::text) THEN
+    RAISE EXCEPTION '1110-220 FAIL — apagar el switch de OT no le pidió la aprobación al Socio (filas %)', v_n;
+  END IF;
+
+  -- Avisos gerenciales de un no-Cliente van al TH creador, no al Aprobador de horas.
+  IF NOT EXISTS (SELECT 1 FROM public.notif_engagement_managers(v_id) m WHERE m.staff_id = pg_temp.s(6))
+     OR EXISTS (SELECT 1 FROM public.notif_engagement_managers(v_id) m WHERE m.staff_id = pg_temp.s(4)) THEN
+    RAISE EXCEPTION '1110-220 FAIL — notif_engagement_managers de un no-Cliente debía ser el creador TH y no el Aprobador';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notif_engagement_managers('e1102000-0000-4000-8000-000000000002') m WHERE m.staff_id = pg_temp.s(4)) THEN
+    RAISE EXCEPTION '1110-220 FAIL — en Cliente el Gerente sigue recibiendo los avisos gerenciales';
+  END IF;
+  RAISE NOTICE 'PASS — firma del Socio sin OT (pendiente/rechazo con motivo/reenvío/aprobación), sin horas sin OT, candado tras la firma (con y sin OT), Cliente sin candado';
 END $$;
 
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;

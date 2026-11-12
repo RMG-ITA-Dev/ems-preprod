@@ -1894,14 +1894,24 @@ CREATE POLICY "worksheets firm read" ON public.activity_worksheets FOR SELECT TO
 --    batch_upsert_worksheet_cells, sync_worksheet_to_wo_budget) aplican la misma función por dentro.
 --
 
+-- 1110-220 plan_v5 (§6.4): el Aprobador de horas (manager_id) de un no-Cliente lo lee aunque su rol no tenga engagement.read
+-- (senior, ita_senior, tax_senior). Solo SELECT: escribir sigue exigiendo engagement.update y can_write_administrative_work.
+-- La RESTRICTIVE "society scope" (d1) sigue aplicando encima.
+CREATE POLICY "engagements hours approver read" ON public.engagements FOR SELECT TO authenticated
+  USING (COALESCE(funcion, 1) <> 1 AND manager_id IS NOT NULL AND manager_id = (SELECT public.get_my_staff_id()));
+
+-- 1110-220 plan_v5: también el Gerente de TH creador, que ya no se autoasigna como manager_id.
 CREATE POLICY "wo hr analyst administrative insert" ON public.work_orders FOR INSERT TO authenticated
   WITH CHECK (public.has_permission('work_order.create'::text)
-              AND (SELECT public.current_role_key()) = 'hr_analyst'
+              AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst')
               AND public.is_engagement_team_member(engagement_id));
 
+-- N19: el encargo de Control de Calidad (funcion 3) en sí lo edita SOLO admin (el Socio firma su OT, no edita el encargo).
 CREATE POLICY "administrative write update" ON public.engagements AS RESTRICTIVE FOR UPDATE TO authenticated
-  USING (public.can_write_administrative_work(engagement_id))
-  WITH CHECK (public.can_write_administrative_work(engagement_id));
+  USING (public.can_write_administrative_work(engagement_id)
+         AND (funcion IS DISTINCT FROM 3 OR (SELECT public.current_role_key()) = 'admin'))
+  WITH CHECK (public.can_write_administrative_work(engagement_id)
+              AND (funcion IS DISTINCT FROM 3 OR (SELECT public.current_role_key()) = 'admin'));
 
 CREATE POLICY "administrative write insert" ON public.work_orders AS RESTRICTIVE FOR INSERT TO authenticated
   WITH CHECK (public.can_write_administrative_work(engagement_id));

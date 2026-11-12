@@ -54,10 +54,11 @@ SELECT p.id::uuid, '51103000-0000-4000-8000-000000000003', p.ws,
     ('b1103000-0000-4000-8000-000000000002', (date_trunc('week', (now() AT TIME ZONE 'America/La_Paz'))::date - 84))
   ) AS p(id, ws);
 
+-- 1110-220 plan_v5: approved_by en NULL, como lo deja el envío normal (registra al decisor, no al asignado).
 INSERT INTO public.timesheet_line_approvals (period_id, engagement_id, activity_id, status, approved_by)
 SELECT p.id::uuid, 'e1103000-0000-4000-8000-000000000001',
        (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1103-ACT'),
-       'pending', '51103000-0000-4000-8000-000000000001'
+       'pending', NULL
   FROM (VALUES ('b1103000-0000-4000-8000-000000000001'), ('b1103000-0000-4000-8000-000000000002')) AS p(id);
 SET LOCAL session_replication_role = origin;
 
@@ -86,7 +87,16 @@ BEGIN
   IF (public.notif_agg_timesheet_lines_to_approve(c_m, '2000-01-03') ->> 'count')::int <> 2 THEN
     RAISE EXCEPTION '1110-220 RECORDATORIO FAIL — sin ventana debían contar las 2 líneas del fixture';
   END IF;
-  RAISE NOTICE 'PASS — notif_agg_timesheet_lines_to_approve cuenta por approved_by, en pending, dentro de la ventana';
+  RAISE NOTICE 'PASS — notif_agg_timesheet_lines_to_approve cuenta por el aprobador asignado (approved_by NULL), en pending, dentro de la ventana';
+
+  -- 1b. plan_v5: reasignar el Gerente mueve el pendiente a la persona nueva.
+  UPDATE public.engagements SET manager_id = c_m2 WHERE engagement_id = 'e1103000-0000-4000-8000-000000000001';
+  IF (public.notif_agg_timesheet_lines_to_approve(c_m, public.notif_timesheet_window_start()) ->> 'count')::int <> 0
+     OR (public.notif_agg_timesheet_lines_to_approve(c_m2, public.notif_timesheet_window_start()) ->> 'count')::int <> 1 THEN
+    RAISE EXCEPTION '1110-220 RECORDATORIO FAIL — la reasignación no movió el pendiente al nuevo aprobador';
+  END IF;
+  UPDATE public.engagements SET manager_id = c_m WHERE engagement_id = 'e1103000-0000-4000-8000-000000000001';
+  RAISE NOTICE 'PASS — la reasignación mueve el pendiente';
 
   -- 2. Una línea aprobada deja de contar.
   UPDATE public.timesheet_line_approvals SET status = 'approved'

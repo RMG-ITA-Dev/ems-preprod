@@ -458,17 +458,28 @@ BEGIN
   SELECT string_agg(policyname, ', ' ORDER BY policyname) INTO v_policies
     FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'engagements' AND cmd = 'SELECT';
-  IF v_policies IS DISTINCT FROM 'Staff can view fund request engagements, engagements creator read, engagements hr administrative read, engagements read' THEN
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): las policies de SELECT sobre engagements deben ser exactamente (fund request, creator read, hr administrative read, read); hay: %', v_policies;
+  -- 1110-220 plan_v5: se suma "engagements hours approver read" (el Aprobador de horas lee SU no-Cliente). Su forma se fija
+  -- abajo: solo funcion <> 1 y solo manager_id = yo.
+  IF v_policies IS DISTINCT FROM 'Staff can view fund request engagements, engagements creator read, engagements hours approver read, engagements hr administrative read, engagements read' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): las policies de SELECT sobre engagements deben ser exactamente (fund request, creator read, hours approver read, hr administrative read, read); hay: %', v_policies;
+  END IF;
+
+  SELECT qual INTO v_hr_qual FROM pg_policies
+   WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements hours approver read';
+  IF v_hr_qual IS NULL
+     OR v_hr_qual NOT LIKE '%COALESCE((funcion)::integer, 1) <> 1%'
+     OR v_hr_qual NOT LIKE '%manager_id = ( SELECT get_my_staff_id()%' THEN
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements hours approver read" debe limitarse a no-Cliente y a manager_id = yo. qual actual: %', v_hr_qual;
   END IF;
 
   SELECT qual INTO v_hr_qual FROM pg_policies
    WHERE schemaname = 'public' AND tablename = 'engagements' AND policyname = 'engagements hr administrative read';
   IF v_hr_qual IS NULL
-     OR v_hr_qual NOT LIKE '%funcion <> 1%'
+     -- 1110-220 plan_v3 (N19): Administrativa y Capacitación; Control de Calidad solo para quien figura en él.
+     OR v_hr_qual NOT LIKE '%funcion = ANY (ARRAY[0, 2])%'
      OR v_hr_qual NOT LIKE '%hr_manager%' OR v_hr_qual NOT LIKE '%hr_analyst%'
      OR v_hr_qual NOT LIKE '%has_permission(''engagement.read''::text)%' THEN
-    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements hr administrative read" debe limitarse a funcion <> 1, a hr_manager/hr_analyst y exigir engagement.read. qual actual: %', v_hr_qual;
+    RAISE EXCEPTION 'FAIL (NO-ESCALATION): "engagements hr administrative read" debe limitarse a funcion 0/2, a hr_manager/hr_analyst y exigir engagement.read. qual actual: %', v_hr_qual;
   END IF;
 
   SELECT qual INTO v_read_qual FROM pg_policies

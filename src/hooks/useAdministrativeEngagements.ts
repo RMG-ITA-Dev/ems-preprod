@@ -19,6 +19,8 @@ export interface AdministrativeEngagement extends Record<string, unknown> {
   status: string;
   work_order_required: boolean;
   engagement_state_override: number | null;
+  // 1110-220 plan_v5: firma del Socio de un no-Cliente sin OT (estado Pendiente/Aprobado/Rechazado).
+  partner_approval_status?: string | null;
   // 1110-220: pestaña "Mis encargos". Opcionales: un frontend desplegado antes que la RPC no los recibe.
   created_by_staff_id?: string | null;
   manager_id?: string | null;

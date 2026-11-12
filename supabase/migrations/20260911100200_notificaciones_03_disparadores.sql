@@ -440,8 +440,12 @@ CREATE FUNCTION public.notif_engagement_managers(p_engagement_id uuid)
   -- Los tres gerentes del encargo: el general y los dos especialistas. En la matriz las
   -- columnas Gerente / Gerente ESPECIALISTA ITA / Gerente ESPECIALISTA TAX se mueven siempre
   -- juntas, así que se resuelven juntas.
+  -- 1110-220 (plan_v5 §6.7): en un no-Cliente manager_id es el "Aprobador de horas", no el Gerente: no recibe los avisos
+  -- gerenciales (OT, plan de pagos, staffing). Sus avisos son los de horas (get_timesheet_approvers) y los de Fondos
+  -- (fund_request_work_orders.manager_staff_id). La gestión es del Talento Humano que lo creó, que ocupa ese lugar aquí.
   SELECT s FROM (
-    SELECT e.manager_id        AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    SELECT CASE WHEN COALESCE(e.funcion, 1) <> 1 THEN e.created_by_staff_id ELSE e.manager_id END AS s
+      FROM public.engagements e WHERE e.engagement_id = p_engagement_id
     UNION
     SELECT e.specialist_it_id  FROM public.engagements e WHERE e.engagement_id = p_engagement_id
     UNION
@@ -450,7 +454,7 @@ CREATE FUNCTION public.notif_engagement_managers(p_engagement_id uuid)
 $BODY$;
 
 COMMENT ON FUNCTION public.notif_engagement_managers(uuid) IS
-  'Alcance `assigned` de la banda gerencial de un encargo: manager_id + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+  'Alcance `assigned` de la banda gerencial de un encargo: manager_id (en no-Cliente, 1110-220 plan_v5: el creador, no el Aprobador de horas) + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
 -- ── Cobranzas Fase 3 (issue #352): aviso de reprogramación ───────────────────
 -- Lo llama reschedule_installment() en vez de un trigger, por una razón concreta: hay que

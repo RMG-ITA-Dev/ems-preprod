@@ -82,7 +82,10 @@ BEGIN
      AND ((v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
-      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
+      OR (v_read AND e.funcion IN (0, 2) AND v_role IN ('hr_manager', 'hr_analyst'))  -- 1110-220 N19: sin Control de Calidad
+      -- 1110-220 plan_v5: el Aprobador de horas de un no-Cliente lo ve aunque su rol no tenga engagement.read (senior,
+      -- ita_senior, tax_senior). Espejo de la política "engagements hours approver read" (cero_05).
+      OR (COALESCE(e.funcion, 1) <> 1 AND v_me IS NOT NULL AND e.manager_id = v_me)
       -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
       --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
       --        engagement_in_my_fund_request (la que usa la política).

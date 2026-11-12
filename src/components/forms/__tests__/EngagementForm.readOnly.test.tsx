@@ -84,6 +84,20 @@ vi.mock("@/lib/fiscalCalculations", () => ({
   getFiscalYearForDate: () => 2027,
 }));
 
+// 1110-220 plan_v5: candidatos a Aprobador de horas (Rol → Persona) de un no-Cliente. Referencia estable: el hook real
+// devuelve el mismo array entre renders.
+const { stableHoursApprovers } = vi.hoisted(() => ({
+  stableHoursApprovers: {
+    candidates: [{ staff_id: "m1", display_name: "Ana Manager", role_key: "manager", society_id: "soc-1" }],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  },
+}));
+vi.mock("@/hooks/useHoursApproverCandidates", () => ({
+  useHoursApproverCandidates: () => stableHoursApprovers,
+}));
+
 vi.mock("@/hooks/useCurrentStaff", () => ({
   // Coincide con manager_id del fixture: habilita canViewContract sin activar autoasignación
   // (isEdit=true desactiva por completo la rama de autoasignación/bloqueo de 0810-172).
@@ -203,15 +217,17 @@ describe("EngagementForm — edición según asignación (1110-220, D8 y plan_v3
   });
 
   // 1110-220 plan_v3 (N15/N16): en un administrativo TH elige si lleva OT; la aprobación es fija.
-  it("hr_manager ve el switch de OT en su administrativo, con la aprobación encendida y bloqueada", () => {
+  // 1110-220 plan_v5 (Q3): TH elige en su administrativo si lleva OT y si sus horas requieren aprobación; el resto de
+  // la Política de Planilla sigue siendo de admin.
+  it("hr_manager ve el switch de OT y el de aprobación de horas en el administrativo que creó", () => {
     mockRoleKey = "hr_manager";
-    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0 }} />);
+    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0, created_by_staff_id: "staff-manager" }} />);
     expect(screen.getByText("engagement.workOrderRequired")).toBeInTheDocument();
+    expect(screen.getByText("engagement.approvalRequired")).toBeInTheDocument();
     const switches = screen.getAllByRole("switch");
-    // Orden de la tarjeta: OT, Actividad, Interno, Aprobación.
-    expect(switches[0]).not.toBeDisabled();
-    expect(switches[3]).toBeDisabled();
-    expect(switches[3]).toBeChecked();
+    expect(switches).toHaveLength(2);
+    switches.forEach((s) => expect(s).not.toBeDisabled());
+    expect(screen.queryByText("engagement.isInternal")).not.toBeInTheDocument();
   });
 
   it("el Gerente normal no ve la Política de Planilla en un encargo de Cliente", () => {
@@ -219,10 +235,16 @@ describe("EngagementForm — edición según asignación (1110-220, D8 y plan_v3
     expect(screen.queryByText("engagement.workOrderRequired")).not.toBeInTheDocument();
   });
 
-  it("hr_manager edita el administrativo que gerencia", () => {
+  // 1110-220 plan_v5 (N10): TH edita lo que creó; ser el Aprobador de horas (manager_id) no da edición.
+  it("hr_manager edita el administrativo que creó, no el que solo aprueba", () => {
     mockRoleKey = "hr_manager";
-    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0 }} />);
+    const { unmount } = render(
+      <EngagementForm engagement={{ ...mockEngagement, funcion: 0, created_by_staff_id: "staff-manager" }} />,
+    );
     expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
+    unmount();
+    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0, created_by_staff_id: "staff-other" }} />);
+    expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
   });
 });
 

@@ -12,6 +12,12 @@ interface PermissionRouteProps {
   children: ReactNode;
   /** Si se define, redirige ahí en vez de mostrar el 403 en línea. */
   redirectTo?: string;
+  /**
+   * Excepción por dato, no por permiso (1110-220 plan_v5: el Aprobador de horas abre SU no-Cliente y su OT en solo
+   * lectura aunque su rol no tenga el permiso de la ruta). `allowed` debe salir de una consulta sujeta a RLS;
+   * mientras `pending`, spinner. Sin el prop, la ruta se comporta como siempre.
+   */
+  alsoAllow?: { allowed: boolean; pending: boolean };
 }
 
 /**
@@ -27,11 +33,12 @@ export function PermissionRoute({
   permission,
   children,
   redirectTo,
+  alsoAllow,
 }: PermissionRouteProps) {
   const { t } = useTranslation();
   const { can, isLoading, isError, refetch } = useAuthorization();
 
-  if (isLoading) {
+  if (isLoading || (!isError && !can(permission) && alsoAllow?.pending)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -62,7 +69,7 @@ export function PermissionRoute({
     );
   }
 
-  if (!can(permission)) {
+  if (!can(permission) && !alsoAllow?.allowed) {
     if (redirectTo) {
       return <Navigate to={redirectTo} replace />;
     }

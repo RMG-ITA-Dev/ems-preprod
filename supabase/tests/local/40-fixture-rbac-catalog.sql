@@ -895,6 +895,17 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('secretariat_head', 'timesheet_approval.reject',        'assigned_engagements')
 on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
 
+-- 1110-220 (plan_v5 §6.3): los roles de la lista de Aprobador de horas que no tenían timesheet_approval.read lo reciben con
+-- alcance assigned_engagements, solo para ABRIR la pantalla de aprobaciones (ruta, menú, enlaces de avisos). No reciben
+-- .approve/.reject: deciden las líneas de su no-Cliente por la asignación (is_hours_approver_of), no por el permiso, y no
+-- ganan nada en Cliente. Sin asignación, la cola sale vacía.
+insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
+  ('senior',     'timesheet_approval.read', 'assigned_engagements'),
+  ('ita_senior', 'timesheet_approval.read', 'assigned_engagements'),
+  ('tax_senior', 'timesheet_approval.read', 'assigned_engagements'),
+  ('hr_analyst', 'timesheet_approval.read', 'assigned_engagements')
+on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
+
 -- D) role_key en user_roles (nullable) + backfill DESDE EL ROL DIRECTO (nunca categoría).
 --    admin permanece admin; specialist_it/tax/viewer -> null (no hay usuarios).
 alter table public.user_roles add column if not exists role_key text

@@ -244,8 +244,10 @@ BEGIN
   -- + 1 de la Fase 4: note_added.
   -- + 2 de la Fase 7: expense_row_created y expense_row_amount_changed.
   -- + 2 de 1028-211: client.pending_activation y client.activated.
-  IF v_types <> 97 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 97 (¿corriste el parser?)', v_types;
+  -- + 2 de 1110-220 plan_v5: engagement.partner_approval_requested y engagement.partner_approval_decided (firma del Socio
+  --   de un no-Cliente sin OT: pedido al Socio y decisión al creador).
+  IF v_types <> 99 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 99 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
@@ -269,8 +271,13 @@ BEGIN
   -- - 2 de 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval.
   -- + 75 de 1110-220 (D9): avisos de gerente para accounting_manager (21 + 2 reversiones), risk_supervisor
   --   (23 + 2) y secretariat_head (23 + 2 avisos de cuenta + 2 reversiones).
-  IF v_grants <> 713 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 713', v_grants;
+  -- + 9 de 1110-220 plan_v5: engagement.partner_approval_requested a los 4 roles que pueden ser Socio; envío de horas a
+  --   aprobar para ita_senior, tax_senior y hr_analyst (Aprobadores de horas posibles); y los 2 contadores de "esperando
+  --   / rechazado por el Socio" para hr_analyst, que crea encargos.
+  -- + 6 de 1110-220 plan_v5: engagement.partner_approval_decided (admin, hr_manager, hr_analyst) y los avisos de OT
+  --   aprobada/rechazada/revertida para hr_analyst (los avisos de OT de un no-Cliente van al creador).
+  IF v_grants <> 728 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 728', v_grants;
   END IF;
   -- 1110-220: los tres Gerentes de encargos administrativos reciben el envío de horas a aprobar.
   IF (SELECT count(*) FROM public.notification_role_types

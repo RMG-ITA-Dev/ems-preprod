@@ -280,6 +280,9 @@ interface EngagementRow {
   // Fase 3: campos mínimos para derivar el estado efectivo.
   work_order_required: boolean;
   engagement_state_override: number | null;
+  // 1110-220 plan_v5: un no-Cliente sin OT lo decide la firma del Socio del encargo.
+  funcion?: number | null;
+  partner_approval_status?: string | null;
 }
 
 interface WorkOrderStateRow {
@@ -303,7 +306,7 @@ async function resolveEffectiveStates(
   ctx: SchedulerContext,
   engagements: Pick<
     EngagementRow,
-    "engagement_id" | "work_order_required" | "engagement_state_override"
+    "engagement_id" | "work_order_required" | "engagement_state_override" | "funcion" | "partner_approval_status"
   >[]
 ): Promise<{ states: Map<string, EngagementState>; error: DbError | null }> {
   const ids = engagements.map((e) => e.engagement_id);
@@ -326,6 +329,8 @@ async function resolveEffectiveStates(
         {
           work_order_required: e.work_order_required,
           engagement_state_override: e.engagement_state_override,
+          funcion: e.funcion ?? null,
+          partner_approval_status: e.partner_approval_status ?? null,
         },
         wo
       )
@@ -431,7 +436,7 @@ async function schedulerL1(
     let q = ctx.db
       .from("engagements")
       .select(
-        "engagement_id, engagement_code, engagement_name, start_date, end_date, status, partner_id, manager_id, client_id, work_order_required, engagement_state_override"
+        "engagement_id, engagement_code, engagement_name, start_date, end_date, status, partner_id, manager_id, client_id, work_order_required, engagement_state_override, funcion, partner_approval_status"
       );
     if (rule.kind === "lead") {
       q = q.or(`manager_id.eq.${rule.staffId},partner_id.eq.${rule.staffId}`);
@@ -949,7 +954,7 @@ async function schedulerStaffTimeline(
     const { data, error } = await ctx.db
       .from("engagements")
       .select(
-        "engagement_id, engagement_code, engagement_name, start_date, end_date, status, partner_id, manager_id, client_id, work_order_required, engagement_state_override"
+        "engagement_id, engagement_code, engagement_name, start_date, end_date, status, partner_id, manager_id, client_id, work_order_required, engagement_state_override, funcion, partner_approval_status"
       )
       .in("engagement_id", chunk)
       .then((r) => r);

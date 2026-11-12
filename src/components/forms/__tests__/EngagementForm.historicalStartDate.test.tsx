@@ -69,7 +69,6 @@ vi.mock("@/hooks/useEmsData", () => ({
 const stableCandidates = {
   partnerDirectorOptions: [{ value: "staff-partner", label: "Sonia Socia", serviceId: null }],
   managerRoleOptions: [{ value: "staff-manager", label: "Gala Gerente", serviceId: null }],
-  managerAdministrativeOptions: [{ value: "staff-manager", label: "Gala Gerente", serviceId: null }],
   encargadoOptions: stableEmpty,
   specialistItOptions: stableEmpty,
   specialistTaxOptions: stableEmpty,

@@ -461,14 +461,14 @@ const WorkOrderEdit = () => {
   //
   // La aprobación de RIESGOS (admin y roles de Riesgos) va por `canApproveRisk`,
   // que WorkOrderForm recibe como prop independiente de `isLocked`.
-  // 1110-220 plan_v3: espejo de is_engagement_team_member() (que suma al Analista de TH creador de un
-  // encargo no-Cliente) y de la RESTRICTIVE de escritura: en no-Cliente solo escriben admin, Talento
-  // Humano y el Socio; el Gerente que no es TH abre la OT en solo lectura.
+  // 1110-220 plan_v5: espejo de is_engagement_team_member() (que suma al Talento Humano creador de un
+  // encargo no-Cliente) y de la RESTRICTIVE de escritura: en no-Cliente solo escriben admin, el TH que lo
+  // creó y el Socio; el Aprobador de horas (manager_id) abre la OT en solo lectura.
   const isEngagementTeamMember =
     !!staffRecord &&
     (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
       workOrder?.engagement?.manager_id === staffRecord.staff_id ||
-      (roleKey === "hr_analyst" &&
+      ((roleKey === "hr_analyst" || roleKey === "hr_manager") &&
         isNonClientFuncion(workOrder?.engagement?.funcion) &&
         workOrder?.engagement?.created_by_staff_id === staffRecord.staff_id));
   const canWriteWorkOrder =
@@ -601,12 +601,13 @@ const WorkOrderEdit = () => {
       }
     }
 
-    // Update work order
+    // Update work order. silent: el aviso de éxito va al final, cuando terminó todo el guardado (si no, salían dos).
     await updateWorkOrder.mutateAsync({
       id: workOrder.wo_id,
       data: {
         adjustment_amount: adjustmentAmount,
       },
+      silent: true,
     });
 
     // Handle budget lines - now read-only, so skip budget line updates

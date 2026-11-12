@@ -52,13 +52,23 @@ import { useAdministrativeInternalClients } from "@/hooks/useAdministrativeEngag
 import {
   withSavedStaff,
   withSelfCandidate,
+  type TeamCandidateOption,
 } from "@/lib/engagementTeamCandidates";
 import {
   resolveSelfAssignedTeamField,
   selfCandidateOption,
 } from "@/lib/engagementSelfAssignment";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { canEditEngagement } from "@/lib/engagementRoleAccess";
+import { canEditEngagement, canWriteAdministrativeWork, isAdministrativeOnlyCreator } from "@/lib/engagementRoleAccess";
+import { useHoursApproverCandidates } from "@/hooks/useHoursApproverCandidates";
+import { isPartnerSigned, needsEngagementPartnerApproval } from "@/lib/engagementPartnerApproval";
+import { EngagementPartnerApprovalCard } from "@/components/engagements/EngagementPartnerApprovalCard";
+import {
+  eligibleHoursApprovers,
+  hoursApproverRolesWithCandidates,
+  hoursApproversOfRole,
+  roleOfHoursApprover,
+} from "@/lib/hoursApproverCandidates";
 import { useCreateEngagement, useUpdateEngagement, useDeleteEngagement } from "@/hooks/mutations";
 import { Trash2, CalendarIcon, AlertCircle, ChevronsUpDown, Check, Upload, X, FileText } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -287,7 +297,8 @@ export function shouldSeedAdministrativePolicyDefaults(
  * por el Socio (estado 1 Pendiente, sin horas hasta que la OT se aprueba). Es solo el valor inicial:
  * admin y Talento Humano ven el switch y lo apagan cuando el encargo no puede tener OT (N16). Antes
  * el valor era `false` porque hr_analyst no podía crear OTs; ahora crea las del encargo que crea.
- * `approvalRequired` en cambio no es elegible en un no-Cliente (N15): siempre true.
+ * `approvalRequired: true` es también solo el valor inicial: desde plan_v5 (reemplaza N15) admin y Talento
+ * Humano pueden apagarlo al crear, y entonces el envío autoaprueba las líneas.
  */
 export const ADMINISTRATIVE_POLICY_DEFAULTS = {
   workOrderRequired: true,
@@ -373,7 +384,6 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const {
     partnerDirectorOptions,
     managerRoleOptions,
-    managerAdministrativeOptions,
     encargadoOptions,
     specialistItOptions,
     specialistTaxOptions,
@@ -387,7 +397,11 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // administrativos; sin este espejo, quien ve el encargo por otro camino (p. ej. Riesgos, que lee
   // toda la firma, o Contabilidad, toda su sociedad) lo veía editable y el guardado fallaba por RLS.
   // Fail-closed mientras la ficha carga.
-  const canEditThisEngagement = !!engagement && canEditEngagement({
+  // 1110-220 plan_v5 (Q4/Q5, §6.6): un no-Cliente ya aprobado por el Socio (OT aprobada, o firma del encargo sin OT)
+  // no se modifica; solo admin, con un aviso. Espejo del trigger enforce_engagement_partner_approval.
+  const signedByPartner = !!engagement && isPartnerSigned(engagement, engagement.work_order);
+  const lockedBySignature = signedByPartner && !isAdmin;
+  const canEditThisEngagement = !!engagement && !lockedBySignature && canEditEngagement({
     can,
     scope,
     roleKey,
@@ -741,12 +755,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
-  // 1110-220 plan_v3 (N15): un no-Cliente puede tener o no OT, pero sus horas SIEMPRE se aprueban.
-  // Espejo del trigger enforce_engagement_profile_scope, que lo fuerza para todo rol (admin incluido).
-  const effectiveApprovalRequired = isAdministrativeFunction ? true : approvalRequired;
-  // 1110-220 plan_v3 (N16): hay administrativos que no pueden tener OT, así que Talento Humano elige
-  // si la lleva (y solo eso de la Política de Planilla); el resto de los switches sigue siendo de
-  // admin. Espejo del trigger enforce_engagement_profile_scope, que solo fuerza la OT a los demás.
+  // 1110-220 plan_v5 (reemplaza N15): en un no-Cliente la aprobación de horas también se elige. Apagada, el
+  // envío autoaprueba las líneas; la firma del Socio sigue siendo obligatoria.
+  const effectiveApprovalRequired = approvalRequired;
+  // 1110-220 plan_v3 (N16) y plan_v5 (Q3): en un no-Cliente, Talento Humano elige si lleva OT y si sus horas
+  // requieren aprobación; el resto de los switches sigue siendo de admin. Espejo del trigger
+  // enforce_engagement_profile_scope, que fuerza ambos a los demás roles.
   const canSetWorkOrderPolicy =
     isAdmin || ((roleKey === "hr_manager" || roleKey === "hr_analyst") && isAdministrativeFunction && !readOnly);
   // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
@@ -807,11 +821,13 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // no espera a ningún catálogo (a diferencia de la tríada de arriba). `shouldValidate: false`
   // por el mismo motivo que la siembra de sociedad/práctica/oficina.
   useEffect(() => {
-    if (isEdit || canChooseFuncionFreely || administrativeMode) return;
+    // 1110-220 plan_v3 (N18): desde Encargos el alta es SIEMPRE Cliente, también para admin; los no-Cliente
+    // se crean solo desde Encargos Administrativos (administrativeMode).
+    if (isEdit || administrativeMode) return;
     if (form.getValues("funcion") !== FUNCION_CLIENTE) {
       form.setValue("funcion", FUNCION_CLIENTE, { shouldDirty: false, shouldValidate: false });
     }
-  }, [isEdit, canChooseFuncionFreely, administrativeMode, form]);
+  }, [isEdit, administrativeMode, form]);
 
   // En modo administrativo Cliente no es una opción. Además de sembrar el vacío, se corrige un
   // Cliente ya sembrado: EngagementNew.tsx activa el modo para hr_analyst recién cuando llega su
@@ -1427,10 +1443,38 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // en las opciones ANTES de `withSelfCandidate` -- si el creador autoasignado como Gerente ya
   // estuviera elegido como especialista, igual se re-ofrece por la siembra, pero el guard de
   // `onSubmit` de más abajo es el freno real; esto es la primera línea, no la única.
-  // 1110-220 plan_v3 (N12): el Gerente de un encargo no-Cliente sale de su propio grupo (Gerente de TH,
-  // Contabilidad, Riesgos, Secretaría); el de Cliente, del grupo de gerentes. Espejo del guard de BD en
-  // enforce_engagement_profile_scope.
-  const managerCandidates = isAdministrativeFunction ? managerAdministrativeOptions : managerRoleOptions;
+  // 1110-220 plan_v5 (§6.1/§6.2): en Cliente, el grupo de gerentes. En un no-Cliente, manager_id es el
+  // "Aprobador de horas": se elige Rol → Persona entre 14 roles (get_hours_approver_candidates), igual para
+  // admin y Talento Humano. Quien no elige (p. ej. el Socio editando) ve el valor guardado, no la lista.
+  const canChooseHoursApprover = isAdmin || isAdministrativeOnlyCreator(roleKey);
+  const approverEnabled = isAdministrativeFunction && canChooseHoursApprover && !readOnly;
+  const {
+    candidates: approverRows,
+    isFetching: approverFetching,
+    isError: approverError,
+  } = useHoursApproverCandidates(approverEnabled);
+  const eligibleApprovers = useMemo(
+    () => eligibleHoursApprovers(approverRows, selectedSocietyId),
+    [approverRows, selectedSocietyId]
+  );
+  const approverRoleOptions = useMemo(() => hoursApproverRolesWithCandidates(eligibleApprovers), [eligibleApprovers]);
+  // Rol elegido en el primer paso. Al editar se deduce de la persona guardada (efecto de abajo), sin marcar el
+  // formulario como modificado; cambiarlo limpia la persona.
+  const [approverRole, setApproverRole] = useState<string | null>(null);
+  useEffect(() => {
+    if (!approverEnabled || approverRole || !wManagerId) return;
+    const role = roleOfHoursApprover(eligibleApprovers, wManagerId);
+    if (role) setApproverRole(role);
+  }, [approverEnabled, approverRole, wManagerId, eligibleApprovers]);
+  const approverResolved = !approverEnabled || (!approverFetching && !approverError);
+  const managerCandidates = useMemo<TeamCandidateOption[]>(() => {
+    if (!isAdministrativeFunction) return managerRoleOptions;
+    return hoursApproversOfRole(eligibleApprovers, approverRole).map((r) => ({
+      value: r.staff_id,
+      label: r.display_name,
+      serviceId: null,
+    }));
+  }, [isAdministrativeFunction, managerRoleOptions, eligibleApprovers, approverRole]);
   const managerFieldOptions = useMemo(() => {
     const base = withSavedStaff(managerCandidates, engagement?.manager, wManagerId).filter(
       (o) => o.value !== wSpecialistItId && o.value !== wSpecialistTaxId
@@ -1489,11 +1533,21 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const missingTeamRoles: string[] = [];
   if (teamSelectionResolved) {
     if (partnerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.partner"));
-    if (managerFieldOptions.length === 0) missingTeamRoles.push(t("engagement.manager"));
+    // 1110-220 plan_v5: en un no-Cliente falta Aprobador solo si ningún rol de los 14 tiene candidatos (sin rol
+    // elegido la lista de personas está vacía a propósito).
+    if (isAdministrativeFunction) {
+      // Sin sociedad todavía (admin antes de elegir el cliente interno) no se afirma que falte: la lista se llena al elegirla.
+      if (approverEnabled && approverResolved && !!selectedSocietyId && eligibleApprovers.length === 0) {
+        missingTeamRoles.push(t("engagement.hoursApprover"));
+      }
+    } else if (managerFieldOptions.length === 0) {
+      missingTeamRoles.push(t("engagement.manager"));
+    }
   }
   const hasMissingTeamRoles = missingTeamRoles.length > 0;
 
-  const teamBlocksCreation = hasMissingTeamRoles || teamCandidatesError || teamCandidatesFetching;
+  const teamBlocksCreation =
+    hasMissingTeamRoles || teamCandidatesError || teamCandidatesFetching || !approverResolved;
 
   // ── BUG 0810-172: siembra del campo autoasignado ─────────────────────────────────────────
   //
@@ -1544,7 +1598,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
       anio_fiscal: suggestFiscalYear(),
       oficina: canChooseProfileScopeFreely ? undefined : derivedOficina,
       practica: canChooseProfileScopeFreely ? undefined : derivedPractica,
-      funcion: administrativeMode ? 0 : (canChooseFuncionFreely ? undefined : FUNCION_CLIENTE),
+      funcion: administrativeMode ? 0 : FUNCION_CLIENTE,
       taxonomy_id: undefined,
       society_id: canChooseProfileScopeFreely ? undefined : derivedSocietyId,
       client_id: "",
@@ -1673,8 +1727,28 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
       {readOnly && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{t("engagement.readOnlyNotice")}</AlertDescription>
+          <AlertDescription>
+            {t(lockedBySignature ? "engagement.lockedBySignatureNotice" : "engagement.readOnlyNotice")}
+          </AlertDescription>
         </Alert>
+      )}
+
+      {/* 1110-220 plan_v5 (Q5): admin puede editar un no-Cliente ya aprobado por el Socio, con advertencia. */}
+      {isEdit && isAdmin && signedByPartner && (
+        <Alert className="border-warning/50 bg-warning/10 [&>svg]:text-warning">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("engagement.adminEditSignedWarning")}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* 1110-220 plan_v5 (§6.5): firma del Socio de un no-Cliente sin OT. */}
+      {isEdit && engagement && needsEngagementPartnerApproval(engagement) && (
+        <EngagementPartnerApprovalCard
+          engagement={engagement}
+          myStaffId={staffRecord?.staff_id ?? null}
+          roleKey={roleKey}
+          hasUnsavedChanges={isDirty || assignmentsDirty}
+        />
       )}
 
       <div className="bg-card rounded-xl border border-border p-6">
@@ -2236,20 +2310,23 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   <FormItem>
                     <FormLabel>{t("engagement.funcion")} <span className="text-destructive">*</span></FormLabel>
                     <Select
-                      disabled={isEdit || !(canChooseFuncionFreely || administrativeMode)}
+                      // 1110-220 plan_v3 (N18): fuera de Encargos Administrativos la función es Cliente fija.
+                      disabled={isEdit || !(canChooseFuncionFreely && administrativeMode)}
                       // BUG 0922-195: mismo blindaje que Sociedad/Práctica contra el "" espurio de Radix.
                       onValueChange={(v) => { if (v !== "") field.onChange(Number(v)); }}
                       value={field.value !== undefined ? String(field.value) : ""}
                     >
                       <FormControl><SelectTrigger className="[&_svg]:text-info [&_svg]:opacity-100"><SelectValue placeholder={t("engagement.selectFuncion")} /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
-                        {!administrativeMode && <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>}
-                        <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>
+                        {/* 1110-220 plan_v3 (N18): Encargos = solo Cliente; Encargos Administrativos =
+                            solo no-Cliente. En edición todas, para pintar el valor guardado. */}
+                        {(administrativeMode || isEdit) && <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>}
+                        {(!administrativeMode || isEdit) && <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>}
+                        {(administrativeMode || isEdit) && <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>}
                         {/* 1110-220 plan_v3 (N13): Control de Calidad solo lo crea admin; Talento
                             Humano crea Administrativa y Capacitación. En edición se muestra igual
                             (el Select está deshabilitado y tiene que poder pintar el valor guardado). */}
-                        {(isAdmin || isEdit) && <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>}
+                        {((isAdmin && administrativeMode) || isEdit) && <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -2288,32 +2365,69 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="sqr_id"
-                  render={({ field }) => (
-                    <StaffCombobox
-                      label={t("engagement.sqr")}
-                      placeholder={t("engagement.selectSqr")}
-                      searchPlaceholder={t("engagement.searchStaff")}
-                      noResultsText={t("engagement.noStaffFound")}
-                      noAplicaText={t("engagement.noAplica")}
-                      options={sqrFieldOptions}
-                      disabled={!teamSelectionResolved || readOnly}
-                      value={field.value ?? null}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
+                {/* 1110-220 (operador 2026-11-12): en un no-Cliente solo Socio y Aprobador de horas. SQR, Encargado y
+                    Especialistas se ocultan (solo visual; los valores guardados no se tocan). */}
+                {!isAdministrativeFunction && (
+                  <FormField
+                    control={form.control}
+                    name="sqr_id"
+                    render={({ field }) => (
+                      <StaffCombobox
+                        label={t("engagement.sqr")}
+                        placeholder={t("engagement.selectSqr")}
+                        searchPlaceholder={t("engagement.searchStaff")}
+                        noResultsText={t("engagement.noStaffFound")}
+                        noAplicaText={t("engagement.noAplica")}
+                        options={sqrFieldOptions}
+                        disabled={!teamSelectionResolved || readOnly}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                )}
+
+                {/* Solo quien elige ve el selector de Rol; en solo lectura basta la persona (sin catálogo no hay rol que mostrar). */}
+                {isAdministrativeFunction && approverEnabled && (
+                  <div className="space-y-2">
+                    <Label htmlFor="hours-approver-role">
+                      {t("engagement.hoursApproverRole")}
+                      <span className="text-destructive"> *</span>
+                    </Label>
+                    <Select
+                      value={approverRole ?? ""}
+                      onValueChange={(v) => {
+                        setApproverRole(v);
+                        // Cambiar de rol limpia la persona: la anterior no es de este rol.
+                        form.setValue("manager_id", "", { shouldDirty: true, shouldValidate: false });
+                      }}
+                      disabled={!approverEnabled || !approverResolved || readOnly}
+                    >
+                      <SelectTrigger id="hours-approver-role">
+                        <SelectValue placeholder={t("engagement.selectHoursApproverRole")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {approverRoleOptions.map((roleKeyOption) => (
+                          <SelectItem key={roleKeyOption} value={roleKeyOption}>
+                            {t(`authz.role.${roleKeyOption}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {approverError && (
+                      <p className="text-xs text-destructive">{t("engagement.hoursApproverLoadError")}</p>
+                    )}
+                  </div>
+                )}
 
                 <FormField
                   control={form.control}
                   name="manager_id"
                   render={({ field }) => (
                     <StaffCombobox
-                      label={t("engagement.manager")}
+                      label={t(isAdministrativeFunction ? "engagement.hoursApprover" : "engagement.manager")}
                       required
-                      placeholder={t("engagement.selectManager")}
+                      placeholder={t(isAdministrativeFunction ? "engagement.selectHoursApprover" : "engagement.selectManager")}
                       searchPlaceholder={t("engagement.searchStaff")}
                       noResultsText={t("engagement.noStaffFound")}
                       noAplicaText={t("engagement.noAplica")}
@@ -2324,66 +2438,85 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                       // Un merge dejó dos atributos `disabled` acá: el de 0722-162 (candidatos
                       // no confiables) y el de 0810-172 (autoasignación). En JSX gana el último,
                       // así que la primera condición quedaba inerte en los DOS campos
-                      // obligatorios. Se combinan.
-                      disabled={!teamSelectionResolved || teamLockPending || managerLocked || readOnly}
-                      helperText={managerLocked ? t("engagement.selfAssignedLocked") : undefined}
+                      // obligatorios. Se combinan. 1110-220 plan_v5: en no-Cliente, además, sin rol
+                      // elegido no se ofrece a nadie.
+                      disabled={
+                        !teamSelectionResolved ||
+                        teamLockPending ||
+                        managerLocked ||
+                        readOnly ||
+                        (isAdministrativeFunction && (!approverEnabled || !approverResolved || !approverRole))
+                      }
+                      helperText={
+                        managerLocked
+                          ? t("engagement.selfAssignedLocked")
+                          : isAdministrativeFunction
+                            ? t("engagement.hoursApproverHelp")
+                            : undefined
+                      }
                     />
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="encargado_id"
-                  render={({ field }) => (
-                    <StaffCombobox
-                      label={t("engagement.encargado")}
-                      placeholder={t("engagement.selectEncargado")}
-                      searchPlaceholder={t("engagement.searchStaff")}
-                      noResultsText={t("engagement.noStaffFound")}
-                      noAplicaText={t("engagement.noAplica")}
-                      options={encargadoFieldOptions}
-                      disabled={!teamSelectionResolved || readOnly}
-                      value={field.value ?? null}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
+                {!isAdministrativeFunction && (
+                  <FormField
+                    control={form.control}
+                    name="encargado_id"
+                    render={({ field }) => (
+                      <StaffCombobox
+                        label={t("engagement.encargado")}
+                        placeholder={t("engagement.selectEncargado")}
+                        searchPlaceholder={t("engagement.searchStaff")}
+                        noResultsText={t("engagement.noStaffFound")}
+                        noAplicaText={t("engagement.noAplica")}
+                        options={encargadoFieldOptions}
+                        disabled={!teamSelectionResolved || readOnly}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                )}
 
-                <FormField
-                  control={form.control}
-                  name="specialist_it_id"
-                  render={({ field }) => (
-                    <StaffCombobox
-                      label={t("engagement.specialistIt1")}
-                      placeholder={t("engagement.selectSpecialistIt1")}
-                      searchPlaceholder={t("engagement.searchStaff")}
-                      noResultsText={t("engagement.noStaffFound")}
-                      noAplicaText={t("engagement.noAplica")}
-                      options={specialistItFieldOptions}
-                      disabled={!teamSelectionResolved || readOnly}
-                      value={field.value ?? null}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
+                {!isAdministrativeFunction && (
+                  <FormField
+                    control={form.control}
+                    name="specialist_it_id"
+                    render={({ field }) => (
+                      <StaffCombobox
+                        label={t("engagement.specialistIt1")}
+                        placeholder={t("engagement.selectSpecialistIt1")}
+                        searchPlaceholder={t("engagement.searchStaff")}
+                        noResultsText={t("engagement.noStaffFound")}
+                        noAplicaText={t("engagement.noAplica")}
+                        options={specialistItFieldOptions}
+                        disabled={!teamSelectionResolved || readOnly}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                )}
 
-                <FormField
-                  control={form.control}
-                  name="specialist_tax_id"
-                  render={({ field }) => (
-                    <StaffCombobox
-                      label={t("engagement.specialistTax1")}
-                      placeholder={t("engagement.selectSpecialistTax1")}
-                      searchPlaceholder={t("engagement.searchStaff")}
-                      noResultsText={t("engagement.noStaffFound")}
-                      noAplicaText={t("engagement.noAplica")}
-                      options={specialistTaxFieldOptions}
-                      disabled={!teamSelectionResolved || readOnly}
-                      value={field.value ?? null}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
+                {!isAdministrativeFunction && (
+                  <FormField
+                    control={form.control}
+                    name="specialist_tax_id"
+                    render={({ field }) => (
+                      <StaffCombobox
+                        label={t("engagement.specialistTax1")}
+                        placeholder={t("engagement.selectSpecialistTax1")}
+                        searchPlaceholder={t("engagement.searchStaff")}
+                        noResultsText={t("engagement.noStaffFound")}
+                        noAplicaText={t("engagement.noAplica")}
+                        options={specialistTaxFieldOptions}
+                        disabled={!teamSelectionResolved || readOnly}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                )}
               </div>
               </div>
             </div>
@@ -2397,7 +2530,21 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                 huérfano sin sentido. */}
             {isSchedulerEnabled() && (isEdit && engagement ? (
               <div className="border border-border bg-background/50 rounded-xl p-8 space-y-4">
-                <StaffAssignmentsCard engagement={engagement} onDirtyChange={setAssignmentsDirty} />
+                <StaffAssignmentsCard
+                  engagement={engagement}
+                  onDirtyChange={setAssignmentsDirty}
+                  // 1110-220: en un no-Cliente el equipo lo escriben admin, el TH creador y el Socio (Calidad: admin y
+                  // Socio), no el Aprobador de horas ni otro TH. Espejo de save_engagement_assignments.
+                  // Además, un no-Cliente SIN OT no carga horas: su asignación de personal no se edita (solo admin).
+                  canWriteAdministrative={
+                    canWriteAdministrativeWork({
+                      roleKey,
+                      myStaffId: staffRecord?.staff_id ?? null,
+                      engagement,
+                    }) &&
+                    (isAdmin || !needsEngagementPartnerApproval(engagement))
+                  }
+                />
                 {showAssignmentsHeaderWarning && (
                   <Alert>
                     <AlertCircle className="h-4 w-4" />
@@ -2437,6 +2584,9 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     disabled={!canSetWorkOrderPolicy || (isEdit && !engagementLoaded)}
                   />
                 </div>
+                {/* 1110-220 plan_v3 (N16): Talento Humano ve el switch de OT y (plan_v5) el de aprobación de
+                    horas; el resto (fijo para ellos) es solo de admin. */}
+                {isAdmin && (<>
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">{t("engagement.activityRequired")}</p>
@@ -2456,6 +2606,10 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     disabled={!isAdmin || isAdministrativeFunction || (isEdit && !engagementLoaded)}
                   />
                 </div>
+                </>)}
+                {/* 1110-220 plan_v5 (Q3): en un no-Cliente admin y Talento Humano eligen la aprobación de horas;
+                    en Cliente sigue siendo solo de admin. */}
+                {(isAdmin || isAdministrativeFunction) && (
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">{t("engagement.approvalRequired")}</p>
@@ -2467,9 +2621,10 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   <Switch
                     checked={effectiveApprovalRequired}
                     onCheckedChange={setApprovalRequired}
-                    disabled={!isAdmin || isAdministrativeFunction || (isEdit && !engagementLoaded)}
+                    disabled={!canSetWorkOrderPolicy || (!isAdmin && !isAdministrativeFunction) || (isEdit && !engagementLoaded)}
                   />
                 </div>
+                )}
                 </div>
                 </div>
               </div>

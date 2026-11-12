@@ -1072,6 +1072,9 @@ const SCHEMA: Record<string, string[]> = {
     "status",
     "work_order_required",
     "engagement_state_override",
+    // 1110-220 plan_v5: el estado de un no-Cliente sin OT depende de la firma del Socio.
+    "funcion",
+    "partner_approval_status",
   ],
   engagement_wo_state: ["engagement_id", "approval_status", "approved_at", "risk_status"],
   work_orders: ["wo_id", "engagement_id"],

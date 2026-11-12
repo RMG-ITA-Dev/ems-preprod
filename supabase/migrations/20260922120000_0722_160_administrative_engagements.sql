@@ -920,10 +920,19 @@ SET search_path TO public
 AS $$
 DECLARE
   v_funcion smallint;
+  v_wo_required boolean;
 BEGIN
-  SELECT funcion INTO v_funcion
+  SELECT funcion, work_order_required INTO v_funcion, v_wo_required
     FROM public.engagements
    WHERE engagement_id = NEW.engagement_id;
+
+  -- 1110-220 (plan_v5): un encargo Administrativa/Capacitación/Calidad con "Requiere OT" apagado no lleva OT (no carga
+  -- horas ni pide fondos). Con sesión no se le crea una; sin sesión (seeds, SQL Editor) se deja.
+  IF TG_OP = 'INSERT' AND auth.uid() IS NOT NULL
+     AND v_funcion IS NOT NULL AND v_funcion <> 1 AND v_wo_required IS NOT TRUE THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo no lleva Orden de Trabajo (Requiere Orden de Trabajo está apagado)'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
 
   IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
     -- Las OTs administrativas pueden presupuestar gastos, pero no facturan ni
@@ -1164,6 +1173,8 @@ BEGIN
           -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
           'work_order_required', e.work_order_required,
           'engagement_state_override', e.engagement_state_override,
+          -- 1110-220 plan_v5: firma del Socio de un no-Cliente sin OT; decide su estado efectivo.
+          'partner_approval_status', e.partner_approval_status,
           -- 1110-220: pestaña "Mis encargos" (creados o gerenciados = lo que las políticas UPDATE dejan editar por
           -- asignación). Solo UUIDs de staff, sin nombres: no amplía lo que se ve del encargo.
           'created_by_staff_id', e.created_by_staff_id,
@@ -1183,6 +1194,9 @@ BEGIN
         LEFT JOIN public.practicas p ON p.code = e.practica
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
+         -- 1110-220 (operador 2026-11-12): Control de Calidad (3) también sale en la pestaña "Todos", que es una lista de
+         -- consulta sin detalle. Abrirlo sigue cerrado: la RLS y el portafolio solo lo dejan ver a admin y a quien
+         -- figura en él (N19).
          AND (v_can_see_history
               OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year)
               OR (v_me IS NOT NULL AND v_me IN (e.created_by_staff_id, e.manager_id, e.partner_id)))

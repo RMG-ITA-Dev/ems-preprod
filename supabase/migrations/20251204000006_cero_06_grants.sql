@@ -2314,3 +2314,22 @@ REVOKE ALL ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid
 GRANT EXECUTE ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) TO authenticated, service_role;
+
+-- 1110-220 (plan_v5): candidatos a Aprobador de horas. Solo authenticated (el gate por rol va dentro); nunca anon.
+REVOKE ALL ON FUNCTION public.get_hours_approver_candidates() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_hours_approver_candidates() TO authenticated, service_role;
+-- 1110-220 (plan_v5): reglas del Aprobador de horas. is_eligible_hours_approver/is_hours_approver_of juzgan a un staff arbitrario:
+-- solo las usan objetos SECURITY DEFINER (no se exponen ni a authenticated). La lista de roles es inocua.
+REVOKE ALL ON FUNCTION public.is_eligible_hours_approver(p_staff_id uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.hours_approver_role_keys() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hours_approver_role_keys() TO authenticated, service_role;
+-- 1110-220 (plan_v5): firma del Socio sin OT. Las RPC validan sesión y rol dentro; el trigger y el predicado no se exponen.
+REVOKE ALL ON FUNCTION public.enforce_engagement_partner_approval() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.engagement_partner_signed(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.engagement_partner_signed(p_engagement_id uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.notify_engagement_partner_approval_requested() FROM PUBLIC, anon, authenticated;

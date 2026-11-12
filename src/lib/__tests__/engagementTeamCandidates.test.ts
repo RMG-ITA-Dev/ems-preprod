@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  ADMINISTRATIVE_FIELD_GROUPS,
   TEAM_FIELD_GROUPS,
   ROLE_KEY_TO_GROUPS,
   ELIGIBLE_ROLE_KEYS,
@@ -56,17 +55,13 @@ describe("TEAM_FIELD_GROUPS — mapa campo → grupo de candidatura", () => {
 });
 
 describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo del RPC)", () => {
-  it("mapea los 17 role_key elegibles a su(s) grupo(s)", () => {
+  it("mapea los 13 role_key elegibles a su(s) grupo(s)", () => {
     expect(ROLE_KEY_TO_GROUPS).toEqual({
       partner: ["partner_director"],
       director: ["partner_director"],
       senior_partner: ["partner_director"],
       risk_partner: ["partner_director"],
       manager: ["manager"],
-      hr_manager: ["manager_administrative"],
-      accounting_manager: ["manager_administrative"],
-      risk_supervisor: ["manager_administrative"],
-      secretariat_head: ["manager_administrative"],
       senior: ["encargado"],
       semisenior: ["encargado"],
       ita_manager: ["specialist_it", "manager"],
@@ -76,15 +71,16 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
       tax_senior: ["specialist_tax"],
       tax_assistant: ["specialist_tax"],
     });
-    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(17);
+    expect(ELIGIBLE_ROLE_KEYS).toHaveLength(13);
   });
 
-  // 1110-220 plan_v3 (N12): Gerente de TH, Contabilidad, Riesgos y Secretaría son Gerentes SOLO de
-  // encargos no-Cliente (grupo propio) y nunca de Cliente. hr_analyst sigue FUERA (no es candidato).
+  // 1110-220 plan_v5: el Aprobador de horas de un no-Cliente sale de get_hours_approver_candidates() (ver
+  // hoursApproverCandidates.test.ts). Talento Humano, Contabilidad, Riesgos y Secretaría ya no están en ningún
+  // grupo de este RPC: no son Gerentes de Cliente ni de ningún otro campo del Equipo.
   it.each(["hr_manager", "accounting_manager", "risk_supervisor", "secretariat_head"])(
-    "%s cae solo en el grupo manager_administrative",
+    "%s no está en ningún grupo del Equipo",
     (roleKey) => {
-      expect(ROLE_KEY_TO_GROUPS[roleKey]).toEqual(["manager_administrative"]);
+      expect(ROLE_KEY_TO_GROUPS[roleKey]).toBeUndefined();
     },
   );
 
@@ -119,7 +115,7 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
     ["it_security_manager", "seguridad TI interna, no Especialista TI del encargo"],
     ["accounting_analyst", "Encargado pide solo senior/semisenior"],
     ["collections_analyst", "Encargado pide solo senior/semisenior"],
-    ["hr_analyst", "Encargado pide solo senior/semisenior — hr_manager es el único hr_* elegible"],
+    ["hr_analyst", "Encargado pide solo senior/semisenior"],
   ])("no mapea %s (%s)", (roleKey) => {
     expect(ROLE_KEY_TO_GROUPS[roleKey]).toBeUndefined();
   });
@@ -131,7 +127,9 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
   });
 
   it("todo grupo del mapa de roles es un grupo alcanzable desde algún campo", () => {
-    const fieldGroups = new Set([...Object.values(TEAM_FIELD_GROUPS), ...Object.values(ADMINISTRATIVE_FIELD_GROUPS)]);
+    const fieldGroups = new Set([
+      ...Object.values(TEAM_FIELD_GROUPS),
+    ]);
     const roleGroups = new Set(Object.values(ROLE_KEY_TO_GROUPS).flat());
     expect([...roleGroups].sort()).toEqual([...fieldGroups].sort());
   });

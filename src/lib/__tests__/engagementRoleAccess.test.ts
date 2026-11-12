@@ -80,15 +80,24 @@ describe("isAdministrativeCreator — quién crea encargos no-Cliente (plan_v3, 
 });
 
 describe("canWriteAdministrativeWork — espejo de can_write_administrative_work (plan_v3, N5)", () => {
-  const target = (funcion: number | null, partner_id: string | null = OTHER) => ({ funcion, partner_id });
+  const target = (funcion: number | null, partner_id: string | null = OTHER, created_by_staff_id: string | null = OTHER) => ({
+    funcion,
+    partner_id,
+    created_by_staff_id,
+  });
 
   it("en Cliente no restringe a nadie (funcion 1 o NULL)", () => {
     expect(canWriteAdministrativeWork({ roleKey: "manager", myStaffId: ME, engagement: target(1) })).toBe(true);
     expect(canWriteAdministrativeWork({ roleKey: "manager", myStaffId: ME, engagement: target(null) })).toBe(true);
   });
 
-  it.each(["admin", "hr_manager", "hr_analyst"])("%s escribe en no-Cliente", (roleKey) => {
-    expect(canWriteAdministrativeWork({ roleKey, myStaffId: ME, engagement: target(0) })).toBe(true);
+  it("admin escribe en cualquier no-Cliente", () => {
+    expect(canWriteAdministrativeWork({ roleKey: "admin", myStaffId: ME, engagement: target(0) })).toBe(true);
+  });
+
+  it.each(["hr_manager", "hr_analyst"])("%s escribe solo el no-Cliente que creó (plan_v5, N10)", (roleKey) => {
+    expect(canWriteAdministrativeWork({ roleKey, myStaffId: ME, engagement: target(0, OTHER, ME) })).toBe(true);
+    expect(canWriteAdministrativeWork({ roleKey, myStaffId: ME, engagement: target(0) })).toBe(false);
   });
 
   it.each(["manager", "ita_manager", "accounting_manager", "risk_supervisor", "secretariat_head"])(
@@ -97,6 +106,12 @@ describe("canWriteAdministrativeWork — espejo de can_write_administrative_work
       expect(canWriteAdministrativeWork({ roleKey, myStaffId: ME, engagement: target(2) })).toBe(false);
     },
   );
+
+  it("Control de Calidad (3): solo admin y el Socio escriben; Talento Humano no (N19)", () => {
+    expect(canWriteAdministrativeWork({ roleKey: "admin", myStaffId: ME, engagement: target(3) })).toBe(true);
+    expect(canWriteAdministrativeWork({ roleKey: "hr_manager", myStaffId: ME, engagement: target(3) })).toBe(false);
+    expect(canWriteAdministrativeWork({ roleKey: "partner", myStaffId: ME, engagement: target(3, ME) })).toBe(true);
+  });
 
   it("el Socio del encargo no-Cliente escribe (firma la OT)", () => {
     expect(canWriteAdministrativeWork({ roleKey: "partner", myStaffId: ME, engagement: target(0, ME) })).toBe(true);
@@ -128,11 +143,17 @@ describe("canCreateWorkOrderFor — espejo de las políticas INSERT de work_orde
     },
   );
 
-  it("en no-Cliente crean el Gerente de TH del encargo y el Analista de TH que lo creó", () => {
-    expect(canCreateWorkOrderFor({ roleKey: "hr_manager", myStaffId: ME, engagement: eng({ funcion: 0, manager_id: ME }) })).toBe(true);
+  it("la OT de Control de Calidad la crea solo admin (N19)", () => {
+    expect(canCreateWorkOrderFor({ roleKey: "admin", myStaffId: ME, engagement: eng({ funcion: 3 }) })).toBe(true);
+    expect(canCreateWorkOrderFor({ roleKey: "hr_manager", myStaffId: ME, engagement: eng({ funcion: 3, manager_id: ME }) })).toBe(false);
+  });
+
+  it("en no-Cliente crea el Talento Humano que lo creó; ser su Aprobador de horas no alcanza (plan_v5)", () => {
+    expect(canCreateWorkOrderFor({ roleKey: "hr_manager", myStaffId: ME, engagement: eng({ funcion: 0, created_by_staff_id: ME }) })).toBe(true);
+    expect(canCreateWorkOrderFor({ roleKey: "hr_manager", myStaffId: ME, engagement: eng({ funcion: 0, manager_id: ME }) })).toBe(false);
     expect(canCreateWorkOrderFor({ roleKey: "hr_manager", myStaffId: ME, engagement: eng({ funcion: 0 }) })).toBe(false);
-    expect(canCreateWorkOrderFor({ roleKey: "hr_analyst", myStaffId: ME, engagement: eng({ funcion: 3, created_by_staff_id: ME }) })).toBe(true);
-    expect(canCreateWorkOrderFor({ roleKey: "hr_analyst", myStaffId: ME, engagement: eng({ funcion: 3 }) })).toBe(false);
+    expect(canCreateWorkOrderFor({ roleKey: "hr_analyst", myStaffId: ME, engagement: eng({ funcion: 2, created_by_staff_id: ME }) })).toBe(true);
+    expect(canCreateWorkOrderFor({ roleKey: "hr_analyst", myStaffId: ME, engagement: eng({ funcion: 2 }) })).toBe(false);
   });
 });
 
@@ -163,12 +184,12 @@ describe("canEditEngagement — espejo de las políticas UPDATE de engagements",
   });
 
   it.each(["hr_manager", "hr_analyst"])(
-    "%s edita solo los no-Cliente que creó o gerencia; los demás los ve en solo lectura (plan_v3, N10)",
+    "%s edita solo los no-Cliente que creó; los demás (aunque sea su Aprobador) los ve en solo lectura (plan_v5, N10)",
     (roleKey) => {
       expect(access({ roleKey, target: engagement({ funcion: 0 }) })).toBe(false);
       expect(access({ roleKey, target: engagement({ funcion: 2 }) })).toBe(false);
       expect(access({ roleKey, target: engagement({ funcion: 0, created_by_staff_id: ME }) })).toBe(true);
-      expect(access({ roleKey, target: engagement({ funcion: 3, manager_id: ME }) })).toBe(true);
+      expect(access({ roleKey, target: engagement({ funcion: 2, manager_id: ME }) })).toBe(false);
     },
   );
 
@@ -183,6 +204,12 @@ describe("canEditEngagement — espejo de las políticas UPDATE de engagements",
 
   it("el Gerente normal sigue editando su encargo de Cliente", () => {
     expect(access({ roleKey: "manager", target: engagement({ manager_id: ME }) })).toBe(true);
+  });
+
+  it("Control de Calidad: solo admin edita el encargo, ni su Gerente ni su Socio (N19)", () => {
+    expect(access({ roleKey: "admin", updateScope: "firm", target: engagement({ funcion: 3 }) })).toBe(true);
+    expect(access({ roleKey: "hr_manager", target: engagement({ funcion: 3, manager_id: ME }) })).toBe(false);
+    expect(access({ roleKey: "partner", target: engagement({ funcion: 3, partner_id: ME }) })).toBe(false);
   });
 
   it("el Socio edita su no-Cliente", () => {

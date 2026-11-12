@@ -141,8 +141,11 @@ const AdministrativeEngagements = () => {
   // vigente o futuro, sin detalle. La pestaña vive en la URL (?tab=all) para conservarla al recargar.
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = parseAdministrativeTab(searchParams.get("tab"));
-  const hasMineTab = hasAdministrativeMineTab(canCreate, data, myStaffId);
-  const fullView = hasMineTab && tab === "mine";
+  // 1110-220 (operador 2026-11-12): admin ve TODOS los administrativos en la vista completa y los abre y edita, sean de
+  // quien sean (también los ya aprobados por el Socio, con aviso). Sin pestañas: para admin no hay "lo suyo".
+  const isAdmin = roleKey === "admin";
+  const hasMineTab = !isAdmin && hasAdministrativeMineTab(canCreate, data, myStaffId);
+  const fullView = isAdmin || (hasMineTab && tab === "mine");
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
   // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
@@ -151,9 +154,11 @@ const AdministrativeEngagements = () => {
   const isMobile = useIsMobile();
   const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
-    const visibleRows = fullView
-      ? (data ?? []).filter((row) => isMyAdministrativeEngagement(row, myStaffId))
-      : administrativeRowsForViewer(data ?? [], false, currentBoliviaFiscalYear());
+    const visibleRows = isAdmin
+      ? (data ?? [])
+      : fullView
+        ? (data ?? []).filter((row) => isMyAdministrativeEngagement(row, myStaffId))
+        : administrativeRowsForViewer(data ?? [], false, currentBoliviaFiscalYear());
     const filteredRows = funcionFilter === "all"
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
@@ -162,7 +167,7 @@ const AdministrativeEngagements = () => {
       ...row,
       effective_state: administrativeEffectiveState(row) ?? row.status,
     }));
-  }, [fullView, data, funcionFilter, myStaffId]);
+  }, [isAdmin, fullView, data, funcionFilter, myStaffId]);
 
   const stateOptions = ENGAGEMENT_STATES.map((s) => ({
     value: String(s),
