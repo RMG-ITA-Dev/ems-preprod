@@ -1219,6 +1219,64 @@ BEGIN
   RAISE NOTICE 'PASS — los 14 Aprobadores reciben sus avisos de horas, reversión y fondos; con OT no se apaga "Requiere OT"';
 END $$;
 
+-- ── 14. Review de Codex: decisión NULL del Socio y histórico de la lista de administrativos ──────────────────────────
+-- EN: no-Cliente sin OT pendiente de la firma del Socio P (8). EH: administrativo de un año fiscal pasado en el que ni el
+-- Gerente normal (4) ni el Gerente de TH (6) figuran (creado por admin 10, Aprobador senior 9). Sembrados como dueño.
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, oficina, practica,
+                                fecha_cierre, start_date, end_date, work_order_required, approval_required, is_internal,
+                                society_id, manager_id, partner_id, created_by_staff_id, partner_approval_status, anio_fiscal)
+VALUES ('e1102000-0000-4000-8000-000000000014', 'c1000000-0000-4000-8000-000000000160', 'R1102 EN', 'R1102-EN', 0, 1, 1,
+        '2027-12-31', '2026-01-05', '2099-06-30', false, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000009', '51102000-0000-4000-8000-000000000008', '51102000-0000-4000-8000-000000000006',
+        'pending', 2027),
+       ('e1102000-0000-4000-8000-000000000015', 'c1000000-0000-4000-8000-000000000160', 'R1102 EH', 'R1102-EH', 0, 1, 1,
+        '2020-09-30', '2019-10-01', '2020-09-30', true, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000009', '51102000-0000-4000-8000-000000000008', '51102000-0000-4000-8000-000000000010',
+        NULL, 2020);
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_err text;
+  lst   constant text := 'SELECT count(*) FROM jsonb_array_elements(public.list_administrative_engagements()) x '
+                         'WHERE x ->> ''engagement_id'' = ''e1102000-0000-4000-8000-000000000015''';
+BEGIN
+  -- p_approve NULL: se rechaza con su propio error y el encargo sigue pendiente, sin motivo.
+  BEGIN
+    PERFORM pg_temp.impersonate(pg_temp.u(8));
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.decide_engagement_partner_approval('e1102000-0000-4000-8000-000000000014', NULL, NULL);
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    v_err := SQLERRM;
+  END;
+  IF v_err IS NULL OR v_err NOT LIKE 'PARTNER_APPROVAL_DECISION_REQUIRED%' THEN
+    RAISE EXCEPTION '1110-220 FAIL — una decisión NULL del Socio no se rechazó con su error (error: %)', COALESCE(v_err, 'ninguno');
+  END IF;
+  IF (SELECT partner_approval_status FROM public.engagements WHERE engagement_id = 'e1102000-0000-4000-8000-000000000014')
+     IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION '1110-220 FAIL — la decisión NULL cambió el estado de la firma';
+  END IF;
+
+  -- Histórico: el Gerente normal tiene engagement.create (para Cliente) pero no crea administrativos; no ve EH.
+  -- Talento Humano sí lo ve.
+  IF NOT EXISTS (SELECT 1 FROM public.authorization_role_permissions
+                  WHERE role_key = 'manager' AND permission_key = 'engagement.create') THEN
+    RAISE EXCEPTION '1110-220 FAIL — precondición: el Gerente normal debía tener engagement.create';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(4), lst) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Gerente normal ve en la lista un administrativo histórico ajeno';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(6), lst) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — Talento Humano debía ver el histórico completo de administrativos';
+  END IF;
+  RAISE NOTICE 'PASS — la decisión NULL del Socio se rechaza; el histórico de administrativos es solo de admin y TH';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

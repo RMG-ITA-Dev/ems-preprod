@@ -1878,6 +1878,11 @@ BEGIN
   IF auth.uid() IS NULL OR v_me IS NULL THEN
     RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
   END IF;
+  -- Review de Codex (2026-11-12): con p_approve NULL, `NOT p_approve` es NULL, el chequeo del motivo no se dispara y el
+  -- CASE de abajo grababa un rechazo sin motivo. La decisión es obligatoria.
+  IF p_approve IS NULL THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_DECISION_REQUIRED: falta la decisión (aprobar o rechazar)' USING ERRCODE = 'check_violation';
+  END IF;
 
   SELECT engagement_id, funcion, work_order_required, partner_id, partner_approval_status,
          created_by_staff_id, engagement_name, engagement_code

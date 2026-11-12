@@ -1127,7 +1127,11 @@ BEGIN
     RETURN '[]'::jsonb;
   END IF;
 
-  v_can_see_history := public.has_permission('engagement.create');
+  -- Review de Codex (2026-11-12): el histórico completo es de quien CREA administrativos. Desde 1110-220 plan_v3 eso es
+  -- admin y Talento Humano; el Gerente normal, ITA y Tax conservan engagement.create solo para Cliente. Espejo de
+  -- canCreate en AdministrativeEngagements.tsx (engagement.create + ADMINISTRATIVE_CREATOR_ROLE_KEYS).
+  v_can_see_history := public.has_permission('engagement.create')
+                       AND public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst');
   -- 1110-220 (plan_v3): quien no crea pero gerencia o firma (Contabilidad, Riesgos, Secretaría, Gerente
   -- normal) ve el histórico de LO SUYO: su pestaña "Mis encargos" no puede perder un encargo al cambiar
   -- el año fiscal. Solo amplía filas donde ya figura como creador, Gerente o Socio.
@@ -1209,7 +1213,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien los crea (engagement.create con rol admin, hr_manager o hr_analyst, 1110-220) ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;
