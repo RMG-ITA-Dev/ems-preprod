@@ -2,7 +2,7 @@
 // aritmética entera escalada; los reales, de consultas agregadas a la base. El journal solo aporta identidades
 // (qué UUID corresponde a qué COT), nunca un valor esperado: así una carga no se valida contra su propia salida.
 import { isMigrableExecution, riskLevelFromLegacy } from "./fase3-input.mjs";
-import { decimalUnits, formatUnits } from "./fase3-transform.mjs";
+import { consolidateExecutions, consolidateResolvedHours, decimalUnits, formatUnits } from "./fase3-transform.mjs";
 
 const text = (value) => String(value ?? "").trim();
 const sum = (rows, pick) => rows.reduce((total, row) => total + pick(row), 0n);
@@ -15,6 +15,15 @@ export const BOB_ROUNDING = (amountUnits, rateUnits) => (amountUnits * rateUnits
 export function holidayApplies({ date, officeOfStaff, holidaysByDate }) {
   const offices = holidaysByDate.get(day(date)) ?? [];
   return offices.includes(0) || (officeOfStaff != null && offices.includes(officeOfStaff));
+}
+
+// Entradas de horas que EMS debe tener (una por persona, OT, actividad y día): se derivan de las filas aprobadas con las mismas funciones del cargador (reparto 30/70 de Gerente y
+// Supervisor, partición de 99,99 h y fusión de perfiles que resuelven a una misma ficha), así que no dependen de lo que haya en la base. `entries` ≠ filas fuente: 18.799 filas → 21.229 entradas.
+export function hourEntryExpectations({ migrable, staffByLegacyProfile, officeByStaffId, holidaysByDate }) {
+  const cells = consolidateExecutions(migrable);
+  const resolved = consolidateResolvedHours(cells.map((cell) => ({ sourceKey: `${cell.legacy_execution_id}:${cell.activity_code}:${cell.split_index}`, dateWorked: cell.date_worked, hours: cell.hours, staffId: staffByLegacyProfile.get(text(cell.legacy_profile_id)) ?? `sin-ficha:${text(cell.legacy_profile_id)}`, engagementId: cell.legacy_cot, activityId: cell.activity_code, isForecast: false, sourceAllocations: cell.source_allocations })));
+  const holiday = resolved.filter((entry) => holidayApplies({ date: entry.dateWorked, officeOfStaff: officeByStaffId.get(entry.staffId), holidaysByDate }));
+  return { entries: BigInt(resolved.length), holidayEntries: BigInt(holiday.length) };
 }
 
 export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n }) {
@@ -43,6 +52,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   }
   const hoursByCot = new Map(), hoursByStaff = new Map();
   for (const row of kept) { const units = decimalUnits(row.legacy_hours); bump(hoursByCot, text(row.legacy_cot), units); const staffId = staffByLegacyProfile.get(text(row.legacy_profile_id)); if (staffId) bump(hoursByStaff, staffId, units); }
+  const entryExpectations = hourEntryExpectations({ migrable, staffByLegacyProfile, officeByStaffId, holidaysByDate });
   const unmappedProfiles = [...new Set(kept.filter((row) => !staffByLegacyProfile.has(text(row.legacy_profile_id))).map((row) => text(row.legacy_profile_id)))];
   return {
     riskLevelByCot, clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
@@ -50,6 +60,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
     plans: BigInt(plansCount), installments: BigInt(billable.length), installmentsInvoiced: BigInt(invoicedRows.length), notes: BigInt(notes.length), feeByCot,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
     holidayKeptRows: BigInt(holiday.length), holidayKeptHours: sum(holiday, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(holiday.map((row) => day(row.legacy_worked_at)))].sort(),
+    expectedEntries: entryExpectations.entries, expectedHolidayEntries: entryExpectations.holidayEntries,
     expectedHoursUnits: sum(kept, (row) => decimalUnits(row.legacy_hours)), hoursByCot, hoursByStaff, unmappedProfiles, scaleFactor,
   };
 }
@@ -88,6 +99,9 @@ export function compareLegacyControls(expected, actual) {
   const staffDiffs = mapDiff(expected.hoursByStaff, toMap(actual.hoursByStaff));
   rows.push({ id: "L7c", label: "horas por persona (ficha F2)", expected: "iguales", actual: staffDiffs.length ? staffDiffs.slice(0, 5).join(" | ") : "iguales", ok: !staffDiffs.length, note: expected.unmappedProfiles.length ? `perfiles sin ficha: ${expected.unmappedProfiles.join(",")}` : "" });
   rows.push(eq("L7d", "horas cargadas en feriado aplicable = las de la fuente (carga histórica exceptuada)", formatUnits(expected.holidayKeptHours), units(actual.holidayHours)));
+  // L7e/L7f (12/11/2026, revisión independiente): L7a–L7d comparan horas; estos dos comparan el NÚMERO de entradas, que no es el de filas fuente (Gerente y Supervisor se reparten 30/70).
+  rows.push(eq("L7e", "entradas de horas cargadas (por persona, OT, actividad y día)", expected.expectedEntries, actual.entriesCount, `de ${expected.executionsMigrable} filas aprobadas; Gerente y Supervisor se reparten 30/70`));
+  rows.push(eq("L7f", "entradas cargadas en feriado aplicable", expected.expectedHolidayEntries, actual.holidayEntries, `de ${expected.holidayKeptRows} filas fuente; calendario de EMS vigente (2026-2027)`));
   rows.push(eq("L8a", "períodos de timesheet creados", 0, actual.periods)); rows.push(eq("L8b", "líneas de aprobación creadas", 0, actual.lineApprovals));
   rows.push(eq("L8c", "horas históricas con período o forecast", 0, actual.historicWithPeriodOrForecast));
   rows.push(eq("L8d", "correos del lote enviados (status sent)", 0, actual.emailsSent));

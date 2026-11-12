@@ -8,7 +8,7 @@
     "riskLevels": { "Bajo": 137, "Moderado": 18, "Alto": 0 },
     "expenses": { "positive": 85, "zero": 690, "totalUnits": 9595900 },
     "payments": { "plans": 155, "rows": 428, "billable": 414, "notes": 14 },
-    "hours": { "rows": 18799, "total": "65470", "persons": 146, "engagements": 132, "lastWorkedDay": "2026-10-30" },
+    "hours": { "rows": 18799, "total": "65470", "persons": 146, "engagements": 132, "lastWorkedDay": "2026-10-30", "entries": 21229, "holiday": { "rows": 103, "entries": 116, "hours": "364" } },
     "endDates": { "allowed": ["2026-11-30", "2027-09-30"], "byYear": null, "counts": { "2026-11-30": 45, "2027-09-30": 110 } }
   },
   "planNotes": [

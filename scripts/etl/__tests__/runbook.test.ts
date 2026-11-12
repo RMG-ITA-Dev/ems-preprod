@@ -106,6 +106,40 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(f3).toContain("--tracking-start"); expect(f3).toContain("TS_TRACKING_START_DATE"); expect(f3).toMatch(/PENDIENTE \(D24\)/); expect(f3).toMatch(/debe ser un lunes/);
     expect(read("00-preflight.sh")).toContain("Crones de notificaciones pausados (paso 15)");
   });
+  // A-03 (12/11/2026): `run.sh` no encadenaba la pausa de crones; tras el reset (10) los `notif-%` vuelven a nacer activos.
+  it("run.sh encadena la pausa de crones (15) después del reset (10) y antes de F1 (20)", () => {
+    const steps = /steps=\(([^)]*)\)/.exec(read("run.sh"))?.[1].trim().split(/\s+/) ?? [];
+    expect(steps).toEqual(["00-preflight", "10-reset", "15-crones", "20-f1", "30-f2", "35-bajas", "40-f3", "50-reconcile"]);
+    for (const step of steps) expect(scripts, step).toContain(`${step}.sh`);
+  });
+  // Paso 4 con CSV v3: las huellas se calculan sobre las configuraciones base y el baseline que se indiquen (por defecto, los de v2).
+  it("el pre-vuelo toma configuraciones base y baseline de huellas por variable de entorno, con los valores v2 por defecto", () => {
+    const pre = read("00-preflight.sh");
+    expect(pre).toContain('BASELINE="${INPUTS_BASELINE:-$REPO_ROOT/bugs/ETL/carga/fase4/inputs.sha256}"');
+    expect(pre).toContain('PF_F2="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}"');
+    expect(pre).toContain('PF_F3="${BASE_F3_CONFIG:-scripts/etl/fase3.local.config.json}"');
+    expect(pre).toContain("[process.env.PF_F2, process.env.PF_F3]");
+    expect(pre).not.toContain('for (const f of ["scripts/etl/fase2.local.config.json"');
+  });
+  // Revisión independiente (12/11/2026): L9 no puede sobrescribir el baseline por defecto (v2) ni compararse contra una huella incompatible, ni omitirse en silencio.
+  it("50-reconcile protege L9: registrar exige ruta explícita y nueva, un baseline incompatible detiene el paso y la ausencia se avisa", () => {
+    const rec = read("50-reconcile.sh");
+    // la protección de registro corre antes de cualquier trabajo (antes de la conciliación y de la huella)
+    const guard = rec.search(/if \[\[ "\$RECORD_FP" == "1" \]\]; then\s+\[\[ -n "\$\{ETL_BASELINE_FINGERPRINT:-\}" \]\]/);
+    expect(guard).toBeGreaterThan(0); expect(guard).toBeLessThan(rec.indexOf("rb_etl 3 reconcile-legacy"));
+    expect(rec).toContain('exige una ruta explícita en ETL_BASELINE_FINGERPRINT');
+    expect(rec).toContain('[[ "$ETL_BASELINE_FINGERPRINT" != "$FP_DEFAULT" ]]');
+    expect(rec).toContain('[[ ! -e "$ETL_BASELINE_FINGERPRINT" ]] || rb_die "el baseline L9 destino ya existe');
+    expect(rec).toContain('cp -n "$FP_NOW" "$FP_BASE"');
+    expect(rec).not.toMatch(/cp "\$FP_NOW" "\$FP_BASE"/); // nunca un cp que pise
+    // el código de salida 4 de compare-fingerprints es «baseline incompatible» y detiene el paso con un mensaje distinto del de «difiere»
+    expect(rec).toMatch(/4\) rb_die "L9: baseline INCOMPATIBLE/);
+    expect(rec).toMatch(/\*\) rb_die "L9: la huella de \$\{ENV_NAME\} difiere/);
+    // sin baseline: Test bloquea y local avisa que L9 NO se comparó (pendiente, no aprobada)
+    expect(rec).toContain("L9 NO SE COMPARÓ");
+    expect(rec).toContain('rb_die "L9 es requisito de E7');
+    expect(rec).toContain("environment=${base_env}");
+  });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
     for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);

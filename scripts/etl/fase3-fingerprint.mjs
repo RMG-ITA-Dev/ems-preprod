@@ -21,14 +21,32 @@ export function keyedHashes(pairs) {
   return out;
 }
 
-export function buildFingerprint({ environment, projectRef, installationId, snapshot, generatedAt = new Date().toISOString() }) {
+// `source` identifica el respaldo legacy del que salió la carga ({ snapshot, manifestSha256 }). Sin él, una huella de otra versión de los datos (por ejemplo, el ensayo v2 del 23/10)
+// no se distingue de una v3 y se compararía contra la equivocada: assertComparableFingerprints lo rechaza.
+export function buildFingerprint({ environment, projectRef, installationId, snapshot, source = null, generatedAt = new Date().toISOString() }) {
   const sets = {};
   for (const name of SET_NAMES) {
     if (!Array.isArray(snapshot?.[name])) throw new Error(`la consulta de huellas no devolvió el conjunto ${name}`);
     const keys = keyedHashes(snapshot[name]);
     sets[name] = { count: Object.keys(keys).length, sha256: sha256(JSON.stringify(Object.entries(keys))), keys };
   }
-  return { version: FINGERPRINT_VERSION, generatedAt, environment, projectRef, installationId, sets };
+  return { version: FINGERPRINT_VERSION, generatedAt, environment, projectRef, installationId, source, sets };
+}
+
+export class FingerprintIncompatibleError extends Error {
+  constructor(message) { super(message); this.name = "FingerprintIncompatibleError"; this.code = "BASELINE_INCOMPATIBLE"; }
+}
+
+// L9 solo tiene sentido entre cargas del MISMO respaldo legacy. Se exige que las dos huellas declaren su snapshot y que coincidan; nunca se omite la comparación en silencio.
+export function assertComparableFingerprints(a, b, { labelA = "A", labelB = "B" } = {}) {
+  const snapshotOf = (fingerprint, label) => {
+    const name = fingerprint?.source?.snapshot;
+    if (typeof name !== "string" || !name) throw new FingerprintIncompatibleError(`la huella ${label} no declara el snapshot del que salió (es anterior a esta versión de la consola, por ejemplo el ensayo v2 del 23/10): no se compara contra ella; registre una huella nueva del ensayo local`);
+    return name;
+  };
+  const left = snapshotOf(a, labelA); const right = snapshotOf(b, labelB);
+  if (left !== right) throw new FingerprintIncompatibleError(`las huellas son de snapshots distintos (${labelA}=${left}, ${labelB}=${right}): una huella v2 no puede compararse con una carga v3`);
+  return { snapshot: left, sameManifest: a.source.manifestSha256 === b.source.manifestSha256 };
 }
 
 // Compara dos huellas conjunto por conjunto y señala qué claves faltan o cambiaron (máximo `limit` por categoría).

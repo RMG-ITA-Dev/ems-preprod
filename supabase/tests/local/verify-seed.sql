@@ -154,14 +154,14 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — 3 categorías ITA y ninguna identidad «IT» paralela';
 
-  -- Las 15 filas de Auditoría con sus cuatro rates (Alta = Baja; BOB = USD x 12), ETL 04.
+  -- Las 15 filas de Auditoría con sus cuatro rates (BOB = USD x 12; temporada Baja propia, D31 del 11/11/2026), ETL 04.
   v_rows := ARRAY[
-    'Socio|2400.00|2400.00|200.00|200.00', 'SQR|2160.00|2160.00|180.00|180.00', 'Director|960.00|960.00|80.00|80.00',
-    'Gerente|960.00|960.00|80.00|80.00', 'Supervisor|360.00|360.00|30.00|30.00', 'Senior|360.00|360.00|30.00|30.00',
-    'Semi-Senior|216.00|216.00|18.00|18.00', 'Asistente|120.00|120.00|10.00|10.00', 'Pasante|120.00|120.00|10.00|10.00',
-    'Gerente - Especialista ITA|960.00|960.00|80.00|80.00', 'Senior - Especialista ITA|960.00|960.00|80.00|80.00',
-    'Asistente - Especialista ITA|216.00|216.00|18.00|18.00', 'Gerente - Especialista Tax|960.00|960.00|80.00|80.00',
-    'Senior - Especialista Tax|960.00|960.00|80.00|80.00', 'Asistente - Especialista Tax|216.00|216.00|18.00|18.00'
+    'Socio|2400.00|1620.00|200.00|135.00', 'SQR|2160.00|1512.00|180.00|126.00', 'Director|960.00|696.00|80.00|58.00',
+    'Gerente|960.00|696.00|80.00|58.00', 'Supervisor|360.00|288.00|30.00|24.00', 'Senior|360.00|288.00|30.00|24.00',
+    'Semi-Senior|216.00|168.00|18.00|14.00', 'Asistente|120.00|96.00|10.00|8.00', 'Pasante|120.00|96.00|10.00|8.00',
+    'Gerente - Especialista ITA|960.00|696.00|80.00|58.00', 'Senior - Especialista ITA|960.00|696.00|80.00|58.00',
+    'Asistente - Especialista ITA|216.00|168.00|18.00|14.00', 'Gerente - Especialista Tax|960.00|696.00|80.00|58.00',
+    'Senior - Especialista Tax|960.00|696.00|80.00|58.00', 'Asistente - Especialista Tax|216.00|168.00|18.00|14.00'
   ];
   SELECT count(*) INTO n FROM public.categories c JOIN public.practicas p ON p.practica_id = c.practica_id AND p.abbreviation = 'AUD'
    WHERE (c.category_name || '|' || c.rate_high_bob || '|' || c.rate_low_bob || '|' || c.rate_high_usd || '|' || c.rate_low_usd) = ANY (v_rows);
@@ -169,7 +169,7 @@ BEGIN
   IF (SELECT count(*) FROM public.categories c JOIN public.practicas p ON p.practica_id = c.practica_id AND p.abbreviation = 'AUD') <> 15 THEN
     RAISE EXCEPTION 'FAIL — Auditoría debe tener exactamente 15 categorías';
   END IF;
-  RAISE NOTICE 'PASS — 15 categorías de Auditoría con los 4 rates de ETL 04 (Alta=Baja, BOB = USD x 12)';
+  RAISE NOTICE 'PASS — 15 categorías de Auditoría con los 4 rates de ETL 04 (BOB = USD x 12, temporada Baja propia, D31)';
 
   -- Fuera de Auditoría: sin alteración respecto de la base (huella del contenido de cero_11 previo a
   -- ETL fase 1; solo cambia default_app_role de los 5 Supervisores, que no entra en la huella).

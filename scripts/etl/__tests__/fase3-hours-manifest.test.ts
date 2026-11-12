@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EXECUTION_HEADERS, Fase3InputError, assertExecutionTotals, isMigrableExecution } from "../fase3-input.mjs";
+import { EXECUTION_HEADERS, Fase3InputError, assertExecutionTotals, assertHourEntryAnchors, isMigrableExecution } from "../fase3-input.mjs";
 import { SnapshotManifestError, loadSnapshotManifest, validateManifestShape } from "../snapshot-manifest.mjs";
 
 // A-06 / D39 (12/11/2026): las horas aprobadas que migran se anclan en el manifiesto (f3.hours); el corte es el viernes 30/10/2026.
@@ -16,7 +16,7 @@ const hours = { rows: 4, total: "24.5", persons: 2, engagements: 3, lastWorkedDa
 describe("horas ancladas en el manifiesto (A-06)", () => {
   it("el manifiesto del 06/11 declara las horas que migran y el corte del 30/10/2026", () => {
     const manifest = loadSnapshotManifest(FINAL);
-    expect(manifest.f3.hours).toEqual({ rows: 18799, total: "65470", persons: 146, engagements: 132, lastWorkedDay: "2026-10-30" });
+    expect(manifest.f3.hours).toEqual({ rows: 18799, total: "65470", persons: 146, engagements: 132, lastWorkedDay: "2026-10-30", entries: 21229, holiday: { rows: 103, entries: 116, hours: "364" } });
     expect(manifest.f3.hours.lastWorkedDay! < "2026-11-02").toBe(true); // la primera semana de noviembre no entra
   });
 
@@ -49,6 +49,36 @@ describe("horas ancladas en el manifiesto (A-06)", () => {
     expect(() => assertExecutionTotals(rows, sinDeclarar, "local")).not.toThrow();
     expect(() => assertExecutionTotals(rows, sinDeclarar, "test")).toThrow(SnapshotManifestError);
     expect(() => assertExecutionTotals(rows, { ...hours, total: null }, "production")).toThrow(/f3\.hours\.total sin declarar/);
+  });
+
+  // Revisión independiente (12/11/2026): las ENTRADAS (21.229; 18.799 filas fuente) y los feriados del calendario vigente (103 filas / 116 entradas / 364 h) se anclan en el manifiesto.
+  describe("entradas y feriados anclados en el manifiesto", () => {
+    const holidayHours = { ...hours, entries: 5, holiday: { rows: 2, entries: 3, hours: "16" } };
+    const actual = { entries: 5, holiday: { rows: 2, entries: 3, hours: "16.00" } };
+    it("acepta lo que cuadra (las horas se comparan como decimales, 16 = 16.00)", () => {
+      expect(() => assertHourEntryAnchors(actual, holidayHours, "test")).not.toThrow();
+    });
+    it("nombra cada diferencia: entradas, filas, entradas y horas de feriado", () => {
+      expect(() => assertHourEntryAnchors({ ...actual, entries: 4 }, holidayHours, "test")).toThrow(/entries: 4 de 5/);
+      expect(() => assertHourEntryAnchors({ entries: 5, holiday: { rows: 1, entries: 2, hours: "8" } }, holidayHours, "local")).toThrow(/holiday\.rows: 1 de 2.*holiday\.entries: 2 de 3.*holiday\.hours: 8 h de 16 h/);
+      expect(() => assertHourEntryAnchors({ ...actual, entries: 4 }, holidayHours, "local")).toThrow(Fase3InputError);
+    });
+    it("manifiestos anteriores: sin hours, sin entries o sin holiday no aplica; null se trata como los demás controles", () => {
+      expect(() => assertHourEntryAnchors({ entries: 1, holiday: { rows: 0, entries: 0, hours: "0" } }, undefined, "test")).not.toThrow();
+      expect(() => assertHourEntryAnchors({ entries: 1, holiday: { rows: 0, entries: 0, hours: "0" } }, hours, "test")).not.toThrow();
+      const sinDeclarar = { ...hours, entries: null, holiday: { rows: null, entries: null, hours: null } };
+      expect(() => assertHourEntryAnchors(actual, sinDeclarar, "local")).not.toThrow();
+      expect(() => assertHourEntryAnchors(actual, sinDeclarar, "test")).toThrow(SnapshotManifestError);
+      expect(() => assertHourEntryAnchors(actual, { ...hours, entries: null }, "production")).toThrow(/f3\.hours\.entries sin declarar/);
+    });
+    it("la forma del manifiesto acepta entries y holiday y rechaza valores mal formados; el del 23/10 sigue válido", () => {
+      const raw = JSON.parse(JSON.stringify(loadSnapshotManifest(FINAL)));
+      expect(() => validateManifestShape(raw, FINAL)).not.toThrow();
+      expect(() => validateManifestShape({ ...raw, f3: { ...raw.f3, hours: { ...raw.f3.hours, entries: -1 } } }, FINAL)).toThrow(/f3\.hours inválido/);
+      expect(() => validateManifestShape({ ...raw, f3: { ...raw.f3, hours: { ...raw.f3.hours, holiday: { rows: 1, entries: 1, hours: "mucho" } } } }, FINAL)).toThrow(/f3\.hours inválido/);
+      expect(() => validateManifestShape({ ...raw, f3: { ...raw.f3, hours: { ...raw.f3.hours, holiday: { rows: 1 } } } }, FINAL)).toThrow(/f3\.hours inválido/);
+      expect(() => loadSnapshotManifest(OLD)).not.toThrow();
+    });
   });
 
   it("la forma del manifiesto valida f3.hours cuando existe", () => {

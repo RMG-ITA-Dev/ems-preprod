@@ -169,7 +169,7 @@ datos automáticamente. `fase3.config.example.json` es ficticio y no contiene cr
 `reconcile-legacy` (solo lectura) concilia lo cargado contra los seis CSV legacy: los totales esperados se
 recalculan desde los CSV y los reales salen de consultas agregadas; el journal solo aporta qué UUID
 corresponde a cada COT. Controla conjuntos, horas presupuestadas, nivel de riesgo, gastos, honorarios y cuotas por COT, horas
-por COT y por persona (descontados los feriados aplicables) y que no existan períodos, aprobaciones ni correos
+por COT y por persona (descontados los feriados aplicables), el número de entradas cargadas (L7e) y las entradas en feriado (L7f), y que no existan períodos, aprobaciones ni correos
 enviados. Escribe `fase3-<installationId>.legacy-reconciliation.json` (conteos y sumas, sin PII) y termina en
 `BLOQUEADO` ante cualquier diferencia. El `verify` de la consola solo inventaría períodos, aprobaciones y cola de
 correo; la conciliación de contenido es este comando.

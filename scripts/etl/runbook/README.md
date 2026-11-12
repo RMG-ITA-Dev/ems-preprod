@@ -18,7 +18,7 @@ corrida.
 | 30 | `30-f2.sh` | F2: `validate`/`preflight`/`load`, **`contain-emails`** (D40: deja como no entregables los correos `auth.role.changed` que encolan los roles de F2 y exige 0 pendientes), `verify`/`report`, segunda `load` sin cambios, sondeos opcionales (`--probe legacy:N`) | sí |
 | 35 | `35-bajas.sh` | Paso manual de las bajas (al 06/11: 151 activas / 16 inactivas, corte 2026-11-06), verificado por SQL contra el journal de F2; frase `APLICAR <n> BAJAS` | sí |
 | 40 | `40-f3.sh` | F3 por bloques con acta de aceptación escrita por Marcelo (`ACEPTO <bloque>`); incluye las cuotas facturadas (`--operation invoices`, D19) y, con `--tracking-start <lunes>`, fija `TS_TRACKING_START_DATE` (D24) | sí |
-| 50 | `50-reconcile.sh` | `reconcile-legacy` (L1–L8), segunda pasada de F3 con huella md5 de las tablas del lote, resumen sin PII | no (relecturas) |
+| 50 | `50-reconcile.sh` | `reconcile-legacy` (L1–L8: **24 controles**, incluidos L7e entradas y L7f entradas en feriado), segunda pasada de F3 con huella md5 de las tablas del lote y L9 (huella por clave natural) contra un baseline del mismo snapshot, resumen sin PII | no (relecturas) |
 | — | `run.sh` | Encadena los pasos con una pausa `SIGUE` entre cada uno | según paso |
 
 ```bash
@@ -50,6 +50,9 @@ bash scripts/etl/runbook/run.sh --env test --run-id 0001 --from 10 --to 50
 - **Reanudación:** cada paso se puede repetir; las consolas retoman desde su journal. Un `BLOQUEADO` (exit 2) o
   `RECONCILIACION_REQUERIDA` (exit 3) detiene la corrida: no se reintenta a ciegas.
 - **No crear migraciones:** si el pre-vuelo ve un número de migraciones distinto de 61, se detiene y se avisa a Marcelo.
+- **Entradas con otra versión de los CSV (v3):** exporte en cada paso `BASE_F2_CONFIG` y `BASE_F3_CONFIG` (si faltan, el runbook lee el manifiesto del 23/10) e `INPUTS_BASELINE` (huellas de los CSV para el pre-vuelo); no use un `--run-id` que coincida con el nombre de una configuración base (`v3`).
+- **L9 (paso 50):** el baseline por defecto (`bugs/ETL/carga/fase4/fingerprint-baseline.json`) es de una versión anterior y nunca se sobrescribe. Para comparar o registrar, indique el archivo con `ETL_BASELINE_FINGERPRINT`. `--record-fingerprint-baseline` exige esa ruta y rechaza un destino que ya existe. Un baseline de otro snapshot o sin snapshot declarado detiene el paso («baseline INCOMPATIBLE», exit 4 de `compare-fingerprints`); si el baseline no existe, local avisa «L9 NO SE COMPARÓ» y Test bloquea.
+- **Cambiar el manifiesto con un journal ya creado:** F2 y F3 guardan el SHA-256 del manifiesto y bloquean si cambia. Un journal sin efectos (solo `VALIDADO`) puede archivarse a mano; uno con efectos exige un `--run-id` nuevo.
 
 ## Hallazgos del código que el runbook compensa
 

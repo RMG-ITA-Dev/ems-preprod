@@ -157,6 +157,23 @@ export function assertExecutionTotals(executions, hours, environment = "local") 
   if (diffs.length) throw new Fase3InputError(`horas fuera del manifiesto (${diffs.join("; ")})`);
 }
 
+// Anclaje de las ENTRADAS (12/11/2026, revisión independiente): lo que EMS debe tener tras cargar las horas (f3.hours.entries) y lo que cae en feriados del calendario de EMS
+// vigente (f3.hours.holiday: filas fuente, entradas y horas). A diferencia de assertExecutionTotals, necesita el mapa F2 (oficina de cada persona), así que se aplica al cargar y al
+// conciliar, no en `validate`. `entries`/`holiday` ausentes (manifiestos anteriores) = no aplica; null = sin declarar (local lo omite; Test y producción bloquean).
+// actual = { entries, holiday: { rows, entries, hours } } con `hours` como texto decimal.
+export function assertHourEntryAnchors(actual, hours, environment = "local") {
+  if (!hours) return;
+  const diffs = []; const check = (label, want, got) => { if (want !== null && want !== got) diffs.push(`${label}: ${got} de ${want}`); };
+  if (hours.entries !== undefined) check("entries", declaredCount(environment, hours.entries, "f3.hours.entries"), actual.entries);
+  if (hours.holiday !== undefined) {
+    check("holiday.rows", declaredCount(environment, hours.holiday.rows, "f3.hours.holiday.rows"), actual.holiday.rows);
+    check("holiday.entries", declaredCount(environment, hours.holiday.entries, "f3.hours.holiday.entries"), actual.holiday.entries);
+    const wantHours = declaredCount(environment, hours.holiday.hours, "f3.hours.holiday.hours");
+    if (wantHours !== null && hoursUnits(wantHours) !== hoursUnits(actual.holiday.hours)) diffs.push(`holiday.hours: ${actual.holiday.hours} h de ${wantHours} h`);
+  }
+  if (diffs.length) throw new Fase3InputError(`entradas de horas fuera del manifiesto (${diffs.join("; ")})`);
+}
+
 export function validateExecutions(rows, clientCots) {
   unique(rows, (row) => row.legacy_execution_id, "PK ejecución");
   for (const row of rows) {

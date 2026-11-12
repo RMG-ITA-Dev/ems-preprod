@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { BOB_ROUNDING, compareLegacyControls, holidayApplies, legacyExpectations } from "../fase3-reconcile.mjs";
 
-const exec = (id: string, cot: string, profile: string, date: string, hours: string) => ({ legacy_execution_id: id, legacy_cot: cot, legacy_profile_id: profile, legacy_worked_at: date, legacy_hours: hours, approval_evidence_count: "1", approved_evidence_count: "1", legacy_pending_approval: "0", disposition: "migrable_aprobada" });
+// Departamento 1 (AUD) y categoría 9 (Asistente: una sola entrada); con categoría 3 (Gerente) la hora se reparte 30/70 en dos entradas.
+const exec = (id: string, cot: string, profile: string, date: string, hours: string, category = "9") => ({ legacy_execution_id: id, legacy_cot: cot, legacy_profile_id: profile, legacy_department_id: "1", legacy_category_id: category, legacy_specialty_id: "", legacy_sqr_profile_id: "", legacy_worked_at: date, legacy_hours: hours, approval_evidence_count: "1", approved_evidence_count: "1", legacy_pending_approval: "0", disposition: "migrable_aprobada" });
 const inputs = {
   clientEngagements: [{ legacy_cot: "C1", legacy_risk_code: "1" }, { legacy_cot: "C2", legacy_risk_code: "2" }],
   administrativeEngagements: [{ legacy_cot: "A1" }],
@@ -47,7 +48,7 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55",
     expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, installmentsInvoiced: 0, installmentsPending: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
     hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]],
-    holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
+    entriesCount: 3, holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" }, _expected: expected,
   });
   it("concilia cuando la base coincide y marca la diferencia exacta cuando no", () => {
@@ -70,6 +71,30 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     // Falta una OT con nivel.
     const missing = compareLegacyControls(expected, { ...actualFor(expected), riskLevelByWo: [["wo1", "Bajo"]] });
     expect(missing.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L4"]);
+  });
+  // Revisión independiente (12/11/2026): las horas se comparan en L7a–L7d; L7e y L7f comparan el NÚMERO de entradas, que no es el de filas fuente.
+  it("el número de controles es 24: los 22 anteriores más L7e (entradas) y L7f (entradas en feriado)", () => {
+    const expected = legacyExpectations(base);
+    const { rows } = compareLegacyControls(expected, actualFor(expected));
+    expect(rows).toHaveLength(24);
+    expect(rows.map((row) => row.id)).toEqual(["L1a", "L1b", "L3", "L4", "L5a", "L5b", "L5c", "L6a", "L6b", "L6c", "L6e", "L6f", "L6d", "L7a", "L7b", "L7c", "L7d", "L7e", "L7f", "L8a", "L8b", "L8c", "L8d", "L8e"]);
+  });
+  it("las entradas esperadas son una por persona, OT, actividad y día, y Gerente y Supervisor se reparten 30/70 en dos", () => {
+    const expected = legacyExpectations(base);
+    expect(expected.expectedEntries).toBe(3n); expect(expected.expectedHolidayEntries).toBe(1n);
+    // El mismo día y la misma persona en dos filas de la misma OT y actividad se fusionan en una entrada; un Gerente genera dos (planificación 30 % y ejecución 70 %).
+    const withManager = { ...base, inputs: { ...inputs, executions: [...inputs.executions, exec("e4", "C2", "8", "2026-06-05", "10", "3"), exec("e5", "C1", "7", "2026-06-04", "2")] } };
+    const bigger = legacyExpectations(withManager);
+    expect(bigger.expectedEntries).toBe(3n + 2n); // e4 → 2 entradas; e5 se fusiona con e1 (misma persona, OT, actividad y día)
+    expect(bigger.expectedHolidayEntries).toBe(1n + 0n); // el 05/06 aplica solo a la oficina 1; staff-8 es de la oficina 2
+    expect(bigger.expectedHoursUnits).toBe(800n + 800n + 450n + 1000n + 200n);
+  });
+  it("L7e y L7f fallan si faltan entradas, aunque las horas sumen lo mismo", () => {
+    const expected = legacyExpectations(base);
+    const fewer = compareLegacyControls(expected, { ...actualFor(expected), entriesCount: 2 });
+    expect(fewer.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L7e"]);
+    const noHoliday = compareLegacyControls(expected, { ...actualFor(expected), holidayEntries: 0 });
+    expect(noHoliday.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L7f"]);
   });
   it("L7d falla si las horas de feriado de la fuente no quedaron cargadas", () => {
     const expected = legacyExpectations(base);

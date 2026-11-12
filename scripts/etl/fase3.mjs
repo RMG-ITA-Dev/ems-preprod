@@ -9,11 +9,11 @@ import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProbl
 import { acquireLock, readJournal, sha256 } from "./fase1.mjs";
 import { STATES as F2_STATES } from "./fase2.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
-import { assertRiskLevelCounts, isMigrableExecution, isPlanNote, readInput, riskLevelFromLegacy, validateInputs } from "./fase3-input.mjs";
+import { assertHourEntryAnchors, assertRiskLevelCounts, isMigrableExecution, isPlanNote, readInput, riskLevelFromLegacy, validateInputs } from "./fase3-input.mjs";
 import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
-import { buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
+import { FingerprintIncompatibleError, assertComparableFingerprints, buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
 import { budgetInOtCurrency, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
 
 export const BLOCKS = Object.freeze(["client-engagements", "administrative-engagements", "matrices", "work-orders", "hours"]);
@@ -610,6 +610,9 @@ async function loadHours(ctx, inputs, unit) {
   for (const row of inputs.executions.filter(isMigrableExecution)) { const staffId = f2.staff[`legacy:${row.legacy_profile_id}`]; const workedDate = String(row.legacy_worked_at).slice(0, 10); const offices = holidaysByDate.get(workedDate) ?? []; if (offices.includes(0) || (staffId && offices.includes(officeByStaffId.get(staffId)))) holidayKept.push(row); included.push(row); }
   const blueprint = consolidateResolvedHours(consolidateExecutions(included).map((row) => ({ sourceKey: `${row.legacy_execution_id}:${row.activity_code}:${row.split_index}`, timeId: randomUUID(), dateWorked: row.date_worked, hours: row.hours, staffId: f2.staff[`legacy:${row.legacy_profile_id}`], engagementId: engagements.get(row.legacy_cot), activityId: activities.get(row.activity_code), periodId: null, isForecast: false, sourceAllocations: row.source_allocations })));
   if (!blueprint.length || blueprint.some((row) => !row.staffId || !row.engagementId || !row.activityId || decimalUnits(row.hours) > 9999n)) throw new Fase1Error("BLOQUEADO", "horas: cruce o límite diario inválido");
+  // Anclaje de entradas y feriados en el manifiesto (f3.hours.entries y f3.hours.holiday): se bloquea ANTES de escribir si lo que se va a insertar no es lo declarado.
+  const blueprintHolidayEntries = blueprint.filter((row) => { const offices = holidaysByDate.get(String(row.dateWorked).slice(0, 10)) ?? []; return offices.includes(0) || offices.includes(officeByStaffId.get(row.staffId)); }).length;
+  assertHourEntryAnchors({ entries: blueprint.length, holiday: { rows: holidayKept.length, entries: blueprintHolidayEntries, hours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)) } }, ctx.config.manifest?.f3?.hours, ctx.config.environment);
   const hash = sha256(stable(blueprint.map(({ timeId, ...row }) => row))); let hours = unit.hours;
   const holidayKeptEvidence = { rule: "horas en feriado aplicable por oficina del staff: se cargan como carga histórica exceptuada", sourceRows: holidayKept.length, sourceHours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)), dates: [...new Set(holidayKept.map((row) => String(row.legacy_worked_at).slice(0, 10)))].sort() };
   if (unit.hourHash && unit.hourHash !== hash) {
@@ -755,6 +758,8 @@ export async function reconcileLegacy(ctx) {
   const staffCatalog = await ctx.db.engagementCatalog(); const officeByStaffId = new Map((staffCatalog.staff ?? []).map((row) => [row.id, ({ "La Paz": 1, "Santa Cruz": 2 })[String(row.city ?? "").trim()]]));
   const holidaysByDate = new Map(); for (const holiday of (await ctx.db.holidayCatalog()).holidays ?? []) { const date = String(holiday.date).slice(0, 10); holidaysByDate.set(date, [...(holidaysByDate.get(date) ?? []), Number(holiday.office)]); }
   const expected = legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate });
+  // Las expectativas de entradas y feriados (derivadas del CSV) también deben coincidir con lo que declara el manifiesto: un CSV mal extraído no puede cuadrar consigo mismo.
+  assertHourEntryAnchors({ entries: Number(expected.expectedEntries), holiday: { rows: Number(expected.holidayKeptRows), entries: Number(expected.expectedHolidayEntries), hours: formatMoney(expected.holidayKeptHours) } }, ctx.config.manifest?.f3?.hours, ctx.config.environment);
   const actual = await ctx.db.legacySnapshot({ engagementIds: clients.map((row) => row.engagementId), adminEngagementIds: admins.map((row) => row.engagementId), worksheetIds: matrices.map((row) => row.worksheetId), woIds: workOrders.map((row) => row.woId) });
   actual.cotByWo = Object.fromEntries(workOrders.map((row) => [row.woId, row.sourceKey])); actual.cotByEngagement = Object.fromEntries(clients.map((row) => [row.engagementId, row.sourceKey]));
   const result = compareLegacyControls(expected, actual);
@@ -772,7 +777,7 @@ export async function fingerprintCommand(ctx) {
   if (!Array.isArray(client) || !countOk(ctx, f3(ctx).clientEngagements, client.length, "f3.clientEngagements") || !Array.isArray(administrative) || !countOk(ctx, f3(ctx).administrativeEngagements, administrative.length, "f3.administrativeEngagements")) throw new Fase1Error("BLOQUEADO", `huella L9 requiere los ${f3(ctx).engagementsTotal ?? "(sin declarar)"} encargos confirmados en el journal`);
   const engagements = [...client.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "client" })), ...administrative.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "administrative" }))];
   const snapshot = await ctx.db.fingerprintSnapshot({ engagements, expectedCount: declared(ctx.config.environment, f3(ctx).engagementsTotal, "f3.engagementsTotal") });
-  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot });
+  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot, source: { snapshot: ctx.config.manifest.snapshot, manifestSha256: ctx.config.manifest.sha256 } });
   const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.fingerprint.json`); writeJson(file, fingerprint);
   for (const [name, set] of Object.entries(fingerprint.sets)) console.log(`${name.padEnd(15)} ${String(set.count).padStart(6)} claves  sha256=${set.sha256.slice(0, 16)}…`);
   console.log(`huella escrita en ${file}`);
@@ -781,7 +786,11 @@ export async function fingerprintCommand(ctx) {
 // L9: compara dos huellas (por ejemplo Test frente al ensayo local). Offline; exit 0 si son idénticas, 2 si no.
 export function compareFingerprintFiles({ a, b }) {
   if (!a || !b) bad("uso: fase3 compare-fingerprints --a <huella> --b <huella>");
-  const result = compareFingerprints(readJson(a), readJson(b));
+  const left = readJson(a); const right = readJson(b);
+  // Baseline de otra versión de los datos (o sin snapshot declarado): se detiene con un error claro. Código de salida 4 = BASELINE_INCOMPATIBLE (distinto de 2 = huellas que difieren).
+  let comparable; try { comparable = assertComparableFingerprints(left, right, { labelA: "A (baseline)", labelB: "B (carga actual)" }); } catch (error) { if (error instanceof FingerprintIncompatibleError) { console.error(`ERROR [BASELINE_INCOMPATIBLE]: ${error.message}`); return 4; } throw error; }
+  const result = compareFingerprints(left, right);
+  console.log(`snapshot ${comparable.snapshot}${comparable.sameManifest ? "" : " (AVISO: el manifiesto cambió entre las dos huellas)"}`);
   console.log(`A: ${result.a.environment}/${result.a.installationId}   B: ${result.b.environment}/${result.b.installationId}`);
   for (const row of result.rows) {
     console.log(`${row.ok ? "OK  " : "DIFF"} ${row.name.padEnd(15)} A=${row.countA} B=${row.countB}${row.note ? ` (${row.note})` : ""}`);

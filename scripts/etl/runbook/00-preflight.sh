@@ -5,7 +5,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 RB_NEED_AUTH=0          # solo lectura: no hacen falta service_role ni la contraseña del administrador
 rb_init "$@"
-BASELINE="$REPO_ROOT/bugs/ETL/carga/fase4/inputs.sha256"     # bugs/ está en .gitignore: nunca se versiona
+BASELINE="${INPUTS_BASELINE:-$REPO_ROOT/bugs/ETL/carga/fase4/inputs.sha256}"     # INPUTS_BASELINE: huellas de otra versión de CSV (v3: inputs-v3.sha256); bugs/ está en .gitignore: nunca se versiona
 fail=0
 
 rb_info "1. Repositorio"
@@ -42,10 +42,10 @@ echo "ledger de migraciones: ${ledger} (tras el reset debe ser ${EXPECTED_MIGRAT
 rb_counts
 
 rb_info "4. Entradas privadas (huellas SHA-256)"
-mapfile -t files < <(node -e '
+mapfile -t files < <(PF_F2="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}" PF_F3="${BASE_F3_CONFIG:-scripts/etl/fase3.local.config.json}" node -e '
   const fs = require("fs");
   const out = [];
-  for (const f of ["scripts/etl/fase2.local.config.json", "scripts/etl/fase3.local.config.json"]) { try { const c = JSON.parse(fs.readFileSync(f, "utf8")); out.push(...Object.values(c.inputs)); if (c.f2ServicesFile) out.push(c.f2ServicesFile); if (c.f2ClientsFile) out.push(c.f2ClientsFile); } catch (e) { console.error("falta " + f); process.exit(1); } }
+  for (const f of [process.env.PF_F2, process.env.PF_F3]) { try { const c = JSON.parse(fs.readFileSync(f, "utf8")); out.push(...Object.values(c.inputs)); if (c.f2ServicesFile) out.push(c.f2ServicesFile); if (c.f2ClientsFile) out.push(c.f2ClientsFile); } catch (e) { console.error("falta " + f); process.exit(1); } }
   console.log([...new Set(out)].sort().join("\n"));
 ') || rb_die "no se pudieron leer las configuraciones base locales (rutas de los CSV)"
 current="$(mktemp)"; : > "$current"

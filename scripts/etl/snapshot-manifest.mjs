@@ -25,6 +25,12 @@ const COT = /^\d{4}\.\d{2}\.\d{3}$/;
 const isCount = (value) => value === null || (Number.isInteger(value) && value >= 0);
 const isDate = (value) => value === null || (typeof value === "string" && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value)));
 const fail = (name, message) => { throw new SnapshotManifestError(`manifiesto ${name}: ${message}`); };
+const isDecimalOrNull = (value) => value === null || /^\d+(\.\d+)?$/.test(String(value));
+// f3.hours.entries y f3.hours.holiday (12/11/2026, revisión independiente): entradas EMS que producen las horas aprobadas (una por actividad: Gerente y Supervisor se reparten
+// 30/70) y lo que cae en feriados del calendario de EMS vigente (2026-2027; 2024 y 2025 no existen en él). Opcionales: manifiestos anteriores no los traen (= no aplica);
+// un valor null se trata como los demás controles (en local no se aplica; en Test y producción bloquea).
+const hoursEntriesShapeOk = (hours) => (hours.entries === undefined || isCount(hours.entries))
+  && (hours.holiday === undefined || (hours.holiday && typeof hours.holiday === "object" && !Array.isArray(hours.holiday) && isCount(hours.holiday.rows) && isCount(hours.holiday.entries) && isDecimalOrNull(hours.holiday.hours)));
 
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const inner of Object.values(value)) deepFreeze(inner); }
@@ -41,7 +47,8 @@ export function validateManifestShape(raw, name) {
   for (const key of F3_COUNT_KEYS) if (!(key in raw.f3) || !isCount(raw.f3[key])) fail(name, `f3.${key} debe existir (entero o null)`);
   const { expenses, payments, endDates, riskLevels, hours } = raw.f3;
   // f3.hours (opcional; manifiestos anteriores al 06/11 no lo traen): ancla de las horas aprobadas que migran. Cada valor es null (sin declarar) o su cifra.
-  if (hours !== undefined && (!hours || typeof hours !== "object" || !isCount(hours.rows) || !isCount(hours.persons) || !isCount(hours.engagements) || !(hours.total === null || /^\d+(\.\d+)?$/.test(String(hours.total))) || !(hours.lastWorkedDay === null || (typeof hours.lastWorkedDay === "string" && ISO_DATE.test(hours.lastWorkedDay))))) fail(name, "f3.hours inválido (rows, total, persons, engagements, lastWorkedDay)");
+  if (hours !== undefined && (!hours || typeof hours !== "object" || !isCount(hours.rows) || !isCount(hours.persons) || !isCount(hours.engagements) || !(hours.total === null || /^\d+(\.\d+)?$/.test(String(hours.total))) || !(hours.lastWorkedDay === null || (typeof hours.lastWorkedDay === "string" && ISO_DATE.test(hours.lastWorkedDay)))
+    || !hoursEntriesShapeOk(hours))) fail(name, "f3.hours inválido (rows, total, persons, engagements, lastWorkedDay y, si existen, entries y holiday.{rows,entries,hours})");
   if (!expenses || !isCount(expenses.positive) || !isCount(expenses.zero) || !(expenses.totalUnits === null || /^\d+$/.test(String(expenses.totalUnits)))) fail(name, "f3.expenses inválido");
   if (!payments || !["plans", "rows", "billable", "notes"].every((key) => isCount(payments[key]))) fail(name, "f3.payments inválido");
   if (!endDates || !Array.isArray(endDates.allowed) || !endDates.allowed.length || !endDates.allowed.every((d) => ISO_DATE.test(d))) fail(name, "f3.endDates.allowed debe listar fechas AAAA-MM-DD");
