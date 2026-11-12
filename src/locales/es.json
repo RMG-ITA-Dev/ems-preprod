@@ -891,7 +891,7 @@
       "rejectedToast": "Encargo rechazado",
       "resubmittedToast": "Encargo reenviado al Socio",
       "resubmitSteps": "Corrija lo indicado en el motivo y pulse Guardar Cambios al final del formulario. Después, reenvíe al Socio.",
-      "saveBeforeApprove": "Tiene cambios sin guardar: guárdelos con Guardar Cambios antes de aprobar, para aprobar lo que está viendo.",
+      "saveBeforeDecide": "Tiene cambios sin guardar: guárdelos con Guardar Cambios antes de aprobar o rechazar, para decidir sobre lo que está viendo.",
       "saveBeforeResubmit": "Tiene cambios sin guardar: guárdelos con Guardar Cambios antes de reenviar al Socio."
     },
     "hoursApprover": "Aprobador de horas",

@@ -891,7 +891,7 @@
       "rejectedToast": "Engagement rejected",
       "resubmittedToast": "Engagement resubmitted to the Partner",
       "resubmitSteps": "Fix what the reason points out and click Save Changes at the bottom of the form. Then resubmit to the Partner.",
-      "saveBeforeApprove": "You have unsaved changes: save them with Save Changes before approving, so you approve what you see.",
+      "saveBeforeDecide": "You have unsaved changes: save them with Save Changes before approving or rejecting, so your decision is about what you see.",
       "saveBeforeResubmit": "You have unsaved changes: save them with Save Changes before resubmitting to the Partner."
     },
     "hoursApprover": "Hours approver",
