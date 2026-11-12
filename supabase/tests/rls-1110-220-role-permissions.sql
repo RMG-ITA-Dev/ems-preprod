@@ -1169,6 +1169,56 @@ BEGIN
   RAISE NOTICE 'PASS — OT no-Cliente: el TH creador lee y escribe presupuesto y gastos; el Aprobador solo lee; los ajenos no ven';
 END $$;
 
+-- ── 13. Review de Codex: avisos del Aprobador y switch "Requiere OT" con OT creada ─────────────────────────────────────
+DO $$
+DECLARE
+  v_missing text;
+  v_err     text;
+BEGIN
+  -- Cada uno de los 14 roles que puede ser Aprobador de horas recibe los avisos que le llegan como manager_id del encargo
+  -- (horas, reversión ejecutada y los de fondos del gerente de la OT). notify_staff descarta sin error lo que no está.
+  SELECT string_agg(r || '/' || t, ', ' ORDER BY r, t) INTO v_missing
+    FROM unnest(public.hours_approver_role_keys()) r
+   CROSS JOIN unnest(ARRAY['timesheet.team_submitted_for_approval', 'approval.reversal_executed',
+                           'fund.request.submitted_for_approval', 'fund.request.cancelled',
+                           'fund.expense.submitted_for_approval', 'fund.expense.approval_reminder',
+                           'fund.expenses.all_reviewed', 'fund.disbursement.done', 'fund.settlement.recorded',
+                           'fund.request.closed', 'fund.expense.manager_auto_approved',
+                           'fund.expense.review_auto_approved']) t
+   WHERE NOT EXISTS (SELECT 1 FROM public.notification_role_types x WHERE x.role_key = r AND x.type_key = t);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — Aprobadores de horas sin aviso (rol/tipo): %', v_missing;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
+                  WHERE role_key = 'hr_analyst' AND type_key = 'approval.reversal_rejected') THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst no recibe el rechazo de sus reversiones';
+  END IF;
+
+  -- EB (sección 12) tiene OT: el TH creador no apaga "Requiere OT"; el encargo queda igual.
+  BEGIN
+    PERFORM pg_temp.impersonate(pg_temp.u(6));
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    UPDATE public.engagements SET work_order_required = false
+     WHERE engagement_id = 'e1102000-0000-4000-8000-000000000012';
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    v_err := SQLERRM;
+  END;
+  IF v_err IS NULL OR v_err NOT LIKE '%ya tiene OT%' THEN
+    RAISE EXCEPTION '1110-220 FAIL — se apagó "Requiere OT" en un no-Cliente con OT (error: %)', COALESCE(v_err, 'ninguno');
+  END IF;
+  IF NOT (SELECT work_order_required FROM public.engagements WHERE engagement_id = 'e1102000-0000-4000-8000-000000000012') THEN
+    RAISE EXCEPTION '1110-220 FAIL — el switch rechazado igual quedó apagado';
+  END IF;
+  -- Editar otra cosa del mismo encargo sigue funcionando.
+  IF pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagements SET engagement_name = ''R1102 EB editado'' '
+                                   'WHERE engagement_id = ''e1102000-0000-4000-8000-000000000012''') <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — la regla del switch bloqueó una edición que no lo toca';
+  END IF;
+  RAISE NOTICE 'PASS — los 14 Aprobadores reciben sus avisos de horas, reversión y fondos; con OT no se apaga "Requiere OT"';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

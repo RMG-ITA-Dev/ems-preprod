@@ -59,7 +59,7 @@ import {
   selfCandidateOption,
 } from "@/lib/engagementSelfAssignment";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { canEditEngagement, canWriteAdministrativeWork, isAdministrativeOnlyCreator } from "@/lib/engagementRoleAccess";
+import { canEditEngagement, canWriteAdministrativeWork, isAdministrativeOnlyCreator, isNonClientFuncion } from "@/lib/engagementRoleAccess";
 import { useHoursApproverCandidates } from "@/hooks/useHoursApproverCandidates";
 import { isPartnerSigned, needsEngagementPartnerApproval } from "@/lib/engagementPartnerApproval";
 import { EngagementPartnerApprovalCard } from "@/components/engagements/EngagementPartnerApprovalCard";
@@ -753,6 +753,10 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
 
   // Policy flags state (outside react-hook-form since they're admin-only)
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
+  // Review de Codex 1110-220: un no-Cliente que ya tiene OT no apaga "Requiere OT" (enforce_engagement_partner_approval
+  // lo rechaza). Con el switch encendido y OT creada, queda deshabilitado con el motivo.
+  const workOrderSwitchLockedByOt =
+    !!engagement && isNonClientFuncion(engagement.funcion) && !!engagement.work_order && workOrderRequired;
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
   // 1110-220 plan_v5 (reemplaza N15): en un no-Cliente la aprobación de horas también se elige. Apagada, el
@@ -2586,6 +2590,9 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     <p className="text-xs text-muted-foreground">
                       {t(isAdministrativeFunction ? "engagement.workOrderRequiredAdministrativeHelp" : "engagement.workOrderRequiredHelp")}
                     </p>
+                    {workOrderSwitchLockedByOt && (
+                      <p className="text-xs text-muted-foreground">{t("engagement.workOrderRequiredLockedByOt")}</p>
+                    )}
                   </div>
                   {/* BUG 0922-195 (review H7): deshabilitado mientras isEdit && !engagementLoaded —
                       este switch vive en useState (fuera de RHF), así que keepDirtyValues (H5) no
@@ -2593,7 +2600,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   <Switch
                     checked={workOrderRequired}
                     onCheckedChange={setWorkOrderRequired}
-                    disabled={!canSetWorkOrderPolicy || (isEdit && !engagementLoaded)}
+                    disabled={!canSetWorkOrderPolicy || (isEdit && !engagementLoaded) || workOrderSwitchLockedByOt}
                   />
                 </div>
                 {/* 1110-220 plan_v3 (N16): Talento Humano ve el switch de OT y (plan_v5) el de aprobación de

@@ -891,6 +891,7 @@
       "rejectedToast": "Engagement rejected",
       "resubmittedToast": "Engagement resubmitted to the Partner",
       "resubmitSteps": "Fix what the reason points out and click Save Changes at the bottom of the form. Then resubmit to the Partner.",
+      "saveBeforeApprove": "You have unsaved changes: save them with Save Changes before approving, so you approve what you see.",
       "saveBeforeResubmit": "You have unsaved changes: save them with Save Changes before resubmitting to the Partner."
     },
     "hoursApprover": "Hours approver",
@@ -915,6 +916,7 @@
     "startDateBeforeCreation": "Start date cannot be before the engagement creation date",
     "workOrderRequired": "Work Order Required",
     "workOrderRequiredHelp": "When off, appears in timesheets without a Work Order",
+    "workOrderRequiredLockedByOt": "This engagement already has a work order, so this option can no longer be turned off.",
     "workOrderRequiredAdministrativeHelp": "Without a Work Order, no hours are logged and no funds are requested. Cannot change after Partner approval.",
     "activityRequired": "Activity Required",
     "activityRequiredHelp": "When off, the ADM activity code is auto-assigned",

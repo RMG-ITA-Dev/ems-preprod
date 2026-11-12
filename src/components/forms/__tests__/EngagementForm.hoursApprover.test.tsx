@@ -268,6 +268,32 @@ describe("Candado después de la aprobación del Socio (Q4/Q5)", () => {
   });
 });
 
+describe("Switch Requiere OT con OT creada (review de Codex)", () => {
+  const otSwitch = () =>
+    screen.getByText("engagement.workOrderRequired").closest("div.flex")!.querySelector('[role="switch"]') as HTMLElement;
+
+  it("el TH creador no puede apagarlo si el encargo ya tiene OT", () => {
+    render(
+      <EngagementForm
+        engagement={{
+          ...base,
+          work_order_required: true,
+          partner_approval_status: null,
+          work_order: { approval_status: "Draft", approved_at: null, risk_status: null },
+        } as Engagement}
+      />,
+    );
+    expect(otSwitch()).toBeDisabled();
+    expect(screen.getByText("engagement.workOrderRequiredLockedByOt")).toBeInTheDocument();
+  });
+
+  it("sin OT creada sigue habilitado", () => {
+    render(<EngagementForm engagement={{ ...base, work_order_required: true, partner_approval_status: null }} />);
+    expect(otSwitch()).not.toBeDisabled();
+    expect(screen.queryByText("engagement.workOrderRequiredLockedByOt")).not.toBeInTheDocument();
+  });
+});
+
 describe("Tarjeta de aprobación del Socio (sin OT)", () => {
   it("el Socio asignado ve Aprobar y Rechazar mientras está pendiente", () => {
     mockRoleKey = "partner";

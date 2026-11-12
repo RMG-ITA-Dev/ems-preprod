@@ -580,7 +580,13 @@ INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUE
   -- 1110-220 (D9): Gerentes de encargos administrativos.
   ('accounting_manager', 'approval.reversal_executed', 'assigned'),
   ('risk_supervisor',    'approval.reversal_executed', 'assigned'),
-  ('secretariat_head',   'approval.reversal_executed', 'assigned')
+  ('secretariat_head',   'approval.reversal_executed', 'assigned'),
+  -- 1110-220 (review de Codex, 2026-11-12): el aviso va al manager_id del encargo, que en un no-Cliente es el Aprobador
+  -- de horas, elegible entre 14 roles. Faltaban los que no son Gerente de nada en Cliente.
+  ('senior',             'approval.reversal_executed', 'assigned'),
+  ('ita_senior',         'approval.reversal_executed', 'assigned'),
+  ('tax_senior',         'approval.reversal_executed', 'assigned'),
+  ('hr_analyst',         'approval.reversal_executed', 'assigned')
 ON CONFLICT (role_key, type_key) DO NOTHING;
 
 -- approval.reversal_rejected -> el solicitante, alcance own. Cualquier rol que pueda ser dueño
@@ -611,5 +617,7 @@ INSERT INTO public.notification_role_types (role_key, type_key, scope_key) VALUE
   -- 1110-220 (D9): piden reversiones de alcance ENCARGO como Gerentes de sus encargos administrativos.
   ('accounting_manager',  'approval.reversal_rejected', 'own'),
   ('risk_supervisor',     'approval.reversal_rejected', 'own'),
-  ('secretariat_head',    'approval.reversal_rejected', 'own')
+  ('secretariat_head',    'approval.reversal_rejected', 'own'),
+  -- 1110-220 (review de Codex): el Analista de TH, como Aprobador de horas, puede pedir reversiones de alcance ENCARGO.
+  ('hr_analyst',          'approval.reversal_rejected', 'own')
 ON CONFLICT (role_key, type_key) DO NOTHING;

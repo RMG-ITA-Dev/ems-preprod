@@ -27,7 +27,8 @@ interface EngagementPartnerApprovalCardProps {
   engagement: PartnerApprovalTarget & { engagement_id: string; partner_approval_reason?: string | null };
   myStaffId: string | null | undefined;
   roleKey: string | null | undefined;
-  /** El formulario del encargo tiene cambios sin guardar: reenviar ahora mandaría al Socio la versión vieja. */
+  /** El formulario del encargo tiene cambios sin guardar: reenviar ahora mandaría al Socio la versión vieja, y aprobar
+   *  firmaría la versión guardada (después el candado ya no deja guardar lo que se ve). */
   hasUnsavedChanges?: boolean;
 }
 
@@ -74,6 +75,10 @@ export function EngagementPartnerApprovalCard({
 
       {/* Rechazado: un solo camino. Primero se corrige y se guarda (botón Guardar Cambios del formulario), después se
           reenvía. Con cambios sin guardar, Reenviar queda deshabilitado y se dice por qué. */}
+      {canDecide && hasUnsavedChanges && (
+        <p className="text-sm text-muted-foreground">{t("engagement.partnerApproval.saveBeforeApprove")}</p>
+      )}
+
       {canResubmit && (
         <p className="text-sm text-muted-foreground">
           {t(hasUnsavedChanges ? "engagement.partnerApproval.saveBeforeResubmit" : "engagement.partnerApproval.resubmitSteps")}
@@ -90,7 +95,9 @@ export function EngagementPartnerApprovalCard({
               <LoadingButton
                 type="button"
                 loading={decide.isPending}
-                disabled={busy}
+                // Review de Codex 1110-220: con cambios sin guardar se aprobaría la versión guardada, no la que se ve.
+                disabled={busy || hasUnsavedChanges}
+                title={hasUnsavedChanges ? t("engagement.partnerApproval.saveBeforeApprove") : undefined}
                 onClick={() => decide.mutate({ engagementId: engagement.engagement_id, approve: true })}
               >
                 {t("engagement.partnerApproval.approve")}

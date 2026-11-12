@@ -891,6 +891,7 @@
       "rejectedToast": "Encargo rechazado",
       "resubmittedToast": "Encargo reenviado al Socio",
       "resubmitSteps": "Corrija lo indicado en el motivo y pulse Guardar Cambios al final del formulario. Después, reenvíe al Socio.",
+      "saveBeforeApprove": "Tiene cambios sin guardar: guárdelos con Guardar Cambios antes de aprobar, para aprobar lo que está viendo.",
       "saveBeforeResubmit": "Tiene cambios sin guardar: guárdelos con Guardar Cambios antes de reenviar al Socio."
     },
     "hoursApprover": "Aprobador de horas",
@@ -915,6 +916,7 @@
     "startDateBeforeCreation": "La fecha de inicio no puede ser anterior a la fecha de creación del encargo",
     "workOrderRequired": "Requiere Orden de Trabajo",
     "workOrderRequiredHelp": "Cuando esta desactivado, aparece en planillas sin Orden de Trabajo",
+    "workOrderRequiredLockedByOt": "Este encargo ya tiene OT: esta opción ya no se puede apagar.",
     "workOrderRequiredAdministrativeHelp": "Sin OT no se cargan horas ni se solicitan fondos. No se cambia tras la aprobación del Socio.",
     "activityRequired": "Requiere Actividad",
     "activityRequiredHelp": "Cuando esta desactivado, se asigna el código ADM automáticamente",
