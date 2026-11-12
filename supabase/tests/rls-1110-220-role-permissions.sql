@@ -1105,6 +1105,70 @@ BEGIN
   RAISE NOTICE 'PASS — cambiar la sociedad de un no-Cliente revalida al Aprobador de horas; en Cliente no';
 END $$;
 
+-- ── 12. Review de Codex: presupuesto, gastos y plan de pagos de la OT de un no-Cliente ─────────────────────────────────
+-- EB: no-Cliente creado por el Gerente de TH (6) con Aprobador el senior (9) y Socio P (8); OT en borrador con una línea
+-- de presupuesto, un gasto y un plan de pagos, sembrados como dueño. El TH creador ya no es gerente del encargo: lo
+-- alcanza por la rama "TH creador" de my_team_engagement_ids(), que my_team_wo_ids() tiene que reflejar.
+UPDATE public.user_roles SET role_key = 'senior'     WHERE user_id = 'a1102000-0000-4000-8000-000000000009';
+UPDATE public.user_roles SET role_key = 'hr_manager' WHERE user_id = 'a1102000-0000-4000-8000-000000000006';
+UPDATE public.staff SET is_active = true, deleted_at = NULL WHERE staff_id = '51102000-0000-4000-8000-000000000009';
+INSERT INTO public.categories (category_id, category_name, practica_id)
+VALUES ('c1102000-0000-4000-8000-0000000000ca', 'R1102 Categoria', (SELECT practica_id FROM public.practicas WHERE code = 1));
+INSERT INTO public.expense_types (expense_type_id, expense_name)
+VALUES ('c1102000-0000-4000-8000-0000000000e7', 'R1102 Gasto');
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, oficina, practica,
+                                fecha_cierre, start_date, end_date, work_order_required, approval_required, is_internal,
+                                society_id, manager_id, partner_id, created_by_staff_id)
+VALUES ('e1102000-0000-4000-8000-000000000012', 'c1000000-0000-4000-8000-000000000160', 'R1102 EB', 'R1102-EB', 0, 1, 1,
+        '2027-12-31', '2026-01-05', '2099-06-30', true, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000009', '51102000-0000-4000-8000-000000000008', '51102000-0000-4000-8000-000000000006');
+INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax_rate, approval_status)
+VALUES ('f1102000-0000-4000-8000-000000000012', 'e1102000-0000-4000-8000-000000000012', 'BOB', 'High', 0.13, 'Draft');
+INSERT INTO public.wo_budget_lines (wo_id, category_id, budgeted_hours, standard_rate)
+VALUES ('f1102000-0000-4000-8000-000000000012', 'c1102000-0000-4000-8000-0000000000ca', 10, 100);
+INSERT INTO public.wo_expense_budget (wo_id, expense_type_id, budgeted_amount)
+VALUES ('f1102000-0000-4000-8000-000000000012', 'c1102000-0000-4000-8000-0000000000e7', 500);
+INSERT INTO public.wo_payment_plan (wo_id) VALUES ('f1102000-0000-4000-8000-000000000012');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  bl  constant text := 'SELECT count(*) FROM public.wo_budget_lines   WHERE wo_id = ''f1102000-0000-4000-8000-000000000012''';
+  ex  constant text := 'SELECT count(*) FROM public.wo_expense_budget WHERE wo_id = ''f1102000-0000-4000-8000-000000000012''';
+  pp  constant text := 'SELECT count(*) FROM public.wo_payment_plan   WHERE wo_id = ''f1102000-0000-4000-8000-000000000012''';
+  ins constant text := 'INSERT INTO public.wo_budget_lines (wo_id, category_id, budgeted_hours, standard_rate) VALUES '
+                       '(''f1102000-0000-4000-8000-000000000012'', ''c1102000-0000-4000-8000-0000000000ca'', 5, 100)';
+  inx constant text := 'INSERT INTO public.wo_expense_budget (wo_id, expense_type_id, budgeted_amount) VALUES '
+                       '(''f1102000-0000-4000-8000-000000000012'', ''c1102000-0000-4000-8000-0000000000e7'', 50)';
+BEGIN
+  -- TH creador (no es gerente ni socio del encargo): lee y escribe el presupuesto y los gastos de su OT.
+  IF pg_temp.count_as(pg_temp.u(6), bl) <> 1 OR pg_temp.count_as(pg_temp.u(6), ex) <> 1 OR pg_temp.count_as(pg_temp.u(6), pp) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el TH creador no ve el presupuesto/gastos/plan de su OT (líneas %, gastos %, plan %)',
+      pg_temp.count_as(pg_temp.u(6), bl), pg_temp.count_as(pg_temp.u(6), ex), pg_temp.count_as(pg_temp.u(6), pp);
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(6), ins) <> 1 OR pg_temp.rows_as(pg_temp.u(6), inx) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el TH creador no pudo agregar líneas de presupuesto o gastos a su OT';
+  END IF;
+
+  -- Aprobador de horas (senior, sin work_order.read): lee todo en solo lectura.
+  IF pg_temp.count_as(pg_temp.u(9), bl) <> 2 OR pg_temp.count_as(pg_temp.u(9), ex) <> 2 OR pg_temp.count_as(pg_temp.u(9), pp) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador senior no ve el presupuesto/gastos/plan de la OT (líneas %, gastos %, plan %)',
+      pg_temp.count_as(pg_temp.u(9), bl), pg_temp.count_as(pg_temp.u(9), ex), pg_temp.count_as(pg_temp.u(9), pp);
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(9), ins) <> -1 OR pg_temp.rows_as(pg_temp.u(9), inx) <> -1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador de horas escribió el presupuesto o los gastos de la OT';
+  END IF;
+
+  -- Ajenos: el Gerente normal (work_order.read asignado, fuera del equipo) y el Analista de TH que no lo creó no ven nada.
+  IF pg_temp.count_as(pg_temp.u(4), bl) <> 0 OR pg_temp.count_as(pg_temp.u(4), ex) <> 0
+     OR pg_temp.count_as(pg_temp.u(7), bl) <> 0 OR pg_temp.count_as(pg_temp.u(7), ex) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — alguien fuera del equipo vio el presupuesto o los gastos de la OT';
+  END IF;
+  RAISE NOTICE 'PASS — OT no-Cliente: el TH creador lee y escribe presupuesto y gastos; el Aprobador solo lee; los ajenos no ven';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

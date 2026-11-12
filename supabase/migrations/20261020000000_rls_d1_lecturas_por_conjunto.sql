@@ -77,9 +77,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.my_team_wo_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  -- OT de my_team_engagement_ids(): gerente o socio y, desde 1110-220 plan_v5 (review de Codex, 2026-11-12), el Talento
+  -- Humano creador de un no-Cliente. Sin esa rama el TH que ya no se autoasigna veía la fila de su OT pero no su
+  -- presupuesto, gastos ni plan de pagos, y no podía escribir las líneas.
   SELECT wo.wo_id FROM public.work_orders wo
-   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
-                               WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))
+   WHERE wo.engagement_id IN (SELECT public.my_team_engagement_ids())
 $$;
 
 CREATE OR REPLACE FUNCTION public.my_assigned_wo_ids() RETURNS SETOF uuid
