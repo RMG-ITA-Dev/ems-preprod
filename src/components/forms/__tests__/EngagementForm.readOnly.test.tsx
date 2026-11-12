@@ -93,6 +93,17 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
 
+// 1110-220 plan_v3 (N16): la tarjeta "Política de Planilla" (Radix Switch, usa ResizeObserver) ahora
+// también se muestra a Talento Humano en administrativos. Polyfill para JSDOM, mismo patrón que
+// EngagementForm.servicesCatalog.test.tsx.
+if (typeof (globalThis as any).ResizeObserver === "undefined") {
+  (globalThis as any).ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 const mockEngagement: Engagement = {
   engagement_id: "eng-readonly-1",
   client_id: "client-1",
@@ -189,6 +200,23 @@ describe("EngagementForm — edición según asignación (1110-220, D8 y plan_v3
       />,
     );
     expect(screen.getByText("engagement.readOnlyNotice")).toBeInTheDocument();
+  });
+
+  // 1110-220 plan_v3 (N15/N16): en un administrativo TH elige si lleva OT; la aprobación es fija.
+  it("hr_manager ve el switch de OT en su administrativo, con la aprobación encendida y bloqueada", () => {
+    mockRoleKey = "hr_manager";
+    render(<EngagementForm engagement={{ ...mockEngagement, funcion: 0 }} />);
+    expect(screen.getByText("engagement.workOrderRequired")).toBeInTheDocument();
+    const switches = screen.getAllByRole("switch");
+    // Orden de la tarjeta: OT, Actividad, Interno, Aprobación.
+    expect(switches[0]).not.toBeDisabled();
+    expect(switches[3]).toBeDisabled();
+    expect(switches[3]).toBeChecked();
+  });
+
+  it("el Gerente normal no ve la Política de Planilla en un encargo de Cliente", () => {
+    render(<EngagementForm engagement={{ ...mockEngagement, manager_id: "staff-manager" }} />);
+    expect(screen.queryByText("engagement.workOrderRequired")).not.toBeInTheDocument();
   });
 
   it("hr_manager edita el administrativo que gerencia", () => {

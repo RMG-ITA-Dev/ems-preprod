@@ -283,13 +283,11 @@ export function shouldSeedAdministrativePolicyDefaults(
  * Valores por defecto del alta administrativa (plan_v2 §3 de 0722-160). `activity_required` no
  * entra acá: se deriva de `funcion` en el payload de guardado.
  *
- * `workOrderRequired: true` desde 1110-220 plan_v3 (decisión del operador, 2026-11-11): lo que
- * crea Talento Humano siempre exige OT aprobada por el Socio, y el trigger
- * `enforce_engagement_profile_scope` lo fuerza para hr_manager/hr_analyst aunque llegue `false`.
- * El encargo nace en estado 1 Pendiente y nadie le carga horas hasta que la OT queda aprobada.
- * Antes el valor era `false` porque hr_analyst no podía crear OTs y el encargo quedaba trabado
- * esperando a un Admin; ahora el Analista crea las OTs del encargo que crea (is_engagement_team_member
- * lo cuenta como equipo). Admin, que sí ve el switch, puede apagarlo.
+ * `workOrderRequired: true` desde 1110-220 plan_v3: el alta administrativa nace exigiendo OT aprobada
+ * por el Socio (estado 1 Pendiente, sin horas hasta que la OT se aprueba). Es solo el valor inicial:
+ * admin y Talento Humano ven el switch y lo apagan cuando el encargo no puede tener OT (N16). Antes
+ * el valor era `false` porque hr_analyst no podía crear OTs; ahora crea las del encargo que crea.
+ * `approvalRequired` en cambio no es elegible en un no-Cliente (N15): siempre true.
  */
 export const ADMINISTRATIVE_POLICY_DEFAULTS = {
   workOrderRequired: true,
@@ -743,6 +741,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   const [workOrderRequired, setWorkOrderRequired] = useState(engagement?.work_order_required ?? true);
   const [isInternal, setIsInternal] = useState(engagement?.is_internal ?? false);
   const [approvalRequired, setApprovalRequired] = useState(engagement?.approval_required ?? true);
+  // 1110-220 plan_v3 (N15): un no-Cliente puede tener o no OT, pero sus horas SIEMPRE se aprueban.
+  // Espejo del trigger enforce_engagement_profile_scope, que lo fuerza para todo rol (admin incluido).
+  const effectiveApprovalRequired = isAdministrativeFunction ? true : approvalRequired;
+  // 1110-220 plan_v3 (N16): hay administrativos que no pueden tener OT, así que Talento Humano elige
+  // si la lleva (y solo eso de la Política de Planilla); el resto de los switches sigue siendo de
+  // admin. Espejo del trigger enforce_engagement_profile_scope, que solo fuerza la OT a los demás.
+  const canSetWorkOrderPolicy =
+    isAdmin || ((roleKey === "hr_manager" || roleKey === "hr_analyst") && isAdministrativeFunction && !readOnly);
   // BUG #0604-143: admin-only manual override of the derived Año Fiscal.
   const [overrideOn, setOverrideOn] = useState(engagement?.anio_fiscal_override ?? false);
 
@@ -1233,7 +1239,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
           // backfill deliberately left untouched (`WHERE funcion IS NOT NULL`).
           ...(data.funcion != null ? { activity_required: data.funcion === FUNCION_CLIENTE } : {}),
           is_internal:         effectiveIsInternal,
-          approval_required:   approvalRequired,
+          approval_required:   effectiveApprovalRequired,
           sqr_id:              data.sqr_id ?? null,
           encargado_id:        data.encargado_id ?? null,
           specialist_it_id:    data.specialist_it_id ?? null,
@@ -1298,7 +1304,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
       work_order_required: workOrderRequired,
       activity_required:   data.funcion === FUNCION_CLIENTE,
       is_internal:         effectiveIsInternal,
-      approval_required:   approvalRequired,
+      approval_required:   effectiveApprovalRequired,
       sqr_id:              data.sqr_id ?? null,
       encargado_id:        data.encargado_id ?? null,
       specialist_it_id:    data.specialist_it_id ?? null,
@@ -2240,7 +2246,10 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                         <SelectItem value="0">{t("engagement.funcion_adm")}</SelectItem>
                         {!administrativeMode && <SelectItem value="1">{t("engagement.funcion_cli")}</SelectItem>}
                         <SelectItem value="2">{t("engagement.funcion_cap")}</SelectItem>
-                        <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>
+                        {/* 1110-220 plan_v3 (N13): Control de Calidad solo lo crea admin; Talento
+                            Humano crea Administrativa y Capacitación. En edición se muestra igual
+                            (el Select está deshabilitado y tiene que poder pintar el valor guardado). */}
+                        {(isAdmin || isEdit) && <SelectItem value="3">{t("engagement.funcion_calidad")}</SelectItem>}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -2407,7 +2416,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
               </div>
             ))}
 
-            {isAdmin && (
+            {canSetWorkOrderPolicy && (
               <div className="border border-border bg-background/50 rounded-xl p-8">
                 <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-foreground">{t("engagement.timesheetPolicy")}</h3>
@@ -2425,7 +2434,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   <Switch
                     checked={workOrderRequired}
                     onCheckedChange={setWorkOrderRequired}
-                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                    disabled={!canSetWorkOrderPolicy || (isEdit && !engagementLoaded)}
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4">
@@ -2456,9 +2465,9 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                   </div>
                   {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
                   <Switch
-                    checked={approvalRequired}
+                    checked={effectiveApprovalRequired}
                     onCheckedChange={setApprovalRequired}
-                    disabled={!isAdmin || (isEdit && !engagementLoaded)}
+                    disabled={!isAdmin || isAdministrativeFunction || (isEdit && !engagementLoaded)}
                   />
                 </div>
                 </div>

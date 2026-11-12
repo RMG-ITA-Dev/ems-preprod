@@ -272,8 +272,9 @@ BEGIN
   IF v_eng.engagement_id IS NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_manager debía poder crear un encargo administrativo';
   END IF;
-  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) OR v_eng.work_order_required IS NOT TRUE OR v_eng.approval_required IS NOT TRUE THEN
-    RAISE EXCEPTION '1110-220 FAIL — alta de hr_manager: Gerente % (esperado él), OT obligatoria %, aprobación %',
+  -- N16: TH elige si el administrativo lleva OT (el payload manda false y se respeta); N15: la aprobación, siempre.
+  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(6) OR v_eng.work_order_required IS NOT FALSE OR v_eng.approval_required IS NOT TRUE THEN
+    RAISE EXCEPTION '1110-220 FAIL — alta de hr_manager: Gerente % (esperado él), OT obligatoria % (esperado false, la elige TH), aprobación %',
       v_eng.manager_id, v_eng.work_order_required, v_eng.approval_required;
   END IF;
 
@@ -283,7 +284,7 @@ BEGIN
     RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder crear un encargo administrativo';
   END IF;
   IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(1) OR v_eng.created_by_staff_id IS DISTINCT FROM pg_temp.s(7)
-     OR v_eng.work_order_required IS NOT TRUE OR v_eng.funcion <> 0 OR v_eng.is_internal IS NOT TRUE THEN
+     OR v_eng.work_order_required IS NOT FALSE OR v_eng.funcion <> 0 OR v_eng.is_internal IS NOT TRUE THEN
     RAISE EXCEPTION '1110-220 FAIL — alta de hr_analyst: Gerente %, creador %, OT obligatoria %, funcion %, interno %',
       v_eng.manager_id, v_eng.created_by_staff_id, v_eng.work_order_required, v_eng.funcion, v_eng.is_internal;
   END IF;
@@ -302,6 +303,26 @@ BEGIN
     END IF;
   END;
 
+  -- N13: Talento Humano no crea Control de Calidad (funcion 3); sí Capacitación (2).
+  IF (pg_temp.try_create_as(6, 'R1102 calidad H', pg_temp.s(6), 3::smallint)).engagement_id IS NOT NULL
+     OR (pg_temp.try_create_as(7, 'R1102 calidad Y', pg_temp.s(1), 3::smallint)).engagement_id IS NOT NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — Talento Humano creó un encargo de Control de Calidad';
+  END IF;
+  IF (pg_temp.try_create_as(7, 'R1102 capacitacion Y', pg_temp.s(1), 2::smallint)).engagement_id IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst debía poder crear Capacitación';
+  END IF;
+
+  -- N14: la Política de Planilla es solo de admin; el Gerente normal crea Cliente con OT y aprobación forzadas
+  -- aunque el payload mande work_order_required=false.
+  v_eng := pg_temp.try_create_as(4, 'R1102 cliente M', pg_temp.s(4), 1::smallint);
+  IF v_eng.engagement_id IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Gerente normal debía poder crear un encargo de Cliente';
+  END IF;
+  IF v_eng.work_order_required IS NOT TRUE OR v_eng.approval_required IS NOT TRUE THEN
+    RAISE EXCEPTION '1110-220 FAIL — Cliente de un no-admin: OT obligatoria % y aprobación % debían ser true',
+      v_eng.work_order_required, v_eng.approval_required;
+  END IF;
+
   -- Talento Humano no crea Cliente (hr_analyst desde 0817-180; hr_manager desde plan_v3, N9).
   IF (pg_temp.try_create_as(7, 'R1102 cliente Y', pg_temp.s(4), 1::smallint)).engagement_id IS NOT NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_analyst creó un encargo de Cliente';
@@ -309,7 +330,7 @@ BEGIN
   IF (pg_temp.try_create_as(6, 'R1102 cliente H', pg_temp.s(6), 1::smallint)).engagement_id IS NOT NULL THEN
     RAISE EXCEPTION '1110-220 FAIL — hr_manager creó un encargo de Cliente';
   END IF;
-  RAISE NOTICE 'PASS — alta: solo Talento Humano crea no-Cliente; hr_manager queda Gerente, hr_analyst elige; OT obligatoria';
+  RAISE NOTICE 'PASS — alta: solo Talento Humano crea no-Cliente; hr_manager queda Gerente, hr_analyst elige; TH elige la OT, la aprobación es fija';
 END $$;
 
 -- ── 3. Candidatos a Gerente (los ve quien crea: hr_analyst) ──────────────────────────────────────────────────────────
@@ -463,7 +484,12 @@ BEGIN
   IF pg_temp.rows_as(pg_temp.u(3), format(upd_name, 'R1102 EM')) > 0 THEN
     RAISE EXCEPTION '1110-220 FAIL — secretariat_head editó un administrativo';
   END IF;
-  RAISE NOTICE 'PASS — edición no-Cliente: cada uno de TH edita lo suyo y ve lo demás; Gerente normal, Contabilidad y Secretaría no';
+  -- N15: en un no-Cliente la aprobación de horas no se apaga, ni editando (el trigger la vuelve a true).
+  PERFORM pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagements SET approval_required = false WHERE engagement_name = ''R1102 alta H''');
+  IF (SELECT approval_required FROM public.engagements WHERE engagement_name = 'R1102 alta H') IS NOT TRUE THEN
+    RAISE EXCEPTION '1110-220 FAIL — un encargo no-Cliente quedó sin aprobación de horas';
+  END IF;
+  RAISE NOTICE 'PASS — edición no-Cliente: cada uno de TH edita lo suyo y ve lo demás; Gerente normal, Contabilidad y Secretaría no; la aprobación no se apaga';
 END $$;
 
 -- ── 7. RPC definer: equipo del encargo ──────────────────────────────────────────────────────────────────────────────
