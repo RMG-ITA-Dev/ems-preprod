@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict 1wysQTGD2gNzqyjOYmTGjbiX4EC1sas4BFzkADmvAqCg2aC3T7CWd1ksnPTSyCb
+\restrict Sz2FCwll91Qf9kocs4BhchcILdwvgBOTNtfU6yfG4bvMfXOznhjElFSBiZDq6Gc
 
 -- Dumped from database version 17.6
--- Dumped by pg_dump version 17.11 (Ubuntu 17.11-1.pgdg24.04+2)
+-- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg24.04+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -1649,7 +1649,10 @@ begin
     raise exception 'Worksheet not found: %', p_worksheet_id;
   end if;
 
-  if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id)) then
+  -- 1110-220 (plan_v3): en encargos no-Cliente solo escriben TH, admin y el Socio; el Gerente que no es
+  -- TH solo aprueba y mira (can_write_administrative_work, cero_02).
+  if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id))
+     or not public.can_write_administrative_work(v_engagement_id) then
     raise exception 'Permission denied: not a team member of this engagement'
       using errcode = 'insufficient_privilege';
   end if;
@@ -1805,22 +1808,9 @@ begin
     return true;
   end if;
 
-  -- debe tener el permiso de aprobar
-  if not exists (
-    select 1 from user_roles ur
-    join authorization_role_permissions rp on rp.role_key = ur.role_key
-    where ur.user_id = p_approver_auth_id
-      and rp.permission_key = 'timesheet_approval.approve'
-  ) then
-    return false;
-  end if;
-
-  -- y ser el Gerente o Socio asignado del encargo (aprueba cualquier línea, incl. la propia)
-  return exists (
-    select 1 from engagements e
-    where e.engagement_id = p_engagement_id
-      and (e.manager_id = v_approver_staff or e.partner_id = v_approver_staff)
-  );
+  -- 1110-220 plan_v5: Cliente = permiso de aprobar + Gerente o Socio asignado (como siempre); no-Cliente = el
+  -- Aprobador de horas vigente, sin permiso global. Aprueba cualquier línea, incl. la propia (política vigente).
+  return public.is_hours_approver_of(v_approver_staff, p_engagement_id);
 end;
 $$;
 
@@ -1949,6 +1939,60 @@ CREATE FUNCTION public.can_request_funds_for_engagement(p_staff_id uuid, p_engag
                   AND ea.status <> 'CANCELLED')
   )
 $$;
+
+
+--
+-- Name: can_write_administrative_work(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.can_write_administrative_work(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+  v_partner uuid;
+  v_creator uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN true;
+  END IF;
+
+  SELECT e.funcion, e.partner_id, e.created_by_staff_id INTO v_funcion, v_partner, v_creator
+    FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id;
+
+  IF NOT FOUND OR COALESCE(v_funcion, 1) = 1 THEN
+    RETURN true;
+  END IF;
+
+  -- N19: Control de Calidad (3) lo crea y lo escribe solo admin; el Socio sigue firmando su OT. Talento Humano no,
+  -- aunque sea su Gerente.
+  IF v_funcion = 3 THEN
+    RETURN public.current_role_key() = 'admin'
+        OR (v_partner IS NOT NULL AND v_partner = public.get_my_staff_id());
+  END IF;
+
+  IF public.current_role_key() = 'admin' THEN
+    RETURN true;
+  END IF;
+
+  -- 1110-220 plan_v5 (N10): Talento Humano escribe lo que creó. Ya no se autoasigna como manager_id, y quien está
+  -- en manager_id es el Aprobador de horas, que no escribe aunque sea de TH.
+  IF public.current_role_key() IN ('hr_manager', 'hr_analyst') AND v_creator = public.get_my_staff_id() THEN
+    RETURN true;
+  END IF;
+
+  RETURN v_partner IS NOT NULL AND v_partner = public.get_my_staff_id();
+END;
+$$;
+
+
+--
+-- Name: FUNCTION can_write_administrative_work(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid) IS '1110-220: en encargos no-Cliente (funcion <> 1) solo admin, hr_manager/hr_analyst creador (plan_v5) y el Socio del encargo escriben encargo, OT, matriz, presupuesto y equipo. Cliente, sin sesión o encargo inexistente: true. No concede: se combina con la regla propia de cada política/RPC.';
 
 
 --
@@ -2146,10 +2190,17 @@ DECLARE
   v_wo_required boolean;
   v_override    smallint;
   v_end         date;
+  v_funcion     smallint;
 BEGIN
-  SELECT work_order_required, engagement_state_override, end_date
-    INTO v_wo_required, v_override, v_end
+  SELECT work_order_required, engagement_state_override, end_date, funcion
+    INTO v_wo_required, v_override, v_end, v_funcion
   FROM engagements WHERE engagement_id = NEW.engagement_id;
+
+  -- 1110-220 (plan_v5, Q2): un encargo Administrativa/Capacitación/Calidad SIN OT no carga horas, ni con override
+  -- Aprobado. Va antes de todo atajo (override 4/5, "sin OT = aprobado").
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Cannot log time: un encargo Administrativa, Capacitacion o Calidad sin OT no admite horas';
+  END IF;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
   IF v_override IS NOT NULL THEN
@@ -2810,9 +2861,14 @@ CREATE TABLE public.engagements (
     engagement_state_override smallint,
     created_by_staff_id uuid,
     society_id uuid NOT NULL,
+    partner_approval_status text,
+    partner_approval_decided_by uuid,
+    partner_approval_decided_at timestamp with time zone,
+    partner_approval_reason text,
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
     CONSTRAINT chk_engagements_manager_not_specialist CHECK (((manager_id IS NULL) OR ((manager_id IS DISTINCT FROM specialist_it_id) AND (manager_id IS DISTINCT FROM specialist_tax_id)))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
+    CONSTRAINT chk_engagements_partner_approval_status CHECK (((partner_approval_status IS NULL) OR (partner_approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))),
     CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9))),
     CONSTRAINT engagements_state_override_check CHECK (((engagement_state_override IS NULL) OR ((engagement_state_override >= 1) AND (engagement_state_override <= 8)))),
     CONSTRAINT engagements_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'pending'::character varying, 'completed'::character varying, 'cancelled'::character varying])::text[])))
@@ -2831,6 +2887,13 @@ COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135
 --
 
 COMMENT ON COLUMN public.engagements.created_by_staff_id IS 'Staff que creó el encargo. La puebla un trigger desde get_my_staff_id(); no la envía el cliente HTTP. Da a su autor lectura y edición aunque no figure entre los 4 campos de asignación. NULL en las filas previas a esta migración.';
+
+
+--
+-- Name: COLUMN engagements.partner_approval_status; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.engagements.partner_approval_status IS '1110-220 (plan_v5): aprobación del Socio de un encargo no-Cliente SIN OT (pending/approved/rejected); NULL en Cliente o con OT (ahí firma la OT). La escriben solo decide_/resubmit_engagement_partner_approval (trigger trg_engagements_partner_approval). Sin OT un no-Cliente no carga horas; la firma decide su estado y el candado de edición.';
 
 
 --
@@ -3230,6 +3293,76 @@ $_$;
 
 
 --
+-- Name: decide_engagement_partner_approval(uuid, boolean, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text DEFAULT NULL::text) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me  uuid := public.get_my_staff_id();
+  v_eng record;
+BEGIN
+  IF auth.uid() IS NULL OR v_me IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT engagement_id, funcion, work_order_required, partner_id, partner_approval_status,
+         created_by_staff_id, engagement_name, engagement_code
+    INTO v_eng
+    FROM public.engagements
+   WHERE engagement_id = p_engagement_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR COALESCE(v_eng.funcion, 1) = 1 OR v_eng.work_order_required THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_APPLICABLE: solo los encargos Administrativa, Capacitacion o Calidad sin OT se aprueban aqui'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF v_eng.partner_id IS NULL OR v_eng.partner_id <> v_me THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo el Socio del encargo lo aprueba' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_eng.partner_approval_status IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_PENDING: el encargo no está pendiente de aprobación' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT p_approve AND NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_REASON_REQUIRED: el rechazo requiere un motivo' USING ERRCODE = 'check_violation';
+  END IF;
+
+  PERFORM set_config('app.partner_approval', 'on', true);
+  UPDATE public.engagements
+     SET partner_approval_status     = CASE WHEN p_approve THEN 'approved' ELSE 'rejected' END,
+         partner_approval_decided_by = v_me,
+         partner_approval_decided_at = now(),
+         partner_approval_reason     = CASE WHEN p_approve THEN NULL ELSE btrim(p_reason) END,
+         updated_at                  = now()
+   WHERE engagement_id = p_engagement_id;
+  PERFORM set_config('app.partner_approval', 'off', true);
+
+  -- Aviso al creador (Talento Humano o admin): igual que wo.approved_partner/wo.rejected_partner con la OT. Un fallo del
+  -- aviso no deshace la decisión.
+  IF v_eng.created_by_staff_id IS NOT NULL AND v_eng.created_by_staff_id <> v_me THEN
+    BEGIN
+      PERFORM public.notify_staff('engagement.partner_approval_decided', v_eng.created_by_staff_id, p_engagement_id::text,
+                jsonb_build_object('context', CASE WHEN p_approve THEN 'approved' ELSE 'rejected' END,
+                                   'engagement_name', v_eng.engagement_name,
+                                   'engagement_code', v_eng.engagement_code));
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'decide_engagement_partner_approval: aviso al creador fallo para % : %', p_engagement_id, SQLERRM;
+    END;
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) IS '1110-220 (plan_v5): el Socio asignado aprueba o rechaza (con motivo) un no-Cliente sin OT pendiente. Admin no firma por el Socio.';
+
+
+--
 -- Name: delete_category_for_practice(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -3463,15 +3596,8 @@ CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_requ
     LANGUAGE sql IMMUTABLE
     SET search_path TO 'public'
     AS $$
-  SELECT CASE
-    WHEN p_override BETWEEN 1 AND 8 THEN p_override
-    WHEN NOT p_wo_required THEN 4
-    WHEN p_wo_id IS NULL THEN 1
-    WHEN p_approval_status = 'Rejected' OR p_risk_status = 'Rejected' THEN 8
-    WHEN p_approval_status = 'Approved' THEN CASE WHEN p_risk_status = 'Emergency_Approved' THEN 5 ELSE 4 END
-    WHEN p_approved_at IS NOT NULL THEN 2
-    WHEN p_risk_status IN ('Approved','Emergency_Approved') THEN 3
-    ELSE 1 END;
+  SELECT public.effective_engagement_state(p_override, p_wo_required, p_wo_id, p_approval_status, p_risk_status,
+                                           p_approved_at, NULL::smallint, NULL::text);
 $$;
 
 
@@ -3480,6 +3606,28 @@ $$;
 --
 
 COMMENT ON FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone) IS 'dash_socio (decisiones.md §2/§8 obs.8, plan_v2.md §6.6): espejo SQL exacto de effectiveEngagementState()/deriveEngagementState() en src/lib/engagementStatus.ts. Usado por partner_overview()/partner_overview_engagements() para derivar el conjunto "cartera" (estado 4/5). Mantener sincronizado con el TS -- ver comentario cruzado alla.';
+
+
+--
+-- Name: effective_engagement_state(smallint, boolean, uuid, text, text, timestamp with time zone, smallint, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_required boolean, p_wo_id uuid, p_approval_status text, p_risk_status text, p_approved_at timestamp with time zone, p_funcion smallint, p_partner_approval_status text) RETURNS smallint
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE
+    WHEN p_override BETWEEN 1 AND 8 THEN p_override
+    WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1 THEN
+      CASE p_partner_approval_status WHEN 'approved' THEN 4 WHEN 'rejected' THEN 8 ELSE 1 END
+    WHEN NOT p_wo_required THEN 4
+    WHEN p_wo_id IS NULL THEN 1
+    WHEN p_approval_status = 'Rejected' OR p_risk_status = 'Rejected' THEN 8
+    WHEN p_approval_status = 'Approved' THEN CASE WHEN p_risk_status = 'Emergency_Approved' THEN 5 ELSE 4 END
+    WHEN p_approved_at IS NOT NULL THEN 2
+    WHEN p_risk_status IN ('Approved','Emergency_Approved') THEN 3
+    ELSE 1 END;
+$$;
 
 
 --
@@ -3681,10 +3829,19 @@ CREATE FUNCTION public.enforce_administrative_work_order_rules() RETURNS trigger
     AS $$
 DECLARE
   v_funcion smallint;
+  v_wo_required boolean;
 BEGIN
-  SELECT funcion INTO v_funcion
+  SELECT funcion, work_order_required INTO v_funcion, v_wo_required
     FROM public.engagements
    WHERE engagement_id = NEW.engagement_id;
+
+  -- 1110-220 (plan_v5): un encargo Administrativa/Capacitación/Calidad con "Requiere OT" apagado no lleva OT (no carga
+  -- horas ni pide fondos). Con sesión no se le crea una; sin sesión (seeds, SQL Editor) se deja.
+  IF TG_OP = 'INSERT' AND auth.uid() IS NOT NULL
+     AND v_funcion IS NOT NULL AND v_funcion <> 1 AND v_wo_required IS NOT TRUE THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo no lleva Orden de Trabajo (Requiere Orden de Trabajo está apagado)'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
 
   IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
     -- Las OTs administrativas pueden presupuestar gastos, pero no facturan ni
@@ -3915,9 +4072,13 @@ BEGIN
   -- manager_id igual que Gerente/hr_manager. Quedan deliberadamente FUERA del campo Socio/
   -- Director (sin cambios): senior_partner, risk_partner, risk_supervisor, it_security_manager,
   -- accounting_*, hr_analyst, sqr, senior, semisenior y assistant.
+  --
+  -- 1110-220 (plan_v3 N4, plan_v5): accounting_manager, risk_supervisor y secretariat_head NO crean
+  -- encargos (enforce_engagement_profile_scope), así que no se autoasignan. Talento Humano (hr_manager,
+  -- hr_analyst) tampoco: crea encargos no-Cliente y elige al Aprobador de horas entre 14 roles.
   IF v_role IN ('partner', 'director') THEN
     NEW.partner_id := v_staff;
-  ELSIF v_role IN ('manager', 'hr_manager', 'ita_manager', 'tax_manager') THEN
+  ELSIF v_role IN ('manager', 'ita_manager', 'tax_manager') THEN
     NEW.manager_id := v_staff;
   END IF;
 
@@ -3930,7 +4091,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_creator_team(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180 y 0828-185): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/hr_manager/ita_manager/tax_manager -> manager_id). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
+COMMENT ON FUNCTION public.enforce_engagement_creator_team() IS 'BUG 0810-172 (actualizado 0817-180 y 0828-185): en la CREACIÓN de un encargo canoniza partner_id/manager_id al staff del llamante según su role_key (partner/director -> partner_id; manager/ita_manager/tax_manager -> manager_id; 1110-220: Talento Humano ya no se autoasigna). Exentos: role_key admin, inserts sin auth.uid() (seeds/service_role) y llamantes sin staff vinculado. Espejo de src/lib/engagementSelfAssignment.ts. Solo INSERT: el UPDATE no aplica esta regla.';
 
 
 --
@@ -3986,6 +4147,73 @@ $$;
 
 
 --
+-- Name: enforce_engagement_partner_approval(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_engagement_partner_approval() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_needs   boolean := COALESCE(NEW.funcion, 1) <> 1 AND NOT NEW.work_order_required;
+  v_via_rpc boolean := COALESCE(current_setting('app.partner_approval', true) = 'on', false);
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF v_needs THEN
+      NEW.partner_approval_status := 'pending';
+    ELSE
+      NEW.partner_approval_status := NULL;
+    END IF;
+    NEW.partner_approval_decided_by := NULL;
+    NEW.partner_approval_decided_at := NULL;
+    NEW.partner_approval_reason     := NULL;
+    RETURN NEW;
+  END IF;
+
+  -- Candado (§6.6): evaluado sobre la fila VIEJA, antes de cualquier recálculo.
+  IF auth.uid() IS NOT NULL
+     AND NOT v_via_rpc
+     AND public.current_role_key() IS DISTINCT FROM 'admin'
+     AND COALESCE(OLD.funcion, 1) <> 1
+     AND public.engagement_partner_signed(OLD.engagement_id)
+     AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo ya fue aprobado por el Socio y no se puede modificar (solo Sistemas)'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF NOT v_via_rpc
+     AND auth.uid() IS NOT NULL
+     AND (NEW.partner_approval_status     IS DISTINCT FROM OLD.partner_approval_status
+       OR NEW.partner_approval_decided_by IS DISTINCT FROM OLD.partner_approval_decided_by
+       OR NEW.partner_approval_decided_at IS DISTINCT FROM OLD.partner_approval_decided_at
+       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason) THEN
+    RAISE EXCEPTION 'FORBIDDEN: la aprobación del Socio solo cambia por sus acciones de aprobar, rechazar o reenviar'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Recalcular si deja o pasa a necesitar la firma del encargo (cambio del switch de OT o de función).
+  IF NOT v_needs THEN
+    NEW.partner_approval_status     := NULL;
+    NEW.partner_approval_decided_by := NULL;
+    NEW.partner_approval_decided_at := NULL;
+    NEW.partner_approval_reason     := NULL;
+  ELSIF NEW.partner_approval_status IS NULL THEN
+    NEW.partner_approval_status := 'pending';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION enforce_engagement_partner_approval(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC) y candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin. Sin sesión no aplica.';
+
+
+--
 -- Name: enforce_engagement_profile_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -4001,6 +4229,8 @@ DECLARE
   v_city          text;
   v_practica_code smallint;
   v_oficina       smallint;
+  v_manager_role  text;
+  v_manager_society uuid;
 BEGIN
   -- Sin identidad autenticada no hay perfil que comparar: seeds, imports, migraciones y
   -- cualquier operación con service_role pasan intactas.
@@ -4009,6 +4239,54 @@ BEGIN
   END IF;
 
   v_role := public.current_role_key();
+
+  -- 1110-220 (plan_v5 §6.1, 2026-11-12): quién puede quedar en manager_id depende de la función del encargo.
+  --   · No-Cliente (0/2/3): manager_id es el "Aprobador de horas". Obligatorio y elegido entre 14 roles, igual
+  --     para admin, hr_manager y hr_analyst (no hay autoasignación), y siempre de la SOCIEDAD del encargo
+  --     (operador 2026-11-12: el encargo vive en una sociedad y lo aprueba alguien de ella; además Contabilidad, por
+  --     su alcance department, no vería uno de otra).
+  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager).
+  -- En ambos: staff activo, no borrado, con cuenta vinculada y rol activo. Corre al crear y cuando cambia la
+  -- persona; un asignado que luego pierde elegibilidad queda guardado pero no se puede volver a elegir. Espejo de
+  -- get_hours_approver_candidates() / get_engagement_team_candidates() y de EngagementForm.
+  -- En no-Cliente también corre cuando cambia la sociedad (review de Codex, 2026-11-12): admin edita society_id
+  -- solo, y sin esto el Aprobador de la sociedad vieja quedaba guardado. En Cliente la sociedad no restringe al
+  -- Gerente, así que cambiarla no revalida.
+  IF TG_OP = 'INSERT'
+     OR NEW.manager_id IS DISTINCT FROM OLD.manager_id
+     OR (COALESCE(NEW.funcion, 1) <> 1 AND NEW.society_id IS DISTINCT FROM OLD.society_id) THEN
+    IF COALESCE(NEW.funcion, 1) <> 1 AND NEW.manager_id IS NULL THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas es obligatorio en un encargo Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF NEW.manager_id IS NOT NULL THEN
+      SELECT ur.role_key, s.society_id INTO v_manager_role, v_manager_society
+        FROM public.staff s
+        JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+        JOIN public.authorization_roles ar ON ar.role_key = ur.role_key AND ar.is_active
+       WHERE s.staff_id = NEW.manager_id
+         AND s.is_active
+         AND s.deleted_at IS NULL;
+
+      IF COALESCE(NEW.funcion, 1) <> 1 THEN
+        IF NOT (COALESCE(v_manager_role, '') = ANY (public.hours_approver_role_keys())) THEN
+          RAISE EXCEPTION 'FORBIDDEN: Aprobador de horas no valido para un encargo Administrativa, Capacitacion o Calidad'
+            USING ERRCODE = 'insufficient_privilege';
+        END IF;
+        IF v_manager_society IS DISTINCT FROM NEW.society_id THEN
+          RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas debe ser de la sociedad del encargo'
+            USING ERRCODE = 'insufficient_privilege';
+        END IF;
+      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager'])) THEN
+        RAISE EXCEPTION 'FORBIDDEN: Gerente no valido para un encargo de Cliente'
+          USING ERRCODE = 'insufficient_privilege';
+      END IF;
+    END IF;
+  END IF;
+
+  -- 1110-220 (plan_v5, reemplaza N15): approval_required ya no se fuerza en no-Cliente. Lo eligen admin o el
+  -- Talento Humano creador al crear; apagado, el envío autoaprueba las líneas.
 
   IF TG_OP = 'INSERT' THEN
     -- El RPC create_engagement_with_code es SECURITY DEFINER y saltea la RLS de INSERT
@@ -4026,6 +4304,43 @@ BEGIN
     IF v_role = 'hr_analyst' AND COALESCE(NEW.funcion, 1) = 1 THEN
       RAISE EXCEPTION 'FORBIDDEN: el Analista de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
         USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3, N9, 2026-11-11): el Gerente de Talento Humano tampoco crea encargos de
+    -- Cliente, igual que el Analista: TH solo gestiona Administrativa/Capacitación/Calidad. Bloque
+    -- propio para no tocar el mensaje del Analista (test #18). Espejo de
+    -- ADMINISTRATIVE_ONLY_CREATOR_ROLE_KEYS.
+    IF v_role = 'hr_manager' AND COALESCE(NEW.funcion, 1) = 1 THEN
+      RAISE EXCEPTION 'FORBIDDEN: el Gerente de Talento Humano solo puede crear encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3, N1, 2026-11-11): los encargos no-Cliente (funcion 0/2/3) los crean SOLO
+    -- Sistemas (admin) y Talento Humano (hr_manager, hr_analyst). Ni el Gerente normal, ni ITA/Tax,
+    -- ni Contabilidad, Riesgos o Secretaría: esos solo aprueban las horas de lo que gerencian.
+    -- Espejo de ADMINISTRATIVE_CREATOR_ROLE_KEYS (src/lib/engagementRoleAccess.ts). La funcion es
+    -- inmutable después de crear (0722-160), así que basta con el INSERT.
+    IF COALESCE(NEW.funcion, 1) <> 1
+       AND v_role NOT IN ('admin', 'hr_manager', 'hr_analyst') THEN
+      RAISE EXCEPTION 'FORBIDDEN: solo Talento Humano y Sistemas crean encargos Administrativa, Capacitacion o Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3, N13, 2026-11-11): Talento Humano crea Administrativa y Capacitación, NO
+    -- Control de Calidad (funcion 3), que queda solo para admin.
+    IF NEW.funcion = 3 AND v_role IN ('hr_manager', 'hr_analyst') THEN
+      RAISE EXCEPTION 'FORBIDDEN: Talento Humano no crea encargos de Control de Calidad'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- 1110-220 (plan_v3 N14/N16, plan_v5 Q3): la "Política de Planilla" (switches del final del alta) es de admin.
+    -- Todo encargo que crea otro rol exige OT aprobada por el Socio para cargar horas y aprobación de
+    -- las líneas de horas, SALVO un no-Cliente creado por Talento Humano: TH elige al crear si lleva OT
+    -- y si sus horas requieren aprobación.
+    IF v_role IS DISTINCT FROM 'admin'
+       AND NOT (v_role IN ('hr_manager', 'hr_analyst') AND COALESCE(NEW.funcion, 1) <> 1) THEN
+      NEW.work_order_required := true;
+      NEW.approval_required   := true;
     END IF;
 
     -- Super Admin (role_key = 'admin') y Senior Partner eligen sociedad/practica/oficina libres.
@@ -4093,7 +4408,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_profile_scope(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst y funcion 3 (Control de Calidad) para Talento Humano; fuerza work_order_required/approval_required=true en lo que crea todo rol distinto de admin, salvo un no-Cliente de Talento Humano (elige ambos); valida manager_id (1110-220 plan_v5): en no-Cliente es el Aprobador de horas, obligatorio, de 14 roles y de la sociedad del encargo (se revalida también cuando cambia la sociedad); en Cliente, manager/ita_manager/tax_manager; siempre staff activo, no borrado, con cuenta y rol activo; y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 --
@@ -4315,10 +4630,16 @@ DECLARE
   v_wo_required boolean;
   v_approval    text;
   v_risk        text;
+  v_funcion     smallint;
 BEGIN
-  SELECT e.engagement_state_override, e.work_order_required
-    INTO v_override, v_wo_required
+  SELECT e.engagement_state_override, e.work_order_required, e.funcion
+    INTO v_override, v_wo_required, v_funcion
   FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
+
+  -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no admite horas ni solicitudes (fondos exige OT).
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+    RETURN false;
+  END IF;
 
   -- Override manual manda: solo 4/5 permiten.
   IF v_override IS NOT NULL THEN
@@ -4352,9 +4673,15 @@ CREATE FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text
                       'engagement_name', e.engagement_name)
                     ORDER BY e.engagement_code), '[]'::jsonb))
     FROM public.engagements e
-    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE e.created_by_staff_id = p_staff_id
-     AND wo.approval_status = p_status
+     AND (wo.approval_status = p_status
+          -- 1110-220 (plan_v5): un no-Cliente SIN OT espera (o fue rechazado por) el Socio sobre el encargo mismo.
+          OR (wo.wo_id IS NULL
+              AND COALESCE(e.funcion, 1) <> 1
+              AND NOT e.work_order_required
+              AND e.partner_approval_status = CASE p_status WHEN 'Pending_Approval' THEN 'pending'
+                                                            WHEN 'Rejected' THEN 'rejected' END))
      AND (e.engagement_state_override IS NULL
           OR e.engagement_state_override NOT IN (6, 7));
 $$;
@@ -4364,7 +4691,7 @@ $$;
 -- Name: FUNCTION engagement_approval_bucket(p_staff_id uuid, p_status text); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) IS 'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status, excluyendo Cancelado (6) y Finalizado (7).';
+COMMENT ON FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) IS 'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status (o, 1110-220, no-Cliente sin OT con la firma del Socio pendiente/rechazada), excluyendo Cancelado (6) y Finalizado (7).';
 
 
 --
@@ -4412,9 +4739,12 @@ BEGIN
   IF p_override IS NOT NULL THEN
     RETURN p_override = 4;
   END IF;
-  -- Derivado: administrativo (sin OT) = Aprobado.
+  -- Derivado: sin OT. Cliente = Aprobado; no-Cliente (1110-220 plan_v5) = solo si el Socio aprobó el encargo.
   IF p_wo_required = false THEN
-    RETURN true;
+    RETURN NOT EXISTS (SELECT 1 FROM public.engagements e
+                        WHERE e.engagement_id = p_engagement_id
+                          AND COALESCE(e.funcion, 1) <> 1
+                          AND e.partner_approval_status IS DISTINCT FROM 'approved');
   END IF;
   -- Derivado: estado 4 Aprobado = OT aprobada, NO en emergencia (sería 5) y NO risk-rejected
   -- (sería 8 Rechazado). Ambos se excluyen del auto-cierre.
@@ -4962,6 +5292,30 @@ $$;
 --
 
 COMMENT ON FUNCTION public.engagement_overview(p_engagement_id uuid, p_start date, p_end date) IS 'dash_encargo (decisiones.md §4, plan_v2.md §7.3-§7.5; corrección post-ejecución #2): payload completo de la pestaña Encargo (4 KPI sin montos, consumo de presupuesto, desglose Categoría->Actividad, equipo responsable, staffing con 9 semanas precargadas, gastos normalizados a BOB, cola de aprobación por persona) en un único round-trip/instantánea MVCC. Un encargo fuera de alcance o inexistente devuelve selected_accessible=false + detail=null, SIN excepción (no distingue "no existe" de "no es tuyo"). R-1: las vistas vw_* que usa son security_invoker=on pero corren sin RLS dentro de este SECURITY DEFINER -- por eso can_read_engagement_dashboard() corre antes de cualquier CTE y cada CTE que toca una vista filtra por engagement_id. R-3 (heredado, sin cambios): vw_wo_budget_hours_by_category no filtra por version/status de la worksheet, puede doble-contar si un WO tiene mas de una hoja -- mismo comportamiento que la pestaña actual. R-4 (deliberado, decisiones.md §4.1): horas cargadas sin fila en timesheet_line_approvals NUNCA cuentan como "pendientes", pero sí como Cargado/consumo -- también aplica a approval_queue, que se alimenta de la misma pending_lines. D-1: "semanas del rango" para Asignado = semanas calendario tocadas (lunes a lunes), no fracciones. Gastos: "ejecutado" = SOLO revisado_asistente (decisiones.md §4.6, corrige la inconsistencia de portfolio_overview() que sí cuenta aprobado_gerente -- ese bug de Cartera queda fuera de alcance de esta migración). Solicitudes excluyen fund_requests.status=borrador. approval_queue: consolida pending_lines POR PERSONA (staff_id) -- hours es la SUMA de todas sus líneas pendientes en este encargo (no solo la más vieja, a diferencia de portfolio_overview() en dash_cartera), weeks_old es el de su línea más antigua, alert reutiliza el mismo v_alert_weeks que aged_hours (ninguna fuente de verdad nueva); "crítico" en el frontend (review.md iteración 1, MF-05) es exactamente este alert, sin un segundo escalón más severo -- encargoOverviewAggregation.ts no calcula ningún umbral adicional.';
+
+
+--
+-- Name: engagement_partner_signed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_partner_signed(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.engagement_id = p_engagement_id
+       AND COALESCE(e.funcion, 1) <> 1
+       AND CASE
+             WHEN e.work_order_required THEN EXISTS (
+               SELECT 1 FROM public.work_orders wo
+                WHERE wo.engagement_id = e.engagement_id
+                  AND wo.approval_status = 'Approved'
+                  AND wo.risk_status IS DISTINCT FROM 'Rejected')
+             ELSE e.partner_approval_status = 'approved'
+           END
+  )
+$$;
 
 
 --
@@ -7409,7 +7763,8 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
            ('senior_partner', 'partner_director'),
            ('risk_partner',   'partner_director'),
            ('manager',        'manager'),
-           ('hr_manager',     'manager'),
+           -- 1110-220 (plan_v5): el Aprobador de horas de un no-Cliente sale de get_hours_approver_candidates();
+           -- este RPC queda para el Gerente de Cliente y los demás campos del Equipo.
            ('senior',         'encargado'),
            ('semisenior',     'encargado'),
            -- BUG 0828-185: ita_manager/tax_manager quedan en DOS grupos -- su propia
@@ -7436,7 +7791,39 @@ $$;
 -- Name: FUNCTION get_engagement_team_candidates(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180 y 0828-185): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) vía un mapeo (role_key, candidate_group) que admite MÚLTIPLES grupos por rol -- ita_manager/tax_manager caen en su especialidad Y en manager; senior_partner/risk_partner se agregaron a partner_director. NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update.';
+COMMENT ON FUNCTION public.get_engagement_team_candidates() IS 'BUG 0722-162 (actualizado 0817-180 y 0828-185): candidatos elegibles por campo del bloque Equipo del encargo. Agrupa role_key en 5 grupos de candidatura (partner_director, manager, encargado, specialist_it, specialist_tax) vía un mapeo (role_key, candidate_group) que admite MÚLTIPLES grupos por rol -- ita_manager/tax_manager caen en su especialidad Y en manager; senior_partner/risk_partner se agregaron a partner_director; El Aprobador de horas de un no-Cliente (1110-220) sale de get_hours_approver_candidates(). NO expone email, auth_user_id ni el role_key crudo. Gateada por engagement.create OR engagement.update.';
+
+
+--
+-- Name: get_hours_approver_candidates(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.get_hours_approver_candidates() RETURNS TABLE(staff_id uuid, display_name text, role_key text, society_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.staff_id,
+         (s.first_name || ' ' || s.last_name)::text AS display_name,
+         ur.role_key::text,
+         s.society_id
+    FROM public.staff s
+    JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+    JOIN public.authorization_roles ar ON ar.role_key = ur.role_key
+   WHERE public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst')
+     AND (public.has_permission('engagement.create') OR public.has_permission('engagement.update'))
+     AND ur.role_key = ANY (public.hours_approver_role_keys())
+     AND s.is_active
+     AND s.deleted_at IS NULL
+     AND ar.is_active
+   ORDER BY s.last_name, s.first_name;
+$$;
+
+
+--
+-- Name: FUNCTION get_hours_approver_candidates(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.get_hours_approver_candidates() IS '1110-220 (plan_v5): candidatos a Aprobador de horas (manager_id) de un encargo no-Cliente: 14 roles, staff activo con cuenta y rol activo. Devuelve role_key porque el formulario elige Rol -> Persona, y society_id para ofrecer solo personas de la sociedad del encargo. Solo admin/hr_manager/hr_analyst con engagement.create o .update. Sin email ni auth_user_id. Espejo del guard de enforce_engagement_profile_scope.';
 
 
 --
@@ -8069,29 +8456,31 @@ begin
     return;
   end if;
 
+  -- 1110-220 plan_v5: misma regla que can_approve_timesheet_line (is_hours_approver_of). En un no-Cliente el candidato es
+  -- solo el Aprobador de horas, y si el encargo no requiere aprobación (approval_required = false) sus líneas se
+  -- autoaprueban al enviar: no hay a quién avisar por ellas.
   return query
   select distinct app.staff_id
   from (
-    select e.manager_id as staff_id
+    select e.manager_id as staff_id, e.engagement_id
     from time_entries te
     join engagements e on te.engagement_id = e.engagement_id
     where te.staff_id = p_staff_id
       and te.date_worked >= p_week_start
       and te.date_worked < p_week_start + interval '7 days'
       and e.manager_id is not null
+      and (coalesce(e.funcion, 1) = 1 or e.approval_required)
     union
-    select e.partner_id
+    select e.partner_id, e.engagement_id
     from time_entries te
     join engagements e on te.engagement_id = e.engagement_id
     where te.staff_id = p_staff_id
       and te.date_worked >= p_week_start
       and te.date_worked < p_week_start + interval '7 days'
       and e.partner_id is not null
+      and coalesce(e.funcion, 1) = 1
   ) app
-  join staff app_s on app_s.staff_id = app.staff_id
-  join user_roles ur on ur.user_id = app_s.auth_user_id
-  join authorization_role_permissions rp on rp.role_key = ur.role_key
-  where rp.permission_key = 'timesheet_approval.approve';
+  where public.is_hours_approver_of(app.staff_id, app.engagement_id);
 end;
 $$;
 
@@ -8497,6 +8886,20 @@ $$;
 
 
 --
+-- Name: hours_approver_role_keys(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT ARRAY['partner', 'senior_partner', 'director', 'manager', 'senior', 'hr_manager', 'hr_analyst',
+               'accounting_manager', 'risk_supervisor', 'secretariat_head', 'ita_manager', 'tax_manager',
+               'ita_senior', 'tax_senior']::text[]
+$$;
+
+
+--
 -- Name: installment_adjustments_total(uuid, text); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8703,6 +9106,27 @@ $$;
 
 
 --
+-- Name: is_eligible_hours_approver(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_eligible_hours_approver(p_staff_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.staff s
+      JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+      JOIN public.authorization_roles ar ON ar.role_key = ur.role_key AND ar.is_active
+     WHERE s.staff_id = p_staff_id
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND ur.role_key = ANY (public.hours_approver_role_keys())
+  )
+$$;
+
+
+--
 -- Name: is_engagement_responsible(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8734,6 +9158,9 @@ CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS b
     AND (
       e.manager_id = get_my_staff_id()
       OR e.partner_id = get_my_staff_id()
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = get_my_staff_id()
+          AND public.current_role_key() IN ('hr_manager', 'hr_analyst'))
     )
   )
 $$;
@@ -8754,6 +9181,33 @@ CREATE FUNCTION public.is_firm_hours_reader() RETURNS boolean
      WHERE ur.user_id = auth.uid()
        AND rp.permission_key = 'timesheet_approval.read'
        AND rp.scope_key = 'firm'
+  )
+$$;
+
+
+--
+-- Name: is_hours_approver_of(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT p_staff_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.engagement_id = p_engagement_id
+       AND CASE
+             WHEN COALESCE(e.funcion, 1) <> 1 THEN
+               e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
+             ELSE
+               p_staff_id IN (e.manager_id, e.partner_id)
+               AND EXISTS (SELECT 1
+                             FROM public.staff s
+                             JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+                             JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+                            WHERE s.staff_id = p_staff_id
+                              AND rp.permission_key = 'timesheet_approval.approve')
+           END
   )
 $$;
 
@@ -8877,12 +9331,17 @@ CREATE FUNCTION public.list_administrative_engagements() RETURNS jsonb
 DECLARE
   v_can_see_history boolean;
   v_current_fiscal_year int;
+  v_me uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN '[]'::jsonb;
   END IF;
 
   v_can_see_history := public.has_permission('engagement.create');
+  -- 1110-220 (plan_v3): quien no crea pero gerencia o firma (Contabilidad, Riesgos, Secretaría, Gerente
+  -- normal) ve el histórico de LO SUYO: su pestaña "Mis encargos" no puede perder un encargo al cambiar
+  -- el año fiscal. Solo amplía filas donde ya figura como creador, Gerente o Socio.
+  v_me := public.get_my_staff_id();
 
   -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
   -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
@@ -8924,6 +9383,13 @@ BEGIN
           -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
           'work_order_required', e.work_order_required,
           'engagement_state_override', e.engagement_state_override,
+          -- 1110-220 plan_v5: firma del Socio de un no-Cliente sin OT; decide su estado efectivo.
+          'partner_approval_status', e.partner_approval_status,
+          -- 1110-220: pestaña "Mis encargos" (creados o gerenciados = lo que las políticas UPDATE dejan editar por
+          -- asignación). Solo UUIDs de staff, sin nombres: no amplía lo que se ve del encargo.
+          'created_by_staff_id', e.created_by_staff_id,
+          'manager_id', e.manager_id,
+          'partner_id', e.partner_id,
           'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
             'approval_status', wo.approval_status,
             'approved_at', wo.approved_at,
@@ -8938,7 +9404,12 @@ BEGIN
         LEFT JOIN public.practicas p ON p.code = e.practica
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
-         AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         -- 1110-220 (operador 2026-11-12): Control de Calidad (3) también sale en la pestaña "Todos", que es una lista de
+         -- consulta sin detalle. Abrirlo sigue cerrado: la RLS y el portafolio solo lo dejan ver a admin y a quien
+         -- figura en él (N19).
+         AND (v_can_see_history
+              OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year)
+              OR (v_me IS NOT NULL AND v_me IN (e.created_by_staff_id, e.manager_id, e.partner_id)))
          -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
          AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),
@@ -8952,7 +9423,7 @@ $$;
 -- Name: FUNCTION list_administrative_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 
 --
@@ -9372,6 +9843,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::d
     LEFT JOIN public.clients c ON c.client_id = e.client_id
    WHERE public.has_permission('time_entry.create')
      AND e.status = 'active'
+     -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas, ni con override Aprobado.
+     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required)
      -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
      -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
      -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/8) bloquea, sin importar OT.
@@ -9393,8 +9866,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::d
             AND wo.approval_status = 'Approved'
             AND COALESCE(wo.risk_status, '') <> 'Rejected'
        )
-       -- Group B: administrativo (sin OT requerida).
-       OR e.work_order_required = false
+       -- Group B: Cliente sin OT requerida. 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas.
+       OR (e.work_order_required = false AND COALESCE(e.funcion, 1) = 1)
        -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
        OR e.engagement_state_override IN (4, 5)
      )
@@ -9560,6 +10033,8 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
         'practica',                   e.practica,
         'anio_fiscal',                e.anio_fiscal,
         'funcion',                    e.funcion,
+        'partner_approval_status',    e.partner_approval_status,  -- 1110-220 plan_v5: estado de un no-Cliente sin OT
+        'partner_approval_reason',    e.partner_approval_reason,
         'fecha_cierre',               e.fecha_cierre,
         'anio_fiscal_override',       e.anio_fiscal_override,
         'sqr_id',                     e.sqr_id,
@@ -9609,29 +10084,45 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
     LEFT JOIN (SELECT staff_id, first_name, last_name, short_name, initials, category_id, city, is_active FROM public.staff) stax ON stax.staff_id = e.specialist_tax_id
     LEFT JOIN public.society soc ON soc.society_id = e.society_id
     LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
-   WHERE public.has_permission('engagement.read')
+   WHERE ((public.has_permission('engagement.read')
      AND (
-       -- 1. firm: ve todos los encargos. risk_supervisor solo lee (sin engagement.update).
+       -- 1. firm: ve todos los encargos. risk_supervisor lee todos y no edita (1110-220 plan_v3: sin engagement.update).
        caller.role_key IN ('admin', 'it_security_manager', 'senior_partner', 'risk_partner', 'risk_supervisor')
        -- 2. own_society: mismos encargos de SU sociedad, incluidos los creados por otros.
        OR (caller.role_key IN ('partner', 'sqr', 'director')
            AND e.society_id IS NOT NULL
            AND e.society_id = cs.society_id)
        -- 3. own_management: donde figura como manager_id, incluidos los creados por otros.
-       OR (caller.role_key IN ('manager', 'ita_manager', 'tax_manager', 'hr_manager')
+       OR (caller.role_key IN ('manager', 'ita_manager', 'tax_manager', 'hr_manager', 'secretariat_head')
            AND caller.staff_id IS NOT NULL
            AND e.manager_id = caller.staff_id)
        -- 3b. hr_administrative (B3c-3): hr_manager y hr_analyst administran TODOS los encargos Administrativa,
        --     Capacitación y Calidad (funcion <> 1), incluidos los creados por otros. Espejo exacto de las políticas
        --     "engagements hr administrative read/update": esta lista nunca debe mostrar lo que la RLS no deja leer.
-       OR (caller.role_key IN ('hr_manager', 'hr_analyst') AND e.funcion <> 1)
+       --     1110-220 (plan_v3, N6): secretariat_head NO está; ve solo lo que gerencia (bucket 3).
+       --     1110-220 (plan_v3, N19): sin Control de Calidad (3): ese lo ve solo quien figura en él (buckets 3 y 4).
+       OR (caller.role_key IN ('hr_manager', 'hr_analyst') AND e.funcion IN (0, 2))
+       -- 3c. accounting_administrative (1110-220): el Gerente de Contabilidad VE los encargos no-Cliente de SU
+       --     sociedad, igual que ya los lee por RLS (engagement.read department + "society scope" restrictiva), para
+       --     que la ficha abra lo que lista Encargos Administrativos. Solo lectura: no está en "hr administrative
+       --     update" y desde plan_v3 no edita encargos no-Cliente (can_write_administrative_work). La sociedad la recorta el filtro is_society_scoped_role() de abajo.
+       OR (caller.role_key = 'accounting_manager' AND e.funcion IN (0, 2))  -- N19: sin Control de Calidad
        -- 4. creator: cualquier rol ve lo que creó (paridad con la policy "engagements creator read").
        OR (caller.staff_id IS NOT NULL AND e.created_by_staff_id = caller.staff_id)
-     )
+     ))
+       -- 3d. hours_approver (1110-220 plan_v5): el Aprobador de horas ve su no-Cliente aunque su rol no tenga
+       --     engagement.read (senior, ita_senior, tax_senior), sin lista de roles. Paridad con la política "engagements
+       --     hours approver read" (cero_05). Solo lectura: ser Aprobador no da edición.
+       --     Y el Socio del no-Cliente aunque sea de OTRA sociedad (lo crea TH de su sociedad y el Socio puede ser de la
+       --     otra): el bucket own_society solo le mostraba los de su sociedad y no podía abrir el encargo que tiene que
+       --     aprobar. La RLS ("engagements read", asignado) ya se lo dejaba leer.
+       OR (COALESCE(e.funcion, 1) <> 1 AND caller.staff_id IS NOT NULL
+           AND caller.staff_id IN (e.manager_id, e.partner_id)))
      -- 5. hr_analyst no ve encargos de Cliente (funcion 1, o NULL legacy que se lee como Cliente) por
      --    NINGÚN bucket, tampoco los que haya creado antes de que enforce_engagement_profile_scope() se lo
      --    impidiera. Decisión del operador (27/10/2026): solo crea y gestiona Administrativa/Capacitación/Calidad.
-     AND (caller.role_key IS DISTINCT FROM 'hr_analyst' OR COALESCE(e.funcion, 1) <> 1)
+     --    1110-220 (plan_v3, N9): hr_manager igual.
+     AND (COALESCE(caller.role_key, '') NOT IN ('hr_analyst', 'hr_manager') OR COALESCE(e.funcion, 1) <> 1)
      -- 6. Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven encargos de su sociedad, por cualquier bucket
      --    (hoy solo les aplica el de creador). Espejo de la RESTRICTIVE "society scope" de engagements (d1).
      AND (NOT public.is_society_scoped_role() OR e.society_id = cs.society_id)
@@ -9642,7 +10133,7 @@ $$;
 -- Name: FUNCTION list_portfolio_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de las politicas "engagements hr administrative read/update"). hr_analyst nunca ve encargos de Cliente (funcion 1/NULL), ni los que creó. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
+COMMENT ON FUNCTION public.list_portfolio_engagements() IS 'BUG 0828-185 + B3c-3: encargos visibles en Encargos.tsx/EngagementEdit.tsx/ClientEngagementsTable.tsx bajo la regla "por ahora, solo lo que creé", salvo los roles firm-wide (todos; risk_supervisor incluido, solo lectura), own_society/own_management (partner/sqr/director por sociedad; manager/ita_manager/tax_manager/hr_manager/secretariat_head por manager_id) y hr_administrative (hr_manager/hr_analyst: todos los encargos con funcion <> 1, espejo de la politica "engagements hr administrative read"; solo lectura: cada uno edita lo que creo o gerencia; secretariat_head ve solo lo que gerencia, 1110-220 plan_v3), accounting_administrative (accounting_manager: encargos con funcion <> 1 de su sociedad, solo lectura; 1110-220). hr_analyst y hr_manager nunca ven encargos de Cliente (funcion 1/NULL), ni los que crearon. Buckets HARDCODEADOS por role_key, sin nuevo permission_key/scope_key. NO reemplaza is_assigned_to_engagement()/is_assigned_to_client() ni la policy "engagements read": nunca debe ampliarse a firm-wide sin pasar por la RLS real.';
 
 
 --
@@ -9881,6 +10372,30 @@ $$;
 
 
 --
+-- Name: my_approvable_engagement_ids(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.my_approvable_engagement_ids() RETURNS SETOF uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  -- 1110-220 plan_v5: espejo por conjunto de is_hours_approver_of(get_my_staff_id(), engagement_id), sin la excepción de admin. Dos ramas
+  -- separadas para que ser Aprobador de un no-Cliente no abra Cliente: no-Cliente = soy el Aprobador vigente y elegible; Cliente = tengo el
+  -- permiso de aprobar y soy Gerente o Socio. Las partes que no dependen de la fila se calculan una vez.
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE COALESCE(e.funcion, 1) <> 1
+     AND e.manager_id = (SELECT public.get_my_staff_id())
+     AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
+  UNION
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE COALESCE(e.funcion, 1) = 1
+     AND (SELECT public.get_my_staff_id()) IN (e.manager_id, e.partner_id)
+     AND (SELECT EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+                          WHERE ur.user_id = auth.uid() AND rp.permission_key = 'timesheet_approval.approve'))
+$$;
+
+
+--
 -- Name: my_approvable_period_ids(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -9888,8 +10403,8 @@ CREATE FUNCTION public.my_approvable_period_ids() RETURNS SETOF uuid
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- Espejo de can_approve_timesheet(auth.uid(), period_id): admin => todos; con permiso de aprobar => periodos de personas (no autoaprobadas) que cargaron
-  -- horas esa semana en un encargo que gerencio o del que soy socio (get_timesheet_approvers).
+  -- Espejo de can_approve_timesheet(auth.uid(), period_id): admin => todos; el resto => periodos de personas (no autoaprobadas) que cargaron
+  -- horas esa semana en un encargo cuyas horas decido (my_approvable_engagement_ids, la misma regla que get_timesheet_approvers).
   SELECT tp.period_id FROM public.timesheet_periods tp WHERE (SELECT public.my_line_approval_mode()) = 'all'
   UNION
   SELECT tp.period_id
@@ -9898,7 +10413,8 @@ CREATE FUNCTION public.my_approvable_period_ids() RETURNS SETOF uuid
             FROM public.time_entries te
             JOIN public.engagements e ON e.engagement_id = te.engagement_id
            WHERE (SELECT public.my_line_approval_mode()) = 'engagements'
-             AND (e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))) x
+             AND e.engagement_id IN (SELECT public.my_approvable_engagement_ids())
+             AND (COALESCE(e.funcion, 1) = 1 OR e.approval_required)) x
       ON x.staff_id = tp.staff_id AND x.date_worked >= tp.week_start_date AND x.date_worked < tp.week_start_date + interval '7 days'
    WHERE NOT public.is_auto_approved_category(tp.staff_id)
 $$;
@@ -10024,13 +10540,13 @@ CREATE FUNCTION public.my_line_approval_mode() RETURNS text
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- Parte constante de can_approve_timesheet_line / can_approve_timesheet: 'all' (admin por role_key), 'engagements' (permiso de aprobar) o 'none'.
+  -- Parte constante de can_approve_timesheet_line / can_approve_timesheet: 'all' (admin por role_key), 'engagements' (cualquier staff: el
+  -- conjunto my_approvable_engagement_ids decide qué encargos) o 'none' (sin ficha). 1110-220 plan_v5: ya no exige el permiso de aprobar,
+  -- porque el Aprobador de horas de un no-Cliente decide sin él; la rama de Cliente lo sigue exigiendo dentro del conjunto.
   SELECT CASE
     WHEN (SELECT public.get_my_staff_id()) IS NULL THEN 'none'
     WHEN EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role_key = 'admin') THEN 'all'
-    WHEN EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
-                  WHERE ur.user_id = auth.uid() AND rp.permission_key = 'timesheet_approval.approve') THEN 'engagements'
-    ELSE 'none'
+    ELSE 'engagements'
   END
 $$;
 
@@ -10215,9 +10731,13 @@ CREATE FUNCTION public.my_team_engagement_ids() RETURNS SETOF uuid
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-  -- Espejo de is_engagement_team_member(): gerente o socio.
+  -- Espejo de is_engagement_team_member(): gerente o socio; 1110-220 plan_v5: y el Talento Humano (hr_manager,
+  -- hr_analyst) creador de un encargo no-Cliente (crea y gestiona sus OTs sin ser su Aprobador).
   SELECT e.engagement_id FROM public.engagements e
    WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id())
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = (SELECT public.get_my_staff_id())
+          AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst'))
 $$;
 
 
@@ -10241,9 +10761,11 @@ CREATE FUNCTION public.my_team_wo_ids() RETURNS SETOF uuid
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+  -- OT de my_team_engagement_ids(): gerente o socio y, desde 1110-220 plan_v5 (review de Codex, 2026-11-12), el Talento
+  -- Humano creador de un no-Cliente. Sin esa rama el TH que ya no se autoasigna veía la fila de su OT pero no su
+  -- presupuesto, gastos ni plan de pagos, y no podía escribir las líneas.
   SELECT wo.wo_id FROM public.work_orders wo
-   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
-                               WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))
+   WHERE wo.engagement_id IN (SELECT public.my_team_engagement_ids())
 $$;
 
 
@@ -10272,7 +10794,10 @@ BEGIN
      AND ((v_read AND ((v_scope IS NOT NULL AND v_scope <> 'assigned_engagements')
                       OR v_me IN (e.partner_id, e.manager_id, e.sqr_id, e.encargado_id)))
       OR (v_read AND e.created_by_staff_id IS NOT NULL AND e.created_by_staff_id = v_me)
-      OR (v_read AND e.funcion <> 1 AND v_role IN ('hr_manager', 'hr_analyst'))
+      OR (v_read AND e.funcion IN (0, 2) AND v_role IN ('hr_manager', 'hr_analyst'))  -- 1110-220 N19: sin Control de Calidad
+      -- 1110-220 plan_v5: el Aprobador de horas de un no-Cliente lo ve aunque su rol no tenga engagement.read (senior,
+      -- ita_senior, tax_senior). Espejo de la política "engagements hours approver read" (cero_05).
+      OR (COALESCE(e.funcion, 1) <> 1 AND v_me IS NOT NULL AND e.manager_id = v_me)
       -- d) Solicitudes de fondos YA ENVIADAS (status <> 'borrador'), en dos partes:
       --    d1) solicitante o gerente de la OT: por conjuntos. Es idéntico en la versión del repo y en la de Dev 2.0 de
       --        engagement_in_my_fund_request (la que usa la política).
@@ -10526,6 +11051,43 @@ $$;
 --
 
 COMMENT ON FUNCTION public.notif_agg_scheduler_coverage_gap(p_staff_id uuid, p_scope text) IS 'Contador "Gap de cobertura" (D-40): posiciones que la OT aprobada pidio (wo_staffing_requirements.staff_count) y que el staffing no cubre, por encargo y categoria. Cuenta como cobertura la asignacion que todavia tiene vida por delante (end_date >= hoy), no la que ya vencio: vencer no deja marca de estado y esas filas hacian que el contador dijera 0 sobre un encargo vivo sin equipo. Una asignacion que arranca en el futuro SI cuenta, porque la posicion esta comprometida. Respeta el scope_key de la matriz: firm / society / assigned. No son los 4 gaps analiticos de la edge function scheduler-gaps.';
+
+
+--
+-- Name: notif_agg_timesheet_lines_to_approve(uuid, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT jsonb_build_object(
+           'count', COALESCE(SUM(lineas), 0),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start', week_start, 'lineas', lineas, 'cots', cots) ORDER BY week_start DESC),
+                    '[]'::jsonb))
+    FROM (
+      SELECT tp.week_start_date AS week_start,
+             COUNT(*)           AS lineas,
+             COALESCE(jsonb_agg(DISTINCT e.engagement_code)
+                      FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
+        FROM public.timesheet_line_approvals tla
+        JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+        JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+       WHERE tla.status = 'pending'
+         AND tp.submitted_at IS NOT NULL
+         AND tp.week_start_date >= p_from
+         AND public.is_hours_approver_of(p_staff_id, tla.engagement_id)
+       GROUP BY tp.week_start_date
+    ) q;
+$$;
+
+
+--
+-- Name: FUNCTION notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date) IS '1110-220 (plan_v5): lineas en pending de semanas enviadas desde p_from, en encargos cuyas horas decide hoy p_staff_id (is_hours_approver_of). No usa approved_by (registra al decisor). Contador "por aprobar" del recordatorio semanal.';
 
 
 --
@@ -10793,6 +11355,7 @@ DECLARE
   v_from      date := public.notif_timesheet_window_start();
   v_semana    text := to_char((now() AT TIME ZONE 'America/La_Paz')::date, 'IYYY-"W"IW');
   v_lineas    jsonb;
+  v_por_aprobar jsonb;
   v_capac     jsonb;
   v_encargos  jsonb;
   v_total     integer;
@@ -10815,6 +11378,14 @@ BEGIN
     v_lineas := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'timesheet.pending_approval')
                      THEN public.notif_agg_timesheet_pending_approval(v_rec.staff_id, v_from)
                      ELSE NULL END;
+    -- 1110-220 (D10): `lineas` son las semanas que el destinatario ENVIO y siguen esperando; lo que
+    -- el destinatario tiene que APROBAR no estaba en ningun contador, asi que un gerente que no abre
+    -- la app nunca recibia un correo recordandoselo. Se calcula para todo destinatario: cuenta por
+    -- approved_by, asi que quien no es aprobador asignado da 0 y no cambia nada para el.
+    v_por_aprobar := public.notif_agg_timesheet_lines_to_approve(v_rec.staff_id, v_from);
+    IF COALESCE((v_por_aprobar->>'count')::integer, 0) = 0 THEN
+      v_por_aprobar := NULL;
+    END IF;
     v_capac  := CASE WHEN public.notif_role_tiene(v_rec.role_key, 'approval.training_pending')
                      THEN public.notif_agg_approval_training_pending()
                      ELSE NULL END;
@@ -10823,6 +11394,7 @@ BEGIN
                        ELSE NULL END;
 
     v_total := COALESCE((v_lineas->>'count')::integer, 0)
+             + COALESCE((v_por_aprobar->>'count')::integer, 0)
              + COALESCE((v_capac->>'count')::integer, 0)
              + COALESCE((v_encargos->>'count')::integer, 0);
     CONTINUE WHEN v_total = 0;
@@ -10831,6 +11403,7 @@ BEGIN
               jsonb_build_object('dedupe',    v_semana,
                                  'total',     v_total,
                                  'lineas',    v_lineas,
+                                 'por_aprobar', v_por_aprobar,
                                  'capacitacion', v_capac,
                                  'encargos',  v_encargos));
     v_avisados := v_avisados + 1;
@@ -10845,7 +11418,7 @@ $$;
 -- Name: FUNCTION notif_emit_approval_reminder_weekly(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS 'Recordatorio semanal de aprobaciones: lineas de timesheet, cola de capacitacion y encargos esperando al Socio. Cada pieza entra solo si la matriz le concede ese contador al rol.';
+COMMENT ON FUNCTION public.notif_emit_approval_reminder_weekly() IS 'Recordatorio semanal de aprobaciones: lineas de horas por aprobar (1110-220, por approved_by), semanas propias esperando aprobacion, cola de capacitacion y encargos esperando al Socio. Las piezas de la matriz entran solo si la matriz le concede ese contador al rol; por_aprobar entra para todo destinatario con lineas asignadas.';
 
 
 --
@@ -11337,8 +11910,12 @@ CREATE FUNCTION public.notif_engagement_managers(p_engagement_id uuid) RETURNS T
   -- Los tres gerentes del encargo: el general y los dos especialistas. En la matriz las
   -- columnas Gerente / Gerente ESPECIALISTA ITA / Gerente ESPECIALISTA TAX se mueven siempre
   -- juntas, así que se resuelven juntas.
+  -- 1110-220 (plan_v5 §6.7): en un no-Cliente manager_id es el "Aprobador de horas", no el Gerente: no recibe los avisos
+  -- gerenciales (OT, plan de pagos, staffing). Sus avisos son los de horas (get_timesheet_approvers) y los de Fondos
+  -- (fund_request_work_orders.manager_staff_id). La gestión es del Talento Humano que lo creó, que ocupa ese lugar aquí.
   SELECT s FROM (
-    SELECT e.manager_id        AS s FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+    SELECT CASE WHEN COALESCE(e.funcion, 1) <> 1 THEN e.created_by_staff_id ELSE e.manager_id END AS s
+      FROM public.engagements e WHERE e.engagement_id = p_engagement_id
     UNION
     SELECT e.specialist_it_id  FROM public.engagements e WHERE e.engagement_id = p_engagement_id
     UNION
@@ -11351,7 +11928,7 @@ $$;
 -- Name: FUNCTION notif_engagement_managers(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.notif_engagement_managers(p_engagement_id uuid) IS 'Alcance `assigned` de la banda gerencial de un encargo: manager_id + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
+COMMENT ON FUNCTION public.notif_engagement_managers(p_engagement_id uuid) IS 'Alcance `assigned` de la banda gerencial de un encargo: manager_id (en no-Cliente, 1110-220 plan_v5: el creador, no el Aprobador de horas) + specialist_it_id + specialist_tax_id. Lo usan los disparadores de notificación del módulo Órdenes de Trabajo.';
 
 
 --
@@ -11770,7 +12347,7 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
     WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
       THEN 'timesheet_approval.read'
-    -- El recordatorio de aprobaciones resume TRES colas que viven en pantallas distintas, y el
+    -- El recordatorio de aprobaciones resume CUATRO colas (1110-220: + por_aprobar) en pantallas distintas, y el
     -- botón apunta a la del primer contador con número (`DESTINOS_POR_CONCEPTO`, en
     -- supabase/functions/_shared/plantillas/constants/recordatorios.ts). El permiso tiene que
     -- salir del MISMO contador: gatear el tipo entero por el permiso de su módulo mandaba a
@@ -11782,6 +12359,8 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- divergen, el correo gatea por una pantalla y linkea a otra.
     WHEN p_type_key = 'approval.reminder.weekly' THEN
       CASE
+        -- 1110-220 (D10): las líneas de horas que el destinatario aprueba van primero, a la bandeja.
+        WHEN public.notif_contador(p_payload, 'por_aprobar')  > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'capacitacion') > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'encargos')     > 0 THEN 'engagement.read'
         WHEN public.notif_contador(p_payload, 'lineas')       > 0 THEN 'timesheet.read'
@@ -12586,6 +13165,36 @@ $$;
 --
 
 COMMENT ON FUNCTION public.notify_engagement_events() IS 'FASE 3.c: 5 eventos de engagements (alta, cambio de responsables, asignacion de SQR/Encargado/especialista, finalizacion y borrado). La finalizacion baja hasta el staffing vigente porque es el unico evento que la matriz concede a seniors/semis/asistentes. Degrada a WARNING.';
+
+
+--
+-- Name: notify_engagement_partner_approval_requested(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_engagement_partner_approval_requested() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.partner_approval_status IS DISTINCT FROM 'pending' OR NEW.partner_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE'
+     AND OLD.partner_approval_status IS NOT DISTINCT FROM 'pending'
+     AND OLD.partner_id IS NOT DISTINCT FROM NEW.partner_id THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM public.notify_staff('engagement.partner_approval_requested', NEW.partner_id, NEW.engagement_id::text,
+            jsonb_build_object('engagement_name', NEW.engagement_name,
+                               'engagement_code', NEW.engagement_code,
+                               'dedupe', COALESCE(NEW.updated_at, now())::text));
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_engagement_partner_approval_requested fallo para % : %', NEW.engagement_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
 
 
 --
@@ -14123,7 +14732,8 @@ BEGIN
       wo.approval_status, wo.risk_status, wo.approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id
@@ -15024,7 +15634,8 @@ BEGIN
       wo.wo_id, wo.currency, wo.season_mode, wo.approval_status, wo.risk_status, wo.approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id
@@ -15735,7 +16346,8 @@ BEGIN
       wo.approval_status, wo.risk_status, wo.approved_at, wo.risk_approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id
@@ -17922,6 +18534,73 @@ $$;
 
 
 --
+-- Name: resolve_worksheet_engagement_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT aw.engagement_id FROM public.activity_worksheets aw WHERE aw.id = p_worksheet_id
+$$;
+
+
+--
+-- Name: resubmit_engagement_partner_approval(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me   uuid := public.get_my_staff_id();
+  v_role text := public.current_role_key();
+  v_eng  record;
+BEGIN
+  IF auth.uid() IS NULL OR v_me IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT engagement_id, funcion, work_order_required, created_by_staff_id, partner_approval_status
+    INTO v_eng
+    FROM public.engagements
+   WHERE engagement_id = p_engagement_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR COALESCE(v_eng.funcion, 1) = 1 OR v_eng.work_order_required THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_APPLICABLE: solo los encargos Administrativa, Capacitacion o Calidad sin OT se reenvían aqui'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT (v_role = 'admin'
+          OR (v_role IN ('hr_manager', 'hr_analyst') AND v_eng.created_by_staff_id = v_me AND v_eng.funcion <> 3)) THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo Sistemas o el Talento Humano que creó el encargo lo reenvía' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_eng.partner_approval_status IS DISTINCT FROM 'rejected' THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_REJECTED: solo se reenvía un encargo rechazado' USING ERRCODE = 'check_violation';
+  END IF;
+
+  PERFORM set_config('app.partner_approval', 'on', true);
+  UPDATE public.engagements
+     SET partner_approval_status     = 'pending',
+         partner_approval_decided_by = NULL,
+         partner_approval_decided_at = NULL,
+         partner_approval_reason     = NULL,
+         updated_at                  = now()
+   WHERE engagement_id = p_engagement_id;
+  PERFORM set_config('app.partner_approval', 'off', true);
+END;
+$$;
+
+
+--
+-- Name: FUNCTION resubmit_engagement_partner_approval(p_engagement_id uuid); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) IS '1110-220 (plan_v5): admin o el Talento Humano creador reenvía al Socio un no-Cliente sin OT rechazado.';
+
+
+--
 -- Name: rollback_unconfirmed_signup(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -18229,7 +18908,13 @@ BEGIN
       USING DETAIL = jsonb_build_object('engagement_id', p_engagement_id)::text;
   END IF;
 
-  IF NOT (public.is_admin() OR public.is_engagement_responsible(p_engagement_id)) THEN
+  -- 1110-220 (plan_v3): el Analista de TH carga el equipo del encargo no-Cliente que creó
+  -- (is_engagement_team_member lo cuenta como equipo) y, en no-Cliente, solo escriben TH, admin y el
+  -- Socio (can_write_administrative_work): el Gerente que no es TH solo aprueba y mira.
+  IF NOT (public.is_admin()
+          OR public.is_engagement_responsible(p_engagement_id)
+          OR public.is_engagement_team_member(p_engagement_id))
+     OR NOT public.can_write_administrative_work(p_engagement_id) THEN
     RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -18456,11 +19141,12 @@ BEGIN
       USING DETAIL = jsonb_build_object('wo_id', p_wo_id)::text;
   END IF;
 
+  -- 1110-220 (plan_v3): en no-Cliente solo escriben TH, admin y el Socio.
   IF NOT (
     public.is_admin()
     OR public.is_engagement_team_member(v_engagement_id)
     OR public.is_engagement_responsible(v_engagement_id)
-  ) THEN
+  ) OR NOT public.can_write_administrative_work(v_engagement_id) THEN
     RAISE EXCEPTION 'WOS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -19781,7 +20467,12 @@ BEGIN
     -- 1028-213 (D-42, H-2): antes bastaba is_assigned_to_engagement (socio, gerente, SQR o
     -- encargado); ahora solo el gerente del encargo (o admin).
     -- Sin sesión (migraciones como 0825-183, service_role): permitido. anon, nunca.
+    -- 1110-220 (plan_v3): en no-Cliente solo escriben TH, admin y el Socio (can_write_administrative_work).
+    -- Hoy la matriz es solo de Cliente, así que es defensa en profundidad.
     IF auth.uid() IS NOT NULL THEN
+        IF NOT public.can_write_administrative_work(v_wo.engagement_id) THEN
+            RAISE EXCEPTION 'NOT_AUTHORIZED';
+        END IF;
         IF NOT (
             public.is_admin()
             OR (public.has_permission('work_order.update')
@@ -24861,18 +25552,24 @@ CREATE VIEW public.vw_staffing_alerts WITH (security_invoker='true') AS
                     WHEN (tla.created_at < (now() - '3 days'::interval)) THEN 'high'::text
                     ELSE 'medium'::text
                 END AS priority_level,
-            tla.approved_by AS staff_id,
+            apr.staff_id,
             (((s_apr.first_name)::text || ' '::text) || (s_apr.last_name)::text) AS staff_name,
             (1)::numeric AS required_count,
             tp.week_start_date AS start_date,
             (tp.week_start_date + 6) AS end_date
-           FROM (((((public.timesheet_line_approvals tla
+           FROM ((((((public.timesheet_line_approvals tla
              JOIN public.timesheet_periods tp ON ((tp.period_id = tla.period_id)))
              JOIN public.engagements e ON ((e.engagement_id = tla.engagement_id)))
              JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
              JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
-             JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
-          WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL) AND (tp.submitted_at IS NOT NULL))
+             CROSS JOIN LATERAL ( SELECT e.manager_id AS staff_id
+                  WHERE ((COALESCE((e.funcion)::integer, 1) <> 1) AND e.approval_required)
+                UNION
+                 SELECT x.staff_id
+                   FROM unnest(ARRAY[e.manager_id, e.partner_id]) x(staff_id)
+                  WHERE (COALESCE((e.funcion)::integer, 1) = 1)) apr)
+             JOIN public.staff s_apr ON ((s_apr.staff_id = apr.staff_id)))
+          WHERE (((tla.status)::text = 'pending'::text) AND (tp.submitted_at IS NOT NULL))
         UNION ALL
          SELECT 'work_order_pending_approval'::text AS alert_type,
             NULL::character varying AS category_name,
@@ -25193,10 +25890,10 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_05; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_11_05 (
+CREATE TABLE realtime.messages_2026_11_11 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -25209,10 +25906,10 @@ CREATE TABLE realtime.messages_2026_11_05 (
 
 
 --
--- Name: messages_2026_11_06; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_11_06 (
+CREATE TABLE realtime.messages_2026_11_12 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -25225,10 +25922,10 @@ CREATE TABLE realtime.messages_2026_11_06 (
 
 
 --
--- Name: messages_2026_11_07; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_11_07 (
+CREATE TABLE realtime.messages_2026_11_13 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -25241,10 +25938,10 @@ CREATE TABLE realtime.messages_2026_11_07 (
 
 
 --
--- Name: messages_2026_11_08; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_11_14; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_11_08 (
+CREATE TABLE realtime.messages_2026_11_14 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -25257,10 +25954,10 @@ CREATE TABLE realtime.messages_2026_11_08 (
 
 
 --
--- Name: messages_2026_11_09; Type: TABLE; Schema: realtime; Owner: -
+-- Name: messages_2026_11_15; Type: TABLE; Schema: realtime; Owner: -
 --
 
-CREATE TABLE realtime.messages_2026_11_09 (
+CREATE TABLE realtime.messages_2026_11_15 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -25553,38 +26250,38 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_05; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_05 FOR VALUES FROM ('2026-11-05 00:00:00') TO ('2026-11-06 00:00:00');
-
-
---
--- Name: messages_2026_11_06; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_06 FOR VALUES FROM ('2026-11-06 00:00:00') TO ('2026-11-07 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_11 FOR VALUES FROM ('2026-11-11 00:00:00') TO ('2026-11-12 00:00:00');
 
 
 --
--- Name: messages_2026_11_07; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_07 FOR VALUES FROM ('2026-11-07 00:00:00') TO ('2026-11-08 00:00:00');
-
-
---
--- Name: messages_2026_11_08; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_08 FOR VALUES FROM ('2026-11-08 00:00:00') TO ('2026-11-09 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_12 FOR VALUES FROM ('2026-11-12 00:00:00') TO ('2026-11-13 00:00:00');
 
 
 --
--- Name: messages_2026_11_09; Type: TABLE ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_09 FOR VALUES FROM ('2026-11-09 00:00:00') TO ('2026-11-10 00:00:00');
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_13 FOR VALUES FROM ('2026-11-13 00:00:00') TO ('2026-11-14 00:00:00');
+
+
+--
+-- Name: messages_2026_11_14; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_14 FOR VALUES FROM ('2026-11-14 00:00:00') TO ('2026-11-15 00:00:00');
+
+
+--
+-- Name: messages_2026_11_15; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_15 FOR VALUES FROM ('2026-11-15 00:00:00') TO ('2026-11-16 00:00:00');
 
 
 --
@@ -26554,43 +27251,43 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_05 messages_2026_11_05_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11 messages_2026_11_11_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_11_05
-    ADD CONSTRAINT messages_2026_11_05_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_11_06 messages_2026_11_06_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_06
-    ADD CONSTRAINT messages_2026_11_06_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_11_11
+    ADD CONSTRAINT messages_2026_11_11_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_11_07 messages_2026_11_07_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12 messages_2026_11_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_11_07
-    ADD CONSTRAINT messages_2026_11_07_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_11_08 messages_2026_11_08_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_08
-    ADD CONSTRAINT messages_2026_11_08_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_11_12
+    ADD CONSTRAINT messages_2026_11_12_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
--- Name: messages_2026_11_09 messages_2026_11_09_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13 messages_2026_11_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
-ALTER TABLE ONLY realtime.messages_2026_11_09
-    ADD CONSTRAINT messages_2026_11_09_pkey PRIMARY KEY (id, inserted_at);
+ALTER TABLE ONLY realtime.messages_2026_11_13
+    ADD CONSTRAINT messages_2026_11_13_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_14 messages_2026_11_14_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_14
+    ADD CONSTRAINT messages_2026_11_14_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_15 messages_2026_11_15_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_15
+    ADD CONSTRAINT messages_2026_11_15_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -27716,38 +28413,38 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_11_05_inserted_at_topic_idx ON realtime.messages_2026_11_05 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_11_06_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_06_inserted_at_topic_idx ON realtime.messages_2026_11_06 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_11_11_inserted_at_topic_idx ON realtime.messages_2026_11_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_11_07_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_11_07_inserted_at_topic_idx ON realtime.messages_2026_11_07 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_11_08_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_08_inserted_at_topic_idx ON realtime.messages_2026_11_08 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_11_12_inserted_at_topic_idx ON realtime.messages_2026_11_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
--- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
-CREATE INDEX messages_2026_11_09_inserted_at_topic_idx ON realtime.messages_2026_11_09 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+CREATE INDEX messages_2026_11_13_inserted_at_topic_idx ON realtime.messages_2026_11_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_14_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_14_inserted_at_topic_idx ON realtime.messages_2026_11_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_15_inserted_at_topic_idx ON realtime.messages_2026_11_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -27849,73 +28546,73 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_05_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_05_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_05_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_05_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_11_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_11_06_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_11_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_06_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_06_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_06_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_11_pkey;
 
 
 --
--- Name: messages_2026_11_07_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_07_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_07_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_07_pkey;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_12_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_11_08_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_12_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_08_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_08_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_08_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_12_pkey;
 
 
 --
--- Name: messages_2026_11_09_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_09_inserted_at_topic_idx;
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_13_inserted_at_topic_idx;
 
 
 --
--- Name: messages_2026_11_09_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+-- Name: messages_2026_11_13_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_09_pkey;
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_13_pkey;
+
+
+--
+-- Name: messages_2026_11_14_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_14_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_14_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_14_pkey;
+
+
+--
+-- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_15_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_15_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_15_pkey;
 
 
 --
@@ -28434,6 +29131,20 @@ CREATE TRIGGER trg_engagements_guard_start_date_floor BEFORE INSERT OR UPDATE OF
 --
 
 CREATE TRIGGER trg_engagements_log_assignment AFTER UPDATE OF partner_id, manager_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.log_engagement_assignment_change();
+
+
+--
+-- Name: engagements trg_engagements_partner_approval; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_partner_approval BEFORE INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_partner_approval();
+
+
+--
+-- Name: engagements trg_engagements_partner_approval_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_partner_approval_notify AFTER INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.notify_engagement_partner_approval_requested();
 
 
 --
@@ -30192,7 +30903,7 @@ CREATE POLICY "Approvers can update assigned timesheets" ON public.timesheet_per
 -- Name: timesheet_line_approvals Approvers can view assigned line approvals; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT USING (((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'all'::text) OR ((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'engagements'::text) AND (engagement_id IN ( SELECT public.my_team_engagement_ids() AS my_team_engagement_ids)))));
+CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT USING (((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'all'::text) OR ((( SELECT public.my_line_approval_mode() AS my_line_approval_mode) = 'engagements'::text) AND (engagement_id IN ( SELECT public.my_approvable_engagement_ids() AS my_approvable_engagement_ids)))));
 
 
 --
@@ -30512,6 +31223,181 @@ ALTER TABLE public.activity_worksheet_cells ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_worksheets ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: activity_worksheet_cells administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.activity_worksheet_cells AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+
+
+--
+-- Name: activity_worksheets administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.activity_worksheets AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: engagement_assignments administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.engagement_assignments AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: wo_budget_lines administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.wo_budget_lines AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_expense_budget administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.wo_expense_budget AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_staffing_requirement_skills administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));
+
+
+--
+-- Name: wo_staffing_requirements administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.wo_staffing_requirements AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: work_orders administrative write delete; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write delete" ON public.work_orders AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: activity_worksheet_cells administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.activity_worksheet_cells AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+
+
+--
+-- Name: activity_worksheets administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.activity_worksheets AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: engagement_assignments administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.engagement_assignments AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: wo_budget_lines administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.wo_budget_lines AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_expense_budget administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.wo_expense_budget AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_staffing_requirement_skills administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));
+
+
+--
+-- Name: wo_staffing_requirements administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.wo_staffing_requirements AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: work_orders administrative write insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write insert" ON public.work_orders AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: activity_worksheet_cells administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.activity_worksheet_cells AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id))) WITH CHECK (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+
+
+--
+-- Name: activity_worksheets administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.activity_worksheets AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(engagement_id)) WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: engagement_assignments administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.engagement_assignments AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(engagement_id)) WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
+-- Name: engagements administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.engagements AS RESTRICTIVE FOR UPDATE TO authenticated USING ((public.can_write_administrative_work(engagement_id) AND ((funcion IS DISTINCT FROM 3) OR (( SELECT public.current_role_key() AS current_role_key) = 'admin'::text)))) WITH CHECK ((public.can_write_administrative_work(engagement_id) AND ((funcion IS DISTINCT FROM 3) OR (( SELECT public.current_role_key() AS current_role_key) = 'admin'::text))));
+
+
+--
+-- Name: wo_budget_lines administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.wo_budget_lines AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id))) WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_expense_budget administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.wo_expense_budget AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id))) WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: wo_staffing_requirement_skills administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id))) WITH CHECK (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));
+
+
+--
+-- Name: wo_staffing_requirements administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.wo_staffing_requirements AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id))) WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+
+--
+-- Name: work_orders administrative write update; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "administrative write update" ON public.work_orders AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(engagement_id)) WITH CHECK (public.can_write_administrative_work(engagement_id));
+
+
+--
 -- Name: global_settings anon reads login settings; Type: POLICY; Schema: public; Owner: -
 --
 
@@ -30754,17 +31640,17 @@ CREATE POLICY "engagements creator update" ON public.engagements FOR UPDATE TO a
 
 
 --
+-- Name: engagements engagements hours approver read; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "engagements hours approver read" ON public.engagements FOR SELECT TO authenticated USING (((COALESCE((funcion)::integer, 1) <> 1) AND (manager_id IS NOT NULL) AND (manager_id = ( SELECT public.get_my_staff_id() AS get_my_staff_id))));
+
+
+--
 -- Name: engagements engagements hr administrative read; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion <> 1) AND ( SELECT public.has_permission('engagement.read'::text) AS has_permission) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
-
-
---
--- Name: engagements engagements hr administrative update; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY "engagements hr administrative update" ON public.engagements FOR UPDATE TO authenticated USING (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text])))) WITH CHECK (((funcion <> 1) AND public.has_permission('engagement.update'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
+CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated USING (((funcion = ANY (ARRAY[0, 2])) AND ( SELECT public.has_permission('engagement.read'::text) AS has_permission) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text]))));
 
 
 --
@@ -31586,6 +32472,13 @@ CREATE POLICY user_roles_select ON public.user_roles FOR SELECT TO authenticated
 
 
 --
+-- Name: work_orders wo hr analyst administrative insert; Type: POLICY; Schema: public; Owner: -
+--
+
+CREATE POLICY "wo hr analyst administrative insert" ON public.work_orders FOR INSERT TO authenticated WITH CHECK ((public.has_permission('work_order.create'::text) AND (( SELECT public.current_role_key() AS current_role_key) = ANY (ARRAY['hr_manager'::text, 'hr_analyst'::text])) AND public.is_engagement_team_member(engagement_id)));
+
+
+--
 -- Name: wo_budget_lines; Type: ROW SECURITY; Schema: public; Owner: -
 --
 
@@ -32028,5 +32921,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1wysQTGD2gNzqyjOYmTGjbiX4EC1sas4BFzkADmvAqCg2aC3T7CWd1ksnPTSyCb
+\unrestrict Sz2FCwll91Qf9kocs4BhchcILdwvgBOTNtfU6yfG4bvMfXOznhjElFSBiZDq6Gc
 
