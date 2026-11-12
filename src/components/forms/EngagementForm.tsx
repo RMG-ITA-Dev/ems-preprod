@@ -1466,6 +1466,18 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     const role = roleOfHoursApprover(eligibleApprovers, wManagerId);
     if (role) setApproverRole(role);
   }, [approverEnabled, approverRole, wManagerId, eligibleApprovers]);
+  // Review de Codex (2026-11-12): en edición, si admin cambia la sociedad de un no-Cliente, el Aprobador guardado deja
+  // de valer (siempre es de la sociedad del encargo y cada persona tiene una sola) y el trigger lo rechaza. Se limpian
+  // persona y rol para que elija uno de la sociedad nueva, en vez de recibir un FORBIDDEN al guardar. La primera
+  // sociedad que llega (el reset que siembra el encargo) no cuenta como cambio.
+  const lastSocietyIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = lastSocietyIdRef.current;
+    lastSocietyIdRef.current = selectedSocietyId;
+    if (!isEdit || !approverEnabled || !previous || !selectedSocietyId || previous === selectedSocietyId) return;
+    setApproverRole(null);
+    form.setValue("manager_id", "", { shouldDirty: true, shouldValidate: false });
+  }, [isEdit, approverEnabled, selectedSocietyId, form]);
   const approverResolved = !approverEnabled || (!approverFetching && !approverError);
   const managerCandidates = useMemo<TeamCandidateOption[]>(() => {
     if (!isAdministrativeFunction) return managerRoleOptions;

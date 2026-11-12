@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@/test/utils";
+import { render, screen, waitFor } from "@/test/utils";
+import userEvent from "@testing-library/user-event";
 
 /**
  * 1110-220 (plan_v5) — en un encargo no-Cliente el campo `manager_id` es el "Aprobador de horas" (Rol → Persona entre
@@ -19,11 +20,12 @@ vi.mock("react-i18next", () => ({
 
 const stableClients = [{ client_id: "client-1", client_legal_name: "Test Client", is_active: true }];
 const stableEmpty: never[] = [];
+let mockSocieties: { society_id: string; name: string; is_active: boolean }[] = [];
 vi.mock("@/hooks/useEmsData", () => ({
   useClientDirectory: () => ({ data: stableClients }),
   useServices: () => ({ data: stableEmpty }),
   useTaxonomies: () => ({ data: stableEmpty }),
-  useSocieties: () => ({ data: stableEmpty }),
+  useSocieties: () => ({ data: mockSocieties }),
   useEngagementAssignments: () => ({ data: stableEmpty, isLoading: false, isError: false }),
   useEngagementAggregatedRequirements: () => ({ data: stableEmpty }),
   useActiveStaffWithSkills: () => ({ data: stableEmpty }),
@@ -34,9 +36,10 @@ vi.mock("@/hooks/useCategoryStaff", () => ({
   useCategoryStaff: () => ({ partnerOptions: [], managerOptions: [], partners: [], managers: [] }),
 }));
 
+const { updateMutateAsync } = vi.hoisted(() => ({ updateMutateAsync: vi.fn() }));
 vi.mock("@/hooks/mutations", () => ({
   useCreateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useUpdateEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateEngagement: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
   useDeleteEngagement: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveEngagementAssignments: () => ({ saveAssignments: vi.fn(), isSaving: false }),
 }));
@@ -95,6 +98,15 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 import { EngagementForm } from "@/components/forms/EngagementForm";
 import type { Engagement } from "@/hooks/useEmsData";
 
+// Radix Select en jsdom (mismo shim que EngagementForm.society.test.tsx).
+if (typeof (globalThis as any).PointerEvent === "undefined") {
+  (globalThis as any).PointerEvent = MouseEvent;
+}
+if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false;
+if (!Element.prototype.setPointerCapture) Element.prototype.setPointerCapture = () => {};
+if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
+
 if (typeof (globalThis as any).ResizeObserver === "undefined") {
   (globalThis as any).ResizeObserver = class ResizeObserver {
     observe() {}
@@ -140,8 +152,10 @@ const base: Engagement = {
 beforeEach(() => {
   mockRoleKey = "hr_manager";
   mockStaffId = "staff-hr";
+  mockSocieties = [];
   approvers.isError = false;
   decideMutate.mockReset();
+  updateMutateAsync.mockReset();
   resubmitMutate.mockReset();
 });
 
@@ -172,6 +186,26 @@ describe("Aprobador de horas (Rol → Persona)", () => {
     render(<EngagementForm engagement={{ ...base, funcion: 1, work_order_required: true, partner_approval_status: null }} />);
     expect(screen.getByText("engagement.sqr")).toBeInTheDocument();
     expect(screen.getByText("engagement.encargado")).toBeInTheDocument();
+  });
+
+  it("admin cambia la sociedad al editar: se limpian rol y persona (el Aprobador es de la sociedad del encargo)", async () => {
+    mockRoleKey = "admin";
+    mockSocieties = [
+      { society_id: "soc-1", name: "Sociedad Uno", is_active: true },
+      { society_id: "soc-2", name: "Sociedad Dos", is_active: true },
+    ];
+    const user = userEvent.setup();
+    render(<EngagementForm engagement={base} />);
+    // Al hidratar no se limpia: la sociedad del encargo no cuenta como cambio.
+    await waitFor(() => expect(document.getElementById("hours-approver-role")).toHaveTextContent("authz.role.manager"));
+
+    await user.click(screen.getByLabelText(/engagement\.society/));
+    await user.click(await screen.findByRole("option", { name: "Sociedad Dos" }));
+
+    // El Aprobador guardado (m1, de soc-1) ya no viaja: guardar pide elegir uno de la sociedad nueva.
+    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
+    expect(await screen.findByText("engagement.requiredManager")).toBeInTheDocument();
+    expect(updateMutateAsync).not.toHaveBeenCalled();
   });
 
   it("si el catálogo falla, lo dice y no habilita elegir el rol", () => {

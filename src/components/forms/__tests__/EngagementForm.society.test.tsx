@@ -97,6 +97,18 @@ const stableAssignments: never[] = [];
 const stableAggregatedReqs: never[] = [];
 const stableActiveStaff: never[] = [];
 const stableCategories: never[] = [];
+// 1110-220: candidatos a Aprobador de horas. Solo hay uno, de la sociedad a la que el admin pasa el encargo.
+vi.mock("@/hooks/useHoursApproverCandidates", () => ({
+  useHoursApproverCandidates: () => ({
+    candidates: [
+      { staff_id: "staff-approver-2", display_name: "Nuevo Aprobador", role_key: "manager", society_id: "soc-active-2" },
+    ],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  }),
+}));
+
 vi.mock("@/hooks/useEmsData", () => ({
   useClientDirectory: () => ({ data: stableClients }),
   useServices: () => ({ data: mockServices }),
@@ -332,11 +344,18 @@ describe("EngagementForm — Sociedad select (FEAT 0714-155)", () => {
     await waitFor(() => screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
     await user.click(screen.getByRole("option", { name: "Ruizmier Jauregui S.R.L." }));
 
+      // 1110-220 (review de Codex): es un no-Cliente; el cambio de sociedad limpia al Aprobador de horas, que siempre
+      // es de la sociedad del encargo, y hay que elegir uno de la nueva antes de guardar.
+      await user.click(document.getElementById("hours-approver-role")!);
+      await user.click(await screen.findByRole("option", { name: "authz.role.manager" }));
+      await user.click(screen.getByText("engagement.selectHoursApprover"));
+      await user.click(await screen.findByText("Nuevo Aprobador"));
+
       await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
 
       await waitFor(() => expect(mockUpdateMutateAsync).toHaveBeenCalled());
       const [[call]] = mockUpdateMutateAsync.mock.calls;
-      expect(call.data).toMatchObject({ society_id: "soc-active-2" });
+      expect(call.data).toMatchObject({ society_id: "soc-active-2", manager_id: "staff-approver-2" });
     });
   });
 });

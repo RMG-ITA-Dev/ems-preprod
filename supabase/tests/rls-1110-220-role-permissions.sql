@@ -1033,6 +1033,78 @@ BEGIN
   RAISE NOTICE 'PASS — firma del Socio sin OT (pendiente/rechazo con motivo/reenvío/aprobación), sin horas sin OT, candado tras la firma (con y sin OT), Cliente sin candado';
 END $$;
 
+-- ── 11. Review de Codex: cambiar solo la sociedad de un no-Cliente revalida al Aprobador de horas ─────────────────────
+-- Sujeto 10: admin (Pelaez). Sujeto 11: manager de Jauregui. ES: no-Cliente de Pelaez con Aprobador M (4), sembrado como
+-- dueño. Admin lo pasa a Jauregui (sociedad + cliente interno, como lo exige 0722-160) sin tocar manager_id.
+INSERT INTO auth.users (id) VALUES ('a1102000-0000-4000-8000-000000000010'), ('a1102000-0000-4000-8000-000000000011');
+INSERT INTO public.user_roles (user_id, role, role_key) VALUES
+  ('a1102000-0000-4000-8000-000000000010', 'admin',   'admin'),
+  ('a1102000-0000-4000-8000-000000000011', 'manager', 'manager')
+ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
+INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, is_active, practica_id, society_id, city) VALUES
+  ('51102000-0000-4000-8000-000000000010', 'a1102000-0000-4000-8000-000000000010', 'U10', 'R1102', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'), 'La Paz'),
+  ('51102000-0000-4000-8000-000000000011', 'a1102000-0000-4000-8000-000000000011', 'U11', 'R1102', true,
+   (SELECT practica_id FROM public.practicas WHERE code = 1),
+   (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.'), 'La Paz');
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engagement_code, funcion, oficina, practica,
+                                fecha_cierre, start_date, end_date, work_order_required, approval_required, is_internal,
+                                society_id, manager_id, partner_id, created_by_staff_id)
+VALUES ('e1102000-0000-4000-8000-000000000011', 'c1000000-0000-4000-8000-000000000160', 'R1102 ES', 'R1102-ES', 0, 1, 1,
+        '2027-12-31', '2026-01-05', '2099-06-30', false, true, true,
+        (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
+        '51102000-0000-4000-8000-000000000004', NULL, '51102000-0000-4000-8000-000000000006');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_es  uuid := 'e1102000-0000-4000-8000-000000000011';
+  v_jau uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  v_err text;
+BEGIN
+  -- Solo sociedad (y su cliente interno): el Aprobador de Pelaez ya no vale.
+  BEGIN
+    PERFORM pg_temp.impersonate(pg_temp.u(10));
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    UPDATE public.engagements SET society_id = v_jau, client_id = 'c1000000-0000-4000-8000-000000000161'
+     WHERE engagement_id = v_es;
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    v_err := SQLERRM;
+  END;
+  IF v_err IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — admin cambió la sociedad de un no-Cliente y quedó el Aprobador de la sociedad vieja';
+  END IF;
+  IF v_err NOT LIKE '%Aprobador de horas debe ser de la sociedad%' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el rechazo del cambio de sociedad salió de otra regla: %', v_err;
+  END IF;
+  IF (SELECT society_id FROM public.engagements WHERE engagement_id = v_es)
+     IS DISTINCT FROM (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.') THEN
+    RAISE EXCEPTION '1110-220 FAIL — el cambio de sociedad rechazado igual se guardó';
+  END IF;
+
+  -- Sociedad + Aprobador de la sociedad nueva: pasa.
+  IF pg_temp.rows_as(pg_temp.u(10), format(
+       'UPDATE public.engagements SET society_id = %L, client_id = %L, manager_id = %L WHERE engagement_id = %L',
+       v_jau, 'c1000000-0000-4000-8000-000000000161', pg_temp.s(11), v_es)) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — admin no pudo cambiar la sociedad junto con un Aprobador de la sociedad nueva';
+  END IF;
+
+  -- Cliente: la sociedad no restringe al Gerente, cambiarla no revalida. EC lleva como Gerente a alguien que hoy no
+  -- sería elegible (Contabilidad), sembrado como dueño: el cambio de sociedad igual pasa.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(1) WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF pg_temp.rows_as(pg_temp.u(10), format('UPDATE public.engagements SET society_id = %L WHERE engagement_id = %L',
+       v_jau, 'e1102000-0000-4000-8000-000000000002')) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — cambiar la sociedad de un encargo de Cliente quedó atado al Gerente';
+  END IF;
+  RAISE NOTICE 'PASS — cambiar la sociedad de un no-Cliente revalida al Aprobador de horas; en Cliente no';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

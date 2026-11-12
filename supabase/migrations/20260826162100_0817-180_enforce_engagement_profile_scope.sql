@@ -42,7 +42,12 @@ BEGIN
   -- En ambos: staff activo, no borrado, con cuenta vinculada y rol activo. Corre al crear y cuando cambia la
   -- persona; un asignado que luego pierde elegibilidad queda guardado pero no se puede volver a elegir. Espejo de
   -- get_hours_approver_candidates() / get_engagement_team_candidates() y de EngagementForm.
-  IF TG_OP = 'INSERT' OR NEW.manager_id IS DISTINCT FROM OLD.manager_id THEN
+  -- En no-Cliente también corre cuando cambia la sociedad (review de Codex, 2026-11-12): admin edita society_id
+  -- solo, y sin esto el Aprobador de la sociedad vieja quedaba guardado. En Cliente la sociedad no restringe al
+  -- Gerente, así que cambiarla no revalida.
+  IF TG_OP = 'INSERT'
+     OR NEW.manager_id IS DISTINCT FROM OLD.manager_id
+     OR (COALESCE(NEW.funcion, 1) <> 1 AND NEW.society_id IS DISTINCT FROM OLD.society_id) THEN
     IF COALESCE(NEW.funcion, 1) <> 1 AND NEW.manager_id IS NULL THEN
       RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas es obligatorio en un encargo Administrativa, Capacitacion o Calidad'
         USING ERRCODE = 'insufficient_privilege';
@@ -192,7 +197,7 @@ END;
 $$;
 
 
-COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst y funcion 3 (Control de Calidad) para Talento Humano; fuerza work_order_required/approval_required=true en lo que crea todo rol distinto de admin, salvo un no-Cliente de Talento Humano (elige ambos); valida manager_id (1110-220 plan_v5): en no-Cliente es el Aprobador de horas, obligatorio, de 14 roles y de la sociedad del encargo; en Cliente, manager/ita_manager/tax_manager; siempre staff activo, no borrado, con cuenta y rol activo; y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
+COMMENT ON FUNCTION public.enforce_engagement_profile_scope() IS 'BUG 0817-180: en INSERT exige engagement.create, rechaza funcion Cliente (1 o NULL) para hr_analyst y (1110-220) hr_manager; (1110-220) rechaza funcion no-Cliente para todo rol distinto de admin/hr_manager/hr_analyst y funcion 3 (Control de Calidad) para Talento Humano; fuerza work_order_required/approval_required=true en lo que crea todo rol distinto de admin, salvo un no-Cliente de Talento Humano (elige ambos); valida manager_id (1110-220 plan_v5): en no-Cliente es el Aprobador de horas, obligatorio, de 14 roles y de la sociedad del encargo (se revalida también cuando cambia la sociedad); en Cliente, manager/ita_manager/tax_manager; siempre staff activo, no borrado, con cuenta y rol activo; y, para role_key distinto de admin/senior_partner, que society_id/practica/oficina coincidan con la ficha del creador (staff.society_id/practica_id->code/city->1|2); perfil incompleto o practica inactiva rechaza (fail-closed). En UPDATE, asimetrico: society_id solo lo edita admin (0722-157); oficina/practica quedan inmutables para todos. Exento: auth.uid() IS NULL (seeds/migraciones/service_role).';
 
 
 GRANT ALL ON FUNCTION public.enforce_engagement_profile_scope() TO anon;
