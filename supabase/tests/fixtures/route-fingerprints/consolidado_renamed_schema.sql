@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Sz2FCwll91Qf9kocs4BhchcILdwvgBOTNtfU6yfG4bvMfXOznhjElFSBiZDq6Gc
+\restrict Mi6aSMMzGiNZLgqPieLaCn5WemJ4FIDmtBXEwtc1ppz3gvwQraaTmSBu8vjcGzF
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg24.04+1)
@@ -4191,6 +4191,19 @@ BEGIN
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- Review de Codex (2026-11-12): un no-Cliente que ya tiene OT no apaga "Requiere OT". Si no, la OT, su presupuesto y
+  -- sus gastos quedaban vivos y editables mientras el encargo pasaba a pedir la firma del Socio sin OT (dos firmas para
+  -- el mismo encargo). Una OT no se borra desde la app, así que la regla es simple: con OT, el switch queda encendido.
+  -- Sin sesión (seeds, SQL Editor) no aplica.
+  IF auth.uid() IS NOT NULL
+     AND COALESCE(NEW.funcion, 1) <> 1
+     AND OLD.work_order_required
+     AND NOT NEW.work_order_required
+     AND EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.engagement_id = NEW.engagement_id) THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo ya tiene OT; no se puede apagar "Requiere OT"'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
   -- Recalcular si deja o pasa a necesitar la firma del encargo (cambio del switch de OT o de función).
   IF NOT v_needs THEN
     NEW.partner_approval_status     := NULL;
@@ -4210,7 +4223,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_partner_approval(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC) y candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin. Sin sesión no aplica.';
+COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; y un no-Cliente con OT no apaga work_order_required. Sin sesión no aplica.';
 
 
 --
@@ -32921,5 +32934,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Sz2FCwll91Qf9kocs4BhchcILdwvgBOTNtfU6yfG4bvMfXOznhjElFSBiZDq6Gc
+\unrestrict Mi6aSMMzGiNZLgqPieLaCn5WemJ4FIDmtBXEwtc1ppz3gvwQraaTmSBu8vjcGzF
 
