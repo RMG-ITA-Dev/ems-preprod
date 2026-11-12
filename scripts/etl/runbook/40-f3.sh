@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Paso 40 — Fase 3 por bloques: encargos cliente, administrativos, matrices, OT (gastos, plan de pagos y notas, riesgo/aprobación,
 # cuotas facturadas) y horas. Los conteos salen del manifiesto del snapshot (scripts/etl/snapshots/<base>.json); al 06/11/2026:
-# 155 encargos cliente, 153 administrativos, 155 matrices y OT, 428 filas de plan (414 cuotas y 14 notas), 27 cuotas facturadas.
+# 155 encargos cliente, 107 administrativos (D36), 155 matrices y OT, 428 filas de plan (414 cuotas y 14 notas), 27 cuotas facturadas.
 #   --tracking-start AAAA-MM-DD (lunes)  fija TS_TRACKING_START_DATE al terminar F3 (D24); sin él, el paso lo avisa como pendiente.
 #   bash scripts/etl/runbook/40-f3.sh --env test|local [--run-id 0001] [--from <bloque>] [--dry-run] [--yes-local]
 # Bloques: client-engagements administrative-engagements matrices work-orders hours

@@ -39,7 +39,7 @@ describe("manifiesto por snapshot", () => {
     const m = loadSnapshotManifest(FINAL);
     expect(m.f2).toMatchObject({ clients: 269, staff: 167, users: 167, rates: 15, services: 46, activeStaff: 151, inactiveStaff: 16 });
     expect(m.f2.contacts).toBeNull(); expect(m.f2.schedulableStaff).toBeNull();
-    expect(m.f3).toMatchObject({ clientEngagements: 155, administrativeEngagements: 153, matrices: 155, workOrders: 155, engagementsTotal: 308, risks: 155 });
+    expect(m.f3).toMatchObject({ clientEngagements: 155, administrativeEngagements: 107, matrices: 155, workOrders: 155, engagementsTotal: 262, risks: 155 });
     expect(m.f3.engagementsTotal).toBe(m.f3.clientEngagements! + m.f3.administrativeEngagements!);
     expect(m.f3.riskLevels).toEqual({ Bajo: 137, Moderado: 18, Alto: 0 }); expect(m.f3.expenses).toEqual({ positive: 85, zero: 690, totalUnits: null });
     expect(m.f3.payments).toEqual({ plans: 155, rows: 428, billable: 414, notes: 14 }); expect(m.f3.payments.billable! + m.f3.payments.notes!).toBe(m.f3.payments.rows);
@@ -109,8 +109,8 @@ describe("configuración F2 y F3 con manifiesto", () => {
     expect(() => parseF2Config(f2Raw(FINAL, "test", { expectations: { contacts: 365 } }))).toThrow(/alterar expectations/);
   });
 
-  it("F3 con el snapshot del 06/11 admite local y expone las cifras de 155 OT y 308 encargos", () => {
-    const f3 = parseF3Config(f3Raw(FINAL)); expect(f3.manifest.f3.clientEngagements).toBe(155); expect(f3.manifest.f3.engagementsTotal).toBe(308);
+  it("F3 con el snapshot del 06/11 admite local y expone las cifras de 155 OT y 262 encargos", () => {
+    const f3 = parseF3Config(f3Raw(FINAL)); expect(f3.manifest.f3.clientEngagements).toBe(155); expect(f3.manifest.f3.engagementsTotal).toBe(262);
   });
 });
 
