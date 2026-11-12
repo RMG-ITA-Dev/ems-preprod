@@ -193,6 +193,8 @@ node scripts/etl/fase2.mjs verify       --config <archivo>
 node scripts/etl/fase2.mjs report       --config <archivo>
 node scripts/etl/fase2.mjs probe-access --config <archivo> --staff-ref <ref> [--manual]
 node scripts/etl/fase2.mjs probe-close  --config <archivo> --staff-ref <ref>
+# D40: contiene (status=failed, last_error=ETL_F2_NO_DELIVERY) los correos auth.role.changed pendientes de las fichas y cuentas creadas por F2. Idempotente; exige el journal completo.
+node scripts/etl/fase2.mjs contain-emails --config <archivo>
 ```
 
 La configuración F2 es privada y contiene rutas absolutas de los seis CSV; use
