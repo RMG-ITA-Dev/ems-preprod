@@ -1,13 +1,14 @@
 {
   "snapshot": "TimeControlDB_20261106_1600",
-  "bak": { "file": null, "sha256": null, "takenAt": "2026-11-06T16:03" },
+  "bak": { "file": "DB_EMS_V1_6NOV26_1600_FINAL.bak", "sha256": "ff8f5d4f1c41333111347beeceaa9a7fb80ec3e77d101e1c77af1062cb8291a9", "takenAt": "2026-11-06T16:03" },
   "dates": { "staffCut": "2026-11-06", "recentHire": "2026-10-01", "fy2026End": "2026-11-30", "fy2027End": "2027-09-30", "adminWindowFrom": null, "adminWindowTo": null },
-  "f2": { "clients": 269, "contacts": null, "staff": 167, "users": 167, "rates": 15, "services": 46, "activeStaff": 151, "inactiveStaff": 16, "schedulableStaff": null },
+  "f2": { "clients": 269, "contacts": 347, "staff": 167, "users": 167, "rates": 15, "services": 46, "activeStaff": 151, "inactiveStaff": 16, "schedulableStaff": 159 },
   "f3": {
     "clientEngagements": 155, "administrativeEngagements": 107, "selectorProfiles": null, "matrices": 155, "workOrders": 155, "engagementsTotal": 262, "risks": 155,
     "riskLevels": { "Bajo": 137, "Moderado": 18, "Alto": 0 },
-    "expenses": { "positive": 85, "zero": 690, "totalUnits": null },
+    "expenses": { "positive": 85, "zero": 690, "totalUnits": 9595900 },
     "payments": { "plans": 155, "rows": 428, "billable": 414, "notes": 14 },
+    "hours": { "rows": 18799, "total": "65470", "persons": 146, "engagements": 132, "lastWorkedDay": "2026-10-30" },
     "endDates": { "allowed": ["2026-11-30", "2027-09-30"], "byYear": null, "counts": { "2026-11-30": 45, "2027-09-30": 110 } }
   },
   "planNotes": [
@@ -26,5 +27,6 @@
     "2024.22.010|1", "2025.22.005|1", "2026.22.004|1"
   ],
   "preflight": { "executionDeadline": "2026-11-30" },
-  "pending": ["f2.contacts (depende del criterio de contacto distinto, D23)", "f2.schedulableStaff (depende de la curación del CSV v3)", "f3.expenses.totalUnits (sale del CSV v3)", "bak.file y bak.sha256"]
+  "pending": [],
+  "notApplicable": ["f3.selectorProfiles (sin selector de personal: las administrativas salen de la lista de TH, D36)", "dates.adminWindowFrom y dates.adminWindowTo (sin ventana: no se cargan horas administrativas, D1)"]
 }

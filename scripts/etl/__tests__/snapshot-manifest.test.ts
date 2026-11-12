@@ -35,13 +35,15 @@ describe("manifiesto por snapshot", () => {
     expect(m.invoicedInstallments).toEqual([]); expect(m.toleranceCots).toEqual([]);
   });
 
-  it("el manifiesto del 06/11 declara las cifras definitivas de la guía y deja null lo que depende del CSV v3", () => {
+  it("el manifiesto del 06/11 declara las cifras definitivas de la guía y del CSV v3 (solo quedan null los controles que ya no aplican)", () => {
     const m = loadSnapshotManifest(FINAL);
     expect(m.f2).toMatchObject({ clients: 269, staff: 167, users: 167, rates: 15, services: 46, activeStaff: 151, inactiveStaff: 16 });
-    expect(m.f2.contacts).toBeNull(); expect(m.f2.schedulableStaff).toBeNull();
+    expect(m.f2.contacts).toBe(347); expect(m.f2.schedulableStaff).toBe(159);
+    expect(m.bak).toEqual({ file: "DB_EMS_V1_6NOV26_1600_FINAL.bak", sha256: "ff8f5d4f1c41333111347beeceaa9a7fb80ec3e77d101e1c77af1062cb8291a9", takenAt: "2026-11-06T16:03" });
+    expect(m.f3.selectorProfiles).toBeNull(); expect(m.dates.adminWindowFrom).toBeNull(); expect(m.dates.adminWindowTo).toBeNull(); // sin selector ni ventana de horas administrativas (D1, D36)
     expect(m.f3).toMatchObject({ clientEngagements: 155, administrativeEngagements: 107, matrices: 155, workOrders: 155, engagementsTotal: 262, risks: 155 });
     expect(m.f3.engagementsTotal).toBe(m.f3.clientEngagements! + m.f3.administrativeEngagements!);
-    expect(m.f3.riskLevels).toEqual({ Bajo: 137, Moderado: 18, Alto: 0 }); expect(m.f3.expenses).toEqual({ positive: 85, zero: 690, totalUnits: null });
+    expect(m.f3.riskLevels).toEqual({ Bajo: 137, Moderado: 18, Alto: 0 }); expect(m.f3.expenses).toEqual({ positive: 85, zero: 690, totalUnits: 9595900 });
     expect(m.f3.payments).toEqual({ plans: 155, rows: 428, billable: 414, notes: 14 }); expect(m.f3.payments.billable! + m.f3.payments.notes!).toBe(m.f3.payments.rows);
     expect(m.planNotes).toHaveLength(14); expect(m.invoicedInstallments).toHaveLength(27); expect(m.toleranceCots).toEqual(["2024.22.002"]);
     expect(m.f3.endDates.allowed).toEqual(["2026-11-30", "2027-09-30"]); expect(m.f3.endDates.counts).toEqual({ "2026-11-30": 45, "2027-09-30": 110 });
@@ -102,10 +104,10 @@ describe("configuración F2 y F3 con manifiesto", () => {
     expect(() => parseF3Config(f3Raw("TimeControlDB_20990101_0000"))).toThrow(/sin manifiesto/);
   });
 
-  it("F2 con el snapshot del 06/11: local tolera los null (los completa expectations); Test y producción los bloquean", () => {
-    const local = parseF2Config(f2Raw(FINAL)); expect(local.expectations).toMatchObject({ staff: 167, users: 167, inactiveStaff: 16 }); expect(local.expectations.contacts).toBeNull();
-    const filled = parseF2Config(f2Raw(FINAL, "local", { expectations: { contacts: 365, schedulableStaff: 150 } })); expect(filled.expectations).toMatchObject({ contacts: 365, schedulableStaff: 150 });
-    expect(() => parseF2Config(f2Raw(FINAL, "test"))).toThrow(/no declara f2\.contacts, f2\.schedulableStaff/);
+  it("F2 con el snapshot del 06/11: el manifiesto declara todas las cifras (local y Test las aceptan) y Test no permite alterarlas", () => {
+    const local = parseF2Config(f2Raw(FINAL)); expect(local.expectations).toMatchObject({ staff: 167, users: 167, inactiveStaff: 16, contacts: 347, schedulableStaff: 159 });
+    const filled = parseF2Config(f2Raw(FINAL, "local", { expectations: { contacts: 365, schedulableStaff: 150 } })); expect(filled.expectations).toMatchObject({ contacts: 365, schedulableStaff: 150 }); // local puede probar otras cifras
+    expect(() => parseF2Config(f2Raw(FINAL, "test"))).not.toThrow();
     expect(() => parseF2Config(f2Raw(FINAL, "test", { expectations: { contacts: 365 } }))).toThrow(/alterar expectations/);
   });
 

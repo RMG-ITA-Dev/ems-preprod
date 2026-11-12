@@ -39,7 +39,9 @@ export function validateManifestShape(raw, name) {
   for (const key of DATE_KEYS) if (!(key in raw.dates) || !isDate(raw.dates[key])) fail(name, `dates.${key} debe existir (AAAA-MM-DD o null)`);
   for (const key of F2_KEYS) if (!(key in raw.f2) || !isCount(raw.f2[key])) fail(name, `f2.${key} debe existir (entero o null)`);
   for (const key of F3_COUNT_KEYS) if (!(key in raw.f3) || !isCount(raw.f3[key])) fail(name, `f3.${key} debe existir (entero o null)`);
-  const { expenses, payments, endDates, riskLevels } = raw.f3;
+  const { expenses, payments, endDates, riskLevels, hours } = raw.f3;
+  // f3.hours (opcional; manifiestos anteriores al 06/11 no lo traen): ancla de las horas aprobadas que migran. Cada valor es null (sin declarar) o su cifra.
+  if (hours !== undefined && (!hours || typeof hours !== "object" || !isCount(hours.rows) || !isCount(hours.persons) || !isCount(hours.engagements) || !(hours.total === null || /^\d+(\.\d+)?$/.test(String(hours.total))) || !(hours.lastWorkedDay === null || (typeof hours.lastWorkedDay === "string" && ISO_DATE.test(hours.lastWorkedDay))))) fail(name, "f3.hours inválido (rows, total, persons, engagements, lastWorkedDay)");
   if (!expenses || !isCount(expenses.positive) || !isCount(expenses.zero) || !(expenses.totalUnits === null || /^\d+$/.test(String(expenses.totalUnits)))) fail(name, "f3.expenses inválido");
   if (!payments || !["plans", "rows", "billable", "notes"].every((key) => isCount(payments[key]))) fail(name, "f3.payments inválido");
   if (!endDates || !Array.isArray(endDates.allowed) || !endDates.allowed.length || !endDates.allowed.every((d) => ISO_DATE.test(d))) fail(name, "f3.endDates.allowed debe listar fechas AAAA-MM-DD");

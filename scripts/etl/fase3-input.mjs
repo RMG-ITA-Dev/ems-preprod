@@ -141,6 +141,22 @@ export function validatePayments(rows, clientCots, { manifest = null } = {}) {
 
 export function approvedExecution(row) { return text(row.approval_evidence_count) === "1" && text(row.approved_evidence_count) === "1" && text(row.legacy_pending_approval) === "0"; }
 export function isMigrableExecution(row) { return approvedExecution(row) && ["migrable_aprobada", "migrable"].includes(text(row.disposition)); }
+// A-06 / D39 (12/11/2026): las horas que migran se anclan en el manifiesto (f3.hours). Sin esto, la conciliación L7a compara lo cargado contra el propio CSV y un CSV mal
+// extraído (por ejemplo, sin las 22 OT de gestión anterior) pasaría en verde. `hours` ausente (manifiesto del 23/10) = no aplica; un valor null se trata como los demás controles
+// (en local no se aplica; en Test y producción bloquea). Compara solo las horas aprobadas (las que carga el ETL).
+const hoursUnits = (value) => { const [whole, fraction = ""] = String(value ?? "").trim().split("."); return BigInt(whole || "0") * 10000n + BigInt(fraction.padEnd(4, "0").slice(0, 4) || "0"); };
+export function assertExecutionTotals(executions, hours, environment = "local") {
+  if (!hours) return;
+  const migrable = executions.filter(isMigrableExecution);
+  const actual = { rows: migrable.length, total: migrable.reduce((sum, row) => sum + hoursUnits(row.legacy_hours), 0n), persons: new Set(migrable.map((row) => text(row.legacy_profile_id))).size, engagements: new Set(migrable.map((row) => text(row.legacy_cot))).size };
+  const lastWorkedDay = migrable.reduce((max, row) => (text(row.legacy_worked_at) > max ? text(row.legacy_worked_at) : max), "");
+  const diffs = [];
+  for (const key of ["rows", "persons", "engagements"]) { const want = declaredCount(environment, hours[key], `f3.hours.${key}`); if (want !== null && want !== actual[key]) diffs.push(`${key}: ${actual[key]} de ${want}`); }
+  const wantTotal = declaredCount(environment, hours.total, "f3.hours.total"); if (wantTotal !== null && hoursUnits(wantTotal) !== actual.total) diffs.push(`total: ${Number(actual.total) / 10000} h de ${wantTotal} h`);
+  const cut = declaredCount(environment, hours.lastWorkedDay, "f3.hours.lastWorkedDay"); if (cut !== null && lastWorkedDay > cut) diffs.push(`día trabajado ${lastWorkedDay} posterior al corte ${cut}`);
+  if (diffs.length) throw new Fase3InputError(`horas fuera del manifiesto (${diffs.join("; ")})`);
+}
+
 export function validateExecutions(rows, clientCots) {
   unique(rows, (row) => row.legacy_execution_id, "PK ejecución");
   for (const row of rows) {
@@ -172,6 +188,7 @@ export function validateInputs(inputs, { enforceExpected = false, manifest = nul
     if (!manifest) throw new Fase3InputError("enforceExpected exige el manifiesto del snapshot", "CONFIG");
     // null = sin declarar: en local no se aplica; en Test y producción bloquea (declared lanza).
     const wantClient = declaredCount(environment, manifest.f3.clientEngagements, "f3.clientEngagements"); const wantAdmin = declaredCount(environment, manifest.f3.administrativeEngagements, "f3.administrativeEngagements");
+    assertExecutionTotals(inputs.executions, manifest.f3.hours, environment);
     if ((wantClient !== null && clientEngagements.length !== wantClient) || (wantAdmin !== null && inputs.administrativeEngagements.length !== wantAdmin)) throw new Fase3InputError(`el alcance F3 exige ${wantClient} COT cliente y ${wantAdmin} administrativos (manifiesto ${manifest.snapshot})`);
   }
   return Object.freeze({ ...inputs, fingerprints: Object.fromEntries(Object.entries(inputs).map(([name, rows]) => [name, fingerprint(rows)])), clientCots });
