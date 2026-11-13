@@ -688,7 +688,9 @@ const TimeSheet = () => {
           <Alert>
             <Lock className="h-4 w-4" />
             <AlertDescription>
-              {period?.is_period_locked 
+              {period?.import_batch
+                ? t("timesheet.periodImported")
+                : period?.is_period_locked 
                 ? t("timesheet.periodLocked")
                 : isFullyApproved 
                   ? t("timesheet.fullyApproved")

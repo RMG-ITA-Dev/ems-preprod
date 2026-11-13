@@ -3,18 +3,19 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { declared, loadSnapshotManifest } from "./snapshot-manifest.mjs";
+import { declared, loadSnapshotManifest, manifestContract, manifestOrigin } from "./snapshot-manifest.mjs";
 import { assertEndDateCounts } from "./snapshot-manifest.mjs";
 import { Fase1Error, KNOWN_REFS, LOOPBACK_HOSTS, REPO_ROOT, connectionGuardProblems } from "./fase1-db.mjs";
 import { acquireLock, readJournal, sha256 } from "./fase1.mjs";
 import { STATES as F2_STATES } from "./fase2.mjs";
 import { createFase3DbAdapter } from "./fase3-db.mjs";
-import { assertHourEntryAnchors, assertRiskLevelCounts, isMigrableExecution, isPlanNote, readInput, riskLevelFromLegacy, validateInputs } from "./fase3-input.mjs";
+import { OPTIONAL_INPUT_NAMES, assertHistoryAnchors, assertHourEntryAnchors, assertRiskLevelCounts, historyContract, isMigrableExecution, isPlanNote, readInput, riskLevelFromLegacy, validateInputs } from "./fase3-input.mjs";
+import { approvalsByExecution, buildHistoryBlueprint, historyPayload } from "./fase3-history.mjs";
 import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
 import { FingerprintIncompatibleError, assertComparableFingerprints, buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
-import { budgetInOtCurrency, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
+import { budgetInOtCurrency, aliasProfile, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
 
 export const BLOCKS = Object.freeze(["client-engagements", "administrative-engagements", "matrices", "work-orders", "hours"]);
 export const STATES = Object.freeze(["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "ENCARGOS_CLIENTE_ACEPTADOS", "ADMINISTRATIVOS_ACEPTADOS", "MATRICES_ACEPTADAS", "OTS_ACEPTADAS", "HORAS_VERIFICADAS", "ACEPTADO"]);
@@ -39,6 +40,9 @@ export function parseConfig(raw) {
   // Cada snapshot aprobado tiene su manifiesto (scripts/etl/snapshots/<base>.json) con las cifras de control; sin él no hay carga.
   let manifest; try { manifest = loadSnapshotManifest(raw.snapshot); } catch (error) { bad(error.message); }
   if (!raw.inputs || INPUT_NAMES.some((name) => typeof raw.inputs[name] !== "string" || !path.isAbsolute(raw.inputs[name]))) bad("F3 requiere las seis rutas absolutas de entrada");
+  // D41 Parte I: el archivo lateral de aprobaciones es obligatorio con el contrato D41 del manifiesto y no debe existir sin él.
+  if (raw.inputs.executionApprovals !== undefined && (typeof raw.inputs.executionApprovals !== "string" || !path.isAbsolute(raw.inputs.executionApprovals))) bad("inputs.executionApprovals debe ser una ruta absoluta");
+  if (Boolean(historyContract(manifest)) !== (raw.inputs.executionApprovals !== undefined)) bad("el contrato D41 del manifiesto exige inputs.executionApprovals (aprobador y fecha reales) y sin ese contrato no debe declararse");
   if (!raw.f2StateDir || !path.isAbsolute(raw.f2StateDir)) bad("F3 requiere f2StateDir absoluto con journal verificado");
   if (!raw.f2ServicesFile || !path.isAbsolute(raw.f2ServicesFile)) bad("F3 requiere f2ServicesFile absoluto con equivalencias verificadas");
   if (!raw.f2ClientsFile || !path.isAbsolute(raw.f2ClientsFile)) bad("F3 requiere f2ClientsFile absoluto con industrias verificadas");
@@ -317,7 +321,18 @@ export function assertTarget(config, env) {
 }
 const checkpoint = (ctx, patch) => { ctx.journal = { ...ctx.journal, ...patch, updatedAt: new Date().toISOString() }; writeJson(ctx.journalFile, ctx.journal); return ctx.journal; };
 const requireState = (ctx, state) => { if (STATES.indexOf(ctx.journal.state) > STATES.indexOf(state)) return; checkpoint(ctx, { state }); };
-const inputsFor = (config) => Object.fromEntries(INPUT_NAMES.map((name) => [name, readInput(config.inputs[name], name)]));
+const inputsFor = (config) => Object.fromEntries([...INPUT_NAMES, ...OPTIONAL_INPUT_NAMES.filter((name) => config.inputs[name])].map((name) => [name, readInput(config.inputs[name], name)]));
+// Valida las entradas y, con el contrato D41, ancla el archivo lateral de aprobaciones al manifiesto (filas y SHA-256 del archivo).
+function validatedInputs(ctx) {
+  const inputs = validateInputs(inputsFor(ctx.config), { enforceExpected: true, manifest: ctx.config.manifest, environment: ctx.config.environment });
+  const history = historyContract(ctx.config.manifest);
+  if (history) {
+    const env = ctx.config.environment; const rows = declared(env, history.approvals.rows, "f3.hours.history.approvals.rows"); const sha = declared(env, history.approvals.sha256, "f3.hours.history.approvals.sha256");
+    if (rows !== null && inputs.executionApprovals.length !== rows) throw new Fase1Error("BLOQUEADO", `aprobaciones: ${inputs.executionApprovals.length} filas de las ${rows} declaradas en el manifiesto`);
+    if (sha !== null && sha256File(ctx.config.inputs.executionApprovals) !== sha) throw new Fase1Error("BLOQUEADO", "aprobaciones: el SHA-256 del archivo no coincide con el del manifiesto");
+  }
+  return inputs;
+}
 
 // Con progreso (unidades o bloques ya escritos) los CSV no pueden cambiar: las unidades confirmadas y sus UUID salieron de
 // los insumos anteriores. Antes de cargar nada sí se puede corregir un CSV y revalidar.
@@ -326,12 +341,13 @@ export function assertInputsUnchangedSinceProgress(journal, fingerprints) {
 }
 
 export async function validate(ctx) {
-  const inputs = validateInputs(inputsFor(ctx.config), { enforceExpected: true, manifest: ctx.config.manifest, environment: ctx.config.environment }); const matrix = buildMatrixArtifacts({ engagements: inputs.clientEngagements, planRows: inputs.planHours }); const executions = consolidateExecutions(inputs.executions.filter(isMigrableExecution));
+  const inputs = validatedInputs(ctx); const matrix = buildMatrixArtifacts({ engagements: inputs.clientEngagements, planRows: inputs.planHours }); const executions = consolidateExecutions(inputs.executions.filter(isMigrableExecution));
   const evidence = { R1: { inputs: inputs.fingerprints, clients: inputs.clientEngagements.length, administrative: inputs.administrativeEngagements.length, matrixHours: matrix.cellTotal, executedCells: executions.length }, R3: { zeroPlanHours: matrix.dispositions.filter((row) => row.disposition === "omitida_cero").length, zeroExpenses: inputs.expenses.filter((row) => row.disposition === "omitida_cero").length, excludedExecutions: inputs.executions.filter((row) => !isMigrableExecution(row)).length }, R4: { matrixSourceTotal: matrix.sourceTotal, noteCount: inputs.payments.filter((row) => ["nota_plan_confirmada", "plan_note"].includes(row.proposed_disposition)).length } };
   assertInputsUnchangedSinceProgress(ctx.journal, inputs.fingerprints);
   requireState(ctx, "VALIDADO"); checkpoint(ctx, { inputs: inputs.fingerprints, evidence }); ctx.inputs = inputs; return { ok: true, inputs, matrix, executions, evidence };
 }
-export async function preflight(ctx) { const result = await validate(ctx); const target = await ctx.db.preflight(ctx.config); if (!target.engagement_rpc || !target.sync_rpc || !target.note_rpc) throw new Fase1Error("BLOQUEADO", "contrato RPC F3 incompleto"); if (target.technical_admin_ok !== true) throw new Fase1Error("BLOQUEADO", "technicalAdminId no es el administrador bootstrap (ficha enlazada con rol admin/admin)"); const inventory = await ctx.db.inventory(); requireState(ctx, "PREFLIGHT_VALIDADO"); checkpoint(ctx, { inventory }); return { ...result, target, inventory }; }
+export async function preflight(ctx) { const result = await validate(ctx); const target = await ctx.db.preflight(ctx.config); if (!target.engagement_rpc || !target.sync_rpc || !target.note_rpc) throw new Fase1Error("BLOQUEADO", "contrato RPC F3 incompleto");
+  if (historyContract(ctx.config.manifest) && target.history_import_fn !== true) throw new Fase1Error("BLOQUEADO", "contrato D41: falta public.import_historic_timesheets en el destino (cero_02 con D41)"); if (target.technical_admin_ok !== true) throw new Fase1Error("BLOQUEADO", "technicalAdminId no es el administrador bootstrap (ficha enlazada con rol admin/admin)"); const inventory = await ctx.db.inventory(); requireState(ctx, "PREFLIGHT_VALIDADO"); checkpoint(ctx, { inventory }); return { ...result, target, inventory }; }
 const previousBlock = (block) => ({ "client-engagements": null, "administrative-engagements": "client-engagements", matrices: "administrative-engagements", "work-orders": "matrices", hours: "work-orders" })[block];
 export function acceptBlock(ctx, block, evidenceHash) {
   if (!BLOCKS.includes(block) || !/^[a-f0-9]{64}$/i.test(evidenceHash ?? "")) throw new Fase1Error("BLOQUEADO", "acta de aceptación F3 inválida");
@@ -613,6 +629,8 @@ async function loadHours(ctx, inputs, unit) {
   // Anclaje de entradas y feriados en el manifiesto (f3.hours.entries y f3.hours.holiday): se bloquea ANTES de escribir si lo que se va a insertar no es lo declarado.
   const blueprintHolidayEntries = blueprint.filter((row) => { const offices = holidaysByDate.get(String(row.dateWorked).slice(0, 10)) ?? []; return offices.includes(0) || offices.includes(officeByStaffId.get(row.staffId)); }).length;
   assertHourEntryAnchors({ entries: blueprint.length, holiday: { rows: holidayKept.length, entries: blueprintHolidayEntries, hours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)) } }, ctx.config.manifest?.f3?.hours, ctx.config.environment);
+  // D41 Parte I: con el contrato D41 las horas se importan como historia APROBADA dentro de EMS (períodos cerrados, entradas vinculadas y líneas approved). La ruta anterior (período NULL) queda para los manifiestos anteriores.
+  if (historyContract(ctx.config.manifest)) return loadHistoricHours(ctx, inputs, unit, { f2, engagements, staffCatalog, blueprint, holidayKept });
   const hash = sha256(stable(blueprint.map(({ timeId, ...row }) => row))); let hours = unit.hours;
   const holidayKeptEvidence = { rule: "horas en feriado aplicable por oficina del staff: se cargan como carga histórica exceptuada", sourceRows: holidayKept.length, sourceHours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)), dates: [...new Set(holidayKept.map((row) => String(row.legacy_worked_at).slice(0, 10)))].sort() };
   if (unit.hourHash && unit.hourHash !== hash) {
@@ -633,14 +651,77 @@ async function loadHours(ctx, inputs, unit) {
   if (Number(created?.inserted) !== hours.length || after.entries?.length !== hours.length) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas: escritura no conciliable");
   return { recovered: false, entries: hours.length, hours: hours.reduce((sum, row) => sum + decimalUnits(row.hours), 0n).toString() };
 }
-async function containOwnEmails(ctx, unit) {
+// D41 Parte I (13/11/2026): horas históricas APROBADAS dentro de EMS. Un período por colaborador y lunes (cerrado, con procedencia), las entradas vinculadas a él y una línea nativa `approved` por
+// período + encargo + actividad, con el aprobador y la fecha REALES del legacy (archivo lateral; NULL si no hay evidencia, nunca el administrador). Todo en UNA transacción por la función
+// public.import_historic_timesheets. La semana/año son los canónicos de EMS. Identidades reservadas en el journal; recuperación por relectura exacta; un destino con períodos ajenos bloquea.
+export async function loadHistoricHours(ctx, inputs, unit, { f2, engagements, staffCatalog, blueprint, holidayKept }) {
+  const history = historyContract(ctx.config.manifest); const env = ctx.config.environment;
+  const staffByLegacyProfile = new Map(Object.entries(f2.staff).filter(([key]) => key.startsWith("legacy:")).map(([key, id]) => [key.slice("legacy:".length), id]));
+  const staffInfo = new Map((staffCatalog.staff ?? []).map((row) => [row.id, { active: row.active, terminationDate: row.terminationDate }]));
+  const engagementApprover = new Map(inputs.clientEngagements.map((row) => [engagements.get(row.legacy_cot), f2.staff[`legacy:${aliasProfile(row.legacy_manager_profile_id)}`] ?? f2.staff[`legacy:${aliasProfile(row.legacy_partner_profile_id)}`] ?? null]));
+  const reserved = { periods: new Map((unit.historyPeriods ?? []).map((row) => [row.key, row.periodId])), lines: new Map((unit.historyLines ?? []).map((row) => [row.key, row.approvalId])) };
+  let bp; try { bp = buildHistoryBlueprint({ entries: blueprint, approvalByExecution: approvalsByExecution(inputs.executionApprovals), staffByLegacyProfile, reserved, engagementApprover, staffInfo }); } catch (error) { throw new Fase1Error("BLOQUEADO", error.message); }
+  assertHistoryAnchors({ periods: bp.periods.length, lines: bp.lines.length, entriesLinked: bp.entries.length, approvals: inputs.executionApprovals.length }, history, env);
+  const priorTimeIds = new Map((unit.hours ?? []).map((row) => [row.sourceKey, row.timeId]));
+  const entries = bp.entries.map((row) => ({ ...row, timeId: priorTimeIds.get(row.sourceKey) ?? row.timeId })); const periods = bp.periods; const lines = bp.lines;
+  const hash = sha256(stable({ batch: history.batch, entries: entries.map(({ timeId, periodId, ...row }) => row), periods: periods.map(({ periodId, ...row }) => row), lines: lines.map(({ approvalId, periodId, ...row }) => row) }));
+  const readState = async (hourRows, periodRows, lineRows) => {
+    const entriesNow = hourRows?.length ? (await ctx.db.hourSnapshot({ entries: hourRows })).entries ?? [] : [];
+    const now = periodRows?.length && lineRows?.length ? await ctx.db.historySnapshot({ periodIds: periodRows.map((row) => row.periodId), approvalIds: lineRows.map((row) => row.approvalId), batch: history.batch }) : { periods: [], lines: [], batchForeign: 0, periodsTotal: 0, linesTotal: 0 };
+    return { entriesNow, ...now };
+  };
+  const sameInstant = (a, b) => (a == null && b == null) || (a != null && b != null && Date.parse(a) === Date.parse(b));
+  const isExact = (state) => {
+    const entryById = new Map(state.entriesNow.map((row) => [row.timeId, row])); const periodById = new Map(state.periods.map((row) => [row.periodId, row])); const lineById = new Map(state.lines.map((row) => [row.approvalId, row]));
+    return state.entriesNow.length === entries.length && state.periods.length === periods.length && state.lines.length === lines.length && Number(state.batchForeign) === 0
+      && entries.every((row) => { const a = entryById.get(row.timeId); return a && a.dateWorked === row.dateWorked && decimalEqual(a.hours, row.hours) && a.staffId === row.staffId && a.engagementId === row.engagementId && a.activityId === row.activityId && Number(a.etlSplitIndex) === Number(row.etlSplitIndex) && a.periodId === row.periodId && a.isForecast === false; })
+      && periods.every((row) => { const a = periodById.get(row.periodId); return a && a.staffId === row.staffId && String(a.weekStart).slice(0, 10) === row.weekStart && Number(a.weekNumber) === row.weekNumber && Number(a.year) === row.year && decimalEqual(a.totalHours, row.totalHours) && a.locked === true && a.submitted === true && a.batch === history.batch && a.imported === true; })
+      && lines.every((row) => { const a = lineById.get(row.approvalId); return a && a.periodId === row.periodId && a.engagementId === row.engagementId && a.activityId === row.activityId && a.status === "approved" && (a.approvedBy ?? null) === (row.approvedBy ?? null) && sameInstant(a.approvedAt, row.approvedAt); });
+  };
+  const holidayKeptEvidence = { rule: "horas en feriado aplicable por oficina del staff: se cargan como carga histórica exceptuada", sourceRows: holidayKept.length, sourceHours: formatMoney(holidayKept.reduce((sum, row) => sum + decimalUnits(row.legacy_hours), 0n)), dates: [...new Set(holidayKept.map((row) => String(row.legacy_worked_at).slice(0, 10)))].sort() };
+  if (unit.hourHash && unit.hourHash !== hash) {
+    const previous = await readState(unit.hours, unit.historyPeriods, unit.historyLines);
+    if (previous.entriesNow.length || previous.periods.length || previous.lines.length || Number(previous.batchForeign)) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas D41: el intento previo tiene efectos y cambió el conjunto permitido");
+  }
+  if (unit.hourHash !== hash) { Object.assign(unit, { hourHash: hash, hours: entries, historyPeriods: periods, historyLines: lines, historyBatch: history.batch, historyEvidence: bp.evidence, hourHolidayKept: holidayKeptEvidence, hoursIntendedAt: new Date().toISOString() }); checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": unit } }); }
+  const summary = (recovered) => ({ recovered, entries: entries.length, periods: periods.length, lines: lines.length, batch: history.batch, hours: entries.reduce((sum, row) => sum + decimalUnits(row.hours), 0n).toString() });
+  const state = await readState(entries, periods, lines);
+  if (isExact(state)) return summary(true);
+  if (state.entriesNow.length || state.periods.length || state.lines.length || Number(state.batchForeign)) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas D41: recuperación parcial o divergente");
+  if (Number(state.periodsTotal) || Number(state.linesTotal)) throw new Fase1Error("BLOQUEADO", "horas D41: el destino ya tiene períodos o aprobaciones que no son de este lote");
+  const created = await ctx.db.createHistoricTimesheets({ batch: history.batch, ...historyPayload({ periods, entries, lines }) });
+  if (Number(created?.periods) !== periods.length || Number(created?.entries) !== entries.length || Number(created?.lines) !== lines.length) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas D41: escritura no conciliable");
+  if (!isExact(await readState(entries, periods, lines))) throw new Fase1Error("RECONCILIACION_REQUERIDA", "horas D41: la relectura no coincide con lo escrito");
+  return summary(false);
+}
+// Contención de los correos que encolan los encargos propios (engagement.created, *_assigned…): los marca `failed` con ETL_F3_NO_DELIVERY y exige 0 restantes y 0 enviados.
+// Es idempotente y siempre relee la base: contiene también lo que se haya encolado desde la última vez.
+async function containEmailsOfEngagements(ctx) {
   const client = ctx.journal.units["client-engagements"]?.result?.engagements ?? []; const administrative = ctx.journal.units["administrative-engagements"]?.result?.engagements ?? [];
   const engagementIds = [...client, ...administrative].map((row) => row.engagementId).sort();
   const total = declared(ctx.config.environment, f3(ctx).engagementsTotal, "f3.engagementsTotal");
   if (!engagementIds.length || (total !== null && engagementIds.length !== total) || new Set(engagementIds).size !== engagementIds.length) throw new Fase1Error("BLOQUEADO", "contención de correos: mapa de encargos F3 incompleto");
   const result = await ctx.db.containOwnEmails({ engagementIds, expectedCount: total });
   if (Number(result.remaining) !== 0 || Number(result.sent) !== 0) throw new Fase1Error("RECONCILIACION_REQUERIDA", "contención de correos F3 no conciliable");
+  return result;
+}
+async function containOwnEmails(ctx, unit) {
+  const result = await containEmailsOfEngagements(ctx);
   checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...unit, emailContainmentResult: result, emailsContainedAt: new Date().toISOString() } } });
+  return result;
+}
+// Contención ANTICIPADA (12/11/2026): los encargos encolan correos desde su carga, mucho antes del bloque de OT. La operación de `work-orders` no sirve para esto: `load` exige el acta de
+// matrices y `containOwnEmails` escribe `units["work-orders"]`, que quedaría sin workOrderHash y haría que loadWorkOrders bloquee («cambió el contenido respecto de la intención durable»).
+// Esta operación solo exige los dos bloques de encargos confirmados, relee SIEMPRE la base (la marca del journal no basta para asumir que no quedan pendientes) y deja su evidencia en
+// `journal.evidence.earlyEmailContainment`, fuera de `units`. Se puede repetir cualquier número de veces y al reanudar desde matrices.
+export async function containEngagementEmailsEarly(ctx) {
+  for (const block of ["client-engagements", "administrative-engagements"]) if (ctx.journal.units[block]?.state !== "CONFIRMADA") throw new Fase1Error("BLOQUEADO", `contención anticipada requiere el bloque ${block} confirmado`);
+  const hadWorkOrdersUnit = Object.hasOwn(ctx.journal.units, "work-orders");
+  const result = await containEmailsOfEngagements(ctx);
+  // La evidencia va en su propia clave de primer nivel: `journal.evidence` NO es durable (validate() lo reemplaza entero en cada llamada, y load/preflight lo invocan) y `units` está vedado.
+  const previous = ctx.journal.earlyEmailContainment; const now = new Date().toISOString();
+  checkpoint(ctx, { earlyEmailContainment: { contained: Number(result.contained), remaining: Number(result.remaining), sent: Number(result.sent), totalContained: (previous?.totalContained ?? 0) + Number(result.contained), runs: (previous?.runs ?? 0) + 1, firstAt: previous?.firstAt ?? now, lastAt: now } });
+  if (!hadWorkOrdersUnit && Object.hasOwn(ctx.journal.units, "work-orders")) throw new Fase1Error("BLOQUEADO", "la contención anticipada no puede crear la unidad work-orders");
   return result;
 }
 async function loadEngagementBlock(ctx, block, prepared, unit) {
@@ -718,6 +799,10 @@ export async function load(ctx, block, operation = "create") {
     if (block !== "hours") bad("hours sólo admite el bloque hours"); const validated = await validate(ctx); const unit = ctx.journal.units["work-orders"]; const result = await loadHours(ctx, validated.inputs, unit);
     checkpoint(ctx, { units: { ...ctx.journal.units, "work-orders": { ...unit, hourResult: result, hoursCompletedAt: new Date().toISOString() }, hours: { state: "CONFIRMADA", result, confirmedAt: new Date().toISOString() } } }); return result;
   }
+  if (operation === "contain-engagement-emails") {
+    if (block !== "administrative-engagements") bad("contain-engagement-emails sólo admite el bloque administrative-engagements");
+    return containEngagementEmailsEarly(ctx);
+  }
   if (operation === "contain-emails") {
     if (block !== "work-orders") bad("contain-emails sólo admite el bloque work-orders");
     return containOwnEmails(ctx, ctx.journal.units["work-orders"]);
@@ -747,20 +832,22 @@ export async function load(ctx, block, operation = "create") {
 }
 export async function verify(ctx, block) { if (block && !ctx.journal.units[block]?.state?.startsWith("CONFIRMADA")) throw new Fase1Error("BLOQUEADO", `bloque no confirmado: ${block}`); const inventory = await ctx.db.inventory(); const state = block === "hours" ? "HORAS_VERIFICADAS" : ctx.journal.state; requireState(ctx, state); checkpoint(ctx, { inventoryAfter: inventory }); return { ok: true, inventory }; }
 export function reconcile(ctx, resolution) { if (!resolution || !resolution.identity || !resolution.justification || !resolution.evidenceHash) throw new Fase1Error("BLOQUEADO", "resolución manual insuficiente"); checkpoint(ctx, { resolutions: [...(ctx.journal.resolutions ?? []), { ...resolution, reconciledAt: new Date().toISOString() }] }); return { ok: true }; }
-export function report(ctx) { const report = { installationId: ctx.journal.installationId, state: ctx.journal.state, R1: ctx.journal.evidence?.R1, R2: ctx.journal.resolutions ?? [], R3: ctx.journal.evidence?.R3, R4: { ...ctx.journal.evidence?.R4, bobDefaultExchangeRate: { plans: ctx.journal.units?.["work-orders"]?.paymentResult?.bobDefaultPlans ?? null, rates: ctx.journal.units?.["work-orders"]?.paymentResult?.bobDefaultRates ?? null, nature: "DEFAULT efectivo del esquema (P-02), no TC legacy" } }, R5: ctx.journal.inventoryAfter ?? "PENDIENTE", R6: { environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, configHash: ctx.journal.configHash } }; const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.report.json`); writeJson(file, report); return { ok: true, file, report }; }
+export function report(ctx) { const report = { installationId: ctx.journal.installationId, state: ctx.journal.state, R1: ctx.journal.evidence?.R1, R2: ctx.journal.resolutions ?? [], R3: ctx.journal.evidence?.R3, D41: ctx.journal.units?.["work-orders"]?.historyEvidence ?? null, R4: { ...ctx.journal.evidence?.R4, bobDefaultExchangeRate: { plans: ctx.journal.units?.["work-orders"]?.paymentResult?.bobDefaultPlans ?? null, rates: ctx.journal.units?.["work-orders"]?.paymentResult?.bobDefaultRates ?? null, nature: "DEFAULT efectivo del esquema (P-02), no TC legacy" } }, R5: ctx.journal.inventoryAfter ?? "PENDIENTE", R6: { environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, configHash: ctx.journal.configHash } }; const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.report.json`); writeJson(file, report); return { ok: true, file, report }; }
 // Fase 4 §7 (L1–L8): concilia lo cargado contra los CSV legacy. Solo lectura; escribe únicamente el reporte externo
 // (conteos y sumas, sin PII). Cualquier diferencia termina en BLOQUEADO: no se corrige a mano ni se cambia una regla para cuadrar.
 export async function reconcileLegacy(ctx) {
-  const inputs = validateInputs(inputsFor(ctx.config), { enforceExpected: true, manifest: ctx.config.manifest, environment: ctx.config.environment }); const f2 = loadF2Maps(ctx.config.f2StateDir); const units = ctx.journal.units ?? {};
+  const inputs = validatedInputs(ctx); const f2 = loadF2Maps(ctx.config.f2StateDir); const units = ctx.journal.units ?? {};
   const clients = units["client-engagements"]?.result?.engagements; const admins = units["administrative-engagements"]?.result?.engagements; const matrices = units.matrices?.matrices; const workOrders = units["work-orders"]?.workOrders;
   if (![[clients, f3(ctx).clientEngagements, "f3.clientEngagements"], [admins, f3(ctx).administrativeEngagements, "f3.administrativeEngagements"], [matrices, f3(ctx).matrices, "f3.matrices"], [workOrders, f3(ctx).workOrders, "f3.workOrders"]].every(([rows, size, label]) => Array.isArray(rows) && countOk(ctx, size, rows.length, label))) throw new Fase1Error("BLOQUEADO", "conciliación legacy requiere encargos, matrices y OTs confirmados en el journal");
   const staffByLegacyProfile = new Map(Object.entries(f2.staff).filter(([key]) => key.startsWith("legacy:")).map(([key, id]) => [key.slice("legacy:".length), id]));
   const staffCatalog = await ctx.db.engagementCatalog(); const officeByStaffId = new Map((staffCatalog.staff ?? []).map((row) => [row.id, ({ "La Paz": 1, "Santa Cruz": 2 })[String(row.city ?? "").trim()]]));
   const holidaysByDate = new Map(); for (const holiday of (await ctx.db.holidayCatalog()).holidays ?? []) { const date = String(holiday.date).slice(0, 10); holidaysByDate.set(date, [...(holidaysByDate.get(date) ?? []), Number(holiday.office)]); }
-  const expected = legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate });
+  const history = historyContract(ctx.config.manifest);
+  const expected = legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, history: history ? { batch: history.batch, approvalByExecution: approvalsByExecution(inputs.executionApprovals) } : null });
+  if (history) assertHistoryAnchors({ periods: expected.history.periods.size, lines: expected.history.lines.size, entriesLinked: Number(expected.expectedEntries), approvals: inputs.executionApprovals.length }, history, ctx.config.environment);
   // Las expectativas de entradas y feriados (derivadas del CSV) también deben coincidir con lo que declara el manifiesto: un CSV mal extraído no puede cuadrar consigo mismo.
   assertHourEntryAnchors({ entries: Number(expected.expectedEntries), holiday: { rows: Number(expected.holidayKeptRows), entries: Number(expected.expectedHolidayEntries), hours: formatMoney(expected.holidayKeptHours) } }, ctx.config.manifest?.f3?.hours, ctx.config.environment);
-  const actual = await ctx.db.legacySnapshot({ engagementIds: clients.map((row) => row.engagementId), adminEngagementIds: admins.map((row) => row.engagementId), worksheetIds: matrices.map((row) => row.worksheetId), woIds: workOrders.map((row) => row.woId) });
+  const actual = await ctx.db.legacySnapshot({ engagementIds: clients.map((row) => row.engagementId), adminEngagementIds: admins.map((row) => row.engagementId), worksheetIds: matrices.map((row) => row.worksheetId), woIds: workOrders.map((row) => row.woId), batch: history?.batch ?? null });
   actual.cotByWo = Object.fromEntries(workOrders.map((row) => [row.woId, row.sourceKey])); actual.cotByEngagement = Object.fromEntries(clients.map((row) => [row.engagementId, row.sourceKey]));
   const result = compareLegacyControls(expected, actual);
   const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.legacy-reconciliation.json`);
@@ -777,7 +864,7 @@ export async function fingerprintCommand(ctx) {
   if (!Array.isArray(client) || !countOk(ctx, f3(ctx).clientEngagements, client.length, "f3.clientEngagements") || !Array.isArray(administrative) || !countOk(ctx, f3(ctx).administrativeEngagements, administrative.length, "f3.administrativeEngagements")) throw new Fase1Error("BLOQUEADO", `huella L9 requiere los ${f3(ctx).engagementsTotal ?? "(sin declarar)"} encargos confirmados en el journal`);
   const engagements = [...client.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "client" })), ...administrative.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "administrative" }))];
   const snapshot = await ctx.db.fingerprintSnapshot({ engagements, expectedCount: declared(ctx.config.environment, f3(ctx).engagementsTotal, "f3.engagementsTotal") });
-  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot, source: { snapshot: ctx.config.manifest.snapshot, manifestSha256: ctx.config.manifest.sha256 } });
+  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot, source: { snapshot: ctx.config.manifest.snapshot, origin: manifestOrigin(ctx.config.manifest), contract: manifestContract(ctx.config.manifest), manifestSha256: ctx.config.manifest.sha256 } });
   const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.fingerprint.json`); writeJson(file, fingerprint);
   for (const [name, set] of Object.entries(fingerprint.sets)) console.log(`${name.padEnd(15)} ${String(set.count).padStart(6)} claves  sha256=${set.sha256.slice(0, 16)}…`);
   console.log(`huella escrita en ${file}`);
@@ -790,7 +877,7 @@ export function compareFingerprintFiles({ a, b }) {
   // Baseline de otra versión de los datos (o sin snapshot declarado): se detiene con un error claro. Código de salida 4 = BASELINE_INCOMPATIBLE (distinto de 2 = huellas que difieren).
   let comparable; try { comparable = assertComparableFingerprints(left, right, { labelA: "A (baseline)", labelB: "B (carga actual)" }); } catch (error) { if (error instanceof FingerprintIncompatibleError) { console.error(`ERROR [BASELINE_INCOMPATIBLE]: ${error.message}`); return 4; } throw error; }
   const result = compareFingerprints(left, right);
-  console.log(`snapshot ${comparable.snapshot}${comparable.sameManifest ? "" : " (AVISO: el manifiesto cambió entre las dos huellas)"}`);
+  console.log(`manifiesto ${comparable.snapshot} · respaldo de origen ${comparable.origin} · contrato ${comparable.contract}${comparable.sameManifest ? "" : " (AVISO: el manifiesto cambió entre las dos huellas)"}`);
   console.log(`A: ${result.a.environment}/${result.a.installationId}   B: ${result.b.environment}/${result.b.installationId}`);
   for (const row of result.rows) {
     console.log(`${row.ok ? "OK  " : "DIFF"} ${row.name.padEnd(15)} A=${row.countA} B=${row.countB}${row.note ? ` (${row.note})` : ""}`);

@@ -90,6 +90,12 @@ engagement_block() {  # create + verify + acta; si el bloque ya está aceptado n
 
 if run_block client-engagements;         then engagement_block client-engagements; fi
 if run_block administrative-engagements; then engagement_block administrative-engagements; fi
+# Contención ANTICIPADA de los correos de los encargos (12/11/2026). Los encargos encolan engagement.created y *_assigned desde su carga; esta operación los marca failed (ETL_F3_NO_DELIVERY)
+# y exige 0 pendientes, 0 en envío y 0 enviados. Se ejecuta SIEMPRE antes de matrices, también al reanudar desde ese bloque, y no se omite por ninguna marca del journal: relee la base y
+# contiene lo que haya aparecido. Su evidencia queda en journal.evidence.earlyEmailContainment y no toca units["work-orders"] (la contención de work-orders sigue más adelante).
+case "$FROM" in
+  client-engagements|administrative-engagements|matrices) rb_etl_mut 3 load --block administrative-engagements --operation contain-engagement-emails ;;
+esac
 if run_block matrices;                   then engagement_block matrices; fi
 if run_block work-orders; then
   if done_mark "j.blocks?.['work-orders']?.acceptedAt"; then rb_pass "bloque work-orders ya aceptado, se omite"

@@ -32,6 +32,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         'engagement_rpc', to_regprocedure('public.create_engagement_with_code(text,uuid,uuid,uuid,date,date,text,smallint,smallint,smallint,integer,boolean,boolean,boolean,boolean,date,boolean,uuid,uuid,uuid,uuid,uuid,text,uuid)') IS NOT NULL,
         'sync_rpc', to_regprocedure('public.sync_worksheet_to_wo_budget(uuid,uuid)') IS NOT NULL,
         'note_rpc', to_regprocedure('public.add_installment_note(uuid,uuid,text)') IS NOT NULL,
+        'history_import_fn', to_regprocedure('public.import_historic_timesheets(text,jsonb,jsonb,jsonb)') IS NOT NULL,
         'phase3', json_build_object('engagements',(SELECT count(*) FROM public.engagements),'work_orders',(SELECT count(*) FROM public.work_orders),'time_entries',(SELECT count(*) FROM public.time_entries))
       )::text;`, { tech_admin: config.technicalAdminId });
     },
@@ -55,7 +56,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         'clients',(SELECT COALESCE(json_agg(json_build_object('id',client_id,'name',client_legal_name)),'[]'::json) FROM public.clients WHERE is_active),
         -- Los responsables históricos pueden estar inactivos hoy; F3 conserva esas
         -- referencias, por lo que el catálogo de personal no se filtra por activo.
-        'staff',(SELECT COALESCE(json_agg(json_build_object('id',staff_id,'city',city,'societyId',society_id)),'[]'::json) FROM public.staff),
+        'staff',(SELECT COALESCE(json_agg(json_build_object('id',staff_id,'city',city,'societyId',society_id,'active',is_active,'terminationDate',termination_date)),'[]'::json) FROM public.staff),
         'societies',(SELECT COALESCE(json_agg(json_build_object('id',society_id,'name',name)),'[]'::json) FROM public.society WHERE is_active),
         'services',(SELECT COALESCE(json_agg(json_build_object('id',taxonomy_id,'name',name)),'[]'::json) FROM public.servicios WHERE is_active)
       )::text;`);
@@ -68,14 +69,14 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
     },
     // Fase 4 §7: agregados de solo lectura para conciliar contra el legacy. El journal aporta únicamente
     // identidades (UUID por COT); ningún valor esperado sale de la base ni del journal.
-    async legacySnapshot({ engagementIds, adminEngagementIds, worksheetIds, woIds }) {
+    async legacySnapshot({ engagementIds, adminEngagementIds, worksheetIds, woIds, batch = null }) {
       for (const [name, ids] of Object.entries({ engagementIds, adminEngagementIds, worksheetIds, woIds })) if (!Array.isArray(ids) || !ids.length) throw new Fase1Error("BLOQUEADO", `conciliación legacy requiere ${name}`);
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
         eng AS (SELECT v::uuid id FROM p, jsonb_array_elements_text(p.x->'engagementIds') v),
         adm AS (SELECT v::uuid id FROM p, jsonb_array_elements_text(p.x->'adminEngagementIds') v),
         ws AS (SELECT v::uuid id FROM p, jsonb_array_elements_text(p.x->'worksheetIds') v),
         wo AS (SELECT v::uuid id FROM p, jsonb_array_elements_text(p.x->'woIds') v),
-        te AS (SELECT t.time_id,t.engagement_id,t.staff_id,t.date_worked,t.hours_logged,t.period_id,t.is_forecast,s.city FROM public.time_entries t JOIN eng ON eng.id=t.engagement_id LEFT JOIN public.staff s ON s.staff_id=t.staff_id)
+        te AS (SELECT t.time_id,t.engagement_id,t.activity_id,t.staff_id,t.date_worked,t.hours_logged,t.period_id,t.is_forecast,s.city FROM public.time_entries t JOIN eng ON eng.id=t.engagement_id LEFT JOIN public.staff s ON s.staff_id=t.staff_id)
         SELECT json_build_object(
           'clientEngagements',(SELECT count(*) FROM public.engagements e JOIN eng ON eng.id=e.engagement_id),
           'administrativeEngagements',(SELECT count(*) FROM public.engagements e JOIN adm ON adm.id=e.engagement_id),
@@ -96,12 +97,23 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'entriesCount',(SELECT count(*) FROM te),
           'holidayEntries',(SELECT count(DISTINCT te.time_id) FROM te JOIN public.holidays h ON h.holiday_date=te.date_worked AND (h.oficina=0 OR h.oficina=CASE btrim(te.city) WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 END)),
           'holidayHours',(SELECT COALESCE(sum(te.hours_logged),0)::text FROM te JOIN public.holidays h ON h.holiday_date=te.date_worked AND (h.oficina=0 OR h.oficina=CASE btrim(te.city) WHEN 'La Paz' THEN 1 WHEN 'Santa Cruz' THEN 2 END)),
+          -- L5b por moneda (12/11/2026): USD y BOB no se suman.
+          'expensesByCurrency',(SELECT COALESCE(json_agg(json_build_array(q.cur,q.amt::text)),'[]'::json) FROM (SELECT w.currency AS cur, sum(b.budgeted_amount) AS amt FROM public.wo_expense_budget b JOIN public.work_orders w ON w.wo_id=b.wo_id JOIN wo ON wo.id=b.wo_id GROUP BY w.currency) q),
+          -- D41 Parte I: historia aprobada (períodos, líneas, vínculos, sumas) y ausencia de avisos de timesheet/aprobación. Vacío con el contrato anterior.
+          'historyBatch',(SELECT x->>'batch' FROM p),
+          'histPeriods',(SELECT COALESCE(json_agg(json_build_array(tp.staff_id::text,tp.week_start_date::text,tp.week_number,tp.year,tp.total_hours::text,tp.is_period_locked,tp.submitted_at IS NOT NULL,tp.import_batch,tp.imported_at IS NOT NULL)),'[]'::json) FROM public.timesheet_periods tp),
+          'histLines',(SELECT COALESCE(json_agg(json_build_array(tp.staff_id::text,tp.week_start_date::text,tla.engagement_id::text,ac.activity_code,tla.status,tla.approved_by::text,to_char(tla.approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS'))),'[]'::json) FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods tp ON tp.period_id=tla.period_id JOIN public.activity_codes ac ON ac.activity_id=tla.activity_id),
+          'histLineHours',(SELECT COALESCE(json_agg(json_build_array(tp.staff_id::text,tp.week_start_date::text,q.engagement_id::text,ac.activity_code,q.hs::text)),'[]'::json) FROM (SELECT period_id,engagement_id,activity_id,sum(hours_logged) AS hs FROM te WHERE period_id IS NOT NULL GROUP BY 1,2,3) q JOIN public.timesheet_periods tp ON tp.period_id=q.period_id JOIN public.activity_codes ac ON ac.activity_id=q.activity_id),
+          'histEntries',(SELECT json_build_object('total',count(*),'withoutPeriod',count(*) FILTER (WHERE te.period_id IS NULL),'wrongPeriod',count(*) FILTER (WHERE te.period_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.timesheet_periods p2 WHERE p2.period_id=te.period_id AND p2.staff_id=te.staff_id AND te.date_worked BETWEEN p2.week_start_date AND p2.week_start_date+6)),'forecast',count(*) FILTER (WHERE te.is_forecast IS DISTINCT FROM false)) FROM te),
+          'periodTotalMismatch',(SELECT count(*) FROM public.timesheet_periods tp WHERE tp.total_hours IS DISTINCT FROM COALESCE((SELECT sum(t2.hours_logged) FROM public.time_entries t2 WHERE t2.period_id=tp.period_id),0)),
+          'timesheetNotifications',(SELECT count(*) FROM public.notifications n WHERE n.type_key LIKE 'timesheet.%' OR n.type_key LIKE 'approval.%'),
+          'timesheetEmails',(SELECT count(*) FROM public.notification_emails n WHERE n.type_key LIKE 'timesheet.%' OR n.type_key LIKE 'approval.%'),
           'periods',(SELECT count(*) FROM public.timesheet_periods),
           'lineApprovals',(SELECT count(*) FROM public.timesheet_line_approvals),
           'historicWithPeriodOrForecast',(SELECT count(*) FROM te WHERE period_id IS NOT NULL OR is_forecast IS DISTINCT FROM false),
           'emailsSent',(SELECT count(*) FROM public.notification_emails n WHERE n.status='sent' AND n.entity_id IN (SELECT id::text FROM eng UNION SELECT id::text FROM adm)),
           'emailsClaimable',(SELECT count(*) FROM public.notification_emails n WHERE n.status IN ('pending','sending') AND n.entity_id IN (SELECT id::text FROM eng UNION SELECT id::text FROM adm))
-        )::text;`, { engagementIds, adminEngagementIds, worksheetIds, woIds }));
+        )::text;`, { engagementIds, adminEngagementIds, worksheetIds, woIds, batch }));
     },
     // L9 (Fase 4 §7): hashes por clave natural, sin UUID ni marcas de tiempo, para comparar Test con el ensayo local.
     // El TC de los planes BOB es el DEFAULT del ambiente (depende de su historial de TC): solo se compara que sea positivo.
@@ -140,6 +152,9 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'administrative',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,ck.k,so.name,hp.h,hm.h,
               (SELECT count(*) FROM public.activity_worksheets w WHERE w.engagement_id=e.engagement_id),(SELECT count(*) FROM public.work_orders w2 WHERE w2.engagement_id=e.engagement_id),(SELECT count(*) FROM public.time_entries t WHERE t.engagement_id=e.engagement_id))::text))),'[]'::json)
             FROM cot JOIN public.engagements e ON e.engagement_id=cot.eid AND cot.kind='administrative' LEFT JOIN ck ON ck.client_id=e.client_id LEFT JOIN public.society so ON so.society_id=e.society_id LEFT JOIN sh hp ON hp.staff_id=e.partner_id LEFT JOIN sh hm ON hm.staff_id=e.manager_id),
+          -- D41 Parte I: períodos y líneas aprobadas por clave natural (persona|lunes y persona|lunes|COT|actividad), sin UUID ni marcas de tiempo técnicas. Vacíos con el contrato anterior.
+          'periods',(SELECT COALESCE(json_agg(json_build_array(sh.h||'|'||tp.week_start_date::text, md5(row(tp.week_number,tp.year,tp.total_hours,tp.is_period_locked,tp.submitted_at IS NOT NULL,tp.import_batch,tp.imported_at IS NOT NULL,(SELECT count(*) FROM public.time_entries t WHERE t.period_id=tp.period_id))::text))),'[]'::json) FROM public.timesheet_periods tp JOIN sh ON sh.staff_id=tp.staff_id),
+          'lines',(SELECT COALESCE(json_agg(json_build_array(sh.h||'|'||tp.week_start_date::text||'|'||cc.cot||'|'||ac.activity_code, md5(row(tla.status,ah.h,to_char(tla.approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS'),(SELECT sum(t.hours_logged) FROM public.time_entries t WHERE t.period_id=tla.period_id AND t.engagement_id=tla.engagement_id AND t.activity_id=tla.activity_id),(SELECT count(*) FROM public.time_entries t WHERE t.period_id=tla.period_id AND t.engagement_id=tla.engagement_id AND t.activity_id=tla.activity_id))::text))),'[]'::json) FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods tp ON tp.period_id=tla.period_id JOIN sh ON sh.staff_id=tp.staff_id JOIN cot cc ON cc.eid=tla.engagement_id JOIN public.activity_codes ac ON ac.activity_id=tla.activity_id LEFT JOIN sh ah ON ah.staff_id=tla.approved_by),
           'hoursByStaff',(SELECT COALESCE(json_agg(json_build_array(q.h, md5(q.hours::text))),'[]'::json) FROM (SELECT s2.h, sum(t.hours_logged) AS hours FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id WHERE t.engagement_id IN (SELECT eid FROM eng) GROUP BY s2.h) q),
           'emailQueue',(SELECT COALESCE(json_agg(json_build_array(q.k, md5(q.n::text))),'[]'::json) FROM (SELECT n.type_key || '|' || n.status || '|' || COALESCE(n.last_error,'-') AS k, count(*) AS n FROM public.notification_emails n WHERE n.entity_id IN (SELECT eid::text FROM eng) GROUP BY 1) q)
         )::text;`, { engagements }));
@@ -464,6 +479,25 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
       if (!Array.isArray(entries) || !entries.length) throw new Fase1Error("BLOQUEADO", "snapshot de horas F3 inválido");
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), expected AS (SELECT src FROM p CROSS JOIN LATERAL jsonb_array_elements(p.x->'entries') src)
         SELECT json_build_object('entries',COALESCE((SELECT json_agg(json_build_object('timeId',t.time_id,'dateWorked',t.date_worked,'hours',t.hours_logged,'staffId',t.staff_id,'engagementId',t.engagement_id,'activityId',t.activity_id,'etlSplitIndex',t.etl_split_index,'periodId',t.period_id,'isForecast',t.is_forecast) ORDER BY t.time_id) FROM public.time_entries t WHERE t.time_id IN (SELECT (src->>'timeId')::uuid FROM expected)),'[]'::json))::text;`, { entries }));
+    },
+    // D41 Parte I: relectura de los períodos y líneas aprobadas reservados en el journal (por UUID) y de cualquier período del lote que NO esté reservado (ambiguo).
+    async historySnapshot({ periodIds, approvalIds, batch }) {
+      if (!Array.isArray(periodIds) || !Array.isArray(approvalIds) || !periodIds.length || !approvalIds.length || !batch) throw new Fase1Error("BLOQUEADO", "snapshot de historia D41 inválido");
+      return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
+        SELECT json_build_object(
+          'periods',COALESCE((SELECT json_agg(json_build_object('periodId',tp.period_id,'staffId',tp.staff_id,'weekStart',tp.week_start_date,'weekNumber',tp.week_number,'year',tp.year,'totalHours',tp.total_hours,'locked',tp.is_period_locked,'submitted',tp.submitted_at IS NOT NULL,'batch',tp.import_batch,'imported',tp.imported_at IS NOT NULL) ORDER BY tp.period_id) FROM public.timesheet_periods tp WHERE tp.period_id IN (SELECT v::uuid FROM p, jsonb_array_elements_text(p.x->'periodIds') v)),'[]'::json),
+          'lines',COALESCE((SELECT json_agg(json_build_object('approvalId',tla.approval_id,'periodId',tla.period_id,'engagementId',tla.engagement_id,'activityId',tla.activity_id,'status',tla.status,'approvedBy',tla.approved_by,'approvedAt',tla.approved_at) ORDER BY tla.approval_id) FROM public.timesheet_line_approvals tla WHERE tla.approval_id IN (SELECT v::uuid FROM p, jsonb_array_elements_text(p.x->'approvalIds') v)),'[]'::json),
+          'batchForeign',(SELECT count(*) FROM public.timesheet_periods tp, p WHERE tp.import_batch = p.x->>'batch' AND tp.period_id NOT IN (SELECT v::uuid FROM jsonb_array_elements_text(p.x->'periodIds') v)),
+          'periodsTotal',(SELECT count(*) FROM public.timesheet_periods),
+          'linesTotal',(SELECT count(*) FROM public.timesheet_line_approvals)
+        )::text;`, { periodIds, approvalIds, batch }));
+    },
+    // D41 Parte I: períodos cerrados + entradas vinculadas + líneas aprobadas en UNA transacción, por la única función acotada (solo el propietario; sin avisos de aprobación).
+    async createHistoricTimesheets({ batch, periods, entries, lines }) {
+      if (!batch || ![periods, entries, lines].every((rows) => Array.isArray(rows) && rows.length)) throw new Fase1Error("BLOQUEADO", "historia D41 inválida");
+      return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
+        SELECT public.import_historic_timesheets(p.x->>'batch', p.x->'periods', p.x->'entries', p.x->'lines')::text FROM p;`, { batch, periods, entries, lines });
     },
     async createHours({ technicalAdminId, entries }) {
       if (!technicalAdminId || !Array.isArray(entries) || !entries.length) throw new Fase1Error("BLOQUEADO", "horas F3 inválidas");

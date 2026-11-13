@@ -5,7 +5,8 @@
 import { createHash } from "node:crypto";
 
 export const FINGERPRINT_VERSION = 1;
-export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "hoursByStaff", "emailQueue"]);
+// `periods` y `lines` (D41 Parte I): períodos cerrados de horas históricas y sus líneas aprobadas, por clave natural. Vacíos con el contrato anterior (períodos NULL).
+export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "periods", "lines", "hoursByStaff", "emailQueue"]);
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 // Una clave puede repetirse (NIT compartido, varios roles): se numera por hash ordenado, de modo que el resultado no
@@ -45,8 +46,13 @@ export function assertComparableFingerprints(a, b, { labelA = "A", labelB = "B" 
     return name;
   };
   const left = snapshotOf(a, labelA); const right = snapshotOf(b, labelB);
+  // D41 Parte I: además del identificador del manifiesto se comparan el RESPALDO de origen y el CONTRATO de las horas. Una huella anterior a D41 (períodos NULL) no se compara contra
+  // una carga D41 (períodos cerrados con líneas aprobadas) aunque el respaldo legacy sea el mismo: la semántica es otra, y avisar solo por el SHA del manifiesto no basta.
+  const contractOf = (fingerprint) => fingerprint.source.contract ?? "legacy"; const originOf = (fingerprint) => fingerprint.source.origin ?? fingerprint.source.snapshot;
+  if (contractOf(a) !== contractOf(b)) throw new FingerprintIncompatibleError(`las huellas son de contratos distintos (${labelA}=${contractOf(a)}, ${labelB}=${contractOf(b)}): períodos NULL (anterior) y horas aprobadas dentro de EMS (D41) no se comparan; registre una huella del contrato vigente`);
   if (left !== right) throw new FingerprintIncompatibleError(`las huellas son de snapshots distintos (${labelA}=${left}, ${labelB}=${right}): una huella v2 no puede compararse con una carga v3`);
-  return { snapshot: left, sameManifest: a.source.manifestSha256 === b.source.manifestSha256 };
+  if (originOf(a) !== originOf(b)) throw new FingerprintIncompatibleError(`las huellas son de respaldos legacy distintos (${labelA}=${originOf(a)}, ${labelB}=${originOf(b)})`);
+  return { snapshot: left, origin: originOf(a), contract: contractOf(a), sameManifest: a.source.manifestSha256 === b.source.manifestSha256 };
 }
 
 // Compara dos huellas conjunto por conjunto y señala qué claves faltan o cambiaron (máximo `limit` por categoría).

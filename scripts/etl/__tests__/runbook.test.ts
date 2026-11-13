@@ -140,6 +140,22 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(rec).toContain('rb_die "L9 es requisito de E7');
     expect(rec).toContain("environment=${base_env}");
   });
+  // Contención anticipada (12/11/2026): corre SIEMPRE antes de matrices (también al reanudar desde ese bloque), sin depender de ninguna marca del journal.
+  it("40-f3 contiene los correos de los encargos antes de matrices, también al reanudar, sin depender de marcas del journal", () => {
+    const f3 = read("40-f3.sh");
+    const command = "rb_etl_mut 3 load --block administrative-engagements --operation contain-engagement-emails";
+    const at = f3.indexOf(command);
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBeGreaterThan(f3.indexOf("if run_block administrative-engagements;"));
+    expect(at).toBeLessThan(f3.indexOf("if run_block matrices;"));
+    // se ejecuta cuando se parte de client-engagements, administrative-engagements o matrices; nunca queda detrás de step/done_mark
+    const line = f3.slice(f3.lastIndexOf("\n", at) + 1, f3.indexOf("\n", at));
+    expect(line).not.toMatch(/step |done_mark/);
+    expect(f3.slice(f3.lastIndexOf("case ", at), at)).toContain("client-engagements|administrative-engagements|matrices)");
+    expect(f3.slice(f3.lastIndexOf("case ", at), at)).toContain('"$FROM"');
+    // la contención de work-orders sigue donde estaba
+    expect(f3.indexOf("--operation contain-emails")).toBeGreaterThan(f3.indexOf("if run_block work-orders;"));
+  });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");
     for (const name of scripts) expect(read(name), name).not.toMatch(/supabase\/migrations\/[^\s"']*\.sql["']?\s*>/);

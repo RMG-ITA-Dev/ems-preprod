@@ -1740,6 +1740,7 @@
     "saved": "Saved",
     "deleteRow": "Delete row",
     "periodLocked": "This week is locked and cannot be edited.",
+    "periodImported": "Historical week imported from the previous system: it is already approved and closed, and cannot be edited.",
     "fullyApproved": "This week has been fully approved.",
     "approvedNoEntries": "This approved week has no recorded time entries.",
     "hasRejections": "Some entries were rejected. Please review and resubmit.",

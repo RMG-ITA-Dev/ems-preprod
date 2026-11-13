@@ -3,6 +3,7 @@
 // (qué UUID corresponde a qué COT), nunca un valor esperado: así una carga no se valida contra su propia salida.
 import { isMigrableExecution, riskLevelFromLegacy } from "./fase3-input.mjs";
 import { consolidateExecutions, consolidateResolvedHours, decimalUnits, formatUnits } from "./fase3-transform.mjs";
+import { buildHistoryBlueprint } from "./fase3-history.mjs";
 
 const text = (value) => String(value ?? "").trim();
 const sum = (rows, pick) => rows.reduce((total, row) => total + pick(row), 0n);
@@ -19,14 +20,17 @@ export function holidayApplies({ date, officeOfStaff, holidaysByDate }) {
 
 // Entradas de horas que EMS debe tener (una por persona, OT, actividad y día): se derivan de las filas aprobadas con las mismas funciones del cargador (reparto 30/70 de Gerente y
 // Supervisor, partición de 99,99 h y fusión de perfiles que resuelven a una misma ficha), así que no dependen de lo que haya en la base. `entries` ≠ filas fuente: 18.799 filas → 21.229 entradas.
-export function hourEntryExpectations({ migrable, staffByLegacyProfile, officeByStaffId, holidaysByDate }) {
+export function resolvedHourEntries({ migrable, staffByLegacyProfile }) {
   const cells = consolidateExecutions(migrable);
-  const resolved = consolidateResolvedHours(cells.map((cell) => ({ sourceKey: `${cell.legacy_execution_id}:${cell.activity_code}:${cell.split_index}`, dateWorked: cell.date_worked, hours: cell.hours, staffId: staffByLegacyProfile.get(text(cell.legacy_profile_id)) ?? `sin-ficha:${text(cell.legacy_profile_id)}`, engagementId: cell.legacy_cot, activityId: cell.activity_code, isForecast: false, sourceAllocations: cell.source_allocations })));
+  return consolidateResolvedHours(cells.map((cell) => ({ sourceKey: `${cell.legacy_execution_id}:${cell.activity_code}:${cell.split_index}`, dateWorked: cell.date_worked, hours: cell.hours, staffId: staffByLegacyProfile.get(text(cell.legacy_profile_id)) ?? `sin-ficha:${text(cell.legacy_profile_id)}`, engagementId: cell.legacy_cot, activityId: cell.activity_code, isForecast: false, sourceAllocations: cell.source_allocations })));
+}
+export function hourEntryExpectations({ migrable, staffByLegacyProfile, officeByStaffId, holidaysByDate }) {
+  const resolved = resolvedHourEntries({ migrable, staffByLegacyProfile });
   const holiday = resolved.filter((entry) => holidayApplies({ date: entry.dateWorked, officeOfStaff: officeByStaffId.get(entry.staffId), holidaysByDate }));
   return { entries: BigInt(resolved.length), holidayEntries: BigInt(holiday.length) };
 }
 
-export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n }) {
+export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n, history = null }) {
   const clientCots = inputs.clientEngagements.map((row) => text(row.legacy_cot));
   // L4: nivel de riesgo de cada OT, traducido del código legacy (1 Bajo, 2 Moderado, 3 Alto; enmienda F3-Q12).
   const riskLevelByCot = new Map(inputs.clientEngagements.map((row) => [text(row.legacy_cot), riskLevelFromLegacy(row.legacy_risk_code, text(row.legacy_cot))]));
@@ -53,6 +57,22 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   const hoursByCot = new Map(), hoursByStaff = new Map();
   for (const row of kept) { const units = decimalUnits(row.legacy_hours); bump(hoursByCot, text(row.legacy_cot), units); const staffId = staffByLegacyProfile.get(text(row.legacy_profile_id)); if (staffId) bump(hoursByStaff, staffId, units); }
   const entryExpectations = hourEntryExpectations({ migrable, staffByLegacyProfile, officeByStaffId, holidaysByDate });
+  // L5b por moneda: los gastos de las OT en USD (USD) y los de las OT en BOB (convertidos) no se suman.
+  const currencyByCot = new Map(inputs.clientEngagements.map((row) => [text(row.legacy_cot), text(row.legacy_currency_raw) === "1" ? "USD" : "BOB"]));
+  let expensesUsdUnits = 0n; let expensesBobUnits = 0n;
+  for (const row of positives) { const value = emsExpenseUnits(row); if (currencyByCot.get(text(row.legacy_cot)) === "USD") expensesUsdUnits += value; else expensesBobUnits += value; }
+  // D41 Parte I: historia aprobada esperada, calculada desde los CSV, el archivo lateral de aprobaciones y los mapas de F2 (no desde el destino).
+  let historyExpectation = null;
+  if (history) {
+    const resolved = resolvedHourEntries({ migrable, staffByLegacyProfile });
+    const blueprint = buildHistoryBlueprint({ entries: resolved, approvalByExecution: history.approvalByExecution, staffByLegacyProfile, newId: () => "reservado" });
+    historyExpectation = {
+      batch: history.batch, evidence: blueprint.evidence,
+      periods: new Map(blueprint.periods.map((p) => [p.key, `${p.weekNumber}|${p.year}|${formatUnits(decimalUnits(p.totalHours))}`])),
+      lines: new Map(blueprint.lines.map((l) => [l.key, `approved|${l.approvedBy ?? ""}|${l.approvedAt ? Date.parse(l.approvedAt) / 1000 : ""}`])),
+      lineHours: new Map(blueprint.lines.map((l) => [l.key, decimalUnits(l.hours)])),
+    };
+  }
   const unmappedProfiles = [...new Set(kept.filter((row) => !staffByLegacyProfile.has(text(row.legacy_profile_id))).map((row) => text(row.legacy_profile_id)))];
   return {
     riskLevelByCot, clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
@@ -60,7 +80,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
     plans: BigInt(plansCount), installments: BigInt(billable.length), installmentsInvoiced: BigInt(invoicedRows.length), notes: BigInt(notes.length), feeByCot,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
     holidayKeptRows: BigInt(holiday.length), holidayKeptHours: sum(holiday, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(holiday.map((row) => day(row.legacy_worked_at)))].sort(),
-    expectedEntries: entryExpectations.entries, expectedHolidayEntries: entryExpectations.holidayEntries,
+    expectedEntries: entryExpectations.entries, expectedHolidayEntries: entryExpectations.holidayEntries, expensesUsdUnits, expensesBobUnits, history: historyExpectation,
     expectedHoursUnits: sum(kept, (row) => decimalUnits(row.legacy_hours)), hoursByCot, hoursByStaff, unmappedProfiles, scaleFactor,
   };
 }
@@ -85,7 +105,10 @@ export function compareLegacyControls(expected, actual) {
   const riskCounts = (map) => [...map.values()].reduce((acc, level) => ({ ...acc, [level]: (acc[level] ?? 0) + 1 }), {});
   rows.push({ id: "L4", label: "nivel de riesgo de la OT (1 Bajo, 2 Moderado, 3 Alto)", expected: "iguales", actual: riskDiffs.length ? riskDiffs.slice(0, 5).join(" | ") : "iguales", ok: !riskDiffs.length, note: `fuente ${JSON.stringify(riskCounts(expected.riskLevelByCot))}` });
   rows.push(eq("L5a", "gastos positivos cargados", expected.expensesPositive, actual.expensesCount));
-  rows.push(eq("L5b", "importe de gastos cargado (USD + BOB convertido)", formatUnits(expected.expensesEmsUnits), units(actual.expensesAmount)));
+  // L5b separado por moneda (12/11/2026): el importe de las OT en USD está en USD y el de las OT en BOB en bolivianos (convertido hacia arriba); sumarlos no es una cantidad en una moneda.
+  const expensesByCurrency = new Map((actual.expensesByCurrency ?? []).map(([currency, amount]) => [currency, decimalUnits(String(amount))]));
+  rows.push(eq("L5b1", "importe de gastos de las OT en USD (USD)", formatUnits(expected.expensesUsdUnits), formatUnits(expensesByCurrency.get("USD") ?? 0n)));
+  rows.push(eq("L5b2", "importe de gastos de las OT en BOB (BOB, convertido del dólar legacy)", formatUnits(expected.expensesBobUnits), formatUnits(expensesByCurrency.get("BOB") ?? 0n), `el importe cargado total es ${units(actual.expensesAmount)} (USD y BOB sumados: no es una cantidad en una moneda)`));
   const expenseDiffs = mapDiff(expected.expenseByCot, toMap(actual.expenseByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));
   rows.push({ id: "L5c", label: "gastos por COT", expected: "iguales", actual: expenseDiffs.length ? expenseDiffs.slice(0, 5).join(" | ") : "iguales", ok: !expenseDiffs.length, note: "" });
   rows.push(eq("L6a", "planes de pago", expected.plans, actual.plans)); rows.push(eq("L6b", "cuotas facturables", expected.installments, actual.installments)); rows.push(eq("L6c", "notas de plan activas", expected.notes, actual.notes));
@@ -102,8 +125,31 @@ export function compareLegacyControls(expected, actual) {
   // L7e/L7f (12/11/2026, revisión independiente): L7a–L7d comparan horas; estos dos comparan el NÚMERO de entradas, que no es el de filas fuente (Gerente y Supervisor se reparten 30/70).
   rows.push(eq("L7e", "entradas de horas cargadas (por persona, OT, actividad y día)", expected.expectedEntries, actual.entriesCount, `de ${expected.executionsMigrable} filas aprobadas; Gerente y Supervisor se reparten 30/70`));
   rows.push(eq("L7f", "entradas cargadas en feriado aplicable", expected.expectedHolidayEntries, actual.holidayEntries, `de ${expected.holidayKeptRows} filas fuente; calendario de EMS vigente (2026-2027)`));
-  rows.push(eq("L8a", "períodos de timesheet creados", 0, actual.periods)); rows.push(eq("L8b", "líneas de aprobación creadas", 0, actual.lineApprovals));
-  rows.push(eq("L8c", "horas históricas con período o forecast", 0, actual.historicWithPeriodOrForecast));
+  if (expected.history) {
+    // D41 Parte I: historia aprobada dentro de EMS. Todo se compara contra lo calculado desde los CSV, el archivo lateral de aprobaciones y los mapas de F2.
+    const h = expected.history; const norm = (value) => formatUnits(decimalUnits(String(value)));
+    const keyDiff = (want, got) => { const out = []; for (const key of new Set([...want.keys(), ...got.keys()])) { if (want.get(key) !== got.get(key)) out.push(`${key}: esperado ${want.get(key) ?? "∅"} / real ${got.get(key) ?? "∅"}`); } return out; };
+    const actualPeriods = new Map(); const closureBad = [];
+    for (const [staff, weekStart, weekNumber, year, total, locked, submitted, batch, imported] of actual.histPeriods ?? []) {
+      actualPeriods.set(`${staff}|${weekStart}`, `${weekNumber}|${year}|${norm(total)}`);
+      if (!(locked === true && submitted === true && imported === true && batch === h.batch)) closureBad.push(`${staff}|${weekStart}`);
+    }
+    const periodDiffs = keyDiff(h.periods, actualPeriods);
+    rows.push({ id: "L8a", label: "períodos históricos (persona + lunes: semana fiscal, año y total de horas)", expected: `${h.periods.size} períodos`, actual: periodDiffs.length ? periodDiffs.slice(0, 5).join(" | ") : `${actualPeriods.size} períodos`, ok: !periodDiffs.length, note: "semana canónica de EMS (año fiscal desde octubre); año = año del lunes" });
+    rows.push(eq("L8b", "períodos cerrados (is_period_locked), con envío técnico y procedencia del lote", 0, closureBad.length, `lote ${h.batch}`));
+    const actualLines = new Map(); for (const [staff, weekStart, engagementId, activityCode, status, approvedBy, approvedAt] of actual.histLines ?? []) actualLines.set(`${staff}|${weekStart}|${actual.cotByEngagement?.[engagementId] ?? engagementId}|${activityCode}`, `${status}|${approvedBy ?? ""}|${approvedAt ? Date.parse(`${approvedAt}Z`) / 1000 : ""}`);
+    const lineDiffs = keyDiff(h.lines, actualLines);
+    rows.push({ id: "L8c", label: "líneas nativas aprobadas (período + OT + actividad: todas approved, con el aprobador y la fecha reales del legacy)", expected: `${h.lines.size} líneas`, actual: lineDiffs.length ? lineDiffs.slice(0, 5).join(" | ") : `${actualLines.size} líneas`, ok: !lineDiffs.length, note: "aprobador/fecha NULL solo si el legacy no los trae; nunca el administrador" });
+    const entriesNow = actual.histEntries ?? {};
+    rows.push(eq("L8f", "entradas vinculadas a su período (sin huérfanas, de otra persona o semana ni forecast)", `${expected.expectedEntries}|0|0|0`, `${entriesNow.total}|${entriesNow.withoutPeriod}|${entriesNow.wrongPeriod}|${entriesNow.forecast}`, "total | sin período | período equivocado | forecast"));
+    const actualLineHours = new Map(); for (const [staff, weekStart, engagementId, activityCode, hours] of actual.histLineHours ?? []) actualLineHours.set(`${staff}|${weekStart}|${actual.cotByEngagement?.[engagementId] ?? engagementId}|${activityCode}`, decimalUnits(String(hours)));
+    const sumDiffs = mapDiff(h.lineHours, actualLineHours); if (Number(actual.periodTotalMismatch) !== 0) sumDiffs.push(`${actual.periodTotalMismatch} períodos con total distinto de la suma de sus entradas`);
+    rows.push({ id: "L8g", label: "sumas de horas por línea (período + OT + actividad) y por período", expected: "iguales", actual: sumDiffs.length ? sumDiffs.slice(0, 5).join(" | ") : "iguales", ok: !sumDiffs.length, note: "" });
+    rows.push(eq("L8h", "avisos de timesheet/aprobación y correos de esos tipos creados por la importación", "0|0", `${actual.timesheetNotifications}|${actual.timesheetEmails}`, "avisos | correos"));
+  } else {
+    rows.push(eq("L8a", "períodos de timesheet creados", 0, actual.periods)); rows.push(eq("L8b", "líneas de aprobación creadas", 0, actual.lineApprovals));
+    rows.push(eq("L8c", "horas históricas con período o forecast", 0, actual.historicWithPeriodOrForecast));
+  }
   rows.push(eq("L8d", "correos del lote enviados (status sent)", 0, actual.emailsSent));
   rows.push(eq("L8e", "correos del lote aún reclamables (pending/sending)", 0, actual.emailsClaimable));
   return { ok: rows.every((row) => row.ok), rows };

@@ -10,6 +10,10 @@ export const PAYMENT_HEADERS = ["legacy_plan_payment_id", "legacy_cot", "legacy_
 export const ADMINISTRATIVE_HEADERS = ["legacy_cot", "legacy_fiscal_year", "legacy_sequence", "legacy_internal_client_id", "legacy_engagement_name", "legacy_partner_profile_id", "legacy_approver_profile_id", "legacy_created_date", "legacy_closing_date", "legacy_active_flag", "legacy_creator_profile_id", "legacy_comments", "legacy_evidence_rows", "legacy_evidence_hours", "selector_profile_count", "total_administrative_engagements"];
 export const EXECUTION_HEADERS = ["legacy_execution_id", "legacy_approval_id", "legacy_cot", "legacy_profile_id", "legacy_sqr_profile_id", "legacy_department_id", "legacy_fiscal_year", "legacy_worked_at", "legacy_registered_at", "legacy_day", "legacy_week", "legacy_hours", "legacy_category_id", "legacy_specialty_id", "legacy_sent", "legacy_pending_approval", "legacy_recovery_count", "legacy_last_recovery_at", "legacy_engagement_created_date", "approval_evidence_count", "approved_evidence_count", "disposition"];
 
+// D41 Parte I (13/11/2026): aprobador y fecha REALES de cada hora aprobada, en un archivo lateral por legacy_approval_id (los CSV v3 no se modifican).
+// legacy_approved_at es el datetime tal como está en el legacy (sin zona horaria): el cargador lo interpreta como America/La_Paz y conserva el valor original.
+export const APPROVAL_HEADERS = ["legacy_approval_id", "legacy_execution_id", "legacy_approver_profile_id", "legacy_approved_at"];
+
 export const INPUT_HEADERS = Object.freeze({
   clientEngagements: ENGAGEMENT_HEADERS,
   planHours: PLAN_HEADERS,
@@ -17,7 +21,13 @@ export const INPUT_HEADERS = Object.freeze({
   payments: PAYMENT_HEADERS,
   administrativeEngagements: ADMINISTRATIVE_HEADERS,
   executions: EXECUTION_HEADERS,
+  executionApprovals: APPROVAL_HEADERS,
 });
+// Entradas opcionales: solo existen con el contrato D41 (f3.hours.contract = "D41" en el manifiesto).
+export const OPTIONAL_INPUT_NAMES = Object.freeze(["executionApprovals"]);
+export const D41_CONTRACT = "D41";
+/** Contrato D41 del manifiesto (horas históricas aprobadas dentro de EMS): devuelve f3.hours.history o null para los manifiestos anteriores (períodos NULL). */
+export function historyContract(manifest) { const hours = manifest?.f3?.hours; return hours && hours.contract === D41_CONTRACT ? (hours.history ?? null) : null; }
 export const CLIENT_EXCLUSION = "2026.11.108";
 
 export class Fase3InputError extends Error {
@@ -174,6 +184,39 @@ export function assertHourEntryAnchors(actual, hours, environment = "local") {
   if (diffs.length) throw new Fase3InputError(`entradas de horas fuera del manifiesto (${diffs.join("; ")})`);
 }
 
+// D41 Parte I: anclaje de la historia aprobada en el manifiesto (f3.hours.history): períodos, líneas `approved`, entradas vinculadas y filas del archivo lateral de aprobaciones.
+// Se calculan desde los CSV y los mapas de F2 (nunca desde el destino). null = sin declarar: en local se omite; en Test y producción bloquea.
+export function assertHistoryAnchors(actual, history, environment = "local") {
+  if (!history) return;
+  const diffs = []; const check = (label, want, got) => { if (want !== null && got !== undefined && want !== got) diffs.push(`${label}: ${got} de ${want}`); };
+  check("periods", declaredCount(environment, history.periods, "f3.hours.history.periods"), actual.periods);
+  check("lines", declaredCount(environment, history.lines, "f3.hours.history.lines"), actual.lines);
+  check("entriesLinked", declaredCount(environment, history.entriesLinked, "f3.hours.history.entriesLinked"), actual.entriesLinked);
+  check("approvals.rows", declaredCount(environment, history.approvals?.rows, "f3.hours.history.approvals.rows"), actual.approvals);
+  if (diffs.length) throw new Fase3InputError(`historia aprobada fuera del manifiesto (${diffs.join("; ")})`);
+}
+
+// D41 Parte I: el archivo lateral de aprobaciones cubre UNA sola vez cada hora aprobada que migra (legacy_approval_id único, idEjecucionHoras coincidente) y sus datos son
+// evidencia: la fecha debe tener el formato del legacy (YYYY-MM-DD HH:MM:SS). Un aprobador o una fecha vacíos NO se rellenan: quedan NULL en EMS (no se atribuye a nadie).
+const LEGACY_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+export function validateExecutionApprovals(approvals, executions) {
+  const byApproval = new Map(); const dup = [];
+  for (const row of approvals) { const id = text(row.legacy_approval_id); if (!/^\d+$/.test(id)) throw new Fase3InputError(`aprobaciones: legacy_approval_id inválido (${id})`); if (byApproval.has(id)) dup.push(id); byApproval.set(id, row); }
+  if (dup.length) throw new Fase3InputError(`aprobaciones: ${dup.length} legacy_approval_id repetidos (primero ${dup[0]})`);
+  const migrable = executions.filter(isMigrableExecution); const problems = []; const used = new Set();
+  for (const execution of migrable) {
+    const id = text(execution.legacy_approval_id); const row = byApproval.get(id);
+    if (!row) { problems.push(`sin aprobación ${id}`); continue; }
+    if (used.has(id)) problems.push(`aprobación usada dos veces ${id}`); used.add(id);
+    if (text(row.legacy_execution_id) !== text(execution.legacy_execution_id)) problems.push(`idEjecucionHoras distinto en ${id}`);
+    const at = text(row.legacy_approved_at); if (at && (!LEGACY_DATETIME.test(at) || Number.isNaN(Date.parse(`${at.replace(" ", "T")}Z`)))) problems.push(`fecha inválida en ${id}`);
+  }
+  const extra = approvals.length - migrable.length;
+  if (extra !== 0) problems.push(`el archivo trae ${approvals.length} aprobaciones para ${migrable.length} horas aprobadas`);
+  if (problems.length) throw new Fase3InputError(`aprobaciones fuera de la cobertura de las horas (${problems.length}): ${problems.slice(0, 3).join("; ")}`);
+  return approvals;
+}
+
 export function validateExecutions(rows, clientCots) {
   unique(rows, (row) => row.legacy_execution_id, "PK ejecución");
   for (const row of rows) {
@@ -201,6 +244,9 @@ export function validateInputs(inputs, { enforceExpected = false, manifest = nul
   const clientCots = new Set(clientEngagements.map((row) => row.legacy_cot));
   validateAdministrativeEngagements(inputs.administrativeEngagements);
   validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots, { manifest }); validateExecutions(inputs.executions, clientCots); validateExecutionStarts(inputs.executions, clientEngagements);
+  // D41: con el contrato D41 el archivo lateral de aprobaciones es obligatorio y se valida; sin el contrato no debe existir (los manifiestos anteriores cargan períodos NULL).
+  if (manifest && historyContract(manifest)) { if (!inputs.executionApprovals) throw new Fase3InputError("el contrato D41 exige la entrada executionApprovals (aprobador y fecha reales)", "CONFIG"); validateExecutionApprovals(inputs.executionApprovals, inputs.executions); }
+  else if (inputs.executionApprovals) throw new Fase3InputError("executionApprovals solo se admite con el contrato D41 del manifiesto", "CONFIG");
   if (enforceExpected) {
     if (!manifest) throw new Fase3InputError("enforceExpected exige el manifiesto del snapshot", "CONFIG");
     // null = sin declarar: en local no se aplica; en Test y producción bloquea (declared lanza).

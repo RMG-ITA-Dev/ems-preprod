@@ -4,7 +4,7 @@ import { FingerprintIncompatibleError, SET_NAMES, assertComparableFingerprints, 
 
 const snapshot = (overrides: Record<string, unknown[]> = {}) => ({
   clients: [["c1", "h1"], ["c2", "h2"]], contacts: [["c1:general", "h3"]], staff: [["s1", "h4"], ["s2", "h5"]],
-  engagements: [["2026.11.001", "h6"], ["2026.11.002", "h7"]], administrative: [["2027.11.001", "h8"]],
+  engagements: [["2026.11.001", "h6"], ["2026.11.002", "h7"]], administrative: [["2027.11.001", "h8"]], periods: [["p1|2026-06-01", "hp1"]], lines: [["p1|2026-06-01|2026.11.001|AUD-A3", "hl1"]],
   hoursByStaff: [["s1", "h9"]], emailQueue: [["engagement.created|failed|ETL_F3_NO_DELIVERY", "h10"]], ...overrides,
 });
 const build = (overrides: Record<string, unknown[]> = {}, installationId = "f3-a") => buildFingerprint({ environment: "local", projectRef: "local", installationId, snapshot: snapshot(overrides), generatedAt: "2026-10-31T00:00:00Z" });
@@ -19,7 +19,7 @@ describe("ETL fase 3: huella L9 por clave natural", () => {
     expect(keyedHashes([["k", "b"], ["k", "a"], ["z", "c"]])).toEqual({ "k#1": "a", "k#2": "b", z: "c" });
     expect(keyedHashes([["k", "a"], ["k", "b"], ["z", "c"]])).toEqual(keyedHashes([["k", "b"], ["k", "a"], ["z", "c"]]));
   });
-  it("cubre los siete conjuntos y exige que la consulta los devuelva todos", () => {
+  it("cubre los nueve conjuntos (con períodos y líneas aprobadas, D41) y exige que la consulta los devuelva todos", () => {
     expect(Object.keys(build().sets)).toEqual([...SET_NAMES]);
     expect(() => buildFingerprint({ environment: "local", projectRef: "local", installationId: "x", snapshot: { clients: [] } })).toThrow(/contacts/);
   });
@@ -48,8 +48,18 @@ describe("ETL fase 3: huella L9 por clave natural", () => {
       expect(build().source).toBeNull(); // sin source (huellas anteriores): no es comparable
     });
     it("acepta dos huellas del mismo snapshot, aunque el manifiesto haya cambiado entre ellas (lo avisa)", () => {
-      expect(assertComparableFingerprints(withSource("S1"), withSource("S1"))).toEqual({ snapshot: "S1", sameManifest: true });
-      expect(assertComparableFingerprints(withSource("S1", "a"), withSource("S1", "b"))).toEqual({ snapshot: "S1", sameManifest: false });
+      expect(assertComparableFingerprints(withSource("S1"), withSource("S1"))).toEqual({ snapshot: "S1", origin: "S1", contract: "legacy", sameManifest: true });
+      expect(assertComparableFingerprints(withSource("S1", "a"), withSource("S1", "b"))).toEqual({ snapshot: "S1", origin: "S1", contract: "legacy", sameManifest: false });
+    });
+    // D41 Parte I: el contrato y el respaldo de origen se declaran y se comparan explícitamente; el identificador del manifiesto (_d41) NO se presenta como otra base legacy.
+    it("distingue respaldo de origen, manifiesto y contrato: una huella anterior a D41 no se compara contra una D41 del mismo respaldo", () => {
+      const d41 = (manifest: string, origin = "TimeControlDB_20261106_1600") => buildFingerprint({ environment: "local", projectRef: "local", installationId: "f3-x", snapshot: snapshot(), source: { snapshot: manifest, origin, contract: "D41", manifestSha256: "m" } as never });
+      const legacy = buildFingerprint({ environment: "local", projectRef: "local", installationId: "f3-x", snapshot: snapshot(), source: { snapshot: "TimeControlDB_20261106_1600", manifestSha256: "m" } });
+      expect(assertComparableFingerprints(d41("TimeControlDB_20261106_1600_d41"), d41("TimeControlDB_20261106_1600_d41"))).toEqual({ snapshot: "TimeControlDB_20261106_1600_d41", origin: "TimeControlDB_20261106_1600", contract: "D41", sameManifest: true });
+      expect(() => assertComparableFingerprints(legacy, d41("TimeControlDB_20261106_1600_d41"), { labelA: "baseline", labelB: "carga" })).toThrow(/contratos distintos \(baseline=legacy, carga=D41\)/);
+      expect(() => assertComparableFingerprints(d41("TimeControlDB_20261106_1600_d41", "TimeControlDB_20261023_1200"), d41("TimeControlDB_20261106_1600_d41"))).toThrow(/respaldos legacy distintos/);
+      // una huella de v3 (sin origin ni contract) frente a otra de v3: sigue comparable, con contrato legacy y origen = su snapshot
+      expect(assertComparableFingerprints(legacy, legacy)).toMatchObject({ contract: "legacy", origin: "TimeControlDB_20261106_1600" });
     });
     it("rechaza con un error claro un baseline de otro snapshot o sin snapshot declarado (por ejemplo, el ensayo v2)", () => {
       expect(() => assertComparableFingerprints(withSource("S2"), withSource("S1"), { labelA: "baseline", labelB: "carga" })).toThrow(FingerprintIncompatibleError);

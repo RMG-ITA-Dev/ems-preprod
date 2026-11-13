@@ -37,6 +37,8 @@ fingerprint() {
     (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_payment_installments t),
     (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.wo_installment_notes t),
     (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.time_entries t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.timesheet_periods t),
+    (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.timesheet_line_approvals t),
     (select md5(coalesce(string_agg(t::text,'|' order by t::text),'')) from public.notification_emails t),
     (select count(*) from auth.users)::text))"
 }

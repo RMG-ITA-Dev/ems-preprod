@@ -10,7 +10,7 @@ import { buildFingerprint } from "../fase3-fingerprint.mjs";
 // Revisión independiente (12/11/2026): `compare-fingerprints` (la comparación L9 del paso 50) termina con 0 si son idénticas, 2 si difieren y 4 si el baseline es
 // incompatible (otro snapshot o sin snapshot declarado). Nunca se compara contra el baseline equivocado ni se omite en silencio.
 const rows = (extra: unknown[] = []) => ({
-  clients: [["c1", "h1"]], contacts: [["c1:general", "h2"]], staff: [["s1", "h3"]], engagements: [["2026.11.001", "h4"], ...extra], administrative: [["2027.10.001", "h5"]],
+  clients: [["c1", "h1"]], contacts: [["c1:general", "h2"]], staff: [["s1", "h3"]], engagements: [["2026.11.001", "h4"], ...extra], administrative: [["2027.10.001", "h5"]], periods: [], lines: [],
   hoursByStaff: [["s1", "h6"]], emailQueue: [["engagement.created|failed|ETL_F3_NO_DELIVERY", "h7"]],
 });
 

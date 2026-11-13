@@ -29,7 +29,17 @@ const isDecimalOrNull = (value) => value === null || /^\d+(\.\d+)?$/.test(String
 // f3.hours.entries y f3.hours.holiday (12/11/2026, revisión independiente): entradas EMS que producen las horas aprobadas (una por actividad: Gerente y Supervisor se reparten
 // 30/70) y lo que cae en feriados del calendario de EMS vigente (2026-2027; 2024 y 2025 no existen en él). Opcionales: manifiestos anteriores no los traen (= no aplica);
 // un valor null se trata como los demás controles (en local no se aplica; en Test y producción bloquea).
-const hoursEntriesShapeOk = (hours) => (hours.entries === undefined || isCount(hours.entries))
+// D41 Parte I (13/11/2026): contrato de horas históricas APROBADAS dentro de EMS. `f3.hours.contract = "D41"` + `history` { batch, timeZone, periods, lines, entriesLinked, approvals: { rows, sha256 } }.
+// Sin contract (manifiestos anteriores) el cargador deja las horas con período NULL, como antes. Un valor null se trata como los demás controles.
+const BATCH = /^legacy:[A-Za-z0-9_]+:d41$/;
+const historyShapeOk = (hours) => {
+  if (hours.contract === undefined) return hours.history === undefined;
+  if (hours.contract !== "D41") return false;
+  const h = hours.history; if (!h || typeof h !== "object" || Array.isArray(h)) return false;
+  return typeof h.batch === "string" && BATCH.test(h.batch) && h.timeZone === "America/La_Paz" && isCount(h.periods) && isCount(h.lines) && isCount(h.entriesLinked)
+    && !!h.approvals && typeof h.approvals === "object" && isCount(h.approvals.rows) && (h.approvals.sha256 === null || /^[a-f0-9]{64}$/.test(String(h.approvals.sha256)));
+};
+const hoursEntriesShapeOk = (hours) => historyShapeOk(hours) && (hours.entries === undefined || isCount(hours.entries))
   && (hours.holiday === undefined || (hours.holiday && typeof hours.holiday === "object" && !Array.isArray(hours.holiday) && isCount(hours.holiday.rows) && isCount(hours.holiday.entries) && isDecimalOrNull(hours.holiday.hours)));
 
 function deepFreeze(value) {
@@ -41,6 +51,9 @@ function deepFreeze(value) {
 export function validateManifestShape(raw, name) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) fail(name, "debe ser un objeto JSON");
   if (raw.snapshot !== name) fail(name, `el campo snapshot (${raw.snapshot}) no coincide con el nombre del archivo`);
+  // `snapshot` es el identificador del MANIFIESTO (nombre del archivo); `origin.database` es el respaldo legacy del que salen los datos. Un manifiesto variante (p. ej. el contrato D41)
+  // lleva su propio snapshot y declara su origen; sin `origin` el origen es el propio snapshot.
+  if (raw.origin !== undefined && (!raw.origin || typeof raw.origin !== "object" || !NAME.test(String(raw.origin.database ?? "")))) fail(name, "origin.database debe ser el nombre del respaldo legacy");
   for (const key of ["dates", "f2", "f3", "bak"]) if (!raw[key] || typeof raw[key] !== "object") fail(name, `falta la sección ${key}`);
   for (const key of DATE_KEYS) if (!(key in raw.dates) || !isDate(raw.dates[key])) fail(name, `dates.${key} debe existir (AAAA-MM-DD o null)`);
   for (const key of F2_KEYS) if (!(key in raw.f2) || !isCount(raw.f2[key])) fail(name, `f2.${key} debe existir (entero o null)`);
@@ -102,3 +115,8 @@ export function resolveEndDate(row, endDates) {
   if (!endDates?.allowed?.includes(value)) throw new SnapshotManifestError(`fin de vigencia no permitido para ${row.legacy_cot ?? "(sin COT)"}: ${value} (permitidos: ${endDates?.allowed?.join(", ")})`);
   return value;
 }
+
+/** Respaldo legacy del que salen los datos del manifiesto (un manifiesto variante lo declara en `origin.database`; sin él, es el propio snapshot). */
+export const manifestOrigin = (manifest) => manifest?.origin?.database ?? manifest?.snapshot ?? null;
+/** Contrato de las horas: "D41" (períodos cerrados con líneas aprobadas) o "legacy" (períodos NULL, manifiestos anteriores). */
+export const manifestContract = (manifest) => manifest?.f3?.hours?.contract ?? "legacy";

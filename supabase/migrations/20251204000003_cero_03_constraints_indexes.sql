@@ -1160,6 +1160,19 @@ CREATE INDEX idx_timesheet_periods_deadline ON public.timesheet_periods USING bt
 
 
 --
+-- D41 Parte I: procedencia de las horas históricas importadas (import_batch / imported_at van juntos; un período importado queda cerrado y con envío técnico).
+--
+
+ALTER TABLE ONLY public.timesheet_periods
+    ADD CONSTRAINT timesheet_periods_import_provenance_check CHECK (((import_batch IS NULL) = (imported_at IS NULL)));
+
+ALTER TABLE ONLY public.timesheet_periods
+    ADD CONSTRAINT timesheet_periods_import_closed_check CHECK (((import_batch IS NULL) OR ((is_period_locked IS TRUE) AND (submitted_at IS NOT NULL))));
+
+CREATE INDEX idx_timesheet_periods_import_batch ON public.timesheet_periods USING btree (import_batch) WHERE (import_batch IS NOT NULL);
+
+
+--
 --
 -- Name: idx_timesheet_periods_staff_date; Type: INDEX; Schema: public; Owner: -
 --

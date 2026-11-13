@@ -6480,6 +6480,111 @@ $$;
 
 
 --
+-- Name: import_historic_timesheets(text, jsonb, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- D41 Parte I (ETL F3, 13/11/2026): importación de horas históricas YA APROBADAS dentro de EMS. Es la vía acotada para crear, en UNA transacción, los períodos
+-- cerrados (is_period_locked = true), las entradas vinculadas a ellos y las líneas nativas `approved`, con procedencia en timesheet_periods (import_batch / imported_at).
+-- Contrato:
+--   * SECURITY INVOKER; ejecutable SOLO por el propietario (se revoca de PUBLIC, anon, authenticated y service_role en cero_06) y solo desde una sesión `postgres`
+--     (la misma regla que la excepción de feriados históricos de enforce_holiday_blocking). No concede ningún bypass al usuario admin de la aplicación.
+--   * Orden compatible con los triggers vigentes: períodos → entradas con period_id → líneas aprobadas (protect_approved_time_entries bloquea insertar entradas
+--     en una línea que ya está aprobada). No se desactiva ningún trigger.
+--   * Marca transaccional `app.etl_import = on` (solo durante la llamada; se restaura al salir): notify_timesheet_line_approval_events no emite avisos de aprobación por la importación. El período se inserta ya
+--     cerrado (submitted_at técnico = instante de importación): tr_notify_timesheet_period solo actúa en UPDATE, así que no hay envío ni correo.
+--   * No inventa aprobador ni fecha: approved_by y approved_at salen del payload y pueden ser NULL (evidencia del legacy conservada tal cual).
+--   * Atómica y estricta: un lote ya importado, una entrada sin línea, una línea sin entradas, un total de período distinto de la suma de sus entradas o una entrada
+--     fuera de la semana de su período abortan toda la llamada sin dejar nada.
+CREATE FUNCTION public.import_historic_timesheets(p_batch text, p_periods jsonb, p_entries jsonb, p_lines jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO public
+AS $$
+DECLARE
+  v_now     constant timestamptz := now();
+  v_periods integer;
+  v_entries integer;
+  v_lines   integer;
+  v_bad     integer;
+  v_prev_import text := current_setting('app.etl_import', true);
+  v_prev_hours  text := current_setting('etl.f3_historical_hours', true);
+BEGIN
+  -- Sesión propietaria: `postgres` (la conexión del operador en Supabase) o un superusuario de la base (la base scratch de las pruebas). Un rol de la API nunca llega aquí (sin EXECUTE).
+  IF NOT (session_user = 'postgres' OR COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)) THEN
+    RAISE EXCEPTION 'IMPORT_NOT_ALLOWED: solo la sesión propietaria puede importar horas históricas' USING ERRCODE = '42501';
+  END IF;
+  IF p_batch IS NULL OR p_batch !~ '^legacy:[A-Za-z0-9_]+:d41$' THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_INVALID: %', COALESCE(p_batch, '(nulo)') USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_typeof(p_periods) IS DISTINCT FROM 'array' OR jsonb_typeof(p_entries) IS DISTINCT FROM 'array' OR jsonb_typeof(p_lines) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_periods) = 0 OR jsonb_array_length(p_entries) = 0 OR jsonb_array_length(p_lines) = 0 THEN
+    RAISE EXCEPTION 'IMPORT_PAYLOAD_INVALID: períodos, entradas y líneas deben ser arreglos no vacíos' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.timesheet_periods WHERE import_batch = p_batch) THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_EXISTS: el lote % ya tiene períodos importados', p_batch USING ERRCODE = '23505';
+  END IF;
+
+  -- Las marcas valen solo dentro de esta llamada: al terminar se restauran (el resto de la transacción del llamador vuelve a emitir avisos normalmente).
+  PERFORM set_config('app.etl_import', 'on', true);
+  PERFORM set_config('etl.f3_historical_hours', 'on', true);
+
+  -- 1) períodos cerrados
+  INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, total_hours, submitted_at, is_period_locked, import_batch, imported_at)
+  SELECT (x->>'periodId')::uuid, (x->>'staffId')::uuid, (x->>'weekStart')::date, (x->>'weekNumber')::integer, (x->>'year')::integer,
+         (x->>'totalHours')::numeric, v_now, true, p_batch, v_now
+    FROM jsonb_array_elements(p_periods) x;
+  GET DIAGNOSTICS v_periods = ROW_COUNT;
+
+  -- 2) entradas ya vinculadas a su período
+  INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, engagement_id, activity_id, description, period_id, is_forecast, etl_split_index)
+  SELECT (x->>'timeId')::uuid, (x->>'dateWorked')::date, (x->>'hours')::numeric, (x->>'staffId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid,
+         NULL, (x->>'periodId')::uuid, false, COALESCE((x->>'etlSplitIndex')::smallint, 1)
+    FROM jsonb_array_elements(p_entries) x;
+  GET DIAGNOSTICS v_entries = ROW_COUNT;
+
+  -- 3) líneas nativas aprobadas (después de las entradas: protect_approved_time_entries)
+  INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at)
+  SELECT (x->>'approvalId')::uuid, (x->>'periodId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid, 'approved',
+         NULLIF(x->>'approvedBy', '')::uuid, NULLIF(x->>'approvedAt', '')::timestamptz
+    FROM jsonb_array_elements(p_lines) x;
+  GET DIAGNOSTICS v_lines = ROW_COUNT;
+
+  IF v_periods <> jsonb_array_length(p_periods) OR v_entries <> jsonb_array_length(p_entries) OR v_lines <> jsonb_array_length(p_lines) THEN
+    RAISE EXCEPTION 'IMPORT_COUNT_MISMATCH: períodos %/%, entradas %/%, líneas %/%', v_periods, jsonb_array_length(p_periods), v_entries, jsonb_array_length(p_entries), v_lines, jsonb_array_length(p_lines);
+  END IF;
+
+  -- coherencia: el total de cada período es la suma de sus entradas
+  SELECT count(*) INTO v_bad FROM public.timesheet_periods p
+   WHERE p.import_batch = p_batch AND p.total_hours IS DISTINCT FROM COALESCE((SELECT sum(te.hours_logged) FROM public.time_entries te WHERE te.period_id = p.period_id), 0);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_PERIOD_TOTAL_MISMATCH: % períodos con total distinto de la suma de sus entradas', v_bad; END IF;
+
+  -- coherencia: toda entrada es de la persona del período y cae en su semana (lunes a domingo)
+  SELECT count(*) INTO v_bad FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id
+   WHERE p.import_batch = p_batch AND (te.staff_id <> p.staff_id OR te.date_worked < p.week_start_date OR te.date_worked > p.week_start_date + 6);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_ENTRY_OUTSIDE_PERIOD: % entradas fuera de la persona o la semana de su período', v_bad; END IF;
+
+  -- coherencia: cada (período, encargo, actividad) con entradas tiene su línea y cada línea tiene entradas
+  SELECT count(*) INTO v_bad FROM (
+    (SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch)
+    UNION ALL
+    (SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch)
+  ) q;
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_LINE_MISMATCH: % combinaciones período/encargo/actividad sin su par entrada/línea', v_bad; END IF;
+
+  PERFORM set_config('app.etl_import', COALESCE(v_prev_import, ''), true);
+  PERFORM set_config('etl.f3_historical_hours', COALESCE(v_prev_hours, ''), true);
+  RETURN jsonb_build_object('periods', v_periods, 'entries', v_entries, 'lines', v_lines, 'batch', p_batch);
+END;
+$$;
+
+COMMENT ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) IS
+  'D41 Parte I (ETL F3): importa horas históricas aprobadas (períodos cerrados + entradas + líneas approved) en una transacción, con procedencia en timesheet_periods. Solo el propietario; sin avisos de aprobación.';
+
+
+--
 -- Name: seed_initial_holidays(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8459,7 +8564,12 @@ CREATE TABLE public.timesheet_periods (
     total_hours numeric(6,2) DEFAULT 0,
     submitted_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    -- D41 Parte I (ETL F3, 13/11/2026): procedencia de las horas históricas importadas. Solo public.import_historic_timesheets() las escribe.
+    -- import_batch identifica el lote (p. ej. legacy:TimeControlDB_20261106_1600:d41) e imported_at es el instante TÉCNICO de la importación (no un envío legacy).
+    -- Las entradas (time_entries.period_id) y las aprobaciones (timesheet_line_approvals.period_id) se identifican como importadas a través de este período.
+    import_batch text,
+    imported_at timestamp with time zone
 );
 
 
