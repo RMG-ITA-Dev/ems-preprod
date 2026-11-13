@@ -41,7 +41,7 @@ export interface Industry {
   industry_id: string;
   industry_name: string;
   fiscal_year_end: string;
-  // ETL fase 1: estado del catálogo (solo tipo; la UI aún no lo usa).
+  // ETL fase 1: estado del catálogo. Settings › Industrias lo edita y filtra; ClientForm ofrece solo las activas.
   status?: "active" | "inactive";
 }
 

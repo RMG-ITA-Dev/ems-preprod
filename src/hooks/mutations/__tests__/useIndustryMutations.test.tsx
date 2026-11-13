@@ -49,6 +49,27 @@ describe("useIndustryMutations", () => {
       expect(toast.success).toHaveBeenCalled();
     });
 
+    it("1028-218: forwards the selected status to insert", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { industry_id: "1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      vi.mocked(supabase.from).mockReturnValue({ insert: mockInsert } as any);
+
+      const { result } = renderHook(() => useCreateIndustry(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ industry_name: "Tech", fiscal_year_end: "December 31", status: "inactive" });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockInsert).toHaveBeenCalledWith({
+        industry_name: "Tech",
+        fiscal_year_end: "December 31",
+        status: "inactive",
+      });
+    });
+
     it("should handle errors correctly", async () => {
       const mockError = { message: "Database error" };
       const mockSingle = vi.fn().mockResolvedValue({ data: null, error: mockError });
@@ -87,6 +108,25 @@ describe("useIndustryMutations", () => {
       expect(mockUpdate).toHaveBeenCalledWith({ industry_name: "Updated Tech" });
       expect(mockEq).toHaveBeenCalledWith("industry_id", "1");
       expect(toast.success).toHaveBeenCalled();
+    });
+
+    it("1028-218: forwards a status-only change and targets industry_id", async () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: { industry_id: "1" }, error: null });
+      const mockSelect = vi.fn().mockReturnValue({ single: mockSingle });
+      const mockEq = vi.fn().mockReturnValue({ select: mockSelect });
+      const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+      vi.mocked(supabase.from).mockReturnValue({ update: mockUpdate } as any);
+
+      const { result } = renderHook(() => useUpdateIndustry(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate({ id: "1", data: { status: "inactive" } });
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+      expect(mockUpdate).toHaveBeenCalledWith({ status: "inactive" });
+      expect(mockEq).toHaveBeenCalledWith("industry_id", "1");
     });
   });
 
