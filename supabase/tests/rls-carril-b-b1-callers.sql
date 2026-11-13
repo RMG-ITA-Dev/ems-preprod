@@ -27,10 +27,16 @@
 --   U5 assistant        role_key assistant       — sin self_approve ni permisos de OT
 --   U6 risk_partner     role_key risk_partner    — self_approve; OT solo lectura
 --   U7 risk_supervisor  role_key risk_supervisor — OT solo lectura
+--   U8 director         role_key director        — self_approve (1110-221)
+--   U9 senior_partner   role_key senior_partner  — self_approve (1110-221)
 --   E1/E2   encargos de práctica 1 (E1 de U3, E2 de U4), approval_required = true
+--   E3      encargo de feriados del fixture (HOLIDAY_ENGAGEMENT_ID); el harness no siembra holidays,
+--           así que toda fecha cargada en E3 es inválida y su línea nunca se autoaprueba
 --   WO1/WO2 una OT por encargo; WS1/WS2 una hoja por encargo con una celda cada una
 --   P1 asistente 01-jun | P2 partner 01-jun | P3 manager 01-jun | P4 asistente 08-jun
---   P5 asistente 15-jun | P6 risk_partner 01-jun   (cada una: 5 días x 8 h = 40 h en E1)
+--   P5 asistente 15-jun | P6 risk_partner 01-jun | P7 director 01-jun | P9 senior_partner 01-jun
+--   (cada una: 5 días x 8 h = 40 h en E1)
+--   P8 director 08-jun: 4 días x 8 h en E1 + 1 día x 8 h en E3 (mixta, 40 h)
 
 BEGIN;
 
@@ -46,11 +52,13 @@ INSERT INTO auth.users (id) VALUES
   ('a0b10000-0000-4000-8000-000000000004'),
   ('a0b10000-0000-4000-8000-000000000005'),
   ('a0b10000-0000-4000-8000-000000000006'),
-  ('a0b10000-0000-4000-8000-000000000007');
+  ('a0b10000-0000-4000-8000-000000000007'),
+  ('a0b10000-0000-4000-8000-000000000008'),
+  ('a0b10000-0000-4000-8000-000000000009');
 
 -- role (enum legacy) y role_key (RBAC) se declaran por separado: has_permission() lee role_key,
--- is_admin() lee role. risk_partner/risk_supervisor no existen en el enum, igual que en producción:
--- se mapean al valor legacy más cercano (partner / manager), como hace cero_13.
+-- is_admin() lee role. risk_partner/risk_supervisor/senior_partner no existen en el enum, igual que en
+-- producción: se mapean al valor legacy más cercano (partner / manager), como hace cero_13.
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0b10000-0000-4000-8000-000000000001', 'admin',   'admin'),
   ('a0b10000-0000-4000-8000-000000000002', 'partner', 'partner'),
@@ -58,7 +66,9 @@ INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a0b10000-0000-4000-8000-000000000004', 'manager', 'manager'),
   ('a0b10000-0000-4000-8000-000000000005', 'staff',   'assistant'),
   ('a0b10000-0000-4000-8000-000000000006', 'partner', 'risk_partner'),
-  ('a0b10000-0000-4000-8000-000000000007', 'manager', 'risk_supervisor');
+  ('a0b10000-0000-4000-8000-000000000007', 'manager', 'risk_supervisor'),
+  ('a0b10000-0000-4000-8000-000000000008', 'director', 'director'),
+  ('a0b10000-0000-4000-8000-000000000009', 'partner', 'senior_partner');
 
 INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, practica_id, society_id)
 SELECT s.staff_id, s.auth_user_id, s.first_name, s.last_name,
@@ -71,7 +81,9 @@ FROM (VALUES
   ('50b10000-0000-4000-8000-000000000004'::uuid, 'a0b10000-0000-4000-8000-000000000004'::uuid, 'Other',   'Mgr'),
   ('50b10000-0000-4000-8000-000000000005'::uuid, 'a0b10000-0000-4000-8000-000000000005'::uuid, 'Assist',  'B1'),
   ('50b10000-0000-4000-8000-000000000006'::uuid, 'a0b10000-0000-4000-8000-000000000006'::uuid, 'RiskP',   'B1'),
-  ('50b10000-0000-4000-8000-000000000007'::uuid, 'a0b10000-0000-4000-8000-000000000007'::uuid, 'RiskS',   'B1')
+  ('50b10000-0000-4000-8000-000000000007'::uuid, 'a0b10000-0000-4000-8000-000000000007'::uuid, 'RiskS',   'B1'),
+  ('50b10000-0000-4000-8000-000000000008'::uuid, 'a0b10000-0000-4000-8000-000000000008'::uuid, 'Director', 'B1'),
+  ('50b10000-0000-4000-8000-000000000009'::uuid, 'a0b10000-0000-4000-8000-000000000009'::uuid, 'SrPartner', 'B1')
 ) AS s(staff_id, auth_user_id, first_name, last_name);
 
 -- practica = 1 para que las celdas de la hoja pasen enforce_worksheet_cell_practice_scope
@@ -79,7 +91,8 @@ FROM (VALUES
 -- boletas no choquen con check_wo_approved: esta suite no prueba ese gate.
 INSERT INTO public.engagements (engagement_id, client_id, engagement_name, manager_id, practica, fecha_cierre, work_order_required, approval_required, society_id) VALUES
   ('e0b10000-0000-4000-8000-000000000001', 'c1b10000-0000-4000-8000-000000000001', 'B1 E1', '50b10000-0000-4000-8000-000000000003', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
-  ('e0b10000-0000-4000-8000-000000000002', 'c1b10000-0000-4000-8000-000000000001', 'B1 E2', '50b10000-0000-4000-8000-000000000004', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
+  ('e0b10000-0000-4000-8000-000000000002', 'c1b10000-0000-4000-8000-000000000001', 'B1 E2', '50b10000-0000-4000-8000-000000000004', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1)),
+  ('e0b10000-0000-4000-8000-000000000003', 'c1b10000-0000-4000-8000-000000000001', 'B1 E3 feriados', '50b10000-0000-4000-8000-000000000003', 1, '2027-12-31', false, true, (SELECT society_id FROM public.society ORDER BY name LIMIT 1));
 
 INSERT INTO public.activity_codes (activity_id, activity_code, description, practica_id, is_system, is_active)
 VALUES ('acb10000-0000-4000-8000-000000000001', 'B1-A1', 'B1 Test Activity', (SELECT practica_id FROM public.practicas WHERE code = 1), false, true);
@@ -110,7 +123,9 @@ INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week
   ('b0b10000-0000-4000-8000-000000000003', '50b10000-0000-4000-8000-000000000003', '2026-06-01', 23, 2026), -- P3 manager
   ('b0b10000-0000-4000-8000-000000000004', '50b10000-0000-4000-8000-000000000005', '2026-06-08', 24, 2026), -- P4 asistente
   ('b0b10000-0000-4000-8000-000000000005', '50b10000-0000-4000-8000-000000000005', '2026-06-15', 25, 2026), -- P5 asistente
-  ('b0b10000-0000-4000-8000-000000000006', '50b10000-0000-4000-8000-000000000006', '2026-06-01', 23, 2026); -- P6 risk_partner
+  ('b0b10000-0000-4000-8000-000000000006', '50b10000-0000-4000-8000-000000000006', '2026-06-01', 23, 2026), -- P6 risk_partner
+  ('b0b10000-0000-4000-8000-000000000007', '50b10000-0000-4000-8000-000000000008', '2026-06-01', 23, 2026), -- P7 director
+  ('b0b10000-0000-4000-8000-000000000009', '50b10000-0000-4000-8000-000000000009', '2026-06-01', 23, 2026); -- P9 senior_partner
 
 -- 40 h por período (lunes a viernes, 8 h, E1): WEEKLY_MIN = WEEKLY_MAX = 40 pasa limpio.
 INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, period_id, is_forecast)
@@ -120,10 +135,23 @@ FROM public.timesheet_periods p
 CROSS JOIN generate_series(0, 4) g
 WHERE p.period_id::text LIKE 'b0b10000-%';
 
+-- P8 (1110-221) va DESPUÉS del INSERT masivo para no recibir sus 40 h en E1: es una boleta mixta de
+-- 40 h — lunes a jueves en E1 y el viernes 12-jun en E3, el encargo de feriados del fixture.
+INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year) VALUES
+  ('b0b10000-0000-4000-8000-000000000008', '50b10000-0000-4000-8000-000000000008', '2026-06-08', 24, 2026); -- P8 director (mixta)
+
+INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, period_id, is_forecast)
+SELECT '50b10000-0000-4000-8000-000000000008',
+       CASE WHEN g < 4 THEN 'e0b10000-0000-4000-8000-000000000001' ELSE 'e0b10000-0000-4000-8000-000000000003' END::uuid,
+       'acb10000-0000-4000-8000-000000000001', DATE '2026-06-08' + g, 8,
+       'b0b10000-0000-4000-8000-000000000008', false
+FROM generate_series(0, 4) g;
+
 -- global_settings no se siembra en el harness (cero_16 no corre aquí): se crean las cuatro claves
--- que lee y escribe update_timesheet_minmax_settings.
+-- que lee y escribe update_timesheet_minmax_settings, más HOLIDAY_ENGAGEMENT_ID = E3 (1110-221, S8d).
 INSERT INTO public.global_settings (setting_key, setting_value) VALUES
-  ('DAILY_MIN', '0'), ('DAILY_MAX', '12'), ('WEEKLY_MIN', '40'), ('WEEKLY_MAX', '40')
+  ('DAILY_MIN', '0'), ('DAILY_MAX', '12'), ('WEEKLY_MIN', '40'), ('WEEKLY_MAX', '40'),
+  ('HOLIDAY_ENGAGEMENT_ID', 'e0b10000-0000-4000-8000-000000000003')
 ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value;
 
 -- ── Helpers (temp; se van con la sesión) ──────────────────────────────────────────────────────
@@ -272,6 +300,61 @@ BEGIN
     RAISE EXCEPTION 'B1 CALLERS FAIL — S8: risk_partner no se autoaprobó pese a tener timesheet.self_approve (status=%)', v_status;
   END IF;
   RAISE NOTICE 'PASS — S8: risk_partner se autoaprueba (timesheet.self_approve sembrado en B1.2)';
+
+  -- S8b (1110-221): el director se autoaprueba igual que el partner (S6), aunque pase
+  -- p_is_auto_approved = false y E1 exija aprobación. Aprobada a su nombre.
+  PERFORM pg_temp.impersonate('a0b10000-0000-4000-8000-000000000008');
+  v_res := public.submit_timesheet_safe(
+    'b0b10000-0000-4000-8000-000000000007', '50b10000-0000-4000-8000-000000000008',
+    ARRAY['e0b10000-0000-4000-8000-000000000001']::uuid[], ARRAY['acb10000-0000-4000-8000-000000000001']::uuid[], false);
+  SELECT status, approved_by INTO v_status, v_by FROM public.timesheet_line_approvals
+   WHERE period_id = 'b0b10000-0000-4000-8000-000000000007';
+  IF v_status IS DISTINCT FROM 'approved' OR v_by IS DISTINCT FROM '50b10000-0000-4000-8000-000000000008'::uuid
+     OR NOT EXISTS (SELECT 1 FROM public.timesheet_line_approvals
+                     WHERE period_id = 'b0b10000-0000-4000-8000-000000000007' AND approved_at IS NOT NULL)
+     OR (v_res->>'new_auto_approved')::int <> 1 THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — S8b: el director con self_approve no se autoaprobó (status=%, approved_by=%, res=%)', v_status, v_by, v_res;
+  END IF;
+  RAISE NOTICE 'PASS — S8b: el director se autoaprueba por timesheet.self_approve aunque pase p_is_auto_approved=false';
+
+  -- S8c (1110-221): el senior_partner, igual.
+  PERFORM pg_temp.impersonate('a0b10000-0000-4000-8000-000000000009');
+  v_res := public.submit_timesheet_safe(
+    'b0b10000-0000-4000-8000-000000000009', '50b10000-0000-4000-8000-000000000009',
+    ARRAY['e0b10000-0000-4000-8000-000000000001']::uuid[], ARRAY['acb10000-0000-4000-8000-000000000001']::uuid[], false);
+  SELECT status, approved_by INTO v_status, v_by FROM public.timesheet_line_approvals
+   WHERE period_id = 'b0b10000-0000-4000-8000-000000000009';
+  IF v_status IS DISTINCT FROM 'approved' OR v_by IS DISTINCT FROM '50b10000-0000-4000-8000-000000000009'::uuid
+     OR NOT EXISTS (SELECT 1 FROM public.timesheet_line_approvals
+                     WHERE period_id = 'b0b10000-0000-4000-8000-000000000009' AND approved_at IS NOT NULL)
+     OR (v_res->>'new_auto_approved')::int <> 1 THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — S8c: el senior_partner con self_approve no se autoaprobó (status=%, approved_by=%, res=%)', v_status, v_by, v_res;
+  END IF;
+  RAISE NOTICE 'PASS — S8c: el senior_partner se autoaprueba por timesheet.self_approve aunque pase p_is_auto_approved=false';
+
+  -- S8d (1110-221): el self_approve del director NO salta la validación de feriados. Boleta mixta P8:
+  -- la línea de E1 se autoaprueba; la de E3 (HOLIDAY_ENGAGEMENT_ID) con una fecha que no es feriado
+  -- queda pending. Premisa: 12-jun no es feriado en ninguna oficina (el harness no siembra holidays).
+  IF EXISTS (SELECT 1 FROM public.holidays WHERE holiday_date = DATE '2026-06-12') THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL (premisa) — S8d: 2026-06-12 figura como feriado; la línea de E3 no sería inválida';
+  END IF;
+  PERFORM pg_temp.impersonate('a0b10000-0000-4000-8000-000000000008');
+  v_res := public.submit_timesheet_safe(
+    'b0b10000-0000-4000-8000-000000000008', '50b10000-0000-4000-8000-000000000008',
+    ARRAY['e0b10000-0000-4000-8000-000000000001', 'e0b10000-0000-4000-8000-000000000003']::uuid[],
+    ARRAY['acb10000-0000-4000-8000-000000000001', 'acb10000-0000-4000-8000-000000000001']::uuid[], false);
+  SELECT status, approved_by INTO v_status, v_by FROM public.timesheet_line_approvals
+   WHERE period_id = 'b0b10000-0000-4000-8000-000000000008' AND engagement_id = 'e0b10000-0000-4000-8000-000000000001';
+  IF v_status IS DISTINCT FROM 'approved' OR v_by IS DISTINCT FROM '50b10000-0000-4000-8000-000000000008'::uuid THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — S8d: la línea ordinaria del director no se autoaprobó en la boleta mixta (status=%, approved_by=%, res=%)', v_status, v_by, v_res;
+  END IF;
+  SELECT status, approved_by INTO v_status, v_by FROM public.timesheet_line_approvals
+   WHERE period_id = 'b0b10000-0000-4000-8000-000000000008' AND engagement_id = 'e0b10000-0000-4000-8000-000000000003';
+  IF v_status IS DISTINCT FROM 'pending' OR v_by IS NOT NULL
+     OR (v_res->>'new_auto_approved')::int <> 1 OR (v_res->>'new_pending')::int <> 1 THEN
+    RAISE EXCEPTION 'B1 CALLERS FAIL — S8d: el director saltó la validación de feriados (status=%, approved_by=%, res=%)', v_status, v_by, v_res;
+  END IF;
+  RAISE NOTICE 'PASS — S8d: el director no salta la validación de feriados; la línea ordinaria se aprueba igual';
 
   -- S9: sin sesión (migraciones, service_role) el parámetro se respeta, en las dos direcciones.
   PERFORM pg_temp.no_session();
