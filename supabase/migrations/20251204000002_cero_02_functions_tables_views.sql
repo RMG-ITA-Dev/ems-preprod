@@ -412,6 +412,8 @@ $$;
 --     timesheet_approval.approve. El Socio no decide horas por ser Socio (aprueba el encargo, no las horas).
 --   · Cliente (1 o NULL): la regla de siempre, el permiso timesheet_approval.approve y ser Gerente o Socio asignado.
 -- Ser Aprobador de un no-Cliente no abre nada de Cliente: la rama de Cliente sigue exigiendo el permiso.
+-- Review de Codex (2026-11-12): en no-Cliente también se revalida al decidir que el Aprobador siga siendo de la sociedad
+-- del encargo (el trigger de engagements lo exige solo al asignar; un cambio posterior de staff.society_id no lo dispara).
 CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
@@ -422,6 +424,7 @@ CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uui
        AND CASE
              WHEN COALESCE(e.funcion, 1) <> 1 THEN
                e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
+               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
              ELSE
                p_staff_id IN (e.manager_id, e.partner_id)
                AND EXISTS (SELECT 1

@@ -127,10 +127,12 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
   -- 1110-220 plan_v5: espejo por conjunto de is_hours_approver_of(get_my_staff_id(), engagement_id), sin la excepción de admin. Dos ramas
   -- separadas para que ser Aprobador de un no-Cliente no abra Cliente: no-Cliente = soy el Aprobador vigente y elegible; Cliente = tengo el
   -- permiso de aprobar y soy Gerente o Socio. Las partes que no dependen de la fila se calculan una vez.
+  -- Review de Codex (2026-11-12): y de la sociedad del encargo, revalidada al decidir (espejo de is_hours_approver_of).
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) <> 1
      AND e.manager_id = (SELECT public.get_my_staff_id())
      AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
+     AND e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id()))
   UNION
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) = 1

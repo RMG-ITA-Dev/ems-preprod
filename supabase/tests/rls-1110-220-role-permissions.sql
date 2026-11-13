@@ -1277,6 +1277,35 @@ BEGIN
   RAISE NOTICE 'PASS — la decisión NULL del Socio se rechaza; el histórico de administrativos es solo de admin y TH';
 END $$;
 
+-- ── 15. Review de Codex: el Aprobador que cambia de sociedad pierde la autoridad sobre las horas ─────────────────────
+-- EV (sección 4b): no-Cliente de Pelaez con Aprobador el senior (9). Admin le cambia la sociedad en su ficha; el encargo no
+-- se toca, así que el trigger de engagements no corre. La autoridad se revalida al decidir.
+DO $$
+DECLARE
+  v_ev  uuid := 'e1102000-0000-4000-8000-000000000009';
+  apr   constant text := 'SELECT count(*) FROM public.my_approvable_engagement_ids() id WHERE id = ''e1102000-0000-4000-8000-000000000009''';
+BEGIN
+  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — precondición: el senior debía ser Aprobador vigente de EV';
+  END IF;
+
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
+   WHERE staff_id = pg_temp.s(9);
+  IF public.is_hours_approver_of(pg_temp.s(9), v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue decidiendo las horas del encargo';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(9), apr) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue viendo el encargo en su cola';
+  END IF;
+
+  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
+   WHERE staff_id = pg_temp.s(9);
+  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — al volver a la sociedad del encargo, el Aprobador debía recuperar la autoridad';
+  END IF;
+  RAISE NOTICE 'PASS — el Aprobador que cambia de sociedad pierde la decisión y la cola; al volver las recupera';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;
