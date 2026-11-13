@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict gKPjKNl6EHmhBcF9jeHpkHN4nwazatHSPnTxqaVwXpdhSCfTTIvYoPwKd5kqHfv
+\restrict J5cGo5u1wRKhdRFlFtBOu0uQUPhfSzCMOsc835nx2W6c6MeSVJJJFgfgENslATa
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg26.04+1)
@@ -3502,6 +3502,42 @@ BEGIN
   RETURN v_note;
 END;
 $$;
+
+
+--
+-- Name: dismiss_all_notifications(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.dismiss_all_notifications() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- `dismissed_at IS NULL`: lo ya descartado conserva su marca, así que el plazo de retención
+  -- sigue contando desde el primer descarte (igual que en dismiss_notifications).
+  UPDATE public.notifications
+     SET dismissed_at = now()
+   WHERE recipient_staff_id = v_staff
+     AND dismissed_at IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+
+--
+-- Name: FUNCTION dismiss_all_notifications(); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.dismiss_all_notifications() IS '1112-227: descarta TODAS las notificaciones propias (cargadas o no en el panel, incluidos tipos inactivos) marcando dismissed_at; NO borra filas, que siguen siendo el registro de emision para el cron. Sin parametros: el destinatario sale de get_my_staff_id(). No toca contadores ni alertas legacy.';
 
 
 --
@@ -33002,5 +33038,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict gKPjKNl6EHmhBcF9jeHpkHN4nwazatHSPnTxqaVwXpdhSCfTTIvYoPwKd5kqHfv
+\unrestrict J5cGo5u1wRKhdRFlFtBOu0uQUPhfSzCMOsc835nx2W6c6MeSVJJJFgfgENslATa
 
