@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
+import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useTranslation } from "react-i18next";
@@ -46,7 +47,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { StaffFull, useCategories, useActiveSkills, useSocieties, useServices } from "@/hooks/useEmsData";
+import { StaffFull, useCategories, useActiveSkills, useSocieties, useServices, type Society } from "@/hooks/useEmsData";
 import { useCreateStaff, useUpdateStaff, useDeleteStaff, useCreateStaffCompetency, useUpdateStaffCompetency, useDeleteStaffCompetency } from "@/hooks/mutations";
 import { Trash2, AlertTriangle, RefreshCw, Plus, Lock, LockOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -209,8 +210,8 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // formulario completo y recién al guardar la RLS lo rechaza. /staff/new ya está gateada por
   // staff.create, así que en modo alta no hace falta el chequeo adicional.
   const canEdit = !isEdit || can("staff.update");
-  const { data: societies } = useSocieties();
-  const { data: services } = useServices();
+  const { data: societies, isLoading: societiesLoading, isError: societiesError } = useSocieties();
+  const { data: services, isLoading: servicesLoading, isError: servicesError } = useServices();
   const { data: activeSkills } = useActiveSkills();
   const createMutation = useCreateStaff();
   const updateMutation = useUpdateStaff();
@@ -249,6 +250,11 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // no lo pise.
   const originalCategoryId = useRef<string | null>(null);
   const seededStaffId = useRef<string | null>(null);
+
+  // BUG 1112-223: último staff_id con el que se sembró el formulario. Un refetch de
+  // `staff_full` con la ficha abierta (mismo staff_id, objeto nuevo) no debe pisar lo que
+  // el usuario ya editó; un staff_id distinto sí resiembra todo.
+  const hydratedStaffId = useRef<string | null>(null);
 
   // 0820-182: diálogo de sincronización categoría -> rol. La categoría PROPONE un rol
   // (categories.default_role_key); nunca lo aplica sola. Se restaura el flujo que FASE 3c
@@ -300,7 +306,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   // Categoría se filtra por la práctica elegida (FEAT 0810-173). Sin práctica
   // seleccionada, no se listan categorías.
   const watchedServiceId = form.watch("practica_id");
-  const { data: categories, isLoading: categoriesLoading } = useCategories(watchedServiceId || undefined);
+  const { data: categories, isLoading: categoriesLoading, isError: categoriesError } = useCategories(watchedServiceId || undefined);
 
   // Práctica excluye Firmwide (allows_rates_activities=false) para altas nuevas.
   // En edición, si el staff ya tiene asignada una práctica inactiva o excluida,
@@ -313,6 +319,54 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
     }
     return active;
   }, [services, isEdit, staff?.practica_id]);
+
+  // BUG 1112-223: useSocieties() trae solo activas. Si la ficha apunta a una sociedad
+  // inactiva se pide SOLO esa fila (3 columnas), para mostrar su nombre — mismo criterio que
+  // practiceOptions y que societyOptions de EngagementForm. Con la sociedad activa en el
+  // catálogo la query queda apagada: cero GET extra en el caso normal.
+  const assignedSocietyId = isEdit ? staff?.society_id ?? null : null;
+  const assignedSocietyMissing =
+    !!assignedSocietyId && !!societies && !societies.some((s) => s.society_id === assignedSocietyId);
+  const {
+    data: assignedSociety,
+    isLoading: assignedSocietyLoading,
+    isError: assignedSocietyError,
+  } = useQuery({
+    queryKey: ["society", assignedSocietyId],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase as any)
+        .from("society")
+        .select("society_id, name, is_active")
+        .eq("society_id", assignedSocietyId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as Pick<Society, "society_id" | "name" | "is_active"> | null;
+    },
+    enabled: assignedSocietyMissing,
+  });
+
+  const societyOptions = useMemo(() => {
+    const active: Array<Pick<Society, "society_id" | "name">> = societies ?? [];
+    if (assignedSociety && !active.some((s) => s.society_id === assignedSociety.society_id)) {
+      return [...active, assignedSociety];
+    }
+    return active;
+  }, [societies, assignedSociety]);
+
+  // BUG 1112-223: un catálogo bloquea solo si NO tiene datos utilizables (cargando o con
+  // error). Un refresco en segundo plano fallido con datos previos no bloquea: TanStack deja
+  // `isError: true` sin tocar `data` (mismo criterio que 0922-195, review H8).
+  const societiesUnavailable =
+    (!societies && (societiesLoading || societiesError)) || (assignedSocietyMissing && assignedSocietyLoading);
+  const servicesUnavailable = !services && (servicesLoading || servicesError);
+  const categoriesUnavailable = !!watchedServiceId && !categories && (categoriesLoading || categoriesError);
+  const catalogsBlocking = societiesUnavailable || servicesUnavailable || categoriesUnavailable;
+  // La lectura puntual de la sociedad inactiva avisa pero no bloquea: el id guardado es
+  // válido y se reenvía tal cual; solo falta su nombre.
+  const societiesLoadFailed = (!societies && societiesError) || (assignedSocietyMissing && assignedSocietyError);
+  const servicesLoadFailed = !services && servicesError;
+  const categoriesLoadFailed = !!watchedServiceId && !categories && categoriesError;
 
   useEffect(() => {
     if (staff && seededStaffId.current !== staff.staff_id) {
@@ -331,6 +385,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         last_evaluated_date: ss.last_evaluated_date ?? "",
       }));
       originalSkillIds.current = new Set(seededCompetencies.map((c) => c.skill_id));
+      // BUG 1112-223: mismo staff_id = refetch con la ficha abierta → keepDirtyValues
+      // conserva lo editado y actualiza solo los campos que el usuario no tocó.
+      const sameRecord = hydratedStaffId.current === staff.staff_id;
+      hydratedStaffId.current = staff.staff_id;
       form.reset({
         first_name: staff.first_name,
         last_name: staff.last_name,
@@ -347,7 +405,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
         termination_date: staff.termination_date || "",
         is_active: staff.is_active,
         competencies: seededCompetencies,
-      });
+      }, sameRecord ? { keepDirtyValues: true } : undefined);
     }
   }, [staff, form]);
 
@@ -490,6 +548,10 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
   };
 
   const onSubmit = async (data: FormData) => {
+    // BUG 1112-223: no se guarda mientras un catálogo no tenga datos utilizables. El botón
+    // ya queda deshabilitado; esto cubre además el submit implícito (Enter).
+    if (catalogsBlocking) return;
+
     // Pre-save duplicate email check
     if (data.email) {
       const { data: existing } = await supabase
@@ -946,20 +1008,30 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>{t("staff.society")} *</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        // BUG 1112-223 (mismo gotcha que 0922-195): Radix emite onValueChange("")
+                        // si el value llega antes que su <SelectItem> (catálogo cargando);
+                        // propagarlo borraría el valor sembrado. El usuario nunca puede elegir "".
+                        onValueChange={(v) => { if (v !== "") field.onChange(v); }}
+                        value={field.value}
+                        disabled={societiesUnavailable}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder={t("staff.selectSociety")} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {societies?.map((soc) => (
+                          {societyOptions.map((soc) => (
                             <SelectItem key={soc.society_id} value={soc.society_id}>
                               {soc.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      {societiesLoadFailed && (
+                        <p className="text-sm text-destructive">{t("staff.catalogLoadError")}</p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -973,12 +1045,16 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                       <FormLabel>{t("staff.practice")} *</FormLabel>
                       <Select
                         onValueChange={(value) => {
+                          // BUG 1112-223: el "" espurio de Radix (catálogo cargando) se ignora
+                          // ANTES de limpiar la categoría; si no, vaciaba Práctica y Categoría.
+                          if (value === "") return;
                           field.onChange(value);
                           // Cambiar de práctica invalida la categoría elegida
                           // (está acotada a la práctica anterior).
                           form.setValue("category_id", "", { shouldDirty: true });
                         }}
                         value={field.value}
+                        disabled={servicesUnavailable}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -993,6 +1069,9 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                           ))}
                         </SelectContent>
                       </Select>
+                      {servicesLoadFailed && (
+                        <p className="text-sm text-destructive">{t("staff.catalogLoadError")}</p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -1005,7 +1084,12 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("staff.category")} *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value} disabled={!watchedServiceId}>
+                    <Select
+                      // BUG 1112-223: mismo guard que Sociedad/Práctica contra el "" espurio de Radix.
+                      onValueChange={(v) => { if (v !== "") field.onChange(v); }}
+                      value={field.value}
+                      disabled={!watchedServiceId || categoriesUnavailable}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder={t("staff.selectCategory")} />
@@ -1019,6 +1103,9 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                         ))}
                       </SelectContent>
                     </Select>
+                    {categoriesLoadFailed && (
+                      <p className="text-sm text-destructive">{t("staff.catalogLoadError")}</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1288,7 +1375,7 @@ export function StaffForm({ staff, onDirtyChange, onCancel, onSaveSuccess, prefi
                 variant="default"
                 className="w-full sm:w-auto min-h-[44px] sm:min-h-0"
                 loading={createMutation.isPending || updateMutation.isPending || createCompetency.isPending || updateCompetency.isPending || deleteCompetency.isPending}
-                disabled={!canEdit}
+                disabled={!canEdit || catalogsBlocking}
               >
                 {isEdit ? t("common.saveChanges") : t("staff.createStaff")}
               </LoadingButton>

@@ -420,4 +420,22 @@ describe("StaffForm — sociedad y práctica (FEAT 0810-173)", () => {
     });
     expect(updateMutateAsync).not.toHaveBeenCalled();
   });
+
+  // BUG 1112-223: Radix emite onValueChange("") cuando el value llega antes que su
+  // <SelectItem>. Ese "" no debe vaciar Práctica ni, a través de su handler, Categoría.
+  it("9) un \"\" en Práctica (el espurio de Radix) no limpia Práctica ni Categoría", async () => {
+    const { container } = renderEditForm({ category_id: "cat-aud-2" });
+
+    await waitFor(() => {
+      expect(practiceSelect(container).value).toBe("svc-auditoria");
+      expect(categorySelect(container).value).toBe("cat-aud-2");
+    });
+
+    fireEvent.change(practiceSelect(container), { target: { value: "" } });
+
+    await waitFor(() => {
+      expect(practiceSelect(container).value).toBe("svc-auditoria");
+      expect(categorySelect(container).value).toBe("cat-aud-2");
+    });
+  });
 });
