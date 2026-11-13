@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Mi6aSMMzGiNZLgqPieLaCn5WemJ4FIDmtBXEwtc1ppz3gvwQraaTmSBu8vjcGzF
+\restrict mXGO3FdCOt1kV3XAQgO3UCw4AvaDZAVdf9JQpeQtvpDbUhrhFhYErExacCDNMWl
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg24.04+1)
@@ -3306,6 +3306,11 @@ DECLARE
 BEGIN
   IF auth.uid() IS NULL OR v_me IS NULL THEN
     RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- Review de Codex (2026-11-12): con p_approve NULL, `NOT p_approve` es NULL, el chequeo del motivo no se dispara y el
+  -- CASE de abajo grababa un rechazo sin motivo. La decisión es obligatoria.
+  IF p_approve IS NULL THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_DECISION_REQUIRED: falta la decisión (aprobar o rechazar)' USING ERRCODE = 'check_violation';
   END IF;
 
   SELECT engagement_id, funcion, work_order_required, partner_id, partner_approval_status,
@@ -9350,7 +9355,11 @@ BEGIN
     RETURN '[]'::jsonb;
   END IF;
 
-  v_can_see_history := public.has_permission('engagement.create');
+  -- Review de Codex (2026-11-12): el histórico completo es de quien CREA administrativos. Desde 1110-220 plan_v3 eso es
+  -- admin y Talento Humano; el Gerente normal, ITA y Tax conservan engagement.create solo para Cliente. Espejo de
+  -- canCreate en AdministrativeEngagements.tsx (engagement.create + ADMINISTRATIVE_CREATOR_ROLE_KEYS).
+  v_can_see_history := public.has_permission('engagement.create')
+                       AND public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst');
   -- 1110-220 (plan_v3): quien no crea pero gerencia o firma (Contabilidad, Riesgos, Secretaría, Gerente
   -- normal) ve el histórico de LO SUYO: su pestaña "Mis encargos" no puede perder un encargo al cambiar
   -- el año fiscal. Solo amplía filas donde ya figura como creador, Gerente o Socio.
@@ -9436,7 +9445,7 @@ $$;
 -- Name: FUNCTION list_administrative_engagements(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+COMMENT ON FUNCTION public.list_administrative_engagements() IS '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien los crea (engagement.create con rol admin, hr_manager o hr_analyst, 1110-220) ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 
 --
@@ -25903,22 +25912,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_11; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_11 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_11_12; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -25971,6 +25964,22 @@ CREATE TABLE realtime.messages_2026_11_14 (
 --
 
 CREATE TABLE realtime.messages_2026_11_15 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_16; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_16 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -26263,13 +26272,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_11; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_11 FOR VALUES FROM ('2026-11-11 00:00:00') TO ('2026-11-12 00:00:00');
-
-
---
 -- Name: messages_2026_11_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26295,6 +26297,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_14
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_15 FOR VALUES FROM ('2026-11-15 00:00:00') TO ('2026-11-16 00:00:00');
+
+
+--
+-- Name: messages_2026_11_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_16 FOR VALUES FROM ('2026-11-16 00:00:00') TO ('2026-11-17 00:00:00');
 
 
 --
@@ -27264,14 +27273,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_11 messages_2026_11_11_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_11
-    ADD CONSTRAINT messages_2026_11_11_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_11_12 messages_2026_11_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -27301,6 +27302,14 @@ ALTER TABLE ONLY realtime.messages_2026_11_14
 
 ALTER TABLE ONLY realtime.messages_2026_11_15
     ADD CONSTRAINT messages_2026_11_15_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_16 messages_2026_11_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_16
+    ADD CONSTRAINT messages_2026_11_16_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -28426,13 +28435,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_11_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_11_inserted_at_topic_idx ON realtime.messages_2026_11_11 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -28458,6 +28460,13 @@ CREATE INDEX messages_2026_11_14_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_15_inserted_at_topic_idx ON realtime.messages_2026_11_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_16_inserted_at_topic_idx ON realtime.messages_2026_11_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -28559,20 +28568,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_11_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_11_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_11_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_11_pkey;
-
-
---
 -- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -28626,6 +28621,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_15_pkey;
+
+
+--
+-- Name: messages_2026_11_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_16_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_16_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_16_pkey;
 
 
 --
@@ -32934,5 +32943,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Mi6aSMMzGiNZLgqPieLaCn5WemJ4FIDmtBXEwtc1ppz3gvwQraaTmSBu8vjcGzF
+\unrestrict mXGO3FdCOt1kV3XAQgO3UCw4AvaDZAVdf9JQpeQtvpDbUhrhFhYErExacCDNMWl
 
