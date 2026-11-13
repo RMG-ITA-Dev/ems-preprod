@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict KCM1D7mREaMTVN6pEqPMypbV38ttC1TEGghIeluKnZ2BNafapPdjWuscMhWf58U
+\restrict TNNpcoL7Rn3FPhbaQ3MHge2JXfM1GVvSABCDnjpIg5moZoFlJ1co0Ph5Bawc4cx
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg24.04+1)
@@ -4724,6 +4724,27 @@ $$;
 --
 
 COMMENT ON FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) IS 'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status (o, 1110-220, no-Cliente sin OT con la firma del Socio pendiente/rechazada), excluyendo Cancelado (6) y Finalizado (7).';
+
+
+--
+-- Name: engagement_assignment_staffing_allowed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_assignment_staffing_allowed(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF public.current_role_key() = 'admin' THEN
+    RETURN true;
+  END IF;
+  RETURN COALESCE(
+    (SELECT COALESCE(e.funcion, 1) = 1 OR e.work_order_required
+       FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id),
+    true);
+END;
+$$;
 
 
 --
@@ -18972,7 +18993,9 @@ BEGIN
   IF NOT (public.is_admin()
           OR public.is_engagement_responsible(p_engagement_id)
           OR public.is_engagement_team_member(p_engagement_id))
-     OR NOT public.can_write_administrative_work(p_engagement_id) THEN
+     OR NOT public.can_write_administrative_work(p_engagement_id)
+     -- Review de Codex (2026-11-13): un no-Cliente sin OT no carga horas; su asignación la edita solo admin.
+     OR NOT public.engagement_assignment_staffing_allowed(p_engagement_id) THEN
     RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -31298,7 +31321,7 @@ CREATE POLICY "administrative write delete" ON public.activity_worksheets AS RES
 -- Name: engagement_assignments administrative write delete; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "administrative write delete" ON public.engagement_assignments AS RESTRICTIVE FOR DELETE TO authenticated USING (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write delete" ON public.engagement_assignments AS RESTRICTIVE FOR DELETE TO authenticated USING ((public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id)));
 
 
 --
@@ -31354,7 +31377,7 @@ CREATE POLICY "administrative write insert" ON public.activity_worksheets AS RES
 -- Name: engagement_assignments administrative write insert; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "administrative write insert" ON public.engagement_assignments AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write insert" ON public.engagement_assignments AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id)));
 
 
 --
@@ -31410,7 +31433,7 @@ CREATE POLICY "administrative write update" ON public.activity_worksheets AS RES
 -- Name: engagement_assignments administrative write update; Type: POLICY; Schema: public; Owner: -
 --
 
-CREATE POLICY "administrative write update" ON public.engagement_assignments AS RESTRICTIVE FOR UPDATE TO authenticated USING (public.can_write_administrative_work(engagement_id)) WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write update" ON public.engagement_assignments AS RESTRICTIVE FOR UPDATE TO authenticated USING ((public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id))) WITH CHECK ((public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id)));
 
 
 --
@@ -32979,5 +33002,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict KCM1D7mREaMTVN6pEqPMypbV38ttC1TEGghIeluKnZ2BNafapPdjWuscMhWf58U
+\unrestrict TNNpcoL7Rn3FPhbaQ3MHge2JXfM1GVvSABCDnjpIg5moZoFlJ1co0Ph5Bawc4cx
 
