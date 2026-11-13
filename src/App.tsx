@@ -6,6 +6,7 @@ import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { PermissionRoute } from "@/components/authz/PermissionRoute";
+import { HoursApproverDetailRoute } from "@/components/authz/HoursApproverDetailRoute";
 import { BootstrapRoute } from "@/components/BootstrapRoute";
 import { LanguageSync } from "@/components/LanguageSync";
 import { SessionCacheGuard } from "@/components/SessionCacheGuard";
@@ -128,13 +129,13 @@ const router = createBrowserRouter([
       { path: "/engagements", element: <ProtectedRoute><PermissionRoute permission="engagement.read"><Engagements /></PermissionRoute></ProtectedRoute> },
       { path: "/administrative-engagements", element: <ProtectedRoute><AdministrativeEngagements /></ProtectedRoute> },
       { path: "/engagements/new", element: <ProtectedRoute><PermissionRoute permission="engagement.create"><EngagementNew /></PermissionRoute></ProtectedRoute> },
-      { path: "/engagements/:id", element: <ProtectedRoute><PermissionRoute permission="engagement.read"><EngagementEdit /></PermissionRoute></ProtectedRoute> },
+      { path: "/engagements/:id", element: <ProtectedRoute><HoursApproverDetailRoute permission="engagement.read" kind="engagement"><EngagementEdit /></HoursApproverDetailRoute></ProtectedRoute> },
       { path: "/worksheets", element: <ProtectedRoute><PermissionRoute permission="worksheet.read"><WorksheetList /></PermissionRoute></ProtectedRoute> },
       { path: "/worksheets/new", element: <ProtectedRoute><PermissionRoute permission="worksheet.create"><WorksheetNew /></PermissionRoute></ProtectedRoute> },
       { path: "/worksheets/:id", element: <ProtectedRoute><PermissionRoute permission="worksheet.read"><WorksheetEdit /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrders /></PermissionRoute></ProtectedRoute> },
       { path: "/work-orders/new", element: <ProtectedRoute><PermissionRoute permission="work_order.create"><WorkOrderNew /></PermissionRoute></ProtectedRoute> },
-      { path: "/work-orders/:id", element: <ProtectedRoute><PermissionRoute permission="work_order.read"><WorkOrderEdit /></PermissionRoute></ProtectedRoute> },
+      { path: "/work-orders/:id", element: <ProtectedRoute><HoursApproverDetailRoute permission="work_order.read" kind="work_order"><WorkOrderEdit /></HoursApproverDetailRoute></ProtectedRoute> },
       // 1028-213: módulo de Riesgos (lista + detalle). Permiso propio: solo admin, risk_partner y
       // risk_supervisor; sin él, PermissionRoute muestra "Sin acceso" (D-34).
       { path: "/risks", element: <ProtectedRoute><PermissionRoute permission="work_order.risk.read"><Risks /></PermissionRoute></ProtectedRoute> },

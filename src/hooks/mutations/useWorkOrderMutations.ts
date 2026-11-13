@@ -57,6 +57,8 @@ export function useUpdateWorkOrder() {
         approved_by: string;
         approved_at: string;
       }>;
+      /** Sin toast propio: lo da quien llama al terminar todo el guardado (WorkOrderEdit). Evita el aviso doble. */
+      silent?: boolean;
     }) => {
       const { data: result, error } = await supabase
         .from("work_orders")
@@ -67,7 +69,7 @@ export function useUpdateWorkOrder() {
       if (error) throw error;
       return result;
     },
-    onSuccess: (_data, { id }) => {
+    onSuccess: (_data, { id, silent }) => {
       queryClient.invalidateQueries({ queryKey: ["work_orders"] });
       // dashboard: cartera/encargo/personal/socio leen approval_status/presupuestos de OT --
       // invalidación aditiva (review.md dash_socio iteración 8, G-01, 2026-09-22).
@@ -77,7 +79,7 @@ export function useUpdateWorkOrder() {
       // detalle de /risks muestra ese estado: sin esto quedaba desactualizado hasta vencer el staleTime
       // (review 1028-213, R9-1).
       invalidateRiskViews(queryClient, id);
-      toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
+      if (!silent) toast.success(i18n.t("messages.updateSuccess", { entity: i18n.t("entities.workOrder") }));
     },
     onError: createMutationErrorHandler("updating work order"),
   });

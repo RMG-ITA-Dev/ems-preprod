@@ -84,11 +84,14 @@ DECLARE
   por constant text := 'SELECT count(*) FROM (SELECT jsonb_array_elements(public.list_portfolio_engagements()) e) x WHERE x.e ->> ''engagement_name'' LIKE ''B3c3 %''';
 BEGIN
   -- 1. Estructura ─────────────────────────────────────────────────────────────────────────────────
-  IF (SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = 'engagements'
-        AND policyname IN ('engagements hr administrative read', 'engagements hr administrative update')) <> 2 THEN
-    RAISE EXCEPTION 'B3c3 FAIL — faltan las políticas "engagements hr administrative read/update"';
+  -- 1110-220 plan_v3 (N10): la de edición se retiró ("cada uno lo suyo"); queda solo la de lectura.
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'engagements'
+                  AND policyname = 'engagements hr administrative read')
+     OR EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'engagements'
+                 AND policyname = 'engagements hr administrative update') THEN
+    RAISE EXCEPTION 'B3c3 FAIL — debía existir solo "engagements hr administrative read" (sin la de update)';
   END IF;
-  RAISE NOTICE 'PASS — políticas de HR para encargos administrativos presentes';
+  RAISE NOTICE 'PASS — política de lectura de HR presente; la de edición de todos los administrativos, retirada';
 
   -- 2. Lectura: HR ve los 3 administrativos (incluidos los que NO creó) y ningún encargo de cliente ───────────────
   FOREACH v_who IN ARRAY ARRAY[h1, h2] LOOP
@@ -105,11 +108,15 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS — lectura: HR ve los 3 administrativos (también los ajenos) y ninguno de cliente; el gerente 0';
 
-  -- 3. Edición: HR edita los 3 administrativos y ninguno de cliente; no borra ──────────────────────────────────────
+  -- 3. Edición (1110-220 plan_v3, N10): cada uno de HR edita solo lo que creó o gerencia — H1 solo EH, H2 ninguno —;
+  --    ninguno de cliente; no borra ─────────────────────────────────────────────────────────────────────────────
+  IF pg_temp.rows_as(h1, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion <> 1') <> 1 THEN
+    RAISE EXCEPTION 'B3c3 FAIL — hr_manager debía editar solo el administrativo que creó (EH)';
+  END IF;
+  IF pg_temp.rows_as(h2, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion <> 1') <> 0 THEN
+    RAISE EXCEPTION 'B3c3 FAIL — hr_analyst editó administrativos que no creó ni gerencia';
+  END IF;
   FOREACH v_who IN ARRAY ARRAY[h1, h2] LOOP
-    IF pg_temp.rows_as(v_who, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion <> 1') <> 3 THEN
-      RAISE EXCEPTION 'B3c3 FAIL — % debía editar los 3 administrativos', v_who;
-    END IF;
     IF pg_temp.rows_as(v_who, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion = 1') <> 0 THEN
       RAISE EXCEPTION 'B3c3 FAIL — % editó un encargo de cliente', v_who;
     END IF;
@@ -124,7 +131,7 @@ BEGIN
   IF pg_temp.rows_as(h1, 'UPDATE public.engagements SET funcion = 1 WHERE engagement_name = ''B3c3 1''') > 0 THEN
     RAISE EXCEPTION 'B3c3 FAIL — HR convirtió un administrativo en encargo de cliente';
   END IF;
-  RAISE NOTICE 'PASS — edición: HR edita los 3 administrativos, ninguno de cliente, no borra, no cambia funcion; el gerente 0';
+  RAISE NOTICE 'PASS — edición: cada uno de HR edita lo suyo (H1 su EH, H2 nada), ninguno de cliente, no borra, no cambia funcion; el gerente 0';
 
   -- 4. Detalle y edición en pantalla: list_portfolio_engagements los incluye, y nada más ───────────────────────────
   FOREACH v_who IN ARRAY ARRAY[h1, h2] LOOP
@@ -155,8 +162,8 @@ BEGIN
   INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key)
   VALUES ('hr_manager', 'engagement.update', 'assigned_engagements')
   ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
-  IF pg_temp.rows_as(h1, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion <> 1') <> 3 THEN
-    RAISE EXCEPTION 'B3c3 FAIL — al devolver engagement.update, hr_manager debía volver a editar los 3';
+  IF pg_temp.rows_as(h1, 'UPDATE public.engagements SET engagement_name = engagement_name WHERE engagement_name LIKE ''B3c3 %'' AND funcion <> 1') <> 1 THEN
+    RAISE EXCEPTION 'B3c3 FAIL — al devolver engagement.update, hr_manager debía volver a editar el suyo (EH)';
   END IF;
   RAISE NOTICE 'PASS — la visibilidad sale de engagement.read y la edición de engagement.update (se quita y se devuelve)';
 

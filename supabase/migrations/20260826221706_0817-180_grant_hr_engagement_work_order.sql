@@ -35,6 +35,13 @@
 -- permisos sería letra muerta. engagement.create/read/update SÍ son ejercitables sin asignación,
 -- vía las políticas "engagements creator read"/"engagements creator update" (cero_05:870/878),
 -- que solo exigen ser el creador (created_by_staff_id).
+--
+-- 1110-220 (plan_v3, N3, 2026-11-11): lo de arriba cambia. hr_analyst crea encargos no-Cliente,
+-- elige a su Gerente y crea sus OTs como CREADOR: is_engagement_team_member() (cero_02) lo cuenta
+-- como equipo en esos encargos, y la política "wo hr analyst administrative insert" (cero_05) le
+-- abre el INSERT. Por eso ahora sí recibe work_order.read/create/update. Sin worksheet.*: la Matriz
+-- de Trabajo es solo de encargos de Cliente. Sigue SIN timesheet_approval.* (no aprueba horas) y sin
+-- work_order.payment_plan.approve.
 INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
   ('hr_manager', 'engagement.create', 'assigned_engagements'),
   ('hr_manager', 'engagement.read',   'assigned_engagements'),
@@ -51,7 +58,35 @@ INSERT INTO public.authorization_role_permissions (role_key, permission_key, sco
 
   ('hr_analyst', 'engagement.create', 'assigned_engagements'),
   ('hr_analyst', 'engagement.read',   'assigned_engagements'),
-  ('hr_analyst', 'engagement.update', 'assigned_engagements')
+  ('hr_analyst', 'engagement.update', 'assigned_engagements'),
+  ('hr_analyst', 'work_order.read',   'assigned_engagements'),
+  ('hr_analyst', 'work_order.create', 'assigned_engagements'),
+  ('hr_analyst', 'work_order.update', 'assigned_engagements')
+ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
+
+-- 1110-220 (plan_v3, N4, 2026-11-11): el Gerente de Contabilidad y el Supervisor de Riesgos NO crean
+-- encargos ni OTs (solo Talento Humano y Sistemas, enforce_engagement_profile_scope): son candidatos a
+-- Gerente, el Analista de TH o admin los eligen en un encargo administrativo, y aprueban sus horas.
+-- Reciben solo lo necesario para mirar y aprobar lo que gerencian: worksheet.read, work_order.read
+-- (Riesgos) y timesheet_approval.*, todo con 'assigned_engagements'. Sin engagement.create/update,
+-- work_order.create/update ni worksheet.create.
+--
+-- OJO, filas EXCLUIDAS a propósito: el ON CONFLICT de abajo hace DO UPDATE del scope, así que
+-- repetir un permiso que el rol ya tiene con alcance más amplio lo DEGRADARÍA:
+--   - engagement.read: ambos ya lo tienen con 'department' (Carril B / B3p).
+--   - work_order.read: accounting_manager ya lo tiene con 'department' (B3p); risk_supervisor no
+--     lo tiene (1028-213 se lo quitó) y aquí lo recibe solo para SUS encargos.
+INSERT INTO public.authorization_role_permissions (role_key, permission_key, scope_key) VALUES
+  ('accounting_manager', 'worksheet.read',             'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.read',    'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.approve', 'assigned_engagements'),
+  ('accounting_manager', 'timesheet_approval.reject',  'assigned_engagements'),
+
+  ('risk_supervisor',    'worksheet.read',             'assigned_engagements'),
+  ('risk_supervisor',    'work_order.read',            'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.read',    'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.approve', 'assigned_engagements'),
+  ('risk_supervisor',    'timesheet_approval.reject',  'assigned_engagements')
 ON CONFLICT (role_key, permission_key) DO UPDATE SET scope_key = EXCLUDED.scope_key;
 
 

@@ -649,6 +649,10 @@ BEGIN
     INSERT INTO public.staff (staff_id, auth_user_id, first_name, last_name, category_id, practica_id, society_id) VALUES
       (v_staff, v_auth, 'Resp', 'Probe', v_cat, (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1)),
       (v_bystander, v_bystander_auth, 'NotResp', 'Probe', v_cat, (SELECT practica_id FROM public.practicas WHERE code = 1), (SELECT society_id FROM public.society LIMIT 1));
+    -- 1110-220 plan_v5: con sesión, manager_id de un encargo de Cliente exige un Gerente real (manager, ita_manager o
+    -- tax_manager) activo y con rol activo; la sonda recorre los 6 campos, así que necesita ese rol.
+    INSERT INTO public.user_roles (user_id, role_key) VALUES (v_auth, 'manager')
+    ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 

@@ -21,6 +21,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { NavLink } from "@/components/NavLink";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { showsClientEngagementsMenu } from "@/lib/engagementRoleAccess";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useManagesAnyOt } from "@/hooks/useFundRequests";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
@@ -73,9 +74,9 @@ export function AppSidebar() {
       title: t("nav.engagements"),
       url: "/engagements",
       icon: FolderKanban,
-      // El Analista de Talento Humano no ve encargos de Cliente (decisión del operador
-      // 2026-10-27): trabaja solo desde Encargos Administrativos.
-      show: can("engagement.read") && roleKey !== "hr_analyst",
+      // Analista de TH (2026-10-27), Gerente de Contabilidad y Jefe de Secretaría (1110-220) no ven
+      // encargos de Cliente: trabajan solo desde Encargos Administrativos.
+      show: can("engagement.read") && showsClientEngagementsMenu(roleKey),
     },
     {
       title: t("nav.administrativeEngagements"),

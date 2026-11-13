@@ -15,9 +15,13 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.my_team_engagement_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  -- Espejo de is_engagement_team_member(): gerente o socio.
+  -- Espejo de is_engagement_team_member(): gerente o socio; 1110-220 plan_v5: y el Talento Humano (hr_manager,
+  -- hr_analyst) creador de un encargo no-Cliente (crea y gestiona sus OTs sin ser su Aprobador).
   SELECT e.engagement_id FROM public.engagements e
    WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id())
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = (SELECT public.get_my_staff_id())
+          AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst'))
 $$;
 
 CREATE OR REPLACE FUNCTION public.my_staffed_engagement_ids() RETURNS SETOF uuid
@@ -73,9 +77,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.my_team_wo_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  -- OT de my_team_engagement_ids(): gerente o socio y, desde 1110-220 plan_v5 (review de Codex, 2026-11-12), el Talento
+  -- Humano creador de un no-Cliente. Sin esa rama el TH que ya no se autoasigna veía la fila de su OT pero no su
+  -- presupuesto, gastos ni plan de pagos, y no podía escribir las líneas.
   SELECT wo.wo_id FROM public.work_orders wo
-   WHERE wo.engagement_id IN (SELECT e.engagement_id FROM public.engagements e
-                               WHERE e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))
+   WHERE wo.engagement_id IN (SELECT public.my_team_engagement_ids())
 $$;
 
 CREATE OR REPLACE FUNCTION public.my_assigned_wo_ids() RETURNS SETOF uuid
@@ -106,20 +112,39 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.my_line_approval_mode() RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  -- Parte constante de can_approve_timesheet_line / can_approve_timesheet: 'all' (admin por role_key), 'engagements' (permiso de aprobar) o 'none'.
+  -- Parte constante de can_approve_timesheet_line / can_approve_timesheet: 'all' (admin por role_key), 'engagements' (cualquier staff: el
+  -- conjunto my_approvable_engagement_ids decide qué encargos) o 'none' (sin ficha). 1110-220 plan_v5: ya no exige el permiso de aprobar,
+  -- porque el Aprobador de horas de un no-Cliente decide sin él; la rama de Cliente lo sigue exigiendo dentro del conjunto.
   SELECT CASE
     WHEN (SELECT public.get_my_staff_id()) IS NULL THEN 'none'
     WHEN EXISTS (SELECT 1 FROM public.user_roles ur WHERE ur.user_id = auth.uid() AND ur.role_key = 'admin') THEN 'all'
-    WHEN EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
-                  WHERE ur.user_id = auth.uid() AND rp.permission_key = 'timesheet_approval.approve') THEN 'engagements'
-    ELSE 'none'
+    ELSE 'engagements'
   END
+$$;
+
+CREATE OR REPLACE FUNCTION public.my_approvable_engagement_ids() RETURNS SETOF uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
+  -- 1110-220 plan_v5: espejo por conjunto de is_hours_approver_of(get_my_staff_id(), engagement_id), sin la excepción de admin. Dos ramas
+  -- separadas para que ser Aprobador de un no-Cliente no abra Cliente: no-Cliente = soy el Aprobador vigente y elegible; Cliente = tengo el
+  -- permiso de aprobar y soy Gerente o Socio. Las partes que no dependen de la fila se calculan una vez.
+  -- Review de Codex (2026-11-12): y de la sociedad del encargo, revalidada al decidir (espejo de is_hours_approver_of).
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE COALESCE(e.funcion, 1) <> 1
+     AND e.manager_id = (SELECT public.get_my_staff_id())
+     AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
+     AND e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id()))
+  UNION
+  SELECT e.engagement_id FROM public.engagements e
+   WHERE COALESCE(e.funcion, 1) = 1
+     AND (SELECT public.get_my_staff_id()) IN (e.manager_id, e.partner_id)
+     AND (SELECT EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+                          WHERE ur.user_id = auth.uid() AND rp.permission_key = 'timesheet_approval.approve'))
 $$;
 
 CREATE OR REPLACE FUNCTION public.my_approvable_period_ids() RETURNS SETOF uuid
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
-  -- Espejo de can_approve_timesheet(auth.uid(), period_id): admin => todos; con permiso de aprobar => periodos de personas (no autoaprobadas) que cargaron
-  -- horas esa semana en un encargo que gerencio o del que soy socio (get_timesheet_approvers).
+  -- Espejo de can_approve_timesheet(auth.uid(), period_id): admin => todos; el resto => periodos de personas (no autoaprobadas) que cargaron
+  -- horas esa semana en un encargo cuyas horas decido (my_approvable_engagement_ids, la misma regla que get_timesheet_approvers).
   SELECT tp.period_id FROM public.timesheet_periods tp WHERE (SELECT public.my_line_approval_mode()) = 'all'
   UNION
   SELECT tp.period_id
@@ -128,7 +153,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
             FROM public.time_entries te
             JOIN public.engagements e ON e.engagement_id = te.engagement_id
            WHERE (SELECT public.my_line_approval_mode()) = 'engagements'
-             AND (e.manager_id = (SELECT public.get_my_staff_id()) OR e.partner_id = (SELECT public.get_my_staff_id()))) x
+             AND e.engagement_id IN (SELECT public.my_approvable_engagement_ids())
+             AND (COALESCE(e.funcion, 1) = 1 OR e.approval_required)) x
       ON x.staff_id = tp.staff_id AND x.date_worked >= tp.week_start_date AND x.date_worked < tp.week_start_date + interval '7 days'
    WHERE NOT public.is_auto_approved_category(tp.staff_id)
 $$;
@@ -139,7 +165,8 @@ DECLARE f text;
 BEGIN
   FOREACH f IN ARRAY ARRAY['my_assigned_engagement_ids','my_team_engagement_ids','my_staffed_engagement_ids','my_assigned_client_ids','my_assignment_engagement_ids',
                            'my_fund_request_engagement_ids','my_fund_request_wo_ids','my_sqr_visible_engagement_ids','my_team_wo_ids','my_assigned_wo_ids',
-                           'my_managed_visible_wo_ids','my_team_plan_ids','my_managed_visible_plan_ids','my_line_approval_mode','my_approvable_period_ids']
+                           'my_managed_visible_wo_ids','my_team_plan_ids','my_managed_visible_plan_ids','my_line_approval_mode','my_approvable_period_ids',
+                           'my_approvable_engagement_ids']
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION public.%I() FROM PUBLIC, anon', f);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I() TO authenticated, service_role', f);
@@ -156,7 +183,7 @@ CREATE POLICY "engagements creator read" ON public.engagements FOR SELECT TO aut
   USING ((SELECT public.has_permission('engagement.read')) AND created_by_staff_id IS NOT NULL AND created_by_staff_id = (SELECT public.get_my_staff_id()));
 DROP POLICY IF EXISTS "engagements hr administrative read" ON public.engagements;
 CREATE POLICY "engagements hr administrative read" ON public.engagements FOR SELECT TO authenticated
-  USING (funcion <> 1 AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst'])));
+  USING (funcion IN (0, 2) AND (SELECT public.has_permission('engagement.read')) AND ((SELECT public.current_role_key()) = ANY (ARRAY['hr_manager', 'hr_analyst'])));  -- N19: sin Control de Calidad  -- 1110-220 plan_v3: Jefe de Secretaría ve solo lo que gerencia
 DROP POLICY IF EXISTS "engagements read" ON public.engagements;
 CREATE POLICY "engagements read" ON public.engagements FOR SELECT TO authenticated
   USING ((SELECT public.has_permission('engagement.read'))
@@ -297,7 +324,7 @@ CREATE POLICY "Approvers can view assigned timesheets" ON public.timesheet_perio
 DROP POLICY IF EXISTS "Approvers can view assigned line approvals" ON public.timesheet_line_approvals;
 CREATE POLICY "Approvers can view assigned line approvals" ON public.timesheet_line_approvals FOR SELECT
   USING ((SELECT public.my_line_approval_mode()) = 'all'
-         OR ((SELECT public.my_line_approval_mode()) = 'engagements' AND engagement_id IN (SELECT public.my_team_engagement_ids())));
+         OR ((SELECT public.my_line_approval_mode()) = 'engagements' AND engagement_id IN (SELECT public.my_approvable_engagement_ids())));
 
 -- ============ 3. Alcance por sociedad: politicas AS RESTRICTIVE (2026-10-28) ============
 -- Decision del operador: Gerente de Contabilidad, Analista de Contabilidad y Analista de Cobranzas (is_society_scoped_role()) solo ven y

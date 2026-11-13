@@ -239,7 +239,8 @@ BEGIN
       wo.approval_status, wo.risk_status, wo.approved_at, wo.risk_approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id

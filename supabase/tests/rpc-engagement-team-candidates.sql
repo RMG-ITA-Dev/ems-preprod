@@ -17,8 +17,12 @@
 -- Qué se cubre:
 --   1. Los 14 role_key elegibles caen en (al menos) su grupo primario de candidatura.
 --   1b. ita_manager/tax_manager caen ADEMÁS en el grupo 'manager' (doble grupo, 0828-185).
---   2. Roles NO elegibles se excluyen: sqr, admin, assistant, risk_supervisor,
---      it_security_manager, accounting_manager, hr_analyst y los *_analyst.
+--   2. Roles NO elegibles se excluyen: sqr, admin, assistant, it_security_manager, hr_analyst y
+--      los *_analyst.
+--
+-- ACTUALIZADO por 1110-220 (D5): accounting_manager y risk_supervisor (staff 19/17) pasan al grupo
+-- 'manager' — Gerentes de sus encargos administrativos. El total sube de 16 a 18 filas.
+-- secretariat_head no tiene fila en este fixture: lo cubre rls-1110-220-role-permissions.sql.
 --   3. Personal inactivo / soft-deleted / sin auth_user_id / con role_key NULL se excluye.
 --   4. Un authorization_roles con is_active = false deja de aportar candidatos.
 --   5. El gate: engagement.create O engagement.update habilitan; sin ninguno → 0 filas.
@@ -104,7 +108,8 @@ VALUES
   ('a1c00000-0000-4000-8000-000000000009', 'tax_manager'),
   ('a1c00000-0000-4000-8000-000000000010', 'tax_senior'),
   ('a1c00000-0000-4000-8000-000000000011', 'tax_assistant'),
-  -- NO elegibles: cada uno estuvo considerado y quedó fuera por decisión explícita
+  -- NO elegibles: cada uno estuvo considerado y quedó fuera por decisión explícita (17 y 19 pasan a
+  -- elegibles con 1110-220)
   ('a1c00000-0000-4000-8000-000000000012', 'sqr'),
   ('a1c00000-0000-4000-8000-000000000013', 'admin'),
   ('a1c00000-0000-4000-8000-000000000014', 'assistant'),
@@ -204,8 +209,8 @@ BEGIN
       ('tax_manager',   '51c00000-0000-4000-8000-000000000009'::uuid, 'specialist_tax'),
       ('tax_senior',    '51c00000-0000-4000-8000-000000000010'::uuid, 'specialist_tax'),
       ('tax_assistant', '51c00000-0000-4000-8000-000000000011'::uuid, 'specialist_tax'),
-      -- BUG 0817-180 (2026-08-27): hr_manager cae en el mismo grupo que manager.
-      ('hr_manager',    '51c00000-0000-4000-8000-000000000022'::uuid, 'manager'),
+      -- 1110-220 plan_v5: hr_manager/risk_supervisor/accounting_manager salen de este RPC (sección 2): el
+      -- Aprobador de horas de un no-Cliente sale de get_hours_approver_candidates().
       -- BUG 0828-185: senior_partner/risk_partner se suman a partner_director (staff 15/16,
       -- reutilizados del fixture -- antes estaban en la lista de "no elegibles").
       ('senior_partner','51c00000-0000-4000-8000-000000000015'::uuid, 'partner_director'),
@@ -220,7 +225,7 @@ BEGIN
         v_role, v_group, v_count;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1: los 14 role_key elegibles caen en su grupo primario de candidatura';
+  RAISE NOTICE 'OK 1: los 13 role_key elegibles caen en su grupo primario de candidatura';
 
   -- ── 1b. ita_manager/tax_manager caen ADEMÁS en el grupo 'manager' (0828-185) ─────────────
   FOR v_role, v_staff IN
@@ -245,12 +250,14 @@ BEGIN
       ('sqr',                 '51c00000-0000-4000-8000-000000000012'::uuid),
       ('admin',               '51c00000-0000-4000-8000-000000000013'::uuid),
       ('assistant',           '51c00000-0000-4000-8000-000000000014'::uuid),
-      ('risk_supervisor',     '51c00000-0000-4000-8000-000000000017'::uuid),
       ('it_security_manager', '51c00000-0000-4000-8000-000000000018'::uuid),
-      ('accounting_manager',  '51c00000-0000-4000-8000-000000000019'::uuid),
       ('accounting_analyst',  '51c00000-0000-4000-8000-000000000020'::uuid),
       ('collections_analyst', '51c00000-0000-4000-8000-000000000021'::uuid),
-      ('hr_analyst',          '51c00000-0000-4000-8000-000000000023'::uuid)
+      ('hr_analyst',          '51c00000-0000-4000-8000-000000000023'::uuid),
+      -- 1110-220 plan_v5: ya no son candidatos del Equipo (su elección como Aprobador va por otro RPC).
+      ('hr_manager',          '51c00000-0000-4000-8000-000000000022'::uuid),
+      ('risk_supervisor',     '51c00000-0000-4000-8000-000000000017'::uuid),
+      ('accounting_manager',  '51c00000-0000-4000-8000-000000000019'::uuid)
     ) t(role_key, staff_id)
   LOOP
     PERFORM 1 FROM public.get_engagement_team_candidates() c WHERE c.staff_id = v_staff;
@@ -258,7 +265,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL: role_key % NO es elegible y aun así aparece', v_role;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 2: los 9 role_key no elegibles quedan fuera (incluidos sqr y admin)';
+  RAISE NOTICE 'OK 2: los 7 role_key no elegibles quedan fuera (incluidos sqr y admin)';
 
   -- ── 3. Casos negativos de la ficha de personal ───────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -278,7 +285,7 @@ BEGIN
 
   -- ── 5. El gate de permisos ───────────────────────────────────────────────────────────────
   -- Guarda del fixture: si alguien le diera ficha de personal a los callers, se contarían a sí
-  -- mismos (sus roles *_manager son elegibles) y el 16 de abajo dejaría de ser el número real.
+  -- mismos (sus roles *_manager son elegibles) y el 15 de abajo dejaría de ser el número real.
   -- Este chequeo falla con un mensaje claro antes que la aserción de conteo.
   PERFORM 1 FROM public.get_engagement_team_candidates() c
    WHERE c.staff_id IN ('51c00000-0000-4000-8000-000000000028',
@@ -289,14 +296,14 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 16 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 16 filas (14 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 15 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000029');  -- engagement.update
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 16 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 16 filas (14 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 15 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000030');  -- sin ninguno de los dos

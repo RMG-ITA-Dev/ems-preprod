@@ -98,3 +98,45 @@ describe("PermissionRoute", () => {
     expect(screen.getByText("Protected content")).toBeInTheDocument();
   });
 });
+
+// 1110-220 plan_v5 (§6.4): excepción por dato. El Aprobador de horas abre su no-Cliente aunque su rol no tenga el permiso
+// de la ruta; `alsoAllow` sale de una consulta sujeta a RLS (HoursApproverDetailRoute).
+describe("PermissionRoute — alsoAllow", () => {
+  function renderAlso(alsoAllow: { allowed: boolean; pending: boolean }) {
+    return render(
+      <MemoryRouter initialEntries={["/protected"]}>
+        <Routes>
+          <Route
+            path="/protected"
+            element={
+              <PermissionRoute permission="engagement.read" alsoAllow={alsoAllow}>
+                <div>Protected content</div>
+              </PermissionRoute>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+  const noPermission = { can: () => false, isLoading: false, isError: false, refetch: vi.fn() };
+
+  it("sin permiso pero con el dato: entra", () => {
+    mockUseAuthorization.mockReturnValue(noPermission);
+    renderAlso({ allowed: true, pending: false });
+    expect(screen.getByText("Protected content")).toBeInTheDocument();
+  });
+
+  it("sin permiso y sin el dato: 403", () => {
+    mockUseAuthorization.mockReturnValue(noPermission);
+    renderAlso({ allowed: false, pending: false });
+    expect(screen.queryByText("Protected content")).not.toBeInTheDocument();
+    expect(screen.getByText(/sin acceso/i)).toBeInTheDocument();
+  });
+
+  it("mientras se resuelve el dato: spinner, ni contenido ni 403", () => {
+    mockUseAuthorization.mockReturnValue(noPermission);
+    renderAlso({ allowed: false, pending: true });
+    expect(screen.getByText(/cargando/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sin acceso/i)).not.toBeInTheDocument();
+  });
+});

@@ -57,8 +57,9 @@ describe("authorization_roles.legacy_app_role — mapeo restaurado", () => {
     expect([...mappedRoleKeys()].sort()).toEqual([...seededRoleKeys()].sort());
   });
 
-  it("cubre los 23 roles del catálogo", () => {
-    expect(mappedRoleKeys()).toHaveLength(23);
+  it("cubre los 24 roles del catálogo (23 + secretariat_head de 1110-220)", () => {
+    expect(mappedRoleKeys()).toHaveLength(24);
+    expect(mappedRoleKeys()).toContain("secretariat_head");
   });
 
   it("solo usa valores válidos del enum app_role", () => {

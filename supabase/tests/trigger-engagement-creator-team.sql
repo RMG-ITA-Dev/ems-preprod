@@ -246,26 +246,25 @@ BEGIN
   RAISE NOTICE 'CHECK 1 OK: Gerente canonizado en manager_id, partner_id intacto.';
 END $$;
 
--- ── #1c: hr_manager ⇒ se canoniza manager_id, igual que Gerente ───────────────────────────────
--- BUG 0817-180 (2026-08-27): decisión del operador de no tratar a Talento Humano como caso
--- especial. hr_manager ya tiene engagement.create en la matriz real (grant previo de 0817-180),
--- así que a diferencia de partner/director más abajo no necesita ningún grant temporal acá.
+-- ── #1c: hr_manager ─────────────────────────────────────────────────────────────────────────────
+-- BUG 0817-180 (2026-08-27): hr_manager se autoasigna manager_id igual que Gerente. Desde 1110-220 plan_v3
+-- (N9) hr_manager ya no crea encargos de Cliente, que es lo que crea pg_temp.create_eng de este suite: la
+-- autoasignación sobre un administrativo la prueba supabase/tests/rls-1110-220-role-permissions.sql (sección 2,
+-- "alta H"). Aquí queda el rechazo del alta de Cliente.
 DO $$
-DECLARE v_eng public.engagements;
+DECLARE v_raised boolean := false;
 BEGIN
   PERFORM pg_temp.impersonate(pg_temp.u(9));
-  -- Manda deliberadamente al OTRO Gerente (6) y a un Socio cualquiera (7).
-  v_eng := pg_temp.create_eng('ECT hr_manager manda a otro', pg_temp.s(7), pg_temp.s(6));
-
-  IF v_eng.manager_id IS DISTINCT FROM pg_temp.s(9) THEN
-    RAISE EXCEPTION 'CHECK 1c: manager_id debía canonizarse al llamante (%), es %',
-      pg_temp.s(9), v_eng.manager_id;
+  BEGIN
+    PERFORM pg_temp.create_eng('ECT hr_manager manda a otro', pg_temp.s(7), pg_temp.s(6));
+  EXCEPTION WHEN insufficient_privilege THEN
+    -- Lo frena N9 (no crea Cliente) o N12 (no es Gerente de Cliente); los dos nombran al Gerente de TH.
+    v_raised := SQLERRM LIKE '%Gerente de Talento Humano%';
+  END;
+  IF NOT v_raised THEN
+    RAISE EXCEPTION 'CHECK 1c: hr_manager no debía poder crear un encargo de Cliente (1110-220 plan_v3, N9)';
   END IF;
-  IF v_eng.partner_id IS DISTINCT FROM pg_temp.s(7) THEN
-    RAISE EXCEPTION 'CHECK 1c: partner_id NO debía tocarse, esperaba % y es %',
-      pg_temp.s(7), v_eng.partner_id;
-  END IF;
-  RAISE NOTICE 'CHECK 1c OK: hr_manager canonizado en manager_id igual que Gerente, partner_id intacto.';
+  RAISE NOTICE 'CHECK 1c OK: hr_manager no crea encargos de Cliente (su autoasignación se prueba en rls-1110-220).';
 END $$;
 
 -- ── #2: Socio ⇒ se canoniza partner_id; manager_id intacto ─────────────────────────────────────

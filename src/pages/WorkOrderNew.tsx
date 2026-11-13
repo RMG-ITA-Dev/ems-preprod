@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { WorkOrderForm, BudgetLineInput, ExpenseBudgetInput } from "@/components/forms/WorkOrderForm";
 import { useEngagements, useSetting, useCategories, useWorkOrders } from "@/hooks/useEmsData";
+import { canCreateWorkOrderFor } from "@/lib/engagementRoleAccess";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { useCreateWorkOrder, useCreateBudgetLine, useCreateExpenseBudget, useUpsertPaymentPlan, useBatchUpsertInstallments } from "@/hooks/mutations";
@@ -89,12 +90,17 @@ const WorkOrderNew = () => {
   // TH o el admin). Quien crea siendo gerente queda igual cubierto: enforce_engagement_creator_team
   // lo pone como manager_id al crear. Admin ve todos (decisión del operador, 2026-08-31): ya
   // tiene visibilidad de firma completa vía RLS ('firm' scope en useEngagements()).
+  // 1110-220 plan_v5: en encargos no-Cliente solo crean la OT admin y el Talento Humano (Gerente o
+  // Analista) que creó el encargo; el Aprobador de horas no (canCreateWorkOrderFor, espejo de la RLS).
   const staffId = staffRecord?.staff_id;
   const availableEngagements = engagements?.filter(
     (e) =>
       e.status === "active" &&
       !engagementsWithWorkOrders.includes(e.engagement_id) &&
-      (isAdmin || (!!staffId && e.manager_id === staffId))
+      canCreateWorkOrderFor({ roleKey, myStaffId: staffId, engagement: e }) &&
+      // 1110-220 plan_v5: un no-Cliente con "Requiere OT" apagado no lleva OT (espejo de
+      // enforce_administrative_work_order_rules).
+      !(e.funcion != null && e.funcion !== 1 && e.work_order_required === false)
   );
 
   // BUG 0828-186: valida la preselección ?engagement= contra la lista ya filtrada -- un id
@@ -259,9 +265,11 @@ const WorkOrderNew = () => {
         });
       }
 
-      toast.success(t("messages.createSuccess", { entity: t("entities.workOrder") }));
+      // El aviso de éxito lo da useCreateWorkOrder (onSuccess); repetirlo aquí mostraba dos toasts.
       allowNextNavigation();
-      navigate(`/work-orders/${wo.wo_id}`);
+      // replace: la pantalla de alta no queda en el historial. Si no, "volver" desde la OT recién creada (Cancelar o
+      // después de enviarla) regresaba al selector de encargo vacío en vez de a la lista de OTs.
+      navigate(`/work-orders/${wo.wo_id}`, { replace: true });
     } catch (error) {
       // Error handled by mutations
     }

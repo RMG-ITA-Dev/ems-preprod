@@ -83,7 +83,9 @@ const ENGAGEMENT: Engagement = {
   oficina: 1,
   practica: 1,
   anio_fiscal: 2027,
-  funcion: 0,
+  // Cliente: estos tests prueban la grilla con la regla de siempre (admin o un cargo). La regla de un no-Cliente tiene
+  // su propio bloque más abajo.
+  funcion: 1,
   fecha_cierre: "2026-09-30",
   anio_fiscal_override: false,
   sqr_id: null,
@@ -209,6 +211,28 @@ describe("StaffAssignmentsCard", () => {
     expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
     expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
     expect(screen.queryByText("engagement.assignments.save")).not.toBeInTheDocument();
+  });
+
+  // 1110-220: en un no-Cliente ocupar un cargo (p. ej. ser el Aprobador de horas) no alcanza; EngagementForm pasa
+  // canWriteAdministrative = false y la tarjeta queda en solo lectura, igual que save_engagement_assignments.
+  it("read-only when the engagement form says the administrative write rule denies it", () => {
+    render(<StaffAssignmentsCard engagement={{ ...ENGAGEMENT, funcion: 0 }} canWriteAdministrative={false} />);
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  // 1110-220 (review de Codex): el TH creador de un no-Cliente no figura en ningún cargo (no se autoasigna) y aun así
+  // escribe el equipo, como lo deja save_engagement_assignments. La regla administrativa decide sola.
+  it("non-client: the TH creator outside every team field can write when the administrative rule allows it", () => {
+    mockStaffRecord = { staff_id: "th-creator" };
+    render(<StaffAssignmentsCard engagement={{ ...ENGAGEMENT, funcion: 0 }} canWriteAdministrative />);
+    expect(screen.queryByText("engagement.assignments.readOnly")).not.toBeInTheDocument();
+    expect(screen.getAllByText("engagement.assignments.addRow").length).toBeGreaterThan(0);
+  });
+
+  it("non-client without the administrative prop: only admin writes (safe default)", () => {
+    render(<StaffAssignmentsCard engagement={{ ...ENGAGEMENT, funcion: 0 }} />);
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
   });
 
   it("admin can always write, regardless of responsibility", () => {

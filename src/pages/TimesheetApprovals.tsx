@@ -22,6 +22,7 @@ import { getWeekDisplayInfo } from "@/lib/timesheetWeekDisplay";
 import { ApprovedLinesTab } from "@/components/timesheet/ApprovedLinesTab";
 import { ReversalRequestsTab } from "@/components/timesheet/ReversalRequestsTab";
 import { useReversalRequests } from "@/hooks/useTimesheetReversals";
+import { isHoursApproverRoleKey } from "@/lib/hoursApproverCandidates";
 
 // 0923-209: la ruta y su permiso (timesheet_approval.read) no cambian -- sólo se agregan
 // tabs. "pending" es el contenido de siempre, intacto. "approved"/"my-requests"/"reversals"
@@ -35,6 +36,9 @@ const TimesheetApprovals = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = roleKey === "admin";
   const canApprove = can("timesheet_approval.approve");
+  // 1110-220 plan_v5: el Aprobador de horas de un no-Cliente decide (y pide reversiones) sin .approve; su rol está en la
+  // lista de 14. Un rol de solo lectura (p. ej. SQR) sigue sin acciones. La base decide por encargo.
+  const canActAsApprover = canApprove || isHoursApproverRoleKey(roleKey);
   // Badge del tab "Solicitudes de reversión": sólo se pide cuando importa (admin), y sólo
   // se muestra el "(N)" cuando N > 0 -- una cola vacía no necesita un contador en cero.
   const { data: pendingReversals } = useReversalRequests({ status: "pending", enabled: isAdmin });
@@ -67,8 +71,9 @@ const TimesheetApprovals = () => {
     );
   }
 
-  // Perfil admin: cola de solicitudes ("reversals"). Perfil aprobador (.approve, no admin):
-  // seguimiento propio ("my-requests"). Sólo-lectura (.read nada más): sin tercera tab.
+  // Perfil admin: cola de solicitudes ("reversals"). Resto: seguimiento propio ("my-requests").
+  // 1110-220 plan_v5: el Aprobador de horas de un no-Cliente solicita reversiones sin tener .approve, así que la
+  // tab ya no depende del permiso global; si no tiene solicitudes, la lista sale vacía (RLS: solo las propias).
   const thirdTab = isAdmin
     ? {
         value: "reversals",
@@ -76,7 +81,7 @@ const TimesheetApprovals = () => {
           ? `${t("approval.tabs.reversalQueue")} (${pendingReversalCount})`
           : t("approval.tabs.reversalQueue"),
       }
-    : canApprove
+    : canActAsApprover
       ? { value: "my-requests", label: t("approval.tabs.myRequests") }
       : null;
 
@@ -181,14 +186,14 @@ const TimesheetApprovals = () => {
         </TabsList>
         <TabsContent value="pending">{pendingContent}</TabsContent>
         <TabsContent value="approved">
-          <ApprovedLinesTab canRequestReversal={canApprove && !isAdmin} isAdmin={isAdmin} />
+          <ApprovedLinesTab canRequestReversal={!isAdmin && canActAsApprover} canApproveClient={canApprove} isAdmin={isAdmin} />
         </TabsContent>
         {isAdmin && (
           <TabsContent value="reversals">
             <ReversalRequestsTab mode="queue" />
           </TabsContent>
         )}
-        {!isAdmin && canApprove && (
+        {!isAdmin && canActAsApprover && (
           <TabsContent value="my-requests">
             <ReversalRequestsTab mode="mine" />
           </TabsContent>

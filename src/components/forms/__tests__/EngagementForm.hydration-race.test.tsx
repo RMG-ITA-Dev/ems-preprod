@@ -149,17 +149,37 @@ vi.mock("@/hooks/mutations", () => ({
 // `isAdmin` derives from `roleKey === "admin"`, not from a separate isAdmin hook) to exercise the
 // policy switches (only rendered/interactive for admin). Default "manager" so Tests 1-7 (unaware of
 // this bug) keep seeing the pre-existing behavior.
-let mockRoleKey = "manager";
+// 1110-220 plan_v3: el fixture es un no-Cliente (funcion 0), que un Gerente normal ya solo puede
+// mirar; "hr_manager" (Talento Humano) lo sigue editando, que es lo que estos tests necesitan.
+let mockRoleKey = "hr_manager";
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: false }),
 }));
 
+// 1110-220 plan_v5 (N10): Talento Humano edita el no-Cliente que CREÓ, así que el usuario tiene ficha y es el creador.
 vi.mock("@/hooks/useCurrentStaff", () => ({
-  useCurrentStaff: () => ({ staffRecord: null }),
+  useCurrentStaff: () => ({ staffRecord: { staff_id: "staff-hr" } }),
+}));
+
+
+// 1110-220 plan_v5: candidatos a Aprobador de horas (Rol → Persona) de un no-Cliente. Referencia estable: el hook real
+// devuelve el mismo array entre renders.
+const { stableHoursApprovers } = vi.hoisted(() => ({
+  stableHoursApprovers: {
+    candidates: [{ staff_id: "m1", display_name: "Ana Manager", role_key: "manager", society_id: "soc-1" }],
+    isLoading: false,
+    isFetching: false,
+    isError: false,
+  },
+}));
+vi.mock("@/hooks/useHoursApproverCandidates", () => ({
+  useHoursApproverCandidates: () => stableHoursApprovers,
 }));
 
 import { EngagementForm } from "@/components/forms/EngagementForm";
@@ -176,6 +196,7 @@ const mockEngagement: Engagement = {
   engagement_code: "2026.011.003",
   partner_id: "staff-partner",
   manager_id: "staff-manager",
+  created_by_staff_id: "staff-hr",
   status: "active",
   start_date: "2025-10-01",
   end_date: "2026-09-30",
@@ -207,7 +228,7 @@ describe("EngagementForm — hydration race (BUG #0819-181)", () => {
     servicesIsError = false;
     societiesIsError = false;
     clientsIsError = false;
-    mockRoleKey = "manager";
+    mockRoleKey = "hr_manager";
   });
 
   it("Test 1: populates the form once clients resolve late, without remounting", async () => {

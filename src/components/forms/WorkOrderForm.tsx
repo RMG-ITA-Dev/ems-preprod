@@ -731,7 +731,8 @@ export function WorkOrderForm({
     ? "approved"
     : isPending
       ? null
-      : visitedTabs.has("staffing")
+      // 1110-220 (N11): en una OT administrativa el Staffing es opcional: sin aviso de "falta revisar".
+      : visitedTabs.has("staffing") || isAdministrative
         ? null
         : "warning";
 
@@ -782,7 +783,8 @@ export function WorkOrderForm({
   const requiredTabsForSubmit: WorkOrderFormTabId[] = [
     "budget",
     ...(!isAdministrative ? (["payment", "risk"] as WorkOrderFormTabId[]) : []),
-    ...(isSchedulerEnabled() ? (["staffing"] as WorkOrderFormTabId[]) : []),
+    // 1110-220 (N11): en una OT administrativa el Staffing es opcional, así que tampoco se exige visitar su pestaña.
+    ...(isSchedulerEnabled() && !isAdministrative ? (["staffing"] as WorkOrderFormTabId[]) : []),
   ];
   const missingRequiredTab = requiredTabsForSubmit.find((tab) => !visitedTabs.has(tab)) ?? null;
 

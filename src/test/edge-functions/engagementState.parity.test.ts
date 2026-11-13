@@ -34,6 +34,31 @@ const scenarios: Array<{
   expected: DevEngagementState;
 }> = [
   { label: "sin OT → Pendiente", engagement: woRequired, wo: null, expected: DevEngagementState.Pendiente },
+  // 1110-220 plan_v5: no-Cliente sin OT → lo decide la firma del Socio del encargo; Cliente sin OT → Aprobado.
+  {
+    label: "no-Cliente sin OT, firma pendiente → Pendiente",
+    engagement: { work_order_required: false, funcion: 0, partner_approval_status: "pending" },
+    wo: null,
+    expected: DevEngagementState.Pendiente,
+  },
+  {
+    label: "no-Cliente sin OT, firmado → Aprobado",
+    engagement: { work_order_required: false, funcion: 2, partner_approval_status: "approved" },
+    wo: null,
+    expected: DevEngagementState.Aprobado,
+  },
+  {
+    label: "no-Cliente sin OT, rechazado → Rechazado",
+    engagement: { work_order_required: false, funcion: 3, partner_approval_status: "rejected" },
+    wo: null,
+    expected: DevEngagementState.Rechazado,
+  },
+  {
+    label: "Cliente sin OT → Aprobado (sin cambios)",
+    engagement: { work_order_required: false, funcion: 1, partner_approval_status: null },
+    wo: null,
+    expected: DevEngagementState.Aprobado,
+  },
   {
     label: "Socio aprobó, Riesgos pendiente → AprobadoSocio",
     engagement: woRequired,

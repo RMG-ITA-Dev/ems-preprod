@@ -195,6 +195,27 @@ describe("groupEventsByModule", () => {
 });
 
 describe("buildPendingSections", () => {
+  // 1110-220: "Estado de encargos generados" con un solo encargo lleva a ese encargo; con varios, al listado de quien mira.
+  it("engagement_status: un encargo va al detalle; varios, al listado indicado", () => {
+    const one = buildPendingSections(
+      { "engagement.rejected_by_partner": { count: 1, items: [{ engagement_id: "e1", engagement_code: "C1" }] } },
+      undefined,
+      "/administrative-engagements",
+    );
+    expect(one[0].alarms[0].route).toBe("/engagements/e1");
+    const many = buildPendingSections(
+      {
+        "engagement.pending_partner_approval": {
+          count: 2,
+          items: [{ engagement_id: "e1" }, { engagement_id: "e2" }],
+        },
+      },
+      undefined,
+      "/administrative-engagements",
+    );
+    expect(many[0].alarms[0].route).toBe("/administrative-engagements");
+  });
+
   it("no arma nada sin contadores", () => {
     expect(buildPendingSections({})).toEqual([]);
   });

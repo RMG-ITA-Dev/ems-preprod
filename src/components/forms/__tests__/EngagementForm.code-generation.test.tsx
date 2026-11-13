@@ -117,6 +117,8 @@ vi.mock("@/hooks/useUserRole", () => ({
 // isAdmin que ya usaban estos tests para no cambiar lo que ejercitan.
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const,
     // `engagement.update` es lo que ahora gatea la fecha de cierre (y el guardado),
     // así que se ata a la misma banda que estos tests ya modelaban con
     // isAdmin/isManager. El resto de permisos se deja en true para no alterar
@@ -496,8 +498,8 @@ describe("EngagementForm — closing date drives Año Fiscal (BUG 0604-143)", ()
     await user.click(await screen.findByRole("option", { name: "engagement.oficina_laPaz" }));
     await user.click(screen.getByRole("combobox", { name: "engagement.practica *" }));
     await user.click(await screen.findByRole("option", { name: "Auditoría" }));
-    await user.click(screen.getByRole("combobox", { name: "engagement.funcion *" }));
-    await user.click(await screen.findByRole("option", { name: "engagement.funcion_cli" }));
+    // 1110-220 plan_v3 (N18): desde Encargos la función nace fija en Cliente (también para admin).
+    expect(screen.getByRole("combobox", { name: "engagement.funcion *" })).toBeDisabled();
 
     const closingDateSelect = screen.getByRole("combobox", { name: "engagement.closingDate *" });
     await user.click(closingDateSelect);

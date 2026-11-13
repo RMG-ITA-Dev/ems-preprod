@@ -362,6 +362,83 @@ $$;
 
 --
 --
+-- Name: hours_approver_role_keys(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §3): los 14 role_key que pueden ser "Aprobador de horas" (manager_id) de un encargo no-Cliente.
+-- Única fuente en la base: la usan el guard de enforce_engagement_profile_scope, get_hours_approver_candidates() y la
+-- regla de aprobación (is_eligible_hours_approver). Espejo de HOURS_APPROVER_ROLE_KEYS (src/lib/hoursApproverCandidates.ts).
+CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT ARRAY['partner', 'senior_partner', 'director', 'manager', 'senior', 'hr_manager', 'hr_analyst',
+               'accounting_manager', 'risk_supervisor', 'secretariat_head', 'ita_manager', 'tax_manager',
+               'ita_senior', 'tax_senior']::text[]
+$$;
+
+
+--
+-- Name: is_eligible_hours_approver(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.3): ¿esta persona puede ejercer HOY de Aprobador de horas? Staff activo, no borrado, con cuenta
+-- vinculada y un rol activo de la lista. Se evalúa al decidir, no solo al asignar: una asignación que dejó de ser válida
+-- (baja, cambio de rol) no conserva el privilegio.
+CREATE FUNCTION public.is_eligible_hours_approver(p_staff_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.staff s
+      JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+      JOIN public.authorization_roles ar ON ar.role_key = ur.role_key AND ar.is_active
+     WHERE s.staff_id = p_staff_id
+       AND s.is_active
+       AND s.deleted_at IS NULL
+       AND ur.role_key = ANY (public.hours_approver_role_keys())
+  )
+$$;
+
+
+--
+-- Name: is_hours_approver_of(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.3): regla única de quién decide las líneas de horas de un encargo (sin la excepción de admin, que
+-- cada llamador resuelve antes):
+--   · No-Cliente (funcion 0/2/3): SOLO el Aprobador de horas vigente (manager_id) y elegible. No exige el permiso global
+--     timesheet_approval.approve. El Socio no decide horas por ser Socio (aprueba el encargo, no las horas).
+--   · Cliente (1 o NULL): la regla de siempre, el permiso timesheet_approval.approve y ser Gerente o Socio asignado.
+-- Ser Aprobador de un no-Cliente no abre nada de Cliente: la rama de Cliente sigue exigiendo el permiso.
+-- Review de Codex (2026-11-12): en no-Cliente también se revalida al decidir que el Aprobador siga siendo de la sociedad
+-- del encargo (el trigger de engagements lo exige solo al asignar; un cambio posterior de staff.society_id no lo dispara).
+CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT p_staff_id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.engagement_id = p_engagement_id
+       AND CASE
+             WHEN COALESCE(e.funcion, 1) <> 1 THEN
+               e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
+               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
+             ELSE
+               p_staff_id IN (e.manager_id, e.partner_id)
+               AND EXISTS (SELECT 1
+                             FROM public.staff s
+                             JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+                             JOIN public.authorization_role_permissions rp ON rp.role_key = ur.role_key
+                            WHERE s.staff_id = p_staff_id
+                              AND rp.permission_key = 'timesheet_approval.approve')
+           END
+  )
+$$;
+
+
+--
 -- Name: can_approve_timesheet(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -419,22 +496,9 @@ begin
     return true;
   end if;
 
-  -- debe tener el permiso de aprobar
-  if not exists (
-    select 1 from user_roles ur
-    join authorization_role_permissions rp on rp.role_key = ur.role_key
-    where ur.user_id = p_approver_auth_id
-      and rp.permission_key = 'timesheet_approval.approve'
-  ) then
-    return false;
-  end if;
-
-  -- y ser el Gerente o Socio asignado del encargo (aprueba cualquier línea, incl. la propia)
-  return exists (
-    select 1 from engagements e
-    where e.engagement_id = p_engagement_id
-      and (e.manager_id = v_approver_staff or e.partner_id = v_approver_staff)
-  );
+  -- 1110-220 plan_v5: Cliente = permiso de aprobar + Gerente o Socio asignado (como siempre); no-Cliente = el
+  -- Aprobador de horas vigente, sin permiso global. Aprueba cualquier línea, incl. la propia (política vigente).
+  return public.is_hours_approver_of(v_approver_staff, p_engagement_id);
 end;
 $$;
 
@@ -680,10 +744,17 @@ DECLARE
   v_wo_required boolean;
   v_override    smallint;
   v_end         date;
+  v_funcion     smallint;
 BEGIN
-  SELECT work_order_required, engagement_state_override, end_date
-    INTO v_wo_required, v_override, v_end
+  SELECT work_order_required, engagement_state_override, end_date, funcion
+    INTO v_wo_required, v_override, v_end, v_funcion
   FROM engagements WHERE engagement_id = NEW.engagement_id;
+
+  -- 1110-220 (plan_v5, Q2): un encargo Administrativa/Capacitación/Calidad SIN OT no carga horas, ni con override
+  -- Aprobado. Va antes de todo atajo (override 4/5, "sin OT = aprobado").
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Cannot log time: un encargo Administrativa, Capacitacion o Calidad sin OT no admite horas';
+  END IF;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
   IF v_override IS NOT NULL THEN
@@ -958,6 +1029,11 @@ CREATE TABLE public.engagements (
     engagement_state_override smallint,
     created_by_staff_id uuid,
     society_id uuid,
+    partner_approval_status text,
+    partner_approval_decided_by uuid,
+    partner_approval_decided_at timestamp with time zone,
+    partner_approval_reason text,
+    CONSTRAINT chk_engagements_partner_approval_status CHECK (((partner_approval_status IS NULL) OR (partner_approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))),
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
     CONSTRAINT chk_engagements_practica CHECK (((practica >= 0) AND (practica <= 9))),
@@ -970,6 +1046,9 @@ CREATE TABLE public.engagements (
 --
 -- Name: COLUMN engagements.engagement_state_override; Type: COMMENT; Schema: public; Owner: -
 --
+
+COMMENT ON COLUMN public.engagements.partner_approval_status IS '1110-220 (plan_v5): aprobación del Socio de un encargo no-Cliente SIN OT (pending/approved/rejected); NULL en Cliente o con OT (ahí firma la OT). La escriben solo decide_/resubmit_engagement_partner_approval (trigger trg_engagements_partner_approval). Sin OT un no-Cliente no carga horas; la firma decide su estado y el candado de edición.';
+
 
 COMMENT ON COLUMN public.engagements.engagement_state_override IS 'FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT. 6 Cancelado / 7 Finalizado / 9 Congelado son terminales; 7 lo escribe el cron finalize-engagements.';
 
@@ -1587,6 +1666,399 @@ CREATE FUNCTION public.can_request_funds_for_current_staff(p_engagement_id uuid)
     AS $$
   SELECT public.can_request_funds_for_engagement(public.get_my_staff_id(), p_engagement_id)
 $$;
+
+
+--
+-- Name: can_write_administrative_work(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v3, N1/N5): en un encargo no-Cliente (funcion 0/2/3) solo escriben el encargo, sus OTs, su matriz,
+-- su presupuesto y su equipo Sistemas (role_key admin), Talento Humano (hr_manager, hr_analyst) y el Socio del encargo
+-- (firma la OT). Un Gerente que no es TH -gerente normal, ITA/Tax, Contabilidad, Riesgos o Secretaría- solo aprueba
+-- horas y mira. Esto NO concede nada: lo usan las políticas RESTRICTIVE de escritura (cero_05) y las RPC definer que
+-- escriben esas tablas, siempre junto a su regla propia. Encargos de Cliente (funcion 1 o NULL): true, sin cambios.
+-- Sin sesión (seeds, cron, service_role): true. Encargo inexistente: true, la FK o la regla propia deciden.
+-- Admin por role_key y no por is_admin() (enum legacy).
+CREATE FUNCTION public.can_write_administrative_work(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_funcion smallint;
+  v_partner uuid;
+  v_creator uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN true;
+  END IF;
+
+  SELECT e.funcion, e.partner_id, e.created_by_staff_id INTO v_funcion, v_partner, v_creator
+    FROM public.engagements e
+   WHERE e.engagement_id = p_engagement_id;
+
+  IF NOT FOUND OR COALESCE(v_funcion, 1) = 1 THEN
+    RETURN true;
+  END IF;
+
+  -- N19: Control de Calidad (3) lo crea y lo escribe solo admin; el Socio sigue firmando su OT. Talento Humano no,
+  -- aunque sea su Gerente.
+  IF v_funcion = 3 THEN
+    RETURN public.current_role_key() = 'admin'
+        OR (v_partner IS NOT NULL AND v_partner = public.get_my_staff_id());
+  END IF;
+
+  IF public.current_role_key() = 'admin' THEN
+    RETURN true;
+  END IF;
+
+  -- 1110-220 plan_v5 (N10): Talento Humano escribe lo que creó. Ya no se autoasigna como manager_id, y quien está
+  -- en manager_id es el Aprobador de horas, que no escribe aunque sea de TH.
+  IF public.current_role_key() IN ('hr_manager', 'hr_analyst') AND v_creator = public.get_my_staff_id() THEN
+    RETURN true;
+  END IF;
+
+  RETURN v_partner IS NOT NULL AND v_partner = public.get_my_staff_id();
+END;
+$$;
+
+COMMENT ON FUNCTION public.can_write_administrative_work(uuid) IS '1110-220: en encargos no-Cliente (funcion <> 1) solo admin, hr_manager/hr_analyst creador (plan_v5) y el Socio del encargo escriben encargo, OT, matriz, presupuesto y equipo. Cliente, sin sesión o encargo inexistente: true. No concede: se combina con la regla propia de cada política/RPC.';
+
+
+--
+-- Name: get_hours_approver_candidates(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.1): candidatos a "Aprobador de horas" (manager_id) de un encargo no-Cliente. El formulario
+-- elige primero el rol y después la persona, así que devuelve el role_key (es el requisito: elegir por rol). Solo los
+-- 14 roles de la lista cerrada, con staff activo, no borrado, cuenta vinculada y rol activo; society_id para que el
+-- formulario ofrezca solo personas de la sociedad del encargo (el guard lo exige). Espejo del guard de enforce_engagement_profile_scope.
+-- Solo para quien elige: admin, hr_manager y hr_analyst con engagement.create o engagement.update. Sin email ni auth_user_id.
+CREATE FUNCTION public.get_hours_approver_candidates() RETURNS TABLE(staff_id uuid, display_name text, role_key text, society_id uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT s.staff_id,
+         (s.first_name || ' ' || s.last_name)::text AS display_name,
+         ur.role_key::text,
+         s.society_id
+    FROM public.staff s
+    JOIN public.user_roles ur          ON ur.user_id  = s.auth_user_id
+    JOIN public.authorization_roles ar ON ar.role_key = ur.role_key
+   WHERE public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst')
+     AND (public.has_permission('engagement.create') OR public.has_permission('engagement.update'))
+     AND ur.role_key = ANY (public.hours_approver_role_keys())
+     AND s.is_active
+     AND s.deleted_at IS NULL
+     AND ar.is_active
+   ORDER BY s.last_name, s.first_name;
+$$;
+
+--
+-- Name: engagement_has_pending_line_approvals(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (review de Codex, 2026-11-12): ¿el encargo tiene líneas de horas pendientes de aprobación? Lo usa el formulario
+-- para deshabilitar el switch "Requiere aprobación de horas" con su motivo (enforce_engagement_partner_approval rechaza
+-- apagarlo en ese caso). Quien edita el encargo puede no ver esas líneas por RLS, por eso es DEFINER. Devuelve solo un
+-- booleano y solo para un encargo que el llamador ya ve; para el resto, false. plpgsql: my_visible_engagement_ids() se
+-- crea más adelante en el set de migraciones.
+CREATE FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR p_engagement_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM public.my_visible_engagement_ids() v WHERE v = p_engagement_id) THEN
+    RETURN false;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = p_engagement_id AND tla.status = 'pending');
+END;
+$$;
+
+
+--
+-- Name: engagement_partner_signed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §4/§6.5/§6.6): ¿el Socio ya aprobó este encargo no-Cliente? Con OT: la OT está aprobada (en un
+-- no-Cliente la aprobación del Socio la cierra, sin Riesgos; 0722-160). Sin OT: la firma del encargo
+-- (partner_approval_status = 'approved'). Cliente: siempre false (no aplica el candado).
+CREATE FUNCTION public.engagement_partner_signed(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.engagements e
+     WHERE e.engagement_id = p_engagement_id
+       AND COALESCE(e.funcion, 1) <> 1
+       AND CASE
+             WHEN e.work_order_required THEN EXISTS (
+               SELECT 1 FROM public.work_orders wo
+                WHERE wo.engagement_id = e.engagement_id
+                  AND wo.approval_status = 'Approved'
+                  AND wo.risk_status IS DISTINCT FROM 'Rejected')
+             ELSE e.partner_approval_status = 'approved'
+           END
+  )
+$$;
+
+
+--
+-- Name: enforce_engagement_partner_approval(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §4, §6.5, §6.6). BEFORE INSERT OR UPDATE de engagements.
+--   1. Firma del Socio de un no-Cliente SIN OT: nace 'pending' al crear; si cambian la función o el switch de OT, se
+--      recalcula (con OT la firma es la de la OT y las columnas quedan en NULL). Las columnas partner_approval_* solo las
+--      escriben las RPC decide/resubmit (flag transaccional app.partner_approval); un UPDATE directo por API no puede
+--      fabricar ni borrar una firma.
+--   2. Candado: un no-Cliente ya aprobado por el Socio (OT aprobada, o firma del encargo sin OT) no se modifica. Solo
+--      admin (role_key, no is_admin()) puede editarlo; la pantalla le advierte. Sin sesión (cron Finalizado, seeds,
+--      service_role) no aplica. Las RPC de firma tampoco (el flag).
+CREATE FUNCTION public.enforce_engagement_partner_approval() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_needs   boolean := COALESCE(NEW.funcion, 1) <> 1 AND NOT NEW.work_order_required;
+  v_via_rpc boolean := COALESCE(current_setting('app.partner_approval', true) = 'on', false);
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF v_needs THEN
+      NEW.partner_approval_status := 'pending';
+    ELSE
+      NEW.partner_approval_status := NULL;
+    END IF;
+    NEW.partner_approval_decided_by := NULL;
+    NEW.partner_approval_decided_at := NULL;
+    NEW.partner_approval_reason     := NULL;
+    RETURN NEW;
+  END IF;
+
+  -- Candado (§6.6): evaluado sobre la fila VIEJA, antes de cualquier recálculo.
+  IF auth.uid() IS NOT NULL
+     AND NOT v_via_rpc
+     AND public.current_role_key() IS DISTINCT FROM 'admin'
+     AND COALESCE(OLD.funcion, 1) <> 1
+     AND public.engagement_partner_signed(OLD.engagement_id)
+     AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo ya fue aprobado por el Socio y no se puede modificar (solo Sistemas)'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF NOT v_via_rpc
+     AND auth.uid() IS NOT NULL
+     AND (NEW.partner_approval_status     IS DISTINCT FROM OLD.partner_approval_status
+       OR NEW.partner_approval_decided_by IS DISTINCT FROM OLD.partner_approval_decided_by
+       OR NEW.partner_approval_decided_at IS DISTINCT FROM OLD.partner_approval_decided_at
+       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason) THEN
+    RAISE EXCEPTION 'FORBIDDEN: la aprobación del Socio solo cambia por sus acciones de aprobar, rechazar o reenviar'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Review de Codex (2026-11-12): un no-Cliente que ya tiene OT no apaga "Requiere OT". Si no, la OT, su presupuesto y
+  -- sus gastos quedaban vivos y editables mientras el encargo pasaba a pedir la firma del Socio sin OT (dos firmas para
+  -- el mismo encargo). Una OT no se borra desde la app, así que la regla es simple: con OT, el switch queda encendido.
+  -- Sin sesión (seeds, SQL Editor) no aplica.
+  IF auth.uid() IS NOT NULL
+     AND COALESCE(NEW.funcion, 1) <> 1
+     AND OLD.work_order_required
+     AND NOT NEW.work_order_required
+     AND EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.engagement_id = NEW.engagement_id) THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo ya tiene OT; no se puede apagar "Requiere OT"'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Review de Codex (2026-11-12): con horas ya enviadas y pendientes, no se apaga "Requiere aprobación de horas". Apagado,
+  -- my_approvable_period_ids deja el encargo fuera de la cola del Aprobador y esas líneas quedaban pendientes para
+  -- siempre. No se autoaprueban: nadie las decidió. Primero se aprueban o rechazan. Pasa con admin sobre un encargo
+  -- firmado, o con el TH creador después de que el Socio revirtió la firma de la OT. Sin sesión no aplica.
+  IF auth.uid() IS NOT NULL
+     AND COALESCE(NEW.funcion, 1) <> 1
+     AND OLD.approval_required
+     AND NOT NEW.approval_required
+     AND EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = NEW.engagement_id AND tla.status = 'pending') THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo tiene horas pendientes de aprobación; apruébelas o recházelas antes de apagar la aprobación de horas'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  -- Recalcular si deja o pasa a necesitar la firma del encargo (cambio del switch de OT o de función).
+  IF NOT v_needs THEN
+    NEW.partner_approval_status     := NULL;
+    NEW.partner_approval_decided_by := NULL;
+    NEW.partner_approval_decided_at := NULL;
+    NEW.partner_approval_reason     := NULL;
+  ELSIF NEW.partner_approval_status IS NULL THEN
+    NEW.partner_approval_status := 'pending';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; un no-Cliente con OT no apaga work_order_required; y uno con horas pendientes de aprobación no apaga approval_required. Sin sesión no aplica.';
+
+
+--
+-- Name: decide_engagement_partner_approval(uuid, boolean, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.5): el Socio asignado aprueba o rechaza un no-Cliente SIN OT. Solo él (admin no firma por el
+-- Socio). Para Control de Calidad no hace falta engagement.update: la acción es esta, no un UPDATE del encargo.
+-- Rechazar exige motivo. Solo desde 'pending'.
+CREATE FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text DEFAULT NULL) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me  uuid := public.get_my_staff_id();
+  v_eng record;
+BEGIN
+  IF auth.uid() IS NULL OR v_me IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  -- Review de Codex (2026-11-12): con p_approve NULL, `NOT p_approve` es NULL, el chequeo del motivo no se dispara y el
+  -- CASE de abajo grababa un rechazo sin motivo. La decisión es obligatoria.
+  IF p_approve IS NULL THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_DECISION_REQUIRED: falta la decisión (aprobar o rechazar)' USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT engagement_id, funcion, work_order_required, partner_id, partner_approval_status,
+         created_by_staff_id, engagement_name, engagement_code
+    INTO v_eng
+    FROM public.engagements
+   WHERE engagement_id = p_engagement_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR COALESCE(v_eng.funcion, 1) = 1 OR v_eng.work_order_required THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_APPLICABLE: solo los encargos Administrativa, Capacitacion o Calidad sin OT se aprueban aqui'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF v_eng.partner_id IS NULL OR v_eng.partner_id <> v_me THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo el Socio del encargo lo aprueba' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_eng.partner_approval_status IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_PENDING: el encargo no está pendiente de aprobación' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT p_approve AND NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_REASON_REQUIRED: el rechazo requiere un motivo' USING ERRCODE = 'check_violation';
+  END IF;
+
+  PERFORM set_config('app.partner_approval', 'on', true);
+  UPDATE public.engagements
+     SET partner_approval_status     = CASE WHEN p_approve THEN 'approved' ELSE 'rejected' END,
+         partner_approval_decided_by = v_me,
+         partner_approval_decided_at = now(),
+         partner_approval_reason     = CASE WHEN p_approve THEN NULL ELSE btrim(p_reason) END,
+         updated_at                  = now()
+   WHERE engagement_id = p_engagement_id;
+  PERFORM set_config('app.partner_approval', 'off', true);
+
+  -- Aviso al creador (Talento Humano o admin): igual que wo.approved_partner/wo.rejected_partner con la OT. Un fallo del
+  -- aviso no deshace la decisión.
+  IF v_eng.created_by_staff_id IS NOT NULL AND v_eng.created_by_staff_id <> v_me THEN
+    BEGIN
+      PERFORM public.notify_staff('engagement.partner_approval_decided', v_eng.created_by_staff_id, p_engagement_id::text,
+                jsonb_build_object('context', CASE WHEN p_approve THEN 'approved' ELSE 'rejected' END,
+                                   'engagement_name', v_eng.engagement_name,
+                                   'engagement_code', v_eng.engagement_code));
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'decide_engagement_partner_approval: aviso al creador fallo para % : %', p_engagement_id, SQLERRM;
+    END;
+  END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION public.decide_engagement_partner_approval(uuid, boolean, text) IS '1110-220 (plan_v5): el Socio asignado aprueba o rechaza (con motivo) un no-Cliente sin OT pendiente. Admin no firma por el Socio.';
+
+
+--
+-- Name: resubmit_engagement_partner_approval(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.5): tras un rechazo, admin o el Talento Humano que creó el encargo lo vuelve a enviar al Socio.
+CREATE FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_me   uuid := public.get_my_staff_id();
+  v_role text := public.current_role_key();
+  v_eng  record;
+BEGIN
+  IF auth.uid() IS NULL OR v_me IS NULL THEN
+    RAISE EXCEPTION 'FORBIDDEN: sesión requerida' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT engagement_id, funcion, work_order_required, created_by_staff_id, partner_approval_status
+    INTO v_eng
+    FROM public.engagements
+   WHERE engagement_id = p_engagement_id
+   FOR UPDATE;
+
+  IF NOT FOUND OR COALESCE(v_eng.funcion, 1) = 1 OR v_eng.work_order_required THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_APPLICABLE: solo los encargos Administrativa, Capacitacion o Calidad sin OT se reenvían aqui'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NOT (v_role = 'admin'
+          OR (v_role IN ('hr_manager', 'hr_analyst') AND v_eng.created_by_staff_id = v_me AND v_eng.funcion <> 3)) THEN
+    RAISE EXCEPTION 'FORBIDDEN: solo Sistemas o el Talento Humano que creó el encargo lo reenvía' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_eng.partner_approval_status IS DISTINCT FROM 'rejected' THEN
+    RAISE EXCEPTION 'PARTNER_APPROVAL_NOT_REJECTED: solo se reenvía un encargo rechazado' USING ERRCODE = 'check_violation';
+  END IF;
+
+  PERFORM set_config('app.partner_approval', 'on', true);
+  UPDATE public.engagements
+     SET partner_approval_status     = 'pending',
+         partner_approval_decided_by = NULL,
+         partner_approval_decided_at = NULL,
+         partner_approval_reason     = NULL,
+         updated_at                  = now()
+   WHERE engagement_id = p_engagement_id;
+  PERFORM set_config('app.partner_approval', 'off', true);
+END;
+$$;
+
+COMMENT ON FUNCTION public.resubmit_engagement_partner_approval(uuid) IS '1110-220 (plan_v5): admin o el Talento Humano creador reenvía al Socio un no-Cliente sin OT rechazado.';
+
+--
+-- Name: notify_engagement_partner_approval_requested(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5 §6.5): avisa al Socio que un no-Cliente SIN OT espera su aprobación: al crearlo, al reenviarlo tras un
+-- rechazo y si cambia el Socio mientras sigue pendiente. AFTER INSERT OR UPDATE de engagements. Un fallo del aviso no
+-- rompe la escritura (mismo criterio que el resto de disparadores de notificación).
+CREATE FUNCTION public.notify_engagement_partner_approval_requested() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF NEW.partner_approval_status IS DISTINCT FROM 'pending' OR NEW.partner_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'UPDATE'
+     AND OLD.partner_approval_status IS NOT DISTINCT FROM 'pending'
+     AND OLD.partner_id IS NOT DISTINCT FROM NEW.partner_id THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM public.notify_staff('engagement.partner_approval_requested', NEW.partner_id, NEW.engagement_id::text,
+            jsonb_build_object('engagement_name', NEW.engagement_name,
+                               'engagement_code', NEW.engagement_code,
+                               'dedupe', COALESCE(NEW.updated_at, now())::text));
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'notify_engagement_partner_approval_requested fallo para % : %', NEW.engagement_id, SQLERRM;
+  RETURN NULL;
+END;
+$$;
+
+
+
+COMMENT ON FUNCTION public.get_hours_approver_candidates() IS '1110-220 (plan_v5): candidatos a Aprobador de horas (manager_id) de un encargo no-Cliente: 14 roles, staff activo con cuenta y rol activo. Devuelve role_key porque el formulario elige Rol -> Persona, y society_id para ofrecer solo personas de la sociedad del encargo. Solo admin/hr_manager/hr_analyst con engagement.create o .update. Sin email ni auth_user_id. Espejo del guard de enforce_engagement_profile_scope.';
 
 
 --
@@ -2251,6 +2723,33 @@ $$;
 
 --
 --
+-- Name: engagement_assignment_staffing_allowed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (review de Codex, 2026-11-13): ¿se puede escribir la asignación de personal de este encargo? Un no-Cliente
+-- (funcion 0/2/3) sin "Requiere OT" no carga horas, así que su asignación la edita solo admin (plan_v5; espejo de
+-- EngagementForm, que deshabilita StaffAssignmentsCard). Cliente (1 o NULL) siempre: también sin OT, que sí carga horas.
+-- No reemplaza can_write_administrative_work (quién escribe), solo agrega el corte por OT; lo usan
+-- save_engagement_assignments y las RESTRICTIVE "administrative write *" de engagement_assignments. Admin =
+-- current_role_key(), no is_admin() (enum legacy). Encargo inexistente: true (lo resuelve el resto de la regla).
+CREATE FUNCTION public.engagement_assignment_staffing_allowed(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF public.current_role_key() = 'admin' THEN
+    RETURN true;
+  END IF;
+  RETURN COALESCE(
+    (SELECT COALESCE(e.funcion, 1) = 1 OR e.work_order_required
+       FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id),
+    true);
+END;
+$$;
+
+
+--
 -- Name: engagement_allows_hours_or_requests(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2263,10 +2762,16 @@ DECLARE
   v_wo_required boolean;
   v_approval    text;
   v_risk        text;
+  v_funcion     smallint;
 BEGIN
-  SELECT e.engagement_state_override, e.work_order_required
-    INTO v_override, v_wo_required
+  SELECT e.engagement_state_override, e.work_order_required, e.funcion
+    INTO v_override, v_wo_required, v_funcion
   FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
+
+  -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no admite horas ni solicitudes (fondos exige OT).
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+    RETURN false;
+  END IF;
 
   -- Override manual manda: solo 4/5 permiten.
   IF v_override IS NOT NULL THEN
@@ -2332,9 +2837,12 @@ BEGIN
   IF p_override IS NOT NULL THEN
     RETURN p_override = 4;
   END IF;
-  -- Derivado: administrativo (sin OT) = Aprobado.
+  -- Derivado: sin OT. Cliente = Aprobado; no-Cliente (1110-220 plan_v5) = solo si el Socio aprobó el encargo.
   IF p_wo_required = false THEN
-    RETURN true;
+    RETURN NOT EXISTS (SELECT 1 FROM public.engagements e
+                        WHERE e.engagement_id = p_engagement_id
+                          AND COALESCE(e.funcion, 1) <> 1
+                          AND e.partner_approval_status IS DISTINCT FROM 'approved');
   END IF;
   -- Derivado: estado 4 Aprobado = OT aprobada, NO en emergencia (sería 5) y NO risk-rejected
   -- (sería 8 Rechazado). Ambos se excluyen del auto-cierre.
@@ -4753,29 +5261,31 @@ begin
     return;
   end if;
 
+  -- 1110-220 plan_v5: misma regla que can_approve_timesheet_line (is_hours_approver_of). En un no-Cliente el candidato es
+  -- solo el Aprobador de horas, y si el encargo no requiere aprobación (approval_required = false) sus líneas se
+  -- autoaprueban al enviar: no hay a quién avisar por ellas.
   return query
   select distinct app.staff_id
   from (
-    select e.manager_id as staff_id
+    select e.manager_id as staff_id, e.engagement_id
     from time_entries te
     join engagements e on te.engagement_id = e.engagement_id
     where te.staff_id = p_staff_id
       and te.date_worked >= p_week_start
       and te.date_worked < p_week_start + interval '7 days'
       and e.manager_id is not null
+      and (coalesce(e.funcion, 1) = 1 or e.approval_required)
     union
-    select e.partner_id
+    select e.partner_id, e.engagement_id
     from time_entries te
     join engagements e on te.engagement_id = e.engagement_id
     where te.staff_id = p_staff_id
       and te.date_worked >= p_week_start
       and te.date_worked < p_week_start + interval '7 days'
       and e.partner_id is not null
+      and coalesce(e.funcion, 1) = 1
   ) app
-  join staff app_s on app_s.staff_id = app.staff_id
-  join user_roles ur on ur.user_id = app_s.auth_user_id
-  join authorization_role_permissions rp on rp.role_key = ur.role_key
-  where rp.permission_key = 'timesheet_approval.approve';
+  where public.is_hours_approver_of(app.staff_id, app.engagement_id);
 end;
 $$;
 
@@ -5241,6 +5751,12 @@ $$;
 -- Name: is_engagement_team_member(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
+-- 1110-220 (plan_v3 N3, plan_v5 §6.4): Talento Humano (hr_manager y hr_analyst) crea encargos no-Cliente y elige
+-- al Aprobador de horas, así que no queda en manager_id/partner_id. Como CREADOR de un encargo no-Cliente cuenta
+-- como equipo: crea y edita sus OTs, su matriz y su presupuesto (las políticas "team" de
+-- work_orders/activity_worksheets/wo_* y las RPC que llaman a esta función). No aprueba horas por esto: eso lo
+-- decide can_approve_timesheet_line(). El Aprobador (manager_id) cuenta como equipo para leer, pero en no-Cliente
+-- no escribe: lo cortan las RESTRICTIVE de can_write_administrative_work().
 CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
@@ -5251,6 +5767,9 @@ CREATE FUNCTION public.is_engagement_team_member(p_engagement_id uuid) RETURNS b
     AND (
       e.manager_id = get_my_staff_id()
       OR e.partner_id = get_my_staff_id()
+      OR (COALESCE(e.funcion, 1) <> 1
+          AND e.created_by_staff_id = get_my_staff_id()
+          AND public.current_role_key() IN ('hr_manager', 'hr_analyst'))
     )
   )
 $$;
@@ -5996,6 +6515,20 @@ $$;
 
 
 --
+-- Name: resolve_worksheet_engagement_id(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220: encargo de una matriz, para la RESTRICTIVE de escritura de activity_worksheet_cells (cero_05). Definer,
+-- igual que resolve_wo_engagement_id, para que la política no dependa de la RLS de lectura de activity_worksheets.
+CREATE FUNCTION public.resolve_worksheet_engagement_id(p_worksheet_id uuid) RETURNS uuid
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT aw.engagement_id FROM public.activity_worksheets aw WHERE aw.id = p_worksheet_id
+$$;
+
+
+--
 --
 -- Name: save_engagement_assignments(uuid, jsonb, uuid[]); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -6041,7 +6574,15 @@ BEGIN
       USING DETAIL = jsonb_build_object('engagement_id', p_engagement_id)::text;
   END IF;
 
-  IF NOT (public.is_admin() OR public.is_engagement_responsible(p_engagement_id)) THEN
+  -- 1110-220 (plan_v3): el Analista de TH carga el equipo del encargo no-Cliente que creó
+  -- (is_engagement_team_member lo cuenta como equipo) y, en no-Cliente, solo escriben TH, admin y el
+  -- Socio (can_write_administrative_work): el Gerente que no es TH solo aprueba y mira.
+  IF NOT (public.is_admin()
+          OR public.is_engagement_responsible(p_engagement_id)
+          OR public.is_engagement_team_member(p_engagement_id))
+     OR NOT public.can_write_administrative_work(p_engagement_id)
+     -- Review de Codex (2026-11-13): un no-Cliente sin OT no carga horas; su asignación la edita solo admin.
+     OR NOT public.engagement_assignment_staffing_allowed(p_engagement_id) THEN
     RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
@@ -6269,11 +6810,12 @@ BEGIN
       USING DETAIL = jsonb_build_object('wo_id', p_wo_id)::text;
   END IF;
 
+  -- 1110-220 (plan_v3): en no-Cliente solo escriben TH, admin y el Socio.
   IF NOT (
     public.is_admin()
     OR public.is_engagement_team_member(v_engagement_id)
     OR public.is_engagement_responsible(v_engagement_id)
-  ) THEN
+  ) OR NOT public.can_write_administrative_work(v_engagement_id) THEN
     RAISE EXCEPTION 'WOS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 

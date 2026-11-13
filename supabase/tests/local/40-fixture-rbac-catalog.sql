@@ -8,6 +8,8 @@
 -- fund_disbursement.read/update para accounting_analyst (paridad con accounting_manager). Total 739.
 -- Ajuste 1028-213 (decisiones D-23, H-3): -3 concesiones work_order.risk.approve (manager, ita_manager,
 -- tax_manager) y risk_partner worksheet.read pasa de department a assigned_engagements. Total 736.
+-- Ajuste 1110-220 (D3): rol 24 `secretariat_head` + 24 concesiones (bloque C.2, espejo de cero_13). Total 760.
+-- Ajuste 1110-220 plan_v3 (N4/N6): Secretaría sin crear ni editar encargos/OTs: -6 concesiones (quedan 18). Total 754.
 -- =====================================================================
 
 -- A) Roles (23). legacy_app_role: nivel jerárquico equivalente (drift real de Dev 2.0, nunca
@@ -37,7 +39,9 @@ insert into public.authorization_roles (role_key, label_key, display_order, is_s
   ('risk_partner', 'authz.role.risk_partner', 19, false, 'partner'),
   ('risk_supervisor', 'authz.role.risk_supervisor', 20, false, 'manager'),
   ('hr_manager', 'authz.role.hr_manager', 21, false, 'manager'),
-  ('hr_analyst', 'authz.role.hr_analyst', 22, false, 'senior')
+  ('hr_analyst', 'authz.role.hr_analyst', 22, false, 'senior'),
+  -- 1110-220 (D3): Jefe de Secretaría, nivel gerente.
+  ('secretariat_head', 'authz.role.secretariat_head', 23, false, 'manager')
 on conflict (role_key) do nothing;
 
 -- B) Permisos (84)
@@ -864,6 +868,42 @@ insert into public.authorization_role_permissions (role_key, permission_key, sco
   ('admin', 'expense_settlement.update', 'department'),
   ('accounting_manager', 'expense_settlement.update', 'department'),
   ('accounting_analyst', 'expense_settlement.update', 'department')
+on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
+
+-- C.2) 1110-220 (D3, ajustada por plan_v3 N4/N6, 2026-11-11): espejo de cero_13. Jefe de Secretaría
+-- parte de la matriz de hr_manager MENOS competency.*, holiday.*, timesheet_admin_training_approval.manage
+-- y todo lo que crea o edita encargos y OTs: 33 - 15 = 18. Candidata a Gerente: aprueba y mira lo que
+-- gerencia. Conserva Solicitud de Fondos.
+insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
+  ('secretariat_head', 'staff.read',                       'none'),
+  ('secretariat_head', 'account.password.change',          'own'),
+  ('secretariat_head', 'expense_type.read',                'none'),
+  ('secretariat_head', 'dashboard.personal.read',          'own'),
+  ('secretariat_head', 'fund_request.read',                'own'),
+  ('secretariat_head', 'fund_request.create',              'own'),
+  ('secretariat_head', 'fund_request.update',              'own'),
+  ('secretariat_head', 'fund_request.delete',              'own'),
+  ('secretariat_head', 'fund_expense.read',                'own'),
+  ('secretariat_head', 'fund_expense.create',              'own'),
+  ('secretariat_head', 'fund_expense.update',              'own'),
+  ('secretariat_head', 'fund_expense.delete',              'own'),
+  ('secretariat_head', 'engagement.read',                  'assigned_engagements'),
+  ('secretariat_head', 'worksheet.read',                   'assigned_engagements'),
+  ('secretariat_head', 'work_order.read',                  'assigned_engagements'),
+  ('secretariat_head', 'timesheet_approval.read',          'assigned_engagements'),
+  ('secretariat_head', 'timesheet_approval.approve',       'assigned_engagements'),
+  ('secretariat_head', 'timesheet_approval.reject',        'assigned_engagements')
+on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
+
+-- 1110-220 (plan_v5 §6.3): los roles de la lista de Aprobador de horas que no tenían timesheet_approval.read lo reciben con
+-- alcance assigned_engagements, solo para ABRIR la pantalla de aprobaciones (ruta, menú, enlaces de avisos). No reciben
+-- .approve/.reject: deciden las líneas de su no-Cliente por la asignación (is_hours_approver_of), no por el permiso, y no
+-- ganan nada en Cliente. Sin asignación, la cola sale vacía.
+insert into public.authorization_role_permissions (role_key, permission_key, scope_key) values
+  ('senior',     'timesheet_approval.read', 'assigned_engagements'),
+  ('ita_senior', 'timesheet_approval.read', 'assigned_engagements'),
+  ('tax_senior', 'timesheet_approval.read', 'assigned_engagements'),
+  ('hr_analyst', 'timesheet_approval.read', 'assigned_engagements')
 on conflict (role_key, permission_key) do update set scope_key = excluded.scope_key;
 
 -- D) role_key en user_roles (nullable) + backfill DESDE EL ROL DIRECTO (nunca categoría).

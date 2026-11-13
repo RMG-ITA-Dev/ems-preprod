@@ -59,6 +59,7 @@ import {
   type StaffCandidate,
 } from "@/lib/staffingMatch";
 import { canWriteEngagementAssignments } from "@/lib/schedulerAssignmentAuthz";
+import { isNonClientFuncion } from "@/lib/engagementRoleAccess";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { parseDateLocal } from "@/lib/timesheetUtils";
@@ -76,6 +77,12 @@ import { cn } from "@/lib/utils";
 export interface StaffAssignmentsCardProps {
   engagement: Engagement;
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * 1110-220: ¿la base dejaría escribir el equipo de este encargo? Espejo de can_write_administrative_work (que
+   * save_engagement_assignments aplica por dentro): en un no-Cliente solo admin, el Talento Humano creador y el Socio
+   * (Calidad: admin y Socio). Lo calcula EngagementForm; por defecto true (Cliente, sin cambios).
+   */
+  canWriteAdministrative?: boolean;
 }
 
 const VALID_LEVELS = new Set<string>(["Beginner", "Intermediate", "Advanced"]);
@@ -282,7 +289,7 @@ function DateCell({ value, onChange, disabled, invalid, minDate }: DateCellProps
   );
 }
 
-export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignmentsCardProps) {
+export function StaffAssignmentsCard({ engagement, onDirtyChange, canWriteAdministrative }: StaffAssignmentsCardProps) {
   const { t, i18n } = useTranslation();
   const numericLocale = i18n.language?.startsWith("es") ? "es" : "en";
 
@@ -326,18 +333,27 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange }: StaffAssignm
   const { isAdmin } = useUserRole();
   const { staffRecord } = useCurrentStaff();
   const myStaffId = staffRecord?.staff_id ?? null;
-  const canEdit = canWriteEngagementAssignments({
-    isAdmin,
-    myStaffId,
-    responsibleStaffIds: [
-      engagement.manager_id,
-      engagement.partner_id,
-      engagement.sqr_id,
-      engagement.encargado_id,
-      engagement.specialist_it_id,
-      engagement.specialist_tax_id,
-    ],
-  });
+  // 1110-220 (review de Codex): en un no-Cliente quién escribe el equipo lo decide la regla administrativa que pasa
+  // EngagementForm (espejo de can_write_administrative_work: admin, el TH creador y el Socio; Calidad: admin y Socio).
+  // No se cruza con "figurar en un cargo": el TH creador ya no se autoasigna (plan_v5) y save_engagement_assignments lo
+  // autoriza igual por is_engagement_team_member; el Aprobador de horas figura como manager_id y aun así no escribe.
+  // Sin la prop, en un no-Cliente solo admin (default seguro). En Cliente, la regla de siempre: admin o un cargo.
+  const isNonClient = isNonClientFuncion(engagement.funcion);
+  const administrativeAllowed = canWriteAdministrative ?? (!isNonClient || isAdmin);
+  const canEdit = isNonClient
+    ? administrativeAllowed
+    : administrativeAllowed && canWriteEngagementAssignments({
+        isAdmin,
+        myStaffId,
+        responsibleStaffIds: [
+          engagement.manager_id,
+          engagement.partner_id,
+          engagement.sqr_id,
+          engagement.encargado_id,
+          engagement.specialist_it_id,
+          engagement.specialist_tax_id,
+        ],
+      });
 
   const [drafts, setDrafts] = useState<AssignmentDraft[]>([]);
   // Baseline capturado al sembrar/guardar. El dirty se mide contra este snapshot ESTABLE — no

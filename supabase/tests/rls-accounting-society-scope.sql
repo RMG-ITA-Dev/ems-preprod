@@ -340,9 +340,11 @@ BEGIN
   PERFORM pg_temp.expect('list_administrative_engagements: control, el gerente ve los dos',
     pg_temp.rpc_text(u4, $q$SELECT string_agg(x->>'engagement_code', ',' ORDER BY x->>'engagement_code') FROM jsonb_array_elements(public.list_administrative_engagements()) x
                               WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C2A,5C2B');
-  PERFORM pg_temp.expect('list_portfolio_engagements: gerente contable A ve lo que creo en A, no EB (creado por el en B)',
-    pg_temp.rpc_text(u2, $q$SELECT string_agg(x->>'engagement_code', ',') FROM jsonb_array_elements(public.list_portfolio_engagements()) x
-                              WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C1A');
+  -- 1110-220: además ve los administrativos de SU sociedad (5C2A), no los de B (5C2B), para abrir la ficha que lista
+  -- Encargos Administrativos.
+  PERFORM pg_temp.expect('list_portfolio_engagements: gerente contable A ve lo que creo en A y el administrativo de A, no EB (creado por el en B) ni el administrativo de B',
+    pg_temp.rpc_text(u2, $q$SELECT string_agg(x->>'engagement_code', ',' ORDER BY x->>'engagement_code') FROM jsonb_array_elements(public.list_portfolio_engagements()) x
+                              WHERE x->>'engagement_code' LIKE '5C%'$q$), '5C1A,5C2A');
 
   RAISE NOTICE 'SOCIETY SCOPE FASE 2: RPC checks passed';
 END $$;

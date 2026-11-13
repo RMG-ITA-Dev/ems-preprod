@@ -123,7 +123,9 @@ let mockRoleKey = "manager";
 vi.mock("@/hooks/useAuthorization", () => ({
   // Estos tests mockean isAdmin: false; con isAdmin derivado de role_key,
   // roleKey debe ser NO-admin para seguir ejercitando el mismo caso.
-  useAuthorization: () => ({ can: () => true, roleKey: mockRoleKey }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({
@@ -184,12 +186,13 @@ describe("EngagementForm — taxonomy combobox filtering (0602-136)", () => {
 
     await user.click(screen.getByTestId("taxonomy-combobox-trigger"));
 
+    // 1110-220 plan_v3 (N18): desde Encargos el alta es siempre Cliente, que exige taxonomía: sin "No aplica".
     await waitFor(() => {
-      expect(screen.getByText("engagement.noAplicaTaxonomy")).toBeInTheDocument();
       expect(screen.getByText("New audit")).toBeInTheDocument();
       expect(screen.getByText("Continued audit")).toBeInTheDocument();
       expect(screen.queryByText("Old audit")).not.toBeInTheDocument();
     });
+    expect(screen.queryByText("engagement.noAplicaTaxonomy")).not.toBeInTheDocument();
   });
 
   // 0722-157: options display only the name (code stays in the searchable `value` — see the

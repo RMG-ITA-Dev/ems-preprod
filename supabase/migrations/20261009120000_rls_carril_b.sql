@@ -386,7 +386,12 @@ BEGIN
     -- 1028-213 (D-42, H-2): antes bastaba is_assigned_to_engagement (socio, gerente, SQR o
     -- encargado); ahora solo el gerente del encargo (o admin).
     -- Sin sesión (migraciones como 0825-183, service_role): permitido. anon, nunca.
+    -- 1110-220 (plan_v3): en no-Cliente solo escriben TH, admin y el Socio (can_write_administrative_work).
+    -- Hoy la matriz es solo de Cliente, así que es defensa en profundidad.
     IF auth.uid() IS NOT NULL THEN
+        IF NOT public.can_write_administrative_work(v_wo.engagement_id) THEN
+            RAISE EXCEPTION 'NOT_AUTHORIZED';
+        END IF;
         IF NOT (
             public.is_admin()
             OR (public.has_permission('work_order.update')
