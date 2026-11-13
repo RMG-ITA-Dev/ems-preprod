@@ -60,11 +60,14 @@ const AJUSTES = [
   { setting_key: "TS_TRACKING_START_DATE", setting_value: "2026-01-01" },
 ];
 const VACIO: unknown[] = [];
+// Lo que devuelve useGlobalSettings. Mutable para simular un refetch de react-query: un array
+// NUEVO (otra referencia) con o sin valores distintos.
+const ajustes = vi.hoisted(() => ({ actual: null as unknown }));
 
 vi.mock("@/hooks/useEmsData", () => ({
   useCategories: () => ({ data: VACIO, isLoading: false }),
   useIndustries: () => ({ data: VACIO, isLoading: false }),
-  useGlobalSettings: () => ({ data: AJUSTES, isLoading: false }),
+  useGlobalSettings: () => ({ data: ajustes.actual, isLoading: false }),
   useActivityCodes: () => ({ data: VACIO, isLoading: false }),
   useAllActivityCodes: () => ({ data: VACIO, isLoading: false }),
   useExpenseTypes: () => ({ data: VACIO, isLoading: false }),
@@ -117,6 +120,7 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
 
   beforeEach(() => {
     sesion.idioma = "en";
+    ajustes.actual = AJUSTES;
     vi.clearAllMocks();
     capturedLockArgs = {};
     queryClient = new QueryClient({
@@ -288,6 +292,70 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
     const calendario = await screen.findByRole("dialog");
 
     expect(within(calendario).getByText(/january/i)).toBeInTheDocument();
+  });
+
+  // Revisión de Codex (P2): el efecto de hidratación corre en CADA refetch de global_settings
+  // (p. ej. el "Guardar" del modal de tipo de cambio invalida la query). No puede pisar una
+  // edición de la ventana que todavía no se guardó.
+  describe("refetch de global_settings", () => {
+    const montar = () => {
+      const utils = render(
+        <QueryClientProvider client={queryClient}>
+          <Settings />
+        </QueryClientProvider>
+      );
+      const refetch = (nuevos: typeof AJUSTES) => {
+        ajustes.actual = nuevos;
+        utils.rerender(
+          <QueryClientProvider client={queryClient}>
+            <Settings />
+          </QueryClientProvider>
+        );
+      };
+      return refetch;
+    };
+
+    it("no pisa una edición sin guardar de la ventana", async () => {
+      const refetch = montar();
+      const user = userEvent.setup();
+      await user.click(screen.getByText("settings.globalSettings"));
+      const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+      await user.type(input, "{Backspace}12");
+      // Mismo contenido, referencia nueva: lo que devuelve react-query tras invalidar.
+      refetch(AJUSTES.map((a) => ({ ...a })));
+
+      expect(input.value).toBe("12");
+      expect(capturedLockArgs.isDirty).toBe(true);
+    });
+
+    it("tampoco pisa el campo vaciado a medio editar", async () => {
+      const refetch = montar();
+      const user = userEvent.setup();
+      await user.click(screen.getByText("settings.globalSettings"));
+      const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+      await user.type(input, "{Backspace}");
+      refetch(AJUSTES.map((a) => ({ ...a })));
+
+      expect(input.value).toBe("");
+    });
+
+    it("si el campo está sin tocar, toma el valor nuevo del servidor", async () => {
+      const refetch = montar();
+      const user = userEvent.setup();
+      await user.click(screen.getByText("settings.globalSettings"));
+
+      refetch(
+        AJUSTES.map((a) =>
+          a.setting_key === "TS_ALERT_WINDOW_WEEKS" ? { ...a, setting_value: "6" } : { ...a }
+        )
+      );
+
+      expect((screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement).value)
+        .toBe("6");
+      expect(capturedLockArgs.isDirty).toBe(false);
+    });
   });
 
   it("Cancelar después de vaciar la ventana vuelve a mostrar lo persistido", async () => {

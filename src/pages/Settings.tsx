@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
@@ -338,6 +338,9 @@ const Settings = () => {
   // Notificaciones: ventana de las alarmas de timesheet. Independiente de
   // TS_EMPLOYEE_RETRO_DAYS, que gobierna la EDICION de semanas pasadas.
   const [alertWindowWeeks, setAlertWindowWeeks] = useState<string>("");
+  // Último valor de TS_ALERT_WINDOW_WEEKS volcado al campo (null = todavía no se hidrató).
+  // Ver el efecto de hidratación: distingue "sin tocar" de "editado" en cada refetch.
+  const hydratedAlertWindowRef = useRef<string | null>(null);
   const [trackingStartDate, setTrackingStartDate] = useState<string>("");
   const [exchangeRateApiUrl, setExchangeRateApiUrl] = useState<string>("");
   const [exchangeRateTestOpen, setExchangeRateTestOpen] = useState(false);
@@ -378,9 +381,18 @@ const Settings = () => {
       // 1112-227: la ventana también se hidrata. Antes el input caía al persistido con
       // `alertWindowWeeks || getSetting(...)`, y por eso borrar con Retroceso hacía reaparecer
       // el valor guardado: el campo no se podía vaciar.
-      setAlertWindowWeeks(
-        settings.find((s) => s.setting_key === "TS_ALERT_WINDOW_WEEKS")?.setting_value || "4"
+      //
+      // Pero este efecto corre en CADA refetch de global_settings (p. ej. el "Guardar" del modal
+      // de tipo de cambio invalida la query), así que pisar sin mirar borraba una edición sin
+      // guardar. Solo se hidrata si el campo sigue en el último valor hidratado (= sin tocar);
+      // si el admin lo editó, se respeta su borrador.
+      const persistedAlertWindow =
+        settings.find((s) => s.setting_key === "TS_ALERT_WINDOW_WEEKS")?.setting_value || "4";
+      const lastHydrated = hydratedAlertWindowRef.current;
+      setAlertWindowWeeks((current) =>
+        lastHydrated === null || current === lastHydrated ? persistedAlertWindow : current
       );
+      hydratedAlertWindowRef.current = persistedAlertWindow;
       const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
       if (emailDomainSetting) {
         setAllowedEmailDomain(emailDomainSetting.setting_value);
