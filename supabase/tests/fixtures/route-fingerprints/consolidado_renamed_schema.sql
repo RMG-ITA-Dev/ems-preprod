@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict mXGO3FdCOt1kV3XAQgO3UCw4AvaDZAVdf9JQpeQtvpDbUhrhFhYErExacCDNMWl
+\restrict KCM1D7mREaMTVN6pEqPMypbV38ttC1TEGghIeluKnZ2BNafapPdjWuscMhWf58U
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg24.04+1)
@@ -4209,6 +4209,20 @@ BEGIN
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- Review de Codex (2026-11-12): con horas ya enviadas y pendientes, no se apaga "Requiere aprobación de horas". Apagado,
+  -- my_approvable_period_ids deja el encargo fuera de la cola del Aprobador y esas líneas quedaban pendientes para
+  -- siempre. No se autoaprueban: nadie las decidió. Primero se aprueban o rechazan. Pasa con admin sobre un encargo
+  -- firmado, o con el TH creador después de que el Socio revirtió la firma de la OT. Sin sesión no aplica.
+  IF auth.uid() IS NOT NULL
+     AND COALESCE(NEW.funcion, 1) <> 1
+     AND OLD.approval_required
+     AND NOT NEW.approval_required
+     AND EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = NEW.engagement_id AND tla.status = 'pending') THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo tiene horas pendientes de aprobación; apruébelas o recházelas antes de apagar la aprobación de horas'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
   -- Recalcular si deja o pasa a necesitar la firma del encargo (cambio del switch de OT o de función).
   IF NOT v_needs THEN
     NEW.partner_approval_status     := NULL;
@@ -4228,7 +4242,7 @@ $$;
 -- Name: FUNCTION enforce_engagement_partner_approval(); Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; y un no-Cliente con OT no apaga work_order_required. Sin sesión no aplica.';
+COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; un no-Cliente con OT no apaga work_order_required; y uno con horas pendientes de aprobación no apaga approval_required. Sin sesión no aplica.';
 
 
 --
@@ -4710,6 +4724,25 @@ $$;
 --
 
 COMMENT ON FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text) IS 'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status (o, 1110-220, no-Cliente sin OT con la firma del Socio pendiente/rechazada), excluyendo Cancelado (6) y Finalizado (7).';
+
+
+--
+-- Name: engagement_has_pending_line_approvals(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR p_engagement_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM public.my_visible_engagement_ids() v WHERE v = p_engagement_id) THEN
+    RETURN false;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = p_engagement_id AND tla.status = 'pending');
+END;
+$$;
 
 
 --
@@ -9217,6 +9250,7 @@ CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uui
        AND CASE
              WHEN COALESCE(e.funcion, 1) <> 1 THEN
                e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
+               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
              ELSE
                p_staff_id IN (e.manager_id, e.partner_id)
                AND EXISTS (SELECT 1
@@ -10404,10 +10438,12 @@ CREATE FUNCTION public.my_approvable_engagement_ids() RETURNS SETOF uuid
   -- 1110-220 plan_v5: espejo por conjunto de is_hours_approver_of(get_my_staff_id(), engagement_id), sin la excepción de admin. Dos ramas
   -- separadas para que ser Aprobador de un no-Cliente no abra Cliente: no-Cliente = soy el Aprobador vigente y elegible; Cliente = tengo el
   -- permiso de aprobar y soy Gerente o Socio. Las partes que no dependen de la fila se calculan una vez.
+  -- Review de Codex (2026-11-12): y de la sociedad del encargo, revalidada al decidir (espejo de is_hours_approver_of).
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) <> 1
      AND e.manager_id = (SELECT public.get_my_staff_id())
      AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
+     AND e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id()))
   UNION
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) = 1
@@ -32943,5 +32979,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict mXGO3FdCOt1kV3XAQgO3UCw4AvaDZAVdf9JQpeQtvpDbUhrhFhYErExacCDNMWl
+\unrestrict KCM1D7mREaMTVN6pEqPMypbV38ttC1TEGghIeluKnZ2BNafapPdjWuscMhWf58U
 
