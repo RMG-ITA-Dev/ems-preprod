@@ -90,6 +90,11 @@ vi.mock("@/hooks/useHoursApproverCandidates", () => ({
   useHoursApproverCandidates: () => approvers,
 }));
 
+const pendingLines = vi.hoisted(() => ({ value: false }));
+vi.mock("@/hooks/useEngagementPendingLineApprovals", () => ({
+  useEngagementPendingLineApprovals: (_id: string, enabled: boolean) => ({ data: enabled ? pendingLines.value : undefined }),
+}));
+
 let mockStaffId = "staff-hr";
 vi.mock("@/hooks/useCurrentStaff", () => ({
   useCurrentStaff: () => ({ staffRecord: { staff_id: mockStaffId } }),
@@ -153,6 +158,7 @@ beforeEach(() => {
   mockRoleKey = "hr_manager";
   mockStaffId = "staff-hr";
   mockSocieties = [];
+  pendingLines.value = false;
   approvers.isError = false;
   decideMutate.mockReset();
   updateMutateAsync.mockReset();
@@ -291,6 +297,24 @@ describe("Switch Requiere OT con OT creada (review de Codex)", () => {
     render(<EngagementForm engagement={{ ...base, work_order_required: true, partner_approval_status: null }} />);
     expect(otSwitch()).not.toBeDisabled();
     expect(screen.queryByText("engagement.workOrderRequiredLockedByOt")).not.toBeInTheDocument();
+  });
+});
+
+describe("Switch Requiere aprobación de horas con horas pendientes (review de Codex)", () => {
+  const approvalSwitch = () =>
+    screen.getByText("engagement.approvalRequired").closest("div.flex")!.querySelector('[role="switch"]') as HTMLElement;
+
+  it("con horas pendientes de aprobación no se puede apagar", () => {
+    pendingLines.value = true;
+    render(<EngagementForm engagement={base} />);
+    expect(approvalSwitch()).toBeDisabled();
+    expect(screen.getByText("engagement.approvalRequiredLockedByPending")).toBeInTheDocument();
+  });
+
+  it("sin horas pendientes sigue habilitado", () => {
+    render(<EngagementForm engagement={base} />);
+    expect(approvalSwitch()).not.toBeDisabled();
+    expect(screen.queryByText("engagement.approvalRequiredLockedByPending")).not.toBeInTheDocument();
   });
 });
 

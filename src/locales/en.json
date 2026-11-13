@@ -924,6 +924,7 @@
     "isInternalHelp": "All active staff can log time against this engagement",
     "approvalRequired": "Approval Required",
     "approvalRequiredHelp": "When off, timesheet lines are auto-approved on submission",
+    "approvalRequiredLockedByPending": "This engagement has hours waiting for approval: approve or reject them before turning this option off.",
     "approvalRequiredAdministrativeHelp": "When off, hours are approved on submission. Cannot change after Partner approval.",
     "internal": "Internal",
     "timesheetPolicy": "Timesheet Policy",

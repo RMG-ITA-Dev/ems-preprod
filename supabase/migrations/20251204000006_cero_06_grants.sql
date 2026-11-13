@@ -2328,6 +2328,9 @@ GRANT EXECUTE ON FUNCTION public.hours_approver_role_keys() TO authenticated, se
 REVOKE ALL ON FUNCTION public.enforce_engagement_partner_approval() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.engagement_partner_signed(p_engagement_id uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.engagement_partner_signed(p_engagement_id uuid) TO authenticated, service_role;
+-- 1110-220 (review de Codex): ¿horas pendientes de aprobación? Solo un booleano, solo sobre encargos visibles. Nunca anon.
+REVOKE ALL ON FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) FROM PUBLIC, anon;

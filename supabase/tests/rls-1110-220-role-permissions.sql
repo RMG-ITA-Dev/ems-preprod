@@ -1306,6 +1306,53 @@ BEGIN
   RAISE NOTICE 'PASS — el Aprobador que cambia de sociedad pierde la decisión y la cola; al volver las recupera';
 END $$;
 
+-- ── 16. Review de Codex: con horas pendientes no se apaga "Requiere aprobación de horas" ──────────────────────────────
+-- EB (sección 12): no-Cliente con OT en borrador (sin firma: el TH creador lo edita), approval_required encendido. Se le
+-- siembra una línea pendiente, como si quedara de antes de que el Socio revirtiera la firma de la OT.
+SET LOCAL session_replication_role = replica;
+INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status)
+VALUES ('a1102000-0000-4000-8000-0000000000a1', 'd1102000-0000-4000-8000-000000000009', 'e1102000-0000-4000-8000-000000000012',
+        (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1102-ACT'), 'pending');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_err text;
+  off   constant text := 'UPDATE public.engagements SET approval_required = false WHERE engagement_id = ''e1102000-0000-4000-8000-000000000012''';
+  has   constant text := 'SELECT count(*) FROM (SELECT public.engagement_has_pending_line_approvals(''e1102000-0000-4000-8000-000000000012'') AS h) x WHERE x.h';
+BEGIN
+  -- La función que usa el formulario: true para quien ve el encargo; false para quien no lo ve; nunca para anon.
+  IF pg_temp.count_as(pg_temp.u(6), has) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — engagement_has_pending_line_approvals no informó las horas pendientes al TH creador';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(5), has) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — engagement_has_pending_line_approvals respondió sobre un encargo que el llamador no ve';
+  END IF;
+  IF has_function_privilege('anon', 'public.engagement_has_pending_line_approvals(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION '1110-220 FAIL — anon puede ejecutar engagement_has_pending_line_approvals';
+  END IF;
+
+  BEGIN
+    PERFORM pg_temp.impersonate(pg_temp.u(6));
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    EXECUTE off;
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    v_err := SQLERRM;
+  END;
+  IF v_err IS NULL OR v_err NOT LIKE '%horas pendientes de aprobación%' THEN
+    RAISE EXCEPTION '1110-220 FAIL — se apagó la aprobación de horas con líneas pendientes (error: %)', COALESCE(v_err, 'ninguno');
+  END IF;
+
+  -- Decidida la línea, se puede apagar.
+  UPDATE public.timesheet_line_approvals SET status = 'approved' WHERE approval_id = 'a1102000-0000-4000-8000-0000000000a1';
+  IF pg_temp.rows_as(pg_temp.u(6), off) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — sin horas pendientes, el TH creador debía poder apagar la aprobación de horas';
+  END IF;
+  RAISE NOTICE 'PASS — con horas pendientes no se apaga la aprobación de horas; la función del formulario solo responde a quien ve el encargo';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

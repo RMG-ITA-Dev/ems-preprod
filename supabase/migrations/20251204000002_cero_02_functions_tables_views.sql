@@ -1754,6 +1754,30 @@ CREATE FUNCTION public.get_hours_approver_candidates() RETURNS TABLE(staff_id uu
 $$;
 
 --
+-- Name: engagement_has_pending_line_approvals(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (review de Codex, 2026-11-12): ¿el encargo tiene líneas de horas pendientes de aprobación? Lo usa el formulario
+-- para deshabilitar el switch "Requiere aprobación de horas" con su motivo (enforce_engagement_partner_approval rechaza
+-- apagarlo en ese caso). Quien edita el encargo puede no ver esas líneas por RLS, por eso es DEFINER. Devuelve solo un
+-- booleano y solo para un encargo que el llamador ya ve; para el resto, false. plpgsql: my_visible_engagement_ids() se
+-- crea más adelante en el set de migraciones.
+CREATE FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR p_engagement_id IS NULL
+     OR NOT EXISTS (SELECT 1 FROM public.my_visible_engagement_ids() v WHERE v = p_engagement_id) THEN
+    RETURN false;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = p_engagement_id AND tla.status = 'pending');
+END;
+$$;
+
+
+--
 -- Name: engagement_partner_signed(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1846,6 +1870,20 @@ BEGIN
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- Review de Codex (2026-11-12): con horas ya enviadas y pendientes, no se apaga "Requiere aprobación de horas". Apagado,
+  -- my_approvable_period_ids deja el encargo fuera de la cola del Aprobador y esas líneas quedaban pendientes para
+  -- siempre. No se autoaprueban: nadie las decidió. Primero se aprueban o rechazan. Pasa con admin sobre un encargo
+  -- firmado, o con el TH creador después de que el Socio revirtió la firma de la OT. Sin sesión no aplica.
+  IF auth.uid() IS NOT NULL
+     AND COALESCE(NEW.funcion, 1) <> 1
+     AND OLD.approval_required
+     AND NOT NEW.approval_required
+     AND EXISTS (SELECT 1 FROM public.timesheet_line_approvals tla
+                  WHERE tla.engagement_id = NEW.engagement_id AND tla.status = 'pending') THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo tiene horas pendientes de aprobación; apruébelas o recházelas antes de apagar la aprobación de horas'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
   -- Recalcular si deja o pasa a necesitar la firma del encargo (cambio del switch de OT o de función).
   IF NOT v_needs THEN
     NEW.partner_approval_status     := NULL;
@@ -1860,7 +1898,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; y un no-Cliente con OT no apaga work_order_required. Sin sesión no aplica.';
+COMMENT ON FUNCTION public.enforce_engagement_partner_approval() IS '1110-220 (plan_v5): firma del Socio de un no-Cliente sin OT (pending al crear; columnas partner_approval_* solo por RPC); candado: un no-Cliente aprobado por el Socio (OT aprobada o firma sin OT) solo lo modifica admin; un no-Cliente con OT no apaga work_order_required; y uno con horas pendientes de aprobación no apaga approval_required. Sin sesión no aplica.';
 
 
 --

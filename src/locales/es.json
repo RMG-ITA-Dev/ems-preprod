@@ -924,6 +924,7 @@
     "isInternalHelp": "Todo el personal activo puede registrar tiempo en este encargo",
     "approvalRequired": "Requiere Aprobación",
     "approvalRequiredHelp": "Cuando está desactivado, las líneas de planilla se aprueban automáticamente al enviar",
+    "approvalRequiredLockedByPending": "Este encargo tiene horas pendientes de aprobación: apruébelas o recházelas antes de apagar esta opción.",
     "approvalRequiredAdministrativeHelp": "Si se desactiva, las horas se aprueban al enviarse. No se cambia tras la aprobación del Socio.",
     "internal": "Interno",
     "timesheetPolicy": "Política de Planilla",

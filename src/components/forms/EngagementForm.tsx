@@ -48,6 +48,7 @@ import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { TaxonomyCombobox, NO_APLICA_VALUE } from "@/components/forms/TaxonomyCombobox";
 import { Engagement, useClientDirectory, useServices, useTaxonomies, useSocieties } from "@/hooks/useEmsData";
 import { useEngagementTeamCandidates } from "@/hooks/useEngagementTeamCandidates";
+import { useEngagementPendingLineApprovals } from "@/hooks/useEngagementPendingLineApprovals";
 import { useAdministrativeInternalClients } from "@/hooks/useAdministrativeEngagements";
 import {
   withSavedStaff,
@@ -762,6 +763,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // 1110-220 plan_v5 (reemplaza N15): en un no-Cliente la aprobación de horas también se elige. Apagada, el
   // envío autoaprueba las líneas; la firma del Socio sigue siendo obligatoria.
   const effectiveApprovalRequired = approvalRequired;
+  // Review de Codex 1110-220: un no-Cliente con horas pendientes de aprobación no apaga "Requiere aprobación de horas"
+  // (enforce_engagement_partner_approval lo rechaza; apagado, el encargo sale de la cola y esas líneas quedarían sin
+  // decidir). Solo se consulta al editar un no-Cliente que hoy la exige.
+  const { data: hasPendingLineApprovals } = useEngagementPendingLineApprovals(
+    engagement?.engagement_id,
+    !!engagement && isNonClientFuncion(engagement.funcion) && !!engagement.approval_required,
+  );
+  const approvalSwitchLockedByPending = !!hasPendingLineApprovals && approvalRequired;
   // 1110-220 plan_v3 (N16) y plan_v5 (Q3): en un no-Cliente, Talento Humano elige si lleva OT y si sus horas
   // requieren aprobación; el resto de los switches sigue siendo de admin. Espejo del trigger
   // enforce_engagement_profile_scope, que fuerza ambos a los demás roles.
@@ -2636,12 +2645,15 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
                     <p className="text-xs text-muted-foreground">
                       {t(isAdministrativeFunction ? "engagement.approvalRequiredAdministrativeHelp" : "engagement.approvalRequiredHelp")}
                     </p>
+                    {approvalSwitchLockedByPending && (
+                      <p className="text-xs text-muted-foreground">{t("engagement.approvalRequiredLockedByPending")}</p>
+                    )}
                   </div>
                   {/* BUG 0922-195 (review H7): mismo criterio que workOrderRequired arriba. */}
                   <Switch
                     checked={effectiveApprovalRequired}
                     onCheckedChange={setApprovalRequired}
-                    disabled={!canSetWorkOrderPolicy || (!isAdmin && !isAdministrativeFunction) || (isEdit && !engagementLoaded)}
+                    disabled={!canSetWorkOrderPolicy || (!isAdmin && !isAdministrativeFunction) || (isEdit && !engagementLoaded) || approvalSwitchLockedByPending}
                   />
                 </div>
                 )}
