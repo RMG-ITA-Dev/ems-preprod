@@ -81,6 +81,7 @@ import { AUTH_MODE_SETTING_KEY } from "@/lib/authMode";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
+import { useIsMobile } from "@/hooks/useMobile";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 
 interface RpcUpdateResult {
@@ -288,6 +289,11 @@ const Settings = () => {
   // Form states
   const [industryFormOpen, setIndustryFormOpen] = useState(false);
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
+  // 1028-218: un solo estado para el embudo de la columna Estado (escritorio) y el Select de
+  // la cabecera (móvil, donde las cards no tienen embudo). Abre en "Todos": con "Activos", una
+  // industria desactivada desaparecería al guardar y parecería borrada.
+  const [industryStatusFilter, setIndustryStatusFilter] = useState("all");
+  const isMobile = useIsMobile();
 
   const [categoryFormOpen, setCategoryFormOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
@@ -499,6 +505,25 @@ const Settings = () => {
           <span className={isHigh ? "text-accent font-medium" : "text-muted-foreground"}>
             {isHigh ? t("industry.high") : t("industry.low")}
           </span>
+        );
+      },
+    },
+    {
+      key: "status",
+      label: t("common.status"),
+      sortable: true,
+      // Sin filterKey, DataTable no dibuja el embudo del statusFilter en la cabecera.
+      filterKey: "status",
+      mobilePriority: 'primary',
+      render: (row) => {
+        const active = row.status !== "inactive";
+        return (
+          <Badge
+            variant="outline"
+            className={active ? "bg-success/10 text-success border-success/20" : "bg-muted text-muted-foreground"}
+          >
+            {active ? t("status.active") : t("status.inactive")}
+          </Badge>
         );
       },
     },
@@ -1057,6 +1082,27 @@ const Settings = () => {
             onNewClick={canIndustryWrite ? () => { setSelectedIndustry(null); setIndustryFormOpen(true); } : undefined}
             onRowClick={canIndustryWrite ? (row) => { setSelectedIndustry(row); setIndustryFormOpen(true); } : undefined}
             getRowId={(row) => row.industry_id}
+            statusFilter={{
+              key: "status",
+              options: [
+                { value: "active", label: t("status.active") },
+                { value: "inactive", label: t("status.inactive") },
+              ],
+            }}
+            statusFilterValue={industryStatusFilter}
+            onStatusFilterChange={setIndustryStatusFilter}
+            headerActions={isMobile ? (
+              <Select value={industryStatusFilter} onValueChange={setIndustryStatusFilter}>
+                <SelectTrigger className="w-full min-h-[44px]" aria-label={t("common.status")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("common.all")}</SelectItem>
+                  <SelectItem value="active">{t("status.active")}</SelectItem>
+                  <SelectItem value="inactive">{t("status.inactive")}</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : undefined}
           />
           <IndustryForm
             open={industryFormOpen}

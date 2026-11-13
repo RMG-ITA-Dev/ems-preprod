@@ -47,10 +47,11 @@ import { getFiscalYearOptions, formatFiscalYearEnd } from "@/lib/fiscalYearDispl
 // Get standardized fiscal year options (stored in English, displayed localized)
 const fiscalYearOptions = getFiscalYearOptions();
 
-// TODO(is_active): add an `is_active` toggle once the `industries` table gains an `is_active` column (DB migration + useEmsData/Industry type update).
+// 1028-218: `status` es la columna text de la ETL fase 1 (CHECK active|inactive), no un booleano.
 const formSchema = z.object({
   industry_name: z.string().min(1, "Industry name is required"),
   fiscal_year_end: z.string().min(1, "Fiscal year-end is required"),
+  status: z.enum(["active", "inactive"]),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -73,6 +74,7 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
     defaultValues: {
       industry_name: "",
       fiscal_year_end: "",
+      status: "active",
     },
   });
 
@@ -81,15 +83,23 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
       form.reset({
         industry_name: industry?.industry_name || "",
         fiscal_year_end: industry?.fiscal_year_end || "",
+        // Hidratar con el valor guardado: forzar "active" reactivaría una inactiva al
+        // guardar un cambio de nombre. Un status ausente equivale al default de la DB.
+        status: industry?.status ?? "active",
       });
     }
   }, [open, industry, form]);
 
   const onSubmit = async (data: FormData) => {
+    const payload = {
+      industry_name: data.industry_name,
+      fiscal_year_end: data.fiscal_year_end,
+      status: data.status,
+    };
     if (isEdit && industry) {
-      await updateMutation.mutateAsync({ id: industry.industry_id, data: { industry_name: data.industry_name, fiscal_year_end: data.fiscal_year_end } });
+      await updateMutation.mutateAsync({ id: industry.industry_id, data: payload });
     } else {
-      await createMutation.mutateAsync({ industry_name: data.industry_name, fiscal_year_end: data.fiscal_year_end });
+      await createMutation.mutateAsync(payload);
     }
     onOpenChange(false);
     form.reset();
@@ -162,6 +172,28 @@ export function IndustryForm({ open, onOpenChange, industry }: IndustryFormProps
                 </p>
               </div>
             )}
+
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("common.status")} *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="active">{t("status.active")}</SelectItem>
+                      <SelectItem value="inactive">{t("status.inactive")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <SheetFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4">
               <Button type="button" variant="cancel" onClick={() => onOpenChange(false)} className="w-full sm:w-auto min-h-[44px] sm:min-h-0">
