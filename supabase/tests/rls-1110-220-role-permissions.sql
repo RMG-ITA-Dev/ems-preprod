@@ -1353,6 +1353,32 @@ BEGIN
   RAISE NOTICE 'PASS — con horas pendientes no se apaga la aprobación de horas; la función del formulario solo responde a quien ve el encargo';
 END $$;
 
+-- ── 17. Review de Codex (guarda): el Aprobador sin engagement.read abre su no-Cliente desde el portafolio, con la firma ─
+-- EN (sección 14): no-Cliente sin OT, firma pendiente, Aprobador el senior (9), que no tiene engagement.read. La ficha
+-- (EngagementEdit) sale de list_portfolio_engagements(): el bucket 3d se lo devuelve, con el estado y el motivo de la firma.
+DO $$
+DECLARE
+  v_row jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.authorization_role_permissions
+              WHERE role_key = 'senior' AND permission_key = 'engagement.read') THEN
+    RAISE EXCEPTION '1110-220 FAIL — precondición: el senior no debía tener engagement.read';
+  END IF;
+  PERFORM pg_temp.impersonate(pg_temp.u(9));
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  SELECT x INTO v_row FROM jsonb_array_elements(public.list_portfolio_engagements()) x
+   WHERE x ->> 'engagement_id' = 'e1102000-0000-4000-8000-000000000014';
+  EXECUTE 'RESET ROLE';
+  IF v_row IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — el senior Aprobador no recibe su no-Cliente en list_portfolio_engagements';
+  END IF;
+  IF NOT (v_row ? 'partner_approval_status') OR NOT (v_row ? 'partner_approval_reason')
+     OR v_row ->> 'partner_approval_status' IS DISTINCT FROM 'pending' THEN
+    RAISE EXCEPTION '1110-220 FAIL — el portafolio no trae la firma del Socio del no-Cliente (fila: %)', v_row;
+  END IF;
+  RAISE NOTICE 'PASS — el Aprobador sin engagement.read recibe su no-Cliente en el portafolio, con estado y motivo de la firma';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;

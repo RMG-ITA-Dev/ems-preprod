@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@/test/utils";
+import { render, screen, waitFor, fireEvent } from "@/test/utils";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -315,6 +315,34 @@ describe("Switch Requiere aprobación de horas con horas pendientes (review de C
     render(<EngagementForm engagement={base} />);
     expect(approvalSwitch()).not.toBeDisabled();
     expect(screen.queryByText("engagement.approvalRequiredLockedByPending")).not.toBeInTheDocument();
+  });
+});
+
+describe("Switches de política como cambios sin guardar (review de Codex)", () => {
+  const approvalSwitch = () =>
+    screen.getByText("engagement.approvalRequired").closest("div.flex")!.querySelector('[role="switch"]') as HTMLElement;
+
+  it("cambiar un switch en un encargo rechazado deshabilita Reenviar y avisa a la página", async () => {
+    const onDirtyChange = vi.fn();
+    render(
+      <EngagementForm
+        engagement={{ ...base, partner_approval_status: "rejected", partner_approval_reason: "falta detalle" }}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+    const resubmit = screen.getByRole("button", { name: "engagement.partnerApproval.resubmit" });
+    expect(resubmit).not.toBeDisabled();
+
+    fireEvent.click(approvalSwitch());
+
+    await waitFor(() => expect(resubmit).toBeDisabled());
+    expect(screen.getByText("engagement.partnerApproval.saveBeforeResubmit")).toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    // Volver al valor guardado ya no es un cambio.
+    fireEvent.click(approvalSwitch());
+    await waitFor(() => expect(resubmit).not.toBeDisabled());
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 });
 

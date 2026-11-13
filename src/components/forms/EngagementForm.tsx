@@ -984,10 +984,6 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // del page-leave lock combinado que ya consume EngagementEdit vía onDirtyChange.
   const [assignmentsDirty, setAssignmentsDirty] = useState(false);
 
-  // Report combined dirty state to parent
-  useEffect(() => {
-    onDirtyChange?.(isDirty || assignmentsDirty);
-  }, [isDirty, assignmentsDirty, onDirtyChange]);
 
   // Fase 5 O9: con assignments pendientes de guardar, cambiar servicio/fechas/partner/manager
   // puede invalidar segmentos existentes o revocar el permiso de escritura del usuario. `practica`
@@ -1039,6 +1035,21 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // this fires on mount against the still-empty placeholder defaults and overwrites anio_fiscal,
   // which permanently (falsely) marks the form dirty and blocks that populate effect forever.
   const engagementLoaded = !isEdit || initializedEngagementIdRef.current === engagement?.engagement_id;
+
+  // Review de Codex 1110-220: los switches de política (Requiere OT / Requiere aprobación de horas) viven en useState,
+  // fuera de React Hook Form, así que no entran en isDirty. En edición se comparan con lo guardado (mismos defaults que
+  // la siembra del encargo) para que cuenten como cambio sin guardar: en el aviso de salir de la página y en la tarjeta de
+  // firma (Reenviar no debe mandarle al Socio la versión vieja).
+  const policyDirty =
+    isEdit && !!engagement && engagementLoaded &&
+    (workOrderRequired !== (engagement.work_order_required ?? true) ||
+      approvalRequired !== (engagement.approval_required ?? true));
+  const hasUnsavedChanges = isDirty || assignmentsDirty || policyDirty;
+
+  // Report combined dirty state to parent
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
   useEffect(() => {
     if (!effectiveOverride && engagementLoaded) {
       form.setValue("anio_fiscal", derivedFiscalYear ?? undefined, { shouldValidate: false, shouldDirty: false });
@@ -1773,7 +1784,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
           engagement={engagement}
           myStaffId={staffRecord?.staff_id ?? null}
           roleKey={roleKey}
-          hasUnsavedChanges={isDirty || assignmentsDirty}
+          hasUnsavedChanges={hasUnsavedChanges}
         />
       )}
 
