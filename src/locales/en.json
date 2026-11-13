@@ -710,6 +710,7 @@
     "selectCategory": "Select a category",
     "society": "Society",
     "selectSociety": "Select society",
+    "catalogLoadError": "Could not load the options. Reload the page to try again.",
     "practice": "Practice",
     "selectPractice": "Select practice",
     "supervisor": "Supervisor",
