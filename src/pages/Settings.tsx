@@ -375,6 +375,12 @@ const Settings = () => {
       if (trackingStartSetting) {
         setTrackingStartDate(trackingStartSetting.setting_value ?? "");
       }
+      // 1112-227: la ventana también se hidrata. Antes el input caía al persistido con
+      // `alertWindowWeeks || getSetting(...)`, y por eso borrar con Retroceso hacía reaparecer
+      // el valor guardado: el campo no se podía vaciar.
+      setAlertWindowWeeks(
+        settings.find((s) => s.setting_key === "TS_ALERT_WINDOW_WEEKS")?.setting_value || "4"
+      );
       const emailDomainSetting = settings.find((s) => s.setting_key === "ALLOWED_EMAIL_DOMAIN");
       if (emailDomainSetting) {
         setAllowedEmailDomain(emailDomainSetting.setting_value);
@@ -435,13 +441,12 @@ const Settings = () => {
       (weeklyMax !== "" && weeklyMax !== persistedWeeklyMax) ||
       (maxFailedAttempts !== "" && maxFailedAttempts !== persistedMaxAttempts) ||
       (lockoutMinutes !== "" && lockoutMinutes !== persistedLockoutMinutes) ||
-      // Los dos campos de notificaciones NO son simetricos, porque no se guardan igual:
-      //   * alertWindowWeeks nunca se hidrata (el input cae al persistido en `value`), y el
-      //     guardado solo escribe si tiene algo. Vacio = sin tocar, igual que los numericos.
-      //   * trackingStartDate SI se hidrata, y el guardado compara contra lo persistido para
-      //     poder GUARDAR EL VACIO — dejarlo en blanco es como se desactiva el recorte. Asi que
-      //     aca la comparacion es directa: vacio sobre un valor guardado es un cambio real.
-      (alertWindowWeeks !== "" && alertWindowWeeks !== persistedAlertWindow) ||
+      // Los dos campos de notificaciones se hidratan desde lo persistido (1112-227), asi que la
+      // comparacion es directa en ambos:
+      //   * alertWindowWeeks vacio es un cambio (invalido): el guardado lo rechaza con el error
+      //     de rango en vez de ignorarlo en silencio.
+      //   * trackingStartDate vacio es un cambio VALIDO: dejarlo en blanco desactiva el recorte.
+      alertWindowWeeks !== persistedAlertWindow ||
       trackingStartDate !== persistedTrackingStart
     );
   }, [settings, getSetting, language, allowWeekendTracking, compactFont, allowedEmailDomain, authMode,
@@ -475,11 +480,9 @@ const Settings = () => {
     setMaxFailedAttempts("");
     setLockoutMinutes("");
     setExchangeRateApiUrl(getSetting("EXCHANGE_RATE_API_URL") || "");
-    // Mismas dos formas que en isGlobalDirty: el que no se hidrata vuelve a vacio (= sin
-    // tocar) y el que si se hidrata vuelve a lo persistido. Desde que los dos cuentan para el
-    // estado sucio, dejarlos afuera de Cancelar haria que el LeavePageDialog saltara igual
-    // despues de cancelar.
-    setAlertWindowWeeks("");
+    // Los dos vuelven a lo persistido. Desde que cuentan para el estado sucio, dejarlos afuera
+    // de Cancelar haria que el LeavePageDialog saltara igual despues de cancelar.
+    setAlertWindowWeeks(getSetting("TS_ALERT_WINDOW_WEEKS") || "4");
     setTrackingStartDate(getSetting("TS_TRACKING_START_DATE") || "");
 
     setActiveTab("account");
@@ -831,14 +834,19 @@ const Settings = () => {
 
       // Ventana de alarmas: el backend recorta a 1-52 y cae al default ante basura, pero se
       // valida aca tambien para no persistir un valor que la funcion va a ignorar.
+      // 1112-227: se valida SIEMPRE, no solo si tiene algo. El campo se hidrata, asi que vacio
+      // ya no significa "sin tocar" sino "lo borraron", y eso no es una ventana valida.
+      // Solo se escribe si cambio: guardar otra cosa no reescribe esta clave.
       let alertWindowValue: string | null = null;
-      if (alertWindowWeeks) {
-        const val = parseInt(alertWindowWeeks, 10);
+      {
+        const val = /^\d+$/.test(alertWindowWeeks) ? parseInt(alertWindowWeeks, 10) : NaN;
         if (isNaN(val) || val < 1 || val > 52) {
           toast.error(t("settings.alertWindowWeeksRangeError"));
           return;
         }
-        alertWindowValue = val.toString();
+        if (val.toString() !== (getSetting("TS_ALERT_WINDOW_WEEKS") || "4")) {
+          alertWindowValue = val.toString();
+        }
       }
 
       // Mandatory-HTTPS absolute-URL validation (bug 0722-156) — the same rule the
@@ -1571,7 +1579,7 @@ const Settings = () => {
                           <Label htmlFor="alertWindowWeeks">{t("settings.alertWindowWeeks")}</Label>
                           <NumericInput
                             id="alertWindowWeeks"
-                            value={alertWindowWeeks || getSetting("TS_ALERT_WINDOW_WEEKS") || "4"}
+                            value={alertWindowWeeks}
                             onValueChange={setAlertWindowWeeks}
                             placeholder="4"
                             decimals={0}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
@@ -10,13 +10,18 @@ import React from "react";
  * lo ÚNICO editado, `usePageLeaveLock` seguía en false y navegar se llevaba el cambio sin que
  * apareciera el `LeavePageDialog` — la regla 9 de AGENTS.md.
  *
- * No son simétricos, y por eso hay un caso para cada uno:
+ * Los dos se hidratan desde `global_settings` y se comparan directo contra lo persistido
+ * (1112-227). Lo que cambia es qué significa el vacío:
  *
- *   * `alertWindowWeeks` nunca se hidrata desde `global_settings` (el input cae al persistido en
- *     su `value`), así que vacío significa "sin tocar", igual que el resto de los numéricos.
- *   * `trackingStartDate` sí se hidrata, porque el guardado compara contra lo persistido para
- *     permitir GUARDAR EL VACÍO: dejar el campo en blanco es como se desactiva el recorte por
- *     fecha de arranque. Ahí vaciar un valor guardado ES un cambio.
+ *   * `alertWindowWeeks` vacío es un cambio INVÁLIDO: el guardado lo rechaza con el error de
+ *     rango. Antes el campo no se hidrataba y su `value` caía al persistido
+ *     (`alertWindowWeeks || getSetting(...)`), así que borrar con Retroceso hacía reaparecer el
+ *     valor guardado y el campo no se podía vaciar.
+ *   * `trackingStartDate` vacío es un cambio VÁLIDO: dejar el campo en blanco es como se
+ *     desactiva el recorte por fecha de arranque.
+ *
+ * La ventana se prueba TECLEANDO y no con `fireEvent.change` del valor final: el bug de
+ * Retroceso solo aparece tecla por tecla, con el padre re-renderizando entre una y otra.
  */
 
 const mockBlocker = { state: "unblocked" as const, reset: vi.fn(), proceed: vi.fn() };
@@ -68,8 +73,13 @@ vi.mock("@/hooks/useEmsData", () => ({
   useServices: () => ({ data: VACIO, isLoading: false }),
   useTaxonomies: () => ({ data: VACIO, isLoading: false }),
 }));
+// Referencia estable para poder mirar qué claves se escribieron al guardar.
+const guardar = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMock, Toaster: () => null }));
+
 vi.mock("@/hooks/mutations", () => ({
-  useUpdateGlobalSetting: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useUpdateGlobalSetting: () => ({ mutateAsync: guardar, isPending: false }),
   useReorderServiceActivity: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useMoveCategory: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useCopyCategories: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
@@ -129,39 +139,100 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
     await abrirGlobal();
     expect(capturedLockArgs.locked).toBe(true);
     expect(capturedLockArgs.isDirty).toBe(false);
-    // La fecha SÍ se hidrata; la ventana cae al persistido por el `value` del input. El campo
-    // de fecha es un calendario y no un `<input type="date">`, así que lo persistido se lee del
-    // texto del disparador, ya en DD/MM/YYYY (regla 3 de AGENTS.md).
+    // Los dos se hidratan. El campo de fecha es un calendario y no un `<input type="date">`, así
+    // que lo persistido se lee del texto del disparador, ya en DD/MM/YYYY (regla 3 de AGENTS.md).
     expect(screen.getByLabelText("settings.trackingStartDate")).toHaveTextContent("01/01/2026");
     expect((screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement).value)
       .toBe("4");
   });
 
-  // Los dos casos de la ventana usan `fireEvent.change` con el valor entero, igual que
-  // src/components/ui/__tests__/NumericInput.test.tsx. Lo que se mide aca es la lista de
-  // dependencias de `isGlobalDirty`, no el tecleo: el manejo tecla por tecla de NumericInput
-  // —con su borrador intermedio y el `value || persistido` del padre, que hace que vaciar el
-  // campo lo devuelva al persistido— ya tiene su propia suite.
   it("cambiar SOLO la ventana de alarmas ensucia el formulario", async () => {
-    await abrirGlobal();
+    const user = await abrirGlobal();
     const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
 
-    fireEvent.change(input, { target: { value: "8" } });
+    await user.type(input, "{Backspace}8");
 
     expect(input.value).toBe("8");
     expect(capturedLockArgs.isDirty).toBe(true);
   });
 
   it("volver la ventana a su valor persistido deja el formulario limpio", async () => {
-    await abrirGlobal();
+    const user = await abrirGlobal();
     const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
 
-    fireEvent.change(input, { target: { value: "8" } });
+    await user.type(input, "{Backspace}8");
     expect(capturedLockArgs.isDirty).toBe(true);
 
-    fireEvent.change(input, { target: { value: "4" } });
+    await user.type(input, "{Backspace}4");
     expect(input.value).toBe("4");
     expect(capturedLockArgs.isDirty).toBe(false);
+  });
+
+  // 1112-227: el bug era justo este. Con el `value || persistido` del input, el Retroceso dejaba
+  // el estado en "" y el campo volvía a pintar "4".
+  it("Retroceso vacía la ventana, y eso ensucia el formulario", async () => {
+    const user = await abrirGlobal();
+    const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+    await user.type(input, "{Backspace}");
+
+    expect(input.value).toBe("");
+    expect(capturedLockArgs.isDirty).toBe(true);
+  });
+
+  it("se puede borrar y escribir un número de dos cifras", async () => {
+    const user = await abrirGlobal();
+    const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+    await user.type(input, "{Backspace}12");
+
+    expect(input.value).toBe("12");
+  });
+
+  it("guardar con la ventana vacía avisa el rango y no escribe nada", async () => {
+    const user = await abrirGlobal();
+    const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+    await user.type(input, "{Backspace}");
+    await user.click(screen.getByText("common.saveChanges"));
+
+    expect(toastMock.error).toHaveBeenCalledWith("settings.alertWindowWeeksRangeError");
+    expect(guardar).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "53"])("guardar la ventana en %s avisa el rango y no escribe nada", async (valor) => {
+    const user = await abrirGlobal();
+    const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+    await user.type(input, `{Backspace}${valor}`);
+    await user.click(screen.getByText("common.saveChanges"));
+
+    expect(toastMock.error).toHaveBeenCalledWith("settings.alertWindowWeeksRangeError");
+    expect(guardar).not.toHaveBeenCalled();
+  });
+
+  it.each(["1", "52"])("guardar la ventana en %s la persiste", async (valor) => {
+    const user = await abrirGlobal();
+    const input = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
+
+    await user.type(input, `{Backspace}${valor}`);
+    await user.click(screen.getByText("common.saveChanges"));
+
+    await waitFor(() =>
+      expect(guardar).toHaveBeenCalledWith({ key: "TS_ALERT_WINDOW_WEEKS", value: valor })
+    );
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it("guardar sin tocar la ventana no reescribe su clave", async () => {
+    const user = await abrirGlobal();
+
+    await user.click(screen.getByText("common.saveChanges"));
+
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
+    expect(guardar).not.toHaveBeenCalledWith(
+      expect.objectContaining({ key: "TS_ALERT_WINDOW_WEEKS" })
+    );
   });
 
   it("cambiar SOLO la fecha de arranque ensucia el formulario", async () => {
@@ -219,12 +290,25 @@ describe("Settings — los campos de notificaciones cuentan para el estado sucio
     expect(within(calendario).getByText(/january/i)).toBeInTheDocument();
   });
 
+  it("Cancelar después de vaciar la ventana vuelve a mostrar lo persistido", async () => {
+    const user = await abrirGlobal();
+    await user.type(screen.getByLabelText("settings.alertWindowWeeks"), "{Backspace}");
+    expect(capturedLockArgs.isDirty).toBe(true);
+
+    await user.click(screen.getByText("common.cancel"));
+    await user.click(screen.getByText("settings.globalSettings"));
+
+    expect((screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement).value)
+      .toBe("4");
+    expect(capturedLockArgs.isDirty).toBe(false);
+  });
+
   it("Cancelar devuelve los dos campos a lo persistido y limpia el estado sucio", async () => {
     const user = await abrirGlobal();
     const semanas = screen.getByLabelText("settings.alertWindowWeeks") as HTMLInputElement;
     const fecha = screen.getByLabelText("settings.trackingStartDate");
 
-    fireEvent.change(semanas, { target: { value: "12" } });
+    await user.type(semanas, "{Backspace}12");
     await user.click(fecha);
     await user.click(within(await screen.findByRole("dialog")).getByText("20"));
     expect(capturedLockArgs.isDirty).toBe(true);

@@ -30,6 +30,7 @@ vi.mock("@/hooks/useNotifications", () => ({
   useNotifications: () => mockUseNotifications(),
   useMarkNotificationsRead: () => ({ mutate: mockMarkRead }),
   useDismissNotifications: () => ({ mutate: mockDismiss }),
+  useDismissAllNotifications: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 const mockUseStaffingAlerts = vi.fn();

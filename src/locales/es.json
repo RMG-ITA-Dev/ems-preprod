@@ -403,7 +403,7 @@
     "holidayEngagementApprovalWarning": "Este encargo tiene la aprobación automática activada. La validación de fechas de feriado sigue aplicándose igual, pero considere revisar esta configuración.",
     "notificationsSection": "Notificaciones",
     "alertWindowWeeks": "Ventana de alarmas (semanas)",
-    "alertWindowWeeksHelp": "Semanas hacia atrás que miran las alarmas de timesheet de la campana. No afecta cuántas semanas se pueden editar.",
+    "alertWindowWeeksHelp": "Semanas hacia atrás que miran las alarmas de timesheet (campana y recordatorios por correo). No afecta cuántas semanas se pueden editar.",
     "alertWindowWeeksRangeError": "La ventana de alarmas debe estar entre 1 y 52 semanas.",
     "trackingStartDate": "Inicio de carga de horas",
     "trackingStartDateHelp": "Fecha desde la que la firma carga horas en EMS 2.0. Las semanas anteriores no generan alarmas. Dejar vacío para no aplicar recorte."
@@ -2678,6 +2678,8 @@
     },
     "pending": "Pendientes",
     "dismissError": "No se pudo descartar la notificación",
+    "dismissAll": "Descartar todas",
+    "dismissAllError": "No se pudieron descartar las novedades",
     "news": "Novedades",
     "allClear": "Todo al día",
     "allClearDescription": "No tiene nada pendiente por ahora.",
