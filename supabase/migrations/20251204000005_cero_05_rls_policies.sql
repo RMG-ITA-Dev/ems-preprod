@@ -1953,13 +1953,15 @@ CREATE POLICY "administrative write update" ON public.wo_expense_budget AS RESTR
 CREATE POLICY "administrative write delete" ON public.wo_expense_budget AS RESTRICTIVE FOR DELETE TO authenticated
   USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
 
+-- 1110-220 (review de Codex, 2026-11-13): además, un no-Cliente sin OT no carga horas y su asignación la edita solo admin
+-- (engagement_assignment_staffing_allowed). Cierra el INSERT/UPDATE/DELETE directo por API, no solo la RPC.
 CREATE POLICY "administrative write insert" ON public.engagement_assignments AS RESTRICTIVE FOR INSERT TO authenticated
-  WITH CHECK (public.can_write_administrative_work(engagement_id));
+  WITH CHECK (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
 CREATE POLICY "administrative write update" ON public.engagement_assignments AS RESTRICTIVE FOR UPDATE TO authenticated
-  USING (public.can_write_administrative_work(engagement_id))
-  WITH CHECK (public.can_write_administrative_work(engagement_id));
+  USING (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id))
+  WITH CHECK (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
 CREATE POLICY "administrative write delete" ON public.engagement_assignments AS RESTRICTIVE FOR DELETE TO authenticated
-  USING (public.can_write_administrative_work(engagement_id));
+  USING (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
 
 CREATE POLICY "administrative write insert" ON public.wo_staffing_requirements AS RESTRICTIVE FOR INSERT TO authenticated
   WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));

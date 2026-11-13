@@ -2331,6 +2331,10 @@ GRANT EXECUTE ON FUNCTION public.engagement_partner_signed(p_engagement_id uuid)
 -- 1110-220 (review de Codex): ¿horas pendientes de aprobación? Solo un booleano, solo sobre encargos visibles. Nunca anon.
 REVOKE ALL ON FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.engagement_has_pending_line_approvals(p_engagement_id uuid) TO authenticated, service_role;
+-- 1110-220 (review de Codex): corte por OT de la asignación de personal. La evalúan las políticas de engagement_assignments
+-- como el usuario: necesita EXECUTE para authenticated. Nunca anon.
+REVOKE ALL ON FUNCTION public.engagement_assignment_staffing_allowed(p_engagement_id uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.engagement_assignment_staffing_allowed(p_engagement_id uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.decide_engagement_partner_approval(p_engagement_id uuid, p_approve boolean, p_reason text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) FROM PUBLIC, anon;

@@ -2723,6 +2723,33 @@ $$;
 
 --
 --
+-- Name: engagement_assignment_staffing_allowed(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- 1110-220 (review de Codex, 2026-11-13): ¿se puede escribir la asignación de personal de este encargo? Un no-Cliente
+-- (funcion 0/2/3) sin "Requiere OT" no carga horas, así que su asignación la edita solo admin (plan_v5; espejo de
+-- EngagementForm, que deshabilita StaffAssignmentsCard). Cliente (1 o NULL) siempre: también sin OT, que sí carga horas.
+-- No reemplaza can_write_administrative_work (quién escribe), solo agrega el corte por OT; lo usan
+-- save_engagement_assignments y las RESTRICTIVE "administrative write *" de engagement_assignments. Admin =
+-- current_role_key(), no is_admin() (enum legacy). Encargo inexistente: true (lo resuelve el resto de la regla).
+CREATE FUNCTION public.engagement_assignment_staffing_allowed(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF public.current_role_key() = 'admin' THEN
+    RETURN true;
+  END IF;
+  RETURN COALESCE(
+    (SELECT COALESCE(e.funcion, 1) = 1 OR e.work_order_required
+       FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id),
+    true);
+END;
+$$;
+
+
+--
 -- Name: engagement_allows_hours_or_requests(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -6553,7 +6580,9 @@ BEGIN
   IF NOT (public.is_admin()
           OR public.is_engagement_responsible(p_engagement_id)
           OR public.is_engagement_team_member(p_engagement_id))
-     OR NOT public.can_write_administrative_work(p_engagement_id) THEN
+     OR NOT public.can_write_administrative_work(p_engagement_id)
+     -- Review de Codex (2026-11-13): un no-Cliente sin OT no carga horas; su asignación la edita solo admin.
+     OR NOT public.engagement_assignment_staffing_allowed(p_engagement_id) THEN
     RAISE EXCEPTION 'EAS_DENIED' USING ERRCODE = 'insufficient_privilege';
   END IF;
 

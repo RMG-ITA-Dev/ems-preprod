@@ -1379,6 +1379,72 @@ BEGIN
   RAISE NOTICE 'PASS — el Aprobador sin engagement.read recibe su no-Cliente en el portafolio, con estado y motivo de la firma';
 END $$;
 
+-- ── 18. Review de Codex: sin OT, la asignación de personal de un no-Cliente la escribe solo admin ────────────────────
+-- EN (sección 14): no-Cliente SIN OT, creado por el Gerente de TH (6), Socio P (8). EB (sección 12): no-Cliente CON OT del
+-- mismo creador. EC: Cliente; se le apaga "Requiere OT" para probar que Cliente sin OT no cambia. Una asignación sembrada
+-- en cada uno, como dueño.
+SET LOCAL session_replication_role = replica;
+UPDATE public.engagements SET work_order_required = false WHERE engagement_id = 'e1102000-0000-4000-8000-000000000002';
+INSERT INTO public.engagement_assignments (assignment_id, engagement_id, staff_id, start_date, end_date, category_id) VALUES
+  ('a5102000-0000-4000-8000-000000000014', 'e1102000-0000-4000-8000-000000000014', '51102000-0000-4000-8000-000000000005',
+   '2026-03-02', '2026-03-31', 'c1102000-0000-4000-8000-0000000000ca'),
+  ('a5102000-0000-4000-8000-000000000012', 'e1102000-0000-4000-8000-000000000012', '51102000-0000-4000-8000-000000000005',
+   '2026-03-02', '2026-03-31', 'c1102000-0000-4000-8000-0000000000ca');
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_err text;
+  ok    constant text := 'SELECT count(*) FROM (SELECT public.engagement_assignment_staffing_allowed(%L) AS a) x WHERE x.a';
+BEGIN
+  -- La regla: no-Cliente sin OT, no (salvo admin); no-Cliente con OT, sí; Cliente, sí aunque no tenga OT.
+  IF pg_temp.count_as(pg_temp.u(6), format(ok, 'e1102000-0000-4000-8000-000000000014')) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — la asignación de un no-Cliente sin OT quedó abierta para el TH creador';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(6), format(ok, 'e1102000-0000-4000-8000-000000000012')) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — la asignación de un no-Cliente con OT debía seguir abierta';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(4), format(ok, 'e1102000-0000-4000-8000-000000000002')) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el corte por OT alcanzó a un encargo de Cliente sin OT';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(10), format(ok, 'e1102000-0000-4000-8000-000000000014')) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — admin debía poder escribir la asignación de un no-Cliente sin OT';
+  END IF;
+  IF has_function_privilege('anon', 'public.engagement_assignment_staffing_allowed(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION '1110-220 FAIL — anon puede ejecutar engagement_assignment_staffing_allowed';
+  END IF;
+
+  -- RPC: el TH creador no guarda la asignación de EN.
+  BEGIN
+    PERFORM pg_temp.impersonate(pg_temp.u(6));
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.save_engagement_assignments('e1102000-0000-4000-8000-000000000014', '[]'::jsonb,
+                                              ARRAY['a5102000-0000-4000-8000-000000000014']::uuid[]);
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    v_err := SQLERRM;
+  END;
+  IF v_err IS DISTINCT FROM 'EAS_DENIED' THEN
+    RAISE EXCEPTION '1110-220 FAIL — save_engagement_assignments dejó al TH creador escribir un no-Cliente sin OT (error: %)',
+      COALESCE(v_err, 'ninguno');
+  END IF;
+
+  -- Directo a la tabla: el TH creador no toca la de EN; la de EB (con OT) sí.
+  IF pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagement_assignments SET notes = ''x'' '
+                                   'WHERE assignment_id = ''a5102000-0000-4000-8000-000000000014''') > 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el TH creador escribió directo la asignación de un no-Cliente sin OT';
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(6), 'UPDATE public.engagement_assignments SET notes = ''x'' '
+                                   'WHERE assignment_id = ''a5102000-0000-4000-8000-000000000012''') <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el TH creador debía seguir escribiendo la asignación de su no-Cliente con OT';
+  END IF;
+  IF (SELECT notes FROM public.engagement_assignments WHERE assignment_id = 'a5102000-0000-4000-8000-000000000014') IS NOT NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — la asignación del no-Cliente sin OT cambió';
+  END IF;
+  RAISE NOTICE 'PASS — sin OT la asignación de un no-Cliente la escribe solo admin (RPC y tabla); con OT y en Cliente no cambia';
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;
 
 ROLLBACK;
