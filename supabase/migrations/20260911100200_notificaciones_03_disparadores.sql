@@ -3796,12 +3796,13 @@ BEGIN
                         'rollback_unconfirmed_signup',
                         'prepare_account_deletion',
                         'clear_account_deletion_mark'))
-     -- Las 4 RPC del panel son la excepcion y SI deben estar abiertas: se verifican abajo, al
-     -- reves. Ninguna recibe un staff_id — las cuatro lo derivan de get_my_staff_id().
+     -- Las 5 RPC del panel son la excepcion y SI deben estar abiertas: se verifican abajo, al
+     -- reves. Ninguna recibe un staff_id — las cinco lo derivan de get_my_staff_id().
      AND p.proname NOT IN ('get_my_notifications',
                            'get_my_notification_aggregates',
                            'mark_notifications_read',
-                           'dismiss_notifications')
+                           'dismiss_notifications',
+                           'dismiss_all_notifications')
      AND (has_function_privilege('authenticated', p.oid, 'EXECUTE')
        OR has_function_privilege('anon', p.oid, 'EXECUTE'));
 
@@ -3811,14 +3812,15 @@ BEGIN
       v_abiertos;
   END IF;
 
-  -- El reverso, que ningún REVOKE de más deje el panel en blanco. Las cuatro derivan el staff de
+  -- El reverso, que ningún REVOKE de más deje el panel en blanco. Las cinco derivan el staff de
   -- get_my_staff_id(), así que son las únicas que `authenticated` debe poder ejecutar.
   IF NOT has_function_privilege('authenticated', 'public.get_my_notifications(integer)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.get_my_notification_aggregates()', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.mark_notifications_read(uuid[])', 'EXECUTE')
-     OR NOT has_function_privilege('authenticated', 'public.dismiss_notifications(uuid[])', 'EXECUTE') THEN
-    RAISE EXCEPTION 'Alguna de las 4 RPC del panel quedo sin EXECUTE para authenticated: el panel no carga';
+     OR NOT has_function_privilege('authenticated', 'public.dismiss_notifications(uuid[])', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.dismiss_all_notifications()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'Alguna de las 5 RPC del panel quedo sin EXECUTE para authenticated: el panel no carga';
   END IF;
 
-  RAISE NOTICE 'PASS — helpers cerrados al cliente, las 4 RPC del panel abiertas a authenticated';
+  RAISE NOTICE 'PASS — helpers cerrados al cliente, las 5 RPC del panel abiertas a authenticated';
 END $$;

@@ -28,7 +28,13 @@ vi.mock("@/hooks/useNotifications", () => ({
   useNotifications: () => mockUseNotifications(),
   useMarkNotificationsRead: () => ({ mutate: mockMarkRead }),
   useDismissNotifications: () => ({ mutate: mockDismiss }),
+  useDismissAllNotifications: () => ({
+    mutate: mockDismissAll,
+    isPending: dismissAllState.isPending,
+  }),
 }));
+// `vi.hoisted`: el factory de vi.mock se iza y lee este estado en cada render.
+const dismissAllState = vi.hoisted(() => ({ isPending: false }));
 
 const mockUseStaffingAlerts = vi.fn();
 vi.mock("@/hooks/useStaffingAlerts", () => ({
@@ -37,6 +43,7 @@ vi.mock("@/hooks/useStaffingAlerts", () => ({
 
 const mockMarkRead = vi.fn();
 const mockDismiss = vi.fn();
+const mockDismissAll = vi.fn();
 const mockMarkSeen = vi.fn();
 vi.mock("@/hooks/useMarkAlertsSeen", () => ({
   useMarkAlertsSeen: () => ({ mutate: mockMarkSeen }),
@@ -93,6 +100,7 @@ beforeEach(() => {
   // Por defecto, con permiso sobre todo: cada test que quiera probar la falta de permiso
   // lo restringe explicitamente.
   mockCan.mockImplementation(() => true);
+  dismissAllState.isPending = false;
 });
 
 describe("NotificationsPanel — gateo de secciones", () => {
@@ -1141,5 +1149,82 @@ describe("NotificationsPanel — estados", () => {
       screen.getByText("notifications.alarms.timesheet.overdue"),
     ).toBeInTheDocument();
     expect(screen.queryByText("notifications.error")).not.toBeInTheDocument();
+  });
+});
+
+// 1112-227: "Descartar todas" las novedades.
+describe("NotificationsPanel — Descartar todas", () => {
+  const evento = (id: string) => ({
+    notification_id: id,
+    type_key: "fund.request.decided",
+    module_key: "fund_request" as const,
+    label_key: "notifications.types.fund.request.decided",
+    entity_id: `fr-${id}`,
+    payload: { request_number: `FR-${id}` },
+    created_at: "2026-09-09T10:00:00Z",
+    read_at: null,
+  });
+
+  it("con novedades muestra el boton, y un click descarta todo sin mandar ids", async () => {
+    setup({ events: [evento("n1"), evento("n2")], unread_count: 2 });
+    await openPanel();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "notifications.dismissAll" }),
+    );
+
+    expect(mockDismissAll).toHaveBeenCalledTimes(1);
+    // Sin argumentos: el servidor descarta TODAS, tambien las que no entraron en la ventana
+    // cargada. Mandar ["n1","n2"] dejaria vivas las de afuera.
+    expect(mockDismissAll.mock.calls[0]).toHaveLength(0);
+    // Y no se confunde con la x de cada fila.
+    expect(mockDismiss).not.toHaveBeenCalled();
+  });
+
+  it("mientras procesa, el boton queda deshabilitado (sin doble envio)", async () => {
+    dismissAllState.isPending = true;
+    setup({ events: [evento("n1")], unread_count: 1 });
+    await openPanel();
+
+    expect(
+      screen.getByRole("button", { name: "notifications.dismissAll" }),
+    ).toBeDisabled();
+  });
+
+  it("sin novedades no hay boton", async () => {
+    setup({ aggregates: { "timesheet.overdue": { count: 3 } } });
+    await openPanel();
+
+    expect(
+      screen.queryByRole("button", { name: "notifications.dismissAll" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("los contadores de pendientes conviven con el boton: no son novedades", async () => {
+    setup({
+      aggregates: { "timesheet.overdue": { count: 3 } },
+      events: [evento("n1")],
+      unread_count: 1,
+    });
+    await openPanel();
+
+    expect(
+      screen.getByRole("button", { name: "notifications.dismissAll" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("notifications.alarms.timesheet.overdue"),
+    ).toBeInTheDocument();
+  });
+
+  it("la x de cada fila sigue descartando solo esa fila", async () => {
+    setup({ events: [evento("n1"), evento("n2")], unread_count: 2 });
+    await openPanel();
+
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "notifications.dismiss" })[0],
+    );
+
+    expect(mockDismiss).toHaveBeenCalledWith(["n1"]);
+    expect(mockDismissAll).not.toHaveBeenCalled();
   });
 });

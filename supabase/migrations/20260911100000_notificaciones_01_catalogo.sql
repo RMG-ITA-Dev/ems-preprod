@@ -1618,6 +1618,52 @@ COMMENT ON FUNCTION public.dismiss_notifications(uuid[]) IS
   'Descarta notificaciones propias marcando dismissed_at; NO borra la fila, que sigue siendo el registro de que el aviso ya salio (sin ella el cron lo repite al dia siguiente). Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de UPDATE para authenticated — esta es la unica via.';
 
 -- =====================================================================
+-- H.2b) Descartar todas — 1112-227
+-- =====================================================================
+--
+-- El panel carga a lo sumo 200 eventos (get_my_notifications), así que "descartar todas" no
+-- puede ser el cliente mandando los ids que tiene: lo que quedó fuera de la ventana sobreviviría.
+-- Un solo UPDATE en el servidor sobre TODAS las filas propias sin descartar.
+--
+-- Mismas reglas que dismiss_notifications(): marca y no borra (la fila es el registro de que el
+-- aviso salió, ver H.2), filtra por get_my_staff_id() y no recibe parámetros con los que apuntar
+-- a la bandeja de otro, también para un admin.
+--
+-- Incluye los tipos desactivados a propósito: no se ven ni cuentan hoy, pero si el tipo se
+-- reactiva volverían a aparecer después de que el usuario pidió descartar TODO.
+--
+-- Los contadores (aggregates) y las alertas legacy no viven en `notifications`: siguen visibles,
+-- porque son trabajo pendiente que baja cuando se resuelve, no avisos que se descartan.
+DROP FUNCTION IF EXISTS public.dismiss_all_notifications();
+
+CREATE FUNCTION public.dismiss_all_notifications() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- `dismissed_at IS NULL`: lo ya descartado conserva su marca, así que el plazo de retención
+  -- sigue contando desde el primer descarte (igual que en dismiss_notifications).
+  UPDATE public.notifications
+     SET dismissed_at = now()
+   WHERE recipient_staff_id = v_staff
+     AND dismissed_at IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+COMMENT ON FUNCTION public.dismiss_all_notifications() IS
+  '1112-227: descarta TODAS las notificaciones propias (cargadas o no en el panel, incluidos tipos inactivos) marcando dismissed_at; NO borra filas, que siguen siendo el registro de emision para el cron. Sin parametros: el destinatario sale de get_my_staff_id(). No toca contadores ni alertas legacy.';
+
+-- =====================================================================
 -- H.3) Retención — el cron que acota la tabla
 -- =====================================================================
 --
@@ -2205,9 +2251,9 @@ GRANT ALL ON public.notifications           TO service_role;
 -- K) Grants de funcion — la superficie que SI ve el cliente
 -- =====================================================================
 --
--- Estas cuatro son toda la API del panel, y son las unicas del modulo que `authenticated` puede
+-- Estas cinco son toda la API del panel, y son las unicas del modulo que `authenticated` puede
 -- ejecutar. Lo que las hace seguras no es el grant sino que NINGUNA recibe un staff_id: las
--- cuatro lo derivan de `get_my_staff_id()`, asi que no hay parametro con el que pedir la bandeja
+-- cinco lo derivan de `get_my_staff_id()`, asi que no hay parametro con el que pedir la bandeja
 -- de otro. Todo lo demas quedo revocado (ver G.6 y el bloque de resolutores en la migracion 03).
 --
 -- Se declara explicito en vez de apoyarse en el EXECUTE que Postgres le da a PUBLIC por defecto:
@@ -2218,8 +2264,10 @@ REVOKE ALL ON FUNCTION public.get_my_notifications(integer)           FROM PUBLI
 REVOKE ALL ON FUNCTION public.get_my_notification_aggregates()        FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.mark_notifications_read(uuid[])         FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.dismiss_notifications(uuid[])           FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.dismiss_all_notifications()             FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.get_my_notifications(integer)        TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_my_notification_aggregates()     TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.mark_notifications_read(uuid[])      TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.dismiss_notifications(uuid[])        TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.dismiss_all_notifications()          TO authenticated, service_role;

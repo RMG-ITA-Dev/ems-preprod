@@ -769,19 +769,20 @@ BEGIN
       'public.get_my_notifications(integer)',
       'public.get_my_notification_aggregates()',
       'public.mark_notifications_read(uuid[])',
-      'public.dismiss_notifications(uuid[])'
+      'public.dismiss_notifications(uuid[])',
+      'public.dismiss_all_notifications()'
     ]) AS firma
   LOOP
     IF NOT has_function_privilege('authenticated', r.firma, 'EXECUTE') THEN
       RAISE EXCEPTION 'TEST FAIL — % quedó sin EXECUTE para authenticated: el panel no carga',
         r.firma;
     END IF;
-    -- Sin sesión no hay bandeja: las cuatro derivan el staff de get_my_staff_id().
+    -- Sin sesión no hay bandeja: las cinco derivan el staff de get_my_staff_id().
     IF has_function_privilege('anon', r.firma, 'EXECUTE') THEN
       RAISE EXCEPTION 'TEST FAIL — % ejecutable por anon', r.firma;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — las 4 RPC del panel abiertas a authenticated y cerradas a anon';
+  RAISE NOTICE 'PASS — las 5 RPC del panel abiertas a authenticated y cerradas a anon';
 END $$;
 
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
@@ -1711,6 +1712,35 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el aviso descartado volvio a encolar correo (% filas)', v_n;
   END IF;
   RAISE NOTICE 'PASS - descartar un aviso no hace que el cron lo repita al dia siguiente';
+
+  -- 8.k 1112-227: lo mismo por "Descartar todas". Se vuelve a dejar visible el aviso y se lo
+  -- descarta con la RPC masiva: tiene que marcar (no borrar), asi que el cron tampoco lo repite.
+  UPDATE public.notifications SET dismissed_at = NULL WHERE notification_id = v_desc;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000005');  -- S_RISK
+  IF public.dismiss_all_notifications() < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications no descarto el aviso del dueno';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE notification_id = v_desc AND dismissed_at IS NOT NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications borro la fila: el registro de emision no sobrevive';
+  END IF;
+
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM public.notif_wo_daily_scheduled();
+  PERFORM public.notif_wo_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron recreo un aviso descartado con Descartar todas (hay % filas)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n > 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas hizo que el aviso volviera a encolar correo (% filas)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas tampoco hace que el cron repita el aviso';
 END $$;
 
 -- -- Grupo 9 -- FASE 3.b: plan de pagos, cuotas y sus dos contadores ----------
@@ -4017,6 +4047,110 @@ BEGIN
 
   PERFORM set_config('request.jwt.claims', '', true);
   RAISE NOTICE 'PASS - la policy de clientes y el disparador reconocen las mismas seis columnas';
+END $$;
+
+-- -- Grupo 17b -- 1112-227: Descartar todas las novedades ---------------------
+-- El panel carga a lo sumo 200 eventos, asi que el fixture tiene MAS que eso: si la RPC
+-- dependiera de lo cargado, las de afuera sobrevivirian.
+DO $$
+DECLARE
+  v_n        int;
+  v_del      int;
+  v_agg_pre  jsonb;
+  v_agg_post jsonb;
+  v_marca    timestamptz;
+  v_payload  jsonb;
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- 210 propias (la mitad leidas), mas 1 de un tipo DESACTIVADO, mas 3 de otra persona.
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, created_at, read_at)
+  SELECT c_mgr, 'wo.rejected_partner', 'wo-' || g,
+         now() - make_interval(mins => g),
+         CASE WHEN g % 2 = 0 THEN now() ELSE NULL END
+    FROM generate_series(1, 210) g;
+
+  UPDATE public.notification_types SET is_active = false WHERE type_key = 'wo.rejected_risk';
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id)
+  VALUES (c_mgr, 'wo.rejected_risk', 'wo-inactivo');
+
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id)
+  SELECT c_part, 'wo.rejected_partner', 'ajena-' || g FROM generate_series(1, 3) g;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
+  v_agg_pre := public.get_my_notifications(50)->'aggregates';
+
+  -- 17b.a Descarta TODAS las propias, tambien las que no entran en la ventana del panel y la
+  -- del tipo desactivado.
+  v_del := public.dismiss_all_notifications();
+  IF v_del <> 211 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications descarto % filas, se esperaban 211', v_del;
+  END IF;
+
+  v_payload := public.get_my_notifications(200);
+  IF jsonb_array_length(v_payload->'events') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - despues de Descartar todas quedan % eventos en la bandeja',
+      jsonb_array_length(v_payload->'events');
+  END IF;
+  IF (v_payload->>'unread_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - despues de Descartar todas el badge sigue contando % no leidas',
+      (v_payload->>'unread_count')::int;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas vacia la bandeja aunque haya mas que el limite del panel';
+
+  -- 17b.b Los contadores de pendientes no son novedades: siguen igual.
+  v_agg_post := v_payload->'aggregates';
+  IF v_agg_post IS DISTINCT FROM v_agg_pre THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas cambio los contadores: antes %, despues %',
+      v_agg_pre, v_agg_post;
+  END IF;
+  RAISE NOTICE 'PASS - los contadores de pendientes no se tocan';
+
+  -- 17b.c Marca, no borra: las 211 siguen en la tabla como registro de emision.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_mgr AND dismissed_at IS NOT NULL;
+  IF v_n <> 211 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas borro filas (quedan % marcadas de 211)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas conserva las filas (registro de emision)';
+
+  -- 17b.d Las de otra persona quedan intactas, aunque la RPC sea SECURITY DEFINER.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_part AND dismissed_at IS NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas toco notificaciones ajenas (quedan % de 3)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas solo alcanza al usuario de la sesion';
+
+  -- 17b.e Idempotente: la segunda vez no descarta nada ni mueve la marca de la primera.
+  SELECT MIN(dismissed_at) INTO v_marca FROM public.notifications WHERE recipient_staff_id = c_mgr;
+  IF public.dismiss_all_notifications() <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda llamada a Descartar todas volvio a contar filas';
+  END IF;
+  IF (SELECT MIN(dismissed_at) FROM public.notifications WHERE recipient_staff_id = c_mgr)
+     IS DISTINCT FROM v_marca THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda llamada movio la marca de descarte (estira la retencion)';
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas es idempotente';
+
+  -- 17b.f Una sesion sin ficha de staff no descarta nada ni falla.
+  PERFORM pg_temp.impersonate('00000000-0000-4000-8000-00000000dead');
+  IF public.dismiss_all_notifications() <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una sesion sin staff descarto filas';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_part AND dismissed_at IS NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - una sesion sin staff descarto notificaciones de otro';
+  END IF;
+  RAISE NOTICE 'PASS - sin ficha de staff, Descartar todas es un no-op';
+
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.notification_types SET is_active = true WHERE type_key = 'wo.rejected_risk';
+  DELETE FROM public.notifications;
 END $$;
 
 -- -- Grupo 17 -- Descarte manual y retencion ----------------------------------

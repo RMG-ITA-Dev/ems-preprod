@@ -92,5 +92,60 @@ describe("useSettingsMutations", () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(mockSingle).toHaveBeenCalled();
     });
+
+    // 1112-227: la ventana de alarmas recorta los contadores de la campana, asi que guardarla
+    // tiene que refrescar tambien las notificaciones, no solo global_settings.
+    describe("refresco de la campana", () => {
+      function setup(ok = true) {
+        const mockSingle = vi.fn().mockResolvedValue(
+          ok ? { data: {}, error: null } : { data: null, error: { message: "boom" } }
+        );
+        const mockUpsert = vi.fn().mockReturnValue({ select: () => ({ single: mockSingle }) });
+        vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as any);
+
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+        const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+        const wrapper = ({ children }: { children: React.ReactNode }) => (
+          <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        );
+        const { result } = renderHook(() => useUpdateGlobalSetting(), { wrapper });
+        return { result, invalidate };
+      }
+
+      const keysInvalidadas = (invalidate: ReturnType<typeof vi.spyOn>) =>
+        invalidate.mock.calls.map((c: any[]) => c[0]?.queryKey?.[0]);
+
+      it.each(["TS_ALERT_WINDOW_WEEKS", "TS_TRACKING_START_DATE"])(
+        "guardar %s invalida global_settings y notifications",
+        async (key) => {
+          const { result, invalidate } = setup();
+          result.current.mutate({ key, value: "8" });
+          await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+          expect(keysInvalidadas(invalidate)).toEqual(
+            expect.arrayContaining(["global_settings", "notifications"])
+          );
+        }
+      );
+
+      it("guardar otra clave no toca las notificaciones", async () => {
+        const { result, invalidate } = setup();
+        result.current.mutate({ key: "LANGUAGE", value: "es" });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(keysInvalidadas(invalidate)).toContain("global_settings");
+        expect(keysInvalidadas(invalidate)).not.toContain("notifications");
+      });
+
+      it("si el guardado falla, no refresca la campana", async () => {
+        const { result, invalidate } = setup(false);
+        result.current.mutate({ key: "TS_ALERT_WINDOW_WEEKS", value: "8" });
+        await waitFor(() => expect(result.current.isError).toBe(true));
+
+        expect(keysInvalidadas(invalidate)).not.toContain("notifications");
+      });
+    });
   });
 });

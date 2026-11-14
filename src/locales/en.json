@@ -403,7 +403,7 @@
     "holidayEngagementApprovalWarning": "This engagement has automatic approval enabled. Holiday date validation still applies regardless, but you may want to review this configuration.",
     "notificationsSection": "Notifications",
     "alertWindowWeeks": "Alert window (weeks)",
-    "alertWindowWeeksHelp": "How many weeks back the bell's timesheet alarms look. Does not affect how many weeks can be edited.",
+    "alertWindowWeeksHelp": "How many weeks back the timesheet alarms look (bell and email reminders). Does not affect how many weeks can be edited.",
     "alertWindowWeeksRangeError": "The alert window must be between 1 and 52 weeks.",
     "trackingStartDate": "Time tracking start date",
     "trackingStartDateHelp": "Date the firm started logging hours in EMS 2.0. Earlier weeks raise no alarms. Leave blank for no cutoff."
@@ -2678,6 +2678,8 @@
     },
     "pending": "Pending",
     "dismissError": "Could not dismiss the notification.",
+    "dismissAll": "Dismiss all",
+    "dismissAllError": "Could not dismiss the notifications.",
     "news": "What's new",
     "allClear": "All caught up",
     "allClearDescription": "You have nothing pending right now.",

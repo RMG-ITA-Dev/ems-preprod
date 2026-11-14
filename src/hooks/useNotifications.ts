@@ -133,12 +133,12 @@ export function useMarkNotificationsRead() {
 }
 
 /**
- * Descarta (BORRA) notificaciones propias — la "x" de cada fila del panel.
+ * Descarta notificaciones propias — la "x" de cada fila del panel.
  *
- * Borra de verdad y no marca una columna: la fila tiene un solo destinatario, así que es
- * enteramente suya, y el hecho que la originó vive en su propia tabla. Es además lo que hace
- * que el descarte sirva para el tamaño de `public.notifications`, en vez de dejar la limpieza
- * entera en manos del cron de retención.
+ * Marca `dismissed_at` y NO borra la fila: además de ser el aviso, la fila es el registro de
+ * que el aviso ya salió, y los emisores del cron deduplican contra ella. Borrarla haría que el
+ * cron lo volviera a crear (con correo) al día siguiente. Lo descartado lo saca de la tabla la
+ * retención, con la ventana más corta.
  *
  * El backend ignora ids ajenos (filtra por `recipient_staff_id = get_my_staff_id()`), igual
  * que `mark_notifications_read`.
@@ -171,6 +171,43 @@ export function useDismissNotifications() {
     // no funciona. Es exactamente lo que paso probando contra un mirror sin el RPC aplicado.
     onError: () => {
       toast.error(t("notifications.dismissError"));
+    },
+  });
+}
+
+/**
+ * Descarta TODAS las novedades propias (1112-227) — el botón "Descartar todas" del panel.
+ *
+ * No manda ids: el panel carga a lo sumo 200 eventos, y lo que quedara fuera de esa ventana
+ * sobreviviría. `dismiss_all_notifications()` hace un solo UPDATE en el servidor sobre todas
+ * las filas del usuario de la sesión, con las mismas reglas que el descarte por fila (marca, no
+ * borra; ignora a cualquier otro destinatario).
+ *
+ * No toca el contador a mano: el badge suma también contadores de pendientes y alertas legacy,
+ * que siguen existiendo. Se invalida y el servidor devuelve el payload real.
+ */
+export function useDismissAllNotifications() {
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("dismiss_all_notifications" as never);
+
+      if (error) {
+        logger.error("Failed to dismiss all notifications:", error.message);
+        throw error;
+      }
+
+      return (data as number) ?? 0;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    // Click explícito, igual que la "x": si falla y no se avisa, el usuario cree que el botón
+    // no hace nada.
+    onError: () => {
+      toast.error(t("notifications.dismissAllError"));
     },
   });
 }
