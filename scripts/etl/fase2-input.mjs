@@ -26,6 +26,8 @@ export const APPROVED_ROLE_OVERRIDES = Object.freeze({
   "legacy:4": Object.freeze({ roleKey: "it_security_manager", legacyRole: "manager", categoryName: "Gerente" }),
   "legacy:7": Object.freeze({ roleKey: "accounting_analyst", legacyRole: "senior", categoryName: "Asistente" }),
   "legacy:9": Object.freeze({ roleKey: "accounting_manager", legacyRole: "manager", categoryName: "Gerente" }),
+  // Decisión del operador 16/11/2026: Karina conserva categoría Gerente, con rol Jefe de secretaría.
+  "legacy:13": Object.freeze({ roleKey: "secretariat_head", legacyRole: "manager", categoryName: "Gerente" }),
   "legacy:16": Object.freeze({ roleKey: "risk_partner", legacyRole: "partner", categoryName: "Socio" }),
   "legacy:94": Object.freeze({ roleKey: "hr_manager", legacyRole: "manager", categoryName: "Gerente" }),
   "legacy:112": Object.freeze({ roleKey: "risk_supervisor", legacyRole: "manager", categoryName: "Asistente" }),

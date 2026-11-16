@@ -1,5 +1,7 @@
 # Consola ETL fase 1
 
+**Asignación aprobada 16/11/2026:** el perfil legacy 13 (Karina Linares) usa `secretariat_head`, espejo legacy `manager`, manteniendo categoría Gerente. La excepción está acotada a ese perfil en `APPROVED_ROLE_OVERRIDES`; no cambia permisos ni la categoría por defecto. Para otra carga usar la configuración privada `fase2.local-v5-secretaria.config.json` y `bugs/ETL/carga/fase4/inputs-v3-d41-secretaria.sha256`. El v3 original y los resultados de `lt01` se conservan como historial. Detalle operativo en `bugs/ETL/carga/fase4/decisiones_20261116.md`.
+
 Consola específica (Node + `psql`) que deja una instalación nueva de EMS 2.0 lista para la carga de
 fase 2. **Alcance de fase 1:** crea el administrador genérico (ficha de `staff`, cuenta de Auth,
 enlace y rol `admin/admin`) y materializa el calendario de 28 feriados. **No** carga clientes,

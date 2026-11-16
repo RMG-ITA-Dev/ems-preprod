@@ -21,6 +21,18 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => validateRoleAssignment({ staff_source_ref: "legacy:999", category_name: "Asistente" }, { expected_role_key: "risk_supervisor", expected_legacy_role: "manager" }, "assistant")).toThrow(/categoría/);
   });
 
+  it("asigna a Karina el rol de Secretaría sin cambiar su categoría y rechaza pares no autorizados", () => {
+    const staff = { staff_source_ref: "legacy:13", category_name: "Gerente" };
+    const user = { expected_role_key: "secretariat_head", expected_legacy_role: "manager" };
+    expect(() => validateRoleAssignment(staff, user, "manager")).not.toThrow();
+    expect(() => validateRoleAssignment(staff, { ...user, expected_role_key: "manager" }, "manager")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment(staff, { ...user, expected_legacy_role: "admin" }, "manager")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment({ ...staff, category_name: "Asistente" }, user, "assistant")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment({ ...staff, staff_source_ref: "legacy:999" }, user, "manager")).toThrow(/categoría/);
+    expect(() => assertLegacyRoleMirror([{ staff_source_ref: "legacy:13", ...user }], [{ role_key: "secretariat_head", legacy_app_role: "manager" }])).not.toThrow();
+    expect(() => assertLegacyRoleMirror([{ staff_source_ref: "legacy:13", ...user }], [{ role_key: "manager", legacy_app_role: "manager" }])).toThrow(/sin espejo/);
+  });
+
   it("rechaza texto con doble codificación UTF-8 y acepta los acentos correctos", () => {
     const ok = `${header("clients")}\r\nlegacy:58,"COMPAÑIA DE SEGUROS, Médico",,001,empresa,,,nacional,nit_propio,Industria,"Av. 6 de Agosto N° 2678",true,`;
     expect(() => parseCsv(ok, HEADERS.clients, "clientes")).not.toThrow();
