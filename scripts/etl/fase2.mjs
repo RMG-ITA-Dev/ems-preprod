@@ -159,7 +159,14 @@ export async function verify(ctx) {
 export function report(ctx) { const journal = ctx.journal ?? ensureJournal(ctx); if (!journal) throw new Fase1Error("BLOQUEADO", "report requiere journal"); const date = new Intl.DateTimeFormat("es-BO", { timeZone: "America/La_Paz" }).format(new Date()); const report = { fecha: date, installationId: journal.installationId, projectRef: journal.projectRef, R1: journal.inputs, R2: { state: journal.state }, R3: { clients: Object.keys(journal.clients).length, staff: Object.keys(journal.staff).length }, R4: "sin PII ni secretos", R5: "PENDIENTE_CAMBIO_MANUAL" }; const file = path.join(ctx.stateDir, `fase2-${ctx.config.installationId}.report.json`); writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 }); return { ok: true, file }; }
 // D40 (12/11/2026): contiene los correos auth.role.changed que encolaron los disparadores al asignar roles (A-03). Idempotente. Exige las fichas y cuentas confirmadas del journal.
 // No reactiva nada: el dren de correos sigue pausado y MAIL_ENABLED=false; esto solo deja esos pendientes como no entregables (ETL_F2_NO_DELIVERY) para que no salgan al reactivarlo.
+// R403-03: como `load`, el comando directo valida destino y ventana ANTES de leer el journal y escribe bajo el bloqueo de la instalación.
 export async function containEmails(ctx) {
+  const problems = connectionGuardProblems(ctx.config, ctx.env); if (problems.length) throw new Fase1Error("BLOQUEADO", problems.join("; "));
+  requireWindow(ctx);
+  const release = acquireLock(ctx.stateDir, ctx.config.installationId, { prefix: "fase2" });
+  try { return await containEmailsLocked(ctx); } finally { release(); }
+}
+async function containEmailsLocked(ctx) {
   ctx.journal = ctx.journal ?? ensureJournal(ctx); const journal = ctx.journal; if (!journal) throw new Fase1Error("BLOQUEADO", "contain-emails requiere el journal de fase 2");
   const entries = Object.values(journal.staff ?? {});
   if (!entries.length || entries.length !== ctx.config.expectations.staff || entries.some((entry) => entry.state !== "enlace_rol_confirmado" || !entry.staffId || !entry.authUserId)) throw new Fase1Error("BLOQUEADO", "contención de correos F2: el journal no confirma las " + ctx.config.expectations.staff + " fichas y cuentas");

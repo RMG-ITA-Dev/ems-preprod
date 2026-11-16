@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { ENGAGEMENT_HEADERS, PLAN_HEADERS } from "./fase3-matrix.mjs";
 import { parseCsv } from "./fase2-input.mjs";
-import { declared as declaredCount } from "./snapshot-manifest.mjs";
+import { assertEndDateCounts, declared as declaredCount, resolveEndDate } from "./snapshot-manifest.mjs";
 
 export const EXPENSE_HEADERS = ["legacy_expense_budget_id", "legacy_cot", "legacy_currency_raw", "legacy_exchange_rate", "legacy_expense_type_id", "legacy_amount_usd", "disposition"];
 export const PAYMENT_HEADERS = ["legacy_plan_payment_id", "legacy_cot", "legacy_installment_number", "legacy_detail", "legacy_percentage", "legacy_invoice_date", "legacy_currency_raw", "legacy_exchange_rate", "legacy_fee_with_tax", "proposed_disposition"];
@@ -260,6 +260,8 @@ export function validateInputs(inputs, { enforceExpected = false, manifest = nul
     const wantClient = declaredCount(environment, manifest.f3.clientEngagements, "f3.clientEngagements"); const wantAdmin = declaredCount(environment, manifest.f3.administrativeEngagements, "f3.administrativeEngagements");
     assertExecutionTotals(inputs.executions, manifest.f3.hours, environment);
     if ((wantClient !== null && clientEngagements.length !== wantClient) || (wantAdmin !== null && inputs.administrativeEngagements.length !== wantAdmin)) throw new Fase3InputError(`el alcance F3 exige ${wantClient} COT cliente y ${wantAdmin} administrativos (manifiesto ${manifest.snapshot})`);
+    // R403-04: el fin de vigencia (ems_end_date o fin por gestión) y su reparto se comprueban ANTES del reset, no al armar los encargos tras F2.
+    if (manifest.f3.endDates) { try { assertEndDateCounts(clientEngagements.map((row) => resolveEndDate(row, manifest.f3.endDates)), manifest.f3.endDates, environment); } catch (error) { throw new Fase3InputError(error.message); } }
   }
   return Object.freeze({ ...inputs, fingerprints: Object.fromEntries(Object.entries(inputs).map(([name, rows]) => [name, fingerprint(rows)])), clientCots });
 }

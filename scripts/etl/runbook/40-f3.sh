@@ -12,6 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 RB_NEED_AUTH=0
 rb_init "$@"
 rb_confirm_window
+rb_require_crons_paused   # R403-02: también al reanudar (--from) o ejecutar el paso suelto (solo lectura)
 
 FROM="client-engagements"
 TRACKING_START=""

@@ -112,6 +112,21 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(steps).toEqual(["00-preflight", "10-reset", "15-crones", "20-f1", "30-f2", "35-bajas", "40-f3", "50-reconcile"]);
     for (const step of steps) expect(scripts, step).toContain(`${step}.sh`);
   });
+  // R403-02: F2 y F3 verifican (solo lectura) que los crones notif-% estén pausados aunque el paso se reanude o se ejecute suelto, sin pausarlos ni reactivarlos ellos.
+  it("30-f2 y 40-f3 exigen los crones notif-% pausados antes de escribir, con una verificación que no modifica nada", () => {
+    const lib = read("lib.sh"); const fn = lib.slice(lib.indexOf("rb_require_crons_paused() {"), lib.indexOf("\n}\n", lib.indexOf("rb_require_crons_paused() {")));
+    expect(fn).toContain("jobname like 'notif-%' and active"); expect(fn).toContain("ejecute el paso 15");
+    expect(fn).not.toMatch(/alter_job|active := |cron\.unschedule|update cron/i);
+    for (const name of ["30-f2.sh", "40-f3.sh"]) { const script = read(name); expect(script, name).toContain("rb_require_crons_paused"); expect(script.indexOf("rb_require_crons_paused"), name).toBeGreaterThan(script.indexOf("rb_confirm_window")); }
+    const f2 = read("30-f2.sh"); expect(f2.indexOf("rb_require_crons_paused")).toBeLessThan(f2.indexOf("rb_etl 2 validate"));
+    const f3 = read("40-f3.sh"); expect(f3.indexOf("rb_require_crons_paused")).toBeLessThan(f3.indexOf("rb_etl 3 "));
+  });
+  // R403-07: el resumen «horas por práctica» debe cubrir las entradas con período importado (D41), no solo las de período NULL del contrato anterior.
+  it("el resumen de horas por práctica incluye las entradas de períodos importados y las de período NULL", () => {
+    const line = read("50-reconcile.sh").split("\n").find((l) => l.includes("sum(te.hours_logged)")) ?? "";
+    expect(line).toContain("te.period_id is null or te.period_id in (select tp.period_id from public.timesheet_periods tp where tp.import_batch is not null)");
+    expect(line).toContain("te.is_forecast=false");
+  });
   // Paso 4 con CSV v3: las huellas se calculan sobre las configuraciones base y el baseline que se indiquen (por defecto, los de v2).
   it("el pre-vuelo toma configuraciones base y baseline de huellas por variable de entorno, con los valores v2 por defecto", () => {
     const pre = read("00-preflight.sh");

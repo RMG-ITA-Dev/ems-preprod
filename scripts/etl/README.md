@@ -207,7 +207,10 @@ guarda nombres, NIT, correos, claves ni tokens: solo huellas, UUID y estados.
 Las cifras y fechas que dependen del respaldo legacy que se carga **ya no son constantes del código**: viven en
 `scripts/etl/snapshots/<nombre_de_la_base>.json` (versionado, sin secretos) y las carga `snapshot-manifest.mjs`
 (`loadSnapshotManifest`). Hay uno por respaldo aprobado: `TimeControlDB_20261023_1200` (reproduce exactamente los valores
-anteriores, para regresión) y `TimeControlDB_20261106_1600` (el respaldo final del 06/11/2026). Sin manifiesto, la configuración
+anteriores, para regresión) y `TimeControlDB_20261106_1600` (el respaldo final del 06/11/2026), con variantes del mismo origen:
+`…_d41` (horas aprobadas D41 Parte I), `…_d41_gastos_v1` (contrato financiero del 13/11, superado) y `…_d41_legacy_total_v1`
+(contrato financiero vigente, 15/11/2026). El respaldo real, el manifiesto y el contrato son cosas distintas; los contratos
+anteriores no se reinterpretan. Sin manifiesto, la configuración
 no es válida (`CONFIG`).
 
 - **Contenido:** fechas (`staffCut`, `fy2026End`, …), `f2` (clientes, contactos, fichas, usuarios, activas/inactivas…), `f3`
@@ -215,8 +218,9 @@ no es válida (`CONFIG`).
   lista explícita `COT|cuota`, nunca por texto), `invoicedInstallments` (cuotas «ya fue facturado», D19), `toleranceCots`
   (planes con tolerancia aprobada, D18) y `preflight.executionDeadline`.
 - **`null` = sin declarar:** en `local` el control no se aplica (F2 lo puede completar con `expectations`); en Test y producción
-  **bloquea**. Al 06/11 quedan `null`: `f2.contacts` (depende del criterio de «contacto distinto»), `f2.schedulableStaff` y
-  `f3.expenses.totalUnits` (salen del CSV v3) y `bak.file`/`bak.sha256`.
+  **bloquea**. Los manifiestos del 06/11 ya declaran `f2.contacts` (347), `f2.schedulableStaff` (159), `f3.expenses.totalUnits` y
+  `bak.file`/`bak.sha256`; solo quedan `null` los campos que no aplican a ese respaldo (`dates.adminWindowFrom/To`,
+  `f3.selectorProfiles` y `f3.endDates.byYear`, porque el fin de vigencia viene del CSV).
 - **Journal:** el `sha256` del manifiesto se guarda en el journal al crearlo (`snapshotManifestSha256`) y, al reanudar, debe
   coincidir. **No** entra en `configHash`, así los journals anteriores siguen leyéndose.
 - **Runbook:** `lib.sh` lee el manifiesto con `rb_manifest <ruta>` / `rb_manifest_required <ruta>` (corte de bajas, conteos, fecha límite).
@@ -232,5 +236,5 @@ no es válida (`CONFIG`).
 | Honorario de una OT en BOB | `presupuestoHoras × TC de la OT`, redondeo hacia arriba (D26/D29); gastos igual |
 | Impuesto | 16 %: `taxRate` 0,16 y honorario con impuesto = ajustado ÷ 0,84 (D28) |
 | Plan de pagos | notas por lista del manifiesto; tolerancia de 100,03 % solo para `toleranceCots`; las cuotas con disposición `cuota_facturada` nacen Pendientes y, con la OT aprobada, pasan a Facturada (`--operation invoices`, D19/D20/D21; conciliación L6e/L6f; la huella L9 incluye las fechas de cobranza) |
-| Contactos | varios por cliente, solo el nombre obligatorio, celda vacía = NULL, «Línea corporativa» con el teléfono del cliente; el cargo no se carga. El criterio de «contacto distinto» es `duplicateContacts(rows, criterion)`: `name` (vigente) o `email-first` (probable), parametrizable con `contactCriterion` |
+| Contactos | varios por cliente, solo el nombre obligatorio, celda vacía = NULL, «Línea corporativa» con el teléfono del cliente; el cargo no se carga. El criterio de «contacto distinto» es `duplicateContacts(rows, criterion)`: `channel` (vigente, `DEFAULT_CONTACT_CRITERION`; D23/D38: la clave es el correo válido, sin correo el teléfono y sin ninguno el nombre), con `name` y `email-first` como alternativas parametrizables con `contactCriterion` |
 | SAN | la regla (SAN, salvo 0 o < 4 dígitos → Sentinel; «-1» en los de 5 dígitos; SAN de 8 dígitos tal cual) se aplica en la consulta del CSV v3, no en el código |

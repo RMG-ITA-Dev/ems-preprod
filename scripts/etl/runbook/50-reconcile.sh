@@ -87,7 +87,7 @@ fi
 rb_info "3. Resumen para el reporte (sin datos personales)"
 rb_counts
 echo "── horas por práctica (ejecutadas)" >&2
-rb_psql -F ' | ' -c "select p.abbreviation, sum(te.hours_logged) from public.time_entries te join public.engagements e on e.engagement_id=te.engagement_id join public.practicas p on p.code=e.practica where te.is_forecast=false and te.period_id is null group by 1 order by 1" >&2
+rb_psql -F ' | ' -c "select p.abbreviation, sum(te.hours_logged) from public.time_entries te join public.engagements e on e.engagement_id=te.engagement_id join public.practicas p on p.code=e.practica where te.is_forecast=false and (te.period_id is null or te.period_id in (select tp.period_id from public.timesheet_periods tp where tp.import_batch is not null)) group by 1 order by 1" >&2   # R403-07: contrato anterior (sin período) o D41 (período importado)
 echo "── cola de correo por estado y motivo" >&2
 rb_psql -F ' | ' -c "select status, coalesce(last_error,'-') as motivo, count(*) from public.notification_emails group by 1,2 order by 1,2" >&2
 echo "── TC efectivo de los planes BOB (P-02, no es TC legacy)" >&2

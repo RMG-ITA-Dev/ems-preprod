@@ -209,6 +209,27 @@ rb_etl_mut() { if [[ "$DRY_RUN" == "1" ]]; then rb_info "DRY-RUN fase$1 $2 ${*:3
 rb_psql() { psql -X -At -v ON_ERROR_STOP=1 "$@"; }
 rb_scalar() { rb_psql -c "$1"; }
 
+# R403-02: precondición de solo lectura para F2/F3 (también al reanudar con `--from` o al ejecutar el paso suelto): ningún cron
+# `notif-%` activo. La pausa la hace 15-crones.sh; esto solo verifica y NO modifica nada. En local sin pg_cron o sin crones definidos
+# avisa (no hay nada que pausar); en Test, su ausencia bloquea (igual que el paso 15).
+rb_require_crons_paused() {
+  local has_cron total active
+  has_cron="$(rb_scalar "select count(*) from pg_extension where extname = 'pg_cron'")"
+  if [[ "$has_cron" == "0" ]]; then
+    [[ "$ENV_NAME" == "local" ]] || rb_die "pg_cron no está instalado en ${ENV_NAME}: no se puede verificar la pausa de los crones notif-%"
+    rb_warn "pg_cron no está instalado en local: no hay crones notif-% que verificar"; return 0
+  fi
+  total="$(rb_scalar "select count(*) from cron.job where jobname like 'notif-%'")"
+  active="$(rb_scalar "select count(*) from cron.job where jobname like 'notif-%' and active")"
+  [[ "$total" =~ ^[0-9]+$ && "$active" =~ ^[0-9]+$ ]] || rb_die "no se pudo leer el estado de los crones notif-%"
+  if [[ "$total" -eq 0 ]]; then
+    [[ "$ENV_NAME" == "local" ]] || rb_die "no hay crones notif-% en ${ENV_NAME}: ¿se aplicaron las migraciones de notificaciones?"
+    rb_warn "no hay crones notif-% definidos en local"; return 0
+  fi
+  [[ "$active" -eq 0 ]] || rb_die "quedan ${active} crones notif-% activos: ejecute el paso 15 (15-crones.sh) antes de cargar F2/F3"
+  rb_pass "los ${total} crones notif-% están pausados en ${ENV_NAME}"
+}
+
 # Resumen de conteos sin datos personales.
 rb_counts() {
   rb_psql -F ' | ' -c "select 'clientes', count(*) from public.clients union all select 'contactos', count(*) from public.client_contacts union all select 'staff', count(*) from public.staff union all select 'auth.users', count(*) from auth.users union all select 'encargos', count(*) from public.engagements union all select 'matrices', count(*) from public.activity_worksheets union all select 'ordenes_trabajo', count(*) from public.work_orders union all select 'planes_pago', count(*) from public.wo_payment_plan union all select 'cuotas', count(*) from public.wo_payment_installments union all select 'gastos_presupuestados', count(*) from public.wo_expense_budget union all select 'time_entries', count(*) from public.time_entries union all select 'periodos', count(*) from public.timesheet_periods union all select 'aprobaciones_linea', count(*) from public.timesheet_line_approvals union all select 'correos_pendientes', count(*) from public.notification_emails where status in ('pending','sending') union all select 'correos_enviados', count(*) from public.notification_emails where status='sent'" >&2

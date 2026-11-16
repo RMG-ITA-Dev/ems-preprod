@@ -8,6 +8,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 rb_init "$@"
 rb_confirm_window
+rb_require_crons_paused   # R403-02: también al reanudar o ejecutar el paso suelto (solo lectura)
 rb_write_config 2
 
 probes=(); i=0

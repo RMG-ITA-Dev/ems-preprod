@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { containEmails } from "../fase2.mjs";
 const entry = (n: number, extra: object = {}) => ({ state: "enlace_rol_confirmado", staffId: `staff-${n}`, authUserId: `auth-${n}`, ...extra });
 const newCtx = (staff: Record<string, object>, result: object, expectedStaff = Object.keys(staff).length) => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "etl-f2-contain-")); const calls: any[] = [];
-  const ctx: any = { stateDir: dir, journalFile: path.join(dir, "fase2-f2-contener.journal.json"), config: { expectations: { staff: expectedStaff } }, env: {}, log: () => {},
+  const ctx: any = { stateDir: dir, journalFile: path.join(dir, "fase2-f2-contener.journal.json"), config: { environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f2-contener", expectations: { staff: expectedStaff } }, env: { PGHOST: "127.0.0.1", ETL_F2_WINDOW_CONFIRMED: "local" }, log: () => {},
     journal: { installationId: "f2-contener", state: "VERIFICADO", staff, probes: {} }, db: { containRoleEmails: async (args: any) => { calls.push(args); return result; } } };
   return { ctx, calls };
 };
@@ -40,6 +40,23 @@ describe("contención de correos auth.role.changed de F2", () => {
       await expect(containEmails(ctx)).rejects.toThrow(/no conciliable/);
       expect(ctx.journal.emailContainment).toBeUndefined();
     }
+  });
+
+  // R403-03: el comando directo aplica las mismas guardas que `load` y no toca la base si alguna falla.
+  it("rechaza sin ventana confirmada, con un destino que no corresponde o con otra ejecución en curso, sin llegar a la base", async () => {
+    const noWindow = newCtx({ "legacy:1": entry(1) }, { contained: 0, remaining: 0, sent: 0 }); noWindow.ctx.env = { PGHOST: "127.0.0.1" };
+    await expect(containEmails(noWindow.ctx)).rejects.toThrow(/ETL_F2_WINDOW_CONFIRMED/); expect(noWindow.calls).toHaveLength(0);
+    const wrongHost = newCtx({ "legacy:1": entry(1) }, { contained: 0, remaining: 0, sent: 0 }); wrongHost.ctx.env.PGHOST = "aws-0-x.pooler.supabase.com";
+    await expect(containEmails(wrongHost.ctx)).rejects.toThrow(/loopback/); expect(wrongHost.calls).toHaveLength(0);
+    const busy = newCtx({ "legacy:1": entry(1) }, { contained: 0, remaining: 0, sent: 0 }); writeFileSync(path.join(busy.ctx.stateDir, "fase2-f2-contener.lock"), "");
+    await expect(containEmails(busy.ctx)).rejects.toThrow(/otra ejecución/); expect(busy.calls).toHaveLength(0);
+  });
+
+  it("libera el bloqueo de la instalación al terminar, con éxito o con error", async () => {
+    const ok = newCtx({ "legacy:1": entry(1) }, { contained: 1, remaining: 0, sent: 0 }); await containEmails(ok.ctx);
+    expect(existsSync(path.join(ok.ctx.stateDir, "fase2-f2-contener.lock"))).toBe(false);
+    const bad = newCtx({ "legacy:1": entry(1) }, { contained: 1, remaining: 1, sent: 0 }); await expect(containEmails(bad.ctx)).rejects.toThrow(/no conciliable/);
+    expect(existsSync(path.join(bad.ctx.stateDir, "fase2-f2-contener.lock"))).toBe(false);
   });
 
   it("el adaptador SQL exige identificadores propios exactos, sin repetidos", async () => {

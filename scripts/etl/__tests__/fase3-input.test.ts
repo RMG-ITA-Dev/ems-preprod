@@ -50,6 +50,25 @@ describe("ETL fase 3: contratos de entrada", () => {
     for (const year of ["2024", "2025"]) expect(() => validateInputs({ clientEngagements: [{ ...client(`${year}.22.007`), gestion: year }], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] })).not.toThrow();
     expect(() => validateInputs({ clientEngagements: [{ ...client("2023.11.001"), gestion: "2023" }], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] })).toThrow(/fuera de alcance/);
   });
+  // R403-04: el fin de vigencia y su reparto se validan offline (antes del reset), con la misma resolución que usa F3 al armar los encargos.
+  it("validate offline comprueba ems_end_date y su reparto con el manifiesto, y conserva el fin por gestión de los manifiestos anteriores", () => {
+    const withEnd = (cot: string, end: string) => ({ ...client(cot), ems_end_date: end });
+    const inputs = (rows: any[]) => ({ clientEngagements: rows, administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] });
+    const manifest = (endDates: any) => ({ snapshot: "m", planNotes: [], invoicedInstallments: [], f3: { clientEngagements: 2, administrativeEngagements: 1, endDates } });
+    const dates = { allowed: ["2026-11-30", "2027-09-30"], byYear: null, counts: { "2026-11-30": 1, "2027-09-30": 1 } };
+    const run = (rows: any[], endDates: any, environment = "test") => validateInputs(inputs(rows), { enforceExpected: true, manifest: manifest(endDates), environment });
+    const ok = [withEnd("2026.11.001", "2026-11-30"), withEnd("2026.11.002", "2027-09-30")];
+    expect(() => run(ok, dates)).not.toThrow();
+    expect(() => run([withEnd("2026.11.001", ""), ok[1]], dates)).toThrow(/no resuelto/);
+    expect(() => run([withEnd("2026.11.001", "2026-11-15"), ok[1]], dates)).toThrow(/no permitido/);
+    expect(() => run([ok[0], withEnd("2026.11.002", "2026-11-30")], dates)).toThrow(/fines de vigencia fuera del manifiesto/);
+    // Sin reparto declarado: en local no se compara (pero una fecha irresoluble sigue bloqueando); fuera de local, bloquea.
+    expect(() => run(ok, { ...dates, counts: null }, "local")).not.toThrow();
+    expect(() => run(ok, { ...dates, counts: null }, "test")).toThrow(/sin declarar/);
+    // Manifiesto anterior: fin por gestión cuando el CSV no trae ems_end_date, y manifiestos sin endDates no se ven afectados.
+    expect(() => run([withEnd("2026.11.001", ""), withEnd("2026.11.002", "")], { allowed: ["2027-09-30"], byYear: { "2026": "2027-09-30" }, counts: { "2027-09-30": 2 } })).not.toThrow();
+    expect(() => run(ok, undefined)).not.toThrow();
+  });
   it("el alcance esperado sale del manifiesto: se aplica si está declarado, no en local si es null y bloquea fuera de local", () => {
     const inputs = { clientEngagements: [client()], administrativeEngagements: [admin()], planHours: [], expenses: [], payments: [], executions: [] };
     const manifest = (clients: number | null, admins: number | null) => ({ snapshot: "m", planNotes: [], invoicedInstallments: [], f3: { clientEngagements: clients, administrativeEngagements: admins } });
