@@ -690,7 +690,7 @@ const TimeSheet = () => {
             <AlertDescription>
               {period?.import_batch
                 ? t("timesheet.periodImported")
-                : period?.is_period_locked 
+                : period?.is_period_locked
                 ? t("timesheet.periodLocked")
                 : isFullyApproved 
                   ? t("timesheet.fullyApproved")
