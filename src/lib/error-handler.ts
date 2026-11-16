@@ -149,7 +149,13 @@ export function handleError(
   // Alcance por sociedad: el servidor rechaza con un prefijo estable que merece su propio mensaje
   // ("no pertenece a su sociedad") en vez del genérico de permisos.
   const societyKey = societyScopeErrorKey(originalMessage);
-  const userMessage = societyKey ? i18n.t(societyKey) : getUserFriendlyMessage(errorCode, originalMessage);
+  // BUG 0817-178: el guard de base de un encargo Finalizado rechaza con un token estable; se
+  // traduce a su propio mensaje en vez del genérico de permisos (es insufficient_privilege).
+  const finalizedKey = originalMessage.includes("ENGAGEMENT_FINALIZED_LOCKED")
+    ? "messages.engagementFinalizedRejected"
+    : null;
+  const messageKey = finalizedKey ?? societyKey;
+  const userMessage = messageKey ? i18n.t(messageKey) : getUserFriendlyMessage(errorCode, originalMessage);
 
   // Create structured error
   const appError = new AppError(

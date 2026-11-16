@@ -26,9 +26,16 @@ export interface AssignmentWriteAuthzInput {
   myStaffId: string | null | undefined;
   /** [manager_id, partner_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id] del Engagement. */
   responsibleStaffIds: Array<string | null | undefined>;
+  /**
+   * BUG 0817-178: espejo de `engagement_accepts_assignment_writes()` (override 6/7 → false).
+   * La RPC lanza EAS_ENGAGEMENT_LOCKED antes de mirar el rol, así que bloquea también al admin.
+   * Calcularlo con `engagementAcceptsAssignmentWrites(override)` de `@/lib/engagementStatus`.
+   */
+  engagementAcceptsWrites: boolean;
 }
 
 export function canWriteEngagementAssignments(a: AssignmentWriteAuthzInput): boolean {
+  if (!a.engagementAcceptsWrites) return false;
   if (a.isAdmin) return true;
   if (!a.myStaffId) return false;
   return a.responsibleStaffIds.includes(a.myStaffId);

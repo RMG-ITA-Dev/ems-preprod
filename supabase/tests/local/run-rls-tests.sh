@@ -559,6 +559,8 @@ assert_suite supabase/tests/rpc-fund-expenses-by-work-order.sql 'FUND EXPENSES B
 assert_suite supabase/tests/rls-accounting-society-scope.sql 'SOCIETY SCOPE: ALL CHECKS PASSED'
 assert_suite supabase/tests/rls-0923-202-fund-request-work-orders.sql '0923-202 FUND REQUEST WO: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-217-horas-encargo-finalizado.sql 'HORAS ENCARGO FINALIZADO: ALL CHECKS PASSED'
+# BUG 0817-178: encargo 7 Finalizado de solo lectura (OT, presupuesto, staffing, matriz, plan de pagos, Aprobar OT en fondos).
+assert_suite supabase/tests/trigger-0817-178-finalized-engagement-write-lock.sql 'FINALIZED WRITE LOCK 0817-178: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-1028-216-worksheet-status-sync.sql 'WORKSHEET STATUS SYNC 1028-216: ALL CHECKS PASSED'
 assert_suite supabase/tests/trigger-0923-198-engagement-start-date-floor.sql 'START DATE FLOOR 0923-198: ALL CHECKS PASSED'
 # 1028-213: modulo /risks (funciones de Riesgos) y alcance de la OT (solo socio y gerente del encargo).

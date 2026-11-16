@@ -875,6 +875,8 @@
     "datesLockedByState": "Las fechas no se pueden editar en este estado (Cancelado o Finalizado).",
     "selectPartner": "Seleccionar Socio/Director",
     "selectManager": "Seleccionar Gerente/Supervisor",
+    "finalizedNotice": "Este encargo está Finalizado: puede consultarlo junto con sus registros, pero ya no puede modificarlos.",
+    "adminEditFinalizedWarning": "Este encargo está Finalizado. Como administrador puede modificarlo o reabrirlo extendiendo la fecha de fin. Revise con cuidado antes de guardar.",
     "lockedBySignatureNotice": "Este encargo ya fue aprobado por el Socio: ya no se puede modificar.",
     "adminEditSignedWarning": "Este encargo ya fue aprobado por el Socio. Como administrador puede modificarlo, pero los cambios afectan las horas, las aprobaciones y las solicitudes de fondos en curso. Revise con cuidado antes de guardar.",
     "partnerApproval": {
@@ -1046,6 +1048,7 @@
     }
   },
   "messages": {
+    "engagementFinalizedRejected": "El encargo está Finalizado y es de solo lectura. El cambio no se guardó.",
     "createSuccess": "{{entity}} creado/a exitosamente",
     "updateSuccess": "{{entity}} actualizado/a exitosamente",
     "deleteSuccess": "{{entity}} eliminado/a exitosamente",
@@ -2782,6 +2785,7 @@
     "searchApprover": "Buscar gerente...",
     "otsBlockedNoManager": "{{count}} OT(s) aprobada(s) no se pueden usar: su engagement no tiene gerente asignado.",
     "otApproval": {
+      "finalizedApproveBlocked": "El encargo está Finalizado: esta OT ya no se puede aprobar. Todavía puede observarla o rechazarla.",
       "title": "Aprobación por OT",
       "status": {
         "pendiente": "Pendiente",

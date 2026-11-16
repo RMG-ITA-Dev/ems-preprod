@@ -84,6 +84,8 @@ export interface SchedulerL2Engagement {
   specialist_it_id: string | null;
   specialist_tax_id: string | null;
   client_name: string | null;
+  /** BUG 0817-178: override del estado (6/7 bloquean el staffing). Ausente en despliegues previos. */
+  engagement_state_override?: number | null;
 }
 
 export interface StaffLoadResult {

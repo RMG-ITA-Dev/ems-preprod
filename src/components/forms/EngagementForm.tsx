@@ -442,7 +442,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   // no se modifica; solo admin, con un aviso. Espejo del trigger enforce_engagement_partner_approval.
   const signedByPartner = !!engagement && isPartnerSigned(engagement, engagement.work_order);
   const lockedBySignature = signedByPartner && !isAdmin;
-  const canEditThisEngagement = !!engagement && !lockedBySignature && canEditEngagement({
+  // BUG 0817-178: un encargo 7 Finalizado es de solo lectura para todos menos el admin (que puede
+  // reabrirlo extendiendo la fecha fin). Espejo del trigger block_finalized_engagement_edit.
+  // Fail-closed mientras carga el rol: roleKey undefined => isAdmin false => bloqueado.
+  const isFinalized = savedEffectiveState === EngagementState.Finalizado;
+  const lockedByFinalized = isEdit && isFinalized && !isAdmin;
+  const canEditThisEngagement = !!engagement && !lockedBySignature && !lockedByFinalized && canEditEngagement({
     can,
     scope,
     roleKey,
@@ -1204,6 +1209,12 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   };
 
   const onSubmit = async (data: FormData) => {
+    // BUG 0817-178: re-chequeo en el handler — protege contra un render viejo (Enter en un campo,
+    // o el encargo se finalizó con la pantalla abierta). La base rechaza igual.
+    if (lockedByFinalized) {
+      toast.error(t("messages.engagementFinalizedRejected"));
+      return;
+    }
     if (selectedClientInactive) {
       form.setError("client_id", { message: t("engagement.clientPendingActivation") });
       return;
@@ -1449,6 +1460,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
   };
 
   const handleDelete = async () => {
+    if (lockedByFinalized) return; // BUG 0817-178
     if (engagement) {
       await deleteMutation.mutateAsync(engagement.engagement_id);
       if (onSaveSuccess) {
@@ -1827,7 +1839,13 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {t(lockedBySignature ? "engagement.lockedBySignatureNotice" : "engagement.readOnlyNotice")}
+            {t(
+              lockedByFinalized
+                ? "engagement.finalizedNotice"
+                : lockedBySignature
+                  ? "engagement.lockedBySignatureNotice"
+                  : "engagement.readOnlyNotice",
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -1840,6 +1858,14 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         </Alert>
       )}
 
+      {/* BUG 0817-178: admin puede editar o reabrir un encargo Finalizado, con advertencia. */}
+      {isEdit && isAdmin && isFinalized && (
+        <Alert className="border-warning/50 bg-warning/10 [&>svg]:text-warning">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{t("engagement.adminEditFinalizedWarning")}</AlertDescription>
+        </Alert>
+      )}
+
       {/* 1110-220 plan_v5 (§6.5): firma del Socio de un no-Cliente sin OT. */}
       {isEdit && engagement && needsEngagementPartnerApproval(engagement) && (
         <EngagementPartnerApprovalCard
@@ -1847,6 +1873,7 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
           myStaffId={staffRecord?.staff_id ?? null}
           roleKey={roleKey}
           hasUnsavedChanges={hasUnsavedChanges}
+          actionsLocked={lockedByFinalized}
         />
       )}
 

@@ -59,6 +59,7 @@ import {
   type StaffCandidate,
 } from "@/lib/staffingMatch";
 import { canWriteEngagementAssignments } from "@/lib/schedulerAssignmentAuthz";
+import { engagementAcceptsAssignmentWrites } from "@/lib/engagementStatus";
 import { isNonClientFuncion } from "@/lib/engagementRoleAccess";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
@@ -340,11 +341,16 @@ export function StaffAssignmentsCard({ engagement, onDirtyChange, canWriteAdmini
   // Sin la prop, en un no-Cliente solo admin (default seguro). En Cliente, la regla de siempre: admin o un cargo.
   const isNonClient = isNonClientFuncion(engagement.funcion);
   const administrativeAllowed = canWriteAdministrative ?? (!isNonClient || isAdmin);
+  // BUG 0817-178: un encargo 6 Cancelado / 7 Finalizado no acepta escrituras de staffing, ni del
+  // admin (espejo de EAS_ENGAGEMENT_LOCKED). Sin esto la grilla quedaba editable y el guardado
+  // fallaba con el error crudo, perdiendo lo cargado. Aplica a Cliente y no-Cliente.
+  const engagementAcceptsWrites = engagementAcceptsAssignmentWrites(engagement.engagement_state_override);
   const canEdit = isNonClient
-    ? administrativeAllowed
+    ? administrativeAllowed && engagementAcceptsWrites
     : administrativeAllowed && canWriteEngagementAssignments({
         isAdmin,
         myStaffId,
+        engagementAcceptsWrites,
         responsibleStaffIds: [
           engagement.manager_id,
           engagement.partner_id,

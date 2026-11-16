@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as customRender } from "@/test/utils";
 import { screen, fireEvent } from "@testing-library/react";
 import enJson from "@/locales/en.json";
@@ -76,6 +76,8 @@ vi.mock("@/hooks/useUserRole", () => ({
 // a can("work_order.create"). useAuthorization llama a useAuth por dentro, así que
 // sin este mock el render falla con "useAuth must be used within an AuthProvider".
 // Con los cuatro flags en false el gate anterior daba false: can() => false lo replica.
+// BUG 0817-178: roleKey/can mutables para el bloque de encargo Finalizado (el admin está exceptuado).
+const authRefs = vi.hoisted(() => ({ roleKey: "admin" as string, canCreate: false }));
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
     // WorksheetEdit ahora exige poder ESCRIBIR la matriz para habilitar el grid:
@@ -83,8 +85,8 @@ vi.mock("@/hooks/useAuthorization", () => ({
     // is_engagement_team_member() del backend). Los fixtures de estos tests traen
     // partner/manager en null, asi que se usa la rama admin. `can()` se deja como
     // lo tenia cada test, que gatea otra cosa (crear OT desde la matriz).
-    roleKey: "admin",
-    can: () => false,
+    roleKey: authRefs.roleKey,
+    can: (perm: string) => (perm === "work_order.create" ? authRefs.canCreate : false),
     scope: () => null,
     isLoading: false,
   }),
@@ -392,6 +394,54 @@ describe("WorksheetEdit — Work Order Lock Behavior", () => {
       customRender(<WorksheetEdit />);
       const copyButton = screen.getByRole("button", { name: /workMatrix.copyFromEngagement/ });
       expect(copyButton).toBeInTheDocument();
+    });
+  });
+
+  describe("BUG 0817-178 — encargo Finalizado", () => {
+    const finalizedWorksheet = () =>
+      makeWorksheet({
+        wo_id: null,
+        work_order: null,
+        engagement: {
+          engagement_code: "TST-001",
+          engagement_name: "Test Engagement",
+          practica: 1,
+          client: { client_legal_name: "Test Client", industry: null },
+          partner: null,
+          // Gerente del encargo = el usuario: sin el candado podría escribir.
+          manager: { staff_id: "staff-1" },
+          engagement_state_override: 7,
+          work_order_required: true,
+          funcion: 1,
+        },
+      });
+
+    beforeEach(() => {
+      authRefs.roleKey = "manager";
+      authRefs.canCreate = true;
+      mockUseWorksheetById.mockReturnValue({ data: finalizedWorksheet(), isLoading: false });
+    });
+
+    afterEach(() => {
+      authRefs.roleKey = "admin";
+      authRefs.canCreate = false;
+    });
+
+    it("Gerente: aviso, grilla de solo lectura, sin Copiar ni Crear OT", () => {
+      customRender(<WorksheetEdit />);
+      expect(screen.getByText("engagement.finalizedNotice")).toBeInTheDocument();
+      expect(screen.getByTestId("worksheet-grid")).toHaveAttribute("data-readonly", "true");
+      expect(screen.queryByRole("button", { name: /workMatrix.copyFromEngagement/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /workMatrix.createWorkOrder/ })).not.toBeInTheDocument();
+    });
+
+    it("admin: sin candado", () => {
+      authRefs.roleKey = "admin";
+      customRender(<WorksheetEdit />);
+      expect(screen.queryByText("engagement.finalizedNotice")).not.toBeInTheDocument();
+      expect(screen.getByTestId("worksheet-grid")).toHaveAttribute("data-readonly", "false");
+      // Control positivo del "sin Crear OT" de arriba: con el mismo fixture, el admin sí lo ve.
+      expect(screen.getByRole("button", { name: /workMatrix.createWorkOrder/ })).toBeInTheDocument();
     });
   });
 });

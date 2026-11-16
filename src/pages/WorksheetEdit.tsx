@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { isFinalizedEngagement } from "@/lib/engagementStatus";
 import { Save, Loader2, FileText, Sun, Snowflake, Lock, Copy } from "lucide-react";
 import { useWorksheetById } from "@/hooks/useWorksheetData";
 import { useAuthorization } from "@/hooks/useAuthorization";
@@ -175,7 +176,8 @@ const WorksheetEdit = () => {
   );
 
   const handleSave = async () => {
-    if (!worksheet || !id) return;
+    // BUG 0817-178: re-chequeo en el handler (render viejo / encargo finalizado con la pantalla abierta).
+    if (!worksheet || !id || lockedByFinalized) return;
 
     // Prepare cells for batch upsert
     const cellsToSave: { worksheet_id: string; category_id: string; activity_id: string; budget_hours: number }[] = [];
@@ -287,6 +289,13 @@ const WorksheetEdit = () => {
     (myStaffId === worksheet?.engagement?.partner?.staff_id ||
       myStaffId === worksheet?.engagement?.manager?.staff_id);
   const canWriteWorksheet = roleKey === "admin" || isEngagementTeamMember;
+  // BUG 0817-178: con el encargo 7 Finalizado la matriz es de solo lectura (sin Guardar, Copiar ni
+  // Crear OT) para todos menos el admin. Espejo del trigger block_writes_on_finalized_engagement.
+  // Fail-closed: roleKey undefined => bloqueado.
+  const lockedByFinalized =
+    roleKey !== "admin" &&
+    !!worksheet?.engagement &&
+    isFinalizedEngagement(worksheet.engagement, worksheet.work_order);
 
   // Determine if the worksheet is locked
   const linkedWOStatus = worksheet?.work_order?.approval_status;
@@ -295,6 +304,7 @@ const WorksheetEdit = () => {
     worksheet?.status === "approved" ||
     worksheet?.status === "archived" ||
     isWOLocked ||
+    lockedByFinalized ||
     // Mientras carga el staff, se asume solo lectura (fail-closed): mejor un
     // instante sin poder editar que ofrecer un guardado que va a fallar.
     !canWriteWorksheet;
@@ -318,6 +328,7 @@ const WorksheetEdit = () => {
   // strict practice filter leaves it empty too (review.md iteración 2, #2).
   const canCreateWorkOrder =
     can("work_order.create") &&
+    !lockedByFinalized &&
     !hasWorkOrder &&
     worksheet?.status === "draft" &&
     !hasUnsavedChanges &&
@@ -360,7 +371,7 @@ const WorksheetEdit = () => {
   };
 
   const handleCreateWorkOrder = async () => {
-    if (!worksheet || !id) return;
+    if (!worksheet || !id || lockedByFinalized) return;
 
     try {
       const result = await createWOFromWorksheet.mutateAsync({
@@ -529,6 +540,14 @@ const WorksheetEdit = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* BUG 0817-178: aviso de solo lectura por encargo Finalizado. */}
+        {lockedByFinalized && (
+          <Alert variant="default" className="border-warning bg-warning/10">
+            <Lock className="h-4 w-4" />
+            <AlertDescription>{t("engagement.finalizedNotice")}</AlertDescription>
+          </Alert>
+        )}
 
         {/* Locked by Work Order Banner */}
         {isWOLocked && !!worksheet.wo_id && (

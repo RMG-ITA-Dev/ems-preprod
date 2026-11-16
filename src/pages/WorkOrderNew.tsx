@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { isHiddenFromActivePickers } from "@/lib/engagementStatus";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -100,7 +101,10 @@ const WorkOrderNew = () => {
       canCreateWorkOrderFor({ roleKey, myStaffId: staffId, engagement: e }) &&
       // 1110-220 plan_v5: un no-Cliente con "Requiere OT" apagado no lleva OT (espejo de
       // enforce_administrative_work_order_rules).
-      !(e.funcion != null && e.funcion !== 1 && e.work_order_required === false)
+      !(e.funcion != null && e.funcion !== 1 && e.work_order_required === false) &&
+      // BUG 0817-178: un encargo 6 Cancelado / 7 Finalizado no recibe OT nueva — mismo filtro que su
+      // gemelo, el selector de Nueva Matriz (useEngagementsWithoutWorksheet).
+      !isHiddenFromActivePickers(e.engagement_state_override)
   );
 
   // BUG 0828-186: valida la preselección ?engagement= contra la lista ya filtrada -- un id

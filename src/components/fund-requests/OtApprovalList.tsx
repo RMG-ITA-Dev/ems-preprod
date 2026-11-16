@@ -8,6 +8,8 @@ import {
   type DecisionMode,
 } from "@/components/fund-requests/ApprovalDecisionDialog";
 import { useDecideWorkOrder } from "@/hooks/mutations/useFundRequestMutations";
+import { useAuthorization } from "@/hooks/useAuthorization";
+import { EngagementState } from "@/lib/engagementStatus";
 import type {
   FundRequest,
   FundRequestWorkOrder,
@@ -43,6 +45,8 @@ interface Props {
 
 export function OtApprovalList({ fr, myStaffId }: Props) {
   const { t } = useTranslation();
+  const { roleKey } = useAuthorization();
+  const isAdmin = roleKey === "admin";
   const decide = useDecideWorkOrder();
   const [target, setTarget] = useState<{ ot: FundRequestWorkOrder; mode: DecisionMode } | null>(
     null,
@@ -55,6 +59,14 @@ export function OtApprovalList({ fr, myStaffId }: Props) {
 
   const handleConfirm = async (notes: string) => {
     if (!target) return;
+    if (
+      target.mode === "approve" &&
+      !isAdmin &&
+      target.ot.work_order?.engagement?.engagement_state_override === EngagementState.Finalizado
+    ) {
+      setTarget(null);
+      return;
+    }
     try {
       await decide.mutateAsync({
         frWoId: target.ot.fr_wo_id,
@@ -89,6 +101,13 @@ export function OtApprovalList({ fr, myStaffId }: Props) {
               {ots.map((ot) => {
                 const isMine = !!myStaffId && ot.manager_staff_id === myStaffId;
                 const canDecide = isPending && isMine && ot.approval_status === "pendiente";
+                // BUG 0817-178: en un encargo 7 Finalizado solo se bloquea APROBAR (espejo del
+                // trigger de fund_request_work_orders); observar y rechazar siguen para cerrar lo
+                // pendiente. Lo aprobado antes de finalizar sigue su curso (desembolso, liquidación).
+                // El override es el crudo: el 7 nunca se deriva de la OT.
+                const approveBlockedByFinalized =
+                  !isAdmin &&
+                  ot.work_order?.engagement?.engagement_state_override === EngagementState.Finalizado;
                 const note = ot.rejection_reason || ot.manager_notes;
                 return (
                   <tr key={ot.fr_wo_id} className="border-t border-border align-top">
@@ -136,14 +155,21 @@ export function OtApprovalList({ fr, myStaffId }: Props) {
                           >
                             {t("fundRequest.actions.observe")}
                           </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => setTarget({ ot, mode: "approve" })}
-                            disabled={decide.isPending}
-                          >
-                            {t("fundRequest.actions.approve")}
-                          </Button>
+                          {!approveBlockedByFinalized && (
+                            <Button
+                              size="sm"
+                              onClick={() => setTarget({ ot, mode: "approve" })}
+                              disabled={decide.isPending}
+                            >
+                              {t("fundRequest.actions.approve")}
+                            </Button>
+                          )}
                         </div>
+                      )}
+                      {canDecide && approveBlockedByFinalized && (
+                        <p className="text-xs text-muted-foreground mt-1 max-w-[16rem] text-right ml-auto">
+                          {t("fundRequest.otApproval.finalizedApproveBlocked")}
+                        </p>
                       )}
                     </td>
                   </tr>

@@ -36,6 +36,7 @@ import { useAuthorization } from "@/hooks/useAuthorization";
 import { canSeePlanning } from "@/lib/schedulerAccess";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { canWriteEngagementAssignments } from "@/lib/schedulerAssignmentAuthz";
+import { engagementAcceptsAssignmentWrites } from "@/lib/engagementStatus";
 import {
   useActiveStaffWithSkills,
   useCategories,
@@ -178,6 +179,9 @@ const SchedulerL2 = () => {
   const canWrite = canWriteEngagementAssignments({
     isAdmin,
     myStaffId,
+    // BUG 0817-178: espejo de EAS_ENGAGEMENT_LOCKED (6/7, también admin). Un despliegue de
+    // scheduler-data anterior al campo lo deja undefined: la RPC sigue siendo la autoridad.
+    engagementAcceptsWrites: engagementAcceptsAssignmentWrites(engagement?.engagement_state_override),
     responsibleStaffIds: engagement
       ? [
           engagement.manager_id,

@@ -625,7 +625,7 @@ async function schedulerStaffLoad(
   const { data: engRows, error: engErr } = await ctx.db
     .from("engagements")
     .select(
-      "engagement_id, engagement_code, engagement_name, start_date, end_date, practica, client_id, partner_id, manager_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id"
+      "engagement_id, engagement_code, engagement_name, start_date, end_date, practica, client_id, partner_id, manager_id, sqr_id, encargado_id, specialist_it_id, specialist_tax_id, engagement_state_override"
     )
     .eq("engagement_id", engagementId)
     .then((r) => r);
@@ -646,6 +646,7 @@ async function schedulerStaffLoad(
     encargado_id: string | null;
     specialist_it_id: string | null;
     specialist_tax_id: string | null;
+    engagement_state_override: number | null;
   }[])[0];
   if (!engagement) return err(404, "not_found", "Engagement not found");
 
@@ -699,6 +700,9 @@ async function schedulerStaffLoad(
     encargado_id: engagement.encargado_id ?? null,
     specialist_it_id: engagement.specialist_it_id ?? null,
     specialist_tax_id: engagement.specialist_tax_id ?? null,
+    // BUG 0817-178: SchedulerL2 espeja engagement_accepts_assignment_writes (6/7 rechazan) para no
+    // ofrecer una grilla editable que el RPC va a rechazar con EAS_ENGAGEMENT_LOCKED.
+    engagement_state_override: engagement.engagement_state_override ?? null,
     client_name: clientName,
   };
 
