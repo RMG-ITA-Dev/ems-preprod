@@ -881,6 +881,25 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
       expect(capturedFormProps.isDirty).toBe(false);
     });
 
+    it("WES30b: a background refetch with newer persisted rows replaces untouched suggestions (no stale overwrite)", () => {
+      // Stale cache: nothing persisted yet.
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      const { rerenderPage } = renderPage();
+      expect(reqSummary()).toEqual([["cat-audit", 1], ["cat-senior", 1]]);
+
+      // The refetch brings what another session saved meanwhile: Audit with 4 people.
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({
+        data: [{ id: "req-9", category_id: "cat-audit", staff_count: 4, requirement_skills: [] }],
+        isLoading: false,
+        isError: false,
+      });
+      act(() => rerenderPage());
+
+      expect(reqSummary()).toEqual([["cat-audit", 4], ["cat-senior", 1]]);
+      expect(capturedFormProps.staffingRequirements[0].persistedId).toBe("req-9");
+      expect(capturedFormProps.isDirty).toBe(false);
+    });
+
     it("WES31: an administrative OT (funcion ≠ 1) gets no suggestions and no lock", () => {
       withBudget([budgetLine(CAT_AUDIT, 8)], { engagement: { ...mockWorkOrder.engagement, funcion: 0 } });
       renderPage();

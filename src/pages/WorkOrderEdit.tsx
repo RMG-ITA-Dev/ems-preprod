@@ -555,15 +555,16 @@ const WorkOrderEdit = () => {
     if (budgetStaffingSyncSignatureRef.current === budgetStaffingSignature) return;
     budgetStaffingSyncSignatureRef.current = budgetStaffingSignature;
     // Updater funcional: el resultado no depende del orden en que llegan las queries.
-    setStaffing((prev) => {
-      const { requirements } = mergeBudgetCategoriesIntoStaffing(prev, budgetHoursLines, {
+    // NO marca staffingEditedRef: las sugerencias no son una edición del usuario. Si una
+    // recarga trae filas persistidas más nuevas (otra sesión, caché viejo), la hidratación
+    // debe reemplazarlas; reinicia la firma y este efecto vuelve a sumar las sugerencias
+    // encima de las filas frescas, en el mismo commit.
+    setStaffing((prev) =>
+      mergeBudgetCategoriesIntoStaffing(prev, budgetHoursLines, {
         serviceCategoryIds: staffingServiceCategoryIds,
         categories: staffingCategories,
-      });
-      // Protege las sugerencias de un refetch en segundo plano (guard de la hidratación).
-      if (requirements !== prev) staffingEditedRef.current = true;
-      return requirements;
-    });
+      }).requirements,
+    );
     // staffingRows: tras cada hidratación (que reinicia la firma) se vuelve a sumar.
   }, [canAutoSyncStaffing, budgetStaffingSignature, budgetHoursLines, staffingServiceCategoryIds, staffingCategories, staffingRows]);
 
