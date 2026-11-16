@@ -53,7 +53,17 @@ export function parseConfig(raw) {
 // Cifras de control del manifiesto del snapshot. null = sin declarar: en local no se aplica el control; fuera de local bloquea.
 const f3 = (ctx) => ctx.config.manifest.f3;
 const countOk = (ctx, expected, actual, label) => { const value = declared(ctx.config.environment, expected, label); return value === null || value === actual; };
-export function loadF2Maps(f2StateDir) {
+// F2 y F3 se configuran por separado: el journal F2 debe venir del mismo respaldo legacy que el manifiesto F3 (las variantes D41 comparten origen).
+// Un journal anterior al campo solo se acepta en local; fuera de local se rehace F2 con este código.
+export function assertF2Origin(f2SnapshotOrigin, config) {
+  const f3Origin = manifestOrigin(config.manifest);
+  if (f2SnapshotOrigin === undefined) {
+    if (config.environment === "local") return;
+    throw new Fase1Error("BLOQUEADO", "el journal F2 no registra su respaldo de origen (snapshotOrigin): rehaga F2 con este código antes de F3");
+  }
+  if (f2SnapshotOrigin !== f3Origin) throw new Fase1Error("BLOQUEADO", `F2 se cargó desde el respaldo ${f2SnapshotOrigin} y F3 declara ${f3Origin}: ambas fases deben usar el mismo respaldo de origen`);
+}
+export function loadF2Maps(f2StateDir, config) {
   const journalFile = readdirSync(f2StateDir).filter((name) => /^fase2-.*\.journal\.json$/.test(name)).sort().at(-1);
   if (!journalFile) throw new Fase1Error("BLOQUEADO", "no existe journal F2 para resolver identidades F3");
   // readJournal verifica el checksum que F2 escribió: un journal alterado o dañado no entrega sus mapeos de UUID a F3.
@@ -61,7 +71,8 @@ export function loadF2Maps(f2StateDir) {
   if (journal.state !== "VERIFICADO") throw new Fase1Error("BLOQUEADO", "F3 requiere journal F2 en estado VERIFICADO");
   const clients = Object.fromEntries(Object.entries(journal.clients ?? {}).map(([key, value]) => [key, { id: value.clientId }]));
   const staff = Object.fromEntries(Object.entries(journal.staff ?? {}).map(([key, value]) => [key, value.staffId]));
-  return { clients, staff, journalFile, inputs: journal.inputs ?? {} };
+  assertF2Origin(journal.snapshotOrigin, config);
+  return { clients, staff, journalFile, inputs: journal.inputs ?? {}, snapshotOrigin: journal.snapshotOrigin };
 }
 // La moneda de la OT sale del encargo; todas las cuotas de su plan deben traer esa misma moneda legacy. Si no, el plan se cargaría
 // en la moneda de la OT pero con el modo de tipo de cambio de una moneda distinta y pasaría la conciliación de importes.
@@ -91,7 +102,7 @@ const catalogByName = (rows, label) => {
 // Resuelve todos los identificadores contra el journal F2 verificado y el
 // catálogo local vigente. No escribe ni infiere valores cuando falta un cruce.
 export async function prepareEngagementPayloads(ctx, inputs) {
-  const f2 = loadF2Maps(ctx.config.f2StateDir);
+  const f2 = loadF2Maps(ctx.config.f2StateDir, ctx.config);
   assertF2AuxiliaryFile(ctx.config.f2ServicesFile, f2, "services");
   const servicesSource = parseCsv(readFileSync(ctx.config.f2ServicesFile, "utf8"), F2_HEADERS.services, "equivalencias F2");
   const catalog = await ctx.db.engagementCatalog();
@@ -200,7 +211,7 @@ export async function prepareWorkOrderBlueprint(ctx, inputs) {
   const matrixMaps = ctx.journal.units.matrices?.matrices;
   const engagementMaps = ctx.journal.units["client-engagements"]?.result?.engagements;
   if (!Array.isArray(matrixMaps) || !countOk(ctx, f3(ctx).matrices, matrixMaps.length, "f3.matrices") || !Array.isArray(engagementMaps) || !countOk(ctx, f3(ctx).clientEngagements, engagementMaps.length, "f3.clientEngagements")) throw new Fase1Error("BLOQUEADO", "OTs requiere mapas confirmados de encargos y matrices");
-  const f2 = loadF2Maps(ctx.config.f2StateDir); assertF2AuxiliaryFile(ctx.config.f2ClientsFile, f2, "clients"); const clientRows = parseCsv(readFileSync(ctx.config.f2ClientsFile, "utf8"), F2_HEADERS.clients, "clientes F2");
+  const f2 = loadF2Maps(ctx.config.f2StateDir, ctx.config); assertF2AuxiliaryFile(ctx.config.f2ClientsFile, f2, "clients"); const clientRows = parseCsv(readFileSync(ctx.config.f2ClientsFile, "utf8"), F2_HEADERS.clients, "clientes F2");
   const f2Clients = new Map(clientRows.map((row) => [row.source_ref, row])); const catalog = await ctx.db.workOrderCatalog(); const clients = new Map((catalog.clients ?? []).map((row) => [row.id, row]));
   const worksheetByCot = new Map(matrixMaps.map((row) => [row.sourceKey, row])); const engagementByCot = new Map(engagementMaps.map((row) => [row.sourceKey, row.engagementId]));
   return inputs.clientEngagements.map((row) => {
@@ -635,7 +646,7 @@ export async function loadInvoices(ctx, unit) {
 async function loadHours(ctx, inputs, unit) {
   if (!unit?.risksCompletedAt) throw new Fase1Error("BLOQUEADO", "horas requiere riesgos y aprobaciones confirmados");
   if (ctx.config.manifest.invoicedInstallments.length && !unit.invoicesCompletedAt) throw new Fase1Error("BLOQUEADO", "horas requiere las cuotas facturadas confirmadas (--operation invoices)");
-  const f2 = loadF2Maps(ctx.config.f2StateDir); const engagementRows = ctx.journal.units["client-engagements"]?.result?.engagements; if (!Array.isArray(engagementRows) || !countOk(ctx, f3(ctx).clientEngagements, engagementRows.length, "f3.clientEngagements")) throw new Fase1Error("BLOQUEADO", "horas requiere el mapa confirmado de encargos cliente"); const engagements = new Map(engagementRows.map((row) => [row.sourceKey, row.engagementId])); const [catalog, staffCatalog, holidayCatalog] = await Promise.all([ctx.db.matrixCatalog(), ctx.db.engagementCatalog(), ctx.db.holidayCatalog()]); const activities = new Map(catalog.activities.map((row) => [row.code, row.id]));
+  const f2 = loadF2Maps(ctx.config.f2StateDir, ctx.config); const engagementRows = ctx.journal.units["client-engagements"]?.result?.engagements; if (!Array.isArray(engagementRows) || !countOk(ctx, f3(ctx).clientEngagements, engagementRows.length, "f3.clientEngagements")) throw new Fase1Error("BLOQUEADO", "horas requiere el mapa confirmado de encargos cliente"); const engagements = new Map(engagementRows.map((row) => [row.sourceKey, row.engagementId])); const [catalog, staffCatalog, holidayCatalog] = await Promise.all([ctx.db.matrixCatalog(), ctx.db.engagementCatalog(), ctx.db.holidayCatalog()]); const activities = new Map(catalog.activities.map((row) => [row.code, row.id]));
   const officeByStaffId = new Map((staffCatalog.staff ?? []).map((row) => [row.id, ({ "La Paz": 1, "Santa Cruz": 2 })[String(row.city ?? "").trim()]])); const holidaysByDate = new Map();
   for (const holiday of holidayCatalog.holidays ?? []) { const date = String(holiday.date).slice(0, 10); holidaysByDate.set(date, [...(holidaysByDate.get(date) ?? []), Number(holiday.office)]); }
   // Decisión del operador (03/11/2026): las horas trabajadas en feriado aplicable SE CARGAN. El legacy permitía trabajar esos días;
@@ -854,7 +865,7 @@ export function report(ctx) { const report = { installationId: ctx.journal.insta
 // Fase 4 §7 (L1–L8): concilia lo cargado contra los CSV legacy. Solo lectura; escribe únicamente el reporte externo
 // (conteos y sumas, sin PII). Cualquier diferencia termina en BLOQUEADO: no se corrige a mano ni se cambia una regla para cuadrar.
 export async function reconcileLegacy(ctx) {
-  const inputs = validatedInputs(ctx); const f2 = loadF2Maps(ctx.config.f2StateDir); const units = ctx.journal.units ?? {};
+  const inputs = validatedInputs(ctx); const f2 = loadF2Maps(ctx.config.f2StateDir, ctx.config); const units = ctx.journal.units ?? {};
   const clients = units["client-engagements"]?.result?.engagements; const admins = units["administrative-engagements"]?.result?.engagements; const matrices = units.matrices?.matrices; const workOrders = units["work-orders"]?.workOrders;
   if (![[clients, f3(ctx).clientEngagements, "f3.clientEngagements"], [admins, f3(ctx).administrativeEngagements, "f3.administrativeEngagements"], [matrices, f3(ctx).matrices, "f3.matrices"], [workOrders, f3(ctx).workOrders, "f3.workOrders"]].every(([rows, size, label]) => Array.isArray(rows) && countOk(ctx, size, rows.length, label))) throw new Fase1Error("BLOQUEADO", "conciliación legacy requiere encargos, matrices y OTs confirmados en el journal");
   const staffByLegacyProfile = new Map(Object.entries(f2.staff).filter(([key]) => key.startsWith("legacy:")).map(([key, id]) => [key.slice("legacy:".length), id]));

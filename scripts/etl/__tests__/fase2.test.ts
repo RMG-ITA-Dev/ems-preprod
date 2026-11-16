@@ -111,6 +111,27 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
   });
 
+  it("R403-11: el journal F2 registra el respaldo de origen y no se reanuda con otro", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "etl-f2-origin-"));
+    const raw = (snapshot: string): any => ({
+      schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f2-ensayo-local-0002",
+      bootstrapAdminEmail: "admin@ruizmier.com", snapshot,
+      inputs: Object.fromEntries(["clients", "contacts", "staff", "users", "rates", "services"].map((name) => [name, path.resolve(path.sep, "tmp", `${name}.csv`)])),
+    });
+    const base = parseConfig(raw("TimeControlDB_20261106_1600")); const variant = parseConfig(raw("TimeControlDB_20261106_1600_d41")); const old = parseConfig(raw("TimeControlDB_20261023_1200"));
+    const journal = { version: 1, installationId: base.installationId, projectRef: base.expectedProjectRef, state: "VALIDADO", snapshotOrigin: "TimeControlDB_20261106_1600", inputs: {}, clients: {}, staff: {} };
+    writeJournal(journalPathFor(stateDir, base.installationId), journal);
+    // Mismo respaldo (el manifiesto base o su variante D41): se reanuda.
+    expect(() => report(createContext({ config: base, stateDir, db: {} } as any))).not.toThrow(/respaldo de origen/);
+    // Otro respaldo con el mismo installationId: bloquea aunque no haya progreso.
+    expect(() => report(createContext({ config: old, stateDir, db: {} } as any))).toThrow(/respaldo de origen cambió/);
+    // Un journal anterior al campo, sin progreso, adopta el origen vigente; con progreso no lo adopta.
+    const { snapshotOrigin: _omit, ...legacy } = journal;
+    writeJournal(journalPathFor(stateDir, base.installationId), legacy);
+    const ctx: any = createContext({ config: variant, stateDir, db: {} } as any);
+    expect(() => report(ctx)).not.toThrow(/respaldo de origen/);
+  });
+
   it("mapea a 3 (reconciliar) los resultados inciertos de SQL y de Auth, y a 2 el bloqueo", () => {
     expect(EXIT.RECONCILIACION_REQUERIDA).toBe(3); expect(EXIT.SQL_INCIERTO).toBe(3); expect(EXIT.AUTH_INCIERTO).toBe(3);
     expect(EXIT.BLOQUEADO).toBe(2); expect(EXIT.CONFIG).toBeUndefined(); // lo demás cae en el código de error genérico (1)

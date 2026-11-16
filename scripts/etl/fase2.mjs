@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAuthAdapter, acquireLock, createContext as createFase1Context, Fase1Error, readJournal, sha256, writeJournal } from "./fase1.mjs";
 import { FORBIDDEN_REFS, KNOWN_REFS, REPO_ROOT, connectionGuardProblems, makeRedactor } from "./fase1-db.mjs";
-import { loadSnapshotManifest } from "./snapshot-manifest.mjs";
+import { loadSnapshotManifest, manifestOrigin } from "./snapshot-manifest.mjs";
 import { Fase2InputError, assertLegacyRoleMirror, loadInputs, normalizeEmail, resolveIndustryRef, rowSourceHash, validateRoleAssignment } from "./fase2-input.mjs";
 import { createFase2DbAdapter } from "./fase2-db.mjs";
 
@@ -50,7 +50,7 @@ export function resolveStateDir(env, repoRoot = REPO_ROOT) {
 }
 export const journalPathFor = (dir, id) => path.join(dir, `fase2-${id}.journal.json`);
 function checkpoint(ctx, patch) { ctx.journal = writeJournal(ctx.journalFile, { ...ctx.journal, ...patch }); return ctx.journal; }
-function journalFor(ctx, inputs) { return { version: 1, installationId: ctx.config.installationId, environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, configHash: ctx.config.configHash, codeRevision: process.env.GITHUB_SHA ?? "local", snapshotManifestSha256: ctx.config.manifest?.sha256, state: "PENDIENTE", inputs: inputs.fingerprints, clients: {}, staff: {}, probes: {}, createdAt: new Date().toISOString() }; }
+function journalFor(ctx, inputs) { return { version: 1, installationId: ctx.config.installationId, environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, configHash: ctx.config.configHash, codeRevision: process.env.GITHUB_SHA ?? "local", snapshotManifestSha256: ctx.config.manifest?.sha256, snapshotOrigin: manifestOrigin(ctx.config.manifest), state: "PENDIENTE", inputs: inputs.fingerprints, clients: {}, staff: {}, probes: {}, createdAt: new Date().toISOString() }; }
 export function createContext({ config, env = process.env, stateDir, db, auth, log } = {}) {
   const base = createFase1Context({ config, env, stateDir, db: db ?? createFase2DbAdapter({ env }), auth, log });
   return { ...base, journalFile: stateDir ? journalPathFor(stateDir, config.installationId) : null, input: null };
@@ -61,6 +61,9 @@ export function requireWindow(ctx) { if (ctx.env.ETL_F2_WINDOW_CONFIRMED !== ctx
 function ensureJournal(ctx) { const existing = readJournal(ctx.journalFile, { states: STATES }); if (existing && (existing.installationId !== ctx.config.installationId || existing.projectRef !== ctx.config.expectedProjectRef)) throw new Fase1Error("BLOQUEADO", "journal de otra instalación o proyecto");
   // El manifiesto del snapshot (cifras de control) no puede cambiar a mitad de una instalación: un journal con su huella debe coincidir.
   if (existing && existing.snapshotManifestSha256 !== undefined && existing.snapshotManifestSha256 !== ctx.config.manifest?.sha256) throw new Fase1Error("BLOQUEADO", "el manifiesto del snapshot cambió desde que se creó el journal F2 (snapshotManifestSha256): use un installationId nuevo");
+  // El respaldo legacy de origen tampoco cambia: F3 exige que coincida con el suyo (R403-11). Un journal anterior a este campo lo adopta solo si no tiene progreso.
+  if (existing && existing.snapshotOrigin !== undefined && existing.snapshotOrigin !== manifestOrigin(ctx.config.manifest)) throw new Fase1Error("BLOQUEADO", `el respaldo de origen cambió desde que se creó el journal F2 (${existing.snapshotOrigin} → ${manifestOrigin(ctx.config.manifest)}): use un installationId nuevo`);
+  if (existing && existing.snapshotOrigin === undefined && Object.keys(existing.clients ?? {}).length === 0 && Object.keys(existing.staff ?? {}).length === 0) existing.snapshotOrigin = manifestOrigin(ctx.config.manifest);
   // Misma instalación con otra configuración: con clientes o fichas ya cargados, reanudar mezclaría resultados que esa configuración
   // no produjo. Sin progreso el journal adopta la configuración vigente. Un journal anterior a este campo no lo trae y se acepta.
   if (existing && existing.configHash !== undefined && existing.configHash !== ctx.config.configHash) {
