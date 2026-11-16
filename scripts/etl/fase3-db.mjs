@@ -90,6 +90,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'installmentsPending',(SELECT count(*) FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee' AND z.status='Pending'),
           'notes',(SELECT count(*) FROM public.wo_installment_notes z JOIN wo ON wo.id=z.wo_id WHERE z.deleted_at IS NULL),
           'installmentSumByWo',(SELECT COALESCE(json_agg(json_build_array(q.wo_id::text,q.amount::text)),'[]'::json) FROM (SELECT z.wo_id,sum(z.amount) amount FROM public.wo_payment_installments z JOIN wo ON wo.id=z.wo_id WHERE z.installment_type='fee' GROUP BY z.wo_id) q),
+          'summaryFeeByWo',(SELECT COALESCE(json_agg(json_build_array(s.wo_id::text,(ceil(s.fee_with_tax_gross_up*100)/100)::text)),'[]'::json) FROM public.work_order_summary s JOIN wo ON wo.id=s.wo_id),
           'riskLevelByWo',(SELECT COALESCE(json_agg(json_build_array(w.wo_id::text,COALESCE(w.risk_level,'(nulo)'))),'[]'::json) FROM public.work_orders w JOIN wo ON wo.id=w.wo_id),
           'hoursTotal',(SELECT COALESCE(sum(hours_logged),0)::text FROM te),
           'hoursByEngagement',(SELECT COALESCE(json_agg(json_build_array(q.engagement_id::text,q.hours::text)),'[]'::json) FROM (SELECT engagement_id,sum(hours_logged) hours FROM te GROUP BY engagement_id) q),
@@ -117,7 +118,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
     },
     // L9 (Fase 4 §7): hashes por clave natural, sin UUID ni marcas de tiempo, para comparar Test con el ensayo local.
     // El TC de los planes BOB es el DEFAULT del ambiente (depende de su historial de TC): solo se compara que sea positivo.
-    async fingerprintSnapshot({ engagements, expectedCount = null }) {
+    async fingerprintSnapshot({ engagements, expectedCount = null, financialContract = null }) {
       if (!Array.isArray(engagements) || !engagements.length || (expectedCount !== null && engagements.length !== expectedCount)) throw new Fase1Error("BLOQUEADO", `huella L9 requiere los ${expectedCount ?? "(sin declarar)"} encargos del journal`);
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
         cot AS (SELECT e->>'sourceKey' AS cot, (e->>'engagementId')::uuid AS eid, e->>'kind' AS kind FROM p, jsonb_array_elements(p.x->'engagements') e),
@@ -136,14 +137,14 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
               ck.k,so.name,sv.code,hp.h,hm.h,hs.h,he.h,hit.h,htx.h,
               ws.status,wsum.hours,wo.currency,wo.season_mode,wo.tax_rate,wo.adjustment_amount,wo.approval_status,wo.risk_status,to_char(wo.approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI'),
               bl.hours,bl.n,ex.amount,ex.n,pl.payment_days,pl.exchange_rate_mode,CASE WHEN wo.currency='USD' THEN pl.exchange_rate::text ELSE (pl.exchange_rate>0)::text END,
-              ins.h,ins.n,nt.n,nt.h,th.hours,th.n,th.h)::text))),'[]'::json)
+              ins.h,ins.n,nt.n,nt.h,th.hours,th.n,th.h)::text || CASE WHEN (SELECT x->>'financialContract' FROM p) IN ('fee-plus-budgeted-expenses-v1','legacy-agreed-total-v1') THEN '|' || COALESCE(bl.financial_hash,'') ELSE '' END))),'[]'::json)
             FROM cot JOIN public.engagements e ON e.engagement_id=cot.eid AND cot.kind='client'
             LEFT JOIN ck ON ck.client_id=e.client_id LEFT JOIN public.society so ON so.society_id=e.society_id LEFT JOIN public.servicios sv ON sv.taxonomy_id=e.taxonomy_id
             LEFT JOIN sh hp ON hp.staff_id=e.partner_id LEFT JOIN sh hm ON hm.staff_id=e.manager_id LEFT JOIN sh hs ON hs.staff_id=e.sqr_id LEFT JOIN sh he ON he.staff_id=e.encargado_id LEFT JOIN sh hit ON hit.staff_id=e.specialist_it_id LEFT JOIN sh htx ON htx.staff_id=e.specialist_tax_id
             LEFT JOIN LATERAL (SELECT w.id, w.status FROM public.activity_worksheets w WHERE w.engagement_id=e.engagement_id ORDER BY w.version DESC LIMIT 1) ws ON true
             LEFT JOIN LATERAL (SELECT sum(c.budget_hours) AS hours FROM public.activity_worksheet_cells c WHERE c.worksheet_id=ws.id) wsum ON true
             LEFT JOIN public.work_orders wo ON wo.engagement_id=e.engagement_id
-            LEFT JOIN LATERAL (SELECT sum(l.budgeted_hours) AS hours, count(*) AS n FROM public.wo_budget_lines l WHERE l.wo_id=wo.wo_id) bl ON true
+            LEFT JOIN LATERAL (SELECT sum(l.budgeted_hours) AS hours, count(*) AS n, md5(COALESCE(string_agg(row(pr.code,c.category_name,l.budgeted_hours,l.standard_rate)::text,'|' ORDER BY pr.code,c.category_name,l.budgeted_hours,l.standard_rate),'')) AS financial_hash FROM public.wo_budget_lines l JOIN public.categories c ON c.category_id=l.category_id JOIN public.practicas pr ON pr.practica_id=c.practica_id WHERE l.wo_id=wo.wo_id) bl ON true
             LEFT JOIN LATERAL (SELECT sum(b.budgeted_amount) AS amount, count(*) AS n FROM public.wo_expense_budget b WHERE b.wo_id=wo.wo_id) ex ON true
             LEFT JOIN public.wo_payment_plan pl ON pl.wo_id=wo.wo_id
             LEFT JOIN LATERAL (SELECT md5(string_agg(row(i.installment_number,i.percentage,i.amount,i.currency,i.status,i.installment_type,i.agreed_invoice_date,i.agreed_payment_date,i.collection_invoice_date,i.collection_payment_date,CASE WHEN wo.currency='USD' THEN i.invoice_exchange_rate::text ELSE (i.invoice_exchange_rate>0)::text END)::text,'|' ORDER BY i.installment_number)) AS h, count(*) AS n FROM public.wo_payment_installments i WHERE i.wo_id=wo.wo_id) ins ON true
@@ -157,7 +158,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
           'lines',(SELECT COALESCE(json_agg(json_build_array(sh.h||'|'||tp.week_start_date::text||'|'||cc.cot||'|'||ac.activity_code, md5(row(tla.status,ah.h,to_char(tla.approved_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS'),(SELECT sum(t.hours_logged) FROM public.time_entries t WHERE t.period_id=tla.period_id AND t.engagement_id=tla.engagement_id AND t.activity_id=tla.activity_id),(SELECT count(*) FROM public.time_entries t WHERE t.period_id=tla.period_id AND t.engagement_id=tla.engagement_id AND t.activity_id=tla.activity_id))::text))),'[]'::json) FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods tp ON tp.period_id=tla.period_id JOIN sh ON sh.staff_id=tp.staff_id JOIN cot cc ON cc.eid=tla.engagement_id JOIN public.activity_codes ac ON ac.activity_id=tla.activity_id LEFT JOIN sh ah ON ah.staff_id=tla.approved_by),
           'hoursByStaff',(SELECT COALESCE(json_agg(json_build_array(q.h, md5(q.hours::text))),'[]'::json) FROM (SELECT s2.h, sum(t.hours_logged) AS hours FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id WHERE t.engagement_id IN (SELECT eid FROM eng) GROUP BY s2.h) q),
           'emailQueue',(SELECT COALESCE(json_agg(json_build_array(q.k, md5(q.n::text))),'[]'::json) FROM (SELECT n.type_key || '|' || n.status || '|' || COALESCE(n.last_error,'-') AS k, count(*) AS n FROM public.notification_emails n WHERE n.entity_id IN (SELECT eid::text FROM eng) GROUP BY 1) q)
-        )::text;`, { engagements }));
+        )::text;`, { engagements, financialContract }));
     },
     async holidayCatalog() {
       return query(`SELECT json_build_object(
@@ -362,9 +363,9 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
       return query(sqlWithPayload(`WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), expected AS (
         SELECT src FROM p CROSS JOIN LATERAL jsonb_array_elements(p.x->'workOrders') src
       ), financial_rows AS (
-        SELECT src->>'sourceKey' source_key,w.wo_id,w.currency,COALESCE(round(sum(l.budgeted_hours*l.standard_rate),2),0) standard_fee,w.adjustment_amount,round(COALESCE(sum(l.budgeted_hours*l.standard_rate),0)+w.adjustment_amount,2) adjusted_fee
+        SELECT src->>'sourceKey' source_key,w.wo_id,w.currency,COALESCE(round(sum(l.budgeted_hours*l.standard_rate),2),0) standard_fee,w.adjustment_amount,round(COALESCE(sum(l.budgeted_hours*l.standard_rate),0)+w.adjustment_amount,2) adjusted_fee, (SELECT COALESCE(sum(e.budgeted_amount),0) FROM public.wo_expense_budget e WHERE e.wo_id=w.wo_id) expenses
         FROM expected JOIN public.work_orders w ON w.wo_id=(src->>'woId')::uuid LEFT JOIN public.wo_budget_lines l ON l.wo_id=w.wo_id GROUP BY src,w.wo_id,w.currency,w.adjustment_amount
-      ) SELECT json_build_object('financials',COALESCE((SELECT json_agg(json_build_object('sourceKey',source_key,'woId',wo_id,'currency',currency,'standardFee',standard_fee,'adjustmentAmount',adjustment_amount,'adjustedFee',adjusted_fee) ORDER BY source_key) FROM financial_rows),'[]'::json))::text;`, { workOrders }));
+      ) SELECT json_build_object('financials',COALESCE((SELECT json_agg(json_build_object('sourceKey',source_key,'woId',wo_id,'currency',currency,'standardFee',standard_fee,'adjustmentAmount',adjustment_amount,'adjustedFee',adjusted_fee,'expenses',expenses) ORDER BY source_key) FROM financial_rows),'[]'::json))::text;`, { workOrders }));
     },
     async findPaymentMatches({ payment }) {
       if (!payment?.planId || !payment?.woId || !Array.isArray(payment?.installments) || !payment.installments.length) throw new Fase1Error("BLOQUEADO", "relectura de pagos F3 inválida");

@@ -1,6 +1,7 @@
 // Transformaciones puras F3: los importes se conservan como enteros escalados, nunca Number acumulado.
 import { isInvoicedInstallment, isPlanNote } from "./fase3-input.mjs";
 import { resolveEndDate } from "./snapshot-manifest.mjs";
+import { grossCents, percentageCents } from "../../src/lib/paymentMath.mjs";
 
 const POW10 = (scale) => 10n ** BigInt(scale);
 export function decimalUnits(value, scale = 2) {
@@ -174,7 +175,18 @@ export function budgetRatesByWorkOrder({ contributions, planRows, engagements })
 // D33 (11/11/2026): TODAS las OT migradas llevan temporada Alta. El legacy no tiene temporada: calculó cada OT con una sola tarifa (la alta), incluso en las industrias con cierre en marzo (10, 12 y 37), que en EMS usarían Baja. El parámetro se conserva por compatibilidad.
 export function seasonForIndustry(_legacyIndustryId) { return "High"; }
 export function adjustedFee(standardFee, budgetHours) { return formatUnits(decimalUnits(budgetHours) - decimalUnits(standardFee)); }
-export function feeWithTax(adjusted) { const units = decimalUnits(adjusted); return formatUnits((units * 100n + 83n) / 84n); } // honorario con impuesto = ajustado / (1 - 0,16) redondeado HACIA ARRIBA a centavos (D28 y D29, 11/11/2026); las cuotas se reparten y la última absorbe el residuo
+export function feeWithTax(adjusted) { return formatUnits(grossCents(adjusted, "0.16")); } // D28/D29: al centavo hacia arriba
+// El ajuste se guarda en numeric(15,2). No redondear la base objetivo para
+// inventar una coincidencia: si no cabe exactamente, detener la preparación.
+export function legacyTargetAdjustment(target, standard, expenses) {
+  const objective = decimalUnits(target); const standardCents = decimalUnits(standard); const expenseCents = decimalUnits(expenses);
+  const numerator = objective * 84n;
+  if (objective < 0n || numerator % 100n !== 0n) throw new Error("total legacy incompatible con precisión de ajuste a centavos");
+  const adjusted = numerator / 100n - expenseCents;
+  const adjustment = adjusted - standardCents;
+  if (grossCents(formatUnits(adjusted + expenseCents), "0.16") !== objective) throw new Error("total legacy no reproducible por EMS");
+  return { adjustment: formatUnits(adjustment), adjusted: formatUnits(adjusted), target: formatUnits(objective) };
+}
 export function expensePayload(row) {
   // BOB: importe × TC redondeado HACIA ARRIBA a centavos (D29, 11/11/2026), igual que BOB_ROUNDING de fase3-reconcile.mjs. Con los datos del 06/11 el producto ya es exacto a 2 decimales: no cambia ningún importe.
   const amount = decimalUnits(row.legacy_amount_usd); const currency = String(row.legacy_currency_raw ?? "").trim() === "1" ? "USD" : "BOB"; const rate = currency === "BOB" ? decimalUnits(row.legacy_exchange_rate) : null;
@@ -182,7 +194,6 @@ export function expensePayload(row) {
   return { ...row, currency, amount: formatUnits(currency === "BOB" ? (amount * rate + 99n) / 100n : amount), expense_type: ({ 2: "Viaje", 3: "Comunicaciones", 4: "Reproducción", 5: "Movilidad", 6: "Circularización" })[Number(row.legacy_expense_type_id)] };
 }
 
-const roundRatio = (numerator, denominator) => (numerator * 2n + denominator) / (2n * denominator);
 // options.toleranceCots: COT cuyo plan puede sumar hasta 100,03 % (D18: 2024.22.002; la última cuota absorbe el exceso). Ningún otro COT.
 export function paymentArtifacts(rows, feeWithTaxValue, { toleranceCots = [] } = {}) {
   const billable = rows.filter((row) => !isPlanNote(row)).sort((a, b) => Number(a.legacy_installment_number) - Number(b.legacy_installment_number)); const notes = rows.filter(isPlanNote);
@@ -195,7 +206,7 @@ export function paymentArtifacts(rows, feeWithTaxValue, { toleranceCots = [] } =
   const fee = decimalUnits(feeWithTaxValue);
   // Es el equivalente entero de computeAmount(percentage, feeWithTax): el producto
   // se redondea a dos decimales para CADA cuota, no al total acumulado.
-  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = roundRatio(fee * percentage, denominator); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30), invoiced: isInvoicedInstallment(row), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
+  const installments = billable.map((row, index) => { const percentage = decimalUnits(row.legacy_percentage, scale) + (index === billable.length - 1 ? correction : 0n); const amount = percentageCents(fee, formatUnits(percentage, scale)); return { ...row, percentage: formatUnits(percentage, scale), amount: formatUnits(amount), payment_days: 30, payment_due_date: addBusinessDays(row.legacy_invoice_date, 30), invoiced: isInvoicedInstallment(row), exchange_rate_mode: String(row.legacy_currency_raw ?? "").trim() === "1" ? "fijo" : null }; });
   const expected = fee; const actual = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); const residual = expected - actual; const cot = String(rows[0]?.legacy_cot ?? "");
   if (residual !== 0n) installments[installments.length - 1].amount = formatUnits(decimalUnits(installments.at(-1).amount) + residual);
   const reconciled = installments.reduce((sum, row) => sum + decimalUnits(row.amount), 0n); if (expected !== reconciled) throw new Error(`residuo monetario de cuotas: ${formatUnits(expected - reconciled)}`);

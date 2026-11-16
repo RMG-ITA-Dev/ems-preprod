@@ -59,6 +59,7 @@ export function validateManifestShape(raw, name) {
   for (const key of F2_KEYS) if (!(key in raw.f2) || !isCount(raw.f2[key])) fail(name, `f2.${key} debe existir (entero o null)`);
   for (const key of F3_COUNT_KEYS) if (!(key in raw.f3) || !isCount(raw.f3[key])) fail(name, `f3.${key} debe existir (entero o null)`);
   const { expenses, payments, endDates, riskLevels, hours } = raw.f3;
+  if (raw.f3.financialContract !== undefined && !["fee-plus-budgeted-expenses-v1", "legacy-agreed-total-v1"].includes(raw.f3.financialContract)) fail(name, "f3.financialContract desconocido");
   // f3.hours (opcional; manifiestos anteriores al 06/11 no lo traen): ancla de las horas aprobadas que migran. Cada valor es null (sin declarar) o su cifra.
   if (hours !== undefined && (!hours || typeof hours !== "object" || !isCount(hours.rows) || !isCount(hours.persons) || !isCount(hours.engagements) || !(hours.total === null || /^\d+(\.\d+)?$/.test(String(hours.total))) || !(hours.lastWorkedDay === null || (typeof hours.lastWorkedDay === "string" && ISO_DATE.test(hours.lastWorkedDay)))
     || !hoursEntriesShapeOk(hours))) fail(name, "f3.hours inválido (rows, total, persons, engagements, lastWorkedDay y, si existen, entries y holiday.{rows,entries,hours})");

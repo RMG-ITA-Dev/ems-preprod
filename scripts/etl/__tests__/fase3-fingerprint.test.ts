@@ -47,6 +47,13 @@ describe("ETL fase 3: huella L9 por clave natural", () => {
       expect(withSource("TimeControlDB_20261106_1600").source).toEqual({ snapshot: "TimeControlDB_20261106_1600", manifestSha256: "m1" });
       expect(build().source).toBeNull(); // sin source (huellas anteriores): no es comparable
     });
+    it("rechaza contratos financieros distintos aunque el respaldo y las horas coincidan", () => {
+      const a = withSource("S1");
+      const b = { ...a, source: { ...a.source, financialContract: "fee-plus-budgeted-expenses-v1" } };
+      expect(() => assertComparableFingerprints(a, b)).toThrow(/contratos financieros distintos/);
+      const c = { ...a, source: { ...a.source, financialContract: "legacy-agreed-total-v1" } };
+      expect(() => assertComparableFingerprints(b, c)).toThrow(/contratos financieros distintos/);
+    });
     it("acepta dos huellas del mismo snapshot, aunque el manifiesto haya cambiado entre ellas (lo avisa)", () => {
       expect(assertComparableFingerprints(withSource("S1"), withSource("S1"))).toEqual({ snapshot: "S1", origin: "S1", contract: "legacy", sameManifest: true });
       expect(assertComparableFingerprints(withSource("S1", "a"), withSource("S1", "b"))).toEqual({ snapshot: "S1", origin: "S1", contract: "legacy", sameManifest: false });

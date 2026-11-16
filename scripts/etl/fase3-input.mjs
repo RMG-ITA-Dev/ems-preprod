@@ -241,6 +241,13 @@ export function validateExecutionStarts(executions, clientEngagements) {
 
 export function validateInputs(inputs, { enforceExpected = false, manifest = null, environment = "local" } = {}) {
   const clientEngagements = validateClientEngagements(inputs.clientEngagements);
+  if (manifest?.f3?.financialContract === "legacy-agreed-total-v1") for (const row of clientEngagements) {
+    const value = text(row[text(row.legacy_currency_raw) === "1" ? "legacy_fee_usd" : "legacy_fee_bob"]);
+    const match = /^(\d+)(?:\.(\d{1,2})0*)?$/.exec(value);
+    if (!match) throw new Fase3InputError(`total original legacy ausente o incompatible con centavos: ${row.legacy_cot}`);
+    const cents = BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+    if (cents * 84n % 100n !== 0n) throw new Fase3InputError(`ajuste exacto no representable en centavos: ${row.legacy_cot}`);
+  }
   const clientCots = new Set(clientEngagements.map((row) => row.legacy_cot));
   validateAdministrativeEngagements(inputs.administrativeEngagements);
   validatePlanHours(inputs.planHours, clientCots); validateExpenses(inputs.expenses, clientCots); validatePayments(inputs.payments, clientCots, { manifest }); validateExecutions(inputs.executions, clientCots); validateExecutionStarts(inputs.executions, clientEngagements);

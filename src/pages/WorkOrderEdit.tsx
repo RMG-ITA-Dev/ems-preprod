@@ -60,7 +60,8 @@ import {
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
-import { applyExchangeRateMode, isPaymentPlanRestDirty } from "@/lib/workOrderPaymentPlan";
+import { allocateInstallmentAmounts, applyExchangeRateMode, isPaymentPlanRestDirty } from "@/lib/workOrderPaymentPlan";
+import { grossCents } from "@/lib/paymentMath.mjs";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -558,6 +559,15 @@ const WorkOrderEdit = () => {
         setPaymentFocusSignal((n) => n + 1);
         return false;
       }
+      const standard = budgetLines.reduce((sum, line) => sum + line.budgeted_hours * line.standard_rate, 0);
+      const expenses = expenseBudget.reduce((sum, expense) => sum + expense.budgeted_amount, 0);
+      const gross = Number(grossCents((standard + adjustmentAmount + expenses).toFixed(4), (workOrder.tax_rate ?? taxRate).toFixed(4))) / 100;
+      const budgetChanged = adjustmentAmount !== originalAdjustment || JSON.stringify(expenseBudget) !== JSON.stringify(originalExpenseData);
+      if (budgetChanged && !allocateInstallmentAmounts(paymentInstallments, gross, currency, paymentPlan?.exchange_rate)) {
+        toast.error(t("workOrders.paymentPlan.validationAllocation"));
+        setPaymentFocusSignal((n) => n + 1);
+        return false;
+      }
       // dash_socio (decisiones.md §4.1): el TC inicial del plan pasa a ser
       // obligatorio en la UI en cuanto la OT en moneda extranjera tiene al menos
       // una cuota -- espejo del CHECK/NOT NULL de wo_payment_plan.exchange_rate.
@@ -1034,7 +1044,7 @@ const WorkOrderEdit = () => {
           approvalStatus={approvalStatus}
           approvedAt={workOrder.approved_at}
           adjustmentAmount={adjustmentAmount}
-          taxRate={workOrder.tax_rate || taxRate}
+          taxRate={workOrder.tax_rate ?? taxRate}
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
           isNew={false}

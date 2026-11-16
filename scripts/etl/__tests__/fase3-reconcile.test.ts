@@ -52,6 +52,35 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     entriesCount: 3, holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" }, _expected: expected,
   });
+  it("compara cuotas y vista con la nueva fórmula y conserva el legacy independiente por moneda", () => {
+    const clients = [
+      { ...inputs.clientEngagements[0], legacy_fee_with_tax: "84", legacy_fee_usd: "220" },
+      { ...inputs.clientEngagements[1], legacy_fee_with_tax: "10", legacy_exchange_rate: "6.96", legacy_fee_bob: "165.55" },
+    ];
+    const expenses = [{ ...inputs.expenses[0], legacy_amount_usd: "100.80" }, ...inputs.expenses.slice(1)];
+    const expected = legacyExpectations({ ...base, inputs: { ...inputs, clientEngagements: clients, expenses }, financialContract: "fee-plus-budgeted-expenses-v1" });
+    expect(expected.feeByCot.get("C1")).toBe(22000n);
+    expect(expected.feeByCot.get("C2")).toBe(16655n);
+    const actual = { ...actualFor(expected), installmentSumByWo: [["wo1", "220"], ["wo2", "166.55"]], summaryFeeByWo: [["wo1", "220"], ["wo2", "166.55"]] };
+    expect(compareLegacyControls(expected, actual).rows.find((r) => r.id === "L6h")?.ok).toBe(true); // BOB 1 exacto
+    expected.originalByCot.get("C2").amount -= 1n;
+    expect(compareLegacyControls(expected, actual).rows.find((r) => r.id === "L6h")?.actual).toContain("C2 BOB: 1.007619");
+    expected.originalByCot.get("C1").amount -= 1n;
+    expect(compareLegacyControls(expected, actual).rows.find((r) => r.id === "L6h")?.actual).toContain("C1 USD: 0.01");
+    expect(compareLegacyControls(expected, { ...actual, summaryFeeByWo: [["wo1", "219.99"], ["wo2", "166.55"]] }).rows.find((r) => r.id === "L6g")?.ok).toBe(false);
+  });
+  it("exige igualdad exacta de resumen y cuotas con originales bajo el nuevo contrato", () => {
+    const clients = [
+      { ...inputs.clientEngagements[0], legacy_fee_with_tax: "84", legacy_fee_usd: "220" },
+      { ...inputs.clientEngagements[1], legacy_fee_with_tax: "10", legacy_exchange_rate: "6.96", legacy_fee_bob: "165.55" },
+    ];
+    const expected = legacyExpectations({ ...base, inputs: { ...inputs, clientEngagements: clients }, financialContract: "legacy-agreed-total-v1" });
+    const actual = { ...actualFor(expected), installmentSumByWo: [["wo1", "220"], ["wo2", "165.55"]], summaryFeeByWo: [["wo1", "220"], ["wo2", "165.55"]] };
+    expect(compareLegacyControls(expected, actual).rows.filter((r) => ["L6d", "L6g", "L6h"].includes(r.id)).every((r) => r.ok)).toBe(true);
+    const drift = { ...actual, summaryFeeByWo: [["wo1", "220"], ["wo2", "165.54"]] };
+    expect(compareLegacyControls(expected, drift).rows.find((r) => r.id === "L6h")?.ok).toBe(false);
+    expect(compareLegacyControls(expected, { ...actual, installmentSumByWo: [["wo1", "219.99"], ["wo2", "165.55"]] }).rows.find((r) => r.id === "L6d")?.ok).toBe(false);
+  });
   it("concilia cuando la base coincide y marca la diferencia exacta cuando no", () => {
     const expected = legacyExpectations(base);
     expect(compareLegacyControls(expected, actualFor(expected)).ok).toBe(true);

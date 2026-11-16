@@ -49,6 +49,7 @@ export function assertComparableFingerprints(a, b, { labelA = "A", labelB = "B" 
   // D41 Parte I: además del identificador del manifiesto se comparan el RESPALDO de origen y el CONTRATO de las horas. Una huella anterior a D41 (períodos NULL) no se compara contra
   // una carga D41 (períodos cerrados con líneas aprobadas) aunque el respaldo legacy sea el mismo: la semántica es otra, y avisar solo por el SHA del manifiesto no basta.
   const contractOf = (fingerprint) => fingerprint.source.contract ?? "legacy"; const originOf = (fingerprint) => fingerprint.source.origin ?? fingerprint.source.snapshot;
+  if ((a.source.financialContract ?? "fee-only") !== (b.source.financialContract ?? "fee-only")) throw new FingerprintIncompatibleError("las huellas tienen contratos financieros distintos");
   if (contractOf(a) !== contractOf(b)) throw new FingerprintIncompatibleError(`las huellas son de contratos distintos (${labelA}=${contractOf(a)}, ${labelB}=${contractOf(b)}): períodos NULL (anterior) y horas aprobadas dentro de EMS (D41) no se comparan; registre una huella del contrato vigente`);
   if (left !== right) throw new FingerprintIncompatibleError(`las huellas son de snapshots distintos (${labelA}=${left}, ${labelB}=${right}): una huella v2 no puede compararse con una carga v3`);
   if (originOf(a) !== originOf(b)) throw new FingerprintIncompatibleError(`las huellas son de respaldos legacy distintos (${labelA}=${originOf(a)}, ${labelB}=${originOf(b)})`);

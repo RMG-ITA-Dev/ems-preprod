@@ -15,7 +15,7 @@ import { HEADERS as F2_HEADERS, parseCsv, sha256File } from "./fase2-input.mjs";
 import { buildMatrixArtifacts } from "./fase3-matrix.mjs";
 import { compareLegacyControls, legacyExpectations } from "./fase3-reconcile.mjs";
 import { FingerprintIncompatibleError, assertComparableFingerprints, buildFingerprint, compareFingerprints } from "./fase3-fingerprint.mjs";
-import { budgetInOtCurrency, aliasProfile, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, paymentArtifacts } from "./fase3-transform.mjs";
+import { budgetInOtCurrency, aliasProfile, budgetRatesByWorkOrder, buildAdministrativeEngagementPayloads, buildClientEngagementPayloads, consolidateExecutions, consolidateResolvedHours, decimalUnits, expensePayload, feeWithTax, legacyTargetAdjustment, paymentArtifacts } from "./fase3-transform.mjs";
 
 export const BLOCKS = Object.freeze(["client-engagements", "administrative-engagements", "matrices", "work-orders", "hours"]);
 export const STATES = Object.freeze(["PENDIENTE", "VALIDADO", "PREFLIGHT_VALIDADO", "ENCARGOS_CLIENTE_ACEPTADOS", "ADMINISTRATIVOS_ACEPTADOS", "MATRICES_ACEPTADAS", "OTS_ACEPTADAS", "HORAS_VERIFICADAS", "ACEPTADO"]);
@@ -243,6 +243,10 @@ export async function preparePaymentBlueprint(ctx, inputs) {
   const workOrders = ctx.journal.units["work-orders"]?.workOrders;
   if (!Array.isArray(workOrders) || !countOk(ctx, f3(ctx).workOrders, workOrders.length, "f3.workOrders") || workOrders.some((row) => row.state !== "CONFIRMADA" || row.syncState !== "CONFIRMADA" || row.rateState !== "CONFIRMADA")) throw new Fase1Error("BLOQUEADO", `pagos requiere las ${f3(ctx).workOrders} OTs sincronizadas y con las tarifas legacy aplicadas (opción A)`);
   const sourceByCot = new Map(inputs.clientEngagements.map((row) => [row.legacy_cot, row])); const groups = paymentRowsByCot(inputs.payments);
+  const expenseByCot = new Map();
+  if (["fee-plus-budgeted-expenses-v1", "legacy-agreed-total-v1"].includes(f3(ctx).financialContract)) for (const row of inputs.expenses) {
+    const amount = decimalUnits(expensePayload(row).amount); expenseByCot.set(row.legacy_cot, (expenseByCot.get(row.legacy_cot) ?? 0n) + amount);
+  }
   const billable = inputs.payments.filter((row) => !["nota_plan_confirmada", "plan_note"].includes(String(row.proposed_disposition).trim()));
   const notes = inputs.payments.filter((row) => ["nota_plan_confirmada", "plan_note"].includes(String(row.proposed_disposition).trim()));
   const pay = f3(ctx).payments;
@@ -252,10 +256,23 @@ export async function preparePaymentBlueprint(ctx, inputs) {
   for (const workOrder of workOrders) {
     const source = sourceByCot.get(workOrder.sourceKey); const rows = groups.get(workOrder.sourceKey); const finance = financialByCot.get(workOrder.sourceKey);
     if (!source || !rows || !finance || finance.woId !== workOrder.woId || finance.currency !== workOrder.currency) throw new Fase1Error("BLOQUEADO", `pagos sin cruce financiero: ${workOrder.sourceKey}`);
-    const legacyBudget = money(budgetInOtCurrency(source)); const standard = money(finance.standardFee); const adjustment = formatMoney(decimalUnits(legacyBudget) - decimalUnits(standard));
-    const previousAdjustment = money(finance.adjustmentAmount); const expectedFeeWithTax = money(feeWithTax(legacyBudget)); const sourceFees = new Set(rows.map((row) => money(row.legacy_fee_with_tax)));
-    if (sourceFees.size !== 1 || !sourceFees.has(expectedFeeWithTax)) throw new Fase1Error("BLOQUEADO", `honorario c/IVA legacy incompatible: ${workOrder.sourceKey}`);
-    if (decimalUnits(standard) + decimalUnits(adjustment) !== decimalUnits(legacyBudget)) throw new Fase1Error("BLOQUEADO", `ajuste financiero no concilia: ${workOrder.sourceKey}`);
+    const legacyBudget = money(budgetInOtCurrency(source)); const standard = money(finance.standardFee); let adjustment = formatMoney(decimalUnits(legacyBudget) - decimalUnits(standard));
+    const previousAdjustment = money(finance.adjustmentAmount); const oldFeeWithTax = money(feeWithTax(legacyBudget)); const sourceFees = new Set(rows.map((row) => money(row.legacy_fee_with_tax)));
+    if (sourceFees.size !== 1 || !sourceFees.has(oldFeeWithTax)) throw new Fase1Error("BLOQUEADO", `honorario c/IVA del extracto de pagos incompatible: ${workOrder.sourceKey}`);
+    const contract = f3(ctx).financialContract; const agreedTotal = contract === "legacy-agreed-total-v1";
+    const withExpenses = ["fee-plus-budgeted-expenses-v1", "legacy-agreed-total-v1"].includes(contract);
+    if (withExpenses && finance.expenses == null) throw new Fase1Error("BLOQUEADO", `faltan gastos financieros: ${workOrder.sourceKey}`);
+    if (withExpenses && decimalUnits(finance.expenses) !== (expenseByCot.get(workOrder.sourceKey) ?? 0n)) throw new Fase1Error("BLOQUEADO", `gastos persistidos no coinciden con la fuente: ${workOrder.sourceKey}`);
+    if (withExpenses && decimalUnits(finance.expenses) !== 0n && rows.some((row) => ["cuota_facturada", "invoiced"].includes(String(row.proposed_disposition).trim()))) throw new Fase1Error("BLOQUEADO", `cuota facturada con gastos: requiere revisión histórica ${workOrder.sourceKey}`);
+    let expectedFeeWithTax = withExpenses ? money(feeWithTax(formatMoney(decimalUnits(legacyBudget) + decimalUnits(finance.expenses)))) : oldFeeWithTax;
+    if (agreedTotal) {
+      try {
+        const target = source[workOrder.currency === "BOB" ? "legacy_fee_bob" : "legacy_fee_usd"];
+        if (!String(target ?? "").trim()) throw new Error("total original ausente");
+        const calculated = legacyTargetAdjustment(target, standard, finance.expenses);
+        adjustment = money(calculated.adjustment); expectedFeeWithTax = money(calculated.target);
+      } catch (error) { throw new Fase1Error("BLOQUEADO", `total original ${workOrder.sourceKey}: ${error.message}`); }
+    } else if (decimalUnits(standard) + decimalUnits(adjustment) !== decimalUnits(legacyBudget)) throw new Fase1Error("BLOQUEADO", `ajuste financiero no concilia: ${workOrder.sourceKey}`);
     assertPaymentCurrency(rows, source.legacy_currency_raw, workOrder.sourceKey);
     const artifact = paymentArtifacts(rows, expectedFeeWithTax, { toleranceCots: ctx.config.manifest.toleranceCots }); const rawCurrency = String(rows[0].legacy_currency_raw).trim(); const exchangeRate = rawCurrency === "1" ? money(rows[0].legacy_exchange_rate) : null;
     if (!['0', '1'].includes(rawCurrency) || (rawCurrency === '1' && (decimalUnits(exchangeRate) <= 0n || rows.some((row) => money(row.legacy_exchange_rate) !== exchangeRate)))) throw new Fase1Error("BLOQUEADO", `TC de plan incompatible: ${workOrder.sourceKey}`);
@@ -843,7 +860,7 @@ export async function reconcileLegacy(ctx) {
   const staffCatalog = await ctx.db.engagementCatalog(); const officeByStaffId = new Map((staffCatalog.staff ?? []).map((row) => [row.id, ({ "La Paz": 1, "Santa Cruz": 2 })[String(row.city ?? "").trim()]]));
   const holidaysByDate = new Map(); for (const holiday of (await ctx.db.holidayCatalog()).holidays ?? []) { const date = String(holiday.date).slice(0, 10); holidaysByDate.set(date, [...(holidaysByDate.get(date) ?? []), Number(holiday.office)]); }
   const history = historyContract(ctx.config.manifest);
-  const expected = legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, history: history ? { batch: history.batch, approvalByExecution: approvalsByExecution(inputs.executionApprovals) } : null });
+  const expected = legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, financialContract: f3(ctx).financialContract, history: history ? { batch: history.batch, approvalByExecution: approvalsByExecution(inputs.executionApprovals) } : null });
   if (history) assertHistoryAnchors({ periods: expected.history.periods.size, lines: expected.history.lines.size, entriesLinked: Number(expected.expectedEntries), approvals: inputs.executionApprovals.length }, history, ctx.config.environment);
   // Las expectativas de entradas y feriados (derivadas del CSV) también deben coincidir con lo que declara el manifiesto: un CSV mal extraído no puede cuadrar consigo mismo.
   assertHourEntryAnchors({ entries: Number(expected.expectedEntries), holiday: { rows: Number(expected.holidayKeptRows), entries: Number(expected.expectedHolidayEntries), hours: formatMoney(expected.holidayKeptHours) } }, ctx.config.manifest?.f3?.hours, ctx.config.environment);
@@ -863,8 +880,8 @@ export async function fingerprintCommand(ctx) {
   const client = units["client-engagements"]?.result?.engagements; const administrative = units["administrative-engagements"]?.result?.engagements;
   if (!Array.isArray(client) || !countOk(ctx, f3(ctx).clientEngagements, client.length, "f3.clientEngagements") || !Array.isArray(administrative) || !countOk(ctx, f3(ctx).administrativeEngagements, administrative.length, "f3.administrativeEngagements")) throw new Fase1Error("BLOQUEADO", `huella L9 requiere los ${f3(ctx).engagementsTotal ?? "(sin declarar)"} encargos confirmados en el journal`);
   const engagements = [...client.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "client" })), ...administrative.map((row) => ({ sourceKey: row.sourceKey, engagementId: row.engagementId, kind: "administrative" }))];
-  const snapshot = await ctx.db.fingerprintSnapshot({ engagements, expectedCount: declared(ctx.config.environment, f3(ctx).engagementsTotal, "f3.engagementsTotal") });
-  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot, source: { snapshot: ctx.config.manifest.snapshot, origin: manifestOrigin(ctx.config.manifest), contract: manifestContract(ctx.config.manifest), manifestSha256: ctx.config.manifest.sha256 } });
+  const snapshot = await ctx.db.fingerprintSnapshot({ engagements, expectedCount: declared(ctx.config.environment, f3(ctx).engagementsTotal, "f3.engagementsTotal"), financialContract: f3(ctx).financialContract ?? null });
+  const fingerprint = buildFingerprint({ environment: ctx.config.environment, projectRef: ctx.config.expectedProjectRef, installationId: ctx.config.installationId, snapshot, source: { snapshot: ctx.config.manifest.snapshot, origin: manifestOrigin(ctx.config.manifest), contract: manifestContract(ctx.config.manifest), financialContract: f3(ctx).financialContract ?? "fee-only", manifestSha256: ctx.config.manifest.sha256 } });
   const file = path.join(ctx.stateDir, `fase3-${ctx.config.installationId}.fingerprint.json`); writeJson(file, fingerprint);
   for (const [name, set] of Object.entries(fingerprint.sets)) console.log(`${name.padEnd(15)} ${String(set.count).padStart(6)} claves  sha256=${set.sha256.slice(0, 16)}…`);
   console.log(`huella escrita en ${file}`);

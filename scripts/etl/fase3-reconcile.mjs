@@ -2,7 +2,7 @@
 // aritmética entera escalada; los reales, de consultas agregadas a la base. El journal solo aporta identidades
 // (qué UUID corresponde a qué COT), nunca un valor esperado: así una carga no se valida contra su propia salida.
 import { isMigrableExecution, riskLevelFromLegacy } from "./fase3-input.mjs";
-import { consolidateExecutions, consolidateResolvedHours, decimalUnits, formatUnits } from "./fase3-transform.mjs";
+import { budgetInOtCurrency, feeWithTax, consolidateExecutions, consolidateResolvedHours, decimalUnits, formatUnits } from "./fase3-transform.mjs";
 import { buildHistoryBlueprint } from "./fase3-history.mjs";
 
 const text = (value) => String(value ?? "").trim();
@@ -30,7 +30,7 @@ export function hourEntryExpectations({ migrable, staffByLegacyProfile, officeBy
   return { entries: BigInt(resolved.length), holidayEntries: BigInt(holiday.length) };
 }
 
-export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n, history = null }) {
+export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaffId, holidaysByDate, scaleFactor = 1n, history = null, financialContract = null }) {
   const clientCots = inputs.clientEngagements.map((row) => text(row.legacy_cot));
   // L4: nivel de riesgo de cada OT, traducido del código legacy (1 Bajo, 2 Moderado, 3 Alto; enmienda F3-Q12).
   const riskLevelByCot = new Map(inputs.clientEngagements.map((row) => [text(row.legacy_cot), riskLevelFromLegacy(row.legacy_risk_code, text(row.legacy_cot))]));
@@ -45,6 +45,16 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   const billable = inputs.payments.filter((row) => !isNote(row)); const notes = inputs.payments.filter(isNote);
   const invoicedRows = inputs.payments.filter((row) => ["cuota_facturada", "invoiced"].includes(text(row.proposed_disposition)));
   const feeByCot = new Map(); for (const row of inputs.payments) feeByCot.set(text(row.legacy_cot), decimalUnits(row.legacy_fee_with_tax));
+  const originalByCot = new Map();
+  if (["fee-plus-budgeted-expenses-v1", "legacy-agreed-total-v1"].includes(financialContract)) for (const row of inputs.clientEngagements) {
+    const cot = text(row.legacy_cot); const currency = text(row.legacy_currency_raw) === "1" ? "USD" : "BOB";
+    const base = decimalUnits(budgetInOtCurrency(row)) + (expenseByCot.get(cot) ?? 0n);
+    feeByCot.set(cot, decimalUnits(feeWithTax(formatUnits(base))));
+    const original = row[currency === "BOB" ? "legacy_fee_bob" : "legacy_fee_usd"];
+    if (!text(original)) throw new Error(`total original legacy ausente: ${cot}`);
+    originalByCot.set(cot, { currency, amount: decimalUnits(original), base });
+    if (financialContract === "legacy-agreed-total-v1") feeByCot.set(cot, decimalUnits(original));
+  }
   const plansCount = new Set(inputs.payments.map((row) => text(row.legacy_cot))).size;
   // L7: horas ejecutadas aprobadas; todas se cargan. Las de feriado aplicable se contabilizan aparte (L7d).
   const migrable = inputs.executions.filter(isMigrableExecution);
@@ -77,7 +87,7 @@ export function legacyExpectations({ inputs, staffByLegacyProfile, officeByStaff
   return {
     riskLevelByCot, clientEngagements: BigInt(clientCots.length), administrativeEngagements: BigInt(inputs.administrativeEngagements.length), planHoursUnits: planHours,
     expensesPositive: BigInt(positives.length), expensesZeroOmitted: BigInt(inputs.expenses.length - positives.length), expensesSourceUsd: sum(positives, (row) => decimalUnits(row.legacy_amount_usd)), expensesEmsUnits: sum(positives, emsExpenseUnits), expenseByCot,
-    plans: BigInt(plansCount), installments: BigInt(billable.length), installmentsInvoiced: BigInt(invoicedRows.length), notes: BigInt(notes.length), feeByCot,
+    plans: BigInt(plansCount), installments: BigInt(billable.length), installmentsInvoiced: BigInt(invoicedRows.length), notes: BigInt(notes.length), feeByCot, originalByCot, financialContract,
     executionsMigrable: BigInt(migrable.length), executionsMigrableHours: sum(migrable, (row) => decimalUnits(row.legacy_hours)),
     holidayKeptRows: BigInt(holiday.length), holidayKeptHours: sum(holiday, (row) => decimalUnits(row.legacy_hours)), holidayDates: [...new Set(holiday.map((row) => day(row.legacy_worked_at)))].sort(),
     expectedEntries: entryExpectations.entries, expectedHolidayEntries: entryExpectations.holidayEntries, expensesUsdUnits, expensesBobUnits, history: historyExpectation,
@@ -116,6 +126,19 @@ export function compareLegacyControls(expected, actual) {
   rows.push(eq("L6e", "cuotas facturadas (D19) con sus fechas de cobranza", expected.installmentsInvoiced, actual.installmentsInvoiced)); rows.push(eq("L6f", "cuotas pendientes", expected.installments - expected.installmentsInvoiced, actual.installmentsPending));
   const feeDiffs = mapDiff(expected.feeByCot, toMap(actual.installmentSumByWo.map(([wo, amount]) => [actual.cotByWo[wo], amount])));
   rows.push({ id: "L6d", label: "suma de cuotas por COT = honorario c/IVA legacy", expected: "iguales", actual: feeDiffs.length ? feeDiffs.slice(0, 5).join(" | ") : "iguales", ok: !feeDiffs.length, note: "" });
+  if (["fee-plus-budgeted-expenses-v1", "legacy-agreed-total-v1"].includes(expected.financialContract)) {
+    const summaryDiffs = mapDiff(expected.feeByCot, toMap((actual.summaryFeeByWo ?? []).map(([wo, amount]) => [actual.cotByWo[wo], amount])));
+    rows.push({ id: "L6g", label: "resumen por COT = fórmula con gastos", expected: "iguales", actual: summaryDiffs.join(" | ") || "iguales", ok: !summaryDiffs.length, note: "" });
+    // Comparar antes del redondeo de cuotas: redondear primero puede ocultar una diferencia apenas superior a BOB 1.
+    if (expected.financialContract === "legacy-agreed-total-v1") {
+      const originals = new Map([...expected.originalByCot].map(([cot, value]) => [cot, value.amount]));
+      const originalDiffs = mapDiff(originals, toMap((actual.summaryFeeByWo ?? []).map(([wo, amount]) => [actual.cotByWo[wo], amount])));
+      rows.push({ id: "L6h", label: "total EMS = total original legacy por COT", expected: "iguales exactamente", actual: originalDiffs.join(" | ") || "iguales", ok: !originalDiffs.length, note: "sin tolerancia monetaria" });
+    } else {
+      const differences = [...expected.originalByCot].flatMap(([cot, original]) => { const delta = original.base * 100n - original.amount * 84n; const absolute = delta < 0n ? -delta : delta; return absolute && (original.currency === "USD" || absolute > 8400n) ? [`${cot} ${original.currency}: ${(Number(delta) / 8400).toFixed(6)}`] : []; });
+      rows.push({ id: "L6h", label: "total original legacy independiente", expected: "BOB diferencia ≤ 1; USD sin diferencias o tolerancia pendiente", actual: differences.join(" | ") || "sin diferencias pendientes", ok: !differences.length, note: "USD no tiene tolerancia aprobada" });
+    }
+  }
   rows.push(eq("L7a", "horas ejecutadas cargadas = fuente aprobada", formatUnits(expected.expectedHoursUnits), units(actual.hoursTotal), `fuente aprobada ${formatUnits(expected.executionsMigrableHours)} h; de ellas, en feriado aplicable ${expected.holidayKeptRows} filas / ${formatUnits(expected.holidayKeptHours)} h en ${expected.holidayDates.join(", ")}`));
   const cotDiffs = mapDiff(expected.hoursByCot, toMap(actual.hoursByEngagement.map(([engagement, hours]) => [actual.cotByEngagement[engagement], hours])));
   rows.push({ id: "L7b", label: "horas por COT", expected: "iguales", actual: cotDiffs.length ? cotDiffs.slice(0, 5).join(" | ") : "iguales", ok: !cotDiffs.length, note: "" });

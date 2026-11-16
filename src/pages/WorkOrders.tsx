@@ -42,6 +42,7 @@ import { badgeVariants } from "@/components/ui/badge-variants";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { grossCents } from "@/lib/paymentMath.mjs";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
   DEFAULT_WO_STATUS_FILTER,
@@ -142,8 +143,8 @@ const WorkOrders = () => {
     ) || 0;
     
     const totalWithoutVAT = adjustedFee + totalExpenses;
-    const taxRate = Number(wo.tax_rate) || 0.16;
-    const totalWithVAT = totalWithoutVAT / (1 - taxRate);
+    const taxRate = Number(wo.tax_rate ?? 0.16);
+    const totalWithVAT = Number(grossCents(totalWithoutVAT.toFixed(4), taxRate.toFixed(4))) / 100;
 
     return { totalHours, standardFee, realizationPercent, adjustedFee, totalExpenses, totalWithoutVAT, totalWithVAT };
   };
