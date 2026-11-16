@@ -14,7 +14,7 @@ import {
 /**
  * BUG 0603-140 (enhancement): post-creation confirmation modal for a new engagement.
  * Presentational and self-contained (owns its copy-to-clipboard); the parent passes
- * already-translated summary values and the three navigation callbacks.
+ * already-translated summary values and the navigation callbacks.
  */
 export interface EngagementCreatedDialogProps {
   open: boolean;
@@ -32,6 +32,10 @@ export interface EngagementCreatedDialogProps {
   onClose: () => void;          // Close / X → engagements list
   onCreateAnother: () => void;  // Create another → reset form, no navigation
   onGoToWorkMatrix: () => void; // Go to Work Matrix → /worksheets/new?engagement=<id>
+  // 1112-228: encargos no-Cliente con "Requiere OT". "create" muestra el botón y la nota;
+  // "blocked" solo la nota que explica a quién pedir la OT; "none" no muestra nada.
+  workOrderAction?: "create" | "blocked" | "none";
+  onCreateWorkOrder?: () => void; // Create work order → /work-orders/new?engagement=<id>
 }
 
 export function EngagementCreatedDialog({
@@ -48,6 +52,8 @@ export function EngagementCreatedDialog({
   onClose,
   onCreateAnother,
   onGoToWorkMatrix,
+  workOrderAction = "none",
+  onCreateWorkOrder,
 }: EngagementCreatedDialogProps) {
   const { t } = useTranslation();
 
@@ -106,6 +112,13 @@ export function EngagementCreatedDialog({
           </dl>
         </div>
 
+        {workOrderAction === "create" && (
+          <p className="text-sm text-muted-foreground">{t("engagement.createWorkOrderHint")}</p>
+        )}
+        {workOrderAction === "blocked" && (
+          <p className="text-sm text-muted-foreground">{t("engagement.createWorkOrderBlockedHint")}</p>
+        )}
+
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="cancel" onClick={onClose}>
             {t("common.close")}
@@ -113,6 +126,11 @@ export function EngagementCreatedDialog({
           {showGoToWorkMatrix && (
             <Button type="button" variant="outline" onClick={onGoToWorkMatrix}>
               {t("engagement.goToWorkMatrix")}
+            </Button>
+          )}
+          {workOrderAction === "create" && (
+            <Button type="button" variant="outline" onClick={onCreateWorkOrder}>
+              {t("engagement.createWorkOrder")}
             </Button>
           )}
           <Button type="button" variant="default" onClick={onCreateAnother}>

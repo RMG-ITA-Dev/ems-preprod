@@ -36,6 +36,10 @@ const NEW_KEYS = [
   "summaryTitle",
   "createAnother",
   "goToWorkMatrix",
+  // 1112-228: "Crear orden de trabajo" desde la confirmación de un encargo administrativo
+  "createWorkOrder",
+  "createWorkOrderHint",
+  "createWorkOrderBlockedHint",
   // BUG 0604-143: closing date drives the derived Año Fiscal
   "closingDate",
   "selectClosingDate",

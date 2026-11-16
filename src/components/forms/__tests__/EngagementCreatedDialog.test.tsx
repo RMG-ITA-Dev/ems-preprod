@@ -98,4 +98,48 @@ describe("EngagementCreatedDialog (BUG 0603-140 enhancement)", () => {
     expect(screen.getByRole("button", { name: "common.close" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "engagement.createAnother" })).toBeInTheDocument();
   });
+
+  // 1112-228: "Crear orden de trabajo" para encargos administrativos. El caller resuelve
+  // workOrderAction (resolveCreatedWorkOrderAction); este componente solo lo obedece.
+  describe("work order action (1112-228)", () => {
+    const adminProps = {
+      ...baseProps,
+      funcion: "engagement.funcion_admin",
+      showGoToWorkMatrix: false,
+      onCreateWorkOrder: vi.fn(),
+    };
+
+    it("'create' shows the button and the hint, keeping Close and Create another", () => {
+      render(<EngagementCreatedDialog {...adminProps} workOrderAction="create" />);
+      expect(screen.getByRole("button", { name: "engagement.createWorkOrder" })).toBeInTheDocument();
+      expect(screen.getByText("engagement.createWorkOrderHint")).toBeInTheDocument();
+      expect(screen.queryByText("engagement.createWorkOrderBlockedHint")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "common.close" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "engagement.createAnother" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "engagement.goToWorkMatrix" })).not.toBeInTheDocument();
+    });
+
+    it("'create' button calls onCreateWorkOrder once", async () => {
+      const user = userEvent.setup();
+      render(<EngagementCreatedDialog {...adminProps} workOrderAction="create" />);
+      await user.click(screen.getByRole("button", { name: "engagement.createWorkOrder" }));
+      expect(adminProps.onCreateWorkOrder).toHaveBeenCalledTimes(1);
+    });
+
+    it("'blocked' shows only the blocked hint, without the button", () => {
+      render(<EngagementCreatedDialog {...adminProps} workOrderAction="blocked" />);
+      expect(screen.queryByRole("button", { name: "engagement.createWorkOrder" })).not.toBeInTheDocument();
+      expect(screen.getByText("engagement.createWorkOrderBlockedHint")).toBeInTheDocument();
+      expect(screen.queryByText("engagement.createWorkOrderHint")).not.toBeInTheDocument();
+    });
+
+    it("defaults to 'none': no button and no hint", () => {
+      render(<EngagementCreatedDialog {...baseProps} />);
+      expect(screen.queryByRole("button", { name: "engagement.createWorkOrder" })).not.toBeInTheDocument();
+      expect(screen.queryByText("engagement.createWorkOrderHint")).not.toBeInTheDocument();
+      expect(screen.queryByText("engagement.createWorkOrderBlockedHint")).not.toBeInTheDocument();
+      // Client flow unchanged.
+      expect(screen.getByRole("button", { name: "engagement.goToWorkMatrix" })).toBeInTheDocument();
+    });
+  });
 });
