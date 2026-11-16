@@ -195,6 +195,9 @@ export function validateContacts(rows, clients, { expected = EXPECTED, enforceEx
     if (!name.trim() || !identity) throw new Fase2InputError(`contactos: el nombre es obligatorio (${row.client_source_ref})`);
     if (name !== name.trim()) throw new Fase2InputError(`contactos: nombre con espacios sobrantes (${row.client_source_ref})`);
     for (const field of ["email", "phone"]) if (row[field] !== "" && row[field] !== row[field].trim()) throw new Fase2InputError(`contactos: ${field} con espacios sobrantes o vacío escrito (${row.client_source_ref}); una celda vacía debe quedar sin texto`);
+    // R403-14: un canal no vacío debe ser utilizable con el mismo criterio con que se identifican los contactos (VALID_EMAIL; teléfono con 7 o más dígitos): no se cargan textos como «N/A».
+    if (row.email !== "" && !VALID_EMAIL.test(row.email)) throw new Fase2InputError(`contactos: correo no válido «${row.email}» (${row.client_source_ref}); una celda sin correo debe quedar vacía`);
+    if (row.phone !== "" && !phoneDigits(row.phone)) throw new Fase2InputError(`contactos: teléfono no válido «${row.phone}» (${row.client_source_ref}); se requieren 7 o más dígitos o la celda vacía`);
     // «Línea corporativa» existe solo para llevar el teléfono o el correo de la organización: sin ninguno de los dos no se crea (D23).
     if (identity === contactIdentityKey(CORPORATE_LINE_NAME) && !row.email && !row.phone) throw new Fase2InputError(`contactos: «${CORPORATE_LINE_NAME}» sin teléfono ni correo (${row.client_source_ref})`);
   }

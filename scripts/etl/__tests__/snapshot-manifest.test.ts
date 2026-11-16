@@ -138,6 +138,16 @@ describe("contactos F2 (D23/D25): varios por cliente, solo el nombre es obligato
     expect(() => validateContacts([contact("legacy:1", "Ana Pérez"), contact("legacy:2", "Ana Pérez")], clients, opts)).not.toThrow();
   });
 
+  it("R403-14: rechaza un correo o un teléfono no vacío que no sea utilizable, también en «Línea corporativa»", () => {
+    expect(() => validateContacts([contact("legacy:1", "Ana", "N/A")], clients, opts)).toThrow(/correo no válido/);
+    expect(() => validateContacts([contact("legacy:1", "Ana", "ana@ejemplo")], clients, opts)).toThrow(/correo no válido/);
+    expect(() => validateContacts([contact("legacy:1", "Ana", "", "123456")], clients, opts)).toThrow(/teléfono no válido/);
+    expect(() => validateContacts([contact("legacy:1", "Ana", "", "sin teléfono")], clients, opts)).toThrow(/teléfono no válido/);
+    expect(() => validateContacts([contact("legacy:1", "Línea corporativa", "N/A", "1234")], clients, opts)).toThrow(/no válido/);
+    // Los canales utilizables siguen pasando: 7 dígitos, formato con prefijo y separadores, y correo con subdominio.
+    expect(() => validateContacts([contact("legacy:1", "Ana", "ana@mail.ejemplo.com", "+591 2 2231727"), contact("legacy:2", "Luis", "", "2231727")], clients, opts)).not.toThrow();
+  });
+
   it("«Línea corporativa» exige teléfono o correo; sin ninguno de los dos no se crea", () => {
     expect(() => validateContacts([contact("legacy:1", "Línea corporativa")], clients, opts)).toThrow(/sin teléfono ni correo/);
     expect(() => validateContacts([contact("legacy:1", "Línea corporativa", "info@ejemplo.com")], clients, opts)).not.toThrow();
