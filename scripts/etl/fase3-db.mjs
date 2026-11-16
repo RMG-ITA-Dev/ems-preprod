@@ -33,6 +33,11 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         'sync_rpc', to_regprocedure('public.sync_worksheet_to_wo_budget(uuid,uuid)') IS NOT NULL,
         'note_rpc', to_regprocedure('public.add_installment_note(uuid,uuid,text)') IS NOT NULL,
         'history_import_fn', to_regprocedure('public.import_historic_timesheets(text,jsonb,jsonb,jsonb)') IS NOT NULL,
+        'administrative_approval_contract',
+          EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='engagements' AND column_name='partner_approval_legacy_source')
+          AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='check_wo_approved' AND pg_get_functiondef(p.oid) LIKE '%v_partner_approval%')
+          AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='list_loggable_engagements' AND pg_get_function_result(p.oid) LIKE '%partner_approval_status text%')
+          AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.timer_entries'::regclass AND tgname='trg_check_timer_engagement_approved' AND NOT tgisinternal),
         'phase3', json_build_object('engagements',(SELECT count(*) FROM public.engagements),'work_orders',(SELECT count(*) FROM public.work_orders),'time_entries',(SELECT count(*) FROM public.time_entries))
       )::text;`, { tech_admin: config.technicalAdminId });
     },
@@ -80,6 +85,11 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
         SELECT json_build_object(
           'clientEngagements',(SELECT count(*) FROM public.engagements e JOIN eng ON eng.id=e.engagement_id),
           'administrativeEngagements',(SELECT count(*) FROM public.engagements e JOIN adm ON adm.id=e.engagement_id),
+          'administrativeApproved',(SELECT count(*) FROM public.engagements e JOIN adm ON adm.id=e.engagement_id
+            WHERE e.funcion=0 AND NOT e.work_order_required AND e.approval_required
+              AND e.partner_approval_status='approved' AND e.partner_approval_legacy_source IS NOT NULL
+              AND e.partner_approval_decided_by IS NULL AND e.partner_approval_decided_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM public.work_orders w WHERE w.engagement_id=e.engagement_id)),
           'matrixHours',(SELECT COALESCE(sum(c.budget_hours),0)::text FROM public.activity_worksheet_cells c JOIN ws ON ws.id=c.worksheet_id),
           'expensesCount',(SELECT count(*) FROM public.wo_expense_budget b JOIN wo ON wo.id=b.wo_id),
           'expensesAmount',(SELECT COALESCE(sum(b.budgeted_amount),0)::text FROM public.wo_expense_budget b JOIN wo ON wo.id=b.wo_id),
@@ -150,7 +160,7 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
             LEFT JOIN LATERAL (SELECT md5(string_agg(row(i.installment_number,i.percentage,i.amount,i.currency,i.status,i.installment_type,i.agreed_invoice_date,i.agreed_payment_date,i.collection_invoice_date,i.collection_payment_date,CASE WHEN wo.currency='USD' THEN i.invoice_exchange_rate::text ELSE (i.invoice_exchange_rate>0)::text END)::text,'|' ORDER BY i.installment_number)) AS h, count(*) AS n FROM public.wo_payment_installments i WHERE i.wo_id=wo.wo_id) ins ON true
             LEFT JOIN LATERAL (SELECT count(*) AS n, md5(COALESCE(string_agg(nn.body,'|' ORDER BY nn.body),'')) AS h FROM public.wo_installment_notes nn WHERE nn.wo_id=wo.wo_id AND nn.deleted_at IS NULL) nt ON true
             LEFT JOIN LATERAL (SELECT sum(t.hours_logged) AS hours, count(*) AS n, md5(COALESCE(string_agg(row(t.date_worked,s2.h,ac.activity_code,t.hours_logged,t.is_forecast,t.etl_split_index)::text,'|' ORDER BY t.date_worked,s2.h,ac.activity_code,t.etl_split_index),'')) AS h FROM public.time_entries t JOIN sh s2 ON s2.staff_id=t.staff_id LEFT JOIN public.activity_codes ac ON ac.activity_id=t.activity_id WHERE t.engagement_id=e.engagement_id) th ON true),
-          'administrative',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,ck.k,so.name,hp.h,hm.h,
+          'administrative',(SELECT COALESCE(json_agg(json_build_array(cot.cot, md5(row(e.engagement_code,e.engagement_name,e.practica,e.oficina,e.anio_fiscal,e.funcion,e.start_date,e.end_date,e.status,e.is_internal,e.work_order_required,e.activity_required,e.approval_required,e.partner_approval_status,e.partner_approval_legacy_source,e.partner_approval_decided_by IS NULL,e.partner_approval_decided_at IS NULL,ck.k,so.name,hp.h,hm.h,
               (SELECT count(*) FROM public.activity_worksheets w WHERE w.engagement_id=e.engagement_id),(SELECT count(*) FROM public.work_orders w2 WHERE w2.engagement_id=e.engagement_id),(SELECT count(*) FROM public.time_entries t WHERE t.engagement_id=e.engagement_id))::text))),'[]'::json)
             FROM cot JOIN public.engagements e ON e.engagement_id=cot.eid AND cot.kind='administrative' LEFT JOIN ck ON ck.client_id=e.client_id LEFT JOIN public.society so ON so.society_id=e.society_id LEFT JOIN sh hp ON hp.staff_id=e.partner_id LEFT JOIN sh hm ON hm.staff_id=e.manager_id),
           -- D41 Parte I: períodos y líneas aprobadas por clave natural (persona|lunes y persona|lunes|COT|actividad), sin UUID ni marcas de tiempo técnicas. Vacíos con el contrato anterior.
@@ -177,13 +187,19 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
     },
     async createEngagements({ technicalAdminId, engagements }) {
       if (!technicalAdminId || !Array.isArray(engagements) || !engagements.length) throw new Fase1Error("BLOQUEADO", "lote de encargos F3 inválido");
+      for (const e of engagements) if (e.legacyApprovalSource !== undefined &&
+        (e.function !== 0 || e.workOrderRequired !== false || e.internal !== true || e.approvalRequired !== true ||
+         !/^legacy:[A-Za-z0-9_]+:[0-9]{4}\.[0-9]+\.[0-9]+$/.test(e.legacyApprovalSource) || !e.legacyApprovalSource.endsWith(`:${e.sourceKey}`))) {
+        throw new Fase1Error("BLOQUEADO", "aprobación legacy solo para administrativos sin OT con procedencia por COT");
+      }
       return write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         SET LOCAL ROLE authenticated;
+        CREATE TEMP TABLE etl_f3_created_engagements ON COMMIT DROP AS
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x),
         claims AS (
           SELECT set_config('request.jwt.claims', json_build_object('sub',p.x->>'technicalAdminId','role','authenticated')::text,true) FROM p
         ), created AS (
-          SELECT src->>'sourceKey' source_key, e.engagement_id, e.engagement_code
+          SELECT src->>'sourceKey' source_key, src->>'legacyApprovalSource' legacy_approval_source, e.engagement_id, e.engagement_code
           FROM p CROSS JOIN claims
           CROSS JOIN LATERAL jsonb_array_elements(p.x->'engagements') src
           CROSS JOIN LATERAL public.create_engagement_with_code(
@@ -196,7 +212,34 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
             NULLIF(src->>'itSpecialistId','')::uuid, NULLIF(src->>'taxSpecialistId','')::uuid,
             NULLIF(src->>'contractFilePath',''), NULLIF(src->>'taxonomyId','')::uuid
           ) e
-        ) SELECT COALESCE(json_agg(json_build_object('sourceKey',source_key,'engagementId',engagement_id,'engagementCode',engagement_code) ORDER BY source_key),'[]'::json)::text FROM created;`, { technicalAdminId, engagements });
+        ) SELECT * FROM created;
+        -- Solo la conexión propietaria de la consola: no se agrega una RPC ni un permiso API.
+        -- Conserva todos los controles de creación authenticated; únicamente importa la aprobación ya existente.
+        RESET ROLE;
+        SELECT set_config('request.jwt.claims','{}',true);
+        UPDATE public.engagements e SET partner_approval_status='approved',
+          partner_approval_legacy_source=c.legacy_approval_source,
+          partner_approval_decided_by=NULL,partner_approval_decided_at=NULL,partner_approval_reason=NULL
+        FROM etl_f3_created_engagements c
+        WHERE e.engagement_id=c.engagement_id AND c.legacy_approval_source IS NOT NULL
+          AND e.funcion=0 AND NOT e.work_order_required AND e.partner_approval_status='pending'
+          AND NOT EXISTS (SELECT 1 FROM public.work_orders wo WHERE wo.engagement_id=e.engagement_id);
+        DO $guard$ BEGIN
+          IF EXISTS (SELECT 1 FROM etl_f3_created_engagements c JOIN public.engagements e USING (engagement_id)
+            WHERE c.legacy_approval_source IS NOT NULL AND
+              (e.partner_approval_status IS DISTINCT FROM 'approved' OR e.partner_approval_legacy_source IS DISTINCT FROM c.legacy_approval_source)) THEN
+            RAISE EXCEPTION 'ETL_F3_CONFLICT: aprobación administrativa no importada';
+          END IF;
+        END $guard$;
+        -- El alta normal pidió aprobación; para estos IDs recién creados la decisión ya existe en legacy.
+        -- Retirar ese pedido dentro de la misma transacción, antes de que sea visible o entregable.
+        DELETE FROM public.notification_emails n USING etl_f3_created_engagements c
+        WHERE c.legacy_approval_source IS NOT NULL AND n.entity_id=c.engagement_id::text
+          AND n.type_key='engagement.partner_approval_requested' AND n.status='pending';
+        DELETE FROM public.notifications n USING etl_f3_created_engagements c
+        WHERE c.legacy_approval_source IS NOT NULL AND n.entity_id=c.engagement_id::text
+          AND n.type_key='engagement.partner_approval_requested';
+        SELECT COALESCE(json_agg(json_build_object('sourceKey',source_key,'engagementId',engagement_id,'engagementCode',engagement_code) ORDER BY source_key),'[]'::json)::text FROM etl_f3_created_engagements;`, { technicalAdminId, engagements });
     },
     // Relectura por tupla completa y autor técnico. Una coincidencia por fuente es
     // recuperable; cero permite reintento y más de una nunca se "adopta".
@@ -221,6 +264,9 @@ export function createFase3DbAdapter({ env = process.env, execFileImpl } = {}) {
             AND e.specialist_it_id IS NOT DISTINCT FROM NULLIF(src->>'itSpecialistId','')::uuid AND e.specialist_tax_id IS NOT DISTINCT FROM NULLIF(src->>'taxSpecialistId','')::uuid
             AND e.contract_file_path IS NOT DISTINCT FROM NULLIF(src->>'contractFilePath','') AND e.taxonomy_id IS NOT DISTINCT FROM NULLIF(src->>'taxonomyId','')::uuid
             AND e.created_by_staff_id = actor.staff_id
+            AND (src->>'legacyApprovalSource' IS NULL OR
+              (e.partner_approval_status='approved' AND e.partner_approval_legacy_source=src->>'legacyApprovalSource'
+               AND e.partner_approval_decided_by IS NULL AND e.partner_approval_decided_at IS NULL))
           GROUP BY src
         ) SELECT json_build_object('actorStaffId',(SELECT staff_id FROM actor),'matches',COALESCE((SELECT json_agg(json_build_object('sourceKey',source_key,'engagements',engagements) ORDER BY source_key) FROM matched),'[]'::json))::text;`, { technicalAdminId, engagements }));
     },

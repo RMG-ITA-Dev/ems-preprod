@@ -83,6 +83,9 @@ describe("ETL fase 3: transformaciones", () => {
     expect(jauregui).toMatchObject({ clientId: "internal-rj", societyId: "rj", partnerId: "partner-rj", managerId: "mary", office: 1 });
     expect(() => buildAdministrativeEngagementPayloads([{ ...row, legacy_approver_profile_id: "999" }], engagementMaps)).toThrow(/aprobador administrativo/);
     expect(() => buildAdministrativeEngagementPayloads([row], { ...engagementMaps, societyKeyByStaffId: {} })).toThrow(/sociedad del socio/);
+    const [approved] = buildAdministrativeEngagementPayloads([row], engagementMaps, { approvalOrigin: "TimeControlDB_20261106_1600" });
+    expect(approved).toMatchObject({ legacyApprovalSource: "legacy:TimeControlDB_20261106_1600:2027.10.101", status: "active", workOrderRequired: false, approvalRequired: true });
+    expect(Object.keys(approved).filter(k => /decided|signed|approvedAt/i.test(k))).toEqual([]);
   });
   it("D26: el honorario de una OT en BOB es presupuestoHoras × TC de la OT (hacia arriba al centavo); en USD no cambia", () => {
     const bob = (fee: string, rate: string) => budgetInOtCurrency({ legacy_cot: "x", legacy_fee_with_tax: fee, legacy_currency_raw: "0", legacy_exchange_rate: rate });

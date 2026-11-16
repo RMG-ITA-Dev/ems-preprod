@@ -103,6 +103,9 @@ CREATE OR REPLACE FUNCTION public.effective_engagement_state(
     SET search_path TO 'public'
     AS $$
   SELECT CASE
+    WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1
+         AND p_partner_approval_status IS DISTINCT FROM 'approved' AND p_override IN (4, 5) THEN
+      CASE p_partner_approval_status WHEN 'rejected' THEN 8 ELSE 1 END
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
     WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1 THEN
       CASE p_partner_approval_status WHEN 'approved' THEN 4 WHEN 'rejected' THEN 8 ELSE 1 END

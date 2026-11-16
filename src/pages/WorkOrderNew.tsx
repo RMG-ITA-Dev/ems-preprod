@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { applyExchangeRateMode } from "@/lib/workOrderPaymentPlan";
+import { normalizeTaxRate } from "@/lib/taxRate";
 
 const WorkOrderNew = () => {
   const { t } = useTranslation();
@@ -78,7 +79,7 @@ const WorkOrderNew = () => {
 
   const woIsDirty = !!(selectedEngagementId || budgetLines.length > 0 || expenseBudget.length > 0);
   const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty: woIsDirty });
-  const taxRate = parseFloat(globalTaxRate || "0.16");
+  const taxRate = normalizeTaxRate(globalTaxRate);
 
   // Get list of engagement IDs that already have work orders
   const engagementsWithWorkOrders = workOrders?.map((wo) => wo.engagement_id) || [];

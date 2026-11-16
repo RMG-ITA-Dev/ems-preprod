@@ -59,6 +59,12 @@ const scenarios: Array<{
     wo: null,
     expected: DevEngagementState.Aprobado,
   },
+  ...[4, 5].flatMap(override => [null, "pending", "rejected"].map(status => ({
+    label: `no-Cliente sin OT ${status}, override ${override} no fabrica aprobación`,
+    engagement: { work_order_required: false, funcion: 0, partner_approval_status: status, engagement_state_override: override },
+    wo: null,
+    expected: status === "rejected" ? DevEngagementState.Rechazado : DevEngagementState.Pendiente,
+  }))),
   {
     label: "Socio aprobó, Riesgos pendiente → AprobadoSocio",
     engagement: woRequired,

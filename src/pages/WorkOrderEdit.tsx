@@ -63,6 +63,7 @@ import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import type { PaymentPlanInput, PaymentInstallmentInput } from "@/types/workOrderPaymentPlan";
 import { allocateInstallmentAmounts, applyExchangeRateMode, isPaymentPlanRestDirty } from "@/lib/workOrderPaymentPlan";
 import { grossCents } from "@/lib/paymentMath.mjs";
+import { normalizeTaxRate } from "@/lib/taxRate";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
@@ -213,7 +214,7 @@ const WorkOrderEdit = () => {
   const [originalAdjustment, setOriginalAdjustment] = useState(0);
   const [originalExpenseData, setOriginalExpenseData] = useState<ExpenseBudgetInput[]>([]);
 
-  const taxRate = parseFloat(globalTaxRate || "0.16");
+  const taxRate = normalizeTaxRate(globalTaxRate);
 
   // Load work order data
   useEffect(() => {
@@ -573,7 +574,7 @@ const WorkOrderEdit = () => {
       }
       const standard = budgetLines.reduce((sum, line) => sum + line.budgeted_hours * line.standard_rate, 0);
       const expenses = expenseBudget.reduce((sum, expense) => sum + expense.budgeted_amount, 0);
-      const gross = Number(grossCents((standard + adjustmentAmount + expenses).toFixed(4), (workOrder.tax_rate ?? taxRate).toFixed(4))) / 100;
+      const gross = Number(grossCents((standard + adjustmentAmount + expenses).toFixed(4), normalizeTaxRate(workOrder.tax_rate, taxRate).toFixed(4))) / 100;
       const budgetChanged = adjustmentAmount !== originalAdjustment || JSON.stringify(expenseBudget) !== JSON.stringify(originalExpenseData);
       if (budgetChanged && !allocateInstallmentAmounts(paymentInstallments, gross, currency, paymentPlan?.exchange_rate)) {
         toast.error(t("workOrders.paymentPlan.validationAllocation"));
@@ -1060,7 +1061,7 @@ const WorkOrderEdit = () => {
           approvalStatus={approvalStatus}
           approvedAt={workOrder.approved_at}
           adjustmentAmount={adjustmentAmount}
-          taxRate={workOrder.tax_rate ?? taxRate}
+          taxRate={normalizeTaxRate(workOrder.tax_rate, taxRate)}
           budgetLines={budgetLines}
           expenseBudget={expenseBudget}
           isNew={false}

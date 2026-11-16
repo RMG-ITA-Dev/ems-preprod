@@ -243,6 +243,8 @@ CREATE TRIGGER trg_check_engagement_dates BEFORE INSERT OR UPDATE ON public.time
 
 CREATE TRIGGER trg_check_wo_approved BEFORE INSERT OR UPDATE ON public.time_entries FOR EACH ROW EXECUTE FUNCTION public.check_wo_approved();
 
+CREATE TRIGGER trg_check_timer_engagement_approved BEFORE INSERT OR UPDATE OF engagement_id, started_at ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.check_wo_approved();
+
 
 --
 --

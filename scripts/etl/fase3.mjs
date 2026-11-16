@@ -141,7 +141,7 @@ export async function prepareEngagementPayloads(ctx, inputs) {
     maps,
     f2Journal: f2.journalFile,
     clientEngagements,
-    administrativeEngagements: buildAdministrativeEngagementPayloads(inputs.administrativeEngagements, maps),
+    administrativeEngagements: buildAdministrativeEngagementPayloads(inputs.administrativeEngagements, maps, { approvalOrigin: manifestOrigin(ctx.config.manifest) }),
   });
 }
 const MATRIX_PRACTICE = Object.freeze({ AUD: 1, COM: 2, TAX: 3 });
@@ -364,6 +364,7 @@ export async function validate(ctx) {
   requireState(ctx, "VALIDADO"); checkpoint(ctx, { inputs: inputs.fingerprints, evidence }); ctx.inputs = inputs; return { ok: true, inputs, matrix, executions, evidence };
 }
 export async function preflight(ctx) { const result = await validate(ctx); const target = await ctx.db.preflight(ctx.config); if (!target.engagement_rpc || !target.sync_rpc || !target.note_rpc) throw new Fase1Error("BLOQUEADO", "contrato RPC F3 incompleto");
+  if (target.administrative_approval_contract !== true) throw new Fase1Error("BLOQUEADO", "falta el contrato de administrativos aprobados legacy sin OT; el esquema debe actualizarse desde cero (no reanudar lt01)");
   if (historyContract(ctx.config.manifest) && target.history_import_fn !== true) throw new Fase1Error("BLOQUEADO", "contrato D41: falta public.import_historic_timesheets en el destino (cero_02 con D41)"); if (target.technical_admin_ok !== true) throw new Fase1Error("BLOQUEADO", "technicalAdminId no es el administrador bootstrap (ficha enlazada con rol admin/admin)"); const inventory = await ctx.db.inventory(); requireState(ctx, "PREFLIGHT_VALIDADO"); checkpoint(ctx, { inventory }); return { ...result, target, inventory }; }
 const previousBlock = (block) => ({ "client-engagements": null, "administrative-engagements": "client-engagements", matrices: "administrative-engagements", "work-orders": "matrices", hours: "work-orders" })[block];
 export function acceptBlock(ctx, block, evidenceHash) {

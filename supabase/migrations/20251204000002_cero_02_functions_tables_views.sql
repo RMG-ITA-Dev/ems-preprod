@@ -745,15 +745,35 @@ DECLARE
   v_override    smallint;
   v_end         date;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
+  v_start date;
+  v_timer_date date;
 BEGIN
-  SELECT work_order_required, engagement_state_override, end_date, funcion
-    INTO v_wo_required, v_override, v_end, v_funcion
+  SELECT work_order_required, engagement_state_override, end_date, funcion, partner_approval_status, status, start_date
+    INTO v_wo_required, v_override, v_end, v_funcion, v_partner_approval, v_status, v_start
   FROM engagements WHERE engagement_id = NEW.engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un encargo Administrativa/Capacitación/Calidad SIN OT no carga horas, ni con override
-  -- Aprobado. Va antes de todo atajo (override 4/5, "sin OT = aprobado").
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'Cannot log time: un encargo Administrativa, Capacitacion o Calidad sin OT no admite horas';
+  -- El nuevo control de timers se limita a no-Cliente sin OT; los demás conservan su flujo.
+  IF TG_TABLE_NAME = 'timer_entries' AND (COALESCE(v_funcion, 1) = 1 OR v_wo_required) THEN
+    RETURN NEW;
+  END IF;
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement status does not allow logging';
+  END IF;
+  -- Tracker/manual timer: misma elegibilidad al crear o cambiar de encargo/fecha.
+  -- Parar un timer existente sigue permitido; su exportación vuelve a validar time_entries.
+  IF TG_TABLE_NAME = 'timer_entries' THEN
+    v_timer_date := (NEW.started_at AT TIME ZONE 'America/La_Paz')::date;
+    IF v_timer_date < v_start OR v_timer_date > v_end THEN
+      RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE: timer outside engagement dates';
+    END IF;
+  END IF;
+  -- Sin OT, el no-Cliente necesita la aprobación real del Socio sobre el encargo.
+  -- Se evalúa ANTES de los overrides: 4/5 y Finalizado no sustituyen esa decisión.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement partner approval does not allow logging';
   END IF;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
@@ -1033,6 +1053,12 @@ CREATE TABLE public.engagements (
     partner_approval_decided_by uuid,
     partner_approval_decided_at timestamp with time zone,
     partner_approval_reason text,
+    -- Aprobación ya existente en legacy, importada por el propietario del ETL. No es una firma en EMS.
+    partner_approval_legacy_source text,
+    CONSTRAINT chk_engagements_legacy_approval CHECK (partner_approval_legacy_source IS NULL OR
+      (partner_approval_status IS NOT DISTINCT FROM 'approved' AND funcion IS NOT DISTINCT FROM 0 AND work_order_required IS FALSE
+       AND partner_approval_decided_by IS NULL AND partner_approval_decided_at IS NULL
+       AND partner_approval_reason IS NULL AND partner_approval_legacy_source ~ '^legacy:[A-Za-z0-9_]+:[0-9]{4}\.[0-9]+\.[0-9]+$')),
     CONSTRAINT chk_engagements_partner_approval_status CHECK (((partner_approval_status IS NULL) OR (partner_approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))),
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
@@ -1833,6 +1859,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
     RETURN NEW;
   END IF;
 
@@ -1852,7 +1879,8 @@ BEGIN
      AND (NEW.partner_approval_status     IS DISTINCT FROM OLD.partner_approval_status
        OR NEW.partner_approval_decided_by IS DISTINCT FROM OLD.partner_approval_decided_by
        OR NEW.partner_approval_decided_at IS DISTINCT FROM OLD.partner_approval_decided_at
-       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason) THEN
+       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason
+       OR NEW.partner_approval_legacy_source IS DISTINCT FROM OLD.partner_approval_legacy_source) THEN
     RAISE EXCEPTION 'FORBIDDEN: la aprobación del Socio solo cambia por sus acciones de aprobar, rechazar o reenviar'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -1890,6 +1918,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
   ELSIF NEW.partner_approval_status IS NULL THEN
     NEW.partner_approval_status := 'pending';
   END IF;
@@ -2763,13 +2792,20 @@ DECLARE
   v_approval    text;
   v_risk        text;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
 BEGIN
-  SELECT e.engagement_state_override, e.work_order_required, e.funcion
-    INTO v_override, v_wo_required, v_funcion
+  SELECT e.engagement_state_override, e.work_order_required, e.funcion, e.partner_approval_status, e.status
+    INTO v_override, v_wo_required, v_funcion, v_partner_approval, v_status
   FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no admite horas ni solicitudes (fondos exige OT).
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RETURN false;
+  END IF;
+  -- Horas sin OT: firma del Socio obligatoria, incluso con override 4/5.
+  -- Fondos además exige una OT real aprobada en fr_wo_validate_approved/submit_fund_request.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
     RETURN false;
   END IF;
 
@@ -2777,7 +2813,7 @@ BEGIN
   IF v_override IS NOT NULL THEN
     RETURN v_override IN (4, 5);
   END IF;
-  -- Administrativo (sin OT) = Aprobado.
+  -- Sin OT: Cliente conserva su regla; no-Cliente ya pasó el control de firma.
   IF v_wo_required = false THEN
     RETURN true;
   END IF;
@@ -2833,6 +2869,13 @@ CREATE FUNCTION public.engagement_is_approved_state(p_engagement_id uuid, p_over
     SET search_path TO 'public'
     AS $$
 BEGIN
+  -- Un override Aprobado no fabrica la firma de un no-Cliente sin OT.
+  IF p_wo_required = false AND EXISTS (
+    SELECT 1 FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+      AND COALESCE(e.funcion, 1) <> 1 AND e.partner_approval_status IS DISTINCT FROM 'approved'
+  ) THEN
+    RETURN false;
+  END IF;
   -- Override manual gana: solo el 4 (Aprobado) cuenta como aprobado.
   IF p_override IS NOT NULL THEN
     RETURN p_override = 4;
@@ -3403,7 +3446,9 @@ BEGIN
 
   -- FEAT 0602-135: el estado efectivo del encargo debe admitir solicitudes (4/5). Bloquea
   -- Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) y overrides no-cargables.
-  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id) THEN
+  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id)
+     OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=v_engagement_id
+                     AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)) THEN
     RAISE EXCEPTION 'El encargo no admite solicitudes de fondos en su estado actual';
   END IF;
 
@@ -4749,7 +4794,9 @@ BEGIN
     FROM public.fund_request_work_orders frwo
     JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
     WHERE frwo.fund_request_id = p_fund_request_id
-      AND NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+      AND (NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+           OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=wo.engagement_id
+                           AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)))
   ) THEN
     RAISE EXCEPTION 'Una o más OTs pertenecen a un encargo que ya no admite solicitudes (congelado/finalizado/cancelado)';
   END IF;
@@ -8753,6 +8800,7 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
   WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id)
+         AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)
          -- Alcance por sociedad (2026-10-28): solo OT de la sociedad de quien pide (regla de armado de solicitudes).
          AND (e.society_id = public.my_society_id())
          -- BUG 0923-202: OT de cliente solo para su equipo o sus asignados; las administrativas y el admin, como antes.

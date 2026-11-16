@@ -10,6 +10,7 @@ export interface PartnerApprovalTarget {
   partner_id: string | null;
   created_by_staff_id?: string | null;
   partner_approval_status?: string | null;
+  partner_approval_legacy_source?: string | null;
 }
 
 /** ¿El encargo pide la firma del Socio sobre el encargo mismo (no-Cliente sin OT)? Con OT, firma la OT. */

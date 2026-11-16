@@ -107,6 +107,7 @@ export function compareLegacyControls(expected, actual) {
   const toMap = (pairs) => new Map((pairs ?? []).map(([key, value]) => [key, decimalUnits(String(value))]));
   rows.push(eq("L1a", "encargos cliente en la base (por identidad del journal)", expected.clientEngagements, actual.clientEngagements));
   rows.push(eq("L1b", "encargos administrativos en la base", expected.administrativeEngagements, actual.administrativeEngagements));
+  rows.push(eq("L1c", "administrativos aprobados legacy sin OT ni firma EMS", expected.administrativeEngagements, actual.administrativeApproved));
   rows.push(eq("L3", "horas presupuestadas en matrices", formatUnits(expected.planHoursUnits), units(actual.matrixHours)));
   // L4: el nivel de riesgo de cada OT cargada es el que traduce su código legacy (por COT; nulo en la base cuenta como diferencia).
   const riskActual = new Map((actual.riskLevelByWo ?? []).map(([wo, level]) => [actual.cotByWo[wo], level]));

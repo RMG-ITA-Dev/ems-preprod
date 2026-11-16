@@ -56,6 +56,7 @@ import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
 import { grossCents } from "@/lib/paymentMath.mjs";
+import { normalizeTaxRate } from "@/lib/taxRate";
 import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import {
   isEmergencyTrack,
@@ -388,7 +389,7 @@ export function WorkOrderForm({
   approvalStatus,
   approvedAt,
   adjustmentAmount,
-  taxRate,
+  taxRate: rawTaxRate,
   budgetLines,
   expenseBudget,
   ceacCompletedAt,
@@ -523,6 +524,8 @@ export function WorkOrderForm({
     return expenseBudget.reduce((sum, exp) => sum + exp.budgeted_amount, 0);
   }, [expenseBudget]);
 
+  // R403-10: una tasa inválida (≥ 100 % o no numérica) cae al valor por defecto en vez de romper el renderizado.
+  const taxRate = normalizeTaxRate(rawTaxRate);
   const totalBeforeTax = totalAdjustedFee + totalExpenses;
   const feeWithTax = Number(grossCents(totalBeforeTax.toFixed(4), taxRate.toFixed(4))) / 100;
 

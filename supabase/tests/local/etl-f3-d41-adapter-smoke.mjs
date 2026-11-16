@@ -4,6 +4,7 @@
 import { createFase3DbAdapter } from "../../../scripts/etl/fase3-db.mjs";
 import { buildHistoryBlueprint, historyPayload } from "../../../scripts/etl/fase3-history.mjs";
 import { buildFingerprint } from "../../../scripts/etl/fase3-fingerprint.mjs";
+import { buildAdministrativeEngagementPayloads } from "../../../scripts/etl/fase3-transform.mjs";
 
 const fail = (message) => { console.error(`FAIL (adaptador D41): ${message}`); process.exit(1); };
 const check = (condition, message) => { if (!condition) fail(message); };
@@ -65,3 +66,36 @@ let repeated = null; try { await db.createHistoricTimesheets({ batch: BATCH, ...
 check(repeated, "repetir el lote debe fallar");
 check((await db.historySnapshot({ periodIds, approvalIds, batch: BATCH })).periods.length === 2, "tras el rechazo siguen exactamente los 2 períodos");
 console.log("ADAPTADOR D41: consultas nuevas verificadas contra el esquema real");
+
+// Misma conexión propietaria y mismo adaptador real que F3; creación authenticated y aprobación importada atómicas.
+const society = catalog.societies.find(s => s.name === "Ruizmier Pelaez S.R.L.");
+const partner = "5e410000-0000-4000-8000-000000000004";
+const manager = "5e410000-0000-4000-8000-000000000003";
+const technicalAdminId = "ae410000-0000-4000-8000-000000000005";
+const adminCot = "2027.10.998";
+const [admin] = buildAdministrativeEngagementPayloads([{ legacy_cot: adminCot, legacy_engagement_name: "Administrative adapter test", legacy_partner_profile_id: "4", legacy_approver_profile_id: "3", legacy_created_date: "2026-09-28" }], {
+  staff: { "legacy:4": partner, "legacy:3": manager }, societyKeyByStaffId: { [partner]: "Pelaez" }, officeByStaffId: { [partner]: 1 },
+  societies: { Pelaez: society.id }, internalClients: { Pelaez: "c1000000-0000-4000-8000-000000000160" },
+}, { approvalOrigin: "TimeControlDB_20261106_1600" });
+const preflight = await db.preflight({ environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", technicalAdminId });
+check(preflight.administrative_approval_contract === true && preflight.technical_admin_ok === true, "preflight reconoce el esquema actualizado y el actor técnico");
+const adminCreated = await db.createEngagements({ technicalAdminId, engagements: [admin] });
+check(adminCreated.length === 1, "createEngagements administrativo");
+const adminId = adminCreated[0].engagementId;
+const adminMatches = await db.findEngagementMatches({ technicalAdminId, engagements: [admin] });
+check(adminMatches.matches[0].engagements[0]?.engagementId === adminId, "relectura exige aprobación legacy exacta sin firma/fecha EMS");
+const adminSnap = await db.legacySnapshot({ engagementIds: [ENG, adminId], adminEngagementIds: [adminId], worksheetIds: [DUMMY], woIds: [DUMMY], batch: BATCH });
+check(Number(adminSnap.administrativeApproved) === 1, "L1c cuenta el administrativo aprobado sin OT ni firma EMS");
+const adminFp = await db.fingerprintSnapshot({ engagements: [{ sourceKey: adminCot, engagementId: adminId, kind: "administrative" }], expectedCount: 1 });
+check(adminFp.administrative.length === 1, "huella administrativa con procedencia (solo en memoria, sin registrar L9)");
+
+// Una falla posterior a un primer alta revierte el lote entero, incluida su aprobación.
+const rollbackAdmin = { ...admin, name: "Administrative rollback test", sourceKey: "2027.10.997", legacyApprovalSource: "legacy:TimeControlDB_20261106_1600:2027.10.997" };
+let failedBatch = false;
+try {
+  await db.createEngagements({ technicalAdminId, engagements: [rollbackAdmin, { ...rollbackAdmin, name: "Invalid manager test", managerId: S1 }] });
+} catch { failedBatch = true; }
+check(failedBatch, "el control de manager_id original sigue vigente");
+const rolledBack = await db.findEngagementMatches({ technicalAdminId, engagements: [rollbackAdmin] });
+check(rolledBack.matches[0].engagements.length === 0, "el lote fallido no deja altas ni aprobaciones parciales");
+console.log("ADAPTADOR ADMINISTRATIVOS: aprobación legacy sin OT, procedencia, relectura y atomicidad verificadas");

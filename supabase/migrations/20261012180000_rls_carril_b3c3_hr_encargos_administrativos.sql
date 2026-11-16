@@ -91,6 +91,7 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
         'funcion',                    e.funcion,
         'partner_approval_status',    e.partner_approval_status,  -- 1110-220 plan_v5: estado de un no-Cliente sin OT
         'partner_approval_reason',    e.partner_approval_reason,
+        'partner_approval_legacy_source', e.partner_approval_legacy_source,
         'fecha_cierre',               e.fecha_cierre,
         'anio_fiscal_override',       e.anio_fiscal_override,
         'sqr_id',                     e.sqr_id,

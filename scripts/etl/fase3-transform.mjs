@@ -47,12 +47,14 @@ export function buildClientEngagementPayloads(rows, maps, { endDates } = {}) {
 }
 
 // D12/D22/D27: la sociedad y el cliente interno salen del socio (Pelaez o Jauregui); el equipo es socio + gerente (el aprobador legacy).
-export function buildAdministrativeEngagementPayloads(rows, maps) {
+export function buildAdministrativeEngagementPayloads(rows, maps, { approvalOrigin = null } = {}) {
+  if (approvalOrigin !== null && !/^[A-Za-z0-9_]+$/.test(approvalOrigin)) throw new Error("origen de aprobación administrativa inválido");
   return rows.map((row) => {
     const partner = required(maps.staff[`legacy:${aliasProfile(row.legacy_partner_profile_id)}`], `socio administrativo ${row.legacy_partner_profile_id}`);
     const manager = required(maps.staff[`legacy:${aliasProfile(row.legacy_approver_profile_id)}`], `aprobador administrativo ${row.legacy_approver_profile_id}`);
     const societyKey = required(maps.societyKeyByStaffId?.[partner], `sociedad del socio ${row.legacy_partner_profile_id}`);
-    return { sourceKey: row.legacy_cot, name: required(String(row.legacy_engagement_name).trim(), `nombre administrativo ${row.legacy_cot}`), clientId: required(maps.internalClients?.[societyKey], `cliente interno ${societyKey}`), partnerId: partner,
+    // Decisión 16/11: ya aprobados en legacy; no inventar firmante ni fecha EMS. La procedencia integra el hash durable.
+    return { sourceKey: row.legacy_cot, ...(approvalOrigin ? { legacyApprovalSource: `legacy:${approvalOrigin}:${row.legacy_cot}` } : {}), name: required(String(row.legacy_engagement_name).trim(), `nombre administrativo ${row.legacy_cot}`), clientId: required(maps.internalClients?.[societyKey], `cliente interno ${societyKey}`), partnerId: partner,
       managerId: manager, sqrId: null, encargadoId: null, itSpecialistId: null, taxSpecialistId: null, startDate: String(row.legacy_created_date), endDate: "2027-09-30", closingDate: "2027-09-30", status: "active", office: required(maps.officeByStaffId[partner], `oficina socio ${row.legacy_partner_profile_id}`), practice: 0, function: 0, fiscalYear: 2027,
       workOrderRequired: false, activityRequired: false, internal: true, approvalRequired: true, fiscalOverride: false, societyId: required(maps.societies[societyKey], `sociedad ${societyKey}`), taxonomyId: null, contractFilePath: null };
   });

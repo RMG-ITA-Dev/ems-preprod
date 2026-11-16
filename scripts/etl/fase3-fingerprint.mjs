@@ -4,7 +4,8 @@
 // las claves son COT, NIT/razón social o el hash del correo, y los valores son hashes.
 import { createHash } from "node:crypto";
 
-export const FINGERPRINT_VERSION = 1;
+// v2: incluye aprobación administrativa legacy y ausencia de firma/fecha EMS. No reinterpreta L9 anteriores.
+export const FINGERPRINT_VERSION = 2;
 // `periods` y `lines` (D41 Parte I): períodos cerrados de horas históricas y sus líneas aprobadas, por clave natural. Vacíos con el contrato anterior (períodos NULL).
 export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "periods", "lines", "hoursByStaff", "emailQueue"]);
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
@@ -40,6 +41,7 @@ export class FingerprintIncompatibleError extends Error {
 
 // L9 solo tiene sentido entre cargas del MISMO respaldo legacy. Se exige que las dos huellas declaren su snapshot y que coincidan; nunca se omite la comparación en silencio.
 export function assertComparableFingerprints(a, b, { labelA = "A", labelB = "B" } = {}) {
+  if (a?.version !== FINGERPRINT_VERSION || b?.version !== FINGERPRINT_VERSION) throw new FingerprintIncompatibleError("versión de huella incompatible: la aprobación administrativa legacy requiere una corrida nueva; no sobrescribir L9 anteriores");
   const snapshotOf = (fingerprint, label) => {
     const name = fingerprint?.source?.snapshot;
     if (typeof name !== "string" || !name) throw new FingerprintIncompatibleError(`la huella ${label} no declara el snapshot del que salió (es anterior a esta versión de la consola, por ejemplo el ensayo v2 del 23/10): no se compara contra ella; registre una huella nueva del ensayo local`);

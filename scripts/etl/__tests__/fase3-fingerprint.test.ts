@@ -39,6 +39,7 @@ describe("ETL fase 3: huella L9 por clave natural", () => {
     expect(result.ok).toBe(true);
     expect(result.a.installationId).toBe("f3-local"); expect(result.b.environment).toBe("test");
     expect(() => compareFingerprints({ ...build(), version: 99 }, build())).toThrow(/versión/);
+    expect(() => assertComparableFingerprints({ ...build(), version: 1 }, build())).toThrow(/no sobrescribir L9/);
   });
   // Revisión independiente (12/11/2026): una huella del ensayo v2 no debe compararse con una carga v3, ni omitirse la comparación en silencio.
   describe("compatibilidad del baseline (snapshot de origen)", () => {

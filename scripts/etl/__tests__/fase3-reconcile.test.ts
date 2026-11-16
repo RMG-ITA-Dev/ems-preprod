@@ -46,7 +46,7 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     expect(expected.hoursByCot.get("C1")).toBe(1600n); expect(expected.hoursByStaff.get("staff-7")).toBe(1600n); expect(expected.hoursByStaff.get("staff-8")).toBe(450n);
   });
   const actualFor = (expected: ReturnType<typeof legacyExpectations>) => ({
-    clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55", expensesByCurrency: [["USD", "100.25"], ["BOB", "70.30"]],
+    clientEngagements: 2, administrativeEngagements: 1, administrativeApproved: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55", expensesByCurrency: [["USD", "100.25"], ["BOB", "70.30"]],
     expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, installmentsInvoiced: 0, installmentsPending: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
     hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]],
     entriesCount: 3, holidayEntries: 1, holidayHours: "8", periods: 0, lineApprovals: 0, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
@@ -103,11 +103,11 @@ describe("ETL fase 3: reconciliación contra el legacy", () => {
     expect(missing.rows.filter((row) => !row.ok).map((row) => row.id)).toEqual(["L4"]);
   });
   // Revisión independiente (12/11/2026): las horas se comparan en L7a–L7d; L7e y L7f comparan el NÚMERO de entradas, que no es el de filas fuente.
-  it("el número de controles del contrato anterior es 25: los 24 de antes con L5b separado por moneda (L5b1 USD y L5b2 BOB)", () => {
+  it("el número de controles del contrato anterior es 26: los 24 de antes con L5b separado por moneda (L5b1 USD y L5b2 BOB)", () => {
     const expected = legacyExpectations(base);
     const { rows } = compareLegacyControls(expected, actualFor(expected));
-    expect(rows).toHaveLength(25);
-    expect(rows.map((row) => row.id)).toEqual(["L1a", "L1b", "L3", "L4", "L5a", "L5b1", "L5b2", "L5c", "L6a", "L6b", "L6c", "L6e", "L6f", "L6d", "L7a", "L7b", "L7c", "L7d", "L7e", "L7f", "L8a", "L8b", "L8c", "L8d", "L8e"]);
+    expect(rows).toHaveLength(26);
+    expect(rows.map((row) => row.id)).toEqual(["L1a", "L1b", "L1c", "L3", "L4", "L5a", "L5b1", "L5b2", "L5c", "L6a", "L6b", "L6c", "L6e", "L6f", "L6d", "L7a", "L7b", "L7c", "L7d", "L7e", "L7f", "L8a", "L8b", "L8c", "L8d", "L8e"]);
   });
   it("las entradas esperadas son una por persona, OT, actividad y día, y Gerente y Supervisor se reparten 30/70 en dos", () => {
     const expected = legacyExpectations(base);
@@ -143,7 +143,7 @@ describe("ETL fase 3: conciliación del contrato D41 (horas aprobadas dentro de 
   ]);
   const expected = legacyExpectations({ ...base, history: { batch: BATCH, approvalByExecution: approvals } });
   const d41Actual = (overrides: Record<string, unknown> = {}) => ({
-    clientEngagements: 2, administrativeEngagements: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55", expensesByCurrency: [["USD", "100.25"], ["BOB", "70.30"]],
+    clientEngagements: 2, administrativeEngagements: 1, administrativeApproved: 1, matrixHours: "14.50", expensesCount: 2, expensesAmount: "170.55", expensesByCurrency: [["USD", "100.25"], ["BOB", "70.30"]],
     expenseByWo: [["wo1", "100.25"], ["wo2", "70.30"]], plans: 2, installments: 2, installmentsInvoiced: 0, installmentsPending: 2, notes: 1, installmentSumByWo: [["wo1", "1000"], ["wo2", "500.50"]], riskLevelByWo: [["wo1", "Bajo"], ["wo2", "Moderado"]],
     hoursTotal: "20.50", hoursByEngagement: [["e1", "16"], ["e2", "4.5"]], hoursByStaff: [["staff-7", "16"], ["staff-8", "4.5"]], entriesCount: 3, holidayEntries: 1, holidayHours: "8", periods: 2, lineApprovals: 2, historicWithPeriodOrForecast: 0, emailsSent: 0, emailsClaimable: 0,
     cotByWo: { wo1: "C1", wo2: "C2" }, cotByEngagement: { e1: "C1", e2: "C2" },
@@ -163,10 +163,10 @@ describe("ETL fase 3: conciliación del contrato D41 (horas aprobadas dentro de 
     expect(expected.history.lineHours.get("staff-8|2026-06-01|C2|AUD-A3")).toBe(450n);
     expect(legacyExpectations(base).history).toBeNull(); // sin contrato D41 no hay historia esperada
   });
-  it("con el contrato D41 son 28 controles (L8a-c reemplazados y L8f, L8g, L8h nuevos) y todos pasan cuando la base coincide", () => {
+  it("con el contrato D41 son 29 controles (L8a-c reemplazados y L8f, L8g, L8h nuevos) y todos pasan cuando la base coincide", () => {
     const { ok, rows } = compareLegacyControls(expected, d41Actual());
-    expect(rows.map((row) => row.id)).toEqual(["L1a", "L1b", "L3", "L4", "L5a", "L5b1", "L5b2", "L5c", "L6a", "L6b", "L6c", "L6e", "L6f", "L6d", "L7a", "L7b", "L7c", "L7d", "L7e", "L7f", "L8a", "L8b", "L8c", "L8f", "L8g", "L8h", "L8d", "L8e"]);
-    expect(rows).toHaveLength(28); expect(ok).toBe(true);
+    expect(rows.map((row) => row.id)).toEqual(["L1a", "L1b", "L1c", "L3", "L4", "L5a", "L5b1", "L5b2", "L5c", "L6a", "L6b", "L6c", "L6e", "L6f", "L6d", "L7a", "L7b", "L7c", "L7d", "L7e", "L7f", "L8a", "L8b", "L8c", "L8f", "L8g", "L8h", "L8d", "L8e"]);
+    expect(rows).toHaveLength(29); expect(ok).toBe(true);
   });
   it("L8a falla ante un total, una semana fiscal o un año distintos, o un período que falta o sobra", () => {
     const periods = d41Actual().histPeriods;

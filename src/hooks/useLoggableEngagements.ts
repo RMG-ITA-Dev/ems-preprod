@@ -25,6 +25,7 @@ export interface LoggableEngagement {
   start_date: string | null;
   end_date: string | null;
   engagement_state_override?: number | null;
+  partner_approval_status?: string | null;
   client: {
     client_id: string;
     client_legal_name: string;
@@ -43,6 +44,7 @@ interface LoggableEngagementRow {
   start_date: string | null;
   end_date: string | null;
   engagement_state_override: number | null;
+  partner_approval_status?: string | null;
   client_id: string | null;
   client_legal_name: string | null;
 }
@@ -60,6 +62,7 @@ function toLoggableEngagement(row: LoggableEngagementRow): LoggableEngagement {
     start_date: row.start_date,
     end_date: row.end_date,
     engagement_state_override: row.engagement_state_override,
+    partner_approval_status: row.partner_approval_status,
     client: row.client_id
       ? { client_id: row.client_id, client_legal_name: row.client_legal_name ?? "" }
       : null,
@@ -72,6 +75,9 @@ function toLoggableEngagement(row: LoggableEngagementRow): LoggableEngagement {
 // BUG 1028-217: con fecha de referencia, un Finalizado (7) sigue siendo cargable si su fin cae
 // en esa fecha o después -- la fecha manda, no el estado (mismo criterio que el RPC).
 function isLoggable(e: LoggableEngagement, refDate?: string): boolean {
+  if (!e.work_order_required && e.funcion != null && e.funcion !== 1 && e.partner_approval_status !== "approved") {
+    return false;
+  }
   const override = e.engagement_state_override;
   if (override == null || canLogHours(override as EngagementState)) return true;
   return (
@@ -93,8 +99,6 @@ export interface UseLoggableEngagementsOptions {
    * Tracker, Carga Manual, Edición). La Hoja de Tiempo no lo usa: recorta por semana en la grilla.
    */
   onlyCoveringRefDate?: boolean;
-  /** Tracker: excluye encargos internos/administrativos de la lista. */
-  excludeInternal?: boolean;
   enabled?: boolean;
   staleTime?: number;
 }
@@ -109,7 +113,7 @@ export function useLoggableEngagements(
   queryKey: readonly unknown[],
   options: UseLoggableEngagementsOptions = {},
 ) {
-  const { refDate, onlyCoveringRefDate = false, excludeInternal = false, enabled = true, staleTime } = options;
+  const { refDate, onlyCoveringRefDate = false, enabled = true, staleTime } = options;
 
   return useQuery({
     queryKey,
@@ -123,9 +127,6 @@ export function useLoggableEngagements(
       let engagements = rows.map(toLoggableEngagement).filter((e) => isLoggable(e, refDate));
       if (onlyCoveringRefDate && refDate) {
         engagements = engagements.filter((e) => engagementCoversDate(e, refDate));
-      }
-      if (excludeInternal) {
-        engagements = engagements.filter((e) => !e.is_internal);
       }
       return engagements;
     },

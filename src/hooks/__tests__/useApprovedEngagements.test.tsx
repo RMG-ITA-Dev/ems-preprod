@@ -67,8 +67,15 @@ describe("useApprovedEngagements", () => {
     expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements");
   });
 
-  it("excludes internal engagements (Tracker-only)", async () => {
-    setupMocks([makeRow({ engagement_id: "eng-internal", is_internal: true })]);
+  it("includes approved administrative engagements without a WO", async () => {
+    setupMocks([makeRow({ engagement_id: "eng-internal", is_internal: true, funcion: 0, work_order_required: false, partner_approval_status: "approved" })]);
+    const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.map(e => e.engagement_id)).toEqual(["eng-internal"]);
+  });
+
+  it.each([null, "pending", "rejected"])("excludes unsigned administrative engagements (%s), even with approval overrides", async (status) => {
+    setupMocks([4, 5, null].map(override => makeRow({ is_internal: true, funcion: 0, work_order_required: false, partner_approval_status: status, engagement_state_override: override })));
     const { result } = renderHook(() => useApprovedEngagements(), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
@@ -126,7 +133,7 @@ describe("useApprovedEngagements", () => {
     const { result } = renderHook(() => useApprovedEngagements(REF), { wrapper: createWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(mockRpc).toHaveBeenCalledWith("list_loggable_engagements", { p_ref_date: REF });
-    expect(result.current.data!.map((e) => e.engagement_id)).toEqual(["eng-fin"]);
+    expect(result.current.data!.map((e) => e.engagement_id)).toEqual(["eng-fin", "eng-internal"]);
   });
 
   it("surfaces RPC errors", async () => {

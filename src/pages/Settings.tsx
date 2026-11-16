@@ -80,6 +80,7 @@ import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { AUTH_MODE_SETTING_KEY } from "@/lib/authMode";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
+import { isValidTaxRate } from "@/lib/taxRate";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { useIsMobile } from "@/hooks/useMobile";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
@@ -858,6 +859,15 @@ const Settings = () => {
         }
         if (val.toString() !== (getSetting("TS_ALERT_WINDOW_WEEKS") || "4")) {
           alertWindowValue = val.toString();
+        }
+      }
+
+      // R403-10: la tasa de impuestos debe estar en [0, 100) %: con 100 % o más el divisor 1 − tasa no existe y las OT dejarían de abrir.
+      if (taxRate) {
+        const taxRatePercent = parseFloat(taxRate);
+        if (!isValidTaxRate(taxRatePercent / 100)) {
+          toast.error(t("settings.taxRateRangeError"));
+          return;
         }
       }
 
