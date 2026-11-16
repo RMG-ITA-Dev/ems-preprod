@@ -902,7 +902,7 @@
     "selectHoursApprover": "Select hours approver",
     "hoursApproverRole": "Hours approver role",
     "selectHoursApproverRole": "Select role",
-    "hoursApproverHelp": "Choose the role first. Only people from the engagement's society. Approves hours and fund requests; does not edit the engagement.",
+    "hoursApproverHelp": "Choose the role first. Can be from any society; only Accounting roles must be from the engagement's society. Approves hours and fund requests; does not edit the engagement.",
     "hoursApproverLoadError": "Could not load the hours approver candidates. Please try again.",
     "selfAssignedLocked": "Automatically assigned based on your role.",
     "sqr": "SQR (Quality Review Partner)",

@@ -168,7 +168,7 @@ export function writeWorkbook(data, meta, path) {
   const o = observaciones; let r = 1;
   obs.getCell(r, 1).value = "Observaciones al plan de pagos para Contabilidad"; obs.getCell(r, 1).font = { bold: true, size: 14, color: { argb: `FF${COLORS.cuota}` } }; r += 1;
   obs.getCell(r, 1).value = `Ninguna impide la migración: los planes se cargan como están en el sistema anterior. Cifras al ${formatDate(meta.overdueReference)}; ${o.cuotasTotales} cuotas facturables.`; r += 2;
-  ["Observación", "Cuotas", "OT", "Qué se pide"].forEach((text, index) => styleHeader(obs.getCell(r, index + 1), COLORS.cuota)); r += 1;
+  ["Observación", "Cuotas", "OT", "Qué se pide"].forEach((text, index) => { const cell = obs.getCell(r, index + 1); cell.value = text; styleHeader(cell, COLORS.cuota); }); r += 1;
   const rows = [
     ["1. Fechas de factura atípicas", o.fechasAtipicas.cuotas, o.fechasAtipicas.ot, "Revisar con el gerente de cada OT. Se conservan tal cual; cualquier corrección se hace después en el EMS."],
     ["    · orden roto (anterior a la cuota previa)", o.fechasAtipicas.ordenRoto.cuotas, o.fechasAtipicas.ordenRoto.ot, ""],

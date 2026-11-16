@@ -902,7 +902,7 @@
     "selectHoursApprover": "Seleccionar Aprobador de horas",
     "hoursApproverRole": "Rol del Aprobador de horas",
     "selectHoursApproverRole": "Seleccionar rol",
-    "hoursApproverHelp": "Elija primero el rol. Solo personas de la sociedad del encargo. Aprueba horas y solicitudes de fondos; no edita el encargo.",
+    "hoursApproverHelp": "Elija primero el rol. Puede ser de cualquier sociedad; solo los roles de Contabilidad deben ser de la sociedad del encargo. Aprueba horas y solicitudes de fondos; no edita el encargo.",
     "hoursApproverLoadError": "No se pudieron cargar los candidatos a Aprobador de horas. Intente de nuevo.",
     "selfAssignedLocked": "Se te asignó automáticamente",
     "sqr": "SQR (Socio de Control de Calidad)",

@@ -128,6 +128,11 @@ describe("reportes Legacy ↔ EMS: libro xlsx", () => {
       expect(otSheet.getCell(3, totalColumn).value).toBe(91100);
       expect((otSheet.getCell(3, deltaColumn).value as { formula: string }).formula).toContain("IF(");
       expect(workbook.getWorksheet("Cuotas")!.rowCount).toBe(1 + 4);
+      // R403-12: la primera tabla de Observaciones rotula sus cuatro columnas (antes quedaban en blanco).
+      const obsSheet = workbook.getWorksheet("Observaciones")!;
+      const headerRow = [1, 2, 3, 4].map((column) => obsSheet.getCell(4, column).value);
+      expect(headerRow).toEqual(["Observación", "Cuotas", "OT", "Qué se pide"]);
+      expect(obsSheet.getCell(5, 1).value).toBe("1. Fechas de factura atípicas");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
