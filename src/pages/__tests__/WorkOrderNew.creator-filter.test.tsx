@@ -277,4 +277,42 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     const options = await screen.findAllByRole("option");
     expect(options.some((o) => o.textContent?.includes("OTH.01"))).toBe(true);
   });
+
+  // 1112-228: el modal de confirmación de un encargo administrativo envía ?engagement=<id> cuando
+  // resolveCreatedWorkOrderAction dice "create". Este es el otro extremo: el Talento Humano que
+  // creó el encargo (y no es su Gerente) tiene que recibirlo preseleccionado.
+  it("preselects ?engagement= for the HR creator of an administrative engagement (1112-228)", async () => {
+    authRef.roleKey = "hr_analyst";
+    engagementsRef.current = [
+      makeEngagement({
+        engagement_id: "eng-adm",
+        engagement_code: "ADM.01",
+        funcion: 0,
+        work_order_required: true,
+        manager_id: OTHER_STAFF_ID,
+      }),
+    ];
+    mockSearchParams = new URLSearchParams("?engagement=eng-adm");
+    renderPage();
+
+    expect(await screen.findByTestId("work-order-form")).toBeInTheDocument();
+  });
+
+  it("does not preselect a Control de Calidad engagement for the HR creator (admin only, 1112-228)", async () => {
+    authRef.roleKey = "hr_analyst";
+    engagementsRef.current = [
+      makeEngagement({
+        engagement_id: "eng-qc",
+        engagement_code: "QC.01",
+        funcion: 3,
+        work_order_required: true,
+        manager_id: OTHER_STAFF_ID,
+      }),
+    ];
+    mockSearchParams = new URLSearchParams("?engagement=eng-qc");
+    renderPage();
+
+    expect(await screen.findByText("workOrders.selectEngagement")).toBeInTheDocument();
+    expect(screen.queryByTestId("work-order-form")).not.toBeInTheDocument();
+  });
 });

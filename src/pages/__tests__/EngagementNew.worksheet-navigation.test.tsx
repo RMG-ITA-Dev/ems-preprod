@@ -46,12 +46,15 @@ vi.mock("@/components/layout/AppLayout", () => ({
 // BUG 0922-195 (Defecto 2): also surfaces the `initialClientId` prop EngagementNew forwards, so
 // the tests below can assert on what actually crossed the boundary from the URL's ?client_id=.
 vi.mock("@/components/forms/EngagementForm", () => ({
-  EngagementForm: ({ administrativeMode, initialClientId, onGoToWorkMatrix }: any) => (
+  EngagementForm: ({ administrativeMode, initialClientId, onGoToWorkMatrix, onCreateWorkOrder }: any) => (
     <>
       <div data-testid="administrative-mode">{String(!!administrativeMode)}</div>
       <div data-testid="initial-client-id">{initialClientId ?? ""}</div>
       <button type="button" onClick={() => onGoToWorkMatrix?.("eng-123")}>
         go-to-work-matrix
+      </button>
+      <button type="button" onClick={() => onCreateWorkOrder?.("eng-123")}>
+        create-work-order
       </button>
     </>
   ),
@@ -71,6 +74,28 @@ describe("EngagementNew — 'Ir a Matriz de Trabajo' navigation (0722-157)", () 
 
     expect(mockAllowNextNavigation).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith("/worksheets/new?engagement=eng-123");
+  });
+});
+
+// 1112-228: "Crear orden de trabajo" desde la confirmación de un encargo administrativo lleva el
+// id recién creado a /work-orders/new, liberando antes el candado de salida.
+describe("EngagementNew — 'Crear orden de trabajo' navigation (1112-228)", () => {
+  it("unlocks navigation, then navigates to /work-orders/new with the created engagement", () => {
+    mockAllowNextNavigation.mockClear();
+    mockNavigate.mockClear();
+    render(
+      <MemoryRouter initialEntries={["/engagements/new?mode=administrative"]}>
+        <EngagementNew />
+      </MemoryRouter>
+    );
+
+    screen.getByText("create-work-order").click();
+
+    expect(mockAllowNextNavigation).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith("/work-orders/new?engagement=eng-123");
+    expect(mockAllowNextNavigation.mock.invocationCallOrder[0]).toBeLessThan(
+      mockNavigate.mock.invocationCallOrder[0],
+    );
   });
 });
 

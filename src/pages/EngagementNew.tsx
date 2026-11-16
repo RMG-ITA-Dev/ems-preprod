@@ -44,6 +44,12 @@ const EngagementNew = () => {
     navigate(engagementId ? `/worksheets/new?engagement=${encodeURIComponent(engagementId)}` : "/worksheets/new");
   };
 
+  // 1112-228: "Crear orden de trabajo" desde el modal de un encargo administrativo.
+  const handleCreateWorkOrder = (engagementId?: string) => {
+    allowNextNavigation();
+    navigate(engagementId ? `/work-orders/new?engagement=${encodeURIComponent(engagementId)}` : "/work-orders/new");
+  };
+
   return (
     <AppLayout title={t(administrativeMode ? "nav.administrativeEngagements" : "nav.engagements")} focusMode>
       <EngagementForm
@@ -53,6 +59,7 @@ const EngagementNew = () => {
         onCancel={handleCancel}
         onSaveSuccess={handleSaveSuccess}
         onGoToWorkMatrix={handleGoToWorkMatrix}
+        onCreateWorkOrder={handleCreateWorkOrder}
       />
       <LeavePageDialog blocker={blocker} isDirty={isDirty} />
     </AppLayout>

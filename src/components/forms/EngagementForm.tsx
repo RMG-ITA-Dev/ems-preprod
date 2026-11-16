@@ -60,7 +60,7 @@ import {
   selfCandidateOption,
 } from "@/lib/engagementSelfAssignment";
 import { useCurrentStaff } from "@/hooks/useCurrentStaff";
-import { canEditEngagement, canWriteAdministrativeWork, isAdministrativeOnlyCreator, isNonClientFuncion } from "@/lib/engagementRoleAccess";
+import { canCreateWorkOrderFor, canEditEngagement, canWriteAdministrativeWork, isAdministrativeOnlyCreator, isNonClientFuncion } from "@/lib/engagementRoleAccess";
 import { useHoursApproverCandidates } from "@/hooks/useHoursApproverCandidates";
 import { isPartnerSigned, needsEngagementPartnerApproval } from "@/lib/engagementPartnerApproval";
 import { EngagementPartnerApprovalCard } from "@/components/engagements/EngagementPartnerApprovalCard";
@@ -267,6 +267,8 @@ interface EngagementFormProps {
   onCancel?: () => void;
   onSaveSuccess?: () => void;
   onGoToWorkMatrix?: (engagementId?: string) => void;
+  // 1112-228: "Crear orden de trabajo" del modal de confirmación de un encargo administrativo.
+  onCreateWorkOrder?: (engagementId?: string) => void;
 }
 
 /**
@@ -306,7 +308,45 @@ export const ADMINISTRATIVE_POLICY_DEFAULTS = {
   approvalRequired: true,
 } as const;
 
-export function EngagementForm({ engagement, administrativeMode = false, initialClientId, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix }: EngagementFormProps) {
+export type CreatedWorkOrderAction = "create" | "blocked" | "none";
+
+/**
+ * 1112-228 — qué ofrece el modal de confirmación respecto de la OT de un encargo recién creado.
+ * Espejo del filtro de elegibilidad de WorkOrderNew (activo, `canCreateWorkOrderFor`, "Requiere OT"
+ * encendido en un no-Cliente): el botón solo aparece cuando `?engagement=` va a preseleccionar.
+ * - "none": Cliente (sigue la Matriz de Trabajo) o no-Cliente con "Requiere OT" apagado (no lleva OT).
+ * - "create": quien creó el encargo puede crear su OT.
+ * - "blocked": la OT es obligatoria pero este usuario no puede crearla (p. ej. TH en Control de Calidad).
+ * El encargo aún no tiene OT y `created_by_staff_id` lo fija el trigger con get_my_staff_id(), así
+ * que el creador es el usuario actual.
+ */
+export function resolveCreatedWorkOrderAction(input: {
+  funcion: number | null | undefined;
+  workOrderRequired: boolean;
+  status: string | null | undefined;
+  canCreateWorkOrder: boolean;
+  roleKey: string | null | undefined;
+  myStaffId: string | null | undefined;
+  managerId: string | null | undefined;
+}): CreatedWorkOrderAction {
+  if (!isNonClientFuncion(input.funcion)) return "none";
+  if (!input.workOrderRequired) return "none";
+  const eligible =
+    input.status === "active" &&
+    input.canCreateWorkOrder &&
+    canCreateWorkOrderFor({
+      roleKey: input.roleKey,
+      myStaffId: input.myStaffId,
+      engagement: {
+        funcion: input.funcion ?? null,
+        manager_id: input.managerId ?? null,
+        created_by_staff_id: input.myStaffId ?? null,
+      },
+    });
+  return eligible ? "create" : "blocked";
+}
+
+export function EngagementForm({ engagement, administrativeMode = false, initialClientId, onDirtyChange, onCancel, onSaveSuccess, onGoToWorkMatrix, onCreateWorkOrder }: EngagementFormProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   // `isAdmin` ya NO sale del enum legacy: se deriva de `role_key`, que es la
@@ -750,6 +790,8 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     // 0722-157 (feedback): "Ir a Matriz de Trabajo" solo tiene sentido para encargos de
     // Cliente — Administrativa/Capacitación/Control de Calidad no presupuestan horas ahí.
     isCliente: boolean;
+    // 1112-228: acción de OT para encargos no-Cliente (ver resolveCreatedWorkOrderAction).
+    workOrderAction: CreatedWorkOrderAction;
   } | null>(null);
 
   // Policy flags state (outside react-hook-form since they're admin-only)
@@ -1387,6 +1429,15 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         society: societyOptions.find((s) => s.society_id === data.society_id)?.name ?? "",
         engagementId: created.engagement_id,
         isCliente: data.funcion === FUNCION_CLIENTE,
+        workOrderAction: resolveCreatedWorkOrderAction({
+          funcion: data.funcion,
+          workOrderRequired,
+          status: data.status,
+          canCreateWorkOrder: can("work_order.create"),
+          roleKey,
+          myStaffId: staffRecord?.staff_id ?? null,
+          managerId: data.manager_id ?? null,
+        }),
       });
       return;
     }
@@ -1673,6 +1724,17 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
       onGoToWorkMatrix(engagementId);
     } else {
       navigate(engagementId ? `/worksheets/new?engagement=${encodeURIComponent(engagementId)}` : "/worksheets/new");
+    }
+  };
+
+  // 1112-228: mismo patrón que handleGoToWorkMatrix; WorkOrderNew valida la preselección.
+  const handleCreateWorkOrder = () => {
+    const engagementId = createdInfo?.engagementId;
+    setCreatedInfo(null);
+    if (onCreateWorkOrder) {
+      onCreateWorkOrder(engagementId);
+    } else {
+      navigate(engagementId ? `/work-orders/new?engagement=${encodeURIComponent(engagementId)}` : "/work-orders/new");
     }
   };
 
@@ -2719,6 +2781,8 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
         onClose={handleSuccessDialogClose}
         onCreateAnother={handleCreateAnother}
         onGoToWorkMatrix={handleGoToWorkMatrix}
+        workOrderAction={createdInfo?.workOrderAction ?? "none"}
+        onCreateWorkOrder={handleCreateWorkOrder}
       />
     </div>
   );
