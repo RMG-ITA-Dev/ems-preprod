@@ -132,7 +132,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public' AS $$
    WHERE COALESCE(e.funcion, 1) <> 1
      AND e.manager_id = (SELECT public.get_my_staff_id())
      AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
-     AND e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id()))
+     -- 2026-11-16 (operador): solo los roles con alcance por sociedad (Contabilidad) se limitan a la del encargo.
+     AND (NOT (SELECT public.is_society_scoped_role())
+          OR e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id())))
   UNION
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) = 1

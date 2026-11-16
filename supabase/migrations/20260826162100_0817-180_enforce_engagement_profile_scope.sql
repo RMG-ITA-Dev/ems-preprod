@@ -35,10 +35,11 @@ BEGIN
 
   -- 1110-220 (plan_v5 §6.1, 2026-11-12): quién puede quedar en manager_id depende de la función del encargo.
   --   · No-Cliente (0/2/3): manager_id es el "Aprobador de horas". Obligatorio y elegido entre 14 roles, igual
-  --     para admin, hr_manager y hr_analyst (no hay autoasignación), y siempre de la SOCIEDAD del encargo
-  --     (operador 2026-11-12: el encargo vive en una sociedad y lo aprueba alguien de ella; además Contabilidad, por
-  --     su alcance department, no vería uno de otra).
-  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager).
+  --     para admin, hr_manager y hr_analyst (no hay autoasignación). De CUALQUIER sociedad (operador 2026-11-16: Talento
+  --     Humano y Riesgos aprueban encargos de otra sociedad); la unica excepcion es Contabilidad, que por su alcance por
+  --     sociedad no vería uno de otra.
+  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager) y, por decision del
+  --     operador (2026-11-16), director: tambien puede ser Gerente/Supervisor de un encargo de Cliente.
   -- En ambos: staff activo, no borrado, con cuenta vinculada y rol activo. Corre al crear y cuando cambia la
   -- persona; un asignado que luego pierde elegibilidad queda guardado pero no se puede volver a elegir. Espejo de
   -- get_hours_approver_candidates() / get_engagement_team_candidates() y de EngagementForm.
@@ -67,11 +68,11 @@ BEGIN
           RAISE EXCEPTION 'FORBIDDEN: Aprobador de horas no valido para un encargo Administrativa, Capacitacion o Calidad'
             USING ERRCODE = 'insufficient_privilege';
         END IF;
-        IF v_manager_society IS DISTINCT FROM NEW.society_id THEN
+        IF public.is_society_scoped_role_key(v_manager_role) AND v_manager_society IS DISTINCT FROM NEW.society_id THEN
           RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas debe ser de la sociedad del encargo'
             USING ERRCODE = 'insufficient_privilege';
         END IF;
-      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager'])) THEN
+      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager', 'director'])) THEN
         RAISE EXCEPTION 'FORBIDDEN: Gerente no valido para un encargo de Cliente'
           USING ERRCODE = 'insufficient_privilege';
       END IF;

@@ -1,14 +1,16 @@
 // 1110-220 (plan_v5 §6.1/§6.2) — "Aprobador de horas" de un encargo no-Cliente (funcion 0/2/3).
 //
 // En un no-Cliente el campo `manager_id` deja de ser "Gerente" y pasa a ser el Aprobador de horas. Se elige en
-// dos pasos (Rol → Persona) entre una lista cerrada de 14 roles, igual para admin, Gerente de TH y Analista
+// dos pasos (Rol → Persona) entre una lista cerrada de 15 roles, igual para admin, Gerente de TH y Analista
 // de TH. La lista solo se usa al ELEGIR: después, toda la autoridad (aprobar horas y solicitudes de fondos)
 // sale de `manager_id`, sin volver a mirar el rol.
 //
+import { isSocietyScopedRole } from "./societyScope";
+
 // La autoridad es la base: el guard de `enforce_engagement_profile_scope` y `get_hours_approver_candidates()`.
 // Este módulo es su espejo puro y testeable. Si se toca uno, tocar el otro.
 
-/** Los 14 `role_key` que pueden ser Aprobador de horas, en el orden en que los ofrece el selector de Rol. */
+/** Los 15 `role_key` que pueden ser Aprobador de horas, en el orden en que los ofrece el selector de Rol. */
 export const HOURS_APPROVER_ROLE_KEYS = [
   "senior_partner",
   "partner",
@@ -23,6 +25,7 @@ export const HOURS_APPROVER_ROLE_KEYS = [
   "hr_analyst",
   "accounting_manager",
   "risk_supervisor",
+  "risk_partner",
   "secretariat_head",
 ] as const;
 
@@ -41,9 +44,10 @@ export interface HoursApproverCandidate {
 }
 
 /**
- * Candidatos utilizables para un encargo de la sociedad `societyId`: solo personas de esa sociedad (operador
- * 2026-11-12; mismo criterio que el guard). Sin sociedad elegida todavía no se ofrece a nadie: primero se elige el
- * cliente interno (admin) o la sociedad sale de la ficha del creador (TH).
+ * Candidatos utilizables para un encargo de la sociedad `societyId`. El Aprobador puede ser de cualquier sociedad
+ * (operador 2026-11-16: Talento Humano y Riesgos aprueban encargos de otra); solo los roles con alcance por sociedad
+ * (Contabilidad) se limitan a la del encargo, igual que el guard. Sin sociedad elegida todavía no se ofrece a nadie:
+ * primero se elige el cliente interno (admin) o la sociedad sale de la ficha del creador (TH).
  * Descarta filas con un rol fuera de la lista (defensa ante un RPC desalineado).
  */
 export function eligibleHoursApprovers(
@@ -51,7 +55,9 @@ export function eligibleHoursApprovers(
   societyId: string | null | undefined,
 ): HoursApproverCandidate[] {
   if (!societyId) return [];
-  return rows.filter((r) => isHoursApproverRoleKey(r.role_key) && r.society_id === societyId);
+  return rows.filter(
+    (r) => isHoursApproverRoleKey(r.role_key) && (!isSocietyScopedRole(r.role_key) || r.society_id === societyId),
+  );
 }
 
 /** Roles con al menos un candidato, en el orden de `HOURS_APPROVER_ROLE_KEYS`. */

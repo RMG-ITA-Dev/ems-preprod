@@ -240,3 +240,13 @@ no es válida (`CONFIG`).
 | Plan de pagos | notas por lista del manifiesto; tolerancia de 100,03 % solo para `toleranceCots`; las cuotas con disposición `cuota_facturada` nacen Pendientes y, con la OT aprobada, pasan a Facturada (`--operation invoices`, D19/D20/D21; conciliación L6e/L6f; la huella L9 incluye las fechas de cobranza) |
 | Contactos | varios por cliente, solo el nombre obligatorio, celda vacía = NULL, «Línea corporativa» con el teléfono del cliente; el cargo no se carga. El criterio de «contacto distinto» es `duplicateContacts(rows, criterion)`: `channel` (vigente, `DEFAULT_CONTACT_CRITERION`; D23/D38: la clave es el correo válido, sin correo el teléfono y sin ninguno el nombre), con `name` y `email-first` como alternativas parametrizables con `contactCriterion` |
 | SAN | la regla (SAN, salvo 0 o < 4 dígitos → Sentinel; «-1» en los de 5 dígitos; SAN de 8 dígitos tal cual) se aplica en la consulta del CSV v3, no en el código |
+
+## Reportes de verificación Legacy ↔ EMS (solo lectura)
+
+Libro `.xlsx` para que los responsables comparen el sistema anterior con el EMS (solo OT de cliente): hojas Léame, OT, Cuotas y Observaciones, con filtros, encabezados congelados y columnas EMS vacías (con fórmulas Δ) para completar tras la carga. Lee solo los CSV v3 y el manifiesto; no abre conexiones ni escribe en ninguna base.
+
+```bash
+node scripts/etl/reportes/generar-libro.mjs --dir "<carpeta con los CSV v3>" [--out <archivo.xlsx>] [--manifest <snapshot.json>] [--vencida-al AAAA-MM-DD] [--corte-horas AAAA-MM-DD]
+```
+
+Sin `--out` escribe en `bugs/ETL/reportes/salida/` (ignorada por Git: el libro trae nombres e importes reales). Diccionario de columnas y fundamento de cada una: `bugs/ETL/reportes/diccionario_reportes_legacy_ems.md`. Código: `scripts/etl/reportes/` (datos puros, lector de CSV y escritor del libro); pruebas: `scripts/etl/__tests__/reporte-datos.test.ts`. Los importes de las cuotas usan la misma aritmética del cargador (`paymentArtifacts`) con el total acordado original (`legacy-agreed-total-v1`).

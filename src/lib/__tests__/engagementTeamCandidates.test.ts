@@ -58,7 +58,7 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
   it("mapea los 13 role_key elegibles a su(s) grupo(s)", () => {
     expect(ROLE_KEY_TO_GROUPS).toEqual({
       partner: ["partner_director"],
-      director: ["partner_director"],
+      director: ["partner_director", "manager"],
       senior_partner: ["partner_director"],
       risk_partner: ["partner_director"],
       manager: ["manager"],
@@ -88,9 +88,14 @@ describe("ROLE_KEY_TO_GROUPS — mapa role_key → grupo(s) (espejo del mapeo de
   // firm-wide, antes excluidos del bloque Equipo); ita_manager/tax_manager caen ADEMÁS en
   // 'manager' (doble grupo) — un Especialista puede además actuar como Gerente de cualquier
   // encargo, no solo del suyo.
-  it("senior_partner/risk_partner caen en partner_director, igual que partner/director", () => {
+  it("senior_partner/risk_partner caen en partner_director, igual que partner", () => {
     expect(ROLE_KEY_TO_GROUPS.senior_partner).toEqual(ROLE_KEY_TO_GROUPS.partner);
     expect(ROLE_KEY_TO_GROUPS.risk_partner).toEqual(ROLE_KEY_TO_GROUPS.partner);
+  });
+
+  // 2026-11-16 (operador): el Director también puede ser Gerente/Supervisor de un encargo de Cliente.
+  it("director cae en partner_director Y ADEMÁS en manager", () => {
+    expect(ROLE_KEY_TO_GROUPS.director).toEqual(["partner_director", "manager"]);
   });
 
   it("ita_manager/tax_manager caen en su especialidad Y ADEMÁS en manager", () => {

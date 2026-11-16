@@ -231,7 +231,9 @@ BEGIN
   FOR v_role, v_staff IN
     SELECT * FROM (VALUES
       ('ita_manager', '51c00000-0000-4000-8000-000000000006'::uuid),
-      ('tax_manager', '51c00000-0000-4000-8000-000000000009'::uuid)
+      ('tax_manager', '51c00000-0000-4000-8000-000000000009'::uuid),
+      -- 2026-11-16 (operador): el Director tambien es candidato a Gerente de Cliente.
+      ('director',    '51c00000-0000-4000-8000-000000000002'::uuid)
     ) t(role_key, staff_id)
   LOOP
     SELECT count(*) INTO v_count
@@ -242,7 +244,7 @@ BEGIN
         v_role, v_count;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK 1b: ita_manager/tax_manager aparecen también en el grupo manager (doble grupo, 0828-185)';
+  RAISE NOTICE 'OK 1b: ita_manager/tax_manager/director aparecen también en el grupo manager (doble grupo)';
 
   -- ── 2. Roles NO elegibles se excluyen ────────────────────────────────────────────────────
   FOR v_role, v_staff IN
@@ -296,14 +298,14 @@ BEGIN
   END IF;
 
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 15 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 16 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.create debía ver 16 filas (13 role_key, ita/tax/director con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000029');  -- engagement.update
   SELECT count(*) INTO v_count FROM public.get_engagement_team_candidates();
-  IF v_count <> 15 THEN
-    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 15 filas (13 role_key, ita/tax con 2 c/u), vio %', v_count;
+  IF v_count <> 16 THEN
+    RAISE EXCEPTION 'FAIL: un caller con engagement.update debía ver 16 filas (13 role_key, ita/tax/director con 2 c/u), vio %', v_count;
   END IF;
 
   PERFORM pg_temp.impersonate('a1c00000-0000-4000-8000-000000000030');  -- sin ninguno de los dos

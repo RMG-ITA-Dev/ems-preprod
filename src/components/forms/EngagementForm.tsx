@@ -1490,8 +1490,9 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     const role = roleOfHoursApprover(eligibleApprovers, wManagerId);
     if (role) setApproverRole(role);
   }, [approverEnabled, approverRole, wManagerId, eligibleApprovers]);
-  // Review de Codex (2026-11-12): si cambia la sociedad de un no-Cliente, el Aprobador elegido deja de valer (siempre es
-  // de la sociedad del encargo y cada persona tiene una sola) y el trigger lo rechaza. Pasa al editar (admin cambia la
+  // Review de Codex (2026-11-12): si cambia la sociedad de un no-Cliente, un Aprobador con alcance por sociedad (Contabilidad)
+  // deja de valer y el trigger lo rechaza. Desde 2026-11-16 el resto de roles aprueba encargos de cualquier sociedad: solo se
+  // limpia si la persona ya no está entre los elegibles de la sociedad nueva. Pasa al editar (admin cambia la
   // sociedad) y en el alta (admin cambia al cliente interno de la otra sociedad, que la deriva). Se limpian persona y rol
   // para que elija uno de la sociedad nueva, en vez de recibir un FORBIDDEN al guardar. La primera sociedad que llega
   // (el reset que siembra el encargo, la del primer cliente interno elegido o la de la ficha) no cuenta como cambio.
@@ -1500,9 +1501,11 @@ export function EngagementForm({ engagement, administrativeMode = false, initial
     const previous = lastSocietyIdRef.current;
     lastSocietyIdRef.current = selectedSocietyId;
     if (!approverEnabled || !previous || !selectedSocietyId || previous === selectedSocietyId) return;
+    const current = form.getValues("manager_id");
+    if (current && eligibleApprovers.some((r) => r.staff_id === current)) return;
     setApproverRole(null);
     form.setValue("manager_id", "", { shouldDirty: true, shouldValidate: false });
-  }, [approverEnabled, selectedSocietyId, form]);
+  }, [approverEnabled, selectedSocietyId, form, eligibleApprovers]);
   const approverResolved = !approverEnabled || (!approverFetching && !approverError);
   const managerCandidates = useMemo<TeamCandidateOption[]>(() => {
     if (!isAdministrativeFunction) return managerRoleOptions;

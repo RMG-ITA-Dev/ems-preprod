@@ -331,21 +331,13 @@ BEGIN
   END IF;
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
    WHERE staff_id = pg_temp.s(1);
-  -- Operador 2026-11-12: lo mismo para cualquiera de los 14 roles (aquí el Gerente normal de otra sociedad).
+  -- Operador 2026-11-16: solo Contabilidad (alcance por sociedad) se limita a la del encargo (arriba). Talento Humano, Riesgos y el
+  -- resto de los 15 roles aprueban encargos de cualquier sociedad: aquí el Gerente normal de otra sociedad SI se acepta.
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
    WHERE staff_id = pg_temp.s(4);
-  PERFORM pg_temp.impersonate(pg_temp.u(7));
-  SET LOCAL ROLE authenticated;
-  BEGIN
-    PERFORM pg_temp.create_eng('R1102 Y con gerente ajeno', pg_temp.s(4));
-    RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — hr_analyst eligió como Aprobador a alguien de otra sociedad';
-  EXCEPTION WHEN insufficient_privilege THEN
-    RESET ROLE;
-    IF SQLERRM NOT LIKE '%sociedad del encargo%' THEN
-      RAISE EXCEPTION '1110-220 FAIL — el rechazo por sociedad salió de otra regla: %', SQLERRM;
-    END IF;
-  END;
+  IF (pg_temp.try_create_as(7, 'R1102 Y con gerente ajeno', pg_temp.s(4))).engagement_id IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst no pudo elegir como Aprobador a alguien de otra sociedad';
+  END IF;
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
    WHERE staff_id = pg_temp.s(4);
 
@@ -1034,8 +1026,8 @@ BEGIN
 END $$;
 
 -- ── 11. Review de Codex: cambiar solo la sociedad de un no-Cliente revalida al Aprobador de horas ─────────────────────
--- Sujeto 10: admin (Pelaez). Sujeto 11: manager de Jauregui. ES: no-Cliente de Pelaez con Aprobador M (4), sembrado como
--- dueño. Admin lo pasa a Jauregui (sociedad + cliente interno, como lo exige 0722-160) sin tocar manager_id.
+-- Sujeto 10: admin (Pelaez). Sujeto 11: manager de Jauregui. ES: no-Cliente de Pelaez con Aprobador Contabilidad (1, el unico rol
+-- limitado por sociedad desde 2026-11-16), sembrado como dueño. Admin lo pasa a Jauregui (sociedad + cliente interno, como lo exige 0722-160) sin tocar manager_id.
 INSERT INTO auth.users (id) VALUES ('a1102000-0000-4000-8000-000000000010'), ('a1102000-0000-4000-8000-000000000011');
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a1102000-0000-4000-8000-000000000010', 'admin',   'admin'),
@@ -1055,7 +1047,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
 VALUES ('e1102000-0000-4000-8000-000000000011', 'c1000000-0000-4000-8000-000000000160', 'R1102 ES', 'R1102-ES', 0, 1, 1,
         '2027-12-31', '2026-01-05', '2099-06-30', false, true, true,
         (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
-        '51102000-0000-4000-8000-000000000004', NULL, '51102000-0000-4000-8000-000000000006');
+        '51102000-0000-4000-8000-000000000001', NULL, '51102000-0000-4000-8000-000000000006');
 SET LOCAL session_replication_role = origin;
 
 DO $$
@@ -1277,33 +1269,52 @@ BEGIN
   RAISE NOTICE 'PASS — la decisión NULL del Socio se rechaza; el histórico de administrativos es solo de admin y TH';
 END $$;
 
--- ── 15. Review de Codex: el Aprobador que cambia de sociedad pierde la autoridad sobre las horas ─────────────────────
+-- ── 15. Review de Codex (ajustada 2026-11-16): solo el Aprobador con alcance por sociedad pierde la autoridad al cambiar de sociedad ─────────────────────
 -- EV (sección 4b): no-Cliente de Pelaez con Aprobador el senior (9). Admin le cambia la sociedad en su ficha; el encargo no
 -- se toca, así que el trigger de engagements no corre. La autoridad se revalida al decidir.
 DO $$
 DECLARE
   v_ev  uuid := 'e1102000-0000-4000-8000-000000000009';
   apr   constant text := 'SELECT count(*) FROM public.my_approvable_engagement_ids() id WHERE id = ''e1102000-0000-4000-8000-000000000009''';
+  v_jau uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  v_pel uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.');
 BEGIN
   IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
     RAISE EXCEPTION '1110-220 FAIL — precondición: el senior debía ser Aprobador vigente de EV';
   END IF;
 
-  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
-   WHERE staff_id = pg_temp.s(9);
-  IF public.is_hours_approver_of(pg_temp.s(9), v_ev) THEN
-    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue decidiendo las horas del encargo';
+  -- Operador 2026-11-16: un Aprobador sin alcance por sociedad (el senior) conserva la autoridad aunque su ficha cambie de sociedad.
+  UPDATE public.staff SET society_id = v_jau WHERE staff_id = pg_temp.s(9);
+  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador sin alcance por sociedad perdió la autoridad al cambiar de sociedad';
   END IF;
-  IF pg_temp.count_as(pg_temp.u(9), apr) <> 0 THEN
-    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue viendo el encargo en su cola';
+  UPDATE public.staff SET society_id = v_pel WHERE staff_id = pg_temp.s(9);
+
+  -- Contabilidad (alcance por sociedad) como Aprobador de EV, sembrado como dueño: si pasa a otra sociedad pierde la decisión y la cola.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(1) WHERE engagement_id = v_ev;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF NOT public.is_hours_approver_of(pg_temp.s(1), v_ev)
+     OR pg_temp.count_as(pg_temp.u(1), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — precondición: Contabilidad debía ser Aprobador vigente de EV';
+  END IF;
+  UPDATE public.staff SET society_id = v_jau WHERE staff_id = pg_temp.s(1);
+  IF public.is_hours_approver_of(pg_temp.s(1), v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — Contabilidad que pasó a otra sociedad sigue decidiendo las horas del encargo';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(1), apr) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — Contabilidad que pasó a otra sociedad sigue viendo el encargo en su cola';
+  END IF;
+  UPDATE public.staff SET society_id = v_pel WHERE staff_id = pg_temp.s(1);
+  IF NOT public.is_hours_approver_of(pg_temp.s(1), v_ev) OR pg_temp.count_as(pg_temp.u(1), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — al volver a la sociedad del encargo, Contabilidad debía recuperar la autoridad';
   END IF;
 
-  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
-   WHERE staff_id = pg_temp.s(9);
-  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
-    RAISE EXCEPTION '1110-220 FAIL — al volver a la sociedad del encargo, el Aprobador debía recuperar la autoridad';
-  END IF;
-  RAISE NOTICE 'PASS — el Aprobador que cambia de sociedad pierde la decisión y la cola; al volver las recupera';
+  -- Se deja EV con su Aprobador original (el senior).
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(9) WHERE engagement_id = v_ev;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  RAISE NOTICE 'PASS — sin alcance por sociedad el Aprobador conserva la autoridad; Contabilidad la pierde al cambiar de sociedad y la recupera al volver';
 END $$;
 
 -- ── 16. Review de Codex: con horas pendientes no se apaga "Requiere aprobación de horas" ──────────────────────────────

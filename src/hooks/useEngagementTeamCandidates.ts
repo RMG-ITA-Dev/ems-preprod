@@ -29,7 +29,7 @@ interface TeamCandidateRow {
 export interface UseEngagementTeamCandidatesResult {
   /** Socio/Director — alimenta `partner_id` Y `sqr_id` (ambos piden Socio o Director). */
   partnerDirectorOptions: TeamCandidateOption[];
-  /** Gerente de un encargo de Cliente — `manager`, `ita_manager`, `tax_manager`. */
+  /** Gerente de un encargo de Cliente — `manager`, `director`, `ita_manager`, `tax_manager`. */
   managerRoleOptions: TeamCandidateOption[];
   /** Encargado — `senior` y `semisenior`. */
   encargadoOptions: TeamCandidateOption[];

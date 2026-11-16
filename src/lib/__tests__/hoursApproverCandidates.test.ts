@@ -20,7 +20,7 @@ const row = (staff_id: string, role_key: string, society_id: string | null = "so
 });
 
 describe("HOURS_APPROVER_ROLE_KEYS", () => {
-  it("son exactamente los 14 roles de la lista cerrada", () => {
+  it("son exactamente los 15 roles de la lista cerrada", () => {
     expect([...HOURS_APPROVER_ROLE_KEYS].sort()).toEqual(
       [
         "partner",
@@ -32,6 +32,7 @@ describe("HOURS_APPROVER_ROLE_KEYS", () => {
         "hr_analyst",
         "accounting_manager",
         "risk_supervisor",
+        "risk_partner",
         "secretariat_head",
         "ita_manager",
         "tax_manager",
@@ -41,7 +42,7 @@ describe("HOURS_APPROVER_ROLE_KEYS", () => {
     );
   });
 
-  it.each(["admin", "sqr", "semisenior", "assistant", "ita_assistant", "tax_assistant", "risk_partner", "accounting_analyst", "collections_analyst", "it_security_manager"])(
+  it.each(["admin", "sqr", "semisenior", "assistant", "ita_assistant", "tax_assistant", "accounting_analyst", "collections_analyst", "it_security_manager"])(
     "%s queda fuera",
     (roleKey) => {
       expect(isHoursApproverRoleKey(roleKey)).toBe(false);
@@ -58,9 +59,15 @@ describe("eligibleHoursApprovers", () => {
     row("5", "partner", "soc-b"),
   ];
 
-  it("ofrece solo personas de la sociedad del encargo, de cualquiera de los 14 roles", () => {
-    expect(eligibleHoursApprovers(rows, "soc-a").map((r) => r.staff_id)).toEqual(["1", "2"]);
-    expect(eligibleHoursApprovers(rows, "soc-b").map((r) => r.staff_id)).toEqual(["3", "5"]);
+  // Operador 2026-11-16: solo Contabilidad (alcance por sociedad) se limita a la sociedad del encargo; el resto aprueba de cualquiera.
+  it("ofrece a cualquier sociedad salvo a los roles con alcance por sociedad, que solo la del encargo", () => {
+    expect(eligibleHoursApprovers(rows, "soc-a").map((r) => r.staff_id)).toEqual(["1", "2", "5"]);
+    expect(eligibleHoursApprovers(rows, "soc-b").map((r) => r.staff_id)).toEqual(["1", "3", "5"]);
+  });
+
+  it("risk_partner es aprobador posible y no se limita por sociedad", () => {
+    const r = [row("9", "risk_partner", "soc-b")];
+    expect(eligibleHoursApprovers(r, "soc-a").map((x) => x.staff_id)).toEqual(["9"]);
   });
 
   it("sin sociedad elegida no ofrece a nadie", () => {

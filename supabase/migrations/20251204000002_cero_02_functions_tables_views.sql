@@ -365,7 +365,8 @@ $$;
 -- Name: hours_approver_role_keys(); Type: FUNCTION; Schema: public; Owner: -
 --
 
--- 1110-220 (plan_v5 §3): los 14 role_key que pueden ser "Aprobador de horas" (manager_id) de un encargo no-Cliente.
+-- 1110-220 (plan_v5 §3): los 15 role_key que pueden ser "Aprobador de horas" (manager_id) de un encargo no-Cliente
+-- (risk_partner se suma el 2026-11-16, decision del operador).
 -- Única fuente en la base: la usan el guard de enforce_engagement_profile_scope, get_hours_approver_candidates() y la
 -- regla de aprobación (is_eligible_hours_approver). Espejo de HOURS_APPROVER_ROLE_KEYS (src/lib/hoursApproverCandidates.ts).
 CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
@@ -373,7 +374,7 @@ CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
     SET search_path TO 'public'
     AS $$
   SELECT ARRAY['partner', 'senior_partner', 'director', 'manager', 'senior', 'hr_manager', 'hr_analyst',
-               'accounting_manager', 'risk_supervisor', 'secretariat_head', 'ita_manager', 'tax_manager',
+               'accounting_manager', 'risk_supervisor', 'risk_partner', 'secretariat_head', 'ita_manager', 'tax_manager',
                'ita_senior', 'tax_senior']::text[]
 $$;
 
@@ -424,7 +425,11 @@ CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uui
        AND CASE
              WHEN COALESCE(e.funcion, 1) <> 1 THEN
                e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
-               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
+               -- 2026-11-16 (operador): el Aprobador puede ser de otra sociedad (Talento Humano y Riesgos aprueban encargos de
+               -- ambas). Solo los roles con alcance por sociedad (Contabilidad) se limitan a la del encargo.
+               AND NOT EXISTS (SELECT 1 FROM public.staff s JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+                                WHERE s.staff_id = p_staff_id AND public.is_society_scoped_role_key(ur.role_key)
+                                  AND s.society_id IS DISTINCT FROM e.society_id)
              ELSE
                p_staff_id IN (e.manager_id, e.partner_id)
                AND EXISTS (SELECT 1
@@ -1757,7 +1762,8 @@ COMMENT ON FUNCTION public.can_write_administrative_work(uuid) IS '1110-220: en 
 -- 1110-220 (plan_v5 §6.1): candidatos a "Aprobador de horas" (manager_id) de un encargo no-Cliente. El formulario
 -- elige primero el rol y después la persona, así que devuelve el role_key (es el requisito: elegir por rol). Solo los
 -- 14 roles de la lista cerrada, con staff activo, no borrado, cuenta vinculada y rol activo; society_id para que el
--- formulario ofrezca solo personas de la sociedad del encargo (el guard lo exige). Espejo del guard de enforce_engagement_profile_scope.
+-- formulario filtre por sociedad solo a los roles con alcance por sociedad (Contabilidad); el resto aprueba encargos de cualquier
+-- sociedad (operador 2026-11-16). Espejo del guard de enforce_engagement_profile_scope.
 -- Solo para quien elige: admin, hr_manager y hr_analyst con engagement.create o engagement.update. Sin email ni auth_user_id.
 CREATE FUNCTION public.get_hours_approver_candidates() RETURNS TABLE(staff_id uuid, display_name text, role_key text, society_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
