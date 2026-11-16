@@ -164,6 +164,11 @@ interface WorkOrderFormProps {
   // renders nothing for !isNew callers; isNew always shows the disabled "available after create" card.
   staffingRequirements?: StaffingRequirementInput[];
   onStaffingRequirementsChange?: (reqs: StaffingRequirementInput[]) => void;
+  /**
+   * 0923-204: categorías con horas en el presupuesto. Su fila de staffing no se puede
+   * quitar ni cambiar de categoría (la sincronización la volvería a agregar).
+   */
+  budgetLockedCategoryIds?: ReadonlySet<string>;
   staffingCategories?: Category[];
   activeSkills?: StaffingActiveSkillOption[];
   staffingLoading?: boolean;
@@ -209,6 +214,9 @@ interface WorkOrderFormProps {
   canApprove: boolean;
   isSubmitting: boolean;
 }
+
+// 0923-204: default estable para `budgetLockedCategoryIds` (evita un Set nuevo por render).
+const EMPTY_CATEGORY_ID_SET: ReadonlySet<string> = new Set();
 
 const statusColors = {
   Draft: "bg-warning/10 text-warning border-warning/20",
@@ -451,6 +459,7 @@ export function WorkOrderForm({
   onPaymentInstallmentsChange,
   staffingRequirements = [],
   onStaffingRequirementsChange,
+  budgetLockedCategoryIds = EMPTY_CATEGORY_ID_SET,
   staffingCategories = [],
   activeSkills = [],
   staffingLoading = false,
@@ -928,7 +937,8 @@ export function WorkOrderForm({
 
   const updateStaffingCount = (clientKey: string, staffCount: number) => {
     updateStaffingRequirements((reqs) =>
-      reqs.map((r) => (r.clientKey === clientKey ? { ...r, staffCount } : r)),
+      // 0923-204: tocar la cantidad cuenta como revisada (se apaga la señal).
+      reqs.map((r) => (r.clientKey === clientKey ? { ...r, staffCount, needsReview: false } : r)),
     );
   };
 
@@ -1470,6 +1480,9 @@ export function WorkOrderForm({
                       const categoryOptions = [...staffingCategories, ...(historicalCurrentCategory ? [historicalCurrentCategory] : [])].filter(
                         (c) => c.category_id === req.categoryId || !usedByOthers.has(c.category_id),
                       );
+                      const isBudgetLocked = !!req.categoryId && budgetLockedCategoryIds.has(req.categoryId);
+                      const showReviewCue = !!req.needsReview && isStaffingEditable;
+                      const reviewHintId = `staffing-count-review-${req.clientKey}`;
                       return (
                         <div
                           key={req.clientKey}
@@ -1487,7 +1500,7 @@ export function WorkOrderForm({
                               <Select
                                 value={req.categoryId ?? ""}
                                 onValueChange={(v) => updateStaffingCategory(req.clientKey, v)}
-                                disabled={!isStaffingEditable}
+                                disabled={!isStaffingEditable || isBudgetLocked}
                               >
                                 <SelectTrigger className="h-9">
                                   <SelectValue placeholder={t("workOrders.staffingRequirements.selectCategory")} />
@@ -1516,23 +1529,54 @@ export function WorkOrderForm({
                                 value={req.staffCount ?? ""}
                                 onChange={(val) => updateStaffingCount(req.clientKey, val)}
                                 disabled={!isStaffingEditable}
-                                className="w-20 h-9"
+                                className={cn(
+                                  "w-20 h-9",
+                                  showReviewCue && "ring-2 ring-warning ring-offset-1 ring-offset-background",
+                                )}
+                                aria-describedby={showReviewCue ? reviewHintId : undefined}
+                                data-needs-review={showReviewCue ? "true" : undefined}
                                 data-testid={`staffing-count-${req.clientKey}`}
                               />
                             </div>
                             {isStaffingEditable && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeStaffingRequirement(req.clientKey)}
-                                className="h-8 w-8 text-destructive shrink-0"
-                                title={t("workOrders.staffingRequirements.removeCategory")}
-                                data-testid={`staffing-remove-requirement-${req.clientKey}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              isBudgetLocked ? (
+                                // Un botón deshabilitado no muestra su propio title: lo lleva el span.
+                                <span
+                                  className="shrink-0"
+                                  title={t("workOrders.staffingRequirements.budgetLockedCategory")}
+                                  data-budget-locked="true"
+                                  data-testid={`staffing-remove-locked-${req.clientKey}`}
+                                >
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled
+                                    className="h-8 w-8 text-destructive"
+                                    aria-label={t("workOrders.staffingRequirements.budgetLockedCategory")}
+                                    data-testid={`staffing-remove-requirement-${req.clientKey}`}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </span>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => removeStaffingRequirement(req.clientKey)}
+                                  className="h-8 w-8 text-destructive shrink-0"
+                                  title={t("workOrders.staffingRequirements.removeCategory")}
+                                  data-testid={`staffing-remove-requirement-${req.clientKey}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )
                             )}
                           </div>
+                          {showReviewCue && (
+                            <p id={reviewHintId} className="text-xs text-warning">
+                              {t("workOrders.staffingRequirements.reviewAutoCount")}
+                            </p>
+                          )}
 
                           <div className="space-y-2 md:pl-2">
                             {req.skills.map((skill) => {

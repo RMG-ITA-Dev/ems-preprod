@@ -49,6 +49,11 @@ export interface StaffingRequirementInput {
   categoryName?: string | null;
   categoryServiceId?: string | null;
   skills: StaffingRequirementSkillInput[];
+  /**
+   * 0923-204: fila agregada automáticamente desde Líneas de Presupuesto; la cantidad
+   * aún no fue revisada. Solo UI: nunca se persiste ni cuenta para el dirty-check.
+   */
+  needsReview?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +122,87 @@ export function hydrateFromPersisted(
       skillName: rs.skill?.name ?? null,
     })),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// 0923-204 — Categorías del presupuesto → Requisitos de Staffing.
+// ---------------------------------------------------------------------------
+
+/** Subconjunto estructural de una línea de presupuesto de la OT (wo_budget_lines). */
+export interface BudgetHoursLine {
+  category_id: string;
+  budgeted_hours: number;
+}
+
+/** Subconjunto estructural del catálogo de categorías del servicio. */
+export interface StaffingCategoryMeta {
+  category_id: string;
+  category_name: string | null;
+  practica_id: string | null;
+}
+
+/**
+ * Categorías con horas presupuestadas (> 0 y finitas), en orden de línea, sin
+ * duplicados y dentro del servicio del Engagement. `serviceCategoryIds` null =
+ * servicio no resoluble → no se filtra por servicio (mismo criterio que validateStaffing).
+ * Una categoría de otro servicio se descarta: agregarla dejaría la OT sin poder
+ * guardarse (STAFFING_CATEGORY_FOREIGN_SERVICE).
+ */
+export function budgetStaffingCategoryIds(
+  budgetLines: readonly BudgetHoursLine[],
+  serviceCategoryIds: ReadonlySet<string> | null,
+): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const line of budgetLines) {
+    const hours = Number(line.budgeted_hours);
+    if (!Number.isFinite(hours) || hours <= 0) continue;
+    const id = line.category_id;
+    if (!id || seen.has(id)) continue;
+    if (serviceCategoryIds !== null && !serviceCategoryIds.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Agrega al final de `current` una fila (cantidad 1, `needsReview`) por cada categoría
+ * del presupuesto que todavía no tiene requisito. Puramente aditivo: nunca quita ni
+ * modifica filas existentes, ni muta las entradas. Sin agregados devuelve `current`
+ * (misma referencia), así el llamador puede detectar "no hubo cambios".
+ */
+export function mergeBudgetCategoriesIntoStaffing(
+  current: readonly StaffingRequirementInput[],
+  budgetLines: readonly BudgetHoursLine[],
+  options: {
+    serviceCategoryIds: ReadonlySet<string> | null;
+    categories: readonly StaffingCategoryMeta[];
+  },
+): { requirements: StaffingRequirementInput[]; addedCategoryIds: string[] } {
+  const present = new Set(
+    current.map((r) => r.categoryId).filter((id): id is string => !!id),
+  );
+  const addedCategoryIds = budgetStaffingCategoryIds(budgetLines, options.serviceCategoryIds)
+    .filter((id) => !present.has(id));
+
+  if (addedCategoryIds.length === 0) {
+    return { requirements: current as StaffingRequirementInput[], addedCategoryIds };
+  }
+
+  const additions = addedCategoryIds.map((categoryId) => {
+    const meta = options.categories.find((c) => c.category_id === categoryId);
+    return {
+      ...createEmptyRequirement(),
+      categoryId,
+      categoryName: meta?.category_name ?? null,
+      categoryServiceId: meta?.practica_id ?? null,
+      staffCount: 1,
+      needsReview: true,
+    };
+  });
+
+  return { requirements: [...current, ...additions], addedCategoryIds };
 }
 
 // ---------------------------------------------------------------------------

@@ -85,8 +85,12 @@ const mockWorkOrder = {
   },
 };
 
+let mockWoOverride: any = null;
+
 vi.mock("@/hooks/useEmsData", () => ({
-  useWorkOrderById: () => ({ data: mockWorkOrder, isLoading: false }),
+  // 0923-204: los tests de sincronización con el presupuesto reemplazan la OT entera
+  // (objeto estable) vía mockWoOverride; el resto usa mockWorkOrder.
+  useWorkOrderById: () => ({ data: mockWoOverride ?? mockWorkOrder, isLoading: false }),
   useSetting: () => "0.13",
   useCategories: () => mockUseCategories(),
   useExpenseTypes: () => ({ data: [] }),
@@ -174,13 +178,15 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  const tree = (
+  // A fresh element each time: re-rendering the identical element lets React bail out,
+  // so the page would never see the mocks' new data (0923-204).
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <WorkOrderEdit />
     </QueryClientProvider>
   );
-  const utils = render(tree);
-  return { ...utils, rerenderPage: () => utils.rerender(tree) };
+  const utils = render(tree());
+  return { ...utils, rerenderPage: () => utils.rerender(tree()) };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -189,6 +195,7 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedFormProps = {};
+    mockWoOverride = null;
     mockUpdateAsync.mockResolvedValue({});
     mockSaveStaffingAsync.mockResolvedValue([]);
     mockSubmitAsync.mockResolvedValue({});
@@ -660,5 +667,240 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     });
 
     expect(mockUnsubmitAsync).not.toHaveBeenCalled();
+  });
+
+  // ── 0923-204: categorías del presupuesto → Requisitos de Staffing ──────────
+
+  describe("budget categories → staffing (0923-204)", () => {
+    const CAT_SENIOR = { category_id: "cat-senior", category_name: "Senior", practica_id: "svc-audit", display_order: 2 };
+    const CAT_JUNIOR = { category_id: "cat-junior", category_name: "Junior", practica_id: "svc-audit", display_order: 3 };
+
+    function budgetLine(cat: { category_id: string; display_order: number }, hours: number) {
+      return {
+        wo_line_id: `line-${cat.category_id}`,
+        category_id: cat.category_id,
+        budgeted_hours: hours,
+        standard_rate: 0,
+        category: { display_order: cat.display_order },
+      };
+    }
+    function withBudget(lines: unknown[], over: Record<string, unknown> = {}) {
+      mockWoOverride = { ...mockWorkOrder, budget_lines: lines, ...over };
+    }
+    const reqSummary = () =>
+      (capturedFormProps.staffingRequirements as Array<{ categoryId: string; staffCount: number }>).map(
+        (r) => [r.categoryId, r.staffCount],
+      );
+
+    beforeEach(() => {
+      mockUseCategories.mockReturnValue({
+        data: [CAT_AUDIT, CAT_SENIOR, CAT_JUNIOR, CAT_TAX],
+        isLoading: false,
+        isError: false,
+      });
+    });
+
+    it("WES21: a Draft with budget hours gets one suggested row per category, without marking the OT unsaved", () => {
+      withBudget([budgetLine(CAT_SENIOR, 4), budgetLine(CAT_AUDIT, 8)]);
+      renderPage();
+
+      expect(reqSummary()).toEqual([["cat-audit", 1], ["cat-senior", 1]]);
+      expect(capturedFormProps.staffingRequirements.every((r: { needsReview?: boolean }) => r.needsReview)).toBe(true);
+      expect(capturedFormProps.isDirty).toBe(false);
+      expect(capturedFormProps.hasNonRiskDirty).toBe(true);
+      expect([...capturedFormProps.budgetLockedCategoryIds].sort()).toEqual(["cat-audit", "cat-senior"]);
+      expect(mockUsePageLeaveLock).toHaveBeenLastCalledWith(expect.objectContaining({ isDirty: false }));
+    });
+
+    it("WES22: persisted rows keep their count; only missing categories are added (staffing arriving first)", () => {
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({
+        data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+        isLoading: false,
+        isError: false,
+      });
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      renderPage();
+
+      expect(reqSummary()).toEqual([["cat-audit", 3], ["cat-senior", 1]]);
+      expect(capturedFormProps.isDirty).toBe(false);
+    });
+
+    it("WES22b: same result when the staffing query resolves after the work order", () => {
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      const { rerenderPage } = renderPage();
+      expect(capturedFormProps.staffingRequirements).toEqual([]);
+
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({
+        data: [{ id: "req-1", category_id: "cat-audit", staff_count: 3, requirement_skills: [] }],
+        isLoading: false,
+        isError: false,
+      });
+      act(() => rerenderPage());
+
+      expect(reqSummary()).toEqual([["cat-audit", 3], ["cat-senior", 1]]);
+      expect(capturedFormProps.isDirty).toBe(false);
+    });
+
+    it("WES23: nothing is added while the staffing query failed", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: undefined, isLoading: false, isError: true });
+      renderPage();
+      expect(capturedFormProps.staffingRequirements).toEqual([]);
+      expect(capturedFormProps.isDirty).toBe(false);
+      expect(capturedFormProps.budgetLockedCategoryIds.size).toBe(0);
+    });
+
+    it.each([
+      ["Pending_Approval", {}],
+      ["Approved", {}],
+      ["Rejected", {}],
+      ["Draft", { approved_at: "2026-01-01T00:00:00Z" }],
+    ])("WES24: no sync and no lock for status %s %o", (approval_status, extra) => {
+      withBudget([budgetLine(CAT_AUDIT, 8)], { approval_status, ...extra });
+      renderPage();
+      expect(capturedFormProps.staffingRequirements).toEqual([]);
+      expect(capturedFormProps.isDirty).toBe(false);
+      expect(capturedFormProps.hasNonRiskDirty).toBe(false);
+      expect(capturedFormProps.budgetLockedCategoryIds.size).toBe(0);
+    });
+
+    it("WES25: no sync when the Scheduler flag is off", () => {
+      vi.stubEnv("VITE_SCHEDULER_ENABLED", "false");
+      try {
+        withBudget([budgetLine(CAT_AUDIT, 8)]);
+        renderPage();
+        expect(capturedFormProps.staffingRequirements).toEqual([]);
+        expect(capturedFormProps.isDirty).toBe(false);
+        expect(capturedFormProps.hasNonRiskDirty).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("WES26: a category outside the engagement's service is neither added nor locked", () => {
+      withBudget([budgetLine(CAT_TAX, 8)]);
+      renderPage();
+      expect(capturedFormProps.staffingRequirements).toEqual([]);
+      expect(capturedFormProps.budgetLockedCategoryIds.size).toBe(0);
+    });
+
+    it("WES27: a resync adds only the new category and keeps unsaved edits", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      const { rerenderPage } = renderPage();
+
+      // The manager edits Audit's count.
+      act(() => {
+        capturedFormProps.onStaffingRequirementsChange(
+          capturedFormProps.staffingRequirements.map((r: { categoryId: string }) =>
+            r.categoryId === "cat-audit" ? { ...r, staffCount: 5, needsReview: false } : r,
+          ),
+        );
+      });
+
+      // Same budget delivered again as a new object: nothing changes.
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      act(() => rerenderPage());
+      expect(reqSummary()).toEqual([["cat-audit", 5], ["cat-senior", 1]]);
+
+      // Resincronizar adds Junior to the budget.
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4), budgetLine(CAT_JUNIOR, 2)]);
+      act(() => rerenderPage());
+      expect(reqSummary()).toEqual([["cat-audit", 5], ["cat-senior", 1], ["cat-junior", 1]]);
+      expect(capturedFormProps.isDirty).toBe(true);
+    });
+
+    it("WES28: opening the OT never writes staffing", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      const { rerenderPage } = renderPage();
+      act(() => rerenderPage());
+      expect(mockSaveStaffingAsync).not.toHaveBeenCalled();
+      expect(mockUpdateAsync).not.toHaveBeenCalled();
+    });
+
+    it("WES29: Guardar without touching anything persists the suggestions with count 1", async () => {
+      withBudget([budgetLine(CAT_AUDIT, 8), budgetLine(CAT_SENIOR, 4)]);
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmit();
+      });
+
+      expect(mockSaveStaffingAsync).toHaveBeenCalledTimes(1);
+      const [{ requirements }] = mockSaveStaffingAsync.mock.calls[0] as [
+        { requirements: Array<{ categoryId: string; staffCount: number }> },
+      ];
+      expect(requirements.map((r) => [r.categoryId, r.staffCount])).toEqual([["cat-audit", 1], ["cat-senior", 1]]);
+      expect(capturedFormProps.hasNonRiskDirty).toBe(false);
+      expect(capturedFormProps.staffingRequirements.some((r: { needsReview?: boolean }) => r.needsReview)).toBe(false);
+    });
+
+    it("WES29b: Enviar para Aprobación persists the suggestions before submitting", async () => {
+      const callOrder: string[] = [];
+      mockSaveStaffingAsync.mockImplementation(async () => {
+        callOrder.push("staffing-save");
+        return [];
+      });
+      mockSubmitAsync.mockImplementation(async () => {
+        callOrder.push("submit");
+        return {};
+      });
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      renderPage();
+
+      await act(async () => {
+        await capturedFormProps.onSubmitForApproval();
+      });
+
+      expect(callOrder).toEqual(["staffing-save", "submit"]);
+    });
+
+    it("WES29c: a failed save keeps the suggestions pending", async () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      renderPage();
+      mockSaveStaffingAsync.mockRejectedValueOnce(new Error("WOS_WO_LOCKED"));
+
+      await act(async () => {
+        await capturedFormProps.onSubmit();
+      });
+
+      expect(capturedFormProps.hasNonRiskDirty).toBe(true);
+      expect(toast.success).not.toHaveBeenCalled();
+    });
+
+    it("WES30: switching to another work order syncs that OT's own budget, not the previous one's", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      const { rerenderPage } = renderPage();
+      expect(reqSummary()).toEqual([["cat-audit", 1]]);
+
+      withBudget([budgetLine(CAT_SENIOR, 4)], { wo_id: "wo-2" });
+      mockUseWorkOrderStaffingRequirements.mockReturnValue({ data: [], isLoading: false, isError: false });
+      act(() => rerenderPage());
+
+      expect(reqSummary()).toEqual([["cat-senior", 1]]);
+      expect(capturedFormProps.isDirty).toBe(false);
+    });
+
+    it("WES31: an administrative OT (funcion ≠ 1) gets no suggestions and no lock", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)], { engagement: { ...mockWorkOrder.engagement, funcion: 0 } });
+      renderPage();
+      expect(capturedFormProps.staffingRequirements).toEqual([]);
+      expect(capturedFormProps.isDirty).toBe(false);
+      expect(capturedFormProps.hasNonRiskDirty).toBe(false);
+      expect(capturedFormProps.budgetLockedCategoryIds.size).toBe(0);
+    });
+
+    it("WES32: leaving untouched does not arm the leave prompt; changing a suggested count does", () => {
+      withBudget([budgetLine(CAT_AUDIT, 8)]);
+      renderPage();
+      expect(mockUsePageLeaveLock).toHaveBeenLastCalledWith(expect.objectContaining({ isDirty: false }));
+
+      act(() => {
+        capturedFormProps.onStaffingRequirementsChange(
+          capturedFormProps.staffingRequirements.map((r: object) => ({ ...r, staffCount: 2, needsReview: false })),
+        );
+      });
+      expect(mockUsePageLeaveLock).toHaveBeenLastCalledWith(expect.objectContaining({ isDirty: true }));
+    });
   });
 });

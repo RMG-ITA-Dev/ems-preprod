@@ -52,8 +52,10 @@ import {
   useSaveWorkOrderStaffing,
 } from "@/hooks/mutations";
 import {
+  budgetStaffingCategoryIds,
   hydrateFromPersisted,
   isStaffingDirty,
+  mergeBudgetCategoriesIntoStaffing,
   validateStaffing,
   STAFFING_VALIDATION_ERROR_I18N_KEY,
   type StaffingRequirementInput,
@@ -337,11 +339,26 @@ const WorkOrderEdit = () => {
   // clobber them; the ref is reset to false only after a successful staffing save,
   // so the invalidated refetch below re-hydrates both `staffing` and `originalStaffing`
   // from the freshly persisted state.
+  // 0923-204: al cambiar de OT sin desmontar la página, olvidar el estado de la OT
+  // anterior: la sincronización con el presupuesto marca staffingEditedRef sin que el
+  // usuario edite, y si quedara en true la hidratación de la OT nueva se saltaría.
+  // Declarado ANTES de la hidratación para que corra primero en el mismo commit.
+  const budgetStaffingSyncSignatureRef = useRef<string | null>(null);
+  const staffingWoIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (staffingWoIdRef.current === workOrder?.wo_id) return;
+    staffingWoIdRef.current = workOrder?.wo_id;
+    staffingEditedRef.current = false;
+    budgetStaffingSyncSignatureRef.current = null;
+  }, [workOrder?.wo_id]);
+
   useEffect(() => {
     if (staffingRows && !staffingEditedRef.current) {
       const hydrated = hydrateFromPersisted(staffingRows);
       setStaffing(hydrated);
       setOriginalStaffing(cloneStaffingRequirements(hydrated));
+      // 0923-204: la hidratación reemplaza `staffing`; volver a sumar las sugerencias.
+      budgetStaffingSyncSignatureRef.current = null;
     }
   }, [staffingRows]);
 
@@ -371,80 +388,10 @@ const WorkOrderEdit = () => {
     [practica, staffingCategories],
   );
 
-  const staffingDirty = useMemo(
-    () => isStaffingDirty(originalStaffing, staffing),
-    [originalStaffing, staffing],
-  );
-
   const handleStaffingRequirementsChange = (reqs: StaffingRequirementInput[]) => {
     staffingEditedRef.current = true;
     setStaffing(reqs);
   };
-
-  // Compute dirty state - only for expenses and adjustment (budget lines are read-only)
-  const isDirty = useMemo(() => {
-    if (!workOrder) return false;
-
-    // Compare adjustment amount
-    if (adjustmentAmount !== originalAdjustment) return true;
-
-    // Compare expense count
-    if (expenseBudget.length !== originalExpenseData.length) return true;
-
-    // Compare expense IDs
-    const currentExpIds = expenseBudget.map((e) => e.id).sort();
-    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
-    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
-
-    // Compare expense values
-    for (const exp of expenseBudget) {
-      const orig = originalExpenseData.find((e) => e.id === exp.id);
-      if (!orig) return true;
-      if (orig.expense_type_id !== exp.expense_type_id) return true;
-      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
-    }
-
-    if (ceacCompletedAt !== originalCeacCompletedAt) return true;
-    if (sanCompletedAt !== originalSanCompletedAt) return true;
-    if ((ceacNotes ?? null) !== originalCeacNotes) return true;
-    if ((sanNotes ?? null) !== originalSanNotes) return true;
-    if ((ceacNumber ?? null) !== originalCeacNumber) return true;
-    if ((sanApprovalId ?? null) !== originalSanApprovalId) return true;
-    if ((riskLevel ?? null) !== originalRiskLevel) return true;
-
-    // Payment plan
-    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
-    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
-
-    // Staffing Requirements (Fase 4)
-    if (staffingDirty) return true;
-
-    return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
-
-  // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
-  const hasNonRiskDirty = useMemo(() => {
-    if (!workOrder) return false;
-    if (adjustmentAmount !== originalAdjustment) return true;
-    if (expenseBudget.length !== originalExpenseData.length) return true;
-    const currentExpIds = expenseBudget.map((e) => e.id).sort();
-    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
-    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
-    for (const exp of expenseBudget) {
-      const orig = originalExpenseData.find((e) => e.id === exp.id);
-      if (!orig) return true;
-      if (orig.expense_type_id !== exp.expense_type_id) return true;
-      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
-    }
-    // Payment plan
-    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
-    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
-    // Staffing Requirements (Fase 4) — persisted by handleSubmit, like expenses/payment plan.
-    if (staffingDirty) return true;
-    return false;
-  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
-
-  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
 
   // Check if user can approve — FASE 3b: por permiso (matriz "Enviar Aprobación OT"),
   // ya no por categoría (can_approve_wo).
@@ -531,6 +478,161 @@ const WorkOrderEdit = () => {
     // ofrecer un guardado que RLS va a rechazar.
     !canWriteWorkOrder;
 
+  // 0923-204: horas por categoría leídas de la OT misma (no del estado `budgetLines`, que
+  // se copia en un efecto y va un render atrasado al cambiar de OT), en orden de categoría.
+  const budgetHoursLines = useMemo(
+    () =>
+      [...(workOrder?.budget_lines ?? [])]
+        .sort((a, b) => (a.category?.display_order ?? 999) - (b.category?.display_order ?? 999))
+        .map((bl) => ({ category_id: bl.category_id, budgeted_hours: Number(bl.budgeted_hours) })),
+    [workOrder?.budget_lines],
+  );
+
+  // 0923-204: toda categoría con horas en Líneas de Presupuesto aparece en Requisitos de
+  // Staffing con cantidad 1 (sugerida, para revisar). Solo en una OT de Cliente en Draft
+  // editable y con el staffing ya cargado: fuera de Draft save_wo_staffing la rechaza
+  // (WOS_WO_LOCKED), y en las administrativas el Staffing es opcional (1110-220).
+  const canAutoSyncStaffing =
+    isSchedulerEnabled() &&
+    !!workOrder &&
+    !isAdministrativeEngagement &&
+    approvalStatus === "Draft" &&
+    !workOrder.approved_at &&
+    !isLocked &&
+    !staffingLoading &&
+    !staffingIsError &&
+    staffingServiceResolved &&
+    staffingRows !== undefined;
+
+  // Categorías que el presupuesto exige en Staffing: su fila no se puede quitar ni cambiar
+  // de categoría (si no, la sincronización la volvería a agregar al reabrir). Para sacarla,
+  // se quitan sus horas en la matriz y se resincroniza.
+  const budgetLockedCategoryIds = useMemo<ReadonlySet<string>>(
+    () =>
+      canAutoSyncStaffing
+        ? new Set(budgetStaffingCategoryIds(budgetHoursLines, staffingServiceCategoryIds))
+        : new Set(),
+    [canAutoSyncStaffing, budgetHoursLines, staffingServiceCategoryIds],
+  );
+
+  // Base de "no cambió nada" para el usuario: lo persistido + las sugerencias vigentes.
+  // Derivada (no estado): sigue sola al presupuesto y a lo persistido.
+  const staffingBaseline = useMemo(
+    () =>
+      canAutoSyncStaffing
+        ? mergeBudgetCategoriesIntoStaffing(originalStaffing, budgetHoursLines, {
+            serviceCategoryIds: staffingServiceCategoryIds,
+            categories: staffingCategories,
+          }).requirements
+        : originalStaffing,
+    [canAutoSyncStaffing, originalStaffing, budgetHoursLines, staffingServiceCategoryIds, staffingCategories],
+  );
+
+  // "El usuario cambió algo": alimenta isDirty (aviso al salir, marca "sin guardar").
+  // Abrir la OT y ver las sugerencias no cuenta como cambio.
+  const staffingDirty = useMemo(
+    () => isStaffingDirty(staffingBaseline, staffing),
+    [staffingBaseline, staffing],
+  );
+
+  // "Hay que escribir el staffing": lo persistido difiere de la pantalla, sugerencias
+  // incluidas. Alimenta hasNonRiskDirty y los guards de persistNonRiskChanges, así
+  // Guardar/Enviar/Retirar escriben las sugerencias aunque el usuario no tocara nada.
+  const staffingNeedsPersist = useMemo(
+    () => isStaffingDirty(originalStaffing, staffing),
+    [originalStaffing, staffing],
+  );
+
+  // Re-sincroniza solo cuando cambia el conjunto de categorías del presupuesto (p. ej.
+  // tras Resincronizar), no en cada render; la firma se reinicia al cambiar de OT (arriba).
+  const budgetStaffingSignature = useMemo(
+    () => [...budgetLockedCategoryIds].sort().join("|"),
+    [budgetLockedCategoryIds],
+  );
+
+  useEffect(() => {
+    if (!canAutoSyncStaffing) return;
+    if (budgetStaffingSyncSignatureRef.current === budgetStaffingSignature) return;
+    budgetStaffingSyncSignatureRef.current = budgetStaffingSignature;
+    // Updater funcional: el resultado no depende del orden en que llegan las queries.
+    setStaffing((prev) => {
+      const { requirements } = mergeBudgetCategoriesIntoStaffing(prev, budgetHoursLines, {
+        serviceCategoryIds: staffingServiceCategoryIds,
+        categories: staffingCategories,
+      });
+      // Protege las sugerencias de un refetch en segundo plano (guard de la hidratación).
+      if (requirements !== prev) staffingEditedRef.current = true;
+      return requirements;
+    });
+    // staffingRows: tras cada hidratación (que reinicia la firma) se vuelve a sumar.
+  }, [canAutoSyncStaffing, budgetStaffingSignature, budgetHoursLines, staffingServiceCategoryIds, staffingCategories, staffingRows]);
+
+  // Compute dirty state - only for expenses and adjustment (budget lines are read-only)
+  const isDirty = useMemo(() => {
+    if (!workOrder) return false;
+
+    // Compare adjustment amount
+    if (adjustmentAmount !== originalAdjustment) return true;
+
+    // Compare expense count
+    if (expenseBudget.length !== originalExpenseData.length) return true;
+
+    // Compare expense IDs
+    const currentExpIds = expenseBudget.map((e) => e.id).sort();
+    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
+    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
+
+    // Compare expense values
+    for (const exp of expenseBudget) {
+      const orig = originalExpenseData.find((e) => e.id === exp.id);
+      if (!orig) return true;
+      if (orig.expense_type_id !== exp.expense_type_id) return true;
+      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
+    }
+
+    if (ceacCompletedAt !== originalCeacCompletedAt) return true;
+    if (sanCompletedAt !== originalSanCompletedAt) return true;
+    if ((ceacNotes ?? null) !== originalCeacNotes) return true;
+    if ((sanNotes ?? null) !== originalSanNotes) return true;
+    if ((ceacNumber ?? null) !== originalCeacNumber) return true;
+    if ((sanApprovalId ?? null) !== originalSanApprovalId) return true;
+    if ((riskLevel ?? null) !== originalRiskLevel) return true;
+
+    // Payment plan
+    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
+    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
+
+    // Staffing Requirements (Fase 4)
+    if (staffingDirty) return true;
+
+    return false;
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, ceacCompletedAt, originalCeacCompletedAt, sanCompletedAt, originalSanCompletedAt, ceacNotes, originalCeacNotes, sanNotes, originalSanNotes, ceacNumber, originalCeacNumber, sanApprovalId, originalSanApprovalId, riskLevel, originalRiskLevel, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingDirty]);
+
+  // Tracks only fields that handleSubmit persists (not risk fields — those are saved atomically by submitWorkOrder)
+  const hasNonRiskDirty = useMemo(() => {
+    if (!workOrder) return false;
+    if (adjustmentAmount !== originalAdjustment) return true;
+    if (expenseBudget.length !== originalExpenseData.length) return true;
+    const currentExpIds = expenseBudget.map((e) => e.id).sort();
+    const originalExpIds = originalExpenseData.map((e) => e.id).sort();
+    if (JSON.stringify(currentExpIds) !== JSON.stringify(originalExpIds)) return true;
+    for (const exp of expenseBudget) {
+      const orig = originalExpenseData.find((e) => e.id === exp.id);
+      if (!orig) return true;
+      if (orig.expense_type_id !== exp.expense_type_id) return true;
+      if (orig.budgeted_amount !== exp.budgeted_amount) return true;
+    }
+    // Payment plan
+    if (JSON.stringify(paymentPlan) !== JSON.stringify(originalPaymentPlan)) return true;
+    if (JSON.stringify(paymentInstallments) !== JSON.stringify(originalInstallments)) return true;
+    // Staffing Requirements (Fase 4) — persisted by handleSubmit, like expenses/payment plan.
+    // 0923-204: incluye las sugerencias del presupuesto aún no escritas.
+    if (staffingNeedsPersist) return true;
+    return false;
+  }, [workOrder, adjustmentAmount, originalAdjustment, expenseBudget, originalExpenseData, paymentPlan, originalPaymentPlan, paymentInstallments, originalInstallments, staffingNeedsPersist]);
+
+  const { blocker, allowNextNavigation } = usePageLeaveLock({ locked: true, isDirty });
+
   // 0819-181: extraído para reutilizarlo también en WorkOrderTrackStatus, fusionada
   // ahora en la tarjeta "Encargo" (antes solo se pasaba inline a WorkOrderForm).
   const isSubmitting =
@@ -586,7 +688,7 @@ const WorkOrderEdit = () => {
     // Fase 7 (plan v2 §B.4#6): con el flag apagado, la sección de staffing está
     // oculta (WorkOrderForm.tsx §B.4#5) — validar filas persistidas que el usuario
     // no puede ver bloquearía el guardado de la OT con un toast sin dónde apuntar.
-    if (isSchedulerEnabled() && staffingDirty) {
+    if (isSchedulerEnabled() && staffingNeedsPersist) {
       if (staffingLoading || staffingIsError) {
         toast.error(t("workOrders.staffingRequirements.errorLoading"));
         return false;
@@ -699,12 +801,16 @@ const WorkOrderEdit = () => {
     // form open so the user can retry (the RPC is transactional — retrying never
     // creates duplicates).
     // Fase 7 (plan v2 §B.4#6): mismo gate que la validación de arriba.
-    if (isSchedulerEnabled() && staffingDirty) {
+    if (isSchedulerEnabled() && staffingNeedsPersist) {
       await saveWorkOrderStaffing.mutateAsync({ woId: workOrder.wo_id, requirements: staffing });
       // The submission was validated before the RPC and the RPC confirmed it. Set the
       // baseline immediately instead of depending on an asynchronous cache refetch;
       // the invalidation still refreshes DB IDs/catalog metadata in the background.
       setOriginalStaffing(cloneStaffingRequirements(staffing));
+      // 0923-204: guardadas, las cantidades sugeridas ya no están "por revisar".
+      setStaffing((prev) =>
+        prev.some((r) => r.needsReview) ? prev.map((r) => ({ ...r, needsReview: false })) : prev,
+      );
       staffingEditedRef.current = false;
     }
 
@@ -1147,6 +1253,7 @@ const WorkOrderEdit = () => {
           onPaymentPlanChange={isAdministrativeEngagement ? undefined : setPaymentPlan}
           onPaymentInstallmentsChange={isAdministrativeEngagement ? undefined : setPaymentInstallments}
           staffingRequirements={staffing}
+          budgetLockedCategoryIds={budgetLockedCategoryIds}
           onStaffingRequirementsChange={handleStaffingRequirementsChange}
           staffingCategories={staffingCategories}
           activeSkills={activeSkills ?? []}
