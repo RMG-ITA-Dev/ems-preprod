@@ -2181,6 +2181,8 @@
       "errorCurrencyNoRate": "No se puede convertir: falta el tipo de cambio del plan."
     },
     "staffingRequirements": {
+      "reviewAutoCount": "Cantidad sugerida desde el presupuesto. Revísala y ajústala si corresponde.",
+      "budgetLockedCategory": "Esta categoría tiene horas en el presupuesto. Para quitarla, elimina sus horas en la matriz y resincroniza.",
       "title": "Requisitos de Staffing",
       "description": "Define las categorías, la cantidad de personal y las skills requeridas para esta orden de trabajo.",
       "empty": "Aún no hay requisitos de staffing.",

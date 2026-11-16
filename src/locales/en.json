@@ -2181,6 +2181,8 @@
       "errorCurrencyNoRate": "Cannot convert: the plan exchange rate is missing."
     },
     "staffingRequirements": {
+      "reviewAutoCount": "Suggested from the budget. Review and adjust if needed.",
+      "budgetLockedCategory": "This category has hours in the budget. To remove it, delete its hours in the matrix and resync.",
       "title": "Staffing Requirements",
       "description": "Define required categories, headcount and skills for this work order.",
       "empty": "No staffing requirements yet.",

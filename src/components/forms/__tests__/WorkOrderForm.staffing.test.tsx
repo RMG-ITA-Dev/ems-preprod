@@ -420,4 +420,138 @@ describe("WorkOrderForm — Staffing Requirements (Fase 4)", () => {
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("md:flex-row");
   });
+
+  // ── 0923-204: sugerencias desde el presupuesto ─────────────────────────────
+
+  it("SF19: a row flagged needsReview shows the review ring and the hint linked by aria-describedby; others don't", () => {
+    const reqs: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1, needsReview: true },
+      { ...createEmptyRequirement(), clientKey: "r2", categoryId: CAT_TAX, staffCount: 2 },
+    ];
+    renderForm({ onStaffingRequirementsChange: vi.fn(), staffingRequirements: reqs, staffingCategories });
+
+    const flagged = screen.getByTestId("staffing-count-r1");
+    expect(flagged).toHaveAttribute("data-needs-review", "true");
+    expect(flagged.className).toContain("ring-warning");
+    const hintId = flagged.getAttribute("aria-describedby");
+    expect(hintId).toBe("staffing-count-review-r1");
+    expect(document.getElementById(hintId as string)).toHaveTextContent(
+      "workOrders.staffingRequirements.reviewAutoCount",
+    );
+
+    const plain = screen.getByTestId("staffing-count-r2");
+    expect(plain).not.toHaveAttribute("data-needs-review");
+    expect(plain.className).not.toContain("ring-warning");
+    expect(plain).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("SF20: typing a new count clears that row's review flag (controlled parent, keystroke by keystroke)", () => {
+    const onChange = vi.fn();
+    const initial: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1, needsReview: true },
+      { ...createEmptyRequirement(), clientKey: "r2", categoryId: CAT_TAX, staffCount: 1, needsReview: true },
+    ];
+    const ControlledForm = () => {
+      const [requirements, setRequirements] = React.useState(initial);
+      return (
+        <QueryClientProvider client={makeQC()}>
+          <WorkOrderForm
+            {...(baseProps as any)}
+            staffingRequirements={requirements}
+            staffingCategories={staffingCategories}
+            onStaffingRequirementsChange={(next) => { setRequirements(next); onChange(next); }}
+          />
+        </QueryClientProvider>
+      );
+    };
+    render(<ControlledForm />);
+    const input = screen.getByTestId("staffing-count-r1") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: `${input.value}2` } });
+    fireEvent.change(input, { target: { value: `${input.value}3` } });
+
+    const last = onChange.mock.calls.at(-1)?.[0] as StaffingRequirementInput[];
+    expect(last[0].staffCount).toBe(123);
+    expect(last[0].needsReview).toBe(false);
+    expect(last[1].needsReview).toBe(true);
+    expect(screen.getByTestId("staffing-count-r1")).not.toHaveAttribute("data-needs-review");
+    expect(screen.getByTestId("staffing-count-r2")).toHaveAttribute("data-needs-review", "true");
+  });
+
+  it("SF21: a non-editable OT never shows the review cue, even with the flag set", () => {
+    const reqs: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1, needsReview: true },
+    ];
+    renderForm({
+      approvalStatus: "Approved",
+      isLocked: true,
+      onStaffingRequirementsChange: vi.fn(),
+      staffingRequirements: reqs,
+      staffingCategories,
+    });
+    expect(screen.getByTestId("staffing-count-r1")).not.toHaveAttribute("data-needs-review");
+    expect(screen.queryByText("workOrders.staffingRequirements.reviewAutoCount")).not.toBeInTheDocument();
+  });
+
+  it("SF23: a row whose category has budget hours cannot be removed nor change category", () => {
+    const onChange = vi.fn();
+    const reqs: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1 },
+    ];
+    renderForm({
+      onStaffingRequirementsChange: onChange,
+      staffingRequirements: reqs,
+      staffingCategories,
+      budgetLockedCategoryIds: new Set([CAT_AUDIT]),
+    });
+
+    const remove = screen.getByTestId("staffing-remove-requirement-r1");
+    expect(remove).toBeDisabled();
+    expect(screen.getByTestId("staffing-remove-locked-r1")).toHaveAttribute(
+      "title",
+      "workOrders.staffingRequirements.budgetLockedCategory",
+    );
+    fireEvent.click(remove);
+    expect(onChange).not.toHaveBeenCalled();
+
+    const row = screen.getByTestId("staffing-requirement-r1");
+    expect(within(row).getAllByRole("combobox")[0]).toBeDisabled();
+  });
+
+  it("SF24: the count of a budget-locked row stays editable", () => {
+    const onChange = vi.fn();
+    const reqs: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_AUDIT, staffCount: 1 },
+    ];
+    renderForm({
+      onStaffingRequirementsChange: onChange,
+      staffingRequirements: reqs,
+      staffingCategories,
+      budgetLockedCategoryIds: new Set([CAT_AUDIT]),
+    });
+    const input = screen.getByTestId("staffing-count-r1");
+    expect(input).not.toBeDisabled();
+    fireEvent.change(input, { target: { value: "4" } });
+    expect((onChange.mock.calls[0][0] as StaffingRequirementInput[])[0].staffCount).toBe(4);
+  });
+
+  it("SF25: rows outside the budget (other category or no category yet) keep remove and category enabled", () => {
+    const onChange = vi.fn();
+    const reqs: StaffingRequirementInput[] = [
+      { ...createEmptyRequirement(), clientKey: "r1", categoryId: CAT_TAX, staffCount: 1 },
+      { ...createEmptyRequirement(), clientKey: "r2" },
+    ];
+    renderForm({
+      onStaffingRequirementsChange: onChange,
+      staffingRequirements: reqs,
+      staffingCategories,
+      budgetLockedCategoryIds: new Set([CAT_AUDIT]),
+    });
+    for (const key of ["r1", "r2"]) {
+      expect(screen.getByTestId(`staffing-remove-requirement-${key}`)).not.toBeDisabled();
+      expect(screen.queryByTestId(`staffing-remove-locked-${key}`)).not.toBeInTheDocument();
+      const row = screen.getByTestId(`staffing-requirement-${key}`);
+      expect(within(row).getAllByRole("combobox")[0]).not.toBeDisabled();
+    }
+  });
 });

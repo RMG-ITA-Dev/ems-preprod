@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  budgetStaffingCategoryIds,
   buildStaffingPayload,
   createEmptyRequirement,
   createEmptySkill,
   hydrateFromPersisted,
   isStaffingDirty,
+  mergeBudgetCategoriesIntoStaffing,
   validateStaffing,
   STAFFING_PROFICIENCY_LEVELS,
   STAFFING_VALIDATION_ERROR_I18N_KEY,
@@ -345,5 +347,133 @@ describe("STAFFING_VALIDATION_ERROR_I18N_KEY", () => {
 describe("STAFFING_PROFICIENCY_LEVELS", () => {
   it("is exactly Beginner/Intermediate/Advanced, in that order", () => {
     expect(STAFFING_PROFICIENCY_LEVELS).toEqual(["Beginner", "Intermediate", "Advanced"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 0923-204 — Categorías del presupuesto → Requisitos de Staffing
+// ---------------------------------------------------------------------------
+
+describe("mergeBudgetCategoriesIntoStaffing (0923-204)", () => {
+  const CAT_C = "cat-c";
+  const CATEGORIES = [
+    { category_id: CAT_A, category_name: "Socio", practica_id: "svc-1" },
+    { category_id: CAT_B, category_name: "Gerente", practica_id: "svc-1" },
+    { category_id: CAT_C, category_name: "Pasante", practica_id: "svc-1" },
+  ];
+  const opts = (serviceCategoryIds: ReadonlySet<string> | null = null) => ({
+    serviceCategoryIds,
+    categories: CATEGORIES,
+  });
+  const line = (category_id: string, budgeted_hours: number) => ({ category_id, budgeted_hours });
+
+  it("MB1: empty staffing + 3 positive lines → 3 rows, count 1, needsReview, in line order", () => {
+    const { requirements, addedCategoryIds } = mergeBudgetCategoriesIntoStaffing(
+      [],
+      [line(CAT_B, 8), line(CAT_A, 4), line(CAT_C, 2)],
+      opts(),
+    );
+    expect(addedCategoryIds).toEqual([CAT_B, CAT_A, CAT_C]);
+    expect(requirements.map((r) => r.categoryId)).toEqual([CAT_B, CAT_A, CAT_C]);
+    for (const r of requirements) {
+      expect(r.staffCount).toBe(1);
+      expect(r.skills).toEqual([]);
+      expect(r.persistedId).toBeNull();
+      expect(r.needsReview).toBe(true);
+      expect(r.clientKey).toBeTruthy();
+    }
+    expect(requirements[0].categoryName).toBe("Gerente");
+    expect(requirements[0].categoryServiceId).toBe("svc-1");
+  });
+
+  it("MB2: zero, negative, NaN and Infinity hours create nothing", () => {
+    const { requirements, addedCategoryIds } = mergeBudgetCategoriesIntoStaffing(
+      [],
+      [line(CAT_A, 0), line(CAT_B, -3), line(CAT_C, Number.NaN), line("cat-d", Number.POSITIVE_INFINITY)],
+      opts(),
+    );
+    expect(requirements).toEqual([]);
+    expect(addedCategoryIds).toEqual([]);
+  });
+
+  it("MB3: positive hours qualify even when the line's rate is 0 (Pasante)", () => {
+    const lines = [{ category_id: CAT_C, budgeted_hours: 8, standard_rate: 0 }];
+    const { addedCategoryIds } = mergeBudgetCategoriesIntoStaffing([], lines, opts());
+    expect(addedCategoryIds).toEqual([CAT_C]);
+  });
+
+  it("MB4: two lines with the same category create one row", () => {
+    const { requirements } = mergeBudgetCategoriesIntoStaffing([], [line(CAT_A, 4), line(CAT_A, 6)], opts());
+    expect(requirements).toHaveLength(1);
+  });
+
+  it("MB5: an existing row is kept identical and not duplicated", () => {
+    const existing = requirement({
+      clientKey: "persisted-a",
+      persistedId: "persisted-a",
+      categoryId: CAT_A,
+      staffCount: 3,
+      skills: [{ ...createEmptySkill(), skillId: SKILL_IFRS, minProficiencyLevel: "Advanced" }],
+    });
+    const { requirements } = mergeBudgetCategoriesIntoStaffing([existing], [line(CAT_A, 8), line(CAT_B, 8)], opts());
+    expect(requirements).toHaveLength(2);
+    expect(requirements[0]).toBe(existing);
+    expect(requirements[1].categoryId).toBe(CAT_B);
+  });
+
+  it("MB6: a manual row without category is untouched and doesn't block the addition", () => {
+    const manual = requirement({ clientKey: "manual", categoryId: null });
+    const { requirements } = mergeBudgetCategoriesIntoStaffing([manual], [line(CAT_A, 8)], opts());
+    expect(requirements[0]).toBe(manual);
+    expect(requirements[1].categoryId).toBe(CAT_A);
+  });
+
+  it("MB7: a category outside the service is skipped; with no service filter it is added", () => {
+    const scoped = mergeBudgetCategoriesIntoStaffing([], [line(CAT_A, 8), line(CAT_B, 8)], opts(new Set([CAT_A])));
+    expect(scoped.addedCategoryIds).toEqual([CAT_A]);
+    const unscoped = mergeBudgetCategoriesIntoStaffing([], [line(CAT_A, 8), line(CAT_B, 8)], opts(null));
+    expect(unscoped.addedCategoryIds).toEqual([CAT_A, CAT_B]);
+  });
+
+  it("MB8: no additions returns the same reference; applying twice equals applying once", () => {
+    const current = [requirement({ categoryId: CAT_A })];
+    const same = mergeBudgetCategoriesIntoStaffing(current, [line(CAT_A, 8)], opts());
+    expect(same.requirements).toBe(current);
+    expect(same.addedCategoryIds).toEqual([]);
+
+    const once = mergeBudgetCategoriesIntoStaffing([], [line(CAT_A, 8), line(CAT_B, 8)], opts()).requirements;
+    const twice = mergeBudgetCategoriesIntoStaffing(once, [line(CAT_A, 8), line(CAT_B, 8)], opts()).requirements;
+    expect(twice).toBe(once);
+  });
+
+  it("MB9: inputs are not mutated", () => {
+    const current = [requirement({ categoryId: CAT_A })];
+    const lines = [line(CAT_A, 8), line(CAT_B, 8)];
+    const before = JSON.parse(JSON.stringify({ current, lines }));
+    mergeBudgetCategoriesIntoStaffing(current, lines, opts());
+    expect(JSON.parse(JSON.stringify({ current, lines }))).toEqual(before);
+  });
+
+  it("MB10: needsReview never affects the dirty check nor reaches the payload", () => {
+    const base = [requirement({ categoryId: CAT_A, staffCount: 1 })];
+    const flagged = [{ ...base[0], needsReview: true }];
+    expect(isStaffingDirty(base, flagged)).toBe(false);
+    expect(buildStaffingPayload(flagged)[0]).not.toHaveProperty("needsReview");
+  });
+});
+
+describe("budgetStaffingCategoryIds (0923-204)", () => {
+  it("MB11: keeps line order, dedupes, filters by hours and service", () => {
+    const ids = budgetStaffingCategoryIds(
+      [
+        { category_id: "x", budgeted_hours: 8 },
+        { category_id: "y", budgeted_hours: 0 },
+        { category_id: "x", budgeted_hours: 2 },
+        { category_id: "z", budgeted_hours: 5 },
+        { category_id: "foreign", budgeted_hours: 5 },
+      ],
+      new Set(["x", "y", "z"]),
+    );
+    expect(ids).toEqual(["x", "z"]);
   });
 });
