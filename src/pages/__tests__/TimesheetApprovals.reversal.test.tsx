@@ -48,6 +48,8 @@ const refs = vi.hoisted(() => {
     staffId: "me" as string,
     engagementManagerId: "me" as string | null,
     engagementPartnerId: null as string | null,
+    // 1110-220 plan_v5: función del encargo de la fila (1 Cliente; 0/2/3 no-Cliente).
+    engagementFuncion: 1 as number | null,
     pendingEngagementKeys: new Set<string>(),
     pendingEngagementLoading: false,
     // Ventana de edición (días): enorme por defecto para que la semana fija de los fixtures
@@ -117,6 +119,7 @@ vi.mock("@/hooks/useTimesheetReversals", () => ({
           engagement_name: "Eng Two",
           manager_id: refs.engagementManagerId,
           partner_id: refs.engagementPartnerId,
+          funcion: refs.engagementFuncion,
         },
         approvedLineCount: 3,
       },
@@ -148,6 +151,7 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     refs.staffId = "me";
     refs.engagementManagerId = "me";
     refs.engagementPartnerId = null;
+    refs.engagementFuncion = 1;
     refs.pendingEngagementKeys = new Set<string>();
     refs.pendingEngagementLoading = false;
     refs.retroDays = 100000;
@@ -181,6 +185,40 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     await goToApprovedTab(user);
 
     expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+  });
+
+  // 1110-220 plan_v5: el Aprobador de horas de un no-Cliente (p. ej. un senior, sin .approve) solicita la reversión de
+  // su encargo y ve "Mis solicitudes"; en Cliente, sin el permiso, no.
+  it("TA1k: a senior hours approver of a non-client engagement gets requestReversal and myRequests", async () => {
+    refs.roleKey = "senior";
+    refs.canApprove = false;
+    refs.engagementFuncion = 0;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+    expect(screen.getAllByText("approval.requestReversal")[0]).toBeInTheDocument();
+    expect(screen.getByText("approval.tabs.myRequests")).toBeInTheDocument();
+  });
+
+  it("TA1l: being an hours approver elsewhere does not open client engagements without .approve", async () => {
+    refs.roleKey = "senior";
+    refs.canApprove = false;
+    refs.engagementFuncion = 1;
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
+    expect(screen.getAllByText("Eng Two", { exact: false })[0]).toBeInTheDocument();
+    expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
+  });
+
+  it("TA1m: in a non-client engagement the partner alone does not request reversals", async () => {
+    refs.engagementFuncion = 0;
+    refs.engagementManagerId = "someone-else";
+    refs.engagementPartnerId = "me";
+    const user = userEvent.setup();
+    renderWithRouter(<TimesheetApprovals />);
+    await goToApprovedTab(user);
     expect(screen.queryByText("approval.requestReversal")).not.toBeInTheDocument();
   });
 
@@ -371,9 +409,10 @@ describe("TimesheetApprovals reversal tabs (BUG 0923-209)", () => {
     expect(screen.queryByText(/approval\.tabs\.reversalQueue \(/)).not.toBeInTheDocument();
   });
 
-  // TA3: sólo .read (director) -- Aprobadas sin ningún botón de acción, sin tercera tab.
+  // TA3: sólo .read -- Aprobadas sin ningún botón de acción, sin tercera tab. 1110-220 plan_v5: con un rol que no puede
+  // ser Aprobador de horas (sqr); director está en la lista de 14 y puede pedir reversiones de su no-Cliente.
   it("TA3: read-only role sees Approved with no action buttons and no third tab", async () => {
-    refs.roleKey = "director";
+    refs.roleKey = "sqr";
     refs.canApprove = false;
     const user = userEvent.setup();
     renderWithRouter(<TimesheetApprovals />);

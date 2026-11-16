@@ -10,7 +10,7 @@ import { UserRolesManager } from "../UserRolesManager";
 const { mockUseAllUserRoles, mockUpdateRoleKey, CATALOG_ROLE_KEYS } = vi.hoisted(() => ({
   mockUseAllUserRoles: vi.fn(),
   mockUpdateRoleKey: vi.fn(),
-  // Los 23 roles de authorization_roles (Fase 1 seed), en display_order.
+  // Los 24 roles de authorization_roles (Fase 1 seed + secretariat_head de 1110-220), en display_order.
   CATALOG_ROLE_KEYS: [
     "admin", "it_security_manager", "senior_partner", "partner", "sqr",
     "director", "manager", "senior", "semisenior", "assistant",
@@ -18,6 +18,7 @@ const { mockUseAllUserRoles, mockUpdateRoleKey, CATALOG_ROLE_KEYS } = vi.hoisted
     "tax_manager", "tax_senior", "tax_assistant",
     "accounting_manager", "accounting_analyst", "collections_analyst",
     "risk_partner", "risk_supervisor", "hr_manager", "hr_analyst",
+    "secretariat_head",
   ],
 }));
 
@@ -234,9 +235,11 @@ describe("UserRolesManager", () => {
     // Scope to data-testid to avoid ambiguity with change_role column Selects.
     const filterSelect = within(screen.getByTestId("popover-content")).getByRole("combobox");
 
-    // 23 catalog roles + 1 "all" option
+    // 24 catalog roles + 1 "all" option
     const options = within(filterSelect).getAllByRole("option");
     expect(options.length).toBe(CATALOG_ROLE_KEYS.length + 1);
+    // 1110-220: el rol nuevo sale del catálogo, sin cambios en el componente (ícono/color de fallback).
+    expect(options.map((o) => (o as HTMLOptionElement).value)).toContain("secretariat_head");
 
     // Select "admin" — triggers onValueChange which updates DataTable filterValues
     fireEvent.change(filterSelect, { target: { value: "admin" } });

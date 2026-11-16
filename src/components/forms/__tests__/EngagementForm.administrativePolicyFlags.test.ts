@@ -29,25 +29,25 @@ describe("shouldSeedAdministrativePolicyDefaults (FEAT 0722-160)", () => {
 });
 
 /**
- * Review fix (Codex, P1): el alta administrativa sembraba work_order_required=true. Eso deja el
- * encargo en estado 1 Pendiente (deriveEngagementState) y fuera de list_loggable_engagements()
- * hasta que exista una OT con approval_status='Approved'. El switch está deshabilitado para
- * no-admin y hr_analyst no tiene work_order.create, así que el encargo quedaba sin horas
- * cargables esperando a un Admin. plan_v2 §3 ya fijaba `false`.
+ * 1110-220 plan_v3 (decisión del operador, 2026-11-11): lo que crea Talento Humano siempre exige OT
+ * aprobada por el Socio. Antes (0722-160) el default era `false` porque hr_analyst no tenía
+ * work_order.create y el encargo quedaba trabado esperando a un Admin; ahora el Analista crea las
+ * OTs del encargo que crea. El trigger enforce_engagement_profile_scope lo fuerza igual para TH.
  */
-describe("ADMINISTRATIVE_POLICY_DEFAULTS (FEAT 0722-160)", () => {
-  it("no exige OT: el encargo administrativo nace con horas cargables", () => {
-    expect(ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired).toBe(false);
+describe("ADMINISTRATIVE_POLICY_DEFAULTS (FEAT 0722-160, 1110-220 plan_v3)", () => {
+  it("exige OT: el encargo administrativo nace Pendiente hasta que el Socio aprueba la OT", () => {
+    expect(ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired).toBe(true);
+    expect(deriveEngagementState({ work_order_required: ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired })).toBe(
+      EngagementState.Pendiente,
+    );
   });
 
   it("mantiene la aprobación activada", () => {
     expect(ADMINISTRATIVE_POLICY_DEFAULTS.approvalRequired).toBe(true);
   });
 
-  it("deja el encargo administrativo en estado Aprobado sin OT", () => {
-    expect(
-      deriveEngagementState({ work_order_required: ADMINISTRATIVE_POLICY_DEFAULTS.workOrderRequired }),
-    ).toBe(EngagementState.Aprobado);
+  it("sin OT obligatoria (solo admin la apaga) el encargo quedaría Aprobado", () => {
+    expect(deriveEngagementState({ work_order_required: false })).toBe(EngagementState.Aprobado);
   });
 
   it("con OT obligatoria el mismo encargo quedaria Pendiente y sin horas", () => {

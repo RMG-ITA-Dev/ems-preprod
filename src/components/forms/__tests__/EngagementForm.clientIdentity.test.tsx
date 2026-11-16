@@ -62,6 +62,8 @@ vi.mock("@/components/engagements/StaffAssignmentsCard", () => ({
 
 vi.mock("@/hooks/useAuthorization", () => ({
   useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const,
     can: () => true,
     roleKey: "manager",
     isLoading: false,

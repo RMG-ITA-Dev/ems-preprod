@@ -199,7 +199,8 @@ BEGIN
 
   -- 1c. Catálogo RBAC.
   SELECT count(*) INTO n FROM public.authorization_roles;
-  IF n <> 23 THEN RAISE EXCEPTION 'FAIL — authorization_roles: esperado 23, encontrado %', n; END IF;
+  -- 24 = 23 del seed histórico + secretariat_head (1110-220, Jefe de Secretaría).
+  IF n <> 24 THEN RAISE EXCEPTION 'FAIL — authorization_roles: esperado 24, encontrado %', n; END IF;
   SELECT count(*) INTO n FROM public.authorization_permissions;
   -- +1 de 20260915130000_dash_socio_partner_overview.sql (dashboard.partner.read) + 1 de
   -- 20261009120000_rls_carril_b.sql (timesheet.self_approve, que is_auto_approved_category()
@@ -237,8 +238,25 @@ BEGIN
   -- accounting_analyst; contabilidad sin client.read).
   -- + 4 de la misma B3p por 1028-211: client.activate para admin, accounting_manager y collections_analyst, y
   -- client.read para accounting_manager.
-  IF n <> 781 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 781, encontrado %', n; END IF;
-  RAISE NOTICE 'PASS — catálogo RBAC: 23 roles / 89 permisos / 781 concesiones';
+  -- + 43 de 1110-220: 24 de secretariat_head (cero_13 bloque C.2 = hr_manager menos competency.*, holiday.* y
+  --   timesheet_admin_training_approval.manage) + 9 de accounting_manager y 10 de risk_supervisor (0817-180_grant:
+  --   engagement.create/update, worksheet.read/create, work_order.create/update [+ work_order.read solo Riesgos],
+  --   timesheet_approval.read/approve/reject).
+  -- - 13 de 1110-220 plan_v3 (solo TH y Sistemas crean lo administrativo): secretariat_head -6 (engagement.create/
+  --   update, worksheet.create, work_order.create/update/payment_plan.approve), accounting_manager -5 y
+  --   risk_supervisor -5 (engagement.create/update, worksheet.create, work_order.create/update), y hr_analyst +3
+  --   (work_order.read/create/update: crea las OTs del encargo no-Cliente que crea).
+  -- + 4 de 1110-220 plan_v5 (cero_13): timesheet_approval.read para senior, ita_senior, tax_senior y hr_analyst, que
+  --   pueden ser Aprobador de horas de un no-Cliente (solo abrir la pantalla; deciden por is_hours_approver_of).
+  IF n <> 815 THEN RAISE EXCEPTION 'FAIL — authorization_role_permissions: esperado 815, encontrado %', n; END IF;
+
+  -- 1110-220: Jefe de Secretaría hereda Talento Humano SIN competencias, feriados ni aprobación de capacitación.
+  SELECT count(*) INTO n FROM public.authorization_role_permissions
+   WHERE role_key = 'secretariat_head'
+     AND (permission_key LIKE 'competency.%' OR permission_key LIKE 'holiday.%'
+          OR permission_key = 'timesheet_admin_training_approval.manage');
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL — secretariat_head no debe tener competencias, feriados ni capacitación (% filas)', n; END IF;
+  RAISE NOTICE 'PASS — catálogo RBAC: 24 roles / 89 permisos / 815 concesiones';
 
   -- 2. ADM como actividad de sistema (informe §5, plan §2.2.1).
   SELECT activity_id INTO v_adm_id FROM public.activity_codes

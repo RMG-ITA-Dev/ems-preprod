@@ -3,11 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { createMutationErrorHandler } from "@/lib/error-handler";
 import i18n from "@/i18n";
+import type { Industry } from "@/hooks/useEmsData";
+
+type IndustryStatus = NonNullable<Industry["status"]>;
 
 export function useCreateIndustry() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { industry_name: string; fiscal_year_end: string }) => {
+    mutationFn: async (data: { industry_name: string; fiscal_year_end: string; status?: IndustryStatus }) => {
       const { data: result, error } = await supabase
         .from("industries")
         .insert(data)
@@ -27,7 +30,7 @@ export function useCreateIndustry() {
 export function useUpdateIndustry() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { industry_name?: string; fiscal_year_end?: string } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: { industry_name?: string; fiscal_year_end?: string; status?: IndustryStatus } }) => {
       const { data: result, error } = await supabase
         .from("industries")
         .update(data)

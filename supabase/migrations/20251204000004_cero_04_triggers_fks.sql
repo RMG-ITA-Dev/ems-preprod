@@ -320,6 +320,17 @@ CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements 
 
 
 --
+-- Name: engagements trg_engagements_partner_approval; Type: TRIGGER; Schema: public; Owner: -
+--
+
+-- 1110-220 (plan_v5): firma del Socio sin OT y candado de edición tras la firma.
+CREATE TRIGGER trg_engagements_partner_approval BEFORE INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_partner_approval();
+-- Sin lista de columnas: el paso a 'pending' por apagar el switch de OT lo escribe el trigger BEFORE, y un UPDATE OF
+-- solo mira las columnas que nombra la sentencia. La función filtra la transición.
+CREATE TRIGGER trg_engagements_partner_approval_notify AFTER INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.notify_engagement_partner_approval_requested();
+
+
+--
 --
 -- Name: global_settings trg_guard_auth_lockout_settings; Type: TRIGGER; Schema: public; Owner: -
 --

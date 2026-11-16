@@ -920,10 +920,19 @@ SET search_path TO public
 AS $$
 DECLARE
   v_funcion smallint;
+  v_wo_required boolean;
 BEGIN
-  SELECT funcion INTO v_funcion
+  SELECT funcion, work_order_required INTO v_funcion, v_wo_required
     FROM public.engagements
    WHERE engagement_id = NEW.engagement_id;
+
+  -- 1110-220 (plan_v5): un encargo Administrativa/Capacitación/Calidad con "Requiere OT" apagado no lleva OT (no carga
+  -- horas ni pide fondos). Con sesión no se le crea una; sin sesión (seeds, SQL Editor) se deja.
+  IF TG_OP = 'INSERT' AND auth.uid() IS NOT NULL
+     AND v_funcion IS NOT NULL AND v_funcion <> 1 AND v_wo_required IS NOT TRUE THEN
+    RAISE EXCEPTION 'FORBIDDEN: el encargo no lleva Orden de Trabajo (Requiere Orden de Trabajo está apagado)'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
 
   IF v_funcion IS NOT NULL AND v_funcion <> 1 THEN
     -- Las OTs administrativas pueden presupuestar gastos, pero no facturan ni
@@ -1112,12 +1121,21 @@ AS $$
 DECLARE
   v_can_see_history boolean;
   v_current_fiscal_year int;
+  v_me uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN '[]'::jsonb;
   END IF;
 
-  v_can_see_history := public.has_permission('engagement.create');
+  -- Review de Codex (2026-11-12): el histórico completo es de quien CREA administrativos. Desde 1110-220 plan_v3 eso es
+  -- admin y Talento Humano; el Gerente normal, ITA y Tax conservan engagement.create solo para Cliente. Espejo de
+  -- canCreate en AdministrativeEngagements.tsx (engagement.create + ADMINISTRATIVE_CREATOR_ROLE_KEYS).
+  v_can_see_history := public.has_permission('engagement.create')
+                       AND public.current_role_key() IN ('admin', 'hr_manager', 'hr_analyst');
+  -- 1110-220 (plan_v3): quien no crea pero gerencia o firma (Contabilidad, Riesgos, Secretaría, Gerente
+  -- normal) ve el histórico de LO SUYO: su pestaña "Mis encargos" no puede perder un encargo al cambiar
+  -- el año fiscal. Solo amplía filas donde ya figura como creador, Gerente o Socio.
+  v_me := public.get_my_staff_id();
 
   -- Espejo de getCurrentFiscalPeriod() (src/lib/fiscalCalculations.ts): el año
   -- fiscal corre de octubre a septiembre; de octubre en adelante ya es el
@@ -1159,6 +1177,13 @@ BEGIN
           -- para un encargo que el detalle muestra "Pendiente" (exige OT y aún no la tiene).
           'work_order_required', e.work_order_required,
           'engagement_state_override', e.engagement_state_override,
+          -- 1110-220 plan_v5: firma del Socio de un no-Cliente sin OT; decide su estado efectivo.
+          'partner_approval_status', e.partner_approval_status,
+          -- 1110-220: pestaña "Mis encargos" (creados o gerenciados = lo que las políticas UPDATE dejan editar por
+          -- asignación). Solo UUIDs de staff, sin nombres: no amplía lo que se ve del encargo.
+          'created_by_staff_id', e.created_by_staff_id,
+          'manager_id', e.manager_id,
+          'partner_id', e.partner_id,
           'work_order', CASE WHEN wo.engagement_id IS NULL THEN NULL ELSE jsonb_build_object(
             'approval_status', wo.approval_status,
             'approved_at', wo.approved_at,
@@ -1173,7 +1198,12 @@ BEGIN
         LEFT JOIN public.practicas p ON p.code = e.practica
         LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
        WHERE e.funcion <> 1
-         AND (v_can_see_history OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year))
+         -- 1110-220 (operador 2026-11-12): Control de Calidad (3) también sale en la pestaña "Todos", que es una lista de
+         -- consulta sin detalle. Abrirlo sigue cerrado: la RLS y el portafolio solo lo dejan ver a admin y a quien
+         -- figura en él (N19).
+         AND (v_can_see_history
+              OR (e.anio_fiscal IS NOT NULL AND e.anio_fiscal >= v_current_fiscal_year)
+              OR (v_me IS NOT NULL AND v_me IN (e.created_by_staff_id, e.manager_id, e.partner_id)))
          -- Alcance por sociedad (2026-10-28): Contabilidad y Cobranzas solo ven los de su sociedad.
          AND (NOT public.is_society_scoped_role() OR e.society_id = public.my_society_id())
     ),
@@ -1183,7 +1213,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.list_administrative_engagements() IS
-  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien tiene engagement.create ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy. El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
+  '0722-160: listado minimo de encargos Administrativa/Capacitacion/Calidad. Quien los crea (engagement.create con rol admin, hr_manager o hr_analyst, 1110-220) ve todo el historico; el resto solo ve anio_fiscal vigente o futuro (espejo server-side del filtro que antes vivia solo en el frontend). Devuelve work_order_required, engagement_state_override y el estado de la OT para que la lista muestre el estado efectivo, no el status legacy; y created_by_staff_id/manager_id/partner_id para la pestaña Mis encargos (1110-220). El corte del anio fiscal se calcula en America/La_Paz: con now() en UTC se adelantaba cuatro horas el 30 de septiembre. No concede acceso al detalle.';
 
 REVOKE ALL ON FUNCTION public.list_administrative_engagements() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.list_administrative_engagements() TO authenticated;

@@ -88,7 +88,9 @@ vi.mock("@/hooks/useUserRole", () => ({
   useUserRole: () => ({ isAdmin: true }),
 }));
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: () => true, roleKey: "admin" }),
+  useAuthorization: () => ({
+    // 1110-220: canEditEngagement() lee el alcance; "firm" conserva la semántica previa de este suite.
+    scope: () => "firm" as const, can: () => true, roleKey: "admin" }),
 }));
 
 vi.mock("@/hooks/useCurrentStaff", () => ({

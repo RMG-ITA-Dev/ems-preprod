@@ -43,7 +43,7 @@ vi.mock("@/hooks/useCurrentStaff", () => ({
 
 vi.mock("@/lib/logger", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
-import { useDismissNotifications } from "../useNotifications";
+import { useDismissNotifications, useDismissAllNotifications } from "../useNotifications";
 
 const wrapper = ({ children }: { children: React.ReactNode }) => {
   const client = new QueryClient({
@@ -81,5 +81,49 @@ describe("useDismissNotifications — el aviso de error pasa por i18n", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(toastError).not.toHaveBeenCalled();
+  });
+});
+
+// 1112-227: "Descartar todas" no manda ids. El panel carga a lo sumo 200 eventos; si el hook
+// mandara los cargados, lo de afuera sobreviviria.
+describe("useDismissAllNotifications", () => {
+  it("llama a la RPC masiva sin ids ni destinatario", async () => {
+    rpcMock.mockResolvedValue({ data: 210, error: null });
+
+    const { result } = renderHook(() => useDismissAllNotifications(), { wrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalledWith("dismiss_all_notifications");
+    expect(result.current.data).toBe(210);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("al salir bien invalida la bandeja para que el servidor recalcule el badge", async () => {
+    rpcMock.mockResolvedValue({ data: 3, error: null });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const ownWrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useDismissAllNotifications(), { wrapper: ownWrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["notifications"] });
+  });
+
+  it("cuando el RPC falla, avisa con su clave de traduccion", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "boom" } });
+
+    const { result } = renderHook(() => useDismissAllNotifications(), { wrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastError).toHaveBeenCalledWith("notifications.dismissAllError");
   });
 });

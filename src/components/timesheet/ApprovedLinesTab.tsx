@@ -26,8 +26,13 @@ import { TimesheetReversalDialog } from "./TimesheetReversalDialog";
 import { ReversalFiltersBar, ReversalErrorState, formatReversalWeekRange } from "./reversalShared";
 
 interface ApprovedLinesTabProps {
-  /** El usuario tiene timesheet_approval.approve: puede SOLICITAR reversión de encargo. */
+  /**
+   * El usuario puede SOLICITAR reversión de encargo en algún encargo. 1110-220 plan_v5: todo aprobador no admin —
+   * en Cliente con timesheet_approval.approve (`canApproveClient`), en no-Cliente por ser su Aprobador de horas.
+   */
   canRequestReversal: boolean;
+  /** timesheet_approval.approve: habilita la solicitud en encargos de Cliente (Gerente o Socio). */
+  canApproveClient: boolean;
   /** El usuario es admin: puede EJECUTAR (revertir directo) sin pasar por una solicitud. */
   isAdmin: boolean;
 }
@@ -35,7 +40,7 @@ interface ApprovedLinesTabProps {
 // 0923-209 §c.5: grupos (staff x encargo x semana) con >=1 línea aprobada. Tres perfiles:
 // sólo lectura (ni canRequestReversal ni isAdmin), aprobador (Solicitar reversión), admin
 // (Revertir directo). Filtros por usuario/semana/encargo aplican para los tres.
-export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesTabProps) {
+export function ApprovedLinesTab({ canRequestReversal, canApproveClient, isAdmin }: ApprovedLinesTabProps) {
   const { t } = useTranslation();
   const { data: groups, isLoading, isError, refetch } = useApprovedApprovalGroups();
   const [staffSearch, setStaffSearch] = useState("");
@@ -114,13 +119,18 @@ export function ApprovedLinesTab({ canRequestReversal, isAdmin }: ApprovedLinesT
       policies.employeeRetroDays,
     );
 
+  // 1110-220 plan_v5: espejo de is_hours_approver_of (la regla que usa request_timesheet_reversal vía
+  // can_approve_timesheet_line). No-Cliente: solo su Aprobador de horas, sin permiso global. Cliente: el permiso
+  // .approve y ser Gerente o Socio, como siempre — ser Aprobador de un no-Cliente no habilita Cliente.
+  const isOwnApprovalGroup = (group: ApprovedApprovalGroup) => {
+    const me = staffRecord?.staff_id;
+    if (!me) return false;
+    const funcion = group.engagement.funcion;
+    if (funcion != null && funcion !== 1) return group.engagement.manager_id === me;
+    return canApproveClient && (group.engagement.manager_id === me || group.engagement.partner_id === me);
+  };
   const canActOnGroup = (group: ApprovedApprovalGroup) =>
-    isGroupWithinWindow(group) &&
-    (isAdmin ||
-      (canRequestReversal &&
-        !!staffRecord?.staff_id &&
-        (group.engagement.manager_id === staffRecord.staff_id ||
-          group.engagement.partner_id === staffRecord.staff_id)));
+    isGroupWithinWindow(group) && (isAdmin || (canRequestReversal && isOwnApprovalGroup(group)));
 
   const closeDialog = () => {
     setActiveGroup(null);

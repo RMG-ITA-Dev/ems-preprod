@@ -54,7 +54,7 @@ BEGIN
     SELECT ('ec900000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
            '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
            'eps-test-' || n || '@ruizmier.com', 'x', now(), now(), now(), '{}'::jsonb, '{}'::jsonb
-      FROM generate_series(1, 6) n
+      FROM generate_series(1, 9) n  -- 7..9: 1110-220
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
@@ -101,6 +101,16 @@ VALUES
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
   ('5ec80000-0000-4000-8000-000000000006', 'ec900000-0000-4000-8000-000000000006',
    'EPS', 'Sujeto06', true, :'v_practica_1',
+   '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
+  -- 7/8/9 (1110-220): accounting_manager, risk_supervisor y secretariat_head, misma ficha que el 1.
+  ('5ec80000-0000-4000-8000-000000000007', 'ec900000-0000-4000-8000-000000000007',
+   'EPS', 'Sujeto07', true, :'v_practica_1',
+   '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
+  ('5ec80000-0000-4000-8000-000000000008', 'ec900000-0000-4000-8000-000000000008',
+   'EPS', 'Sujeto08', true, :'v_practica_1',
+   '5ec90000-0000-4000-8000-00000000000a', 'La Paz'),
+  ('5ec80000-0000-4000-8000-000000000009', 'ec900000-0000-4000-8000-000000000009',
+   'EPS', 'Sujeto09', true, :'v_practica_1',
    '5ec90000-0000-4000-8000-00000000000a', 'La Paz');
 -- Sujeto 2 (subject sin ficha) deliberadamente NO tiene fila en staff.
 
@@ -110,7 +120,10 @@ INSERT INTO public.user_roles (user_id, role_key) VALUES
   ('ec900000-0000-4000-8000-000000000003', 'manager'),
   ('ec900000-0000-4000-8000-000000000004', 'admin'),
   ('ec900000-0000-4000-8000-000000000005', 'senior_partner'),
-  ('ec900000-0000-4000-8000-000000000006', 'hr_analyst')
+  ('ec900000-0000-4000-8000-000000000006', 'hr_analyst'),
+  ('ec900000-0000-4000-8000-000000000007', 'accounting_manager'),
+  ('ec900000-0000-4000-8000-000000000008', 'risk_supervisor'),
+  ('ec900000-0000-4000-8000-000000000009', 'secretariat_head')
 ON CONFLICT (user_id) DO UPDATE SET role_key = EXCLUDED.role_key;
 
 -- ── Cliente del fixture ────────────────────────────────────────────────────────────────────────
@@ -478,6 +491,32 @@ BEGIN
     RAISE EXCEPTION 'CHECK 18: hr_analyst no debia poder crear un encargo de Cliente (funcion 1).';
   END IF;
   RAISE NOTICE 'CHECK 18 OK: hr_analyst no crea encargos de Cliente.';
+END $$;
+
+-- ── #19 (1110-220 plan_v3, N4): Contabilidad, Riesgos y Secretaría no crean encargos ─────────────
+-- Solo Talento Humano y Sistemas crean lo administrativo, y estos tres tampoco crean Cliente: no tienen
+-- engagement.create. La regla de funcion no Cliente (solo admin/hr_manager/hr_analyst) la cubre
+-- supabase/tests/rls-1110-220-role-permissions.sql, que siembra el cliente interno que exige 0722-160.
+DO $$
+DECLARE
+  v_n      integer;
+  v_raised boolean;
+BEGIN
+  FOREACH v_n IN ARRAY ARRAY[7, 8, 9] LOOP
+    v_raised := false;
+    PERFORM pg_temp.impersonate(pg_temp.u(v_n));
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      PERFORM pg_temp.own_eng('EPS 1110-220 cliente ' || v_n);
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_raised := SQLERRM LIKE '%falta el permiso engagement.create%';
+    END;
+    RESET ROLE;
+    IF NOT v_raised THEN
+      RAISE EXCEPTION 'CHECK 19: el sujeto % (1110-220) no debía poder crear encargos (sin engagement.create).', v_n;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'CHECK 19 OK: accounting_manager, risk_supervisor y secretariat_head no crean encargos.';
 END $$;
 
 DO $$

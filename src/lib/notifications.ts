@@ -307,6 +307,11 @@ export interface PendingSection {
 export function buildPendingSections(
   aggregates: Record<string, AggregateBucket>,
   can?: (permission: string) => boolean,
+  /**
+   * 1110-220: listado de encargos al que lleva "Estado de encargos generados" cuando hay varios. Quien no tiene el menú
+   * Encargos (Talento Humano, Contabilidad, Secretaría) va a Encargos Administrativos; sin este dato, a /engagements.
+   */
+  engagementListRoute: string = "/engagements",
 ): PendingSection[] {
   const sections: PendingSection[] = [];
 
@@ -315,13 +320,21 @@ export function buildPendingSections(
     const count = bucket?.count ?? 0;
     if (count <= 0) continue;
 
+    const items = Array.isArray(bucket?.items) ? bucket.items : [];
+    // 1110-220: "Estado de encargos generados" con UN solo encargo lleva directo a ese encargo; con varios, al listado
+    // que corresponde a quien mira (Encargos o Encargos Administrativos).
+    let route = spec.route;
+    if (spec.section === "engagement_status") {
+      const single = items.length === 1 ? (items[0] as { engagement_id?: unknown }).engagement_id : null;
+      route = typeof single === "string" && single ? `/engagements/${single}` : engagementListRoute;
+    }
     const alarm: PendingAlarm = {
       ...spec,
       // El contador se muestra igual —el backlog existe y es suyo—, pero sin enlace si la
       // pantalla destino le está vedada. Sin `can` (tests, render sin sesión) se linkea todo.
-      route: !can || can(spec.permission) ? spec.route : null,
+      route: !can || can(spec.permission) ? route : null,
       count,
-      items: Array.isArray(bucket?.items) ? bucket.items : [],
+      items,
     };
     if (typeof bucket?.missing_hours === "number" && bucket.missing_hours > 0) {
       alarm.missingHours = bucket.missing_hours;

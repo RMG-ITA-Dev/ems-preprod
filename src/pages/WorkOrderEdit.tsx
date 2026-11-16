@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { canWriteAdministrativeWork, isNonClientFuncion } from "@/lib/engagementRoleAccess";
 import { isCollectionsRole as isCollectionsRoleKey } from "@/lib/collectionsAccess";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { Button } from "@/components/ui/button";
@@ -461,11 +462,21 @@ const WorkOrderEdit = () => {
   //
   // La aprobación de RIESGOS (admin y roles de Riesgos) va por `canApproveRisk`,
   // que WorkOrderForm recibe como prop independiente de `isLocked`.
+  // 1110-220 plan_v5: espejo de is_engagement_team_member() (que suma al Talento Humano creador de un
+  // encargo no-Cliente) y de la RESTRICTIVE de escritura: en no-Cliente solo escriben admin, el TH que lo
+  // creó y el Socio; el Aprobador de horas (manager_id) abre la OT en solo lectura.
   const isEngagementTeamMember =
     !!staffRecord &&
     (workOrder?.engagement?.partner_id === staffRecord.staff_id ||
-      workOrder?.engagement?.manager_id === staffRecord.staff_id);
-  const canWriteWorkOrder = isAdmin || isEngagementTeamMember;
+      workOrder?.engagement?.manager_id === staffRecord.staff_id ||
+      ((roleKey === "hr_analyst" || roleKey === "hr_manager") &&
+        isNonClientFuncion(workOrder?.engagement?.funcion) &&
+        workOrder?.engagement?.created_by_staff_id === staffRecord.staff_id));
+  const canWriteWorkOrder =
+    isAdmin ||
+    (isEngagementTeamMember &&
+      !!workOrder?.engagement &&
+      canWriteAdministrativeWork({ roleKey, myStaffId: staffRecord?.staff_id, engagement: workOrder.engagement }));
   // Decision del operador 2026-09-10: a diferencia de canWriteWorkOrder (socio O
   // gerente), el TC inicial del plan de pagos y el toggle Fijo/Variable quedan
   // reservados solo al gerente DEL encargo (o admin) -- "esta parte de TC" no debe
@@ -481,6 +492,7 @@ const WorkOrderEdit = () => {
   const isEngagementManager =
     !!staffRecord && workOrder?.engagement?.manager_id === staffRecord.staff_id;
   const canEditPaymentPlan = isAdmin || isEngagementManager;
+  // (Las OTs no-Cliente no tienen plan de pagos, así que la RESTRICTIVE de 1110-220 no cambia esto.)
   // Cobranzas Fase 2 (decisión del operador Q17): el Gerente de Contabilidad y el Analista de
   // Cobranzas abren la OT solo para cobrar, así que ven únicamente Plan de pagos y
   // Presupuesto. El merge del Carril B (etapa B3p) ya les dio `work_order.read`, así que la
@@ -599,12 +611,13 @@ const WorkOrderEdit = () => {
       }
     }
 
-    // Update work order
+    // Update work order. silent: el aviso de éxito va al final, cuando terminó todo el guardado (si no, salían dos).
     await updateWorkOrder.mutateAsync({
       id: workOrder.wo_id,
       data: {
         adjustment_amount: adjustmentAmount,
       },
+      silent: true,
     });
 
     // Handle budget lines - now read-only, so skip budget line updates
@@ -725,8 +738,11 @@ const WorkOrderEdit = () => {
     // persistNonRiskChanges() (todo-o-nada, like the payment-plan validation above it)
     // so a blocked submission never persists a Staffing deletion that led to the empty
     // state. Checked here (not earlier) so the same gate also covers the Rejected/resend
-    // branch below, and applies to administrative OT the same as normal ones.
-    if (isSchedulerEnabled()) {
+    // branch below.
+    // 1110-220 (decisión del operador, 2026-11-11): en OT administrativas el Staffing es
+    // OPCIONAL — pueden tener o no requisitos, y un encargo Firmwide ni siquiera tiene
+    // categorías, así que exigirlo dejaba la OT sin forma de enviarse. Solo Cliente lo exige.
+    if (isSchedulerEnabled() && !isAdministrativeEngagement) {
       if (staffingLoading || staffingIsError) {
         toast.error(t("workOrders.staffingRequirements.errorLoading"));
         return;

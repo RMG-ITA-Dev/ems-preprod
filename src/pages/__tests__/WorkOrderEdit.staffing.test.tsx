@@ -593,7 +593,8 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
     }
   });
 
-  it("WES17: an administrative engagement (funcion: 0) with empty Staffing blocks the same as a normal one", async () => {
+  // 1110-220 (decisión del operador, 2026-11-11): en OT administrativas el Staffing es opcional.
+  it("WES17: an administrative engagement (funcion: 0) with empty Staffing is submitted (Staffing optional)", async () => {
     const originalFuncion = (mockWorkOrder.engagement as { funcion?: number }).funcion;
     (mockWorkOrder.engagement as { funcion?: number }).funcion = 0;
     try {
@@ -603,8 +604,8 @@ describe("WorkOrderEdit — Staffing Requirements (Fase 4)", () => {
         await capturedFormProps.onSubmitForApproval();
       });
 
-      expect(toast.error).toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
-      expect(mockSubmitAsync).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalledWith("workOrders.staffingRequirements.errors.requirementsEmpty");
+      expect(mockSubmitAsync).toHaveBeenCalledTimes(1);
     } finally {
       (mockWorkOrder.engagement as { funcion?: number }).funcion = originalFuncion;
     }

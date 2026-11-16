@@ -455,7 +455,9 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
     expect(onSubmitForApproval).toHaveBeenCalledTimes(1);
   });
 
-  it("T21: an administrative OT is blocked if Staffing (its only other tab) was never visited", async () => {
+  // 1110-220 (N11): el Staffing de una OT administrativa es opcional, así que no exige visitar su pestaña ni la marca con
+  // "falta revisar"; basta con Presupuesto (activa por default).
+  it("T21: an administrative OT is submitted without visiting Staffing (optional for administrative OTs)", async () => {
     const user = userEvent.setup();
     const onSubmitForApproval = vi.fn();
     renderForm({
@@ -464,10 +466,10 @@ describe("WorkOrderForm — Tabs (0817-176)", () => {
       onSubmitForApproval,
       onStaffingRequirementsChange: vi.fn(),
     });
+    expect(hasIndicator(getTabTrigger("staffing"), "notReviewed")).toBe(false);
     await user.click(screen.getByText("workOrders.submitForApproval").closest("button")!);
 
-    expect(onSubmitForApproval).not.toHaveBeenCalled();
-    expect(getTabTrigger("staffing")).toHaveAttribute("data-state", "active");
+    expect(onSubmitForApproval).toHaveBeenCalledTimes(1);
   });
 
   it("T22: with empty risk data and unvisited tabs, the click blocks before offering the emergency-submit dialog", async () => {

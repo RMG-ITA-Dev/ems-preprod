@@ -298,7 +298,7 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- Los dos avisos de envío AJENO van al detalle de aprobación, no a la hoja propia.
     WHEN p_type_key IN ('timesheet.weekly_submitted', 'timesheet.team_submitted_for_approval')
       THEN 'timesheet_approval.read'
-    -- El recordatorio de aprobaciones resume TRES colas que viven en pantallas distintas, y el
+    -- El recordatorio de aprobaciones resume CUATRO colas (1110-220: + por_aprobar) en pantallas distintas, y el
     -- botón apunta a la del primer contador con número (`DESTINOS_POR_CONCEPTO`, en
     -- supabase/functions/_shared/plantillas/constants/recordatorios.ts). El permiso tiene que
     -- salir del MISMO contador: gatear el tipo entero por el permiso de su módulo mandaba a
@@ -310,6 +310,8 @@ CREATE FUNCTION public.notif_permiso_de_ruta(p_type_key text, p_module_key text,
     -- divergen, el correo gatea por una pantalla y linkea a otra.
     WHEN p_type_key = 'approval.reminder.weekly' THEN
       CASE
+        -- 1110-220 (D10): las líneas de horas que el destinatario aprueba van primero, a la bandeja.
+        WHEN public.notif_contador(p_payload, 'por_aprobar')  > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'capacitacion') > 0 THEN 'timesheet_approval.read'
         WHEN public.notif_contador(p_payload, 'encargos')     > 0 THEN 'engagement.read'
         WHEN public.notif_contador(p_payload, 'lineas')       > 0 THEN 'timesheet.read'
@@ -538,7 +540,7 @@ WITH base AS (
             WHEN (tla.created_at < (now() - '3 days'::interval)) THEN 'high'::text
             ELSE 'medium'::text
         END AS priority_level,
-    tla.approved_by AS staff_id,
+    apr.staff_id,
     (((s_apr.first_name)::text || ' '::text) || (s_apr.last_name)::text) AS staff_name,
     (1)::numeric AS required_count,
     tp.week_start_date AS start_date,
@@ -548,7 +550,15 @@ WITH base AS (
      JOIN public.engagements e ON ((e.engagement_id = tla.engagement_id)))
      JOIN public.staff s_sub ON ((s_sub.staff_id = tp.staff_id)))
      JOIN public.categories c ON ((c.category_id = s_sub.category_id)))
-     JOIN public.staff s_apr ON ((s_apr.staff_id = tla.approved_by)))
+     -- 1110-220 (plan_v5): el aprobador ASIGNADO, no approved_by (registra a quien decidio; el envio lo deja NULL, asi que
+     -- esta alerta nunca salia). No-Cliente: el Aprobador de horas (si el encargo requiere aprobacion). Cliente: Gerente
+     -- y Socio.
+     CROSS JOIN LATERAL (
+       SELECT e.manager_id AS staff_id WHERE COALESCE(e.funcion, 1) <> 1 AND e.approval_required
+       UNION
+       SELECT x.staff_id FROM unnest(ARRAY[e.manager_id, e.partner_id]) AS x(staff_id) WHERE COALESCE(e.funcion, 1) = 1
+     ) apr
+     JOIN public.staff s_apr ON ((s_apr.staff_id = apr.staff_id)))
   -- `tp.submitted_at IS NOT NULL` no estaba, y sin eso la fila sobrevive al RETIRO de la boleta:
   -- `unsubmit_timesheet_safe` pone submitted_at en NULL y solo borra las lineas `approved` —y solo
   -- si el periodo estaba completo—, asi que las `pending` quedan ahi y el aprobador se queda con
@@ -557,7 +567,7 @@ WITH base AS (
   -- El contador nuevo del catalogo ya se protegia de esto: `notif_agg_timesheet_pending_approval`
   -- exige el periodo enviado por el MISMO motivo, y lo dice en su comentario. La vista legacy no
   -- lo aplicaba, y eso se volvio visible cuando el panel dejo de descartar esta fila.
-  WHERE (((tla.status)::text = 'pending'::text) AND (tla.approved_by IS NOT NULL)
+  WHERE (((tla.status)::text = 'pending'::text)
          AND (tp.submitted_at IS NOT NULL))
 UNION ALL
  SELECT 'work_order_pending_approval'::text AS alert_type,
@@ -705,15 +715,21 @@ CREATE FUNCTION public.engagement_approval_bucket(p_staff_id uuid, p_status text
                       'engagement_name', e.engagement_name)
                     ORDER BY e.engagement_code), '[]'::jsonb))
     FROM public.engagements e
-    JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
+    LEFT JOIN public.work_orders wo ON wo.engagement_id = e.engagement_id
    WHERE e.created_by_staff_id = p_staff_id
-     AND wo.approval_status = p_status
+     AND (wo.approval_status = p_status
+          -- 1110-220 (plan_v5): un no-Cliente SIN OT espera (o fue rechazado por) el Socio sobre el encargo mismo.
+          OR (wo.wo_id IS NULL
+              AND COALESCE(e.funcion, 1) <> 1
+              AND NOT e.work_order_required
+              AND e.partner_approval_status = CASE p_status WHEN 'Pending_Approval' THEN 'pending'
+                                                            WHEN 'Rejected' THEN 'rejected' END))
      AND (e.engagement_state_override IS NULL
           OR e.engagement_state_override NOT IN (6, 7));
 $$;
 
 COMMENT ON FUNCTION public.engagement_approval_bucket(uuid, text) IS
-  'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status, excluyendo Cancelado (6) y Finalizado (7).';
+  'Helper de get_my_notification_aggregates(): encargos creados por p_staff_id cuya OT está en p_status (o, 1110-220, no-Cliente sin OT con la firma del Socio pendiente/rechazada), excluyendo Cancelado (6) y Finalizado (7).';
 
 DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending();
 DROP FUNCTION IF EXISTS public.notif_agg_fund_disbursement_pending(uuid);
@@ -1202,6 +1218,42 @@ $fn$;
 COMMENT ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) IS
   'Semanas enviadas por p_staff_id con lineas todavia en pending, desde p_from.';
 
+-- 1110-220 (D10, corregido en plan_v5): lo que el APROBADOR tiene pendiente. El contador de arriba mira
+-- las semanas que el destinatario ENVIO; este, las lineas que tiene que APROBAR: linea en pending de una
+-- semana enviada, en un encargo cuyas horas decide p_staff_id HOY (is_hours_approver_of: el Aprobador de
+-- horas en no-Cliente; Gerente/Socio con permiso en Cliente), recortado a la misma ventana (p_from).
+-- NO usa approved_by: ese campo registra a quien DECIDIO, y el envio normal lo deja en NULL. Una
+-- reasignacion mueve el pendiente a la persona nueva. Lo consume approval.reminder.weekly; quien no
+-- aprueba nada da 0.
+CREATE OR REPLACE FUNCTION public.notif_agg_timesheet_lines_to_approve(p_staff_id uuid, p_from date)
+    RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $fn$
+  SELECT jsonb_build_object(
+           'count', COALESCE(SUM(lineas), 0),
+           'items', COALESCE(jsonb_agg(jsonb_build_object(
+                      'week_start', week_start, 'lineas', lineas, 'cots', cots) ORDER BY week_start DESC),
+                    '[]'::jsonb))
+    FROM (
+      SELECT tp.week_start_date AS week_start,
+             COUNT(*)           AS lineas,
+             COALESCE(jsonb_agg(DISTINCT e.engagement_code)
+                      FILTER (WHERE e.engagement_code IS NOT NULL), '[]'::jsonb) AS cots
+        FROM public.timesheet_line_approvals tla
+        JOIN public.timesheet_periods tp ON tp.period_id = tla.period_id
+        JOIN public.engagements e ON e.engagement_id = tla.engagement_id
+       WHERE tla.status = 'pending'
+         AND tp.submitted_at IS NOT NULL
+         AND tp.week_start_date >= p_from
+         AND public.is_hours_approver_of(p_staff_id, tla.engagement_id)
+       GROUP BY tp.week_start_date
+    ) q;
+$fn$;
+
+COMMENT ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date) IS
+  '1110-220 (plan_v5): lineas en pending de semanas enviadas desde p_from, en encargos cuyas horas decide hoy p_staff_id (is_hours_approver_of). No usa approved_by (registra al decisor). Contador "por aprobar" del recordatorio semanal.';
+
 -- =====================================================================
 -- G.6) Quien puede llamar a los contadores
 -- =====================================================================
@@ -1236,6 +1288,7 @@ REVOKE ALL ON FUNCTION public.notif_timesheet_window_start()                    
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)                FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)               FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date)  FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date)  FROM PUBLIC, anon, authenticated;
 
 GRANT EXECUTE ON FUNCTION public.engagement_approval_bucket(uuid, text)           TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_fund_disbursement_pending(uuid)        TO service_role;
@@ -1250,6 +1303,7 @@ GRANT EXECUTE ON FUNCTION public.notif_timesheet_window_start()                 
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_overdue(jsonb)               TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_reverted(jsonb)              TO service_role;
 GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_pending_approval(uuid, date) TO service_role;
+GRANT EXECUTE ON FUNCTION public.notif_agg_timesheet_lines_to_approve(uuid, date) TO service_role;
 
 
 DROP FUNCTION IF EXISTS public.get_my_notification_aggregates();
@@ -1562,6 +1616,52 @@ $$;
 
 COMMENT ON FUNCTION public.dismiss_notifications(uuid[]) IS
   'Descarta notificaciones propias marcando dismissed_at; NO borra la fila, que sigue siendo el registro de que el aviso ya salio (sin ella el cron lo repite al dia siguiente). Ignora ids ajenos: el UPDATE filtra por recipient_staff_id = get_my_staff_id(). No hay policy de UPDATE para authenticated — esta es la unica via.';
+
+-- =====================================================================
+-- H.2b) Descartar todas — 1112-227
+-- =====================================================================
+--
+-- El panel carga a lo sumo 200 eventos (get_my_notifications), así que "descartar todas" no
+-- puede ser el cliente mandando los ids que tiene: lo que quedó fuera de la ventana sobreviviría.
+-- Un solo UPDATE en el servidor sobre TODAS las filas propias sin descartar.
+--
+-- Mismas reglas que dismiss_notifications(): marca y no borra (la fila es el registro de que el
+-- aviso salió, ver H.2), filtra por get_my_staff_id() y no recibe parámetros con los que apuntar
+-- a la bandeja de otro, también para un admin.
+--
+-- Incluye los tipos desactivados a propósito: no se ven ni cuentan hoy, pero si el tipo se
+-- reactiva volverían a aparecer después de que el usuario pidió descartar TODO.
+--
+-- Los contadores (aggregates) y las alertas legacy no viven en `notifications`: siguen visibles,
+-- porque son trabajo pendiente que baja cuando se resuelve, no avisos que se descartan.
+DROP FUNCTION IF EXISTS public.dismiss_all_notifications();
+
+CREATE FUNCTION public.dismiss_all_notifications() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_staff uuid := public.get_my_staff_id();
+  v_count integer;
+BEGIN
+  IF v_staff IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- `dismissed_at IS NULL`: lo ya descartado conserva su marca, así que el plazo de retención
+  -- sigue contando desde el primer descarte (igual que en dismiss_notifications).
+  UPDATE public.notifications
+     SET dismissed_at = now()
+   WHERE recipient_staff_id = v_staff
+     AND dismissed_at IS NULL;
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+COMMENT ON FUNCTION public.dismiss_all_notifications() IS
+  '1112-227: descarta TODAS las notificaciones propias (cargadas o no en el panel, incluidos tipos inactivos) marcando dismissed_at; NO borra filas, que siguen siendo el registro de emision para el cron. Sin parametros: el destinatario sale de get_my_staff_id(). No toca contadores ni alertas legacy.';
 
 -- =====================================================================
 -- H.3) Retención — el cron que acota la tabla
@@ -2151,9 +2251,9 @@ GRANT ALL ON public.notifications           TO service_role;
 -- K) Grants de funcion — la superficie que SI ve el cliente
 -- =====================================================================
 --
--- Estas cuatro son toda la API del panel, y son las unicas del modulo que `authenticated` puede
+-- Estas cinco son toda la API del panel, y son las unicas del modulo que `authenticated` puede
 -- ejecutar. Lo que las hace seguras no es el grant sino que NINGUNA recibe un staff_id: las
--- cuatro lo derivan de `get_my_staff_id()`, asi que no hay parametro con el que pedir la bandeja
+-- cinco lo derivan de `get_my_staff_id()`, asi que no hay parametro con el que pedir la bandeja
 -- de otro. Todo lo demas quedo revocado (ver G.6 y el bloque de resolutores en la migracion 03).
 --
 -- Se declara explicito en vez de apoyarse en el EXECUTE que Postgres le da a PUBLIC por defecto:
@@ -2164,8 +2264,10 @@ REVOKE ALL ON FUNCTION public.get_my_notifications(integer)           FROM PUBLI
 REVOKE ALL ON FUNCTION public.get_my_notification_aggregates()        FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.mark_notifications_read(uuid[])         FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.dismiss_notifications(uuid[])           FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.dismiss_all_notifications()             FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION public.get_my_notifications(integer)        TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.get_my_notification_aggregates()     TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.mark_notifications_read(uuid[])      TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.dismiss_notifications(uuid[])        TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.dismiss_all_notifications()          TO authenticated, service_role;

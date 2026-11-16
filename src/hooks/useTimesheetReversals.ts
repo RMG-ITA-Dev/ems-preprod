@@ -115,6 +115,8 @@ export interface ApprovedApprovalGroup {
     // (review iteración 10, hallazgo #2).
     manager_id?: string | null;
     partner_id?: string | null;
+    /** 1110-220 plan_v5: en un no-Cliente (0/2/3) solo el Aprobador de horas (manager_id) solicita, sin permiso global. */
+    funcion?: number | null;
   };
   approvedLineCount: number;
 }
@@ -226,7 +228,8 @@ export function useApprovedApprovalGroups(filters: ReversalFilters = {}) {
               engagement_code,
               engagement_name,
               manager_id,
-              partner_id
+              partner_id,
+              funcion
             )
           `)
           .eq("status", "approved")

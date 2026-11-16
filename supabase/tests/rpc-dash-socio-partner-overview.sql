@@ -198,7 +198,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, statu
   ('70da5c10-0000-4000-8000-000000000009', '60da5c10-0000-4000-8000-000000000003',
    'DA5C10 E9 Norte no-cliente', 'active', pg_temp.sh('2027-06-30'),
    '5ada5c10-0000-4000-8000-000000000001', '50da5c10-0000-4000-8000-000000000002',
-   NULL, NULL, false, NULL, NULL, NULL, 0)
+   NULL, NULL, true, NULL, NULL, NULL, 0)
 ON CONFLICT (engagement_id) DO NOTHING;
 ALTER TABLE public.engagements ENABLE TRIGGER trg_enforce_administrative_engagement_rules;
 
@@ -240,6 +240,10 @@ ON CONFLICT (engagement_id) DO NOTHING;
 -- ── Ordenes de trabajo ──────────────────────────────────────────────────────────────────────
 INSERT INTO public.work_orders (wo_id, engagement_id, currency, season_mode, tax_rate,
                                 adjustment_amount, approval_status, approved_at, risk_status) VALUES
+  -- 1110-220 plan_v5: un no-Cliente sin OT ya no carga horas, así que E9 (que recibe te13) lleva OT aprobada: sigue
+  -- en estado 4 y lo único que lo excluye del tablero es funcion = 0.
+  ('d0da5c10-0000-4000-8000-000000000009', '70da5c10-0000-4000-8000-000000000009',
+   'BOB', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), NULL),
   ('d0da5c10-0000-4000-8000-000000000001', '70da5c10-0000-4000-8000-000000000001',
    'USD', 'High', 0.13, 0, 'Approved', (pg_temp.sh('2026-03-01')::timestamp AT TIME ZONE 'UTC'), 'Approved'),
   -- review.md iteración 9, G-01: moneda USD (no BOB) a propósito -- para que rate_to_bob

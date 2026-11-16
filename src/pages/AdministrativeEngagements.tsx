@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { format } from "date-fns";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable, Column } from "@/components/data-table/DataTable";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useCurrentStaff } from "@/hooks/useCurrentStaff";
 import { AdministrativeEngagement, useAdministrativeEngagements } from "@/hooks/useAdministrativeEngagements";
 import { parseDateLocal } from "@/lib/timesheetUtils";
+import { isAdministrativeCreator } from "@/lib/engagementRoleAccess";
 import {
   ENGAGEMENT_STATES,
   EngagementState,
@@ -86,6 +89,36 @@ export function administrativeEffectiveState(row: AdministrativeEngagement): Eng
   return effectiveEngagementState(row, row.work_order);
 }
 
+/**
+ * 1110-220: pestaña "Mis encargos" = los que creé o donde soy Gerente o Socio. Es el mismo conjunto
+ * que las políticas UPDATE de `engagements` dejan editar por asignación ("creator update" y
+ * "engagements write update"). Sin staff resuelto no hay nada propio.
+ */
+export function isMyAdministrativeEngagement(row: AdministrativeEngagement, myStaffId: string | null | undefined): boolean {
+  if (!myStaffId) return false;
+  return row.created_by_staff_id === myStaffId || row.manager_id === myStaffId || row.partner_id === myStaffId;
+}
+
+/**
+ * 1110-220 plan_v3: ¿tiene la pestaña "Mis encargos"? Quien crea (Sistemas y Talento Humano) siempre;
+ * el resto (Gerente normal, Contabilidad, Riesgos, Secretaría, Socio) solo si gerencia o firma alguno,
+ * para abrir en solo lectura lo que aprueba. Sin filas propias, solo la vista de consulta.
+ */
+export function hasAdministrativeMineTab(
+  canCreate: boolean,
+  rows: AdministrativeEngagement[] | undefined,
+  myStaffId: string | null | undefined,
+): boolean {
+  if (canCreate) return true;
+  return (rows ?? []).some((row) => isMyAdministrativeEngagement(row, myStaffId));
+}
+
+export type AdministrativeTab = "mine" | "all";
+
+export function parseAdministrativeTab(value: string | null): AdministrativeTab {
+  return value === "all" ? "all" : "mine";
+}
+
 export function administrativeSearchKeys(canCreate: boolean): string[] {
   return canCreate
     ? ["engagement_code", "engagement_name", "client_name", "society_name"]
@@ -95,9 +128,24 @@ export function administrativeSearchKeys(canCreate: boolean): string[] {
 const AdministrativeEngagements = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { can } = useAuthorization();
+  const { can, roleKey } = useAuthorization();
   const { data, isLoading } = useAdministrativeEngagements();
-  const canCreate = can("engagement.create");
+  // 1110-220 plan_v3 (N1): el alta administrativa es solo de Sistemas y Talento Humano, aunque otro
+  // rol (Gerente normal, ITA/Tax) tenga engagement.create. Espejo de enforce_engagement_profile_scope.
+  const canCreate = can("engagement.create") && isAdministrativeCreator(roleKey);
+  const { data: currentStaff } = useCurrentStaff();
+  const myStaffId = currentStaff?.staff_id ?? null;
+  // 1110-220: dos pestañas. "Mis encargos" (lo que creo, gerencio o firmo) es la vista operativa
+  // completa: columnas, filtros, histórico y detalle (en solo lectura para quien no es TH ni admin).
+  // "Todos" es la MISMA vista de consulta que tienen los demás roles: nombre y código, año fiscal
+  // vigente o futuro, sin detalle. La pestaña vive en la URL (?tab=all) para conservarla al recargar.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseAdministrativeTab(searchParams.get("tab"));
+  // 1110-220 (operador 2026-11-12): admin ve TODOS los administrativos en la vista completa y los abre y edita, sean de
+  // quien sean (también los ya aprobados por el Socio, con aviso). Sin pestañas: para admin no hay "lo suyo".
+  const isAdmin = roleKey === "admin";
+  const hasMineTab = !isAdmin && hasAdministrativeMineTab(canCreate, data, myStaffId);
+  const fullView = isAdmin || (hasMineTab && tab === "mine");
   const [funcionFilter, setFuncionFilter] = useState("all");
   // 1105-219 (review Codex): en móvil DataTable muestra cards y su embudo de estado vive solo en
   // la cabecera de escritorio. Un único estado controlado alimenta el embudo (escritorio) y el
@@ -106,11 +154,11 @@ const AdministrativeEngagements = () => {
   const isMobile = useIsMobile();
   const [stateFilter, setStateFilter] = useState("all");
   const rows = useMemo(() => {
-    const visibleRows = administrativeRowsForViewer(
-      data ?? [],
-      canCreate,
-      currentBoliviaFiscalYear(),
-    );
+    const visibleRows = isAdmin
+      ? (data ?? [])
+      : fullView
+        ? (data ?? []).filter((row) => isMyAdministrativeEngagement(row, myStaffId))
+        : administrativeRowsForViewer(data ?? [], false, currentBoliviaFiscalYear());
     const filteredRows = funcionFilter === "all"
       ? visibleRows
       : visibleRows.filter((row) => String(row.funcion) === funcionFilter);
@@ -119,7 +167,7 @@ const AdministrativeEngagements = () => {
       ...row,
       effective_state: administrativeEffectiveState(row) ?? row.status,
     }));
-  }, [canCreate, data, funcionFilter]);
+  }, [isAdmin, fullView, data, funcionFilter, myStaffId]);
 
   const stateOptions = ENGAGEMENT_STATES.map((s) => ({
     value: String(s),
@@ -239,17 +287,29 @@ const AdministrativeEngagements = () => {
 
   return (
     <AppLayout title={t("nav.administrativeEngagements")}>
+      <div className="space-y-4">
+      {hasMineTab && (
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setSearchParams(parseAdministrativeTab(v) === "all" ? { tab: "all" } : {}, { replace: true })}
+        >
+          <TabsList>
+            <TabsTrigger value="mine">{t("engagement.administrativeTabMine")}</TabsTrigger>
+            <TabsTrigger value="all">{t("engagement.administrativeTabAll")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
       <DataTable
         data={rows}
-        columns={canCreate ? columns : viewerColumns}
+        columns={fullView ? columns : viewerColumns}
         searchPlaceholder={t("engagement.searchPlaceholder")}
-        searchKeys={administrativeSearchKeys(canCreate)}
+        searchKeys={administrativeSearchKeys(fullView)}
         isLoading={isLoading}
         newButtonLabel={canCreate ? t("engagement.newAdministrativeEngagement") : undefined}
         onNewClick={canCreate ? () => navigate("/engagements/new?mode=administrative") : undefined}
-        onRowClick={canCreate ? (row) => navigate(`/engagements/${row.engagement_id}`, { state: { returnTo: "/administrative-engagements" } }) : undefined}
+        onRowClick={fullView ? (row) => navigate(`/engagements/${row.engagement_id}`, { state: { returnTo: "/administrative-engagements" } }) : undefined}
         getRowId={(row) => row.engagement_id}
-        filters={canCreate ? [
+        filters={fullView ? [
           {
             key: "funcion",
             label: t("engagement.funcion"),
@@ -261,10 +321,10 @@ const AdministrativeEngagements = () => {
         // `status` legacy y solo aparece con "Todos". La vista de consulta no tiene la
         // columna Estado, así que no lleva el filtro. En móvil (sin cabecera de tabla) el
         // filtro es el Select de headerActions.
-        statusFilter={canCreate ? { key: "effective_state", options: stateOptions } : undefined}
-        statusFilterValue={canCreate ? stateFilter : undefined}
-        onStatusFilterChange={canCreate ? setStateFilter : undefined}
-        headerActions={canCreate ? (
+        statusFilter={fullView ? { key: "effective_state", options: stateOptions } : undefined}
+        statusFilterValue={fullView ? stateFilter : undefined}
+        onStatusFilterChange={fullView ? setStateFilter : undefined}
+        headerActions={fullView ? (
           isMobile ? (
             <Select value={stateFilter} onValueChange={setStateFilter}>
               <SelectTrigger className="w-full min-h-[44px]" aria-label={t("engagement.status")}>
@@ -294,6 +354,7 @@ const AdministrativeEngagements = () => {
           </Select>
         )}
       />
+      </div>
     </AppLayout>
   );
 };

@@ -17,8 +17,9 @@ vi.mock("react-router-dom", async () => {
 // FASE 5: crear encargo se gatea por can("engagement.create") (lista y CTA anidado);
 // la creación por ruta (<PermissionRoute>). EngagementNew ya no redirige in-page.
 let mockCan: (perm: string) => boolean = () => false;
+let mockRoleKey: string | null = null;
 vi.mock("@/hooks/useAuthorization", () => ({
-  useAuthorization: () => ({ can: mockCan, roleKey: null }),
+  useAuthorization: () => ({ can: mockCan, roleKey: mockRoleKey }),
 }));
 
 vi.mock("@/hooks/useEmsData", () => ({
@@ -68,6 +69,7 @@ describe("Engagements — create permissions (FASE 5)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCan = () => false;
+    mockRoleKey = null;
   });
 
   it("shows 'Nuevo Encargo' on list when user has engagement.create", () => {
@@ -93,6 +95,22 @@ describe("Engagements — create permissions (FASE 5)", () => {
     wrap(<ClientEngagementsTable clientId="client-1" />);
     expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
   });
+
+  // Talento Humano (Analista y, desde 1110-220 plan_v3, Gerente) solo crea encargos no-Cliente; los da de
+  // alta desde Encargos Administrativos.
+  // (1110-220 plan_v3: Contabilidad, Riesgos y Secretaría ya no tienen engagement.create.)
+  it.each(["hr_analyst", "hr_manager"])(
+    "hides Nuevo Encargo on the client list and client card for %s even with engagement.create",
+    (roleKey) => {
+      mockCan = (perm) => perm === "engagement.create";
+      mockRoleKey = roleKey;
+      const { unmount } = wrap(<Engagements />);
+      expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
+      unmount();
+      wrap(<ClientEngagementsTable clientId="client-1" />);
+      expect(screen.queryByText("engagement.newEngagement")).not.toBeInTheDocument();
+    },
+  );
 
   it("EngagementNew renders the form without in-page redirect (route guard handles access)", () => {
     wrap(<EngagementNew />);

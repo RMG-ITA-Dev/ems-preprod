@@ -6,6 +6,7 @@ import { EngagementForm } from "@/components/forms/EngagementForm";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { isAdministrativeCreator, isAdministrativeOnlyCreator } from "@/lib/engagementRoleAccess";
 
 const EngagementNew = () => {
   const navigate = useNavigate();
@@ -15,7 +16,11 @@ const EngagementNew = () => {
   // El Analista de Talento Humano solo crea encargos Administrativa/Capacitación/Calidad
   // (decisión del operador 2026-10-27): para él el alta es siempre administrativa, llegue por
   // donde llegue. Espejo del trigger de BD `enforce_engagement_profile_scope`.
-  const administrativeMode = searchParams.get("mode") === "administrative" || roleKey === "hr_analyst";
+  // 1110-220 plan_v3 (N1): el alta administrativa es solo de Sistemas y Talento Humano. Para el
+  // resto `?mode=administrative` se ignora y el alta queda en Cliente (el trigger rechazaría 0/2/3).
+  const administrativeMode =
+    isAdministrativeOnlyCreator(roleKey) ||
+    (searchParams.get("mode") === "administrative" && isAdministrativeCreator(roleKey));
   // BUG 0922-195: ClientEngagementsTable.tsx navega acá con ?client_id=... (deep-link
   // "Nuevo Encargo" desde el detalle de un cliente); se reenvía a EngagementForm, que lo
   // hidrata una sola vez cuando su catálogo de clientes lo incluya.

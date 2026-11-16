@@ -945,6 +945,8 @@ async function resolveEffectiveStates(
     engagementId: string;
     workOrderRequired: boolean;
     engagementStateOverride: number | null;
+    funcion?: number | null;
+    partnerApprovalStatus?: string | null;
   }>
 ): Promise<Map<string, number>> {
   const rows = await readChunked(
@@ -969,6 +971,9 @@ async function resolveEffectiveStates(
         {
           work_order_required: e.workOrderRequired,
           engagement_state_override: e.engagementStateOverride,
+          // 1110-220 plan_v5: un no-Cliente sin OT lo decide la firma del Socio del encargo.
+          funcion: e.funcion ?? null,
+          partner_approval_status: e.partnerApprovalStatus ?? null,
         },
         wo
       )
@@ -992,7 +997,7 @@ async function readWindowEngagements(
       ctx.db
         .from("engagements")
         .select(
-          "engagement_id, start_date, end_date, work_order_required, engagement_state_override"
+          "engagement_id, start_date, end_date, work_order_required, engagement_state_override, funcion, partner_approval_status"
         )
         .lte("start_date", endDate)
         .gte("end_date", startDate),
@@ -1012,6 +1017,8 @@ async function readWindowEngagements(
       endOrd,
       workOrderRequired: (r.work_order_required as boolean) ?? true,
       engagementStateOverride: (r.engagement_state_override as number | null) ?? null,
+      funcion: (r.funcion as number | null) ?? null,
+      partnerApprovalStatus: (r.partner_approval_status as string | null) ?? null,
     };
   });
   const effectiveStates = await resolveEffectiveStates(ctx, candidates);
@@ -1406,7 +1413,7 @@ async function benchVsPipeline(
     () =>
       ctx.db
         .from("engagements")
-        .select("engagement_id, work_order_required, engagement_state_override"),
+        .select("engagement_id, work_order_required, engagement_state_override, funcion, partner_approval_status"),
     "engagements",
     "engagements"
   );
@@ -1414,6 +1421,8 @@ async function benchVsPipeline(
     engagementId: r.engagement_id as string,
     workOrderRequired: (r.work_order_required as boolean) ?? true,
     engagementStateOverride: (r.engagement_state_override as number | null) ?? null,
+    funcion: (r.funcion as number | null) ?? null,
+    partnerApprovalStatus: (r.partner_approval_status as string | null) ?? null,
   }));
   const effectiveStates = await resolveEffectiveStates(ctx, engagementCandidates);
   const activeEngagementIds = new Set(

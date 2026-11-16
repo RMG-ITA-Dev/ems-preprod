@@ -2442,6 +2442,50 @@
  service_role  | public       | engagements                                    | oficina                          | REFERENCES
  service_role  | public       | engagements                                    | oficina                          | SELECT
  service_role  | public       | engagements                                    | oficina                          | UPDATE
+ authenticated | public       | engagements                                    | partner_approval_decided_at      | INSERT
+ authenticated | public       | engagements                                    | partner_approval_decided_at      | SELECT
+ authenticated | public       | engagements                                    | partner_approval_decided_at      | UPDATE
+ postgres      | public       | engagements                                    | partner_approval_decided_at      | INSERT
+ postgres      | public       | engagements                                    | partner_approval_decided_at      | REFERENCES
+ postgres      | public       | engagements                                    | partner_approval_decided_at      | SELECT
+ postgres      | public       | engagements                                    | partner_approval_decided_at      | UPDATE
+ service_role  | public       | engagements                                    | partner_approval_decided_at      | INSERT
+ service_role  | public       | engagements                                    | partner_approval_decided_at      | REFERENCES
+ service_role  | public       | engagements                                    | partner_approval_decided_at      | SELECT
+ service_role  | public       | engagements                                    | partner_approval_decided_at      | UPDATE
+ authenticated | public       | engagements                                    | partner_approval_decided_by      | INSERT
+ authenticated | public       | engagements                                    | partner_approval_decided_by      | SELECT
+ authenticated | public       | engagements                                    | partner_approval_decided_by      | UPDATE
+ postgres      | public       | engagements                                    | partner_approval_decided_by      | INSERT
+ postgres      | public       | engagements                                    | partner_approval_decided_by      | REFERENCES
+ postgres      | public       | engagements                                    | partner_approval_decided_by      | SELECT
+ postgres      | public       | engagements                                    | partner_approval_decided_by      | UPDATE
+ service_role  | public       | engagements                                    | partner_approval_decided_by      | INSERT
+ service_role  | public       | engagements                                    | partner_approval_decided_by      | REFERENCES
+ service_role  | public       | engagements                                    | partner_approval_decided_by      | SELECT
+ service_role  | public       | engagements                                    | partner_approval_decided_by      | UPDATE
+ authenticated | public       | engagements                                    | partner_approval_reason          | INSERT
+ authenticated | public       | engagements                                    | partner_approval_reason          | SELECT
+ authenticated | public       | engagements                                    | partner_approval_reason          | UPDATE
+ postgres      | public       | engagements                                    | partner_approval_reason          | INSERT
+ postgres      | public       | engagements                                    | partner_approval_reason          | REFERENCES
+ postgres      | public       | engagements                                    | partner_approval_reason          | SELECT
+ postgres      | public       | engagements                                    | partner_approval_reason          | UPDATE
+ service_role  | public       | engagements                                    | partner_approval_reason          | INSERT
+ service_role  | public       | engagements                                    | partner_approval_reason          | REFERENCES
+ service_role  | public       | engagements                                    | partner_approval_reason          | SELECT
+ service_role  | public       | engagements                                    | partner_approval_reason          | UPDATE
+ authenticated | public       | engagements                                    | partner_approval_status          | INSERT
+ authenticated | public       | engagements                                    | partner_approval_status          | SELECT
+ authenticated | public       | engagements                                    | partner_approval_status          | UPDATE
+ postgres      | public       | engagements                                    | partner_approval_status          | INSERT
+ postgres      | public       | engagements                                    | partner_approval_status          | REFERENCES
+ postgres      | public       | engagements                                    | partner_approval_status          | SELECT
+ postgres      | public       | engagements                                    | partner_approval_status          | UPDATE
+ service_role  | public       | engagements                                    | partner_approval_status          | INSERT
+ service_role  | public       | engagements                                    | partner_approval_status          | REFERENCES
+ service_role  | public       | engagements                                    | partner_approval_status          | SELECT
+ service_role  | public       | engagements                                    | partner_approval_status          | UPDATE
  authenticated | public       | engagements                                    | partner_id                       | INSERT
  authenticated | public       | engagements                                    | partner_id                       | SELECT
  authenticated | public       | engagements                                    | partner_id                       | UPDATE
@@ -8855,5 +8899,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                       | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                       | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                       | SELECT
-(8855 rows)
+(8899 rows)
 

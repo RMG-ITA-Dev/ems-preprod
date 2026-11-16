@@ -91,14 +91,21 @@ CREATE INDEX IF NOT EXISTS idx_wo_expense_budget_wo_id ON public.wo_expense_budg
 -- BUG 0817-179, ver 20260902120000), por eso el rango valido aca es 1..8 -- un override
 -- 9 remanente (no deberia existir tras 0817-179) cae al derivado, igual que en TS.
 
+-- 1110-220 (plan_v5 §6.5): versión con la función del encargo y la firma del Socio sin OT. Un no-Cliente sin OT es
+-- Pendiente (1) / Aprobado (4) / Rechazado (8) según partner_approval_status; Cliente sin OT sigue siendo 4. Sigue siendo
+-- IMMUTABLE: el dato viaja como parámetro, no se consulta la tabla.
 CREATE OR REPLACE FUNCTION public.effective_engagement_state(
   p_override smallint, p_wo_required boolean, p_wo_id uuid,
-  p_approval_status text, p_risk_status text, p_approved_at timestamptz
+  p_approval_status text, p_risk_status text, p_approved_at timestamptz,
+  p_funcion smallint, p_partner_approval_status text
 ) RETURNS smallint
     LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
     AS $$
   SELECT CASE
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
+    WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1 THEN
+      CASE p_partner_approval_status WHEN 'approved' THEN 4 WHEN 'rejected' THEN 8 ELSE 1 END
     WHEN NOT p_wo_required THEN 4
     WHEN p_wo_id IS NULL THEN 1
     WHEN p_approval_status = 'Rejected' OR p_risk_status = 'Rejected' THEN 8
@@ -107,6 +114,21 @@ CREATE OR REPLACE FUNCTION public.effective_engagement_state(
     WHEN p_risk_status IN ('Approved','Emergency_Approved') THEN 3
     ELSE 1 END;
 $$;
+
+-- Firma de 6 argumentos: se conserva para quien no tiene la función a mano; equivale a un encargo de Cliente.
+CREATE OR REPLACE FUNCTION public.effective_engagement_state(
+  p_override smallint, p_wo_required boolean, p_wo_id uuid,
+  p_approval_status text, p_risk_status text, p_approved_at timestamptz
+) RETURNS smallint
+    LANGUAGE sql IMMUTABLE
+    SET search_path TO 'public'
+    AS $$
+  SELECT public.effective_engagement_state(p_override, p_wo_required, p_wo_id, p_approval_status, p_risk_status,
+                                           p_approved_at, NULL::smallint, NULL::text);
+$$;
+
+REVOKE ALL ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz, smallint, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz, smallint, text) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.effective_engagement_state(smallint, boolean, uuid, text, text, timestamptz) IS 'dash_socio (decisiones.md §2/§8 obs.8, plan_v2.md §6.6): espejo SQL exacto de effectiveEngagementState()/deriveEngagementState() en src/lib/engagementStatus.ts. Usado por partner_overview()/partner_overview_engagements() para derivar el conjunto "cartera" (estado 4/5). Mantener sincronizado con el TS -- ver comentario cruzado alla.';
 
@@ -206,7 +228,8 @@ BEGIN
       wo.approval_status, wo.risk_status, wo.approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id
@@ -1127,7 +1150,8 @@ BEGIN
       wo.wo_id, wo.currency, wo.season_mode, wo.approval_status, wo.risk_status, wo.approved_at,
       public.effective_engagement_state(
         e.engagement_state_override, e.work_order_required, wo.wo_id,
-        wo.approval_status, wo.risk_status, wo.approved_at
+        wo.approval_status, wo.risk_status, wo.approved_at,
+        e.funcion, e.partner_approval_status
       ) AS state
     FROM public.engagements e
     JOIN public.clients cl ON cl.client_id = e.client_id

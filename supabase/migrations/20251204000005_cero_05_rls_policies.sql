@@ -1878,3 +1878,103 @@ CREATE POLICY "worksheets firm read" ON public.activity_worksheets FOR SELECT TO
 
 
 --
+
+--
+-- 1110-220 (plan_v3, 2026-11-11): solo Talento Humano y Sistemas crean y escriben lo administrativo.
+--
+-- 1. El Analista de TH (hr_analyst) crea el encargo no-Cliente y elige a su Gerente, así que no es manager_id y
+--    wo_create_by_permission (que exige manager_id con alcance assigned_engagements) no le alcanza. Como creador
+--    de un encargo no-Cliente cuenta como equipo (is_engagement_team_member, cero_02), y con eso crea sus OTs. La
+--    Matriz de Trabajo es solo de Cliente, así que no necesita política de matriz.
+-- 2. RESTRICTIVE de escritura: en un encargo no-Cliente solo escriben admin, hr_manager, hr_analyst y el Socio del
+--    encargo (can_write_administrative_work, cero_02). Un Gerente que no es TH (normal, ITA/Tax, Contabilidad,
+--    Riesgos, Secretaría) solo aprueba horas y mira. Se suman con AND a las permisivas existentes sin tocarlas; para
+--    Cliente la función devuelve true y nada cambia. Nunca FOR ALL: una RESTRICTIVE de SELECT cortaría la lectura.
+--    Las RPC definer que escriben estas tablas (save_engagement_assignments, save_wo_staffing,
+--    batch_upsert_worksheet_cells, sync_worksheet_to_wo_budget) aplican la misma función por dentro.
+--
+
+-- 1110-220 plan_v5 (§6.4): el Aprobador de horas (manager_id) de un no-Cliente lo lee aunque su rol no tenga engagement.read
+-- (senior, ita_senior, tax_senior). Solo SELECT: escribir sigue exigiendo engagement.update y can_write_administrative_work.
+-- La RESTRICTIVE "society scope" (d1) sigue aplicando encima.
+CREATE POLICY "engagements hours approver read" ON public.engagements FOR SELECT TO authenticated
+  USING (COALESCE(funcion, 1) <> 1 AND manager_id IS NOT NULL AND manager_id = (SELECT public.get_my_staff_id()));
+
+-- 1110-220 plan_v5: también el Gerente de TH creador, que ya no se autoasigna como manager_id.
+CREATE POLICY "wo hr analyst administrative insert" ON public.work_orders FOR INSERT TO authenticated
+  WITH CHECK (public.has_permission('work_order.create'::text)
+              AND (SELECT public.current_role_key()) IN ('hr_manager', 'hr_analyst')
+              AND public.is_engagement_team_member(engagement_id));
+
+-- N19: el encargo de Control de Calidad (funcion 3) en sí lo edita SOLO admin (el Socio firma su OT, no edita el encargo).
+CREATE POLICY "administrative write update" ON public.engagements AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id)
+         AND (funcion IS DISTINCT FROM 3 OR (SELECT public.current_role_key()) = 'admin'))
+  WITH CHECK (public.can_write_administrative_work(engagement_id)
+              AND (funcion IS DISTINCT FROM 3 OR (SELECT public.current_role_key()) = 'admin'));
+
+CREATE POLICY "administrative write insert" ON public.work_orders AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write update" ON public.work_orders AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id))
+  WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write delete" ON public.work_orders AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id));
+
+CREATE POLICY "administrative write insert" ON public.activity_worksheets AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write update" ON public.activity_worksheets AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id))
+  WITH CHECK (public.can_write_administrative_work(engagement_id));
+CREATE POLICY "administrative write delete" ON public.activity_worksheets AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id));
+
+CREATE POLICY "administrative write insert" ON public.activity_worksheet_cells AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+CREATE POLICY "administrative write update" ON public.activity_worksheet_cells AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)))
+  WITH CHECK (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+CREATE POLICY "administrative write delete" ON public.activity_worksheet_cells AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_worksheet_engagement_id(worksheet_id)));
+
+CREATE POLICY "administrative write insert" ON public.wo_budget_lines AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write update" ON public.wo_budget_lines AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)))
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write delete" ON public.wo_budget_lines AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+CREATE POLICY "administrative write insert" ON public.wo_expense_budget AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write update" ON public.wo_expense_budget AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)))
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write delete" ON public.wo_expense_budget AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+-- 1110-220 (review de Codex, 2026-11-13): además, un no-Cliente sin OT no carga horas y su asignación la edita solo admin
+-- (engagement_assignment_staffing_allowed). Cierra el INSERT/UPDATE/DELETE directo por API, no solo la RPC.
+CREATE POLICY "administrative write insert" ON public.engagement_assignments AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
+CREATE POLICY "administrative write update" ON public.engagement_assignments AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id))
+  WITH CHECK (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
+CREATE POLICY "administrative write delete" ON public.engagement_assignments AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(engagement_id) AND public.engagement_assignment_staffing_allowed(engagement_id));
+
+CREATE POLICY "administrative write insert" ON public.wo_staffing_requirements AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write update" ON public.wo_staffing_requirements AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)))
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+CREATE POLICY "administrative write delete" ON public.wo_staffing_requirements AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_engagement_id(wo_id)));
+
+CREATE POLICY "administrative write insert" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR INSERT TO authenticated
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));
+CREATE POLICY "administrative write update" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR UPDATE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)))
+  WITH CHECK (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));
+CREATE POLICY "administrative write delete" ON public.wo_staffing_requirement_skills AS RESTRICTIVE FOR DELETE TO authenticated
+  USING (public.can_write_administrative_work(public.resolve_wo_req_skill_engagement_id(requirement_id)));

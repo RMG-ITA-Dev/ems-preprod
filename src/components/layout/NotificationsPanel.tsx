@@ -28,6 +28,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthorization } from "@/hooks/useAuthorization";
+import { showsClientEngagementsMenu } from "@/lib/engagementRoleAccess";
 import { isSchedulerEnabled } from "@/lib/schedulerFeature";
 import { useStaffingAlerts } from "@/hooks/useStaffingAlerts";
 import { useMarkAlertsSeen } from "@/hooks/useMarkAlertsSeen";
@@ -35,6 +36,7 @@ import {
   useNotifications,
   useMarkNotificationsRead,
   useDismissNotifications,
+  useDismissAllNotifications,
 } from "@/hooks/useNotifications";
 import {
   EMPTY_PAYLOAD,
@@ -474,6 +476,7 @@ export function NotificationsPanel() {
     useNotifications();
   const markRead = useMarkNotificationsRead();
   const dismiss = useDismissNotifications();
+  const dismissAll = useDismissAllNotifications();
 
   const { data: rawAlerts, isPending, isError } = useStaffingAlerts();
   const markSeen = useMarkAlertsSeen();
@@ -504,8 +507,13 @@ export function NotificationsPanel() {
   );
 
   const pendingSections = useMemo(
-    () => buildPendingSections(payload.aggregates, canOpenRoute),
-    [payload.aggregates, canOpenRoute],
+    () =>
+      buildPendingSections(
+        payload.aggregates,
+        canOpenRoute,
+        showsClientEngagementsMenu(roleKey) ? "/engagements" : "/administrative-engagements",
+      ),
+    [payload.aggregates, canOpenRoute, roleKey],
   );
   const eventGroups = useMemo(
     () => groupEventsByModule(payload.events),
@@ -659,10 +667,26 @@ export function NotificationsPanel() {
           {eventGroups.length > 0 && (
             <div className="pb-1">
               {pendingSections.length > 0 && <Separator />}
-              <div className="px-4 pt-3 pb-0.5">
+              <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-0.5">
                 <span className="text-sm font-semibold">
                   {t("notifications.news")}
                 </span>
+                {/* 1112-227: descarta TODAS las novedades propias en el servidor, también las
+                    que no entraron en la ventana cargada. Los contadores de pendientes y las
+                    alertas legacy no son novedades: quedan. */}
+                {/* Outline con borde de foreground y no `ghost`: el ghost no tiene fondo ni
+                    borde y sobre el fondo del panel no se distinguía (reporte de Neil). Mismo
+                    contraste que la variante `cancel` del design system, visible en ambos temas. */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs bg-transparent border-foreground/40 text-foreground/90 hover:bg-foreground/15 hover:text-foreground"
+                  disabled={dismissAll.isPending}
+                  onClick={() => dismissAll.mutate()}
+                >
+                  {t("notifications.dismissAll")}
+                </Button>
               </div>
               {eventGroups.map((group) => (
                 <div key={group.module}>

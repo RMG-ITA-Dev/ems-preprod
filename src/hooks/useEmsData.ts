@@ -41,7 +41,7 @@ export interface Industry {
   industry_id: string;
   industry_name: string;
   fiscal_year_end: string;
-  // ETL fase 1: estado del catálogo (solo tipo; la UI aún no lo usa).
+  // ETL fase 1: estado del catálogo. Settings › Industrias lo edita y filtra; ClientForm ofrece solo las activas.
   status?: "active" | "inactive";
 }
 
@@ -184,6 +184,11 @@ export interface Engagement {
   created_by_staff_id?: string | null;
   // FEAT 0602-135: override manual del estado del encargo (1..9). NULL = derivado de la OT.
   engagement_state_override?: number | null;
+  // 1110-220 plan_v5: firma del Socio de un no-Cliente SIN OT (pending/approved/rejected; NULL en Cliente o con OT).
+  // Opcionales: queries/fixtures que no las seleccionan leen el encargo como antes.
+  partner_approval_status?: string | null;
+  partner_approval_decided_at?: string | null;
+  partner_approval_reason?: string | null;
   taxonomy_id: string | null;
   // FEAT 0714-155: sociedad interna (firma) que ejecuta y factura el encargo. Nullable a
   // nivel de esquema (sin NOT NULL), pero la migración backfillea el histórico completo y

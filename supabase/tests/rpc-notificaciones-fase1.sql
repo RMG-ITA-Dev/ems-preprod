@@ -244,8 +244,10 @@ BEGIN
   -- + 1 de la Fase 4: note_added.
   -- + 2 de la Fase 7: expense_row_created y expense_row_amount_changed.
   -- + 2 de 1028-211: client.pending_activation y client.activated.
-  IF v_types <> 97 THEN
-    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 97 (¿corriste el parser?)', v_types;
+  -- + 2 de 1110-220 plan_v5: engagement.partner_approval_requested y engagement.partner_approval_decided (firma del Socio
+  --   de un no-Cliente sin OT: pedido al Socio y decisión al creador).
+  IF v_types <> 99 THEN
+    RAISE EXCEPTION 'TEST FAIL — % tipos sembrados, se esperaban 99 (¿corriste el parser?)', v_types;
   END IF;
   -- 492 = 464 + 28 concesiones nuevas de 0923-209 (1 admin/firm + 10 assigned + 17 own). El
   -- own de reversal_rejected creció de 11 a 17 en la review iteración 1 (hallazgo #3): cubre a
@@ -267,8 +269,35 @@ BEGIN
   -- + 14 de 1028-211: client.pending_activation (admin + los 2 de alcance por sociedad) y client.activated
   --   (los mismos 3 + los 8 roles que crean clientes, con alcance own).
   -- - 2 de 1028-213 (D-22): el SQR deja de recibir wo.submitted_partner y wo.payment_plan.pending_approval.
-  IF v_grants <> 638 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 638', v_grants;
+  -- + 75 de 1110-220 (D9): avisos de gerente para accounting_manager (21 + 2 reversiones), risk_supervisor
+  --   (23 + 2) y secretariat_head (23 + 2 avisos de cuenta + 2 reversiones).
+  -- + 9 de 1110-220 plan_v5: engagement.partner_approval_requested a los 4 roles que pueden ser Socio; envío de horas a
+  --   aprobar para ita_senior, tax_senior y hr_analyst (Aprobadores de horas posibles); y los 2 contadores de "esperando
+  --   / rechazado por el Socio" para hr_analyst, que crea encargos.
+  -- + 6 de 1110-220 plan_v5: engagement.partner_approval_decided (admin, hr_manager, hr_analyst) y los avisos de OT
+  --   aprobada/rechazada/revertida para hr_analyst (los avisos de OT de un no-Cliente van al creador).
+  -- + 60 de 1110-220 (review de Codex): los avisos de fondos que van al gerente de la OT (55) y la reversión ejecutada
+  --   (senior, ita_senior, tax_senior, hr_analyst) y rechazada (hr_analyst) para los Aprobadores de horas posibles.
+  IF v_grants <> 788 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 788', v_grants;
+  END IF;
+  -- 1110-220: los tres Gerentes de encargos administrativos reciben el envío de horas a aprobar.
+  IF (SELECT count(*) FROM public.notification_role_types
+       WHERE type_key = 'timesheet.team_submitted_for_approval' AND scope_key = 'assigned'
+         AND role_key IN ('accounting_manager', 'risk_supervisor', 'secretariat_head')) <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL — accounting_manager/risk_supervisor/secretariat_head deben recibir timesheet.team_submitted_for_approval';
+  END IF;
+  -- 1110-220: el Gerente de Contabilidad conserva el alcance department de sus avisos de fondos.
+  IF (SELECT count(*) FROM public.notification_role_types
+       WHERE role_key = 'accounting_manager' AND scope_key = 'department'
+         AND type_key IN ('fund.expense.manager_auto_approved', 'fund.expense.review_auto_approved')) <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL — accounting_manager perdió el alcance department de sus avisos de fondos';
+  END IF;
+  -- 1110-220: Secretaría sin alta/baja de personal, capacitación ni semanas propias (no carga horas).
+  IF EXISTS (SELECT 1 FROM public.notification_role_types
+              WHERE role_key = 'secretariat_head'
+                AND (type_key LIKE 'staff.%' OR type_key IN ('approval.training_pending', 'timesheet.pending_approval'))) THEN
+    RAISE EXCEPTION 'TEST FAIL — secretariat_head no debe recibir avisos de personal, capacitación ni timesheet.pending_approval';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.notification_role_types
                   WHERE role_key = 'hr_manager' AND type_key = 'fund.request.submitted_for_approval'
@@ -279,10 +308,10 @@ BEGIN
               WHERE role_key = 'hr_manager' AND (type_key LIKE 'wo.installment.%' OR type_key LIKE '%risk%')) THEN
     RAISE EXCEPTION 'TEST FAIL — hr_manager no debe recibir avisos de cuotas ni de Riesgos';
   END IF;
-  IF v_roles <> 23 THEN
-    RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 23', v_roles;
+  IF v_roles <> 24 THEN
+    RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 24', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 97 tipos, 638 concesiones, 23 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 99 tipos, 788 concesiones, 24 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.
@@ -740,19 +769,20 @@ BEGIN
       'public.get_my_notifications(integer)',
       'public.get_my_notification_aggregates()',
       'public.mark_notifications_read(uuid[])',
-      'public.dismiss_notifications(uuid[])'
+      'public.dismiss_notifications(uuid[])',
+      'public.dismiss_all_notifications()'
     ]) AS firma
   LOOP
     IF NOT has_function_privilege('authenticated', r.firma, 'EXECUTE') THEN
       RAISE EXCEPTION 'TEST FAIL — % quedó sin EXECUTE para authenticated: el panel no carga',
         r.firma;
     END IF;
-    -- Sin sesión no hay bandeja: las cuatro derivan el staff de get_my_staff_id().
+    -- Sin sesión no hay bandeja: las cinco derivan el staff de get_my_staff_id().
     IF has_function_privilege('anon', r.firma, 'EXECUTE') THEN
       RAISE EXCEPTION 'TEST FAIL — % ejecutable por anon', r.firma;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS — las 4 RPC del panel abiertas a authenticated y cerradas a anon';
+  RAISE NOTICE 'PASS — las 5 RPC del panel abiertas a authenticated y cerradas a anon';
 END $$;
 
 -- ── Grupo 4 — la ventana de alarmas es configurable ─────────────────────────
@@ -1682,6 +1712,35 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL - el aviso descartado volvio a encolar correo (% filas)', v_n;
   END IF;
   RAISE NOTICE 'PASS - descartar un aviso no hace que el cron lo repita al dia siguiente';
+
+  -- 8.k 1112-227: lo mismo por "Descartar todas". Se vuelve a dejar visible el aviso y se lo
+  -- descarta con la RPC masiva: tiene que marcar (no borrar), asi que el cron tampoco lo repite.
+  UPDATE public.notifications SET dismissed_at = NULL WHERE notification_id = v_desc;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000005');  -- S_RISK
+  IF public.dismiss_all_notifications() < 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications no descarto el aviso del dueno';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE notification_id = v_desc AND dismissed_at IS NOT NULL;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications borro la fila: el registro de emision no sobrevive';
+  END IF;
+
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM public.notif_wo_daily_scheduled();
+  PERFORM public.notif_wo_daily_scheduled();
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - el cron recreo un aviso descartado con Descartar todas (hay % filas)', v_n;
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notification_emails
+   WHERE type_key = 'wo.emergency.deadline_passed' AND recipient_staff_id = c_risk;
+  IF v_n > 1 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas hizo que el aviso volviera a encolar correo (% filas)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas tampoco hace que el cron repita el aviso';
 END $$;
 
 -- -- Grupo 9 -- FASE 3.b: plan de pagos, cuotas y sus dos contadores ----------
@@ -3988,6 +4047,110 @@ BEGIN
 
   PERFORM set_config('request.jwt.claims', '', true);
   RAISE NOTICE 'PASS - la policy de clientes y el disparador reconocen las mismas seis columnas';
+END $$;
+
+-- -- Grupo 17b -- 1112-227: Descartar todas las novedades ---------------------
+-- El panel carga a lo sumo 200 eventos, asi que el fixture tiene MAS que eso: si la RPC
+-- dependiera de lo cargado, las de afuera sobrevivirian.
+DO $$
+DECLARE
+  v_n        int;
+  v_del      int;
+  v_agg_pre  jsonb;
+  v_agg_post jsonb;
+  v_marca    timestamptz;
+  v_payload  jsonb;
+  c_mgr  constant uuid := '59f00000-0000-4000-8000-000000000002';  -- S_MGR
+  c_part constant uuid := '59f00000-0000-4000-8000-000000000004';  -- S_PARTNER
+BEGIN
+  PERFORM set_config('request.jwt.claims', '', true);
+  DELETE FROM public.notifications;
+
+  -- 210 propias (la mitad leidas), mas 1 de un tipo DESACTIVADO, mas 3 de otra persona.
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id, created_at, read_at)
+  SELECT c_mgr, 'wo.rejected_partner', 'wo-' || g,
+         now() - make_interval(mins => g),
+         CASE WHEN g % 2 = 0 THEN now() ELSE NULL END
+    FROM generate_series(1, 210) g;
+
+  UPDATE public.notification_types SET is_active = false WHERE type_key = 'wo.rejected_risk';
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id)
+  VALUES (c_mgr, 'wo.rejected_risk', 'wo-inactivo');
+
+  INSERT INTO public.notifications (recipient_staff_id, type_key, entity_id)
+  SELECT c_part, 'wo.rejected_partner', 'ajena-' || g FROM generate_series(1, 3) g;
+
+  PERFORM pg_temp.impersonate('a9f00000-0000-4000-8000-000000000002');  -- S_MGR
+  v_agg_pre := public.get_my_notifications(50)->'aggregates';
+
+  -- 17b.a Descarta TODAS las propias, tambien las que no entran en la ventana del panel y la
+  -- del tipo desactivado.
+  v_del := public.dismiss_all_notifications();
+  IF v_del <> 211 THEN
+    RAISE EXCEPTION 'TEST FAIL - dismiss_all_notifications descarto % filas, se esperaban 211', v_del;
+  END IF;
+
+  v_payload := public.get_my_notifications(200);
+  IF jsonb_array_length(v_payload->'events') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - despues de Descartar todas quedan % eventos en la bandeja',
+      jsonb_array_length(v_payload->'events');
+  END IF;
+  IF (v_payload->>'unread_count')::int <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - despues de Descartar todas el badge sigue contando % no leidas',
+      (v_payload->>'unread_count')::int;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas vacia la bandeja aunque haya mas que el limite del panel';
+
+  -- 17b.b Los contadores de pendientes no son novedades: siguen igual.
+  v_agg_post := v_payload->'aggregates';
+  IF v_agg_post IS DISTINCT FROM v_agg_pre THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas cambio los contadores: antes %, despues %',
+      v_agg_pre, v_agg_post;
+  END IF;
+  RAISE NOTICE 'PASS - los contadores de pendientes no se tocan';
+
+  -- 17b.c Marca, no borra: las 211 siguen en la tabla como registro de emision.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_mgr AND dismissed_at IS NOT NULL;
+  IF v_n <> 211 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas borro filas (quedan % marcadas de 211)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas conserva las filas (registro de emision)';
+
+  -- 17b.d Las de otra persona quedan intactas, aunque la RPC sea SECURITY DEFINER.
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_part AND dismissed_at IS NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - Descartar todas toco notificaciones ajenas (quedan % de 3)', v_n;
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas solo alcanza al usuario de la sesion';
+
+  -- 17b.e Idempotente: la segunda vez no descarta nada ni mueve la marca de la primera.
+  SELECT MIN(dismissed_at) INTO v_marca FROM public.notifications WHERE recipient_staff_id = c_mgr;
+  IF public.dismiss_all_notifications() <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda llamada a Descartar todas volvio a contar filas';
+  END IF;
+  IF (SELECT MIN(dismissed_at) FROM public.notifications WHERE recipient_staff_id = c_mgr)
+     IS DISTINCT FROM v_marca THEN
+    RAISE EXCEPTION 'TEST FAIL - la segunda llamada movio la marca de descarte (estira la retencion)';
+  END IF;
+  RAISE NOTICE 'PASS - Descartar todas es idempotente';
+
+  -- 17b.f Una sesion sin ficha de staff no descarta nada ni falla.
+  PERFORM pg_temp.impersonate('00000000-0000-4000-8000-00000000dead');
+  IF public.dismiss_all_notifications() <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL - una sesion sin staff descarto filas';
+  END IF;
+  SELECT COUNT(*) INTO v_n FROM public.notifications
+   WHERE recipient_staff_id = c_part AND dismissed_at IS NULL;
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL - una sesion sin staff descarto notificaciones de otro';
+  END IF;
+  RAISE NOTICE 'PASS - sin ficha de staff, Descartar todas es un no-op';
+
+  PERFORM set_config('request.jwt.claims', '', true);
+  UPDATE public.notification_types SET is_active = true WHERE type_key = 'wo.rejected_risk';
+  DELETE FROM public.notifications;
 END $$;
 
 -- -- Grupo 17 -- Descarte manual y retencion ----------------------------------

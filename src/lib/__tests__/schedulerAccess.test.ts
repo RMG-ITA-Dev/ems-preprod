@@ -3,14 +3,14 @@
 // fija la matriz de roles para que no diverjan entre sí.
 //
 // Merge con feat/roles-permisos (2026-08): el rol pasó de flags legacy a
-// role_key. Los 23 role_key del catálogo están cubiertos explícitamente
+// role_key. Los 24 role_key del catálogo (23 + secretariat_head de 1110-220) están cubiertos explícitamente
 // abajo — los positivos y los 12 negativos que el enum legacy filtraba de
 // más (ver el comentario de cabecera en schedulerAccess.ts).
 
 import { describe, it, expect } from "vitest";
 import { canSeeGaps, canSeePlanning } from "@/lib/schedulerAccess";
 
-const ALL_23_ROLE_KEYS = [
+const ALL_ROLE_KEYS = [
   "admin",
   "senior_partner",
   "partner",
@@ -34,6 +34,8 @@ const ALL_23_ROLE_KEYS = [
   "hr_manager",
   "hr_analyst",
   "it_security_manager",
+  // 1110-220: Jefe de Secretaría, sin Scheduler (igual que Talento Humano).
+  "secretariat_head",
 ] as const;
 
 describe("canSeePlanning — L1/L2/Staff timeline: firmwide + manager + senior", () => {
@@ -44,7 +46,7 @@ describe("canSeePlanning — L1/L2/Staff timeline: firmwide + manager + senior",
     }
   );
 
-  const excluded = ALL_23_ROLE_KEYS.filter(
+  const excluded = ALL_ROLE_KEYS.filter(
     (r) => !["admin", "senior_partner", "partner", "director", "manager", "senior"].includes(r)
   );
   it.each(excluded)("%s → false (filtrado por el enum legacy antes del merge)", (roleKey) => {
@@ -77,7 +79,7 @@ describe("canSeeGaps — Gap Reporting: firmwide únicamente (admin/senior_partn
     expect(canSeeGaps("senior")).toBe(false);
   });
 
-  const excluded = ALL_23_ROLE_KEYS.filter(
+  const excluded = ALL_ROLE_KEYS.filter(
     (r) => !["admin", "senior_partner", "partner", "director"].includes(r)
   );
   it.each(excluded)("%s → false", (roleKey) => {

@@ -169,7 +169,10 @@ begin
     raise exception 'Worksheet not found: %', p_worksheet_id;
   end if;
 
-  if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id)) then
+  -- 1110-220 (plan_v3): en encargos no-Cliente solo escriben TH, admin y el Socio; el Gerente que no es
+  -- TH solo aprueba y mira (can_write_administrative_work, cero_02).
+  if not (public.is_admin() or public.is_engagement_team_member(v_engagement_id))
+     or not public.can_write_administrative_work(v_engagement_id) then
     raise exception 'Permission denied: not a team member of this engagement'
       using errcode = 'insufficient_privilege';
   end if;

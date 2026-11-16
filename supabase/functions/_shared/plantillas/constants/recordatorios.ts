@@ -38,6 +38,8 @@ export const TEXTOS_RECORDATORIO: Record<string, CopiaRecordatorio> = {
     intro: "Tiene trabajo esperando su aprobación.",
     boton: "Ir a aprobaciones",
     conceptos: [
+      // 1110-220 (D10): lo que el destinatario tiene que APROBAR. Va primero: es lo que él resuelve.
+      { clave: "por_aprobar", singular: "línea de horas por aprobar", plural: "líneas de horas por aprobar" },
       // OJO: `lineas` NO es trabajo por aprobar, es lo contrario. El contador cuenta las semanas
       // que envió el DESTINATARIO y que siguen esperando a su aprobador
       // (`notif_agg_timesheet_pending_approval` filtra por `tp.staff_id = p_staff_id`). Decía
@@ -108,6 +110,12 @@ export type DestinoRecordatorio = { ruta: string; boton: string; intro: string }
  */
 export const DESTINOS_POR_CONCEPTO: Record<string, Record<string, DestinoRecordatorio>> = {
   "approval.reminder.weekly": {
+    // 1110-220 (D10): primero lo que el destinatario aprueba (la cola de Aprobaciones de horas).
+    por_aprobar: {
+      ruta: "/timesheet/approvals",
+      boton: "Ir a aprobaciones",
+      intro: "Tiene horas esperando su aprobación.",
+    },
     capacitacion: {
       ruta: "/timesheet/approvals",
       boton: "Ir a aprobaciones",
