@@ -21,6 +21,18 @@ describe("ETL fase 2: entrada offline", () => {
     expect(() => validateRoleAssignment({ staff_source_ref: "legacy:999", category_name: "Asistente" }, { expected_role_key: "risk_supervisor", expected_legacy_role: "manager" }, "assistant")).toThrow(/categoría/);
   });
 
+  it("asigna a Karina el rol de Secretaría sin cambiar su categoría y rechaza pares no autorizados", () => {
+    const staff = { staff_source_ref: "legacy:13", category_name: "Gerente" };
+    const user = { expected_role_key: "secretariat_head", expected_legacy_role: "manager" };
+    expect(() => validateRoleAssignment(staff, user, "manager")).not.toThrow();
+    expect(() => validateRoleAssignment(staff, { ...user, expected_role_key: "manager" }, "manager")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment(staff, { ...user, expected_legacy_role: "admin" }, "manager")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment({ ...staff, category_name: "Asistente" }, user, "assistant")).toThrow(/enmienda/);
+    expect(() => validateRoleAssignment({ ...staff, staff_source_ref: "legacy:999" }, user, "manager")).toThrow(/categoría/);
+    expect(() => assertLegacyRoleMirror([{ staff_source_ref: "legacy:13", ...user }], [{ role_key: "secretariat_head", legacy_app_role: "manager" }])).not.toThrow();
+    expect(() => assertLegacyRoleMirror([{ staff_source_ref: "legacy:13", ...user }], [{ role_key: "manager", legacy_app_role: "manager" }])).toThrow(/sin espejo/);
+  });
+
   it("rechaza texto con doble codificación UTF-8 y acepta los acentos correctos", () => {
     const ok = `${header("clients")}\r\nlegacy:58,"COMPAÑIA DE SEGUROS, Médico",,001,empresa,,,nacional,nit_propio,Industria,"Av. 6 de Agosto N° 2678",true,`;
     expect(() => parseCsv(ok, HEADERS.clients, "clientes")).not.toThrow();
@@ -97,6 +109,27 @@ describe("ETL fase 2: entrada offline", () => {
     // Un journal anterior a este campo no lo trae y se acepta.
     writeJournal(journalPathFor(stateDir, config.installationId), { version: 1, installationId: config.installationId, projectRef: config.expectedProjectRef, state: "VALIDADO", inputs: {} });
     expect(() => report(createContext({ config: other, stateDir, db: {} } as any))).not.toThrow(/otra configuración/);
+  });
+
+  it("R403-11: el journal F2 registra el respaldo de origen y no se reanuda con otro", () => {
+    const stateDir = mkdtempSync(path.join(os.tmpdir(), "etl-f2-origin-"));
+    const raw = (snapshot: string): any => ({
+      schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f2-ensayo-local-0002",
+      bootstrapAdminEmail: "admin@ruizmier.com", snapshot,
+      inputs: Object.fromEntries(["clients", "contacts", "staff", "users", "rates", "services"].map((name) => [name, path.resolve(path.sep, "tmp", `${name}.csv`)])),
+    });
+    const base = parseConfig(raw("TimeControlDB_20261106_1600")); const variant = parseConfig(raw("TimeControlDB_20261106_1600_d41")); const old = parseConfig(raw("TimeControlDB_20261023_1200"));
+    const journal = { version: 1, installationId: base.installationId, projectRef: base.expectedProjectRef, state: "VALIDADO", snapshotOrigin: "TimeControlDB_20261106_1600", inputs: {}, clients: {}, staff: {} };
+    writeJournal(journalPathFor(stateDir, base.installationId), journal);
+    // Mismo respaldo (el manifiesto base o su variante D41): se reanuda.
+    expect(() => report(createContext({ config: base, stateDir, db: {} } as any))).not.toThrow(/respaldo de origen/);
+    // Otro respaldo con el mismo installationId: bloquea aunque no haya progreso.
+    expect(() => report(createContext({ config: old, stateDir, db: {} } as any))).toThrow(/respaldo de origen cambió/);
+    // Un journal anterior al campo, sin progreso, adopta el origen vigente; con progreso no lo adopta.
+    const { snapshotOrigin: _omit, ...legacy } = journal;
+    writeJournal(journalPathFor(stateDir, base.installationId), legacy);
+    const ctx: any = createContext({ config: variant, stateDir, db: {} } as any);
+    expect(() => report(ctx)).not.toThrow(/respaldo de origen/);
   });
 
   it("mapea a 3 (reconciliar) los resultados inciertos de SQL y de Auth, y a 2 el bloqueo", () => {

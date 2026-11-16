@@ -13,6 +13,9 @@ function invalidateEngagementQueries(queryClient: ReturnType<typeof useQueryClie
   queryClient.invalidateQueries({ queryKey: ["engagements"] });
   queryClient.invalidateQueries({ queryKey: ["engagement"] });
   queryClient.invalidateQueries({ queryKey: ["encargo-engagements"] });
+  queryClient.invalidateQueries({ queryKey: ["approved-engagements"] });
+  queryClient.invalidateQueries({ queryKey: ["approved-engagements-for-tracker"] });
+  queryClient.invalidateQueries({ queryKey: ["engagements-for-manual-entry"] });
 }
 
 export function useDecideEngagementPartnerApproval() {

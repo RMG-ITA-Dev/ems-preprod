@@ -913,7 +913,20 @@ insert into public.notification_role_types (role_key, type_key, scope_key) value
   ('director', 'fund.settlement.recorded', 'assigned'),
   ('hr_analyst', 'fund.settlement.recorded', 'assigned'),
   ('partner', 'fund.settlement.recorded', 'assigned'),
-  ('senior_partner', 'fund.settlement.recorded', 'assigned')
+  ('senior_partner', 'fund.settlement.recorded', 'assigned'),
+  -- 2026-11-16 (operador): risk_partner puede ser Aprobador de horas; recibe los mismos avisos accionables que el resto de
+  -- los Socios aprobadores posibles (fondos y envío de horas a aprobar). Ya tenía la reversión ejecutada y el recordatorio.
+  ('risk_partner', 'fund.disbursement.done', 'assigned'),
+  ('risk_partner', 'fund.expense.approval_reminder', 'assigned'),
+  ('risk_partner', 'fund.expense.manager_auto_approved', 'assigned'),
+  ('risk_partner', 'fund.expense.review_auto_approved', 'assigned'),
+  ('risk_partner', 'fund.expenses.all_reviewed', 'assigned'),
+  ('risk_partner', 'fund.expense.submitted_for_approval', 'assigned'),
+  ('risk_partner', 'fund.request.cancelled', 'assigned'),
+  ('risk_partner', 'fund.request.closed', 'assigned'),
+  ('risk_partner', 'fund.request.submitted_for_approval', 'assigned'),
+  ('risk_partner', 'fund.settlement.recorded', 'assigned'),
+  ('risk_partner', 'timesheet.team_submitted_for_approval', 'assigned')
 on conflict (role_key, type_key) do update set scope_key = excluded.scope_key;
 
 -- Filas que ya no estan en la matriz dejan de existir en el catalogo.
@@ -1668,7 +1681,18 @@ delete from public.notification_role_types
    ('director', 'fund.settlement.recorded'),
    ('hr_analyst', 'fund.settlement.recorded'),
    ('partner', 'fund.settlement.recorded'),
-   ('senior_partner', 'fund.settlement.recorded')
+   ('senior_partner', 'fund.settlement.recorded'),
+   ('risk_partner', 'fund.disbursement.done'),
+   ('risk_partner', 'fund.expense.approval_reminder'),
+   ('risk_partner', 'fund.expense.manager_auto_approved'),
+   ('risk_partner', 'fund.expense.review_auto_approved'),
+   ('risk_partner', 'fund.expenses.all_reviewed'),
+   ('risk_partner', 'fund.expense.submitted_for_approval'),
+   ('risk_partner', 'fund.request.cancelled'),
+   ('risk_partner', 'fund.request.closed'),
+   ('risk_partner', 'fund.request.submitted_for_approval'),
+   ('risk_partner', 'fund.settlement.recorded'),
+   ('risk_partner', 'timesheet.team_submitted_for_approval')
  );
 delete from public.notification_types
  where type_key not in (

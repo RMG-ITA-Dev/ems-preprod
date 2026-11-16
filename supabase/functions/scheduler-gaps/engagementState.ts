@@ -98,6 +98,12 @@ export function effectiveEngagementState(
   engagement: EngagementStateInput,
   workOrder?: WorkOrderStateInput | null
 ): EngagementState {
+  // Un override de aprobación no sustituye la decisión del encargo sin OT.
+  if (!engagement.work_order_required && engagement.funcion != null && engagement.funcion !== 1 &&
+      engagement.partner_approval_status !== "approved" &&
+      (engagement.engagement_state_override === 4 || engagement.engagement_state_override === 5)) {
+    return deriveEngagementState(engagement, workOrder);
+  }
   if (isValidState(engagement.engagement_state_override)) {
     return engagement.engagement_state_override;
   }

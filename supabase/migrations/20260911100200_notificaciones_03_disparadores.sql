@@ -1908,6 +1908,12 @@ DECLARE
   v_base     jsonb;
   v_prev     text := CASE WHEN TG_OP = 'UPDATE' THEN OLD.status ELSE NULL END;
 BEGIN
+  -- D41 Parte I (ETL F3): la importación de horas históricas ya aprobadas (public.import_historic_timesheets) inserta las líneas `approved` con esta marca
+  -- transaccional; esas aprobaciones son del sistema anterior y no deben avisar a nadie. Cualquier otro camino sigue emitiendo como siempre.
+  IF current_setting('app.etl_import', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+
   -- El destinatario es siempre el dueño de la boleta (alcance `own`): el veredicto es sobre
   -- SU línea. Quien aprueba ya lo sabe, y su gerencia no está en esta fila de la matriz.
   SELECT tp.staff_id, tp.week_start_date

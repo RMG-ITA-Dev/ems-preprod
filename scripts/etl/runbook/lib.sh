@@ -157,6 +157,22 @@ rb_confirm_window() {
 # F3 se genera más tarde (necesita el actor técnico, que existe solo tras F1).
 rb_config_path() { printf '%s/scripts/etl/fase%s.%s-%s.config.json' "$REPO_ROOT" "$1" "$ENV_NAME" "$RUN_ID"; }
 
+# --- Manifiesto del snapshot (scripts/etl/snapshots/<base>.json) -------------------------------
+# Las cifras y fechas que dependen del respaldo legacy (corte de bajas, activas/inactivas, conteos de F3, fecha límite) salen del manifiesto
+# del snapshot de la configuración base, no de constantes del runbook. rb_manifest <ruta.con.puntos> imprime el valor; null/ausente → vacío.
+# rb_manifest_required exige un valor fuera de local (un control sin declarar bloquea en Test y producción).
+rb_manifest() {
+  BASE="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}" KEYPATH="$1" node -e '
+    const fs = require("fs"); const e = process.env;
+    const snapshot = JSON.parse(fs.readFileSync(e.BASE, "utf8")).snapshot;
+    if (!/^[A-Za-z0-9_]+$/.test(snapshot ?? "")) { console.error("snapshot inválido en la configuración base"); process.exit(1); }
+    let value = JSON.parse(fs.readFileSync("scripts/etl/snapshots/" + snapshot + ".json", "utf8"));
+    for (const part of e.KEYPATH.split(".")) value = value?.[part];
+    process.stdout.write(value === null || value === undefined ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value)));
+  ' || rb_die "no se pudo leer $1 del manifiesto del snapshot (¿existe scripts/etl/snapshots/<base>.json?)"
+}
+rb_manifest_required() { local v; v="$(rb_manifest "$1")"; [[ -n "$v" || "$ENV_NAME" == "local" ]] || rb_die "el manifiesto no declara $1 (obligatorio fuera de local)"; printf '%s' "$v"; }
+
 rb_write_config() {
   local phase="$1" out; out="$(rb_config_path "$phase")"
   BASE_F1="${BASE_F1_CONFIG:-scripts/etl/fase1.local.config.json}" BASE_F2="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}" BASE_F3="${BASE_F3_CONFIG:-scripts/etl/fase3.local.config.json}" \
@@ -192,6 +208,27 @@ rb_etl_mut() { if [[ "$DRY_RUN" == "1" ]]; then rb_info "DRY-RUN fase$1 $2 ${*:3
 
 rb_psql() { psql -X -At -v ON_ERROR_STOP=1 "$@"; }
 rb_scalar() { rb_psql -c "$1"; }
+
+# R403-02: precondición de solo lectura para F2/F3 (también al reanudar con `--from` o al ejecutar el paso suelto): ningún cron
+# `notif-%` activo. La pausa la hace 15-crones.sh; esto solo verifica y NO modifica nada. En local sin pg_cron o sin crones definidos
+# avisa (no hay nada que pausar); en Test, su ausencia bloquea (igual que el paso 15).
+rb_require_crons_paused() {
+  local has_cron total active
+  has_cron="$(rb_scalar "select count(*) from pg_extension where extname = 'pg_cron'")"
+  if [[ "$has_cron" == "0" ]]; then
+    [[ "$ENV_NAME" == "local" ]] || rb_die "pg_cron no está instalado en ${ENV_NAME}: no se puede verificar la pausa de los crones notif-%"
+    rb_warn "pg_cron no está instalado en local: no hay crones notif-% que verificar"; return 0
+  fi
+  total="$(rb_scalar "select count(*) from cron.job where jobname like 'notif-%'")"
+  active="$(rb_scalar "select count(*) from cron.job where jobname like 'notif-%' and active")"
+  [[ "$total" =~ ^[0-9]+$ && "$active" =~ ^[0-9]+$ ]] || rb_die "no se pudo leer el estado de los crones notif-%"
+  if [[ "$total" -eq 0 ]]; then
+    [[ "$ENV_NAME" == "local" ]] || rb_die "no hay crones notif-% en ${ENV_NAME}: ¿se aplicaron las migraciones de notificaciones?"
+    rb_warn "no hay crones notif-% definidos en local"; return 0
+  fi
+  [[ "$active" -eq 0 ]] || rb_die "quedan ${active} crones notif-% activos: ejecute el paso 15 (15-crones.sh) antes de cargar F2/F3"
+  rb_pass "los ${total} crones notif-% están pausados en ${ENV_NAME}"
+}
 
 # Resumen de conteos sin datos personales.
 rb_counts() {

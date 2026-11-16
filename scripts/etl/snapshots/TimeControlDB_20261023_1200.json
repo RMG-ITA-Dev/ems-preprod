@@ -1,0 +1,17 @@
+{
+  "snapshot": "TimeControlDB_20261023_1200",
+  "bak": { "file": null, "sha256": null, "takenAt": "2026-10-23T12:00" },
+  "dates": { "staffCut": "2026-10-23", "recentHire": null, "fy2026End": "2026-11-15", "fy2027End": "2027-09-30", "adminWindowFrom": "2026-07-23", "adminWindowTo": "2026-10-24" },
+  "f2": { "clients": 268, "contacts": 111, "staff": 153, "users": 153, "rates": 15, "services": 46, "activeStaff": 145, "inactiveStaff": 8, "schedulableStaff": 145 },
+  "f3": {
+    "clientEngagements": 124, "administrativeEngagements": 10, "selectorProfiles": 138, "matrices": 124, "workOrders": 124, "engagementsTotal": 134, "risks": 124,
+    "riskLevels": null,
+    "expenses": { "positive": 75, "zero": 545, "totalUnits": "9207900" },
+    "payments": { "plans": 124, "rows": 281, "billable": 277, "notes": 4 },
+    "endDates": { "allowed": ["2026-11-15", "2027-09-30"], "byYear": { "2026": "2026-11-15", "2027": "2027-09-30" }, "counts": { "2026-11-15": 109, "2027-09-30": 15 } }
+  },
+  "planNotes": ["2026.22.002|13", "2026.22.003|13", "2026.22.005|13", "2026.22.007|13"],
+  "toleranceCots": [],
+  "invoicedInstallments": [],
+  "preflight": { "executionDeadline": "2026-11-15" }
+}

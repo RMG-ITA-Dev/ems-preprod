@@ -750,11 +750,9 @@ describe("WorkOrderPaymentPlanSection — cuotas ya facturadas son inmutables (r
     expect(screen.getByTestId("payment-plan-exchange-rate-mode-fijo")).not.toBeDisabled();
   });
 
-  // MUST FIX 0722-156b review iteracion 4 #4: recalcular `amount` de una cuota ya
-  // facturada cuando cambia feeWithTax (ej. se corrige el ajuste tras revertir la
-  // aprobacion) disparaba el guard INSTALLMENT_LOCKED del trigger de DB, rechazando el
-  // guardado completo del plan. Las cuotas Pending si deben recalcularse.
-  it("PEM25: cambiar feeWithTax recalcula amount solo en cuotas Pending, nunca en una ya facturada", () => {
+  // Una diferencia histórica de una cuota facturada no puede trasladarse a la
+  // pendiente bajo el nombre de residuo ni modificar la cuota congelada.
+  it("PEM25: bloquea el recálculo cuando la cuota facturada no concilia con el nuevo total", () => {
     const onInstallmentsChange = vi.fn();
     const installments = [
       makeInstallment({ installment_number: 1, status: "Invoiced", percentage: 40, amount: 400, invoice_exchange_rate: 6.96, payment_exchange_rate: 6.96 }),
@@ -764,10 +762,7 @@ describe("WorkOrderPaymentPlanSection — cuotas ya facturadas son inmutables (r
 
     rerenderWith({ installments, feeWithTax: 2000, onInstallmentsChange });
 
-    const rows = onInstallmentsChange.mock.calls[0][0] as PaymentInstallmentInput[];
-    const invoiced = rows.find((r) => r.status === "Invoiced")!;
-    expect(invoiced.amount).toBe(400); // unchanged — locked
-    const pending = rows.find((r) => r.status === "Pending")!;
-    expect(pending.amount).toBe(1200); // 60% of the new 2000 feeWithTax
+    expect(onInstallmentsChange).not.toHaveBeenCalled();
+    expect(installments.map((row) => row.amount)).toEqual([400, 600]);
   });
 });

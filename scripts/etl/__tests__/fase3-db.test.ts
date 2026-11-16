@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { createFase3DbAdapter } from "../fase3-db.mjs";
 
 describe("ETL fase 3: adaptador SQL", () => {
+  it.each([
+    { function: 1, workOrderRequired: true, internal: false, approvalRequired: true, sourceKey: "2027.10.1", legacyApprovalSource: "legacy:Source:2027.10.1" },
+    { function: 0, workOrderRequired: false, internal: true, approvalRequired: true, sourceKey: "2027.10.2", legacyApprovalSource: "legacy:Source:2027.10.1" },
+    { function: 0, workOrderRequired: false, internal: true, approvalRequired: true, sourceKey: "2027.10.1", legacyApprovalSource: "inventada" },
+  ])("rechaza aprobación legacy fuera del alcance administrativo/COT antes de conectar", async (engagement) => {
+    const db = createFase3DbAdapter({ env: {} });
+    await expect(db.createEngagements({ technicalAdminId: "actor", engagements: [engagement] })).rejects.toThrow(/aprobación legacy solo para administrativos/);
+  });
   it("no puede ejecutar una unidad sin actor técnico", async () => {
     const db = createFase3DbAdapter({ env: {} }); await expect(db.executeBlock({ block: "matrices", payload: {}, technicalAdminId: "" })).rejects.toThrow(/actor técnico/);
   });

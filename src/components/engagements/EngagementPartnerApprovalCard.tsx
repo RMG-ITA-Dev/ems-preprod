@@ -58,8 +58,8 @@ export function EngagementPartnerApprovalCard({
     <div className="border border-border bg-background/50 rounded-xl p-6 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">{t("engagement.partnerApproval.title")}</h3>
-          <p className="text-xs text-muted-foreground">{t("engagement.partnerApproval.help")}</p>
+          <h3 className="text-sm font-semibold text-foreground">{t(engagement.partner_approval_legacy_source ? "engagement.partnerApproval.legacyTitle" : "engagement.partnerApproval.title")}</h3>
+          <p className="text-xs text-muted-foreground">{t(engagement.partner_approval_legacy_source ? "engagement.partnerApproval.legacyHelp" : "engagement.partnerApproval.help")}</p>
         </div>
         <Badge variant="outline" className={STATUS_BADGE[status] ?? STATUS_BADGE.pending}>
           {t(`engagement.partnerApproval.status.${status}`)}

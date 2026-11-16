@@ -32,24 +32,24 @@ SELECT p.practica_id, v.category_name, v.display_order, v.can_approve_wo, v.can_
        v.rate_high_bob, v.rate_low_bob, v.rate_high_usd, v.rate_low_usd,
        v.default_app_role::public.app_role
 FROM (VALUES
-  -- Auditoría (15) — rates de ETL 04 (RatesAuditoria, departamento Audit): Alta=Baja y BOB = USD x 12.
+  -- Auditoría (15) — rates de ETL 04 (RatesAuditoria, departamento Audit): BOB = USD x 12; temporada BAJA propia desde el 11/11/2026 (D31; antes Alta=Baja).
   -- Supervisor sugiere 'manager' (ETL fase 1, F1-CA03); las 3 categorías de especialista usan "ITA"
   -- (no "IT"), el nombre vigente en la app, role_key ita_* y plantillas de correo.
-  ('AUD', 'Socio',                          1,  true,  true,  2400, 2400, 200,  200,  'partner'),
-  ('AUD', 'SQR',                            2,  true,  false, 2160, 2160, 180,  180,  'sqr'),
-  ('AUD', 'Director',                       3,  true,  true,  960,  960,  80,   80,   'director'),
-  ('AUD', 'Gerente',                        4,  true,  true,  960,  960,  80,   80,   'manager'),
-  ('AUD', 'Supervisor',                     5,  false, false, 360,  360,  30,   30,   'manager'),
-  ('AUD', 'Senior',                         6,  false, false, 360,  360,  30,   30,   'senior'),
-  ('AUD', 'Semi-Senior',                    7,  false, false, 216,  216,  18,   18,   'semisenior'),
-  ('AUD', 'Asistente',                      8,  false, false, 120,  120,  10,   10,   'staff'),
-  ('AUD', 'Pasante',                        9,  false, false, 120,  120,  10,   10,   'staff'),
-  ('AUD', 'Gerente - Especialista ITA',     10, false, false, 960,  960,  80,   80,   'specialist_it'),
-  ('AUD', 'Senior - Especialista ITA',      11, false, false, 960,  960,  80,   80,   'senior'),
-  ('AUD', 'Asistente - Especialista ITA',   12, false, false, 216,  216,  18,   18,   'staff'),
-  ('AUD', 'Gerente - Especialista Tax',     13, false, false, 960,  960,  80,   80,   'specialist_tax'),
-  ('AUD', 'Senior - Especialista Tax',      14, false, false, 960,  960,  80,   80,   'senior'),
-  ('AUD', 'Asistente - Especialista Tax',   15, false, false, 216,  216,  18,   18,   'staff'),
+  ('AUD', 'Socio',                          1,  true,  true,  2400, 1620, 200,  135,  'partner'),
+  ('AUD', 'SQR',                            2,  true,  false, 2160, 1512, 180,  126,  'sqr'),
+  ('AUD', 'Director',                       3,  true,  true,  960,  696,  80,   58,   'director'),
+  ('AUD', 'Gerente',                        4,  true,  true,  960,  696,  80,   58,   'manager'),
+  ('AUD', 'Supervisor',                     5,  false, false, 360,  288,  30,   24,   'manager'),
+  ('AUD', 'Senior',                         6,  false, false, 360,  288,  30,   24,   'senior'),
+  ('AUD', 'Semi-Senior',                    7,  false, false, 216,  168,  18,   14,   'semisenior'),
+  ('AUD', 'Asistente',                      8,  false, false, 120,  96,   10,   8,    'staff'),
+  ('AUD', 'Pasante',                        9,  false, false, 120,  96,   10,   8,    'staff'),
+  ('AUD', 'Gerente - Especialista ITA',     10, false, false, 960,  696,  80,   58,   'specialist_it'),
+  ('AUD', 'Senior - Especialista ITA',      11, false, false, 960,  696,  80,   58,   'senior'),
+  ('AUD', 'Asistente - Especialista ITA',   12, false, false, 216,  168,  18,   14,   'staff'),
+  ('AUD', 'Gerente - Especialista Tax',     13, false, false, 960,  696,  80,   58,   'specialist_tax'),
+  ('AUD', 'Senior - Especialista Tax',      14, false, false, 960,  696,  80,   58,   'senior'),
+  ('AUD', 'Asistente - Especialista Tax',   15, false, false, 216,  168,  18,   14,   'staff'),
   -- Compliance (8)
   ('COM', 'Socio',                          1,  true,  true,  280,  280,  28,   28,   'partner'),
   ('COM', 'Director',                       2,  true,  true,  250,  250,  25,   25,   'director'),

@@ -4,8 +4,10 @@
 // las claves son COT, NIT/razón social o el hash del correo, y los valores son hashes.
 import { createHash } from "node:crypto";
 
-export const FINGERPRINT_VERSION = 1;
-export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "hoursByStaff", "emailQueue"]);
+// v2: incluye aprobación administrativa legacy y ausencia de firma/fecha EMS. No reinterpreta L9 anteriores.
+export const FINGERPRINT_VERSION = 2;
+// `periods` y `lines` (D41 Parte I): períodos cerrados de horas históricas y sus líneas aprobadas, por clave natural. Vacíos con el contrato anterior (períodos NULL).
+export const SET_NAMES = Object.freeze(["clients", "contacts", "staff", "engagements", "administrative", "periods", "lines", "hoursByStaff", "emailQueue"]);
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 
 // Una clave puede repetirse (NIT compartido, varios roles): se numera por hash ordenado, de modo que el resultado no
@@ -21,14 +23,39 @@ export function keyedHashes(pairs) {
   return out;
 }
 
-export function buildFingerprint({ environment, projectRef, installationId, snapshot, generatedAt = new Date().toISOString() }) {
+// `source` identifica el respaldo legacy del que salió la carga ({ snapshot, manifestSha256 }). Sin él, una huella de otra versión de los datos (por ejemplo, el ensayo v2 del 23/10)
+// no se distingue de una v3 y se compararía contra la equivocada: assertComparableFingerprints lo rechaza.
+export function buildFingerprint({ environment, projectRef, installationId, snapshot, source = null, generatedAt = new Date().toISOString() }) {
   const sets = {};
   for (const name of SET_NAMES) {
     if (!Array.isArray(snapshot?.[name])) throw new Error(`la consulta de huellas no devolvió el conjunto ${name}`);
     const keys = keyedHashes(snapshot[name]);
     sets[name] = { count: Object.keys(keys).length, sha256: sha256(JSON.stringify(Object.entries(keys))), keys };
   }
-  return { version: FINGERPRINT_VERSION, generatedAt, environment, projectRef, installationId, sets };
+  return { version: FINGERPRINT_VERSION, generatedAt, environment, projectRef, installationId, source, sets };
+}
+
+export class FingerprintIncompatibleError extends Error {
+  constructor(message) { super(message); this.name = "FingerprintIncompatibleError"; this.code = "BASELINE_INCOMPATIBLE"; }
+}
+
+// L9 solo tiene sentido entre cargas del MISMO respaldo legacy. Se exige que las dos huellas declaren su snapshot y que coincidan; nunca se omite la comparación en silencio.
+export function assertComparableFingerprints(a, b, { labelA = "A", labelB = "B" } = {}) {
+  if (a?.version !== FINGERPRINT_VERSION || b?.version !== FINGERPRINT_VERSION) throw new FingerprintIncompatibleError("versión de huella incompatible: la aprobación administrativa legacy requiere una corrida nueva; no sobrescribir L9 anteriores");
+  const snapshotOf = (fingerprint, label) => {
+    const name = fingerprint?.source?.snapshot;
+    if (typeof name !== "string" || !name) throw new FingerprintIncompatibleError(`la huella ${label} no declara el snapshot del que salió (es anterior a esta versión de la consola, por ejemplo el ensayo v2 del 23/10): no se compara contra ella; registre una huella nueva del ensayo local`);
+    return name;
+  };
+  const left = snapshotOf(a, labelA); const right = snapshotOf(b, labelB);
+  // D41 Parte I: además del identificador del manifiesto se comparan el RESPALDO de origen y el CONTRATO de las horas. Una huella anterior a D41 (períodos NULL) no se compara contra
+  // una carga D41 (períodos cerrados con líneas aprobadas) aunque el respaldo legacy sea el mismo: la semántica es otra, y avisar solo por el SHA del manifiesto no basta.
+  const contractOf = (fingerprint) => fingerprint.source.contract ?? "legacy"; const originOf = (fingerprint) => fingerprint.source.origin ?? fingerprint.source.snapshot;
+  if ((a.source.financialContract ?? "fee-only") !== (b.source.financialContract ?? "fee-only")) throw new FingerprintIncompatibleError("las huellas tienen contratos financieros distintos");
+  if (contractOf(a) !== contractOf(b)) throw new FingerprintIncompatibleError(`las huellas son de contratos distintos (${labelA}=${contractOf(a)}, ${labelB}=${contractOf(b)}): períodos NULL (anterior) y horas aprobadas dentro de EMS (D41) no se comparan; registre una huella del contrato vigente`);
+  if (left !== right) throw new FingerprintIncompatibleError(`las huellas son de snapshots distintos (${labelA}=${left}, ${labelB}=${right}): una huella v2 no puede compararse con una carga v3`);
+  if (originOf(a) !== originOf(b)) throw new FingerprintIncompatibleError(`las huellas son de respaldos legacy distintos (${labelA}=${originOf(a)}, ${labelB}=${originOf(b)})`);
+  return { snapshot: left, origin: originOf(a), contract: contractOf(a), sameManifest: a.source.manifestSha256 === b.source.manifestSha256 };
 }
 
 // Compara dos huellas conjunto por conjunto y señala qué claves faltan o cambiaron (máximo `limit` por categoría).

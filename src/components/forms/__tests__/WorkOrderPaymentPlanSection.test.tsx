@@ -414,6 +414,23 @@ describe("WorkOrderPaymentPlanSection — installment row generation", () => {
 });
 
 describe("WorkOrderPaymentPlanSection — amounts and totals", () => {
+  it("al cambiar el total recalcula sin mover el residuo de la última cuota facturada", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [makeInstallment({ percentage: 50, amount: 59.53, status: "Pending" }), makeInstallment({ percentage: 50, amount: 59.52, status: "Invoiced" })];
+    const props = { woId: "wo-1", currency: "USD" as const, feeWithTax: 119.04, plan: { wo_id: "wo-1", exchange_rate: 6.96, payment_days: 30, exchange_rate_mode: "fijo" as const }, installments, isEditable: true, isStatusEditable: false, isAdminDateEditable: false, canEditPaymentPlan: true, onPlanChange: vi.fn(), onInstallmentsChange };
+    const qc = makeQC();
+    const { rerender } = render(<QueryClientProvider client={qc}><WorkOrderPaymentPlanSection {...props} /></QueryClientProvider>);
+    rerender(<QueryClientProvider client={qc}><WorkOrderPaymentPlanSection {...props} feeWithTax={119.05} /></QueryClientProvider>);
+    expect(onInstallmentsChange).toHaveBeenCalledTimes(1);
+    expect(onInstallmentsChange.mock.calls[0][0].map((row: PaymentInstallmentInput) => row.amount)).toEqual([59.53, 59.52]);
+  });
+  it("al abrir muestra el importe persistido y no lo recalcula", () => {
+    const onInstallmentsChange = vi.fn();
+    const installments = [makeInstallment({ percentage: 100, amount: 999.99 })];
+    const container = renderSection({ feeWithTax: 1000, installments, onInstallmentsChange });
+    expect(container.querySelector("tfoot")?.textContent?.replace(/\s/g, "")).toContain("999,99");
+    expect(onInstallmentsChange).not.toHaveBeenCalled();
+  });
   it("PP7: row amount cell reflects feeWithTax (50% × 1000 = 500)", () => {
     const installments = [makeInstallment({ percentage: 50 })];
     const container = renderSection({ feeWithTax: 1000, installments });

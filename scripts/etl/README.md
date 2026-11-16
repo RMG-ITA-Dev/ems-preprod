@@ -1,5 +1,7 @@
 # Consola ETL fase 1
 
+**Asignación aprobada 16/11/2026:** el perfil legacy 13 (Karina Linares) usa `secretariat_head`, espejo legacy `manager`, manteniendo categoría Gerente. La excepción está acotada a ese perfil en `APPROVED_ROLE_OVERRIDES`; no cambia permisos ni la categoría por defecto. Para otra carga usar la configuración privada `fase2.local-v5-secretaria.config.json` y `bugs/ETL/carga/fase4/inputs-v3-d41-secretaria.sha256`. El v3 original y los resultados de `lt01` se conservan como historial. Detalle operativo en `bugs/ETL/carga/fase4/decisiones_20261116.md`.
+
 Consola específica (Node + `psql`) que deja una instalación nueva de EMS 2.0 lista para la carga de
 fase 2. **Alcance de fase 1:** crea el administrador genérico (ficha de `staff`, cuenta de Auth,
 enlace y rol `admin/admin`) y materializa el calendario de 28 feriados. **No** carga clientes,
@@ -148,6 +150,9 @@ Fase 3 prepara y carga por bloques los encargos, matrices, OTs y horas aprobadas
 Producción, Dev 2.0 y Lovable siguen rechazados, sin bandera para saltarse la guarda. `ETL_F3_STATE_DIR` es
 absoluto y externo al repositorio. La consola no ejecuta migraciones. Un plan de pago BOB toma el DEFAULT
 efectivo de `wo_payment_plan.exchange_rate` (P-02), que queda registrado en R4 y no es un TC legacy.
+El nivel de riesgo de cada OT se traduce del código legacy `legacy_risk_code` (1 → Bajo, 2 → Moderado, 3 → Alto,
+confirmado por TI con la interfaz del legacy); cualquier otro valor, nulo o vacío bloquea ya en `validate`, y
+`reconcile-legacy` lo verifica por COT (control L4). El código original se conserva en `risk_notes`.
 
 ```bash
 node scripts/etl/fase3.mjs validate --config scripts/etl/fase3.local.config.json
@@ -165,8 +170,8 @@ datos automáticamente. `fase3.config.example.json` es ficticio y no contiene cr
 
 `reconcile-legacy` (solo lectura) concilia lo cargado contra los seis CSV legacy: los totales esperados se
 recalculan desde los CSV y los reales salen de consultas agregadas; el journal solo aporta qué UUID
-corresponde a cada COT. Controla conjuntos, horas presupuestadas, gastos, honorarios y cuotas por COT, horas
-por COT y por persona (descontados los feriados aplicables) y que no existan períodos, aprobaciones ni correos
+corresponde a cada COT. Controla conjuntos, horas presupuestadas, nivel de riesgo, gastos, honorarios y cuotas por COT, horas
+por COT y por persona (descontados los feriados aplicables), el número de entradas cargadas (L7e) y las entradas en feriado (L7f), y que no existan períodos, aprobaciones ni correos
 enviados. Escribe `fase3-<installationId>.legacy-reconciliation.json` (conteos y sumas, sin PII) y termina en
 `BLOQUEADO` ante cualquier diferencia. El `verify` de la consola solo inventaría períodos, aprobaciones y cola de
 correo; la conciliación de contenido es este comando.
@@ -190,9 +195,58 @@ node scripts/etl/fase2.mjs verify       --config <archivo>
 node scripts/etl/fase2.mjs report       --config <archivo>
 node scripts/etl/fase2.mjs probe-access --config <archivo> --staff-ref <ref> [--manual]
 node scripts/etl/fase2.mjs probe-close  --config <archivo> --staff-ref <ref>
+# D40: contiene (status=failed, last_error=ETL_F2_NO_DELIVERY) los correos auth.role.changed pendientes de las fichas y cuentas creadas por F2. Idempotente; exige el journal completo.
+node scripts/etl/fase2.mjs contain-emails --config <archivo>
 ```
 
 La configuración F2 es privada y contiene rutas absolutas de los seis CSV; use
 `fase2.config.example.json` solo como plantilla. `ETL_F2_STATE_DIR` debe ser absoluto, estar fuera
 del repositorio incluso tras resolver enlaces, y conservarse como respaldo privado. El journal no
 guarda nombres, NIT, correos, claves ni tokens: solo huellas, UUID y estados.
+
+## Manifiesto por snapshot (cifras de control del respaldo legacy)
+
+Las cifras y fechas que dependen del respaldo legacy que se carga **ya no son constantes del código**: viven en
+`scripts/etl/snapshots/<nombre_de_la_base>.json` (versionado, sin secretos) y las carga `snapshot-manifest.mjs`
+(`loadSnapshotManifest`). Hay uno por respaldo aprobado: `TimeControlDB_20261023_1200` (reproduce exactamente los valores
+anteriores, para regresión) y `TimeControlDB_20261106_1600` (el respaldo final del 06/11/2026), con variantes del mismo origen:
+`…_d41` (horas aprobadas D41 Parte I), `…_d41_gastos_v1` (contrato financiero del 13/11, superado) y `…_d41_legacy_total_v1`
+(contrato financiero vigente, 15/11/2026). El respaldo real, el manifiesto y el contrato son cosas distintas; los contratos
+anteriores no se reinterpretan. Sin manifiesto, la configuración
+no es válida (`CONFIG`).
+
+- **Contenido:** fechas (`staffCut`, `fy2026End`, …), `f2` (clientes, contactos, fichas, usuarios, activas/inactivas…), `f3`
+  (encargos, matrices, OT, gastos, pagos, niveles de riesgo, fines de vigencia con su conteo), `planNotes` (las notas del plan por
+  lista explícita `COT|cuota`, nunca por texto), `invoicedInstallments` (cuotas «ya fue facturado», D19), `toleranceCots`
+  (planes con tolerancia aprobada, D18) y `preflight.executionDeadline`.
+- **`null` = sin declarar:** en `local` el control no se aplica (F2 lo puede completar con `expectations`); en Test y producción
+  **bloquea**. Los manifiestos del 06/11 ya declaran `f2.contacts` (347), `f2.schedulableStaff` (159), `f3.expenses.totalUnits` y
+  `bak.file`/`bak.sha256`; solo quedan `null` los campos que no aplican a ese respaldo (`dates.adminWindowFrom/To`,
+  `f3.selectorProfiles` y `f3.endDates.byYear`, porque el fin de vigencia viene del CSV).
+- **Journal:** el `sha256` del manifiesto se guarda en el journal al crearlo (`snapshotManifestSha256`) y, al reanudar, debe
+  coincidir. **No** entra en `configHash`, así los journals anteriores siguen leyéndose.
+- **Runbook:** `lib.sh` lee el manifiesto con `rb_manifest <ruta>` / `rb_manifest_required <ruta>` (corte de bajas, conteos, fecha límite).
+
+## Reglas de carga que dependen de decisiones del operador (10 y 11/11/2026)
+
+| Tema | Regla en el código |
+|---|---|
+| Nombre del encargo | `{cliente} - {servicio} - {COT legacy}` (`fase3-transform.mjs`) |
+| Fin de vigencia | columna `ems_end_date` del CSV, solo los valores `endDates.allowed` del manifiesto y con el reparto de `endDates.counts` (45 y 110 al 06/11) |
+| Años fiscales | 2024 a 2027 (las 22 OT de gestión anterior con horas desde el 01/01/2026) |
+| Administrativas | todas las activas de 2027; socio = `partner_id`, gerente = aprobador legacy (`manager_id`); sociedad y cliente interno (`NEW-RP`/`NEW-RJ`) según el socio; el perfil 89 se absorbe en el 62 |
+| Honorario de una OT en BOB | `presupuestoHoras × TC de la OT`, redondeo hacia arriba (D26/D29); gastos igual |
+| Impuesto | 16 %: `taxRate` 0,16 y honorario con impuesto = ajustado ÷ 0,84 (D28) |
+| Plan de pagos | notas por lista del manifiesto; tolerancia de 100,03 % solo para `toleranceCots`; las cuotas con disposición `cuota_facturada` nacen Pendientes y, con la OT aprobada, pasan a Facturada (`--operation invoices`, D19/D20/D21; conciliación L6e/L6f; la huella L9 incluye las fechas de cobranza) |
+| Contactos | varios por cliente, solo el nombre obligatorio, celda vacía = NULL, «Línea corporativa» con el teléfono del cliente; el cargo no se carga. El criterio de «contacto distinto» es `duplicateContacts(rows, criterion)`: `channel` (vigente, `DEFAULT_CONTACT_CRITERION`; D23/D38: la clave es el correo válido, sin correo el teléfono y sin ninguno el nombre), con `name` y `email-first` como alternativas parametrizables con `contactCriterion` |
+| SAN | la regla (SAN, salvo 0 o < 4 dígitos → Sentinel; «-1» en los de 5 dígitos; SAN de 8 dígitos tal cual) se aplica en la consulta del CSV v3, no en el código |
+
+## Reportes de verificación Legacy ↔ EMS (solo lectura)
+
+Libro `.xlsx` para que los responsables comparen el sistema anterior con el EMS (solo OT de cliente): hojas Léame, OT, Cuotas y Observaciones, con filtros, encabezados congelados y columnas EMS vacías (con fórmulas Δ) para completar tras la carga. Lee solo los CSV v3 y el manifiesto; no abre conexiones ni escribe en ninguna base.
+
+```bash
+node scripts/etl/reportes/generar-libro.mjs --dir "<carpeta con los CSV v3>" [--out <archivo.xlsx>] [--manifest <snapshot.json>] [--vencida-al AAAA-MM-DD] [--corte-horas AAAA-MM-DD]
+```
+
+Sin `--out` escribe en `bugs/ETL/reportes/salida/` (ignorada por Git: el libro trae nombres e importes reales). Diccionario de columnas y fundamento de cada una: `bugs/ETL/reportes/diccionario_reportes_legacy_ems.md`. Código: `scripts/etl/reportes/` (datos puros, lector de CSV y escritor del libro); pruebas: `scripts/etl/__tests__/reporte-datos.test.ts`. Los importes de las cuotas usan la misma aritmética del cargador (`paymentArtifacts`) con el total acordado original (`legacy-agreed-total-v1`).

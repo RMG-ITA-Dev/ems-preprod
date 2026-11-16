@@ -2308,6 +2308,13 @@ REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM anon;
 REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM authenticated;
 REVOKE ALL ON FUNCTION public.seed_initial_holidays(uuid) FROM service_role;
 
+-- D41 Parte I (ETL F3): import_historic_timesheets(...) crea períodos cerrados, entradas y líneas aprobadas a nombre de otras personas; solo el propietario de las
+-- migraciones (conexión SQL del operador) la ejecuta. Se cierra a PUBLIC, anon, authenticated y service_role: no se expone por API.
+REVOKE ALL ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) FROM anon;
+REVOKE ALL ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) FROM authenticated;
+REVOKE ALL ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) FROM service_role;
+
 -- 1110-220: helpers SECURITY DEFINER de las RESTRICTIVE de escritura administrativa (cero_05). Las políticas se
 -- evalúan con los privilegios de quien consulta, así que authenticated necesita EXECUTE; PUBLIC y anon, nunca.
 REVOKE ALL ON FUNCTION public.can_write_administrative_work(p_engagement_id uuid) FROM PUBLIC, anon;

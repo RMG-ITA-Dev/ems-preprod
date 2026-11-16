@@ -69,7 +69,7 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
 //   · Socio/Director y SQR → `partner`, `director`, y desde 0828-185 también `senior_partner`/
 //                           `risk_partner` (visibilidad firm-wide, antes excluidos del bloque
 //                           Equipo pese a eso).
-//   · Gerente de Cliente  → `manager` y desde 0828-185 también `ita_manager`/`tax_manager` — un
+//   · Gerente de Cliente  → `manager`, `director` (2026-11-16, decisión del operador) y desde 0828-185 también `ita_manager`/`tax_manager` — un
 //                           Especialista TI/Impuestos puede además actuar como Gerente de CUALQUIER
 //                           encargo, no solo del suyo. Fuera: `it_security_manager` y (1110-220)
 //                           `hr_manager`. El Aprobador de horas de un no-Cliente tiene su propio RPC.
@@ -82,7 +82,7 @@ export const TEAM_FIELD_GROUPS: Record<TeamFieldName, TeamCandidateGroup> = {
 // `admin` siendo Socio/Director/Gerente se le asigna su role_key real en Settings.
 export const ROLE_KEY_TO_GROUPS: Record<string, readonly TeamCandidateGroup[]> = {
   partner: ["partner_director"],
-  director: ["partner_director"],
+  director: ["partner_director", "manager"],
   senior_partner: ["partner_director"],
   risk_partner: ["partner_director"],
   manager: ["manager"],

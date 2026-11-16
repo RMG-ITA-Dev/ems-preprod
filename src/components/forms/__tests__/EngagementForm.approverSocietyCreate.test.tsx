@@ -5,8 +5,9 @@ import userEvent from "@testing-library/user-event";
 
 /**
  * 1110-220 (review de Codex) — en el ALTA de un administrativo, admin elige el cliente interno (que deriva la sociedad) y
- * al Aprobador de horas. Si después cambia al cliente interno de la otra sociedad, el Aprobador elegido deja de valer
- * (siempre es de la sociedad del encargo) y el trigger lo rechazaría al guardar: se limpian rol y persona.
+ * al Aprobador de horas. Si después cambia al cliente interno de la otra sociedad, un Aprobador con alcance por sociedad
+ * (Contabilidad) deja de valer y el trigger lo rechazaría al guardar: se limpian rol y persona. Desde 2026-11-16 el resto de
+ * roles (Gerente, Director, Talento Humano, Riesgos…) aprueba encargos de cualquier sociedad y se conserva.
  */
 
 vi.mock("react-router-dom", async () => {
@@ -102,8 +103,9 @@ vi.mock("@/hooks/useEngagementTeamCandidates", () => ({
 vi.mock("@/hooks/useHoursApproverCandidates", () => ({
   useHoursApproverCandidates: () => ({
     candidates: [
-      { staff_id: "m-pel", display_name: "Ana Pelaez", role_key: "manager", society_id: "soc-pel" },
-      { staff_id: "m-jau", display_name: "Juan Jauregui", role_key: "manager", society_id: "soc-jau" },
+      { staff_id: "m-pel", display_name: "Ana Pelaez", role_key: "accounting_manager", society_id: "soc-pel" },
+      { staff_id: "m-jau", display_name: "Juan Jauregui", role_key: "accounting_manager", society_id: "soc-jau" },
+      { staff_id: "d-pel", display_name: "Diego Director", role_key: "director", society_id: "soc-pel" },
     ],
     isLoading: false,
     isFetching: false,
@@ -132,8 +134,8 @@ const clientTrigger = () =>
   screen.getByText("engagement.client").closest("div")!.querySelector('button[role="combobox"]') as HTMLElement;
 const roleTrigger = () => document.getElementById("hours-approver-role") as HTMLElement;
 
-describe("Alta administrativa: cambiar de sociedad limpia al Aprobador (review de Codex)", () => {
-  it("admin elige Aprobador de Pelaez y cambia al cliente de Jauregui: se limpian rol y persona", async () => {
+describe("Alta administrativa: cambiar de sociedad y el Aprobador (review de Codex + operador 2026-11-16)", () => {
+  it("Contabilidad de Pelaez y cambia al cliente de Jauregui: se limpian rol y persona (alcance por sociedad)", async () => {
     const user = userEvent.setup();
     render(<EngagementForm administrativeMode />);
 
@@ -142,8 +144,8 @@ describe("Alta administrativa: cambiar de sociedad limpia al Aprobador (review d
 
     await waitFor(() => expect(roleTrigger()).not.toBeDisabled());
     await user.click(roleTrigger());
-    await user.click(await screen.findByRole("option", { name: "authz.role.manager" }));
-    expect(roleTrigger()).toHaveTextContent("authz.role.manager");
+    await user.click(await screen.findByRole("option", { name: "authz.role.accounting_manager" }));
+    expect(roleTrigger()).toHaveTextContent("authz.role.accounting_manager");
     await user.click(screen.getByText("engagement.selectHoursApprover"));
     await user.click(await screen.findByText("Ana Pelaez"));
     expect(screen.getByText("Ana Pelaez")).toBeInTheDocument();
@@ -151,9 +153,31 @@ describe("Alta administrativa: cambiar de sociedad limpia al Aprobador (review d
     await user.click(clientTrigger());
     await user.click(await screen.findByRole("option", { name: /^Ruizmier Jauregui S\.R\.L\./ }));
 
-    // El rol vuelve a "elegir rol" (Jauregui también tiene Gerentes: sin el reset el rol seguiría elegido) y la persona
+    // El rol vuelve a "elegir rol" (Jauregui también tiene Contabilidad: sin el reset el rol seguiría elegido) y la persona
     // de Pelaez ya no está.
     await waitFor(() => expect(roleTrigger()).toHaveTextContent("engagement.selectHoursApproverRole"));
     expect(screen.queryByText("Ana Pelaez")).not.toBeInTheDocument();
+  });
+
+  it("un Director de Pelaez sigue como Aprobador al cambiar al cliente de Jauregui (aprueba de cualquier sociedad)", async () => {
+    const user = userEvent.setup();
+    render(<EngagementForm administrativeMode />);
+
+    await user.click(clientTrigger());
+    await user.click(await screen.findByRole("option", { name: /^Ruizmier Pelaez S\.R\.L\./ }));
+
+    await waitFor(() => expect(roleTrigger()).not.toBeDisabled());
+    await user.click(roleTrigger());
+    await user.click(await screen.findByRole("option", { name: "authz.role.director" }));
+    await user.click(screen.getByText("engagement.selectHoursApprover"));
+    await user.click(await screen.findByText("Diego Director"));
+    expect(screen.getByText("Diego Director")).toBeInTheDocument();
+
+    await user.click(clientTrigger());
+    await user.click(await screen.findByRole("option", { name: /^Ruizmier Jauregui S\.R\.L\./ }));
+
+    // Sigue elegible en la sociedad nueva: ni el rol ni la persona se limpian.
+    await waitFor(() => expect(roleTrigger()).toHaveTextContent("authz.role.director"));
+    expect(screen.getByText("Diego Director")).toBeInTheDocument();
   });
 });

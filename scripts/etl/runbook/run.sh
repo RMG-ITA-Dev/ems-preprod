@@ -4,6 +4,7 @@
 #
 #   00 pre-vuelo (solo lectura)     10 reset desde cero (DESTRUCTIVO)     11 recuperación §6.1 (solo si el 10 cayó)
 #   20 fase 1                       30 fase 2                              35 paso manual de las 8 bajas
+#   15 pausa verificada de crones notif-% (D24, justo después del 10)
 #   40 fase 3 por bloques           50 conciliación legacy + segunda pasada
 #
 # Cada paso se puede ejecutar solo (`bash scripts/etl/runbook/30-f2.sh --env test`). Credenciales: cada paso las
@@ -21,7 +22,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$ENV_NAME" == "test" || "$ENV_NAME" == "local" ]] || { echo "FATAL: --env debe ser local o test" >&2; exit 1; }
-steps=(00-preflight 10-reset 20-f1 30-f2 35-bajas 40-f3 50-reconcile)
+steps=(00-preflight 10-reset 15-crones 20-f1 30-f2 35-bajas 40-f3 50-reconcile)
 for step in "${steps[@]}"; do
   n="${step%%-*}"
   [[ "$n" < "$FROM" || "$n" > "$TO" ]] && continue

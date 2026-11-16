@@ -95,6 +95,8 @@ CREATE OR REPLACE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE
     JOIN (VALUES
            ('partner',        'partner_director'),
            ('director',       'partner_director'),
+           -- 2026-11-16 (operador): el Director tambien puede ser Gerente/Supervisor de un encargo de Cliente.
+           ('director',       'manager'),
            -- BUG 0828-185: amplía el pool de Socio/Director/SQR -- antes excluidos pese a
            -- visibilidad firm-wide.
            ('senior_partner', 'partner_director'),

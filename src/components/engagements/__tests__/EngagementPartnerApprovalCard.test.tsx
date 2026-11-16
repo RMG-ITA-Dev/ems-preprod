@@ -35,6 +35,12 @@ beforeEach(() => {
 });
 
 describe("EngagementPartnerApprovalCard — decidir con cambios sin guardar", () => {
+  it("identifica aprobación importada sin atribuir firma EMS ni pedir otra aprobación", () => {
+    render(<EngagementPartnerApprovalCard engagement={{ ...pending, partner_approval_status: "approved", partner_approval_legacy_source: "legacy:Source:2027.10.1" }} myStaffId="staff-partner" roleKey="partner" />);
+    expect(screen.getByText("engagement.partnerApproval.legacyTitle")).toBeInTheDocument();
+    expect(screen.getByText("engagement.partnerApproval.legacyHelp")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "engagement.partnerApproval.approve" })).not.toBeInTheDocument();
+  });
   it("sin cambios pendientes, el Socio aprueba", () => {
     render(<EngagementPartnerApprovalCard engagement={pending} myStaffId="staff-partner" roleKey="partner" />);
     const approve = screen.getByRole("button", { name: "engagement.partnerApproval.approve" });
