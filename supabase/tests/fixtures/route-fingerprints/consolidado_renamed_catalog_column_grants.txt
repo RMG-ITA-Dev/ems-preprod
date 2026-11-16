@@ -2464,6 +2464,17 @@
  service_role  | public       | engagements                                    | partner_approval_decided_by      | REFERENCES
  service_role  | public       | engagements                                    | partner_approval_decided_by      | SELECT
  service_role  | public       | engagements                                    | partner_approval_decided_by      | UPDATE
+ authenticated | public       | engagements                                    | partner_approval_legacy_source   | INSERT
+ authenticated | public       | engagements                                    | partner_approval_legacy_source   | SELECT
+ authenticated | public       | engagements                                    | partner_approval_legacy_source   | UPDATE
+ postgres      | public       | engagements                                    | partner_approval_legacy_source   | INSERT
+ postgres      | public       | engagements                                    | partner_approval_legacy_source   | REFERENCES
+ postgres      | public       | engagements                                    | partner_approval_legacy_source   | SELECT
+ postgres      | public       | engagements                                    | partner_approval_legacy_source   | UPDATE
+ service_role  | public       | engagements                                    | partner_approval_legacy_source   | INSERT
+ service_role  | public       | engagements                                    | partner_approval_legacy_source   | REFERENCES
+ service_role  | public       | engagements                                    | partner_approval_legacy_source   | SELECT
+ service_role  | public       | engagements                                    | partner_approval_legacy_source   | UPDATE
  authenticated | public       | engagements                                    | partner_approval_reason          | INSERT
  authenticated | public       | engagements                                    | partner_approval_reason          | SELECT
  authenticated | public       | engagements                                    | partner_approval_reason          | UPDATE
@@ -5744,6 +5755,28 @@
  service_role  | public       | timesheet_periods                              | deadline                         | REFERENCES
  service_role  | public       | timesheet_periods                              | deadline                         | SELECT
  service_role  | public       | timesheet_periods                              | deadline                         | UPDATE
+ authenticated | public       | timesheet_periods                              | import_batch                     | INSERT
+ authenticated | public       | timesheet_periods                              | import_batch                     | SELECT
+ authenticated | public       | timesheet_periods                              | import_batch                     | UPDATE
+ postgres      | public       | timesheet_periods                              | import_batch                     | INSERT
+ postgres      | public       | timesheet_periods                              | import_batch                     | REFERENCES
+ postgres      | public       | timesheet_periods                              | import_batch                     | SELECT
+ postgres      | public       | timesheet_periods                              | import_batch                     | UPDATE
+ service_role  | public       | timesheet_periods                              | import_batch                     | INSERT
+ service_role  | public       | timesheet_periods                              | import_batch                     | REFERENCES
+ service_role  | public       | timesheet_periods                              | import_batch                     | SELECT
+ service_role  | public       | timesheet_periods                              | import_batch                     | UPDATE
+ authenticated | public       | timesheet_periods                              | imported_at                      | INSERT
+ authenticated | public       | timesheet_periods                              | imported_at                      | SELECT
+ authenticated | public       | timesheet_periods                              | imported_at                      | UPDATE
+ postgres      | public       | timesheet_periods                              | imported_at                      | INSERT
+ postgres      | public       | timesheet_periods                              | imported_at                      | REFERENCES
+ postgres      | public       | timesheet_periods                              | imported_at                      | SELECT
+ postgres      | public       | timesheet_periods                              | imported_at                      | UPDATE
+ service_role  | public       | timesheet_periods                              | imported_at                      | INSERT
+ service_role  | public       | timesheet_periods                              | imported_at                      | REFERENCES
+ service_role  | public       | timesheet_periods                              | imported_at                      | SELECT
+ service_role  | public       | timesheet_periods                              | imported_at                      | UPDATE
  authenticated | public       | timesheet_periods                              | is_period_locked                 | INSERT
  authenticated | public       | timesheet_periods                              | is_period_locked                 | SELECT
  authenticated | public       | timesheet_periods                              | is_period_locked                 | UPDATE
@@ -8899,5 +8932,5 @@
  anon          | storage      | vector_indexes                                 | updated_at                       | SELECT
  authenticated | storage      | vector_indexes                                 | updated_at                       | SELECT
  service_role  | storage      | vector_indexes                                 | updated_at                       | SELECT
-(8899 rows)
+(8932 rows)
 

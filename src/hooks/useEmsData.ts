@@ -187,6 +187,7 @@ export interface Engagement {
   // 1110-220 plan_v5: firma del Socio de un no-Cliente SIN OT (pending/approved/rejected; NULL en Cliente o con OT).
   // Opcionales: queries/fixtures que no las seleccionan leen el encargo como antes.
   partner_approval_status?: string | null;
+  partner_approval_legacy_source?: string | null;
   partner_approval_decided_at?: string | null;
   partner_approval_reason?: string | null;
   taxonomy_id: string | null;

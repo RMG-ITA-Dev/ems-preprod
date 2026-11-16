@@ -231,6 +231,69 @@ describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () 
     authRole.roleKey = "admin";
   });
 
+  it("bloquea antes de mutar si un presupuesto nuevo no concilia con un plan totalmente facturado", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onPaymentInstallmentsChange([{ ...capturedFormProps.paymentInstallments[0], percentage: 100, amount: 100, currency: "USD", status: "Invoiced" }]);
+      capturedFormProps.onAdjustmentChange(174); // 200 con impuesto 13 %
+    });
+    await act(async () => { await capturedFormProps.onSubmit(); });
+    expect(mockUpdateWorkOrderAsync).not.toHaveBeenCalled();
+    expect(mockBatchUpsertInstallmentsAsync).not.toHaveBeenCalled();
+  });
+
+  it("permite guardar un plan totalmente facturado conciliado sin alterar su importe", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onPaymentInstallmentsChange([{ ...capturedFormProps.paymentInstallments[0], percentage: 100, amount: 100, currency: "USD", status: "Invoiced" }]);
+      capturedFormProps.onAdjustmentChange(87); // 100 con impuesto 13 %
+    });
+    await act(async () => { await capturedFormProps.onSubmit(); });
+    expect(mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments[0].amount).toBe(100);
+  });
+
+  it("abre y guarda sin cambios un plan completamente facturado ya conciliado", async () => {
+    const originalRows = mockWorkOrder.payment_plan.installments;
+    const originalAdjustment = mockWorkOrder.adjustment_amount;
+    try {
+      mockWorkOrder.adjustment_amount = 87;
+      mockWorkOrder.payment_plan.installments = [{ ...originalRows[0], percentage: 100, amount: 100 }];
+      renderPage();
+      await act(async () => { await capturedFormProps.onSubmit(); });
+      expect(mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments[0]).toMatchObject({ amount: 100, status: "Invoiced" });
+    } finally {
+      mockWorkOrder.payment_plan.installments = originalRows;
+      mockWorkOrder.adjustment_amount = originalAdjustment;
+    }
+  });
+
+  it("guarda una cuota congelada en otra moneda sin convertirla de vuelta", async () => {
+    mockWorkOrder.currency = "BOB";
+    renderPage();
+    act(() => {
+      capturedFormProps.onPaymentInstallmentsChange([
+        { ...capturedFormProps.paymentInstallments[0], percentage: 50, amount: 71.84, currency: "USD", status: "Invoiced" },
+        { ...capturedFormProps.paymentInstallments[1], percentage: 50, amount: 500, currency: "BOB", status: "Pending" },
+      ]);
+      capturedFormProps.onAdjustmentChange(870); // 1000 con impuesto 13 %
+    });
+    await act(async () => { await capturedFormProps.onSubmit(); });
+    expect(mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments.map((row: any) => row.amount)).toEqual([71.84, 500]);
+  });
+
+  it("guarda el presupuesto recalculado cuando la última facturada conserva el residuo del ETL", async () => {
+    renderPage();
+    act(() => {
+      capturedFormProps.onPaymentInstallmentsChange([
+        { ...capturedFormProps.paymentInstallments[1], percentage: 50, amount: 59.53, currency: "USD", status: "Pending" },
+        { ...capturedFormProps.paymentInstallments[0], percentage: 50, amount: 59.52, currency: "USD", status: "Invoiced" },
+      ]);
+      capturedFormProps.onAdjustmentChange(103.57); // total 119,05 con 13 %
+    });
+    await act(async () => { await capturedFormProps.onSubmit(); });
+    expect(mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments.map((row: any) => row.amount)).toEqual([59.53, 59.52]);
+  });
+
   // La fecha acordada y la moneda de cada cuota se habilitaban por el permiso
   // work_order.payment_plan.approve, que también tienen Cobranzas y el Gerente de
   // Contabilidad: con la OT en Borrador podían editar el contrato del gerente.
@@ -291,6 +354,15 @@ describe("WorkOrderEdit — payment plan exchange rates (0722-156b Fase 2)", () 
       invoice_exchange_rate: null,
       payment_exchange_rate: null,
     });
+  });
+
+  it("guardar sin cambios conserva los importes de cuotas facturadas y pendientes", async () => {
+    renderPage();
+    const originalAmounts = capturedFormProps.paymentInstallments.map((row: any) => row.amount);
+    await act(async () => { await capturedFormProps.onSubmit(); });
+    const saved = mockBatchUpsertInstallmentsAsync.mock.calls[0][0].installments;
+    expect(saved.map((row: any) => row.amount)).toEqual(originalAmounts);
+    expect(saved.map((row: any) => row.status)).toEqual(["Invoiced", "Pending"]);
   });
 
   it("WEX2: saving in modo Fijo syncs invoice/payment_exchange_rate for the still-editable installment before calling batchUpsertInstallments, leaving the already-frozen one untouched", async () => {

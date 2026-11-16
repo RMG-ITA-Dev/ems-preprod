@@ -78,8 +78,8 @@ const { approvers } = vi.hoisted(() => ({
     candidates: [
       { staff_id: "m1", display_name: "Ana Manager", role_key: "manager", society_id: "soc-1" },
       { staff_id: "s9", display_name: "Sergio Senior", role_key: "senior", society_id: "soc-1" },
-      // De otra sociedad: nunca se ofrece (el Aprobador es de la sociedad del encargo).
-      { staff_id: "x1", display_name: "Otra Sociedad", role_key: "director", society_id: "soc-2" },
+      // Contabilidad (alcance por sociedad) de otra sociedad: nunca se ofrece. El resto de roles sí aprueba de cualquiera (2026-11-16).
+      { staff_id: "x1", display_name: "Otra Sociedad", role_key: "accounting_manager", society_id: "soc-2" },
     ],
     isLoading: false,
     isFetching: false,
@@ -194,7 +194,7 @@ describe("Aprobador de horas (Rol → Persona)", () => {
     expect(screen.getByText("engagement.encargado")).toBeInTheDocument();
   });
 
-  it("admin cambia la sociedad al editar: se limpian rol y persona (el Aprobador es de la sociedad del encargo)", async () => {
+  it("admin cambia la sociedad al editar: un Aprobador sin alcance por sociedad se conserva (aprueba de cualquiera)", async () => {
     mockRoleKey = "admin";
     mockSocieties = [
       { society_id: "soc-1", name: "Sociedad Uno", is_active: true },
@@ -208,10 +208,9 @@ describe("Aprobador de horas (Rol → Persona)", () => {
     await user.click(screen.getByLabelText(/engagement\.society/));
     await user.click(await screen.findByRole("option", { name: "Sociedad Dos" }));
 
-    // El Aprobador guardado (m1, de soc-1) ya no viaja: guardar pide elegir uno de la sociedad nueva.
-    await user.click(screen.getByRole("button", { name: "common.saveChanges" }));
-    expect(await screen.findByText("engagement.requiredManager")).toBeInTheDocument();
-    expect(updateMutateAsync).not.toHaveBeenCalled();
+    // El Aprobador guardado (m1, un Gerente) sigue siendo elegible en la sociedad nueva: rol y persona no se limpian.
+    expect(document.getElementById("hours-approver-role")).toHaveTextContent("authz.role.manager");
+    expect(screen.queryByText("engagement.requiredManager")).not.toBeInTheDocument();
   });
 
   it("si el catálogo falla, lo dice y no habilita elegir el rol", () => {

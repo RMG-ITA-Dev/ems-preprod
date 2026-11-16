@@ -45,7 +45,7 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         'roles',(SELECT COALESCE(json_agg(json_build_object('role_key',role_key,'legacy_app_role',legacy_app_role)),'[]'::json) FROM public.authorization_roles)
       )::text;`);
     },
-    async insertClientUnit({ client, contact, clientId, parentClientId, industryId }) {
+    async insertClientUnit({ client, contacts = [], clientId, parentClientId, industryId }) {
       await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         INSERT INTO public.clients (client_id,client_legal_name,operating_name,tax_id,client_type,parent_client_id,parent_relationship,client_origin,billing_tax_treatment,industry_id,address,is_active)
@@ -53,8 +53,8 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
         ON CONFLICT (client_id) DO NOTHING;
         WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x)
         INSERT INTO public.client_contacts (contact_id,client_id,contact_type,full_name,email,phone,is_active)
-        SELECT (x->>'contactId')::uuid,(x->>'clientId')::uuid,'general',x->'contact'->>'full_name',x->'contact'->>'email',x->'contact'->>'phone',true FROM p WHERE jsonb_typeof(x->'contact') = 'object'
-        ON CONFLICT (contact_id) DO NOTHING;`, { client, contact, clientId, contactId: contact ? randomUUID() : null, parentClientId, industryId });
+        SELECT (c->>'contactId')::uuid,(x->>'clientId')::uuid,'general',c->>'full_name',NULLIF(c->>'email',''),NULLIF(c->>'phone',''),true FROM p, jsonb_array_elements(x->'contacts') c
+        ON CONFLICT (contact_id) DO NOTHING;`, { client, contacts: contacts.map((contact) => ({ full_name: contact.full_name, email: contact.email, phone: contact.phone, contactId: randomUUID() })), clientId, parentClientId, industryId });
     },
     async insertStaff({ staff, staffId, societyId, practicaId, categoryId }) {
       await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
@@ -75,6 +75,17 @@ export function createFase2DbAdapter({ env = process.env, execFileImpl } = {}) {
       const persisted = await query(`SELECT COALESCE((SELECT json_build_object('staff_id',s.staff_id,'auth_user_id',s.auth_user_id,'role',ur.role,'role_key',ur.role_key) FROM public.staff s LEFT JOIN public.user_roles ur ON ur.user_id=s.auth_user_id WHERE s.staff_id=:'staff_id'::uuid),'null'::json)::text;`, { staff_id: staffId });
       if (!persisted || persisted.auth_user_id !== authUserId || persisted.role_key !== expectedRoleKey || persisted.role !== expectedLegacyRole) throw new Fase1Error("BLOQUEADO", "enlace o rol F2 no quedó persistido con el contrato esperado");
       return persisted;
+    },
+    // D40 (12/11/2026): F2 asigna roles y los disparadores encolan correos auth.role.changed (a la persona y a Seguridad TI, con el staff_id de la persona como entity_id).
+    // Se marcan como fallidos (no entregables) los pendientes de las fichas y cuentas creadas por F2, igual que F3 hace con los de sus encargos. Solo toca type_key = auth.role.changed.
+    async containRoleEmails({ entityIds, expectedCount = null }) {
+      if (!Array.isArray(entityIds) || !entityIds.length || new Set(entityIds).size !== entityIds.length || (expectedCount !== null && entityIds.length !== expectedCount)) throw new Fase1Error("BLOQUEADO", "contención F2 requiere exactamente " + (expectedCount ?? "los") + " identificadores propios (fichas y cuentas)");
+      const out = await write(`SELECT pg_advisory_xact_lock(hashtextextended(:'lock_key',0));
+        WITH p AS (SELECT convert_from(decode(:'payload_b64','base64'),'UTF8')::jsonb x), ids AS (SELECT jsonb_array_elements_text(x->'entityIds') entity_id FROM p), updated AS (
+          UPDATE public.notification_emails n SET status='failed',attempts=0,sent_at=NULL,last_error='ETL_F2_NO_DELIVERY',claimed_at=NULL
+          WHERE n.status='pending' AND n.type_key='auth.role.changed' AND n.entity_id IN (SELECT entity_id FROM ids) RETURNING n.email_id
+        ) SELECT json_build_object('contained',(SELECT count(*) FROM updated),'remaining',(SELECT count(*) FROM public.notification_emails n WHERE n.type_key='auth.role.changed' AND n.entity_id IN (SELECT entity_id FROM ids) AND n.status <> 'failed' AND n.email_id NOT IN (SELECT email_id FROM updated)),'sent',(SELECT count(*) FROM public.notification_emails n WHERE n.type_key='auth.role.changed' AND n.entity_id IN (SELECT entity_id FROM ids) AND n.sent_at IS NOT NULL))::text;`, { entityIds });
+      return lastJson(out);
     },
     async readClientsByIds(ids) { return query(`SELECT COALESCE(json_agg(row_to_json(x)),'[]'::json)::text FROM (SELECT client_id,client_legal_name,tax_id,parent_client_id,industry_id,is_active FROM public.clients WHERE client_id = ANY(string_to_array(:'ids',',')::uuid[])) x;`, { ids: ids.join(",") }); },
     async readClientUnit(clientId) { return query(`SELECT COALESCE((SELECT json_build_object(

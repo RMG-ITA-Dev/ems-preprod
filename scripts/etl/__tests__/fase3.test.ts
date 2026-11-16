@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertPaymentCurrency, assertTarget, createContext, exitCodeFor, load, loadF2Maps, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
+import { acceptBlock, assertF2AuxiliaryFile, assertInputsUnchangedSinceProgress, assertPaymentCurrency, assertTarget, createContext, exitCodeFor, load, assertF2Origin, loadF2Maps, lockInstallation, parseConfig, STATES } from "../fase3.mjs";
 import { writeJournal } from "../fase1.mjs";
 import { journalPathFor } from "../fase2.mjs";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ const TEST_REF = "slkqdcwwvmjtcbakajib";
 const abs = (...parts: string[]) => path.resolve(path.sep, "private", ...parts);
 
 const config = { schemaVersion: 1, environment: "local", expectedProjectRef: "local", supabaseUrl: "http://127.0.0.1:54321", installationId: "f3-ensayo-local-0001", snapshot: "TimeControlDB_20261023_1200", technicalAdminId: "00000000-0000-4000-8000-000000000001", f2StateDir: abs("f2"), f2ServicesFile: abs("services.csv"), f2ClientsFile: abs("clients.csv"), inputs: Object.fromEntries(["clientEngagements", "planHours", "expenses", "payments", "administrativeEngagements", "executions"].map((name) => [name, abs("x.csv")])) };
+const LOCAL_F3 = { environment: "local", manifest: { snapshot: "TimeControlDB_20261106_1600" } };
 describe("ETL fase 3: consola y guardas", () => {
   it("admite únicamente destino local loopback y estados ordenados", () => { expect(parseConfig(config).expectedProjectRef).toBe("local"); expect(STATES.indexOf("VALIDADO")).toBeLessThan(STATES.indexOf("PREFLIGHT_VALIDADO")); });
   it("rechaza endpoints remotos con local, secretos y ambientes no habilitados", () => {
@@ -82,13 +83,34 @@ describe("ETL fase 3: consola y guardas", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "etl-f3-f2journal-"));
     const file = journalPathFor(dir, "f2-ensayo-0001");
     writeJournal(file, { version: 1, installationId: "f2-ensayo-0001", projectRef: "local", state: "VERIFICADO", inputs: {}, clients: { "C-1": { clientId: "uuid-cliente-1" } }, staff: { "P-1": { staffId: "uuid-staff-1" } } });
-    expect(loadF2Maps(dir)).toMatchObject({ clients: { "C-1": { id: "uuid-cliente-1" } }, staff: { "P-1": "uuid-staff-1" } });
+    expect(loadF2Maps(dir, LOCAL_F3)).toMatchObject({ clients: { "C-1": { id: "uuid-cliente-1" } }, staff: { "P-1": "uuid-staff-1" } });
     // Journal que sigue siendo JSON válido pero fue alterado después de escribirse: el checksum ya no coincide.
     writeFileSync(file, readFileSync(file, "utf8").replace("uuid-cliente-1", "uuid-otro-cliente"));
-    expect(() => loadF2Maps(dir)).toThrow(/checksum/);
+    expect(() => loadF2Maps(dir, LOCAL_F3)).toThrow(/checksum/);
     // Íntegro pero sin verificar.
     writeJournal(file, { version: 1, installationId: "f2-ensayo-0001", projectRef: "local", state: "CLIENTES_CONFIRMADOS", inputs: {}, clients: {}, staff: {} });
-    expect(() => loadF2Maps(dir)).toThrow(/VERIFICADO/);
+    expect(() => loadF2Maps(dir, LOCAL_F3)).toThrow(/VERIFICADO/);
+  });
+  it("R403-11: F3 solo acepta un journal F2 del mismo respaldo legacy de origen (las variantes D41 comparten origen)", () => {
+    const f3 = (environment: string, snapshot: string, database?: string) => ({ environment, manifest: { snapshot, ...(database ? { origin: { database } } : {}) } });
+    const BASE = "TimeControlDB_20261106_1600";
+    // F2 con el manifiesto base o con cualquier variante D41 del mismo respaldo: coincide con F3 (lt01 = F2 _d41 + F3 _legacy_total_v1).
+    expect(() => assertF2Origin(BASE, f3("test", BASE + "_d41_legacy_total_v1", BASE))).not.toThrow();
+    expect(() => assertF2Origin(BASE, f3("test", BASE))).not.toThrow();
+    // Otro respaldo: bloquea, nombrando ambos orígenes.
+    expect(() => assertF2Origin("TimeControlDB_20261023_1200", f3("test", BASE + "_d41", BASE))).toThrow(/TimeControlDB_20261023_1200.*TimeControlDB_20261106_1600/);
+    expect(() => assertF2Origin("TimeControlDB_20261023_1200", f3("local", BASE))).toThrow(/mismo respaldo/);
+    // Journal anterior al campo: se acepta en local; fuera de local se rehace F2.
+    expect(() => assertF2Origin(undefined, f3("local", BASE))).not.toThrow();
+    expect(() => assertF2Origin(undefined, f3("test", BASE))).toThrow(/snapshotOrigin/);
+  });
+  it("R403-11: loadF2Maps bloquea un journal F2 de otro respaldo y entrega el origen cuando coincide", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "etl-f3-f2origin-"));
+    const file = journalPathFor(dir, "f2-ensayo-0002");
+    writeJournal(file, { version: 1, installationId: "f2-ensayo-0002", projectRef: "local", state: "VERIFICADO", snapshotOrigin: "TimeControlDB_20261023_1200", inputs: {}, clients: {}, staff: {} });
+    expect(() => loadF2Maps(dir, LOCAL_F3)).toThrow(/mismo respaldo/);
+    writeJournal(file, { version: 1, installationId: "f2-ensayo-0002", projectRef: "local", state: "VERIFICADO", snapshotOrigin: LOCAL_F3.manifest.snapshot, inputs: {}, clients: {}, staff: {} });
+    expect(loadF2Maps(dir, LOCAL_F3).snapshotOrigin).toBe(LOCAL_F3.manifest.snapshot);
   });
   it("el ejemplo de configuración de F3 trae todas las claves que parseConfig exige", () => {
     const example = JSON.parse(readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "fase3.config.example.json"), "utf8"));

@@ -560,7 +560,8 @@ $$;
 -- Name: hours_approver_role_keys(); Type: FUNCTION; Schema: public; Owner: -
 --
 
--- 1110-220 (plan_v5 §3): los 14 role_key que pueden ser "Aprobador de horas" (manager_id) de un encargo no-Cliente.
+-- 1110-220 (plan_v5 §3): los 15 role_key que pueden ser "Aprobador de horas" (manager_id) de un encargo no-Cliente
+-- (risk_partner se suma el 2026-11-16, decision del operador).
 -- Única fuente en la base: la usan el guard de enforce_engagement_profile_scope, get_hours_approver_candidates() y la
 -- regla de aprobación (is_eligible_hours_approver). Espejo de HOURS_APPROVER_ROLE_KEYS (src/lib/hoursApproverCandidates.ts).
 CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
@@ -568,7 +569,7 @@ CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
     SET search_path TO 'public'
     AS $$
   SELECT ARRAY['partner', 'senior_partner', 'director', 'manager', 'senior', 'hr_manager', 'hr_analyst',
-               'accounting_manager', 'risk_supervisor', 'secretariat_head', 'ita_manager', 'tax_manager',
+               'accounting_manager', 'risk_supervisor', 'risk_partner', 'secretariat_head', 'ita_manager', 'tax_manager',
                'ita_senior', 'tax_senior']::text[]
 $$;
 
@@ -619,7 +620,11 @@ CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uui
        AND CASE
              WHEN COALESCE(e.funcion, 1) <> 1 THEN
                e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
-               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
+               -- 2026-11-16 (operador): el Aprobador puede ser de otra sociedad (Talento Humano y Riesgos aprueban encargos de
+               -- ambas). Solo los roles con alcance por sociedad (Contabilidad) se limitan a la del encargo.
+               AND NOT EXISTS (SELECT 1 FROM public.staff s JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+                                WHERE s.staff_id = p_staff_id AND public.is_society_scoped_role_key(ur.role_key)
+                                  AND s.society_id IS DISTINCT FROM e.society_id)
              ELSE
                p_staff_id IN (e.manager_id, e.partner_id)
                AND EXISTS (SELECT 1
@@ -940,15 +945,35 @@ DECLARE
   v_override    smallint;
   v_end         date;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
+  v_start date;
+  v_timer_date date;
 BEGIN
-  SELECT work_order_required, engagement_state_override, end_date, funcion
-    INTO v_wo_required, v_override, v_end, v_funcion
+  SELECT work_order_required, engagement_state_override, end_date, funcion, partner_approval_status, status, start_date
+    INTO v_wo_required, v_override, v_end, v_funcion, v_partner_approval, v_status, v_start
   FROM engagements WHERE engagement_id = NEW.engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un encargo Administrativa/Capacitación/Calidad SIN OT no carga horas, ni con override
-  -- Aprobado. Va antes de todo atajo (override 4/5, "sin OT = aprobado").
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'Cannot log time: un encargo Administrativa, Capacitacion o Calidad sin OT no admite horas';
+  -- El nuevo control de timers se limita a no-Cliente sin OT; los demás conservan su flujo.
+  IF TG_TABLE_NAME = 'timer_entries' AND (COALESCE(v_funcion, 1) = 1 OR v_wo_required) THEN
+    RETURN NEW;
+  END IF;
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement status does not allow logging';
+  END IF;
+  -- Tracker/manual timer: misma elegibilidad al crear o cambiar de encargo/fecha.
+  -- Parar un timer existente sigue permitido; su exportación vuelve a validar time_entries.
+  IF TG_TABLE_NAME = 'timer_entries' THEN
+    v_timer_date := (NEW.started_at AT TIME ZONE 'America/La_Paz')::date;
+    IF v_timer_date < v_start OR v_timer_date > v_end THEN
+      RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE: timer outside engagement dates';
+    END IF;
+  END IF;
+  -- Sin OT, el no-Cliente necesita la aprobación real del Socio sobre el encargo.
+  -- Se evalúa ANTES de los overrides: 4/5 y Finalizado no sustituyen esa decisión.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement partner approval does not allow logging';
   END IF;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
@@ -1228,6 +1253,12 @@ CREATE TABLE public.engagements (
     partner_approval_decided_by uuid,
     partner_approval_decided_at timestamp with time zone,
     partner_approval_reason text,
+    -- Aprobación ya existente en legacy, importada por el propietario del ETL. No es una firma en EMS.
+    partner_approval_legacy_source text,
+    CONSTRAINT chk_engagements_legacy_approval CHECK (partner_approval_legacy_source IS NULL OR
+      (partner_approval_status IS NOT DISTINCT FROM 'approved' AND funcion IS NOT DISTINCT FROM 0 AND work_order_required IS FALSE
+       AND partner_approval_decided_by IS NULL AND partner_approval_decided_at IS NULL
+       AND partner_approval_reason IS NULL AND partner_approval_legacy_source ~ '^legacy:[A-Za-z0-9_]+:[0-9]{4}\.[0-9]+\.[0-9]+$')),
     CONSTRAINT chk_engagements_partner_approval_status CHECK (((partner_approval_status IS NULL) OR (partner_approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))),
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
@@ -1926,7 +1957,8 @@ COMMENT ON FUNCTION public.can_write_administrative_work(uuid) IS '1110-220: en 
 -- 1110-220 (plan_v5 §6.1): candidatos a "Aprobador de horas" (manager_id) de un encargo no-Cliente. El formulario
 -- elige primero el rol y después la persona, así que devuelve el role_key (es el requisito: elegir por rol). Solo los
 -- 14 roles de la lista cerrada, con staff activo, no borrado, cuenta vinculada y rol activo; society_id para que el
--- formulario ofrezca solo personas de la sociedad del encargo (el guard lo exige). Espejo del guard de enforce_engagement_profile_scope.
+-- formulario filtre por sociedad solo a los roles con alcance por sociedad (Contabilidad); el resto aprueba encargos de cualquier
+-- sociedad (operador 2026-11-16). Espejo del guard de enforce_engagement_profile_scope.
 -- Solo para quien elige: admin, hr_manager y hr_analyst con engagement.create o engagement.update. Sin email ni auth_user_id.
 CREATE FUNCTION public.get_hours_approver_candidates() RETURNS TABLE(staff_id uuid, display_name text, role_key text, society_id uuid)
     LANGUAGE sql STABLE SECURITY DEFINER
@@ -2028,6 +2060,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
     RETURN NEW;
   END IF;
 
@@ -2047,7 +2080,8 @@ BEGIN
      AND (NEW.partner_approval_status     IS DISTINCT FROM OLD.partner_approval_status
        OR NEW.partner_approval_decided_by IS DISTINCT FROM OLD.partner_approval_decided_by
        OR NEW.partner_approval_decided_at IS DISTINCT FROM OLD.partner_approval_decided_at
-       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason) THEN
+       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason
+       OR NEW.partner_approval_legacy_source IS DISTINCT FROM OLD.partner_approval_legacy_source) THEN
     RAISE EXCEPTION 'FORBIDDEN: la aprobación del Socio solo cambia por sus acciones de aprobar, rechazar o reenviar'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -2085,6 +2119,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
   ELSIF NEW.partner_approval_status IS NULL THEN
     NEW.partner_approval_status := 'pending';
   END IF;
@@ -2958,13 +2993,20 @@ DECLARE
   v_approval    text;
   v_risk        text;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
 BEGIN
-  SELECT e.engagement_state_override, e.work_order_required, e.funcion
-    INTO v_override, v_wo_required, v_funcion
+  SELECT e.engagement_state_override, e.work_order_required, e.funcion, e.partner_approval_status, e.status
+    INTO v_override, v_wo_required, v_funcion, v_partner_approval, v_status
   FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no admite horas ni solicitudes (fondos exige OT).
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RETURN false;
+  END IF;
+  -- Horas sin OT: firma del Socio obligatoria, incluso con override 4/5.
+  -- Fondos además exige una OT real aprobada en fr_wo_validate_approved/submit_fund_request.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
     RETURN false;
   END IF;
 
@@ -2972,7 +3014,7 @@ BEGIN
   IF v_override IS NOT NULL THEN
     RETURN v_override IN (4, 5);
   END IF;
-  -- Administrativo (sin OT) = Aprobado.
+  -- Sin OT: Cliente conserva su regla; no-Cliente ya pasó el control de firma.
   IF v_wo_required = false THEN
     RETURN true;
   END IF;
@@ -3028,6 +3070,13 @@ CREATE FUNCTION public.engagement_is_approved_state(p_engagement_id uuid, p_over
     SET search_path TO 'public'
     AS $$
 BEGIN
+  -- Un override Aprobado no fabrica la firma de un no-Cliente sin OT.
+  IF p_wo_required = false AND EXISTS (
+    SELECT 1 FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+      AND COALESCE(e.funcion, 1) <> 1 AND e.partner_approval_status IS DISTINCT FROM 'approved'
+  ) THEN
+    RETURN false;
+  END IF;
   -- Override manual gana: solo el 4 (Aprobado) cuenta como aprobado.
   IF p_override IS NOT NULL THEN
     RETURN p_override = 4;
@@ -3619,7 +3668,9 @@ BEGIN
 
   -- FEAT 0602-135: el estado efectivo del encargo debe admitir solicitudes (4/5). Bloquea
   -- Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) y overrides no-cargables.
-  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id) THEN
+  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id)
+     OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=v_engagement_id
+                     AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)) THEN
     RAISE EXCEPTION 'El encargo no admite solicitudes de fondos en su estado actual';
   END IF;
 
@@ -4965,7 +5016,9 @@ BEGIN
     FROM public.fund_request_work_orders frwo
     JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
     WHERE frwo.fund_request_id = p_fund_request_id
-      AND NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+      AND (NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+           OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=wo.engagement_id
+                           AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)))
   ) THEN
     RAISE EXCEPTION 'Una o más OTs pertenecen a un encargo que ya no admite solicitudes (congelado/finalizado/cancelado)';
   END IF;
@@ -7238,6 +7291,111 @@ $$;
 
 
 --
+-- Name: import_historic_timesheets(text, jsonb, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- D41 Parte I (ETL F3, 13/11/2026): importación de horas históricas YA APROBADAS dentro de EMS. Es la vía acotada para crear, en UNA transacción, los períodos
+-- cerrados (is_period_locked = true), las entradas vinculadas a ellos y las líneas nativas `approved`, con procedencia en timesheet_periods (import_batch / imported_at).
+-- Contrato:
+--   * SECURITY INVOKER; ejecutable SOLO por el propietario (se revoca de PUBLIC, anon, authenticated y service_role en cero_06) y solo desde una sesión `postgres`
+--     (la misma regla que la excepción de feriados históricos de enforce_holiday_blocking). No concede ningún bypass al usuario admin de la aplicación.
+--   * Orden compatible con los triggers vigentes: períodos → entradas con period_id → líneas aprobadas (protect_approved_time_entries bloquea insertar entradas
+--     en una línea que ya está aprobada). No se desactiva ningún trigger.
+--   * Marca transaccional `app.etl_import = on` (solo durante la llamada; se restaura al salir): notify_timesheet_line_approval_events no emite avisos de aprobación por la importación. El período se inserta ya
+--     cerrado (submitted_at técnico = instante de importación): tr_notify_timesheet_period solo actúa en UPDATE, así que no hay envío ni correo.
+--   * No inventa aprobador ni fecha: approved_by y approved_at salen del payload y pueden ser NULL (evidencia del legacy conservada tal cual).
+--   * Atómica y estricta: un lote ya importado, una entrada sin línea, una línea sin entradas, un total de período distinto de la suma de sus entradas o una entrada
+--     fuera de la semana de su período abortan toda la llamada sin dejar nada.
+CREATE FUNCTION public.import_historic_timesheets(p_batch text, p_periods jsonb, p_entries jsonb, p_lines jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO public
+AS $$
+DECLARE
+  v_now     constant timestamptz := now();
+  v_periods integer;
+  v_entries integer;
+  v_lines   integer;
+  v_bad     integer;
+  v_prev_import text := current_setting('app.etl_import', true);
+  v_prev_hours  text := current_setting('etl.f3_historical_hours', true);
+BEGIN
+  -- Sesión propietaria: `postgres` (la conexión del operador en Supabase) o un superusuario de la base (la base scratch de las pruebas). Un rol de la API nunca llega aquí (sin EXECUTE).
+  IF NOT (session_user = 'postgres' OR COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)) THEN
+    RAISE EXCEPTION 'IMPORT_NOT_ALLOWED: solo la sesión propietaria puede importar horas históricas' USING ERRCODE = '42501';
+  END IF;
+  IF p_batch IS NULL OR p_batch !~ '^legacy:[A-Za-z0-9_]+:d41$' THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_INVALID: %', COALESCE(p_batch, '(nulo)') USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_typeof(p_periods) IS DISTINCT FROM 'array' OR jsonb_typeof(p_entries) IS DISTINCT FROM 'array' OR jsonb_typeof(p_lines) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_periods) = 0 OR jsonb_array_length(p_entries) = 0 OR jsonb_array_length(p_lines) = 0 THEN
+    RAISE EXCEPTION 'IMPORT_PAYLOAD_INVALID: períodos, entradas y líneas deben ser arreglos no vacíos' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.timesheet_periods WHERE import_batch = p_batch) THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_EXISTS: el lote % ya tiene períodos importados', p_batch USING ERRCODE = '23505';
+  END IF;
+
+  -- Las marcas valen solo dentro de esta llamada: al terminar se restauran (el resto de la transacción del llamador vuelve a emitir avisos normalmente).
+  PERFORM set_config('app.etl_import', 'on', true);
+  PERFORM set_config('etl.f3_historical_hours', 'on', true);
+
+  -- 1) períodos cerrados
+  INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, total_hours, submitted_at, is_period_locked, import_batch, imported_at)
+  SELECT (x->>'periodId')::uuid, (x->>'staffId')::uuid, (x->>'weekStart')::date, (x->>'weekNumber')::integer, (x->>'year')::integer,
+         (x->>'totalHours')::numeric, v_now, true, p_batch, v_now
+    FROM jsonb_array_elements(p_periods) x;
+  GET DIAGNOSTICS v_periods = ROW_COUNT;
+
+  -- 2) entradas ya vinculadas a su período
+  INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, engagement_id, activity_id, description, period_id, is_forecast, etl_split_index)
+  SELECT (x->>'timeId')::uuid, (x->>'dateWorked')::date, (x->>'hours')::numeric, (x->>'staffId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid,
+         NULL, (x->>'periodId')::uuid, false, COALESCE((x->>'etlSplitIndex')::smallint, 1)
+    FROM jsonb_array_elements(p_entries) x;
+  GET DIAGNOSTICS v_entries = ROW_COUNT;
+
+  -- 3) líneas nativas aprobadas (después de las entradas: protect_approved_time_entries)
+  INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at)
+  SELECT (x->>'approvalId')::uuid, (x->>'periodId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid, 'approved',
+         NULLIF(x->>'approvedBy', '')::uuid, NULLIF(x->>'approvedAt', '')::timestamptz
+    FROM jsonb_array_elements(p_lines) x;
+  GET DIAGNOSTICS v_lines = ROW_COUNT;
+
+  IF v_periods <> jsonb_array_length(p_periods) OR v_entries <> jsonb_array_length(p_entries) OR v_lines <> jsonb_array_length(p_lines) THEN
+    RAISE EXCEPTION 'IMPORT_COUNT_MISMATCH: períodos %/%, entradas %/%, líneas %/%', v_periods, jsonb_array_length(p_periods), v_entries, jsonb_array_length(p_entries), v_lines, jsonb_array_length(p_lines);
+  END IF;
+
+  -- coherencia: el total de cada período es la suma de sus entradas
+  SELECT count(*) INTO v_bad FROM public.timesheet_periods p
+   WHERE p.import_batch = p_batch AND p.total_hours IS DISTINCT FROM COALESCE((SELECT sum(te.hours_logged) FROM public.time_entries te WHERE te.period_id = p.period_id), 0);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_PERIOD_TOTAL_MISMATCH: % períodos con total distinto de la suma de sus entradas', v_bad; END IF;
+
+  -- coherencia: toda entrada es de la persona del período y cae en su semana (lunes a domingo)
+  SELECT count(*) INTO v_bad FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id
+   WHERE p.import_batch = p_batch AND (te.staff_id <> p.staff_id OR te.date_worked < p.week_start_date OR te.date_worked > p.week_start_date + 6);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_ENTRY_OUTSIDE_PERIOD: % entradas fuera de la persona o la semana de su período', v_bad; END IF;
+
+  -- coherencia: cada (período, encargo, actividad) con entradas tiene su línea y cada línea tiene entradas
+  SELECT count(*) INTO v_bad FROM (
+    (SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch)
+    UNION ALL
+    (SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch)
+  ) q;
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_LINE_MISMATCH: % combinaciones período/encargo/actividad sin su par entrada/línea', v_bad; END IF;
+
+  PERFORM set_config('app.etl_import', COALESCE(v_prev_import, ''), true);
+  PERFORM set_config('etl.f3_historical_hours', COALESCE(v_prev_hours, ''), true);
+  RETURN jsonb_build_object('periods', v_periods, 'entries', v_entries, 'lines', v_lines, 'batch', p_batch);
+END;
+$$;
+
+COMMENT ON FUNCTION public.import_historic_timesheets(text, jsonb, jsonb, jsonb) IS
+  'D41 Parte I (ETL F3): importa horas históricas aprobadas (períodos cerrados + entradas + líneas approved) en una transacción, con procedencia en timesheet_periods. Solo el propietario; sin avisos de aprobación.';
+
+
+--
 -- Name: seed_initial_holidays(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -8654,7 +8812,7 @@ CREATE TABLE public.work_orders (
     engagement_id uuid NOT NULL,
     currency text NOT NULL,
     season_mode character varying(4) NOT NULL,
-    tax_rate numeric(5,4) DEFAULT 0.13,
+    tax_rate numeric(5,4) DEFAULT 0.16,
     adjustment_amount numeric(15,2) DEFAULT 0,
     notes text,
     created_at timestamp with time zone DEFAULT now(),
@@ -8864,6 +9022,7 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
   WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id)
+         AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)
          -- Alcance por sociedad (2026-10-28): solo OT de la sociedad de quien pide (regla de armado de solicitudes).
          AND (e.society_id = public.my_society_id())
          -- BUG 0923-202: OT de cliente solo para su equipo o sus asignados; las administrativas y el admin, como antes.
@@ -9217,7 +9376,12 @@ CREATE TABLE public.timesheet_periods (
     total_hours numeric(6,2) DEFAULT 0,
     submitted_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    -- D41 Parte I (ETL F3, 13/11/2026): procedencia de las horas históricas importadas. Solo public.import_historic_timesheets() las escribe.
+    -- import_batch identifica el lote (p. ej. legacy:TimeControlDB_20261106_1600:d41) e imported_at es el instante TÉCNICO de la importación (no un envío legacy).
+    -- Las entradas (time_entries.period_id) y las aprobaciones (timesheet_line_approvals.period_id) se identifican como importadas a través de este período.
+    import_batch text,
+    imported_at timestamp with time zone
 );
 
 
@@ -11194,7 +11358,7 @@ BEGIN
   --
   -- net_amount guarda lo REALMENTE gastado y amount lo que se factura. Los dos se guardan
   -- porque la diferencia entre ambos es justamente lo que hay que poder explicar.
-  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.13), 0), 2);
+  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.16), 0), 2);
 
   -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
   -- Nace en BOB, que es la moneda en la que los gastos se rinden

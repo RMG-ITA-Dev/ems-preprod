@@ -11,7 +11,7 @@ const hasBash = (() => { try { execFileSync("bash", ["-c", "true"], { stdio: "ig
 
 describe("runbook ETL F1→F3: guardas estáticas", () => {
   it("existen los pasos 00–50, la biblioteca y el orquestador", () => {
-    expect(scripts).toEqual(["00-preflight.sh", "10-reset.sh", "11-recover-reset.sh", "20-f1.sh", "30-f2.sh", "35-bajas.sh", "40-f3.sh", "50-reconcile.sh", "lib.sh", "run.sh"]);
+    expect(scripts).toEqual(["00-preflight.sh", "10-reset.sh", "11-recover-reset.sh", "15-crones.sh", "20-f1.sh", "30-f2.sh", "35-bajas.sh", "40-f3.sh", "50-reconcile.sh", "lib.sh", "run.sh"]);
   });
   it.skipIf(!hasBash)("todos los scripts pasan bash -n", () => {
     for (const name of scripts) expect(() => execFileSync("bash", ["-n", path.join(dir, name)], { stdio: "pipe" }), name).not.toThrow();
@@ -37,15 +37,16 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     const lib = read("lib.sh");
     expect(lib).toMatch(/--yes-local solo existe para el ensayo local/);
     expect(lib).toMatch(/\[\[ "\$ENV_NAME" == "local" && "\$ASSUME_LOCAL_YES" == "1" \]\]/);
-    expect(read("35-bajas.sh")).toContain('rb_confirm "APLICAR 8 BAJAS"');
+    expect(read("35-bajas.sh")).toContain('rb_confirm "APLICAR ${N_INACTIVE} BAJAS"');
+    expect(read("15-crones.sh")).toContain('rb_confirm "PAUSAR CRONES"');
     expect(read("11-recover-reset.sh")).toContain('rb_confirm "DROP fund_request_number_seq"');
     expect(read("40-f3.sh")).toContain('rb_confirm "ACEPTO ${block}"');
     expect(read("lib.sh")).toContain('rb_confirm "VENTANA ${PROJECT_REF}"');
   });
   it("F3 corre después de las bajas y los bloques respetan el orden de dependencias", () => {
     const f3 = read("40-f3.sh");
-    expect(f3).toContain('"$inactive" == "8"');
-    const order = ["engagement_block client-engagements", "engagement_block administrative-engagements", "engagement_block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
+    expect(f3).toContain('"$inactive" == "$N_INACTIVE"');
+    const order = ["engagement_block client-engagements", "engagement_block administrative-engagements", "engagement_block matrices", "load --block work-orders", "--operation sync-work-orders", "--operation expenses", "--operation payments", "--operation risks", "--operation invoices", "--operation contain-emails", "--operation hours"].map((token) => f3.indexOf(token));
     expect(order.every((index) => index > 0)).toBe(true);
     expect([...order]).toEqual([...order].sort((a, b) => a - b));
   });
@@ -57,7 +58,7 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     for (const mark of ["wo.state === 'CONFIRMADA'", "wo.syncCompletedAt", "wo.expensesCompletedAt", "wo.paymentsCompletedAt", "wo.risksCompletedAt", "wo.emailsContainedAt"]) expect(f3, mark).toContain(mark);
     expect(f3).toContain("acceptedAt");
     const second = read("50-reconcile.sh").split('rb_info "2. Segunda pasada de F3')[1] ?? "";
-    for (const op of ["sync-work-orders expenses risks contain-emails", "--operation hours", "client-engagements", "administrative-engagements"]) expect(second, op).toContain(op);
+    for (const op of ["sync-work-orders expenses risks invoices contain-emails", "--operation hours", "client-engagements", "administrative-engagements"]) expect(second, op).toContain(op);
     expect(second).not.toMatch(/--block matrices/);
     expect(second).not.toMatch(/--operation payments/);
     expect(second).not.toMatch(/load --block work-orders\s*$/m);
@@ -81,6 +82,94 @@ describe("runbook ETL F1→F3: guardas estáticas", () => {
     expect(reconcile).toContain('[[ "$RECORD_FP" != "1" || "$ENV_NAME" == "local" ]] || rb_die');
     expect(reconcile.indexOf('"$RECORD_FP" != "1" || "$ENV_NAME" == "local"')).toBeLessThan(reconcile.indexOf("rb_etl 3 fingerprint"));
     expect(reconcile).toContain('[[ "$base_env" == "local" ]] || rb_die');
+  });
+  // Las cifras del runbook salen del manifiesto del snapshot, no de constantes (8 bajas, 145 activas, 124 OT, 15/11…).
+  it("el runbook toma corte, bajas, conteos y fecha límite del manifiesto del snapshot", () => {
+    const lib = read("lib.sh");
+    expect(lib).toContain("rb_manifest()"); expect(lib).toContain("rb_manifest_required()"); expect(lib).toContain("scripts/etl/snapshots/");
+    const bajas = read("35-bajas.sh");
+    for (const key of ["dates.staffCut", "f2.inactiveStaff", "f2.activeStaff", "f2.schedulableStaff"]) expect(bajas, key).toContain(key);
+    expect(bajas).not.toMatch(/145\|8\|8\|145|CUT="2026-10-23"|== "8"/);
+    const f3 = read("40-f3.sh");
+    for (const key of ["f2.inactiveStaff", "f3.clientEngagements", "f3.workOrders", "f3.payments.billable", "invoicedInstallments"]) expect(f3, key).toContain(key);
+    expect(f3).not.toMatch(/124 OT|75 presupuestos|277 cuotas|horas \(25\.226/);
+    const pre = read("00-preflight.sh");
+    expect(pre).toContain("preflight.executionDeadline"); expect(pre).not.toContain("<= 15/11/2026");
+    expect(read("30-f2.sh")).not.toMatch(/268 clientes|153 fichas|las 8 bajas/);
+  });
+  // D24 (10/11/2026): los crones de notificaciones quedan pausados (y verificados) antes de cargar; los correos salen por Railway después de la migración.
+  it("el paso 15 pausa y verifica los crones notif-% sin reactivarlos, y F3 puede fijar TS_TRACKING_START_DATE al lunes de arranque", () => {
+    const crones = read("15-crones.sh");
+    expect(crones).toContain("jobname like 'notif-%'"); expect(crones).toContain("cron.alter_job(jobid, active := false)"); expect(crones).not.toMatch(/active := true/);
+    expect(crones).toContain("quedan ${still} crones notif-% activos");
+    const f3 = read("40-f3.sh");
+    expect(f3).toContain("--tracking-start"); expect(f3).toContain("TS_TRACKING_START_DATE"); expect(f3).toMatch(/PENDIENTE \(D24\)/); expect(f3).toMatch(/debe ser un lunes/);
+    expect(read("00-preflight.sh")).toContain("Crones de notificaciones pausados (paso 15)");
+  });
+  // A-03 (12/11/2026): `run.sh` no encadenaba la pausa de crones; tras el reset (10) los `notif-%` vuelven a nacer activos.
+  it("run.sh encadena la pausa de crones (15) después del reset (10) y antes de F1 (20)", () => {
+    const steps = /steps=\(([^)]*)\)/.exec(read("run.sh"))?.[1].trim().split(/\s+/) ?? [];
+    expect(steps).toEqual(["00-preflight", "10-reset", "15-crones", "20-f1", "30-f2", "35-bajas", "40-f3", "50-reconcile"]);
+    for (const step of steps) expect(scripts, step).toContain(`${step}.sh`);
+  });
+  // R403-02: F2 y F3 verifican (solo lectura) que los crones notif-% estén pausados aunque el paso se reanude o se ejecute suelto, sin pausarlos ni reactivarlos ellos.
+  it("30-f2 y 40-f3 exigen los crones notif-% pausados antes de escribir, con una verificación que no modifica nada", () => {
+    const lib = read("lib.sh"); const fn = lib.slice(lib.indexOf("rb_require_crons_paused() {"), lib.indexOf("\n}\n", lib.indexOf("rb_require_crons_paused() {")));
+    expect(fn).toContain("jobname like 'notif-%' and active"); expect(fn).toContain("ejecute el paso 15");
+    expect(fn).not.toMatch(/alter_job|active := |cron\.unschedule|update cron/i);
+    for (const name of ["30-f2.sh", "40-f3.sh"]) { const script = read(name); expect(script, name).toContain("rb_require_crons_paused"); expect(script.indexOf("rb_require_crons_paused"), name).toBeGreaterThan(script.indexOf("rb_confirm_window")); }
+    const f2 = read("30-f2.sh"); expect(f2.indexOf("rb_require_crons_paused")).toBeLessThan(f2.indexOf("rb_etl 2 validate"));
+    const f3 = read("40-f3.sh"); expect(f3.indexOf("rb_require_crons_paused")).toBeLessThan(f3.indexOf("rb_etl 3 "));
+  });
+  // R403-07: el resumen «horas por práctica» debe cubrir las entradas con período importado (D41), no solo las de período NULL del contrato anterior.
+  it("el resumen de horas por práctica incluye las entradas de períodos importados y las de período NULL", () => {
+    const line = read("50-reconcile.sh").split("\n").find((l) => l.includes("sum(te.hours_logged)")) ?? "";
+    expect(line).toContain("te.period_id is null or te.period_id in (select tp.period_id from public.timesheet_periods tp where tp.import_batch is not null)");
+    expect(line).toContain("te.is_forecast=false");
+  });
+  // Paso 4 con CSV v3: las huellas se calculan sobre las configuraciones base y el baseline que se indiquen (por defecto, los de v2).
+  it("el pre-vuelo toma configuraciones base y baseline de huellas por variable de entorno, con los valores v2 por defecto", () => {
+    const pre = read("00-preflight.sh");
+    expect(pre).toContain('BASELINE="${INPUTS_BASELINE:-$REPO_ROOT/bugs/ETL/carga/fase4/inputs.sha256}"');
+    expect(pre).toContain('PF_F2="${BASE_F2_CONFIG:-scripts/etl/fase2.local.config.json}"');
+    expect(pre).toContain('PF_F3="${BASE_F3_CONFIG:-scripts/etl/fase3.local.config.json}"');
+    expect(pre).toContain("[process.env.PF_F2, process.env.PF_F3]");
+    expect(pre).not.toContain('for (const f of ["scripts/etl/fase2.local.config.json"');
+  });
+  // Revisión independiente (12/11/2026): L9 no puede sobrescribir el baseline por defecto (v2) ni compararse contra una huella incompatible, ni omitirse en silencio.
+  it("50-reconcile protege L9: registrar exige ruta explícita y nueva, un baseline incompatible detiene el paso y la ausencia se avisa", () => {
+    const rec = read("50-reconcile.sh");
+    // la protección de registro corre antes de cualquier trabajo (antes de la conciliación y de la huella)
+    const guard = rec.search(/if \[\[ "\$RECORD_FP" == "1" \]\]; then\s+\[\[ -n "\$\{ETL_BASELINE_FINGERPRINT:-\}" \]\]/);
+    expect(guard).toBeGreaterThan(0); expect(guard).toBeLessThan(rec.indexOf("rb_etl 3 reconcile-legacy"));
+    expect(rec).toContain('exige una ruta explícita en ETL_BASELINE_FINGERPRINT');
+    expect(rec).toContain('[[ "$ETL_BASELINE_FINGERPRINT" != "$FP_DEFAULT" ]]');
+    expect(rec).toContain('[[ ! -e "$ETL_BASELINE_FINGERPRINT" ]] || rb_die "el baseline L9 destino ya existe');
+    expect(rec).toContain('cp -n "$FP_NOW" "$FP_BASE"');
+    expect(rec).not.toMatch(/cp "\$FP_NOW" "\$FP_BASE"/); // nunca un cp que pise
+    // el código de salida 4 de compare-fingerprints es «baseline incompatible» y detiene el paso con un mensaje distinto del de «difiere»
+    expect(rec).toMatch(/4\) rb_die "L9: baseline INCOMPATIBLE/);
+    expect(rec).toMatch(/\*\) rb_die "L9: la huella de \$\{ENV_NAME\} difiere/);
+    // sin baseline: Test bloquea y local avisa que L9 NO se comparó (pendiente, no aprobada)
+    expect(rec).toContain("L9 NO SE COMPARÓ");
+    expect(rec).toContain('rb_die "L9 es requisito de E7');
+    expect(rec).toContain("environment=${base_env}");
+  });
+  // Contención anticipada (12/11/2026): corre SIEMPRE antes de matrices (también al reanudar desde ese bloque), sin depender de ninguna marca del journal.
+  it("40-f3 contiene los correos de los encargos antes de matrices, también al reanudar, sin depender de marcas del journal", () => {
+    const f3 = read("40-f3.sh");
+    const command = "rb_etl_mut 3 load --block administrative-engagements --operation contain-engagement-emails";
+    const at = f3.indexOf(command);
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBeGreaterThan(f3.indexOf("if run_block administrative-engagements;"));
+    expect(at).toBeLessThan(f3.indexOf("if run_block matrices;"));
+    // se ejecuta cuando se parte de client-engagements, administrative-engagements o matrices; nunca queda detrás de step/done_mark
+    const line = f3.slice(f3.lastIndexOf("\n", at) + 1, f3.indexOf("\n", at));
+    expect(line).not.toMatch(/step |done_mark/);
+    expect(f3.slice(f3.lastIndexOf("case ", at), at)).toContain("client-engagements|administrative-engagements|matrices)");
+    expect(f3.slice(f3.lastIndexOf("case ", at), at)).toContain('"$FROM"');
+    // la contención de work-orders sigue donde estaba
+    expect(f3.indexOf("--operation contain-emails")).toBeGreaterThan(f3.indexOf("if run_block work-orders;"));
   });
   it("el pre-vuelo exige 61 migraciones y no crea archivos de migración", () => {
     expect(read("lib.sh")).toContain("EXPECTED_MIGRATIONS=61");

@@ -56,6 +56,7 @@ import {
   distributePercentages,
   computeAmount,
   computeAmountInCurrency,
+  allocateInstallmentAmounts,
   convertAmount,
   computePaymentDate,
   isAlertDue,
@@ -124,7 +125,7 @@ interface WorkOrderPaymentPlanSectionProps {
   canBillExpenses?: boolean;
   /**
    * La alícuota de la OT, para mostrar cuánto del monto facturado es impuesto. Sale de la orden
-   * y no de un 0,13 escrito acá: si alguna vez cambia, cambia en un solo lugar.
+   * y no de un 0,16 escrito acá: si alguna vez cambia, cambia en un solo lugar.
    */
   taxRate?: number;
   /** staff_id de quien mira: decide qué notas puede editar o borrar (sólo las propias, Q51). */
@@ -196,7 +197,7 @@ export function WorkOrderPaymentPlanSection({
   canWriteNotes = false,
   expenseRows = [],
   canBillExpenses = false,
-  taxRate = 0.13,
+  taxRate = 0.16,
   currentStaffId = null,
   isAdminViewer = false,
   isPaymentPlanDirty = false,
@@ -494,6 +495,12 @@ export function WorkOrderPaymentPlanSection({
   // honorario.
   const amountFor = (inst: PaymentInstallmentInput, pct = inst.percentage) =>
     computeAmountInCurrency(pct, feeWithTax, installmentCurrency(inst), currency, currentPlan.exchange_rate);
+  const recalculate = (rows: PaymentInstallmentInput[]) => {
+    const calculated = allocateInstallmentAmounts(rows, feeWithTax, currency, currentPlan.exchange_rate);
+    if (!calculated) { toast.error(t("workOrders.paymentPlan.validationAllocation")); return; }
+    onInstallmentsChange(calculated);
+  };
+  const displayedAmount = (inst: PaymentInstallmentInput) => inst.amount ?? (isLocked(inst) ? 0 : amountFor(inst));
 
   const formatRate = (rate: number) =>
     Number(rate).toLocaleString(numericLocale === "es" ? "es-BO" : "en-US", {
@@ -532,7 +539,7 @@ export function WorkOrderPaymentPlanSection({
   // fee actual; antes de este fix el total del footer sí lo recalculaba para TODAS
   // las cuotas, divergiendo del monto real si el fee cambiaba tras facturar.
   const totalAmount = installments.reduce((s, i) => {
-    return s + (isLocked(i) ? (i.amount ?? 0) : amountFor(i));
+    return s + displayedAmount(i);
   }, 0);
 
   // ----- Plan header handlers -----
@@ -755,18 +762,25 @@ export function WorkOrderPaymentPlanSection({
   // hacia fallar el guardado completo del plan. Las cuotas bloqueadas (isLocked)
   // conservan su amount ya congelado, igual que ya hace el guard de DB.
   const prevFeeWithTax = useRef(feeWithTax);
+  const prevPlanRate = useRef(currentPlan.exchange_rate);
+  const prevInstallmentCount = useRef(installments.length);
   useEffect(() => {
-    if (prevFeeWithTax.current === feeWithTax || installments.length === 0) {
+    const wasEmpty = prevInstallmentCount.current === 0;
+    prevInstallmentCount.current = installments.length;
+    const rateChanged = prevPlanRate.current !== currentPlan.exchange_rate;
+    prevPlanRate.current = currentPlan.exchange_rate;
+    if (wasEmpty && installments.some((inst) => inst.installment_id)) {
+      prevFeeWithTax.current = feeWithTax;
+      return;
+    }
+    const hasMixedCurrency = installments.some((inst) => installmentCurrency(inst) !== currency);
+    if ((prevFeeWithTax.current === feeWithTax && !(rateChanged && hasMixedCurrency)) || installments.length === 0) {
       prevFeeWithTax.current = feeWithTax;
       return;
     }
     prevFeeWithTax.current = feeWithTax;
-    onInstallmentsChange(
-      installments.map((inst) =>
-        isLocked(inst) ? inst : { ...inst, amount: amountFor(inst) },
-      ),
-    );
-  }, [feeWithTax]); // eslint-disable-line react-hooks/exhaustive-deps
+    recalculate(installments);
+  }, [feeWithTax, installments.length, currentPlan.exchange_rate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ----- Installment count handler -----
 
@@ -833,7 +847,7 @@ export function WorkOrderPaymentPlanSection({
           payment_exchange_rate: currentPlan.exchange_rate_mode === "fijo" ? initialRate : null,
         };
       });
-      onInstallmentsChange([...redistributed, ...added]);
+      recalculate([...redistributed, ...added]);
     } else {
       // Reducing: drop Pending rows starting from the END of the array (matches the
       // prior tail-drop behavior when nothing is locked); a locked row is never a
@@ -846,7 +860,7 @@ export function WorkOrderPaymentPlanSection({
           pendingToDrop--;
         }
       }
-      onInstallmentsChange(
+      recalculate(
         installments.filter((_, i) => !dropAt.has(i)).map(redistribute),
       );
     }
@@ -866,7 +880,7 @@ export function WorkOrderPaymentPlanSection({
   };
 
   const handlePercentageChange = (idx: number, val: number) => {
-    onInstallmentsChange(
+    recalculate(
       installments.map((inst, i) =>
         i === idx
           ? { ...inst, percentage: val, amount: amountFor(inst, val) }
@@ -1128,7 +1142,7 @@ export function WorkOrderPaymentPlanSection({
    * igual que el porcentaje y las fechas acordadas. Son todas partes del mismo contrato.
    */
   const handleInstallmentCurrencyChange = (idx: number, next: "BOB" | "USD" | "USDT") => {
-    onInstallmentsChange(
+    recalculate(
       installments.map((inst, i) => {
         if (i !== idx) return inst;
         // NULL = la moneda de la OT, que es el caso normal y lo que la base espera.
@@ -1159,7 +1173,7 @@ export function WorkOrderPaymentPlanSection({
     // installment_number deliberately left untouched (including for surviving unlocked
     // rows) — the visible "N°" column already uses array position, not this field, and
     // leaving it alone avoids ever touching a locked row's data.
-    onInstallmentsChange(
+    recalculate(
       remaining.map((inst) => {
         if (isLocked(inst)) return inst;
         const pct = unlockedPercentages[unlockedIdx++];
@@ -1186,7 +1200,7 @@ export function WorkOrderPaymentPlanSection({
   // esto da un solo subtotal y se ve igual que antes.
   const totalsByCurrency = installments.reduce<Record<string, number>>((acc, i) => {
     const cur = installmentCurrency(i);
-    const amount = isLocked(i) ? (i.amount ?? 0) : amountFor(i);
+    const amount = displayedAmount(i);
     acc[cur] = (acc[cur] ?? 0) + amount;
     return acc;
   }, {});
@@ -1681,7 +1695,7 @@ export function WorkOrderPaymentPlanSection({
                   // asi que la conversion a Bs (y la columna de monto) de una cuota ya
                   // facturada podia divergir del monto realmente congelado tras un
                   // cambio de fee tardio.
-                  const instAmount = isLocked(inst) ? inst.amount : amountFor(inst);
+                  const instAmount = displayedAmount(inst);
                   // isAdminDateEditable es un bypass aparte (admin corrigiendo fuera de
                   // Draft) -- no lo toca la decision 2026-09-10, que solo restringe
                   // QUIEN puede editar el tramo normal (isEditable) del plan.

@@ -115,7 +115,7 @@ describe("SessionCacheGuard (Fase 7, plan v2 §A.4)", () => {
   // A.5b (barrido de seguridad, bugs/seguridad/barrido_report.md §3): con RLS encendida en
   // global_settings la política de `anon` entrega 3 claves y la de `authenticated` las 27. La
   // queryKey es la misma antes y después del login y el staleTime real es de 60 s, así que sin la
-  // invalidación dirigida el login hereda la vista recortada y TAX_RATE cae a su default 0.13.
+  // invalidación dirigida el login hereda la vista recortada y TAX_RATE cae a su default 0.16.
   // Este test reproduce esa cadena con el staleTime de producción: sin el fix, falla.
   it("(6) first login (null -> a) refetches global_settings instead of inheriting the anon view", async () => {
     const CLAVES_ANON = ["LANGUAGE", "COMPACT_FONT", "ALLOWED_EMAIL_DOMAIN"];

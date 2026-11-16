@@ -17,6 +17,9 @@ export interface TimesheetPeriod {
   deadline: string | null;
   is_period_locked: boolean;
   submitted_at: string | null;
+  // D41 (ETL): semana histórica importada ya aprobada; null/ausente en semanas creadas desde EMS.
+  import_batch?: string | null;
+  imported_at?: string | null;
 }
 
 export interface TimeEntry {

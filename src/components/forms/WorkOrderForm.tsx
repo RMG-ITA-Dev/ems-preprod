@@ -55,6 +55,8 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { WorkOrderPaymentPlanSection } from "./WorkOrderPaymentPlanSection";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { computeBillingIndicator } from "@/lib/workOrderPaymentPlan";
+import { grossCents } from "@/lib/paymentMath.mjs";
+import { normalizeTaxRate } from "@/lib/taxRate";
 import { selectableExpenseTypes } from "@/lib/expenseTypes";
 import {
   isEmergencyTrack,
@@ -398,7 +400,7 @@ export function WorkOrderForm({
   approvalStatus,
   approvedAt,
   adjustmentAmount,
-  taxRate,
+  taxRate: rawTaxRate,
   budgetLines,
   expenseBudget,
   ceacCompletedAt,
@@ -535,11 +537,10 @@ export function WorkOrderForm({
     return expenseBudget.reduce((sum, exp) => sum + exp.budgeted_amount, 0);
   }, [expenseBudget]);
 
-  // Cobranzas Fase 7 (decision del operador Q41): la base que reparten las cuotas son SOLO
-  // los honorarios. El presupuesto de gastos salio de aca porque ahora los gastos se le
-  // cobran al cliente por su propia fila del plan, con lo que REALMENTE se ejecuto; dejarlo
-  // aca tambien los cobraria dentro de las cuotas, o sea dos veces.
-  const feeWithTax = totalAdjustedFee / (1 - taxRate);
+  // R403-10: una tasa inválida (≥ 100 % o no numérica) cae al valor por defecto en vez de romper el renderizado.
+  const taxRate = normalizeTaxRate(rawTaxRate);
+  const totalBeforeTax = totalAdjustedFee + totalExpenses;
+  const feeWithTax = Number(grossCents(totalBeforeTax.toFixed(4), taxRate.toFixed(4))) / 100;
 
   // Average rates for subtotal row
   const avgStandardRate = useMemo(() => {
@@ -1334,6 +1335,13 @@ export function WorkOrderForm({
                   {formatNumber(totalExpenses)}
                 </span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">{t("workOrders.totalWithoutVAT")}</span>
+                <span className="font-mono">
+                  <span className="text-muted-foreground mr-2">{currency}</span>
+                  {formatNumber(totalBeforeTax)}
+                </span>
+              </div>
               {/* IVA */}
               <div className="border-t border-border pt-2">
                 <div className="flex justify-between items-center text-muted-foreground">
@@ -1342,7 +1350,7 @@ export function WorkOrderForm({
                   </span>
                   <span className="font-mono">
                     <span className="text-sm mr-2">{currency}</span>
-                    {formatNumber(feeWithTax - totalAdjustedFee)}
+                    {formatNumber(feeWithTax - totalBeforeTax)}
                   </span>
                 </div>
               </div>

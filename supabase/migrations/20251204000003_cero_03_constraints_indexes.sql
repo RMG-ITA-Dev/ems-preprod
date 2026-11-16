@@ -1160,6 +1160,19 @@ CREATE INDEX idx_timesheet_periods_deadline ON public.timesheet_periods USING bt
 
 
 --
+-- D41 Parte I: procedencia de las horas históricas importadas (import_batch / imported_at van juntos; un período importado queda cerrado y con envío técnico).
+--
+
+ALTER TABLE ONLY public.timesheet_periods
+    ADD CONSTRAINT timesheet_periods_import_provenance_check CHECK (((import_batch IS NULL) = (imported_at IS NULL)));
+
+ALTER TABLE ONLY public.timesheet_periods
+    ADD CONSTRAINT timesheet_periods_import_closed_check CHECK (((import_batch IS NULL) OR ((is_period_locked IS TRUE) AND (submitted_at IS NOT NULL))));
+
+CREATE INDEX idx_timesheet_periods_import_batch ON public.timesheet_periods USING btree (import_batch) WHERE (import_batch IS NOT NULL);
+
+
+--
 --
 -- Name: idx_timesheet_periods_staff_date; Type: INDEX; Schema: public; Owner: -
 --
@@ -1262,7 +1275,7 @@ CREATE OR REPLACE VIEW public.work_order_summary WITH (security_invoker='true') 
             WHEN (COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) > (0)::numeric) THEN ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric))
             ELSE (1)::numeric
         END AS realization_percent,
-    ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.13))) AS fee_with_tax_gross_up
+    (ceil(((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric) + COALESCE((SELECT sum(eb.budgeted_amount) FROM public.wo_expense_budget eb WHERE eb.wo_id = wo.wo_id), 0)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.16))) * 100) / 100) AS fee_with_tax_gross_up
    FROM (public.work_orders wo
      LEFT JOIN public.wo_budget_lines bl ON ((wo.wo_id = bl.wo_id)))
   GROUP BY wo.wo_id;

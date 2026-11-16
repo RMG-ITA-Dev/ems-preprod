@@ -579,5 +579,9 @@ assert_suite supabase/tests/rpc-1110-220-recordatorio-semanal.sql '1110-220 RECO
 assert_suite supabase/tests/etl-f1-contracts.sql 'ETL F1 CONTRACTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/etl-f2-contracts.sql 'ETL F2 CONTRACTS: ALL CHECKS PASSED'
 assert_suite supabase/tests/etl-f3-contracts.sql 'ETL F3 CONTRACTS: ALL CHECKS PASSED'
+# ETL F3 · D41 Parte I (horas históricas aprobadas dentro de EMS): función de importación, privilegios, atomicidad, bloqueos existentes conservados y sin avisos.
+assert_suite supabase/tests/etl-f3-d41-history.sql 'ETL F3 D41 HISTORY: ALL CHECKS PASSED'
+# Prueba de humo del adaptador SQL de la consola. Confirma su fixture (COMMIT) para que Node lo vea, por eso va el ÚLTIMO.
+assert_suite supabase/tests/etl-f3-d41-adapter.sql 'ETL F3 D41 ADAPTER: ALL CHECKS PASSED'
 
 echo "OK: set consolidado (cero_01..cero_06) + migraciones incrementales, 0722-160 y notificaciones/correos aplicadas sobre base scratch; las suites de RLS/RPC/schema-convergence/trigger y la contractual ETL fase 1 pasaron"

@@ -220,7 +220,7 @@ supabase/
 | Key | Default | Description |
 |-----|---------|-------------|
 | `LANGUAGE` | `en` | System language (en/es) |
-| `TAX_RATE` | `0.13` | Default VAT/IVA rate (13%) |
+| `TAX_RATE` | `0.16` | Default tax rate on fees (16%: IVA 13% + IT 3%) |
 | `REALIZATION_LIMIT` | `75` | Threshold for realization color coding (%) |
 | `ALLOWED_EMAIL_DOMAIN` | *(empty)* | Restrict signup to specific email domain |
 | `HOLIDAY_ENGAGEMENT_ID` | *(uuid)* | Engagement used for holiday time entries |

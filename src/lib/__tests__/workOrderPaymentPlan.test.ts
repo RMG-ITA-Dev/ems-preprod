@@ -3,6 +3,7 @@ import {
   addBusinessDays,
   distributePercentages,
   computeAmount,
+  allocateInstallmentAmounts,
   computePaymentDate,
   isAlertDue,
   installmentCalendarState,
@@ -19,6 +20,8 @@ import {
   isPaymentPlanRestDirty,
 } from "../workOrderPaymentPlan";
 import type { PaymentInstallmentInput, PaymentPlanInput } from "@/types/workOrderPaymentPlan";
+import { grossCents } from "../paymentMath.mjs";
+import { feeWithTax, paymentArtifacts } from "../../../scripts/etl/fase3-transform.mjs";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,6 +34,59 @@ function utcDate(iso: string): Date {
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+describe("paridad monetaria del plan", () => {
+  it("redondea el total hacia arriba con tasa cero y 16 %", () => {
+    expect(grossCents("100.0000", "0.0000")).toBe(10000n);
+    expect(grossCents("253420.5600", "0.1600")).toBe(30169115n);
+    expect(feeWithTax("253420.56")).toBe("301691.15");
+  });
+  it("coincide con el ETL y asigna el residuo a la última cuota", () => {
+    const rows = [33.33, 33.33, 33.34].map((percentage, i) => baseInstallment({ installment_number: i + 1, percentage, amount: null }));
+    const allocated = allocateInstallmentAmounts(rows, 119.05, "USD", 6.96)!;
+    const source = rows.map((row) => ({ legacy_cot: "C", legacy_installment_number: String(row.installment_number), legacy_percentage: String(row.percentage), legacy_invoice_date: "2026-01-01", legacy_currency_raw: "1", proposed_disposition: "cuota_facturable" }));
+    expect(allocated.map((row) => row.amount)).toEqual(paymentArtifacts(source, "119.05").installments.map((row) => Number(row.amount)));
+    expect(allocated.reduce((sum, row) => sum + (row.amount ?? 0), 0)).toBeCloseTo(119.05);
+  });
+  it("conserva la cuota facturada y asigna el saldo a la última pendiente", () => {
+    const rows = [baseInstallment({ percentage: 50, status: "Invoiced", amount: 500 }), baseInstallment({ percentage: 50, amount: 500 })];
+    const allocated = allocateInstallmentAmounts(rows, 1000, "BOB", null)!;
+    expect(allocated.map((row) => row.amount)).toEqual([500, 500]);
+    expect(rows[0].amount).toBe(500);
+    expect(allocateInstallmentAmounts([{ ...rows[0], amount: 380 }, rows[1]], 1000, "BOB", null)).toBeNull();
+  });
+  it("convierte una cuota mixta usando el TC y rechaza un saldo negativo o TC ausente", () => {
+    const rows = [baseInstallment({ percentage: 50, status: "Invoiced", amount: 50 }), baseInstallment({ percentage: 50, amount: 0, currency: "BOB" })];
+    expect(allocateInstallmentAmounts(rows, 100, "USD", 7)?.map((r) => r.amount)).toEqual([50, 350]);
+    expect(allocateInstallmentAmounts(rows, 100, "USD", null)).toBeNull();
+    expect(allocateInstallmentAmounts([{ ...rows[0], amount: 120 }, rows[1]], 100, "USD", 7)).toBeNull();
+  });
+  it("compara la congelada en su moneda sin redondear de vuelta y rechaza diferencias reales", () => {
+    const rows = [baseInstallment({ percentage: 50, status: "Invoiced", amount: 71.84, currency: "USD" }), baseInstallment({ percentage: 50, currency: "BOB" })];
+    expect(allocateInstallmentAmounts(rows, 1000, "BOB", 6.96)?.map((r) => r.amount)).toEqual([71.84, 500]);
+    expect(allocateInstallmentAmounts([{ ...rows[0], amount: 71.85 }, rows[1]], 1000, "BOB", 6.96)).toBeNull();
+    expect(allocateInstallmentAmounts(rows, 1000, "BOB", null)).toBeNull();
+  });
+  it("concilia planes sin pendientes incluyendo el residuo y conserva las cuotas", () => {
+    const rows = [33.33, 33.33, 33.34].map((percentage, i) => baseInstallment({ percentage, status: "Invoiced", currency: "BOB", amount: [39.68, 39.68, 39.69][i] }));
+    expect(allocateInstallmentAmounts(rows, 119.05, "BOB", null)).toEqual(rows);
+    expect(allocateInstallmentAmounts([baseInstallment({ percentage: 100, status: "Invoiced", amount: 100, currency: "BOB" })], 200, "BOB", null)).toBeNull();
+    expect(allocateInstallmentAmounts([{ ...rows[0], amount: 39.69 }, ...rows.slice(1)], 119.05, "BOB", null)).toBeNull();
+  });
+  it("conserva el residuo ETL en la última facturada y concilia la pendiente", () => {
+    const rows = [baseInstallment({ percentage: 50, status: "Pending", currency: "USD", amount: 59.53 }), baseInstallment({ percentage: 50, status: "Invoiced", currency: "USD", amount: 59.52 })];
+    expect(allocateInstallmentAmounts(rows, 119.05, "USD", 6.96)?.map((r) => r.amount)).toEqual([59.53, 59.52]);
+    expect(allocateInstallmentAmounts([{ ...rows[0], status: "Invoiced" }, { ...rows[1], status: "Pending" }], 119.05, "USD", 6.96)?.map((r) => r.amount)).toEqual([59.53, 59.52]);
+    expect(allocateInstallmentAmounts([{ ...rows[0], status: "Invoiced" }, rows[1]], 119.05, "USD", 6.96)?.map((r) => r.amount)).toEqual([59.53, 59.52]);
+    expect(allocateInstallmentAmounts([{ ...rows[0], status: "Invoiced", amount: 59.52 }, { ...rows[1], status: "Pending", amount: 59.53 }], 119.05, "USD", 6.96)).toBeNull();
+    expect(allocateInstallmentAmounts([rows[0], { ...rows[1], amount: 59.51 }], 119.05, "USD", 6.96)).toBeNull();
+  });
+  it("admite el residuo legítimo facturado en moneda mixta y rechaza otro importe", () => {
+    const rows = [baseInstallment({ percentage: 50, status: "Pending", currency: "USD", amount: 59.53 }), baseInstallment({ percentage: 50, status: "Invoiced", currency: "BOB", amount: 414.26 })];
+    expect(allocateInstallmentAmounts(rows, 119.05, "USD", 6.96)?.map((r) => r.amount)).toEqual([59.53, 414.26]);
+    expect(allocateInstallmentAmounts([rows[0], { ...rows[1], amount: 414.25 }], 119.05, "USD", 6.96)).toBeNull();
+  });
+});
 
 // BUG preexistente (M6, bugs/scheduler/fase_5/review.md), corregido acá: esta helper
 // anclaba "hoy" a la hora local del SISTEMA que corre el test (`new Date()` +

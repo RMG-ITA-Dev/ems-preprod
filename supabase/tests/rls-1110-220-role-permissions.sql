@@ -331,21 +331,13 @@ BEGIN
   END IF;
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
    WHERE staff_id = pg_temp.s(1);
-  -- Operador 2026-11-12: lo mismo para cualquiera de los 14 roles (aquí el Gerente normal de otra sociedad).
+  -- Operador 2026-11-16: solo Contabilidad (alcance por sociedad) se limita a la del encargo (arriba). Talento Humano, Riesgos y el
+  -- resto de los 15 roles aprueban encargos de cualquier sociedad: aquí el Gerente normal de otra sociedad SI se acepta.
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
    WHERE staff_id = pg_temp.s(4);
-  PERFORM pg_temp.impersonate(pg_temp.u(7));
-  SET LOCAL ROLE authenticated;
-  BEGIN
-    PERFORM pg_temp.create_eng('R1102 Y con gerente ajeno', pg_temp.s(4));
-    RESET ROLE;
-    RAISE EXCEPTION '1110-220 FAIL — hr_analyst eligió como Aprobador a alguien de otra sociedad';
-  EXCEPTION WHEN insufficient_privilege THEN
-    RESET ROLE;
-    IF SQLERRM NOT LIKE '%sociedad del encargo%' THEN
-      RAISE EXCEPTION '1110-220 FAIL — el rechazo por sociedad salió de otra regla: %', SQLERRM;
-    END IF;
-  END;
+  IF (pg_temp.try_create_as(7, 'R1102 Y con gerente ajeno', pg_temp.s(4))).engagement_id IS NULL THEN
+    RAISE EXCEPTION '1110-220 FAIL — hr_analyst no pudo elegir como Aprobador a alguien de otra sociedad';
+  END IF;
   UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
    WHERE staff_id = pg_temp.s(4);
 
@@ -815,7 +807,7 @@ BEGIN
   RAISE NOTICE 'PASS — avisos: set de gerente para los tres, sin personal/capacitación, con recordatorio semanal';
 END $$;
 
--- ── 10. plan_v5: firma del Socio sin OT, sin horas sin OT, candado después de la firma ──────────────────────────────
+-- ── 10. plan_v5: firma del Socio sin OT, horas sin OT tras aprobación, candado después de la firma ──────────────────────────────
 DO $$
 DECLARE
   v_eng  public.engagements;
@@ -837,14 +829,14 @@ BEGIN
   UPDATE public.engagements SET partner_id = pg_temp.s(8) WHERE engagement_id = v_id;
   PERFORM set_config('session_replication_role', 'origin', true);
 
-  -- Sin OT no hay horas (Q2), ni en la lista de carga ni por API.
+  -- Pendiente sin OT: sin horas, ni en la lista de carga ni por API.
   v_ok := false;
   BEGIN
     INSERT INTO public.time_entries (staff_id, engagement_id, activity_id, date_worked, hours_logged, is_forecast)
     VALUES (pg_temp.s(5), v_id, (SELECT activity_id FROM public.activity_codes WHERE activity_code = 'R1102-ACT'),
             (now() AT TIME ZONE 'America/La_Paz')::date, 1, false);
   EXCEPTION WHEN OTHERS THEN
-    v_ok := SQLERRM LIKE '%sin OT no admite horas%';
+    v_ok := SQLERRM LIKE '%engagement partner approval does not allow logging%';
   END;
   IF NOT v_ok THEN
     RAISE EXCEPTION '1110-220 FAIL — se cargaron horas en un no-Cliente sin OT';
@@ -912,13 +904,13 @@ BEGIN
     RAISE EXCEPTION '1110-220 FAIL — el creador TH debía recibir el rechazo y la aprobación del Socio';
   END IF;
 
-  -- Candado (Q4): firmado, ni el creador TH ni el Socio lo modifican. Sigue sin aceptar horas (Q2).
+  -- Candado (Q4): firmado, ni el creador TH ni el Socio lo modifican. La aprobación del encargo habilita horas.
   IF pg_temp.rows_as(pg_temp.u(6), format(upd, v_id)) <> -1
      OR pg_temp.rows_as(pg_temp.u(6), format('UPDATE public.engagements SET work_order_required = true WHERE engagement_id = %L', v_id)) <> -1 THEN
     RAISE EXCEPTION '1110-220 FAIL — el creador TH modificó un no-Cliente ya aprobado por el Socio';
   END IF;
-  IF public.engagement_allows_hours_or_requests(v_id) THEN
-    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT firmado admitió horas';
+  IF NOT public.engagement_allows_hours_or_requests(v_id) THEN
+    RAISE EXCEPTION '1110-220 FAIL — un no-Cliente sin OT firmado no admitió horas';
   END IF;
 
   -- Con OT: mientras la OT no está aprobada se edita; aprobada, candado.
@@ -1034,8 +1026,8 @@ BEGIN
 END $$;
 
 -- ── 11. Review de Codex: cambiar solo la sociedad de un no-Cliente revalida al Aprobador de horas ─────────────────────
--- Sujeto 10: admin (Pelaez). Sujeto 11: manager de Jauregui. ES: no-Cliente de Pelaez con Aprobador M (4), sembrado como
--- dueño. Admin lo pasa a Jauregui (sociedad + cliente interno, como lo exige 0722-160) sin tocar manager_id.
+-- Sujeto 10: admin (Pelaez). Sujeto 11: manager de Jauregui. ES: no-Cliente de Pelaez con Aprobador Contabilidad (1, el unico rol
+-- limitado por sociedad desde 2026-11-16), sembrado como dueño. Admin lo pasa a Jauregui (sociedad + cliente interno, como lo exige 0722-160) sin tocar manager_id.
 INSERT INTO auth.users (id) VALUES ('a1102000-0000-4000-8000-000000000010'), ('a1102000-0000-4000-8000-000000000011');
 INSERT INTO public.user_roles (user_id, role, role_key) VALUES
   ('a1102000-0000-4000-8000-000000000010', 'admin',   'admin'),
@@ -1055,7 +1047,7 @@ INSERT INTO public.engagements (engagement_id, client_id, engagement_name, engag
 VALUES ('e1102000-0000-4000-8000-000000000011', 'c1000000-0000-4000-8000-000000000160', 'R1102 ES', 'R1102-ES', 0, 1, 1,
         '2027-12-31', '2026-01-05', '2099-06-30', false, true, true,
         (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.'),
-        '51102000-0000-4000-8000-000000000004', NULL, '51102000-0000-4000-8000-000000000006');
+        '51102000-0000-4000-8000-000000000001', NULL, '51102000-0000-4000-8000-000000000006');
 SET LOCAL session_replication_role = origin;
 
 DO $$
@@ -1277,33 +1269,52 @@ BEGIN
   RAISE NOTICE 'PASS — la decisión NULL del Socio se rechaza; el histórico de administrativos es solo de admin y TH';
 END $$;
 
--- ── 15. Review de Codex: el Aprobador que cambia de sociedad pierde la autoridad sobre las horas ─────────────────────
+-- ── 15. Review de Codex (ajustada 2026-11-16): solo el Aprobador con alcance por sociedad pierde la autoridad al cambiar de sociedad ─────────────────────
 -- EV (sección 4b): no-Cliente de Pelaez con Aprobador el senior (9). Admin le cambia la sociedad en su ficha; el encargo no
 -- se toca, así que el trigger de engagements no corre. La autoridad se revalida al decidir.
 DO $$
 DECLARE
   v_ev  uuid := 'e1102000-0000-4000-8000-000000000009';
   apr   constant text := 'SELECT count(*) FROM public.my_approvable_engagement_ids() id WHERE id = ''e1102000-0000-4000-8000-000000000009''';
+  v_jau uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.');
+  v_pel uuid := (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.');
 BEGIN
   IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
     RAISE EXCEPTION '1110-220 FAIL — precondición: el senior debía ser Aprobador vigente de EV';
   END IF;
 
-  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Jauregui S.R.L.')
-   WHERE staff_id = pg_temp.s(9);
-  IF public.is_hours_approver_of(pg_temp.s(9), v_ev) THEN
-    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue decidiendo las horas del encargo';
+  -- Operador 2026-11-16: un Aprobador sin alcance por sociedad (el senior) conserva la autoridad aunque su ficha cambie de sociedad.
+  UPDATE public.staff SET society_id = v_jau WHERE staff_id = pg_temp.s(9);
+  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — el Aprobador sin alcance por sociedad perdió la autoridad al cambiar de sociedad';
   END IF;
-  IF pg_temp.count_as(pg_temp.u(9), apr) <> 0 THEN
-    RAISE EXCEPTION '1110-220 FAIL — el Aprobador que pasó a otra sociedad sigue viendo el encargo en su cola';
+  UPDATE public.staff SET society_id = v_pel WHERE staff_id = pg_temp.s(9);
+
+  -- Contabilidad (alcance por sociedad) como Aprobador de EV, sembrado como dueño: si pasa a otra sociedad pierde la decisión y la cola.
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(1) WHERE engagement_id = v_ev;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  IF NOT public.is_hours_approver_of(pg_temp.s(1), v_ev)
+     OR pg_temp.count_as(pg_temp.u(1), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — precondición: Contabilidad debía ser Aprobador vigente de EV';
+  END IF;
+  UPDATE public.staff SET society_id = v_jau WHERE staff_id = pg_temp.s(1);
+  IF public.is_hours_approver_of(pg_temp.s(1), v_ev) THEN
+    RAISE EXCEPTION '1110-220 FAIL — Contabilidad que pasó a otra sociedad sigue decidiendo las horas del encargo';
+  END IF;
+  IF pg_temp.count_as(pg_temp.u(1), apr) <> 0 THEN
+    RAISE EXCEPTION '1110-220 FAIL — Contabilidad que pasó a otra sociedad sigue viendo el encargo en su cola';
+  END IF;
+  UPDATE public.staff SET society_id = v_pel WHERE staff_id = pg_temp.s(1);
+  IF NOT public.is_hours_approver_of(pg_temp.s(1), v_ev) OR pg_temp.count_as(pg_temp.u(1), apr) <> 1 THEN
+    RAISE EXCEPTION '1110-220 FAIL — al volver a la sociedad del encargo, Contabilidad debía recuperar la autoridad';
   END IF;
 
-  UPDATE public.staff SET society_id = (SELECT society_id FROM public.society WHERE name = 'Ruizmier Pelaez S.R.L.')
-   WHERE staff_id = pg_temp.s(9);
-  IF NOT public.is_hours_approver_of(pg_temp.s(9), v_ev) OR pg_temp.count_as(pg_temp.u(9), apr) <> 1 THEN
-    RAISE EXCEPTION '1110-220 FAIL — al volver a la sociedad del encargo, el Aprobador debía recuperar la autoridad';
-  END IF;
-  RAISE NOTICE 'PASS — el Aprobador que cambia de sociedad pierde la decisión y la cola; al volver las recupera';
+  -- Se deja EV con su Aprobador original (el senior).
+  PERFORM set_config('session_replication_role', 'replica', true);
+  UPDATE public.engagements SET manager_id = pg_temp.s(9) WHERE engagement_id = v_ev;
+  PERFORM set_config('session_replication_role', 'origin', true);
+  RAISE NOTICE 'PASS — sin alcance por sociedad el Aprobador conserva la autoridad; Contabilidad la pierde al cambiar de sociedad y la recupera al volver';
 END $$;
 
 -- ── 16. Review de Codex: con horas pendientes no se apaga "Requiere aprobación de horas" ──────────────────────────────
@@ -1443,6 +1454,139 @@ BEGIN
     RAISE EXCEPTION '1110-220 FAIL — la asignación del no-Cliente sin OT cambió';
   END IF;
   RAISE NOTICE 'PASS — sin OT la asignación de un no-Cliente la escribe solo admin (RPC y tabla); con OT y en Cliente no cambia';
+END $$;
+
+-- 19. ETL 16/11: aprobación del encargo sin OT, distinta de la aprobación de sus líneas.
+-- Los intentos exitosos se revierten en la subtransacción, sin dejar horas de prueba.
+INSERT INTO public.activity_codes(activity_code,description,is_system,practica_id)
+VALUES('ADM','Administrative test activity',true,NULL)
+ON CONFLICT (activity_code) WHERE (is_active=true) DO NOTHING;
+INSERT INTO public.global_settings(setting_key,setting_value)
+VALUES('ADM_ACTIVITY_ID',(SELECT activity_id::text FROM public.activity_codes WHERE activity_code='ADM' AND is_active LIMIT 1))
+ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value;
+CREATE FUNCTION pg_temp.try_admin_time(p_eng uuid, p_day date, p_timer boolean DEFAULT false) RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_timer THEN
+    INSERT INTO public.timer_entries(staff_id,engagement_id,activity_id,started_at)
+    VALUES(pg_temp.s(5),p_eng,(SELECT activity_id FROM public.activity_codes WHERE activity_code='R1102-ACT'),
+      (p_day::text || ' 12:00:00-04')::timestamptz);
+  ELSE
+    INSERT INTO public.time_entries(staff_id,engagement_id,activity_id,date_worked,hours_logged,is_forecast)
+    VALUES(pg_temp.s(5),p_eng,(SELECT activity_id FROM public.activity_codes WHERE activity_code='R1102-ACT'),p_day,1,false);
+  END IF;
+  RAISE EXCEPTION SQLSTATE 'ZX001';
+EXCEPTION WHEN SQLSTATE 'ZX001' THEN RETURN NULL;
+  WHEN OTHERS THEN RETURN SQLERRM;
+END $$;
+
+DO $$
+DECLARE
+  e public.engagements;
+  st text;
+  ov smallint;
+  err text;
+  day date := (now() AT TIME ZONE 'America/La_Paz')::date;
+  source text := 'legacy:TimeControlDB_20261106_1600:2027.10.999';
+  period uuid;
+  activity uuid := (SELECT activity_id FROM public.activity_codes WHERE activity_code='ADM' AND is_active LIMIT 1);
+BEGIN
+  e := pg_temp.try_create_as(6,'R1102 horas sin OT',pg_temp.s(4));
+  IF e.engagement_id IS NULL THEN RAISE EXCEPTION 'fixture sin encargo'; END IF;
+  PERFORM set_config('request.jwt.claims','{}',true);
+  UPDATE public.engagements SET partner_id=pg_temp.s(8),start_date=day-2,end_date=day+2 WHERE engagement_id=e.engagement_id;
+
+  FOREACH st IN ARRAY ARRAY[NULL,'pending','rejected']::text[] LOOP
+    FOREACH ov IN ARRAY ARRAY[NULL,4,5,7]::smallint[] LOOP
+      PERFORM set_config('request.jwt.claims','{}',true);
+      UPDATE public.engagements SET partner_approval_status=st,engagement_state_override=ov WHERE engagement_id=e.engagement_id;
+      err := pg_temp.try_admin_time(e.engagement_id,day);
+      IF err IS NULL OR err NOT LIKE '%engagement partner approval does not allow logging%' THEN
+        RAISE EXCEPTION 'sin firma (%, override %) admitió horas o falló por otro motivo: %',st,ov,err;
+      END IF;
+      IF pg_temp.try_admin_time(e.engagement_id,day,true) IS NULL THEN RAISE EXCEPTION 'sin firma admitió timer'; END IF;
+      IF pg_temp.count_as(pg_temp.u(5),format('SELECT count(*) FROM public.list_loggable_engagements(%L) l WHERE l.engagement_id=%L',day,e.engagement_id)) <> 0 THEN
+        RAISE EXCEPTION 'selector ofrece sin firma (%, override %)',st,ov;
+      END IF;
+      IF public.engagement_allows_hours_or_requests(e.engagement_id) THEN RAISE EXCEPTION 'helper permite sin firma'; END IF;
+    END LOOP;
+  END LOOP;
+
+  -- Firma real por RPC del Socio: habilita horas, sin OT.
+  PERFORM set_config('request.jwt.claims','{}',true);
+  UPDATE public.engagements SET partner_approval_status='pending',engagement_state_override=NULL WHERE engagement_id=e.engagement_id;
+  IF pg_temp.rows_as(pg_temp.u(8),format('SELECT public.decide_engagement_partner_approval(%L,true)',e.engagement_id)) <> 1 THEN
+    RAISE EXCEPTION 'el Socio no pudo aprobar';
+  END IF;
+  PERFORM set_config('request.jwt.claims','{}',true);
+  FOREACH ov IN ARRAY ARRAY[NULL,4,5,7]::smallint[] LOOP
+    PERFORM set_config('request.jwt.claims','{}',true);
+    UPDATE public.engagements SET engagement_state_override=ov WHERE engagement_id=e.engagement_id;
+    err := pg_temp.try_admin_time(e.engagement_id,day);
+    IF err IS NOT NULL THEN RAISE EXCEPTION 'aprobado sin OT rechazó horas (override %): %',ov,err; END IF;
+    err := pg_temp.try_admin_time(e.engagement_id,day,true);
+    IF err IS NOT NULL THEN RAISE EXCEPTION 'aprobado sin OT rechazó timer: %',err; END IF;
+    IF pg_temp.count_as(pg_temp.u(5),format('SELECT count(*) FROM public.list_loggable_engagements(%L) l WHERE l.engagement_id=%L',day,e.engagement_id)) <> 1 THEN
+      RAISE EXCEPTION 'selector no ofrece aprobado sin OT (override %)',ov;
+    END IF;
+  END LOOP;
+  PERFORM set_config('request.jwt.claims','{}',true);
+  UPDATE public.engagements SET engagement_state_override=NULL WHERE engagement_id=e.engagement_id;
+  IF NOT public.engagement_allows_hours_or_requests(e.engagement_id) THEN RAISE EXCEPTION 'helper no permite aprobado'; END IF;
+  IF COALESCE(pg_temp.try_admin_time(e.engagement_id,day-3),'') NOT LIKE 'ENGAGEMENT_DATE_RANGE%'
+     OR COALESCE(pg_temp.try_admin_time(e.engagement_id,day+3),'') NOT LIKE 'ENGAGEMENT_DATE_RANGE%'
+     OR COALESCE(pg_temp.try_admin_time(e.engagement_id,day-3,true),'') NOT LIKE 'ENGAGEMENT_DATE_RANGE%' THEN
+    RAISE EXCEPTION 'aprobación saltó las fechas';
+  END IF;
+  FOREACH ov IN ARRAY ARRAY[1,2,3,6,8]::smallint[] LOOP
+    UPDATE public.engagements SET engagement_state_override=ov WHERE engagement_id=e.engagement_id;
+    IF pg_temp.try_admin_time(e.engagement_id,day) IS NULL OR public.engagement_allows_hours_or_requests(e.engagement_id) THEN
+      RAISE EXCEPTION 'override % admitió horas',ov;
+    END IF;
+  END LOOP;
+  UPDATE public.engagements SET engagement_state_override=NULL,status='cancelled' WHERE engagement_id=e.engagement_id;
+  IF pg_temp.try_admin_time(e.engagement_id,day) IS NULL THEN RAISE EXCEPTION 'estado inactivo admitió horas'; END IF;
+  UPDATE public.engagements SET status='active',end_date=NULL,engagement_state_override=7 WHERE engagement_id=e.engagement_id;
+  IF pg_temp.try_admin_time(e.engagement_id,day) IS NULL THEN RAISE EXCEPTION 'Finalizado sin fin admitió horas'; END IF;
+
+  -- Procedencia importada: propietario, sin inventar firma/fecha; API no puede fabricarla ni borrarla.
+  UPDATE public.engagements SET end_date=day+2,engagement_state_override=NULL,partner_approval_status='approved',
+    partner_approval_legacy_source=source,partner_approval_decided_by=NULL,partner_approval_decided_at=NULL,partner_approval_reason=NULL
+  WHERE engagement_id=e.engagement_id;
+  IF pg_temp.try_admin_time(e.engagement_id,day) IS NOT NULL THEN RAISE EXCEPTION 'aprobado legacy no admite horas'; END IF;
+  IF pg_temp.rows_as(pg_temp.u(10),format('UPDATE public.engagements SET partner_approval_legacy_source=NULL WHERE engagement_id=%L',e.engagement_id)) <> -1 THEN
+    RAISE EXCEPTION 'API admin borró procedencia legacy';
+  END IF;
+  PERFORM set_config('request.jwt.claims','{}',true);
+  IF NOT (SELECT approval_required FROM public.engagements WHERE engagement_id=e.engagement_id)
+     OR public.get_line_approver(pg_temp.s(5),e.engagement_id) IS DISTINCT FROM pg_temp.s(4) THEN
+    RAISE EXCEPTION 'aprobación legacy cambió el aprobador de líneas';
+  END IF;
+  -- La aprobación legacy habilita carga, pero enviar crea una línea pendiente que decide manager_id.
+  INSERT INTO public.global_settings(setting_key,setting_value) VALUES('WEEKLY_MIN','0')
+    ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value;
+  INSERT INTO public.timesheet_periods(staff_id,week_start_date,week_number,year)
+    VALUES(pg_temp.s(5),date_trunc('week',day)::date,extract(week FROM day)::int,extract(year FROM day)::int)
+    RETURNING period_id INTO period;
+  INSERT INTO public.time_entries(staff_id,engagement_id,activity_id,date_worked,hours_logged,is_forecast,period_id)
+    VALUES(pg_temp.s(5),e.engagement_id,activity,day,1,false,period);
+  IF pg_temp.rows_as(pg_temp.u(5),format('SELECT public.submit_timesheet_safe(%L,%L,ARRAY[%L]::uuid[],ARRAY[%L]::uuid[],false)',
+      period,pg_temp.s(5),e.engagement_id,activity)) <> 1 THEN RAISE EXCEPTION 'no se pudo enviar horas sin OT'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.timesheet_line_approvals WHERE period_id=period AND engagement_id=e.engagement_id AND status='pending') THEN
+    RAISE EXCEPTION 'aprobación del encargo autoaprobó sus horas';
+  END IF;
+  IF public.can_approve_timesheet_line(pg_temp.u(8)::uuid,period,e.engagement_id)
+     OR NOT public.can_approve_timesheet_line(pg_temp.u(4)::uuid,period,e.engagement_id) THEN
+    RAISE EXCEPTION 'se confundió socio con aprobador de líneas';
+  END IF;
+  IF pg_temp.rows_as(pg_temp.u(4),format('UPDATE public.timesheet_line_approvals SET status=''approved'',approved_by=%L,approved_at=now() WHERE period_id=%L AND engagement_id=%L',
+      pg_temp.s(4),period,e.engagement_id)) <> 1 THEN RAISE EXCEPTION 'el aprobador asignado no pudo decidir la línea'; END IF;
+  PERFORM set_config('request.jwt.claims','{}',true);
+  IF EXISTS(SELECT 1 FROM public.work_orders WHERE engagement_id=e.engagement_id)
+     OR EXISTS(SELECT 1 FROM public.fund_request_selectable_work_orders WHERE engagement_id=e.engagement_id) THEN
+    RAISE EXCEPTION 'aprobación legacy creó OT o elegibilidad para fondos';
+  END IF;
+  RAISE NOTICE 'PASS — horas y Tracker sin OT tras aprobación; pendiente/rechazado, overrides, fechas, procedencia y fondos protegidos';
 END $$;
 
 DO $$ BEGIN RAISE NOTICE '1110-220 ROLES: ALL CHECKS PASSED (rolled back)'; END $$;

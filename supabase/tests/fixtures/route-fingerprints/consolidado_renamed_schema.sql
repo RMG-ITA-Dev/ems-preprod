@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict J5cGo5u1wRKhdRFlFtBOu0uQUPhfSzCMOsc835nx2W6c6MeSVJJJFgfgENslATa
+\restrict sLT2QgDVD4BnNbv1LtoNQQhhoFIKmxlFPpagRckgD6s2Tv5ubUmkBgAmCx1XPsG
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg26.04+1)
@@ -2191,15 +2191,35 @@ DECLARE
   v_override    smallint;
   v_end         date;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
+  v_start date;
+  v_timer_date date;
 BEGIN
-  SELECT work_order_required, engagement_state_override, end_date, funcion
-    INTO v_wo_required, v_override, v_end, v_funcion
+  SELECT work_order_required, engagement_state_override, end_date, funcion, partner_approval_status, status, start_date
+    INTO v_wo_required, v_override, v_end, v_funcion, v_partner_approval, v_status, v_start
   FROM engagements WHERE engagement_id = NEW.engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un encargo Administrativa/Capacitación/Calidad SIN OT no carga horas, ni con override
-  -- Aprobado. Va antes de todo atajo (override 4/5, "sin OT = aprobado").
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'Cannot log time: un encargo Administrativa, Capacitacion o Calidad sin OT no admite horas';
+  -- El nuevo control de timers se limita a no-Cliente sin OT; los demás conservan su flujo.
+  IF TG_TABLE_NAME = 'timer_entries' AND (COALESCE(v_funcion, 1) = 1 OR v_wo_required) THEN
+    RETURN NEW;
+  END IF;
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement status does not allow logging';
+  END IF;
+  -- Tracker/manual timer: misma elegibilidad al crear o cambiar de encargo/fecha.
+  -- Parar un timer existente sigue permitido; su exportación vuelve a validar time_entries.
+  IF TG_TABLE_NAME = 'timer_entries' THEN
+    v_timer_date := (NEW.started_at AT TIME ZONE 'America/La_Paz')::date;
+    IF v_timer_date < v_start OR v_timer_date > v_end THEN
+      RAISE EXCEPTION 'ENGAGEMENT_DATE_RANGE: timer outside engagement dates';
+    END IF;
+  END IF;
+  -- Sin OT, el no-Cliente necesita la aprobación real del Socio sobre el encargo.
+  -- Se evalúa ANTES de los overrides: 4/5 y Finalizado no sustituyen esa decisión.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
+    RAISE EXCEPTION 'Cannot log time: engagement partner approval does not allow logging';
   END IF;
 
   -- FEAT 0602-135: el override manual manda. Solo 4/5 permiten cargar; el resto bloquea.
@@ -2865,7 +2885,9 @@ CREATE TABLE public.engagements (
     partner_approval_decided_by uuid,
     partner_approval_decided_at timestamp with time zone,
     partner_approval_reason text,
+    partner_approval_legacy_source text,
     CONSTRAINT chk_engagements_funcion CHECK ((funcion = ANY (ARRAY[0, 1, 2, 3]))),
+    CONSTRAINT chk_engagements_legacy_approval CHECK (((partner_approval_legacy_source IS NULL) OR ((NOT (partner_approval_status IS DISTINCT FROM 'approved'::text)) AND (NOT (funcion IS DISTINCT FROM 0)) AND (work_order_required IS FALSE) AND (partner_approval_decided_by IS NULL) AND (partner_approval_decided_at IS NULL) AND (partner_approval_reason IS NULL) AND (partner_approval_legacy_source ~ '^legacy:[A-Za-z0-9_]+:[0-9]{4}\.[0-9]+\.[0-9]+$'::text)))),
     CONSTRAINT chk_engagements_manager_not_specialist CHECK (((manager_id IS NULL) OR ((manager_id IS DISTINCT FROM specialist_it_id) AND (manager_id IS DISTINCT FROM specialist_tax_id)))),
     CONSTRAINT chk_engagements_oficina CHECK ((oficina = ANY (ARRAY[0, 1, 2]))),
     CONSTRAINT chk_engagements_partner_approval_status CHECK (((partner_approval_status IS NULL) OR (partner_approval_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))),
@@ -3105,7 +3127,7 @@ BEGIN
   --
   -- net_amount guarda lo REALMENTE gastado y amount lo que se factura. Los dos se guardan
   -- porque la diferencia entre ambos es justamente lo que hay que poder explicar.
-  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.13), 0), 2);
+  v_billed := round(v_total / NULLIF(1 - COALESCE(v_tax_rate, 0.16), 0), 2);
 
   -- percentage = 0 a proposito: esta fila NO participa del reparto del 100% de honorarios.
   -- Nace en BOB, que es la moneda en la que los gastos se rinden
@@ -3658,6 +3680,9 @@ CREATE FUNCTION public.effective_engagement_state(p_override smallint, p_wo_requ
     SET search_path TO 'public'
     AS $$
   SELECT CASE
+    WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1
+         AND p_partner_approval_status IS DISTINCT FROM 'approved' AND p_override IN (4, 5) THEN
+      CASE p_partner_approval_status WHEN 'rejected' THEN 8 ELSE 1 END
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
     WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1 THEN
       CASE p_partner_approval_status WHEN 'approved' THEN 4 WHEN 'rejected' THEN 8 ELSE 1 END
@@ -4208,6 +4233,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
     RETURN NEW;
   END IF;
 
@@ -4227,7 +4253,8 @@ BEGIN
      AND (NEW.partner_approval_status     IS DISTINCT FROM OLD.partner_approval_status
        OR NEW.partner_approval_decided_by IS DISTINCT FROM OLD.partner_approval_decided_by
        OR NEW.partner_approval_decided_at IS DISTINCT FROM OLD.partner_approval_decided_at
-       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason) THEN
+       OR NEW.partner_approval_reason     IS DISTINCT FROM OLD.partner_approval_reason
+       OR NEW.partner_approval_legacy_source IS DISTINCT FROM OLD.partner_approval_legacy_source) THEN
     RAISE EXCEPTION 'FORBIDDEN: la aprobación del Socio solo cambia por sus acciones de aprobar, rechazar o reenviar'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -4265,6 +4292,7 @@ BEGIN
     NEW.partner_approval_decided_by := NULL;
     NEW.partner_approval_decided_at := NULL;
     NEW.partner_approval_reason     := NULL;
+    NEW.partner_approval_legacy_source := NULL;
   ELSIF NEW.partner_approval_status IS NULL THEN
     NEW.partner_approval_status := 'pending';
   END IF;
@@ -4310,10 +4338,11 @@ BEGIN
 
   -- 1110-220 (plan_v5 §6.1, 2026-11-12): quién puede quedar en manager_id depende de la función del encargo.
   --   · No-Cliente (0/2/3): manager_id es el "Aprobador de horas". Obligatorio y elegido entre 14 roles, igual
-  --     para admin, hr_manager y hr_analyst (no hay autoasignación), y siempre de la SOCIEDAD del encargo
-  --     (operador 2026-11-12: el encargo vive en una sociedad y lo aprueba alguien de ella; además Contabilidad, por
-  --     su alcance department, no vería uno de otra).
-  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager).
+  --     para admin, hr_manager y hr_analyst (no hay autoasignación). De CUALQUIER sociedad (operador 2026-11-16: Talento
+  --     Humano y Riesgos aprueban encargos de otra sociedad); la unica excepcion es Contabilidad, que por su alcance por
+  --     sociedad no vería uno de otra.
+  --   · Cliente (1 o NULL): el pool de Gerente de siempre (manager, ita_manager, tax_manager) y, por decision del
+  --     operador (2026-11-16), director: tambien puede ser Gerente/Supervisor de un encargo de Cliente.
   -- En ambos: staff activo, no borrado, con cuenta vinculada y rol activo. Corre al crear y cuando cambia la
   -- persona; un asignado que luego pierde elegibilidad queda guardado pero no se puede volver a elegir. Espejo de
   -- get_hours_approver_candidates() / get_engagement_team_candidates() y de EngagementForm.
@@ -4342,11 +4371,11 @@ BEGIN
           RAISE EXCEPTION 'FORBIDDEN: Aprobador de horas no valido para un encargo Administrativa, Capacitacion o Calidad'
             USING ERRCODE = 'insufficient_privilege';
         END IF;
-        IF v_manager_society IS DISTINCT FROM NEW.society_id THEN
+        IF public.is_society_scoped_role_key(v_manager_role) AND v_manager_society IS DISTINCT FROM NEW.society_id THEN
           RAISE EXCEPTION 'FORBIDDEN: el Aprobador de horas debe ser de la sociedad del encargo'
             USING ERRCODE = 'insufficient_privilege';
         END IF;
-      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager'])) THEN
+      ELSIF NOT (COALESCE(v_manager_role, '') = ANY (ARRAY['manager', 'ita_manager', 'tax_manager', 'director'])) THEN
         RAISE EXCEPTION 'FORBIDDEN: Gerente no valido para un encargo de Cliente'
           USING ERRCODE = 'insufficient_privilege';
       END IF;
@@ -4699,13 +4728,20 @@ DECLARE
   v_approval    text;
   v_risk        text;
   v_funcion     smallint;
+  v_partner_approval text;
+  v_status text;
 BEGIN
-  SELECT e.engagement_state_override, e.work_order_required, e.funcion
-    INTO v_override, v_wo_required, v_funcion
+  SELECT e.engagement_state_override, e.work_order_required, e.funcion, e.partner_approval_status, e.status
+    INTO v_override, v_wo_required, v_funcion, v_partner_approval, v_status
   FROM public.engagements e WHERE e.engagement_id = p_engagement_id;
 
-  -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no admite horas ni solicitudes (fondos exige OT).
-  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true THEN
+  IF v_status IS DISTINCT FROM 'active' THEN
+    RETURN false;
+  END IF;
+  -- Horas sin OT: firma del Socio obligatoria, incluso con override 4/5.
+  -- Fondos además exige una OT real aprobada en fr_wo_validate_approved/submit_fund_request.
+  IF COALESCE(v_funcion, 1) <> 1 AND v_wo_required IS DISTINCT FROM true
+     AND v_partner_approval IS DISTINCT FROM 'approved' THEN
     RETURN false;
   END IF;
 
@@ -4713,7 +4749,7 @@ BEGIN
   IF v_override IS NOT NULL THEN
     RETURN v_override IN (4, 5);
   END IF;
-  -- Administrativo (sin OT) = Aprobado.
+  -- Sin OT: Cliente conserva su regla; no-Cliente ya pasó el control de firma.
   IF v_wo_required = false THEN
     RETURN true;
   END IF;
@@ -4843,6 +4879,13 @@ CREATE FUNCTION public.engagement_is_approved_state(p_engagement_id uuid, p_over
     SET search_path TO 'public'
     AS $$
 BEGIN
+  -- Un override Aprobado no fabrica la firma de un no-Cliente sin OT.
+  IF p_wo_required = false AND EXISTS (
+    SELECT 1 FROM public.engagements e WHERE e.engagement_id = p_engagement_id
+      AND COALESCE(e.funcion, 1) <> 1 AND e.partner_approval_status IS DISTINCT FROM 'approved'
+  ) THEN
+    RETURN false;
+  END IF;
   -- Override manual gana: solo el 4 (Aprobado) cuenta como aprobado.
   IF p_override IS NOT NULL THEN
     RETURN p_override = 4;
@@ -6364,7 +6407,9 @@ BEGIN
 
   -- FEAT 0602-135: el estado efectivo del encargo debe admitir solicitudes (4/5). Bloquea
   -- Congelado(9)/Finalizado(7)/Cancelado(6)/Rechazado(8) y overrides no-cargables.
-  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id) THEN
+  IF NOT public.engagement_allows_hours_or_requests(v_engagement_id)
+     OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=v_engagement_id
+                     AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)) THEN
     RAISE EXCEPTION 'El encargo no admite solicitudes de fondos en su estado actual';
   END IF;
 
@@ -7499,7 +7544,9 @@ BEGIN
     FROM public.fund_request_work_orders frwo
     JOIN public.work_orders wo ON wo.wo_id = frwo.wo_id
     WHERE frwo.fund_request_id = p_fund_request_id
-      AND NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+      AND (NOT public.engagement_allows_hours_or_requests(wo.engagement_id)
+           OR NOT EXISTS (SELECT 1 FROM public.engagements e WHERE e.engagement_id=wo.engagement_id
+                           AND (COALESCE(e.funcion,1)=1 OR e.work_order_required)))
   ) THEN
     RAISE EXCEPTION 'Una o más OTs pertenecen a un encargo que ya no admite solicitudes (congelado/finalizado/cancelado)';
   END IF;
@@ -7866,6 +7913,8 @@ CREATE FUNCTION public.get_engagement_team_candidates() RETURNS TABLE(staff_id u
     JOIN (VALUES
            ('partner',        'partner_director'),
            ('director',       'partner_director'),
+           -- 2026-11-16 (operador): el Director tambien puede ser Gerente/Supervisor de un encargo de Cliente.
+           ('director',       'manager'),
            -- BUG 0828-185: amplía el pool de Socio/Director/SQR -- antes excluidos pese a
            -- visibilidad firm-wide.
            ('senior_partner', 'partner_director'),
@@ -9002,9 +9051,104 @@ CREATE FUNCTION public.hours_approver_role_keys() RETURNS text[]
     SET search_path TO 'public'
     AS $$
   SELECT ARRAY['partner', 'senior_partner', 'director', 'manager', 'senior', 'hr_manager', 'hr_analyst',
-               'accounting_manager', 'risk_supervisor', 'secretariat_head', 'ita_manager', 'tax_manager',
+               'accounting_manager', 'risk_supervisor', 'risk_partner', 'secretariat_head', 'ita_manager', 'tax_manager',
                'ita_senior', 'tax_senior']::text[]
 $$;
+
+
+--
+-- Name: import_historic_timesheets(text, jsonb, jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.import_historic_timesheets(p_batch text, p_periods jsonb, p_entries jsonb, p_lines jsonb) RETURNS jsonb
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $_$
+DECLARE
+  v_now     constant timestamptz := now();
+  v_periods integer;
+  v_entries integer;
+  v_lines   integer;
+  v_bad     integer;
+  v_prev_import text := current_setting('app.etl_import', true);
+  v_prev_hours  text := current_setting('etl.f3_historical_hours', true);
+BEGIN
+  -- Sesión propietaria: `postgres` (la conexión del operador en Supabase) o un superusuario de la base (la base scratch de las pruebas). Un rol de la API nunca llega aquí (sin EXECUTE).
+  IF NOT (session_user = 'postgres' OR COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = session_user), false)) THEN
+    RAISE EXCEPTION 'IMPORT_NOT_ALLOWED: solo la sesión propietaria puede importar horas históricas' USING ERRCODE = '42501';
+  END IF;
+  IF p_batch IS NULL OR p_batch !~ '^legacy:[A-Za-z0-9_]+:d41$' THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_INVALID: %', COALESCE(p_batch, '(nulo)') USING ERRCODE = '22023';
+  END IF;
+  IF jsonb_typeof(p_periods) IS DISTINCT FROM 'array' OR jsonb_typeof(p_entries) IS DISTINCT FROM 'array' OR jsonb_typeof(p_lines) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_periods) = 0 OR jsonb_array_length(p_entries) = 0 OR jsonb_array_length(p_lines) = 0 THEN
+    RAISE EXCEPTION 'IMPORT_PAYLOAD_INVALID: períodos, entradas y líneas deben ser arreglos no vacíos' USING ERRCODE = '22023';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.timesheet_periods WHERE import_batch = p_batch) THEN
+    RAISE EXCEPTION 'IMPORT_BATCH_EXISTS: el lote % ya tiene períodos importados', p_batch USING ERRCODE = '23505';
+  END IF;
+
+  -- Las marcas valen solo dentro de esta llamada: al terminar se restauran (el resto de la transacción del llamador vuelve a emitir avisos normalmente).
+  PERFORM set_config('app.etl_import', 'on', true);
+  PERFORM set_config('etl.f3_historical_hours', 'on', true);
+
+  -- 1) períodos cerrados
+  INSERT INTO public.timesheet_periods (period_id, staff_id, week_start_date, week_number, year, total_hours, submitted_at, is_period_locked, import_batch, imported_at)
+  SELECT (x->>'periodId')::uuid, (x->>'staffId')::uuid, (x->>'weekStart')::date, (x->>'weekNumber')::integer, (x->>'year')::integer,
+         (x->>'totalHours')::numeric, v_now, true, p_batch, v_now
+    FROM jsonb_array_elements(p_periods) x;
+  GET DIAGNOSTICS v_periods = ROW_COUNT;
+
+  -- 2) entradas ya vinculadas a su período
+  INSERT INTO public.time_entries (time_id, date_worked, hours_logged, staff_id, engagement_id, activity_id, description, period_id, is_forecast, etl_split_index)
+  SELECT (x->>'timeId')::uuid, (x->>'dateWorked')::date, (x->>'hours')::numeric, (x->>'staffId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid,
+         NULL, (x->>'periodId')::uuid, false, COALESCE((x->>'etlSplitIndex')::smallint, 1)
+    FROM jsonb_array_elements(p_entries) x;
+  GET DIAGNOSTICS v_entries = ROW_COUNT;
+
+  -- 3) líneas nativas aprobadas (después de las entradas: protect_approved_time_entries)
+  INSERT INTO public.timesheet_line_approvals (approval_id, period_id, engagement_id, activity_id, status, approved_by, approved_at)
+  SELECT (x->>'approvalId')::uuid, (x->>'periodId')::uuid, (x->>'engagementId')::uuid, (x->>'activityId')::uuid, 'approved',
+         NULLIF(x->>'approvedBy', '')::uuid, NULLIF(x->>'approvedAt', '')::timestamptz
+    FROM jsonb_array_elements(p_lines) x;
+  GET DIAGNOSTICS v_lines = ROW_COUNT;
+
+  IF v_periods <> jsonb_array_length(p_periods) OR v_entries <> jsonb_array_length(p_entries) OR v_lines <> jsonb_array_length(p_lines) THEN
+    RAISE EXCEPTION 'IMPORT_COUNT_MISMATCH: períodos %/%, entradas %/%, líneas %/%', v_periods, jsonb_array_length(p_periods), v_entries, jsonb_array_length(p_entries), v_lines, jsonb_array_length(p_lines);
+  END IF;
+
+  -- coherencia: el total de cada período es la suma de sus entradas
+  SELECT count(*) INTO v_bad FROM public.timesheet_periods p
+   WHERE p.import_batch = p_batch AND p.total_hours IS DISTINCT FROM COALESCE((SELECT sum(te.hours_logged) FROM public.time_entries te WHERE te.period_id = p.period_id), 0);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_PERIOD_TOTAL_MISMATCH: % períodos con total distinto de la suma de sus entradas', v_bad; END IF;
+
+  -- coherencia: toda entrada es de la persona del período y cae en su semana (lunes a domingo)
+  SELECT count(*) INTO v_bad FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id
+   WHERE p.import_batch = p_batch AND (te.staff_id <> p.staff_id OR te.date_worked < p.week_start_date OR te.date_worked > p.week_start_date + 6);
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_ENTRY_OUTSIDE_PERIOD: % entradas fuera de la persona o la semana de su período', v_bad; END IF;
+
+  -- coherencia: cada (período, encargo, actividad) con entradas tiene su línea y cada línea tiene entradas
+  SELECT count(*) INTO v_bad FROM (
+    (SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch)
+    UNION ALL
+    (SELECT tla.period_id, tla.engagement_id, tla.activity_id FROM public.timesheet_line_approvals tla JOIN public.timesheet_periods p ON p.period_id = tla.period_id WHERE p.import_batch = p_batch
+     EXCEPT SELECT te.period_id, te.engagement_id, te.activity_id FROM public.time_entries te JOIN public.timesheet_periods p ON p.period_id = te.period_id WHERE p.import_batch = p_batch)
+  ) q;
+  IF v_bad > 0 THEN RAISE EXCEPTION 'IMPORT_LINE_MISMATCH: % combinaciones período/encargo/actividad sin su par entrada/línea', v_bad; END IF;
+
+  PERFORM set_config('app.etl_import', COALESCE(v_prev_import, ''), true);
+  PERFORM set_config('etl.f3_historical_hours', COALESCE(v_prev_hours, ''), true);
+  RETURN jsonb_build_object('periods', v_periods, 'entries', v_entries, 'lines', v_lines, 'batch', p_batch);
+END;
+$_$;
+
+
+--
+-- Name: FUNCTION import_historic_timesheets(p_batch text, p_periods jsonb, p_entries jsonb, p_lines jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.import_historic_timesheets(p_batch text, p_periods jsonb, p_entries jsonb, p_lines jsonb) IS 'D41 Parte I (ETL F3): importa horas históricas aprobadas (períodos cerrados + entradas + líneas approved) en una transacción, con procedencia en timesheet_periods. Solo el propietario; sin avisos de aprobación.';
 
 
 --
@@ -9307,7 +9451,11 @@ CREATE FUNCTION public.is_hours_approver_of(p_staff_id uuid, p_engagement_id uui
        AND CASE
              WHEN COALESCE(e.funcion, 1) <> 1 THEN
                e.manager_id = p_staff_id AND public.is_eligible_hours_approver(p_staff_id)
-               AND EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = p_staff_id AND s.society_id = e.society_id)
+               -- 2026-11-16 (operador): el Aprobador puede ser de otra sociedad (Talento Humano y Riesgos aprueban encargos de
+               -- ambas). Solo los roles con alcance por sociedad (Contabilidad) se limitan a la del encargo.
+               AND NOT EXISTS (SELECT 1 FROM public.staff s JOIN public.user_roles ur ON ur.user_id = s.auth_user_id
+                                WHERE s.staff_id = p_staff_id AND public.is_society_scoped_role_key(ur.role_key)
+                                  AND s.society_id IS DISTINCT FROM e.society_id)
              ELSE
                p_staff_id IN (e.manager_id, e.partner_id)
                AND EXISTS (SELECT 1
@@ -9940,7 +10088,7 @@ COMMENT ON FUNCTION public.list_dashboard_engagements() IS 'dash_encargo (plan_v
 -- Name: list_loggable_engagements(date); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::date) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying)
+CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::date) RETURNS TABLE(engagement_id uuid, engagement_code character varying, engagement_name character varying, activity_required boolean, work_order_required boolean, is_internal boolean, practica smallint, funcion smallint, start_date date, end_date date, engagement_state_override smallint, client_id uuid, client_legal_name character varying, partner_approval_status text)
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -9951,13 +10099,14 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::d
   SELECT e.engagement_id, e.engagement_code, e.engagement_name,
          e.activity_required, e.work_order_required, e.is_internal,
          e.practica, e.funcion, e.start_date, e.end_date, e.engagement_state_override,
-         e.client_id, c.client_legal_name
+         e.client_id, c.client_legal_name, e.partner_approval_status
     FROM public.engagements e
     LEFT JOIN public.clients c ON c.client_id = e.client_id
    WHERE public.has_permission('time_entry.create')
      AND e.status = 'active'
-     -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas, ni con override Aprobado.
-     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required)
+     -- Sin OT, el no-Cliente carga solo tras la firma real del Socio del encargo.
+     -- Ningún override ni una OT ajena a este flujo sustituyen esa firma.
+     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required OR e.partner_approval_status = 'approved')
      -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
      -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
      -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/8) bloquea, sin importar OT.
@@ -9979,8 +10128,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL::d
             AND wo.approval_status = 'Approved'
             AND COALESCE(wo.risk_status, '') <> 'Rejected'
        )
-       -- Group B: Cliente sin OT requerida. 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas.
-       OR (e.work_order_required = false AND COALESCE(e.funcion, 1) = 1)
+       -- Group B: sin OT requerida (no-Cliente ya pasó el control de firma).
+       OR e.work_order_required = false
        -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
        OR e.engagement_state_override IN (4, 5)
      )
@@ -10148,6 +10297,7 @@ CREATE FUNCTION public.list_portfolio_engagements() RETURNS jsonb
         'funcion',                    e.funcion,
         'partner_approval_status',    e.partner_approval_status,  -- 1110-220 plan_v5: estado de un no-Cliente sin OT
         'partner_approval_reason',    e.partner_approval_reason,
+        'partner_approval_legacy_source', e.partner_approval_legacy_source,
         'fecha_cierre',               e.fecha_cierre,
         'anio_fiscal_override',       e.anio_fiscal_override,
         'sqr_id',                     e.sqr_id,
@@ -10500,7 +10650,9 @@ CREATE FUNCTION public.my_approvable_engagement_ids() RETURNS SETOF uuid
    WHERE COALESCE(e.funcion, 1) <> 1
      AND e.manager_id = (SELECT public.get_my_staff_id())
      AND (SELECT public.is_eligible_hours_approver(public.get_my_staff_id()))
-     AND e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id()))
+     -- 2026-11-16 (operador): solo los roles con alcance por sociedad (Contabilidad) se limitan a la del encargo.
+     AND (NOT (SELECT public.is_society_scoped_role())
+          OR e.society_id = (SELECT s.society_id FROM public.staff s WHERE s.staff_id = (SELECT public.get_my_staff_id())))
   UNION
   SELECT e.engagement_id FROM public.engagements e
    WHERE COALESCE(e.funcion, 1) = 1
@@ -14090,6 +14242,12 @@ DECLARE
   v_base     jsonb;
   v_prev     text := CASE WHEN TG_OP = 'UPDATE' THEN OLD.status ELSE NULL END;
 BEGIN
+  -- D41 Parte I (ETL F3): la importación de horas históricas ya aprobadas (public.import_historic_timesheets) inserta las líneas `approved` con esta marca
+  -- transaccional; esas aprobaciones son del sistema anterior y no deben avisar a nadie. Cualquier otro camino sigue emitiendo como siempre.
+  IF current_setting('app.etl_import', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+
   -- El destinatario es siempre el dueño de la boleta (alcance `own`): el veredicto es sobre
   -- SU línea. Quien aprueba ya lo sabe, y su gerencia no está en esta fila de la matriz.
   SELECT tp.staff_id, tp.week_start_date
@@ -14989,7 +15147,7 @@ BEGIN
   wo_raw AS (
     SELECT
       s.engagement_id, s.wo_id, s.currency, s.season_mode,
-      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.tax_rate, 0.16) AS tax_rate,
       COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
       s.approval_status, s.approved_at,
       COALESCE(bl.fee, 0) AS total_standard_fee,
@@ -15533,7 +15691,7 @@ BEGIN
   finalized_wo_raw AS (
     SELECT
       fs.engagement_id, wo.wo_id, wo.currency, wo.season_mode,
-      COALESCE(wo.tax_rate, 0.13) AS tax_rate,
+      COALESCE(wo.tax_rate, 0.16) AS tax_rate,
       COALESCE(wo.adjustment_amount, 0) AS adjustment_amount,
       COALESCE(bl.fee, 0) AS total_standard_fee,
       COALESCE(eb.amt, 0) AS expense_budget,
@@ -16574,7 +16732,7 @@ BEGIN
   wo_raw AS (
     SELECT
       s.engagement_id, s.wo_id, s.currency, s.season_mode,
-      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.tax_rate, 0.16) AS tax_rate,
       COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
       s.approval_status,
       COALESCE(bl.fee, 0) AS total_standard_fee,
@@ -24717,7 +24875,7 @@ CREATE TABLE public.work_orders (
     engagement_id uuid NOT NULL,
     currency text NOT NULL,
     season_mode character varying(4) NOT NULL,
-    tax_rate numeric(5,4) DEFAULT 0.13,
+    tax_rate numeric(5,4) DEFAULT 0.16,
     adjustment_amount numeric(15,2) DEFAULT 0,
     notes text,
     created_at timestamp with time zone DEFAULT now(),
@@ -24970,7 +25128,7 @@ CREATE VIEW public.fund_request_selectable_work_orders WITH (security_invoker='f
    FROM ((public.work_orders wo
      JOIN public.engagements e ON ((e.engagement_id = wo.engagement_id)))
      LEFT JOIN public.staff s ON ((s.staff_id = e.manager_id)))
-  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id) AND (e.society_id = public.my_society_id()) AND public.can_request_funds_for_current_staff(e.engagement_id));
+  WHERE (((wo.approval_status)::text = 'Approved'::text) AND (public.get_my_staff_id() IS NOT NULL) AND public.engagement_allows_hours_or_requests(e.engagement_id) AND ((COALESCE((e.funcion)::integer, 1) = 1) OR e.work_order_required) AND (e.society_id = public.my_society_id()) AND public.can_request_funds_for_current_staff(e.engagement_id));
 
 
 --
@@ -25488,7 +25646,11 @@ CREATE TABLE public.timesheet_periods (
     total_hours numeric(6,2) DEFAULT 0,
     submitted_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    import_batch text,
+    imported_at timestamp with time zone,
+    CONSTRAINT timesheet_periods_import_closed_check CHECK (((import_batch IS NULL) OR ((is_period_locked IS TRUE) AND (submitted_at IS NOT NULL)))),
+    CONSTRAINT timesheet_periods_import_provenance_check CHECK (((import_batch IS NULL) = (imported_at IS NULL)))
 );
 
 
@@ -26007,54 +26169,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_12; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_12 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_11_13; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_13 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
--- Name: messages_2026_11_14; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_14 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_11_15; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -26075,6 +26189,54 @@ CREATE TABLE realtime.messages_2026_11_15 (
 --
 
 CREATE TABLE realtime.messages_2026_11_16 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_17; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_17 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_18; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_18 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_19; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_19 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -26367,27 +26529,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_12; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_12 FOR VALUES FROM ('2026-11-12 00:00:00') TO ('2026-11-13 00:00:00');
-
-
---
--- Name: messages_2026_11_13; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_13 FOR VALUES FROM ('2026-11-13 00:00:00') TO ('2026-11-14 00:00:00');
-
-
---
--- Name: messages_2026_11_14; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_14 FOR VALUES FROM ('2026-11-14 00:00:00') TO ('2026-11-15 00:00:00');
-
-
---
 -- Name: messages_2026_11_15; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26399,6 +26540,27 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_15
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_16 FOR VALUES FROM ('2026-11-16 00:00:00') TO ('2026-11-17 00:00:00');
+
+
+--
+-- Name: messages_2026_11_17; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_17 FOR VALUES FROM ('2026-11-17 00:00:00') TO ('2026-11-18 00:00:00');
+
+
+--
+-- Name: messages_2026_11_18; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_18 FOR VALUES FROM ('2026-11-18 00:00:00') TO ('2026-11-19 00:00:00');
+
+
+--
+-- Name: messages_2026_11_19; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_19 FOR VALUES FROM ('2026-11-19 00:00:00') TO ('2026-11-20 00:00:00');
 
 
 --
@@ -27368,30 +27530,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_12 messages_2026_11_12_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_12
-    ADD CONSTRAINT messages_2026_11_12_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_11_13 messages_2026_11_13_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_13
-    ADD CONSTRAINT messages_2026_11_13_pkey PRIMARY KEY (id, inserted_at);
-
-
---
--- Name: messages_2026_11_14 messages_2026_11_14_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_14
-    ADD CONSTRAINT messages_2026_11_14_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_11_15 messages_2026_11_15_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -27405,6 +27543,30 @@ ALTER TABLE ONLY realtime.messages_2026_11_15
 
 ALTER TABLE ONLY realtime.messages_2026_11_16
     ADD CONSTRAINT messages_2026_11_16_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_17 messages_2026_11_17_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_17
+    ADD CONSTRAINT messages_2026_11_17_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_18 messages_2026_11_18_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_18
+    ADD CONSTRAINT messages_2026_11_18_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_19 messages_2026_11_19_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_19
+    ADD CONSTRAINT messages_2026_11_19_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -28348,6 +28510,13 @@ CREATE INDEX idx_timesheet_periods_deadline ON public.timesheet_periods USING bt
 
 
 --
+-- Name: idx_timesheet_periods_import_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_timesheet_periods_import_batch ON public.timesheet_periods USING btree (import_batch) WHERE (import_batch IS NOT NULL);
+
+
+--
 -- Name: idx_timesheet_periods_staff_date; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -28530,27 +28699,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_12_inserted_at_topic_idx ON realtime.messages_2026_11_12 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_11_13_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_13_inserted_at_topic_idx ON realtime.messages_2026_11_13 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
--- Name: messages_2026_11_14_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_14_inserted_at_topic_idx ON realtime.messages_2026_11_14 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -28562,6 +28710,27 @@ CREATE INDEX messages_2026_11_15_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_16_inserted_at_topic_idx ON realtime.messages_2026_11_16 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_17_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_17_inserted_at_topic_idx ON realtime.messages_2026_11_17 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_18_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_18_inserted_at_topic_idx ON realtime.messages_2026_11_18 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_19_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_19_inserted_at_topic_idx ON realtime.messages_2026_11_19 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -28663,48 +28832,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_12_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_12_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_12_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_12_pkey;
-
-
---
--- Name: messages_2026_11_13_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_13_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_13_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_13_pkey;
-
-
---
--- Name: messages_2026_11_14_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_14_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_14_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_14_pkey;
-
-
---
 -- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -28733,6 +28860,48 @@ ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_16
 
 
 --
+-- Name: messages_2026_11_17_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_17_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_17_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_17_pkey;
+
+
+--
+-- Name: messages_2026_11_18_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_18_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_18_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_18_pkey;
+
+
+--
+-- Name: messages_2026_11_19_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_19_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_19_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_19_pkey;
+
+
+--
 -- Name: work_order_summary _RETURN; Type: RULE; Schema: public; Owner: -
 --
 
@@ -28754,7 +28923,9 @@ CREATE OR REPLACE VIEW public.work_order_summary WITH (security_invoker='true') 
             WHEN (COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) > (0)::numeric) THEN ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric))
             ELSE (1)::numeric
         END AS realization_percent,
-    ((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.13))) AS fee_with_tax_gross_up
+    (ceil(((((COALESCE(sum((bl.budgeted_hours * bl.standard_rate)), (0)::numeric) + COALESCE(wo.adjustment_amount, (0)::numeric)) + COALESCE(( SELECT sum(eb.budgeted_amount) AS sum
+           FROM public.wo_expense_budget eb
+          WHERE (eb.wo_id = wo.wo_id)), (0)::numeric)) / ((1)::numeric - COALESCE(wo.tax_rate, 0.16))) * (100)::numeric)) / (100)::numeric) AS fee_with_tax_gross_up
    FROM (public.work_orders wo
      LEFT JOIN public.wo_budget_lines bl ON ((wo.wo_id = bl.wo_id)))
   GROUP BY wo.wo_id;
@@ -29122,6 +29293,13 @@ CREATE TRIGGER trg_cascade_abbreviation_rename AFTER UPDATE OF abbreviation ON p
 --
 
 CREATE TRIGGER trg_check_engagement_dates BEFORE INSERT OR UPDATE ON public.time_entries FOR EACH ROW EXECUTE FUNCTION public.check_time_entry_engagement_dates();
+
+
+--
+-- Name: timer_entries trg_check_timer_engagement_approved; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_check_timer_engagement_approved BEFORE INSERT OR UPDATE OF engagement_id, started_at ON public.timer_entries FOR EACH ROW EXECUTE FUNCTION public.check_wo_approved();
 
 
 --
@@ -33038,5 +33216,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict J5cGo5u1wRKhdRFlFtBOu0uQUPhfSzCMOsc835nx2W6c6MeSVJJJFgfgENslATa
+\unrestrict sLT2QgDVD4BnNbv1LtoNQQhhoFIKmxlFPpagRckgD6s2Tv5ubUmkBgAmCx1XPsG
 

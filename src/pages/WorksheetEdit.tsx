@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { normalizeTaxRate } from "@/lib/taxRate";
 import {
   Dialog,
   DialogContent,
@@ -79,7 +80,7 @@ const WorksheetEdit = () => {
   const [woSeasonMode, setWOSeasonMode] = useState<"High" | "Low">("High");
   const [confirmCreate, setConfirmCreate] = useState(false);
 
-  const taxRate = parseFloat(globalTaxRate || "0.13");
+  const taxRate = normalizeTaxRate(globalTaxRate);
 
   // Initialize notes when worksheet loads
   useEffect(() => {

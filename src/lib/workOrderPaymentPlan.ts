@@ -1,5 +1,6 @@
 import { getBoliviaNationalHolidays } from './boliviaHolidays';
 import type { ExchangeRateMode, InstallmentCalendarState, PaymentInstallmentInput, PaymentInstallmentStatus, PaymentPlanInput } from '@/types/workOrderPaymentPlan';
+import { percentageCents, scaled } from './paymentMath.mjs';
 
 // Returns a new Date that is `days` business days after `start`.
 // Skips weekends and Bolivia national holidays.
@@ -47,7 +48,53 @@ export function distributePercentages(count: number, total: number = 100): numbe
 
 // Computes the installment amount from percentage and the total fee (honorario c/IVA).
 export function computeAmount(percentage: number, feeWithTax: number): number {
-  return parseFloat(((percentage / 100) * feeWithTax).toFixed(2));
+  return Number(percentageCents(scaled(feeWithTax.toFixed(2), 2), percentage.toFixed(6))) / 100;
+}
+
+// Repartir en moneda de la OT; las filas congeladas conservan su importe. Una
+// residuo legítimo de la última cuota se conserva si ya está congelado.
+// null indica que no se puede conciliar sin modificar una cuota congelada.
+export function allocateInstallmentAmounts(
+  rows: PaymentInstallmentInput[], total: number, woCurrency: string, rate: number | null | undefined,
+): PaymentInstallmentInput[] | null {
+  const totalCents = scaled(total.toFixed(2), 2);
+  const result = rows.map((row) => ({ ...row }));
+  const pending = result.map((row, index) => row.status === 'Pending' ? index : -1).filter((index) => index >= 0);
+  if (!result.length) return result;
+  const baseAmounts = result.map((row) => percentageCents(totalCents, row.percentage.toFixed(6)));
+  const pctSum = result.reduce((sum, row) => sum + scaled(row.percentage.toFixed(6), 6), 0n);
+  if (pctSum >= 99990000n && pctSum <= 100010000n) {
+    const residual = totalCents - baseAmounts.reduce((sum, amount) => sum + amount, 0n);
+    const last = result.length - 1;
+    const finalRow = result[last];
+    const canonicalLast = baseAmounts[last] + residual;
+    // ETL asigna el residuo a la última fila. Si ya está facturada y coincide
+    // en su moneda con ese importe, reconocerlo sin convertirla de regreso.
+    const canonicalConverted = canonicalLast >= 0n && finalRow.status !== 'Pending'
+      ? convertAmount(Number(canonicalLast) / 100, woCurrency, finalRow.currency ?? woCurrency, rate)
+      : null;
+    const frozenHasResidual = finalRow.amount != null && canonicalConverted != null &&
+      scaled(finalRow.amount.toFixed(2), 2) === scaled(canonicalConverted.toFixed(2), 2);
+    const target = frozenHasResidual || !pending.length ? last : pending[pending.length - 1];
+    baseAmounts[target] += residual;
+    if (baseAmounts[target] < 0n) return null;
+  }
+  for (let index = 0; index < result.length; index++) {
+    const row = result[index];
+    if (row.status === 'Pending') continue;
+    if (row.amount == null) return null;
+    // La conversión inversa pierde centavos. Comparar en la moneda persistida
+    // con el mismo TC del plan utilizado para calcular la cuota.
+    const expected = convertAmount(Number(baseAmounts[index]) / 100, woCurrency, row.currency ?? woCurrency, rate);
+    if (expected == null || scaled(expected.toFixed(2), 2) !== scaled(row.amount.toFixed(2), 2)) return null;
+  }
+  for (const index of pending) {
+    const row = result[index];
+    const converted = convertAmount(Number(baseAmounts[index]) / 100, woCurrency, row.currency ?? woCurrency, rate);
+    if (converted == null) return null;
+    row.amount = converted;
+  }
+  return result;
 }
 
 /**

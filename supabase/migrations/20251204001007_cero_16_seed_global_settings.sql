@@ -16,7 +16,7 @@
 -- HOLIDAY_ENGAGEMENT_ID queda vacío por diseño (no existe todavía el encargo de feriados).
 
 INSERT INTO public.global_settings (setting_key, setting_value, description) VALUES
-  ('TAX_RATE',                  '0.13',                   'VAT tax rate (13%)'),
+  ('TAX_RATE',                  '0.16',                   'Tax rate on fees (16%: IVA 13% + IT 3%)'),
   ('DAILY_MIN',                 '8',                      'Minimum hours per day (visual indicator in timesheet grid)'),
   ('DAILY_MAX',                 '10',                     'Maximum hours per day (visual indicator and tracker guard)'),
   ('WEEKLY_MIN',                '40',                     'Minimum weekly hours required to submit timesheet'),

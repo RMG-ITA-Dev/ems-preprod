@@ -44,7 +44,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL)
     end_date date,
     engagement_state_override smallint,
     client_id uuid,
-    client_legal_name character varying(255)
+    client_legal_name character varying(255),
+    partner_approval_status text
   )
     LANGUAGE sql STABLE SECURITY DEFINER
     SET search_path TO 'public'
@@ -56,13 +57,14 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL)
   SELECT e.engagement_id, e.engagement_code, e.engagement_name,
          e.activity_required, e.work_order_required, e.is_internal,
          e.practica, e.funcion, e.start_date, e.end_date, e.engagement_state_override,
-         e.client_id, c.client_legal_name
+         e.client_id, c.client_legal_name, e.partner_approval_status
     FROM public.engagements e
     LEFT JOIN public.clients c ON c.client_id = e.client_id
    WHERE public.has_permission('time_entry.create')
      AND e.status = 'active'
-     -- 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas, ni con override Aprobado.
-     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required)
+     -- Sin OT, el no-Cliente carga solo tras la firma real del Socio del encargo.
+     -- Ningún override ni una OT ajena a este flujo sustituyen esa firma.
+     AND (COALESCE(e.funcion, 1) = 1 OR e.work_order_required OR e.partner_approval_status = 'approved')
      -- Regla de check_wo_approved()/engagement_allows_hours_or_requests(): con override manual
      -- presente, SOLO 4 (Aprobado) y 5 (Aprobado Emergencia) permiten cargar horas -- el resto
      -- (1 Pendiente, 2 AprobadoSocio, 3 AprobadoRiesgos, 6/8) bloquea, sin importar OT.
@@ -84,8 +86,8 @@ CREATE FUNCTION public.list_loggable_engagements(p_ref_date date DEFAULT NULL)
             AND wo.approval_status = 'Approved'
             AND COALESCE(wo.risk_status, '') <> 'Rejected'
        )
-       -- Group B: Cliente sin OT requerida. 1110-220 (plan_v5, Q2): un no-Cliente sin OT no carga horas.
-       OR (e.work_order_required = false AND COALESCE(e.funcion, 1) = 1)
+       -- Group B: sin OT requerida (no-Cliente ya pasó el control de firma).
+       OR e.work_order_required = false
        -- Group B: override manual Aprobado/Emergencia (4/5), cargable aunque la OT no lo esté.
        OR e.engagement_state_override IN (4, 5)
      )

@@ -278,8 +278,9 @@ BEGIN
   --   aprobada/rechazada/revertida para hr_analyst (los avisos de OT de un no-Cliente van al creador).
   -- + 60 de 1110-220 (review de Codex): los avisos de fondos que van al gerente de la OT (55) y la reversión ejecutada
   --   (senior, ita_senior, tax_senior, hr_analyst) y rechazada (hr_analyst) para los Aprobadores de horas posibles.
-  IF v_grants <> 788 THEN
-    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 788', v_grants;
+  -- + 11 de risk_partner como Aprobador de horas posible (2026-11-16): 10 avisos de fondos y el envío de horas a aprobar.
+  IF v_grants <> 799 THEN
+    RAISE EXCEPTION 'TEST FAIL — % concesiones, se esperaban 799', v_grants;
   END IF;
   -- 1110-220: los tres Gerentes de encargos administrativos reciben el envío de horas a aprobar.
   IF (SELECT count(*) FROM public.notification_role_types
@@ -311,7 +312,7 @@ BEGIN
   IF v_roles <> 24 THEN
     RAISE EXCEPTION 'TEST FAIL — % roles con notificaciones, se esperaban los 24', v_roles;
   END IF;
-  RAISE NOTICE 'PASS — seed converge a la matriz: 99 tipos, 788 concesiones, 24 roles';
+  RAISE NOTICE 'PASS — seed converge a la matriz: 99 tipos, 799 concesiones, 24 roles';
 
   -- La FK a authorization_roles ya lo garantiza, pero un seed mal generado podría
   -- referenciar un role_key que exista y no corresponda: esto lo hace explícito.

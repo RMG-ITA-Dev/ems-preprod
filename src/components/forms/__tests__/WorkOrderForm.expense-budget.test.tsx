@@ -108,6 +108,13 @@ function renderForm(overrides: Record<string, unknown> = {}) {
 }
 
 describe("WorkOrderForm — Expense Budget type filtering (0722-165)", () => {
+  it.each([0, 0.16])("incluye gastos en la base imponible con tasa %s", (taxRate) => {
+    renderForm({ taxRate, adjustmentAmount: 84, expenseBudget: [{ id: "e1", expense_type_id: EXPENSE_FLIGHTS, budgeted_amount: 16 }] });
+    const beforeTax = screen.getByText("workOrders.totalWithoutVAT").parentElement;
+    const gross = screen.getByText("workOrders.feeWithTax").parentElement;
+    expect(beforeTax).toHaveTextContent("100");
+    expect(gross).toHaveTextContent(taxRate ? "119" : "100");
+  });
   it("EB1: a row keeps its own selected expense type in its own dropdown even when no other row shares it", () => {
     renderForm({
       expenseBudget: [

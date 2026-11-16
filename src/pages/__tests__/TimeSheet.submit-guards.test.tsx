@@ -304,6 +304,27 @@ describe("canUnsubmit guard — Bug 0424-101", () => {
     expect(screen.queryByText("timesheet.unsubmit")).not.toBeInTheDocument();
   });
 
+  it("shows the imported-history notice (not the generic lock) for an imported D41 week, and no unsubmit", () => {
+    mockUseTimesheetWeek.mockReturnValue({
+      ...SUBMITTED_WEEK,
+      period: { ...SUBMITTED_WEEK.period, is_period_locked: true, import_batch: "legacy:TimeControlDB_20261106_1600:d41", imported_at: "2026-11-13T12:00:00Z" },
+    });
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText("timesheet.periodImported")).toBeInTheDocument();
+    expect(screen.queryByText("timesheet.periodLocked")).not.toBeInTheDocument();
+    expect(screen.queryByText("timesheet.unsubmit")).not.toBeInTheDocument();
+  });
+
+  it("keeps the generic lock notice for a locked week that was not imported", () => {
+    mockUseTimesheetWeek.mockReturnValue({
+      ...SUBMITTED_WEEK,
+      period: { ...SUBMITTED_WEEK.period, is_period_locked: true },
+    });
+    renderWithRouter(<TimeSheet />);
+    expect(screen.getByText("timesheet.periodLocked")).toBeInTheDocument();
+    expect(screen.queryByText("timesheet.periodImported")).not.toBeInTheDocument();
+  });
+
   it("hides Retirar Envío when all lines are already approved on the current week", () => {
     mockUsePeriodLineApprovals.mockReturnValue({ data: [{ status: "approved" }] });
     renderWithRouter(<TimeSheet />);

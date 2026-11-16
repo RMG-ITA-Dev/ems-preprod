@@ -103,6 +103,9 @@ CREATE OR REPLACE FUNCTION public.effective_engagement_state(
     SET search_path TO 'public'
     AS $$
   SELECT CASE
+    WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1
+         AND p_partner_approval_status IS DISTINCT FROM 'approved' AND p_override IN (4, 5) THEN
+      CASE p_partner_approval_status WHEN 'rejected' THEN 8 ELSE 1 END
     WHEN p_override BETWEEN 1 AND 8 THEN p_override
     WHEN NOT p_wo_required AND COALESCE(p_funcion, 1) <> 1 THEN
       CASE p_partner_approval_status WHEN 'approved' THEN 4 WHEN 'rejected' THEN 8 ELSE 1 END
@@ -370,7 +373,7 @@ BEGIN
   wo_raw AS (
     SELECT
       s.engagement_id, s.wo_id, s.currency, s.season_mode,
-      COALESCE(s.tax_rate, 0.13) AS tax_rate,
+      COALESCE(s.tax_rate, 0.16) AS tax_rate,
       COALESCE(s.adjustment_amount, 0) AS adjustment_amount,
       s.approval_status, s.approved_at,
       COALESCE(bl.fee, 0) AS total_standard_fee,
@@ -914,7 +917,7 @@ BEGIN
   finalized_wo_raw AS (
     SELECT
       fs.engagement_id, wo.wo_id, wo.currency, wo.season_mode,
-      COALESCE(wo.tax_rate, 0.13) AS tax_rate,
+      COALESCE(wo.tax_rate, 0.16) AS tax_rate,
       COALESCE(wo.adjustment_amount, 0) AS adjustment_amount,
       COALESCE(bl.fee, 0) AS total_standard_fee,
       COALESCE(eb.amt, 0) AS expense_budget,

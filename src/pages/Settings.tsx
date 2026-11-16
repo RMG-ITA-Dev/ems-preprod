@@ -80,6 +80,7 @@ import { formatFiscalYearEnd } from "@/lib/fiscalYearDisplay";
 import { AUTH_MODE_SETTING_KEY } from "@/lib/authMode";
 import { useHolidayEngagementId } from "@/hooks/useHolidays";
 import { toast } from "sonner";
+import { isValidTaxRate } from "@/lib/taxRate";
 import { usePageLeaveLock } from "@/hooks/usePageLeaveLock";
 import { useIsMobile } from "@/hooks/useMobile";
 import { LeavePageDialog } from "@/components/ui/leave-page-dialog";
@@ -424,7 +425,7 @@ const Settings = () => {
     const persistedCompact = getSetting("COMPACT_FONT") === "true";
     const persistedDomain = getSetting("ALLOWED_EMAIL_DOMAIN") || "";
     const persistedAuthMode = getSetting(AUTH_MODE_SETTING_KEY) || "password";
-    const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString();
+    const persistedTax = (parseFloat(getSetting("TAX_RATE") || "0.16") * 100).toString();
     const persistedRealization = getSetting("REALIZATION_LIMIT") || "75";
     const persistedDailyMin = getSetting("DAILY_MIN") || "8";
     const persistedDailyMax = getSetting("DAILY_MAX") || "8";
@@ -858,6 +859,15 @@ const Settings = () => {
         }
         if (val.toString() !== (getSetting("TS_ALERT_WINDOW_WEEKS") || "4")) {
           alertWindowValue = val.toString();
+        }
+      }
+
+      // R403-10: la tasa de impuestos debe estar en [0, 100) %: con 100 % o más el divisor 1 − tasa no existe y las OT dejarían de abrir.
+      if (taxRate) {
+        const taxRatePercent = parseFloat(taxRate);
+        if (!isValidTaxRate(taxRatePercent / 100)) {
+          toast.error(t("settings.taxRateRangeError"));
+          return;
         }
       }
 
@@ -1573,7 +1583,7 @@ const Settings = () => {
                       <div className="flex items-center gap-2 max-w-[200px]">
                         <NumericInput
                           id="taxRate"
-                          value={taxRate || (parseFloat(getSetting("TAX_RATE") || "0.13") * 100).toString()}
+                          value={taxRate || (parseFloat(getSetting("TAX_RATE") || "0.16") * 100).toString()}
                           onValueChange={(value) => setTaxRate(value)}
                           placeholder="13"
                           decimals={2}
