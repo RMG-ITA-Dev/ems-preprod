@@ -240,6 +240,17 @@ BEGIN
   PERFORM pg_temp.expect_locked('2f cuota: alta de honorarios',
     $q$INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage, amount, status, installment_type)
        VALUES ('e0817178-0000-4000-8000-000000000007', '80817178-0000-4000-8000-000000000007', 4, 0, 0, 'Pending', 'fee')$q$);
+  -- Review de Codex (P1): el candado resuelve el encargo por wo_id, no por plan_id. Una cuota que apunte al plan
+  -- finalizado con el wo_id de una OT ACTIVA pasaría ese chequeo; la cierra el guard previo
+  -- wo_payment_installments_guard_exchange_rate (plan.wo_id debe ser igual a NEW.wo_id). Si ese invariante se
+  -- pierde, este caso queda en rojo y el candado debe pasar a resolver por plan_id.
+  PERFORM pg_temp.expect_locked('2g cuota: plan finalizado + wo_id de una OT activa (no evade el candado)',
+    $q$INSERT INTO public.wo_payment_installments (plan_id, wo_id, installment_number, percentage, amount, status, installment_type)
+       VALUES ('e0817178-0000-4000-8000-000000000007', '80817178-0000-4000-8000-000000000004', 5, 0, 0, 'Pending', 'fee')$q$,
+    'INSTALLMENT_WO_MISMATCH');
+  PERFORM pg_temp.expect_locked('2h cuota del plan finalizado: reasignar wo_id a una OT activa',
+    $q$UPDATE public.wo_payment_installments SET wo_id = '80817178-0000-4000-8000-000000000004'
+       WHERE installment_id = 'e1817178-0000-4000-8000-000000000001'$q$);
 
   -- ── 3. Cobranza sigue: columnas de cobranza y filas de gastos ────────────────────────────────────────────────
   PERFORM pg_temp.as_user(c_coll);
