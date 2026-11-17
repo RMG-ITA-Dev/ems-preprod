@@ -584,6 +584,30 @@ CREATE TRIGGER tr_sync_worksheet_status_from_wo AFTER UPDATE ON public.work_orde
 
 CREATE TRIGGER update_work_orders_updated_at BEFORE UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+--
+-- BUG 0817-178: un encargo 7 Finalizado es de solo lectura (bugs/0817-178/plan_v2.md). Admin (role_key) y sin sesión
+-- (cron) pasan, salvo en engagement_assignments, que espeja la RPC (6/7, también el admin). Horas, cobranza de cuotas,
+-- rendición y liquidación de fondos NO llevan candado (1028-217 y decisiones del operador 2026-11-16).
+--
+
+-- Encargo: evalúa la fila vieja; entrar a 7 sigue siendo legal. El nombre lo ordena después de
+-- trg_authorize_engagement_state_override y antes de los triggers que recalculan NEW.
+CREATE TRIGGER trg_engagements_finalized_lock BEFORE UPDATE OR DELETE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.block_finalized_engagement_edit();
+CREATE TRIGGER trg_work_orders_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('direct');
+CREATE TRIGGER trg_wo_budget_lines_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.wo_budget_lines FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+CREATE TRIGGER trg_wo_expense_budget_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.wo_expense_budget FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+CREATE TRIGGER trg_wo_staffing_requirements_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+CREATE TRIGGER trg_wo_staffing_requirement_skills_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.wo_staffing_requirement_skills FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo_req_skill');
+CREATE TRIGGER trg_activity_worksheets_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.activity_worksheets FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('direct');
+CREATE TRIGGER trg_activity_worksheet_cells_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_worksheet');
+-- Fondos: solo Aprobar la OT. Observar, rechazar, el reset del reenvío, desembolso, rendición y liquidación pasan.
+CREATE TRIGGER trg_fr_wo_finalized_approval_lock BEFORE UPDATE OF approval_status ON public.fund_request_work_orders FOR EACH ROW WHEN (NEW.approval_status = 'aprobado'::public.fr_wo_approval_status AND OLD.approval_status IS DISTINCT FROM NEW.approval_status) EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+-- Staffing del encargo: espejo de engagement_accepts_assignment_writes() (6/7), sin bypass de admin.
+CREATE TRIGGER trg_engagement_assignments_terminal_lock BEFORE INSERT OR UPDATE OR DELETE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.block_assignment_writes_on_terminal_engagement();
+-- Plan de pagos: solo la estructura; la cobranza y las filas de gastos siguen libres.
+CREATE TRIGGER trg_wo_payment_plan_finalized_lock BEFORE UPDATE OR DELETE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.block_finalized_payment_plan_structure();
+CREATE TRIGGER trg_wo_payment_installments_finalized_lock BEFORE INSERT OR UPDATE OR DELETE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.block_finalized_payment_plan_structure();
+
 
 --
 --

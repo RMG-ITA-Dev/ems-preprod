@@ -2347,3 +2347,12 @@ GRANT EXECUTE ON FUNCTION public.decide_engagement_partner_approval(p_engagement
 REVOKE ALL ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.resubmit_engagement_partner_approval(p_engagement_id uuid) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.notify_engagement_partner_approval_requested() FROM PUBLIC, anon, authenticated;
+
+-- BUG 0817-178: candado de solo lectura de un encargo Finalizado. Las funciones de trigger no se exponen (el trigger
+-- corre con el dueño); el predicado tampoco: solo lo llaman los triggers SECURITY DEFINER. Nunca PUBLIC ni anon.
+REVOKE ALL ON FUNCTION public.engagement_is_finalized(p_engagement_id uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.engagement_is_finalized(p_engagement_id uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.block_writes_on_finalized_engagement() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.block_finalized_engagement_edit() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.block_finalized_payment_plan_structure() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.block_assignment_writes_on_terminal_engagement() FROM PUBLIC, anon, authenticated;

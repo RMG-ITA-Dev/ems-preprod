@@ -243,6 +243,37 @@ describe("StaffAssignmentsCard", () => {
     expect(screen.getAllByText("engagement.assignments.addRow").length).toBeGreaterThan(0);
   });
 
+  // BUG 0817-178: espejo de EAS_ENGAGEMENT_LOCKED — un encargo 6 Cancelado / 7 Finalizado no acepta
+  // escrituras de staffing, ni del admin. Antes la grilla quedaba editable y el guardado fallaba.
+  it.each([6, 7])(
+    "engagement with override %s: read-only even for admin, and the RPC is never invoked",
+    (override) => {
+      mockRole = { isAdmin: true };
+      mockStaffRecord = { staff_id: "mgr-1" };
+      render(<StaffAssignmentsCard engagement={{ ...ENGAGEMENT, engagement_state_override: override }} />);
+      expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+      expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+      expect(screen.queryByText("engagement.assignments.save")).not.toBeInTheDocument();
+      expect(mockSaveAssignments).not.toHaveBeenCalled();
+    },
+  );
+
+  it("finalized non-client: read-only even when the administrative rule allows it", () => {
+    render(
+      <StaffAssignmentsCard
+        engagement={{ ...ENGAGEMENT, funcion: 0, engagement_state_override: 7 }}
+        canWriteAdministrative
+      />,
+    );
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.assignments.addRow")).not.toBeInTheDocument();
+  });
+
+  it("finalized engagement, responsible non-admin: read-only", () => {
+    render(<StaffAssignmentsCard engagement={{ ...ENGAGEMENT, engagement_state_override: 7 }} />);
+    expect(screen.getByText("engagement.assignments.readOnly")).toBeInTheDocument();
+  });
+
   it("adding a row makes Save/Discard active (dirty)", async () => {
     const user = userEvent.setup();
     render(<StaffAssignmentsCard engagement={ENGAGEMENT} />);

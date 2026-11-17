@@ -7,6 +7,8 @@ import {
   engagementStateI18nKey,
   ENGAGEMENT_STATES,
   isHiddenFromActivePickers,
+  isFinalizedEngagement,
+  engagementAcceptsAssignmentWrites,
   type EngagementStateInput,
   type WorkOrderStateInput,
 } from "@/lib/engagementStatus";
@@ -258,5 +260,46 @@ describe("BUG 0817-179 — retiro del estado 9 Congelado", () => {
     expect(en.engagementState["9"]).toBeUndefined();
     expect(es.status.frozen).toBeUndefined();
     expect(en.status.frozen).toBeUndefined();
+  });
+});
+
+describe("BUG 0817-178 — isFinalizedEngagement (solo lectura del 7)", () => {
+  const approvedWo: WorkOrderStateInput = {
+    approval_status: "Approved",
+    approved_at: "2026-01-01T00:00:00Z",
+    risk_status: "Approved",
+  };
+
+  it("override 7 Finalizado → true, aunque la OT derive a Aprobado", () => {
+    expect(
+      isFinalizedEngagement({ work_order_required: true, engagement_state_override: 7 }, approvedWo),
+    ).toBe(true);
+  });
+
+  it("estado derivado activo (sin override) → false", () => {
+    expect(isFinalizedEngagement({ work_order_required: true }, approvedWo)).toBe(false);
+    expect(isFinalizedEngagement({ work_order_required: false }, null)).toBe(false);
+  });
+
+  it("6 Cancelado NO es finalizado: conserva su tratamiento actual", () => {
+    expect(
+      isFinalizedEngagement({ work_order_required: true, engagement_state_override: 6 }, approvedWo),
+    ).toBe(false);
+  });
+
+  it("otros overrides manuales (4, 5, 8) → false", () => {
+    for (const o of [4, 5, 8]) {
+      expect(isFinalizedEngagement({ work_order_required: true, engagement_state_override: o }, approvedWo)).toBe(false);
+    }
+  });
+});
+
+describe("BUG 0817-178 — engagementAcceptsAssignmentWrites (espejo de EAS_ENGAGEMENT_LOCKED)", () => {
+  it("6 y 7 rechazan; NULL y el resto aceptan", () => {
+    expect(engagementAcceptsAssignmentWrites(6)).toBe(false);
+    expect(engagementAcceptsAssignmentWrites(7)).toBe(false);
+    expect(engagementAcceptsAssignmentWrites(null)).toBe(true);
+    expect(engagementAcceptsAssignmentWrites(undefined)).toBe(true);
+    expect(engagementAcceptsAssignmentWrites(4)).toBe(true);
   });
 });

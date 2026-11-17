@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict sLT2QgDVD4BnNbv1LtoNQQhhoFIKmxlFPpagRckgD6s2Tv5ubUmkBgAmCx1XPsG
+\restrict 8gBhy7hJ7iHppD2MM8MCbGi7fmRTQJNT7kn92ceV8IUTQW0cGnRPni9T7kgTbcN
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.12 (Ubuntu 17.12-1.pgdg26.04+1)
@@ -1749,6 +1749,164 @@ $$;
 --
 
 COMMENT ON FUNCTION public.begin_notification_email_attempt(p_email_id uuid) IS 'Gasta un intento de esa fila y refresca su arriendo. La llama el drenaje justo antes de entregarle el correo a Graph, para que el intento cuente un envio de verdad y no una fila que solo estuvo en el lote. Devuelve el numero de intento, o NULL si la fila ya no esta en sending.';
+
+
+--
+-- Name: block_assignment_writes_on_terminal_engagement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.block_assignment_writes_on_terminal_engagement() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_ids uuid[];
+  v_id  uuid;
+BEGIN
+  IF auth.uid() IS NULL
+     OR (TG_OP = 'DELETE' AND public.current_role_key() IS NOT DISTINCT FROM 'admin') THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN v_ids := v_ids || OLD.engagement_id; END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN v_ids := v_ids || NEW.engagement_id; END IF;
+
+  FOREACH v_id IN ARRAY v_ids LOOP
+    IF EXISTS (SELECT 1 FROM public.engagements e
+                WHERE e.engagement_id = v_id AND e.engagement_state_override IN (6, 7)
+                  FOR SHARE) THEN
+      RAISE EXCEPTION 'EAS_ENGAGEMENT_LOCKED: el encargo está Cancelado o Finalizado; sus asignaciones son de solo lectura'
+        USING ERRCODE = 'insufficient_privilege',
+              DETAIL  = jsonb_build_object('engagement_id', v_id, 'table', TG_TABLE_NAME)::text;
+    END IF;
+  END LOOP;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+-- Name: block_finalized_engagement_edit(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.block_finalized_engagement_edit() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL
+     OR public.current_role_key() IS NOT DISTINCT FROM 'admin'
+     OR OLD.engagement_state_override IS DISTINCT FROM 7 THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP = 'DELETE'
+     OR (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado y es de solo lectura'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL  = jsonb_build_object('engagement_id', OLD.engagement_id, 'table', TG_TABLE_NAME)::text;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: block_finalized_payment_plan_structure(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.block_finalized_payment_plan_structure() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_wo_id   uuid;
+  v_blocked boolean := false;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  v_wo_id := CASE WHEN TG_OP = 'INSERT' THEN NEW.wo_id ELSE OLD.wo_id END;
+
+  IF TG_TABLE_NAME = 'wo_payment_plan' THEN
+    v_blocked := TG_OP = 'DELETE'
+              OR (TG_OP = 'UPDATE'
+                  AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at'));
+  ELSIF TG_OP = 'INSERT' THEN
+    v_blocked := NEW.installment_type = 'fee';
+  ELSIF TG_OP = 'DELETE' THEN
+    v_blocked := OLD.installment_type = 'fee';
+  ELSE
+    -- Una fila es de honorarios si lo es antes o después del cambio (cambiar el tipo también es estructura).
+    v_blocked := (NEW.installment_type = 'fee' OR OLD.installment_type = 'fee')
+             AND (   NEW.installment_number  IS DISTINCT FROM OLD.installment_number
+                  OR NEW.percentage          IS DISTINCT FROM OLD.percentage
+                  OR NEW.amount              IS DISTINCT FROM OLD.amount
+                  OR NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+                  OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+                  OR NEW.plan_id             IS DISTINCT FROM OLD.plan_id
+                  OR NEW.wo_id               IS DISTINCT FROM OLD.wo_id
+                  OR NEW.installment_type    IS DISTINCT FROM OLD.installment_type);
+  END IF;
+
+  IF v_blocked AND (
+       public.engagement_is_finalized(public.resolve_wo_engagement_id(v_wo_id))
+       OR (TG_OP = 'UPDATE' AND NEW.wo_id IS DISTINCT FROM OLD.wo_id
+           AND public.engagement_is_finalized(public.resolve_wo_engagement_id(NEW.wo_id)))) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado; la estructura del plan de pagos es de solo lectura'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL  = jsonb_build_object('wo_id', v_wo_id, 'table', TG_TABLE_NAME)::text;
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+-- Name: block_writes_on_finalized_engagement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.block_writes_on_finalized_engagement() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_rows jsonb[];
+  v_row  jsonb;
+  v_eng  uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_ARGV[0] IS NULL OR TG_ARGV[0] NOT IN ('direct', 'by_wo', 'by_worksheet', 'by_wo_req_skill') THEN
+    RAISE EXCEPTION 'block_writes_on_finalized_engagement: camino desconocido %', TG_ARGV[0];
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN v_rows := v_rows || to_jsonb(OLD); END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN v_rows := v_rows || to_jsonb(NEW); END IF;
+
+  FOREACH v_row IN ARRAY v_rows LOOP
+    v_eng := CASE TG_ARGV[0]
+               WHEN 'direct'          THEN (v_row ->> 'engagement_id')::uuid
+               WHEN 'by_wo'           THEN public.resolve_wo_engagement_id((v_row ->> 'wo_id')::uuid)
+               WHEN 'by_worksheet'    THEN public.resolve_worksheet_engagement_id((v_row ->> 'worksheet_id')::uuid)
+               WHEN 'by_wo_req_skill' THEN public.resolve_wo_req_skill_engagement_id((v_row ->> 'requirement_id')::uuid)
+             END;
+    IF public.engagement_is_finalized(v_eng) THEN
+      RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado y es de solo lectura'
+        USING ERRCODE = 'insufficient_privilege',
+              DETAIL  = jsonb_build_object('engagement_id', v_eng, 'table', TG_TABLE_NAME)::text;
+    END IF;
+  END LOOP;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
 
 
 --
@@ -4907,6 +5065,23 @@ BEGIN
       AND wo.risk_status IS DISTINCT FROM 'Rejected'
   );
 END;
+$$;
+
+
+--
+-- Name: engagement_is_finalized(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.engagement_is_finalized(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(
+    (SELECT e.engagement_state_override = 7
+       FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id
+        FOR SHARE),
+    false)
 $$;
 
 
@@ -26169,22 +26344,6 @@ PARTITION BY RANGE (inserted_at);
 
 
 --
--- Name: messages_2026_11_15; Type: TABLE; Schema: realtime; Owner: -
---
-
-CREATE TABLE realtime.messages_2026_11_15 (
-    topic text NOT NULL,
-    extension text NOT NULL,
-    payload jsonb,
-    event text,
-    private boolean DEFAULT false,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    id uuid DEFAULT gen_random_uuid() NOT NULL
-);
-
-
---
 -- Name: messages_2026_11_16; Type: TABLE; Schema: realtime; Owner: -
 --
 
@@ -26237,6 +26396,22 @@ CREATE TABLE realtime.messages_2026_11_18 (
 --
 
 CREATE TABLE realtime.messages_2026_11_19 (
+    topic text NOT NULL,
+    extension text NOT NULL,
+    payload jsonb,
+    event text,
+    private boolean DEFAULT false,
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL
+);
+
+
+--
+-- Name: messages_2026_11_20; Type: TABLE; Schema: realtime; Owner: -
+--
+
+CREATE TABLE realtime.messages_2026_11_20 (
     topic text NOT NULL,
     extension text NOT NULL,
     payload jsonb,
@@ -26529,13 +26704,6 @@ CREATE TABLE supabase_migrations.schema_migrations (
 
 
 --
--- Name: messages_2026_11_15; Type: TABLE ATTACH; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_15 FOR VALUES FROM ('2026-11-15 00:00:00') TO ('2026-11-16 00:00:00');
-
-
---
 -- Name: messages_2026_11_16; Type: TABLE ATTACH; Schema: realtime; Owner: -
 --
 
@@ -26561,6 +26729,13 @@ ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_18
 --
 
 ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_19 FOR VALUES FROM ('2026-11-19 00:00:00') TO ('2026-11-20 00:00:00');
+
+
+--
+-- Name: messages_2026_11_20; Type: TABLE ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages ATTACH PARTITION realtime.messages_2026_11_20 FOR VALUES FROM ('2026-11-20 00:00:00') TO ('2026-11-21 00:00:00');
 
 
 --
@@ -27530,14 +27705,6 @@ ALTER TABLE ONLY realtime.messages
 
 
 --
--- Name: messages_2026_11_15 messages_2026_11_15_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
---
-
-ALTER TABLE ONLY realtime.messages_2026_11_15
-    ADD CONSTRAINT messages_2026_11_15_pkey PRIMARY KEY (id, inserted_at);
-
-
---
 -- Name: messages_2026_11_16 messages_2026_11_16_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
 --
 
@@ -27567,6 +27734,14 @@ ALTER TABLE ONLY realtime.messages_2026_11_18
 
 ALTER TABLE ONLY realtime.messages_2026_11_19
     ADD CONSTRAINT messages_2026_11_19_pkey PRIMARY KEY (id, inserted_at);
+
+
+--
+-- Name: messages_2026_11_20 messages_2026_11_20_pkey; Type: CONSTRAINT; Schema: realtime; Owner: -
+--
+
+ALTER TABLE ONLY realtime.messages_2026_11_20
+    ADD CONSTRAINT messages_2026_11_20_pkey PRIMARY KEY (id, inserted_at);
 
 
 --
@@ -28699,13 +28874,6 @@ CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING bt
 
 
 --
--- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
---
-
-CREATE INDEX messages_2026_11_15_inserted_at_topic_idx ON realtime.messages_2026_11_15 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
-
-
---
 -- Name: messages_2026_11_16_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
 --
 
@@ -28731,6 +28899,13 @@ CREATE INDEX messages_2026_11_18_inserted_at_topic_idx ON realtime.messages_2026
 --
 
 CREATE INDEX messages_2026_11_19_inserted_at_topic_idx ON realtime.messages_2026_11_19 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
+
+
+--
+-- Name: messages_2026_11_20_inserted_at_topic_idx; Type: INDEX; Schema: realtime; Owner: -
+--
+
+CREATE INDEX messages_2026_11_20_inserted_at_topic_idx ON realtime.messages_2026_11_20 USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -28832,20 +29007,6 @@ CREATE INDEX supabase_functions_hooks_request_id_idx ON supabase_functions.hooks
 
 
 --
--- Name: messages_2026_11_15_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_15_inserted_at_topic_idx;
-
-
---
--- Name: messages_2026_11_15_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
---
-
-ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_15_pkey;
-
-
---
 -- Name: messages_2026_11_16_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
 --
 
@@ -28899,6 +29060,20 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_19_pkey;
+
+
+--
+-- Name: messages_2026_11_20_inserted_at_topic_idx; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.messages_2026_11_20_inserted_at_topic_idx;
+
+
+--
+-- Name: messages_2026_11_20_pkey; Type: INDEX ATTACH; Schema: realtime; Owner: -
+--
+
+ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_11_20_pkey;
 
 
 --
@@ -29247,6 +29422,20 @@ CREATE TRIGGER tr_wo_installment_log_event AFTER UPDATE ON public.wo_payment_ins
 
 
 --
+-- Name: activity_worksheet_cells trg_activity_worksheet_cells_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_activity_worksheet_cells_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.activity_worksheet_cells FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_worksheet');
+
+
+--
+-- Name: activity_worksheets trg_activity_worksheets_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_activity_worksheets_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.activity_worksheets FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('direct');
+
+
+--
 -- Name: staff trg_apply_category_role_on_staff_link; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -29387,6 +29576,13 @@ CREATE TRIGGER trg_enforce_worksheet_cell_practice_scope BEFORE INSERT OR UPDATE
 
 
 --
+-- Name: engagement_assignments trg_engagement_assignments_terminal_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagement_assignments_terminal_lock BEFORE INSERT OR DELETE OR UPDATE ON public.engagement_assignments FOR EACH ROW EXECUTE FUNCTION public.block_assignment_writes_on_terminal_engagement();
+
+
+--
 -- Name: engagements trg_engagements_created_by; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -29405,6 +29601,13 @@ CREATE TRIGGER trg_engagements_creator_team BEFORE INSERT ON public.engagements 
 --
 
 CREATE TRIGGER trg_engagements_enforce_client_active BEFORE INSERT OR UPDATE OF client_id ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_client_active();
+
+
+--
+-- Name: engagements trg_engagements_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_engagements_finalized_lock BEFORE DELETE OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.block_finalized_engagement_edit();
 
 
 --
@@ -29447,6 +29650,13 @@ CREATE TRIGGER trg_engagements_partner_approval_notify AFTER INSERT OR UPDATE ON
 --
 
 CREATE TRIGGER trg_engagements_profile_scope BEFORE INSERT OR UPDATE ON public.engagements FOR EACH ROW EXECUTE FUNCTION public.enforce_engagement_profile_scope();
+
+
+--
+-- Name: fund_request_work_orders trg_fr_wo_finalized_approval_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_fr_wo_finalized_approval_lock BEFORE UPDATE OF approval_status ON public.fund_request_work_orders FOR EACH ROW WHEN (((new.approval_status = 'aprobado'::public.fr_wo_approval_status) AND (old.approval_status IS DISTINCT FROM new.approval_status))) EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
 
 
 --
@@ -29534,10 +29744,31 @@ CREATE TRIGGER trg_validate_timer_duration BEFORE INSERT OR UPDATE ON public.tim
 
 
 --
+-- Name: wo_budget_lines trg_wo_budget_lines_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_budget_lines_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.wo_budget_lines FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+
+
+--
+-- Name: wo_expense_budget trg_wo_expense_budget_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_expense_budget_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.wo_expense_budget FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+
+
+--
 -- Name: work_orders trg_wo_partner_signature_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER trg_wo_partner_signature_guard BEFORE INSERT OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.wo_guard_partner_signature();
+
+
+--
+-- Name: wo_payment_installments trg_wo_payment_installments_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_installments_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.wo_payment_installments FOR EACH ROW EXECUTE FUNCTION public.block_finalized_payment_plan_structure();
 
 
 --
@@ -29555,6 +29786,13 @@ CREATE TRIGGER trg_wo_payment_installments_guard_exchange_rate BEFORE INSERT OR 
 
 
 --
+-- Name: wo_payment_plan trg_wo_payment_plan_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_payment_plan_finalized_lock BEFORE DELETE OR UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.block_finalized_payment_plan_structure();
+
+
+--
 -- Name: wo_payment_plan trg_wo_payment_plan_guard_exchange_rate; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -29566,6 +29804,27 @@ CREATE TRIGGER trg_wo_payment_plan_guard_exchange_rate BEFORE INSERT OR DELETE O
 --
 
 CREATE TRIGGER trg_wo_payment_plan_sync_fixed_installments AFTER UPDATE ON public.wo_payment_plan FOR EACH ROW EXECUTE FUNCTION public.wo_payment_plan_sync_fixed_installments();
+
+
+--
+-- Name: wo_staffing_requirement_skills trg_wo_staffing_requirement_skills_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_staffing_requirement_skills_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.wo_staffing_requirement_skills FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo_req_skill');
+
+
+--
+-- Name: wo_staffing_requirements trg_wo_staffing_requirements_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_wo_staffing_requirements_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.wo_staffing_requirements FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('by_wo');
+
+
+--
+-- Name: work_orders trg_work_orders_finalized_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_work_orders_finalized_lock BEFORE INSERT OR DELETE OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION public.block_writes_on_finalized_engagement('direct');
 
 
 --
@@ -33216,5 +33475,5 @@ CREATE EVENT TRIGGER pgrst_drop_watch ON sql_drop
 -- PostgreSQL database dump complete
 --
 
-\unrestrict sLT2QgDVD4BnNbv1LtoNQQhhoFIKmxlFPpagRckgD6s2Tv5ubUmkBgAmCx1XPsG
+\unrestrict 8gBhy7hJ7iHppD2MM8MCbGi7fmRTQJNT7kn92ceV8IUTQW0cGnRPni9T7kgTbcN
 

@@ -876,6 +876,8 @@
     "datesLockedByState": "Dates can't be edited in this state (Cancelled or Finalized).",
     "selectPartner": "Select Partner/Director",
     "selectManager": "Select Manager/Supervisor",
+    "finalizedNotice": "This engagement is Finalized: you can view it and its records, but you can no longer change them.",
+    "adminEditFinalizedWarning": "This engagement is Finalized. As an administrator you can change it or reopen it by extending the end date. Review carefully before saving.",
     "lockedBySignatureNotice": "This engagement is already approved and can no longer be changed.",
     "adminEditSignedWarning": "This engagement is already approved. As an administrator you can change it, but changes affect hours, approvals and fund requests in progress. Review carefully before saving.",
     "partnerApproval": {
@@ -1049,6 +1051,7 @@
     }
   },
   "messages": {
+    "engagementFinalizedRejected": "The engagement is Finalized and is read-only. The change was not saved.",
     "createSuccess": "{{entity}} created successfully",
     "updateSuccess": "{{entity}} updated successfully",
     "deleteSuccess": "{{entity}} deleted successfully",
@@ -2787,6 +2790,7 @@
     "searchApprover": "Search manager...",
     "otsBlockedNoManager": "{{count}} approved WO(s) can't be used: their engagement has no manager assigned.",
     "otApproval": {
+      "finalizedApproveBlocked": "The engagement is Finalized: this work order can no longer be approved. You can still observe or reject it.",
       "title": "Approval by WO",
       "status": {
         "pendiente": "Pending",

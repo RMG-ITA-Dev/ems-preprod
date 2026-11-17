@@ -561,6 +561,36 @@ BEGIN
     END;
     RAISE NOTICE 'PASS — contabilidad de gastos: anon fuera de la bitácora y de las funciones nuevas; el job de plazos sin roles de API';
   END IF;
+
+  -- 17b. BUG 0817-178: el candado de solo lectura de un encargo Finalizado no se expone. Ni anon ni authenticated
+  --      ejecutan el predicado ni las funciones de trigger (corren con el dueño); PUBLIC tampoco.
+  IF to_regrole('anon') IS NOT NULL AND to_regrole('authenticated') IS NOT NULL THEN
+    DECLARE
+      fn text;
+      r  text;
+    BEGIN
+      FOREACH fn IN ARRAY ARRAY[
+        'public.engagement_is_finalized(uuid)',
+        'public.block_writes_on_finalized_engagement()',
+        'public.block_finalized_engagement_edit()',
+        'public.block_finalized_payment_plan_structure()',
+        'public.block_assignment_writes_on_terminal_engagement()'
+      ] LOOP
+        FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+          IF has_function_privilege(r, fn, 'EXECUTE') THEN
+            RAISE EXCEPTION 'CONVERGENCE FAIL — % ejecuta % (0817-178)', r, fn;
+          END IF;
+        END LOOP;
+        IF EXISTS (
+          SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+           WHERE p.oid = fn::regprocedure AND a.grantee = 0 AND a.privilege_type = 'EXECUTE'
+        ) THEN
+          RAISE EXCEPTION 'CONVERGENCE FAIL — PUBLIC ejecuta % (0817-178)', fn;
+        END IF;
+      END LOOP;
+    END;
+    RAISE NOTICE 'PASS — 0817-178: el candado de Finalizado no es ejecutable por PUBLIC, anon ni authenticated';
+  END IF;
 END $$;
 
 -- =====================================================================

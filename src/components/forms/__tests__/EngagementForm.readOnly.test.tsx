@@ -330,3 +330,52 @@ describe("EngagementForm — modo de solo lectura (0828-185)", () => {
     expect(onDirtyChange.mock.calls[0]).toEqual([false]);
   });
 });
+
+describe("EngagementForm — encargo Finalizado de solo lectura (BUG 0817-178)", () => {
+  const finalized: Engagement = { ...mockEngagement, engagement_state_override: 7 };
+
+  beforeEach(() => {
+    // Gerente asignado CON engagement.update: el candado viene del estado, no del permiso.
+    mockCanUpdate = true;
+    mockScope = "firm";
+    mockRoleKey = "manager";
+  });
+
+  it("no-admin con engagement.update: aviso de Finalizado, sin Guardar ni Eliminar", () => {
+    render(<EngagementForm engagement={finalized} />);
+    expect(screen.getByText("engagement.finalizedNotice")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.readOnlyNotice")).not.toBeInTheDocument();
+    expect(screen.queryByText("common.saveChanges")).not.toBeInTheDocument();
+    expect(screen.queryByText("common.delete")).not.toBeInTheDocument();
+  });
+
+  it("no-admin: campos primarios y los seis selectores del Equipo deshabilitados", () => {
+    render(<EngagementForm engagement={finalized} />);
+    expect(screen.getByRole("combobox", { name: /^engagement\.client/ })).toBeDisabled();
+    expect(screen.getByDisplayValue(mockEngagement.engagement_name)).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /^engagement\.partner/ })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /^engagement\.manager/ })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /^engagement\.specialistTax1/ })).toBeDisabled();
+  });
+
+  it("no-admin: Cancelar y la descarga del contrato siguen habilitados (consultar y navegar)", () => {
+    render(<EngagementForm engagement={finalized} />);
+    expect(screen.getByText("common.cancel").closest("button")).not.toBeDisabled();
+    expect(screen.getByText("engagement.downloadContract").closest("button")).not.toBeDisabled();
+  });
+
+  it("admin: edita con advertencia, Guardar y Eliminar visibles", () => {
+    mockRoleKey = "admin";
+    render(<EngagementForm engagement={finalized} />);
+    expect(screen.getByText("engagement.adminEditFinalizedWarning")).toBeInTheDocument();
+    expect(screen.queryByText("engagement.finalizedNotice")).not.toBeInTheDocument();
+    expect(screen.getByText("common.saveChanges")).toBeInTheDocument();
+    expect(screen.getByText("common.delete")).toBeInTheDocument();
+  });
+
+  it("6 Cancelado no activa el candado de Finalizado (fuera de alcance)", () => {
+    render(<EngagementForm engagement={{ ...mockEngagement, engagement_state_override: 6 }} />);
+    expect(screen.queryByText("engagement.finalizedNotice")).not.toBeInTheDocument();
+    expect(screen.getByText("common.saveChanges")).toBeInTheDocument();
+  });
+});

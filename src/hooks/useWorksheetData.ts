@@ -98,6 +98,10 @@ export function useWorksheetById(id: string | undefined) {
             engagement_code,
             status,
             practica,
+            engagement_state_override,
+            work_order_required,
+            funcion,
+            partner_approval_status,
             client:clients (
               client_id,
               client_legal_name,
@@ -122,7 +126,9 @@ export function useWorksheetById(id: string | undefined) {
           ),
           work_order:work_orders!activity_worksheets_wo_id_fkey (
             wo_id,
-            approval_status
+            approval_status,
+            approved_at,
+            risk_status
           )
         `)
         .eq("id", id)
@@ -154,8 +160,15 @@ export function useWorksheetById(id: string | undefined) {
       return {
         ...worksheet,
         cells: cells || [],
-      } as WorksheetWithCells & {
-        work_order: { wo_id: string; approval_status: string } | null;
+      } as unknown as WorksheetWithCells & {
+        // BUG 0817-178: approved_at/risk_status + los campos de estado del encargo alimentan
+        // effectiveEngagementState (candado de Finalizado en WorksheetEdit).
+        work_order: {
+          wo_id: string;
+          approval_status: string;
+          approved_at: string | null;
+          risk_status: string | null;
+        } | null;
       };
     },
     enabled: !!id,

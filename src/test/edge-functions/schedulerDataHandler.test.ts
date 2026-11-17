@@ -626,7 +626,7 @@ describe("scheduler-staff-load devuelve el encargo autorizado (B3c)", () => {
     expect(res.status).toBe(200);
     const eng = (res.payload as LoadPayload).engagement!;
     expect(Object.keys(eng).sort()).toEqual([
-      "client_name", "encargado_id", "end_date", "engagement_code", "engagement_id", "engagement_name",
+      "client_name", "encargado_id", "end_date", "engagement_code", "engagement_id", "engagement_name", "engagement_state_override",
       "manager_id", "partner_id", "practica", "specialist_it_id", "specialist_tax_id", "sqr_id", "start_date",
     ]);
     expect(eng).toMatchObject({

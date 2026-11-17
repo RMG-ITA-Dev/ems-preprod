@@ -213,6 +213,9 @@ interface WorkOrderFormProps {
   onRevertSocio?: () => void;
   onRevertRisk?: () => void;
   isLocked: boolean;
+  /** BUG 0817-178: encargo Finalizado y quien mira no es admin. Además de `isLocked`, apaga la
+   *  corrección en sitio de la pista Socio (OT Rechazada), que de otro modo deja editar y reenviar. */
+  engagementFinalizedLock?: boolean;
   canApprove: boolean;
   isSubmitting: boolean;
 }
@@ -442,6 +445,7 @@ export function WorkOrderForm({
   onRevertSocio,
   onRevertRisk,
   isLocked,
+  engagementFinalizedLock = false,
   canApprove,
   isSubmitting,
   woId = "",
@@ -607,7 +611,7 @@ export function WorkOrderForm({
     riskStatus === "Approved" || riskStatus === "Emergency_Approved"
   );
   // Pista Socio en modo corrección tras un rechazo (gastos/ajuste vuelven a editarse).
-  const socioCorrecting = socioRejected;
+  const socioCorrecting = socioRejected && !engagementFinalizedLock;
   // gastos/ajuste editables (la matriz/grid sigue siempre read-only). La pista Socio
   // aprobada (approved_at) NUNCA es editable; en Draft o en corrección tras rechazo sí.
   const isEditable = ((isDraft && !isLocked) || socioCorrecting) && !socioApproved;

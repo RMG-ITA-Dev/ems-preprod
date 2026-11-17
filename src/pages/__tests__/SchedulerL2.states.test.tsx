@@ -302,6 +302,31 @@ describe("write authorization (Fase 5 — is_engagement_responsible mirror)", ()
     expect(lastGantt().canWrite).toBe(false);
   });
 
+  // BUG 0817-178: espejo de EAS_ENGAGEMENT_LOCKED — un encargo 6 Cancelado / 7 Finalizado anula una
+  // responsabilidad de escritura por lo demás válida, también la del admin.
+  it.each([6, 7])("engagement with override %s: read-only for the responsible manager and for admin", (override) => {
+    mocks.load = loadState({ ...ENGAGEMENT, engagement_state_override: override });
+    mockRoleKey = "manager";
+    mockStaffRecord = { staff_id: "m-1" }; // ENGAGEMENT.manager_id
+    const { unmount } = renderPage();
+    expect(screen.getByText(/scheduler\.readOnly/)).toBeInTheDocument();
+    expect(screen.queryByText("scheduler.l2.addStaff")).not.toBeInTheDocument();
+    expect(lastGantt().canWrite).toBe(false);
+    unmount();
+
+    mockRoleKey = "admin";
+    mockStaffRecord = null;
+    renderPage();
+    expect(screen.queryByText("scheduler.l2.addStaff")).not.toBeInTheDocument();
+    expect(lastGantt().canWrite).toBe(false);
+  });
+
+  it("a deployment without engagement_state_override keeps the current behavior (the RPC stays authoritative)", () => {
+    mockRoleKey = "admin";
+    renderPage();
+    expect(lastGantt().canWrite).toBe(true);
+  });
+
   it("clicking '+ Agregar staff' opens the AssignmentSheet in add mode", () => {
     mockRoleKey = "admin";
     renderPage();

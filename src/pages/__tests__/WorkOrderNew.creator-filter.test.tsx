@@ -315,4 +315,27 @@ describe("WorkOrderNew — creator filter (BUG 0828-186 Punto D)", () => {
     expect(await screen.findByText("workOrders.selectEngagement")).toBeInTheDocument();
     expect(screen.queryByTestId("work-order-form")).not.toBeInTheDocument();
   });
+
+  // BUG 0817-178: un encargo 7 Finalizado no recibe OT nueva, aunque siga status='active' y sea
+  // del Gerente (mismo filtro que el selector de Nueva Matriz).
+  it("excludes a Finalizado (override 7) engagement even if active and owned", () => {
+    engagementsRef.current = [
+      makeEngagement({ engagement_id: "eng-final", engagement_code: "FIN.01", engagement_state_override: 7 }),
+    ];
+    renderPage();
+
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByText("FIN.01")).not.toBeInTheDocument();
+  });
+
+  it("does not preselect ?engagement= of a Finalizado engagement", async () => {
+    engagementsRef.current = [
+      makeEngagement({ engagement_id: "eng-final", engagement_code: "FIN.01", engagement_state_override: 7 }),
+    ];
+    mockSearchParams = new URLSearchParams("?engagement=eng-final");
+    renderPage();
+
+    expect(await screen.findByText("workOrders.selectEngagement")).toBeInTheDocument();
+    expect(screen.queryByTestId("work-order-form")).not.toBeInTheDocument();
+  });
 });

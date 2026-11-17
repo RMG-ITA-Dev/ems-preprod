@@ -362,6 +362,201 @@ $$;
 
 --
 --
+-- Name: block_assignment_writes_on_terminal_engagement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0817-178: espejo, a nivel tabla, de engagement_accepts_assignment_writes() (0817-179). La RPC
+-- save_engagement_assignments ya rechaza un encargo 6 Cancelado / 7 Finalizado con EAS_ENGAGEMENT_LOCKED, también
+-- para el admin; la RLS de engagement_assignments no mira el estado, así que un INSERT/UPDATE directo por API la
+-- evadía. Misma regla, sin bypass de admin. Excepciones: sin sesión (cron, service_role, seeds) y el DELETE del
+-- admin (borrado en cascada de un encargo o limpieza explícita).
+CREATE FUNCTION public.block_assignment_writes_on_terminal_engagement() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_ids uuid[];
+  v_id  uuid;
+BEGIN
+  IF auth.uid() IS NULL
+     OR (TG_OP = 'DELETE' AND public.current_role_key() IS NOT DISTINCT FROM 'admin') THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN v_ids := v_ids || OLD.engagement_id; END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN v_ids := v_ids || NEW.engagement_id; END IF;
+
+  FOREACH v_id IN ARRAY v_ids LOOP
+    IF EXISTS (SELECT 1 FROM public.engagements e
+                WHERE e.engagement_id = v_id AND e.engagement_state_override IN (6, 7)
+                  FOR SHARE) THEN
+      RAISE EXCEPTION 'EAS_ENGAGEMENT_LOCKED: el encargo está Cancelado o Finalizado; sus asignaciones son de solo lectura'
+        USING ERRCODE = 'insufficient_privilege',
+              DETAIL  = jsonb_build_object('engagement_id', v_id, 'table', TG_TABLE_NAME)::text;
+    END IF;
+  END LOOP;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+--
+-- Name: block_finalized_engagement_edit(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0817-178: un encargo 7 Finalizado es de solo lectura. BEFORE UPDATE OR DELETE de engagements, evaluado
+-- sobre la fila VIEJA: entrar a 7 (NULL/4 -> 7, a mano o por recompute_engagement_finalization) sigue siendo
+-- legal; una vez en 7, un no-admin no cambia ninguna columna (mismo diff que enforce_engagement_partner_approval,
+-- sin updated_at) ni lo borra. Admin (role_key, no is_admin(): enum legacy) pasa, para editar y para reabrir
+-- extendiendo end_date. Sin sesión (cron finalize-engagements, service_role, seeds) pasa.
+-- El trigger se llama trg_engagements_finalized_lock para correr DESPUÉS de trg_authorize_engagement_state_override
+-- (que conserva su mensaje para fechas y override) y ANTES de los que recalculan NEW (firma, recompute).
+CREATE FUNCTION public.block_finalized_engagement_edit() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL
+     OR public.current_role_key() IS NOT DISTINCT FROM 'admin'
+     OR OLD.engagement_state_override IS DISTINCT FROM 7 THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_OP = 'DELETE'
+     OR (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at') THEN
+    RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado y es de solo lectura'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL  = jsonb_build_object('engagement_id', OLD.engagement_id, 'table', TG_TABLE_NAME)::text;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+--
+-- Name: block_finalized_payment_plan_structure(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0817-178: en un encargo 7 Finalizado se congela la ESTRUCTURA del plan de pagos, no la cobranza.
+--   * wo_payment_plan: UPDATE y DELETE (TC, días, modo; borrarlo se llevaría las cuotas). El INSERT pasa: un plan
+--     vacío no cambia nada y create_expense_reimbursement_row() lo crea para colgar los gastos facturados.
+--   * wo_payment_installments, filas installment_type = 'fee': INSERT, DELETE y UPDATE de las columnas de
+--     ESTRUCTURA: installment_number, percentage, amount, agreed_invoice_date, agreed_payment_date, plan_id,
+--     wo_id, installment_type. Si se agrega una columna de estructura a la cuota, sumarla a esta lista.
+--   * Libre: filas 'expense_reimbursement' (las crea y ajusta Contabilidad, Cobranzas Fase 7) y, en las 'fee', las
+--     columnas de cobranza (status, current_*, collection_*, payment_date_actual, confirmation_*/confirmed_*,
+--     currency, *_exchange_rate*): invoice_installment, collect_installment, set_installment_overdue,
+--     reschedule_installment y record_installment_confirmation siguen funcionando.
+-- Admin (role_key) y sin sesión pasan. Resuelve el encargo por wo_id (resolve_wo_engagement_id).
+CREATE FUNCTION public.block_finalized_payment_plan_structure() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_wo_id   uuid;
+  v_blocked boolean := false;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  v_wo_id := CASE WHEN TG_OP = 'INSERT' THEN NEW.wo_id ELSE OLD.wo_id END;
+
+  IF TG_TABLE_NAME = 'wo_payment_plan' THEN
+    v_blocked := TG_OP = 'DELETE'
+              OR (TG_OP = 'UPDATE'
+                  AND (to_jsonb(NEW) - 'updated_at') IS DISTINCT FROM (to_jsonb(OLD) - 'updated_at'));
+  ELSIF TG_OP = 'INSERT' THEN
+    v_blocked := NEW.installment_type = 'fee';
+  ELSIF TG_OP = 'DELETE' THEN
+    v_blocked := OLD.installment_type = 'fee';
+  ELSE
+    -- Una fila es de honorarios si lo es antes o después del cambio (cambiar el tipo también es estructura).
+    v_blocked := (NEW.installment_type = 'fee' OR OLD.installment_type = 'fee')
+             AND (   NEW.installment_number  IS DISTINCT FROM OLD.installment_number
+                  OR NEW.percentage          IS DISTINCT FROM OLD.percentage
+                  OR NEW.amount              IS DISTINCT FROM OLD.amount
+                  OR NEW.agreed_invoice_date IS DISTINCT FROM OLD.agreed_invoice_date
+                  OR NEW.agreed_payment_date IS DISTINCT FROM OLD.agreed_payment_date
+                  OR NEW.plan_id             IS DISTINCT FROM OLD.plan_id
+                  OR NEW.wo_id               IS DISTINCT FROM OLD.wo_id
+                  OR NEW.installment_type    IS DISTINCT FROM OLD.installment_type);
+  END IF;
+
+  IF v_blocked AND (
+       public.engagement_is_finalized(public.resolve_wo_engagement_id(v_wo_id))
+       OR (TG_OP = 'UPDATE' AND NEW.wo_id IS DISTINCT FROM OLD.wo_id
+           AND public.engagement_is_finalized(public.resolve_wo_engagement_id(NEW.wo_id)))) THEN
+    RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado; la estructura del plan de pagos es de solo lectura'
+      USING ERRCODE = 'insufficient_privilege',
+            DETAIL  = jsonb_build_object('wo_id', v_wo_id, 'table', TG_TABLE_NAME)::text;
+  END IF;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+--
+-- Name: block_writes_on_finalized_engagement(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0817-178: trigger genérico de solo lectura para lo que cuelga de un encargo 7 Finalizado (OT, presupuesto,
+-- staffing de la OT, matriz y celdas, aprobación de OT en fondos). TG_ARGV[0] dice cómo llegar al encargo, con los
+-- mismos resolvers de las RESTRICTIVE administrativas (cero_05):
+--   direct          -> columna engagement_id
+--   by_wo           -> resolve_wo_engagement_id(wo_id)
+--   by_worksheet    -> resolve_worksheet_engagement_id(worksheet_id)
+--   by_wo_req_skill -> resolve_wo_req_skill_engagement_id(requirement_id)
+-- En UPDATE evalúa la fila vieja Y la nueva (mover la FK no permite escapar). Cubre también las RPC SECURITY DEFINER
+-- (save_wo_staffing, batch_upsert_worksheet_cells, approve_wo_risk, ...), que una política no alcanza. Admin
+-- (role_key) y sin sesión pasan. Las horas (time_entries/timer_entries) NO llevan este trigger: rige 1028-217.
+CREATE FUNCTION public.block_writes_on_finalized_engagement() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_rows jsonb[];
+  v_row  jsonb;
+  v_eng  uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_role_key() IS NOT DISTINCT FROM 'admin' THEN
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  IF TG_ARGV[0] IS NULL OR TG_ARGV[0] NOT IN ('direct', 'by_wo', 'by_worksheet', 'by_wo_req_skill') THEN
+    RAISE EXCEPTION 'block_writes_on_finalized_engagement: camino desconocido %', TG_ARGV[0];
+  END IF;
+
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN v_rows := v_rows || to_jsonb(OLD); END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN v_rows := v_rows || to_jsonb(NEW); END IF;
+
+  FOREACH v_row IN ARRAY v_rows LOOP
+    v_eng := CASE TG_ARGV[0]
+               WHEN 'direct'          THEN (v_row ->> 'engagement_id')::uuid
+               WHEN 'by_wo'           THEN public.resolve_wo_engagement_id((v_row ->> 'wo_id')::uuid)
+               WHEN 'by_worksheet'    THEN public.resolve_worksheet_engagement_id((v_row ->> 'worksheet_id')::uuid)
+               WHEN 'by_wo_req_skill' THEN public.resolve_wo_req_skill_engagement_id((v_row ->> 'requirement_id')::uuid)
+             END;
+    IF public.engagement_is_finalized(v_eng) THEN
+      RAISE EXCEPTION 'ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado y es de solo lectura'
+        USING ERRCODE = 'insufficient_privilege',
+              DETAIL  = jsonb_build_object('engagement_id', v_eng, 'table', TG_TABLE_NAME)::text;
+    END IF;
+  END LOOP;
+
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$;
+
+
+--
+--
 -- Name: hours_approver_role_keys(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2903,6 +3098,27 @@ BEGIN
       AND wo.risk_status IS DISTINCT FROM 'Rejected'
   );
 END;
+$$;
+
+
+--
+--
+-- Name: engagement_is_finalized(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+-- BUG 0817-178: ¿el encargo está 7 Finalizado? Solo cuenta el override: el 7 nunca se deriva de la OT. FOR SHARE
+-- serializa contra una finalización concurrente sin chocar con otras escrituras de hijos ni con el FOR KEY SHARE
+-- de las FK. Por el bloqueo es VOLATILE. NULL o inexistente => false. La usan los triggers de solo lectura.
+CREATE FUNCTION public.engagement_is_finalized(p_engagement_id uuid) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT COALESCE(
+    (SELECT e.engagement_state_override = 7
+       FROM public.engagements e
+      WHERE e.engagement_id = p_engagement_id
+        FOR SHARE),
+    false)
 $$;
 
 

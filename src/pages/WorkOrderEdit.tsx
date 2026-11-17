@@ -69,6 +69,8 @@ import { normalizeTaxRate } from "@/lib/taxRate";
 import { useWorksheetByEngagementId } from "@/hooks/useWorksheetData";
 import { useResyncWorksheetToWorkOrder } from "@/hooks/useWorksheetMutations";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { isFinalizedEngagement } from "@/lib/engagementStatus";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -420,11 +422,19 @@ const WorkOrderEdit = () => {
       ((roleKey === "hr_analyst" || roleKey === "hr_manager") &&
         isNonClientFuncion(workOrder?.engagement?.funcion) &&
         workOrder?.engagement?.created_by_staff_id === staffRecord.staff_id));
+  // BUG 0817-178: con el encargo 7 Finalizado la OT es de solo lectura para todos menos el admin
+  // (espejo del trigger block_writes_on_finalized_engagement). Plegado en canWriteWorkOrder, arrastra
+  // isLocked (campos, Guardar, Enviar, staffing, resync, estructura del plan) y canApprove. NO toca
+  // la cobranza: isStatusEditable, canBillExpenses, canWriteNotes ni canEditPaymentPlan (que también
+  // gobierna confirmar/reprogramar cuotas). Fail-closed: roleKey undefined => isAdmin false.
+  const lockedByFinalized =
+    !isAdmin && !!workOrder?.engagement && isFinalizedEngagement(workOrder.engagement, workOrder);
   const canWriteWorkOrder =
     isAdmin ||
+    (!lockedByFinalized &&
     (isEngagementTeamMember &&
       !!workOrder?.engagement &&
-      canWriteAdministrativeWork({ roleKey, myStaffId: staffRecord?.staff_id, engagement: workOrder.engagement }));
+      canWriteAdministrativeWork({ roleKey, myStaffId: staffRecord?.staff_id, engagement: workOrder.engagement })));
   // Decision del operador 2026-09-10: a diferencia de canWriteWorkOrder (socio O
   // gerente), el TC inicial del plan de pagos y el toggle Fijo/Variable quedan
   // reservados solo al gerente DEL encargo (o admin) -- "esta parte de TC" no debe
@@ -466,9 +476,9 @@ const WorkOrderEdit = () => {
   // 1028-213 (D-23): solo admin y los roles de Riesgos (risk_partner / risk_supervisor, que
   // tienen 'work_order.risk.approve') aprueban o rechazan; el SQR del encargo ya no.
   // Necesita staff record porque risk_approved_by referencia staff(staff_id).
-  const canApproveRisk = !!staffRecord && (isAdmin || can("work_order.risk.approve"));
+  const canApproveRisk = !!staffRecord && !lockedByFinalized && (isAdmin || can("work_order.risk.approve"));
   // D-38 / H-6: el paso 2 de emergencia (firma del Socio de Riesgos) es solo de risk_partner y admin.
-  const canSignEmergency = isAdmin || can("work_order.risk.emergency_sign");
+  const canSignEmergency = !lockedByFinalized && (isAdmin || can("work_order.risk.emergency_sign"));
 
   const approvalStatus = workOrder?.approval_status as "Draft" | "Pending_Approval" | "Approved" | "Rejected" || "Draft";
 
@@ -661,6 +671,11 @@ const WorkOrderEdit = () => {
   // the caller aborts without marking anything as submitted.
   const persistNonRiskChanges = async (): Promise<boolean> => {
     if (!workOrder) return false;
+    // BUG 0817-178: re-chequeo en el handler (render viejo o encargo finalizado con la pantalla abierta).
+    if (lockedByFinalized) {
+      toast.error(t("messages.engagementFinalizedRejected"));
+      return false;
+    }
 
     // Validate before any mutations to avoid partial saves
     if (!isAdministrativeEngagement && paymentInstallments.length > 0) {
@@ -1039,7 +1054,7 @@ const WorkOrderEdit = () => {
   };
 
   const handleResync = async () => {
-    if (!workOrder || !linkedWorksheet) return;
+    if (!workOrder || !linkedWorksheet || lockedByFinalized) return;
     await resyncWorksheet.mutateAsync({
       worksheetId: linkedWorksheet.id,
       woId: workOrder.wo_id,
@@ -1161,6 +1176,13 @@ const WorkOrderEdit = () => {
           </CardContent>
         </Card>
 
+        {/* BUG 0817-178: aviso de solo lectura por encargo Finalizado. */}
+        {lockedByFinalized && (
+          <Alert>
+            <AlertDescription>{t("engagement.finalizedNotice")}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Work Order Form */}
         <WorkOrderForm
           currency={currency}
@@ -1196,6 +1218,7 @@ const WorkOrderEdit = () => {
           }}
           rejectionNote={workOrder?.notes ?? null}
           isLocked={isLocked}
+          engagementFinalizedLock={lockedByFinalized}
           canApprove={canApprove}
           canApproveRisk={canApproveRisk}
           canSignEmergency={canSignEmergency}

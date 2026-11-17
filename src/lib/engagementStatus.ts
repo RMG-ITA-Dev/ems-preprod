@@ -161,6 +161,29 @@ export function isHiddenFromActivePickers(override: number | null | undefined): 
   );
 }
 
+/**
+ * BUG 0817-178: un encargo 7 Finalizado es de solo lectura, junto con lo que cuelga de él
+ * (OT, matriz, staffing, estructura del plan de pagos, aprobación de OT en fondos). Cubre
+ * SOLO el 7: 6 Cancelado conserva su tratamiento. Las horas NO pasan por aquí: se rigen por
+ * fecha (1028-217, useLoggableEngagements). El admin queda exceptuado en cada call site.
+ * Espejo del guard de base `engagement_is_finalized()`.
+ */
+export function isFinalizedEngagement(
+  engagement: EngagementStateInput,
+  workOrder?: WorkOrderStateInput | null,
+): boolean {
+  return effectiveEngagementState(engagement, workOrder) === EngagementState.Finalizado;
+}
+
+/**
+ * Espejo de `engagement_accepts_assignment_writes()` (0817-179): las asignaciones de staffing
+ * de un encargo 6 Cancelado o 7 Finalizado se rechazan en el servidor (EAS_ENGAGEMENT_LOCKED),
+ * también para el admin. Recibe el override crudo.
+ */
+export function engagementAcceptsAssignmentWrites(override: number | null | undefined): boolean {
+  return !isHiddenFromActivePickers(override);
+}
+
 /** Clave i18n de la etiqueta del estado (ej. "engagementState.4"). */
 export function engagementStateI18nKey(state: EngagementState): string {
   return `engagementState.${state}`;

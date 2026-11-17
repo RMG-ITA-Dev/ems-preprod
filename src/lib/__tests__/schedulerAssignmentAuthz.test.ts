@@ -17,6 +17,7 @@ const base: AssignmentWriteAuthzInput = {
   isAdmin: false,
   myStaffId: null,
   responsibleStaffIds: RESPONSIBLE_IDS,
+  engagementAcceptsWrites: true,
 };
 
 const input = (o: Partial<AssignmentWriteAuthzInput>) => ({ ...base, ...o });
@@ -65,5 +66,13 @@ describe("canWriteEngagementAssignments (is_engagement_responsible mirror, Fase 
         input({ myStaffId: "manager-1", responsibleStaffIds: [null, undefined, "manager-1"] })
       )
     ).toBe(true);
+  });
+
+  // BUG 0817-178: espejo de EAS_ENGAGEMENT_LOCKED (encargo 6 Cancelado / 7 Finalizado).
+  it("denies everyone, admin included, when the engagement does not accept writes", () => {
+    expect(canWriteEngagementAssignments(input({ isAdmin: true, engagementAcceptsWrites: false }))).toBe(false);
+    expect(
+      canWriteEngagementAssignments(input({ myStaffId: "manager-1", engagementAcceptsWrites: false }))
+    ).toBe(false);
   });
 });

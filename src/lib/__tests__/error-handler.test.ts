@@ -69,6 +69,16 @@ describe("handleError", () => {
     expect(result).toBeInstanceOf(AppError);
   });
 
+  it("traduce el rechazo de un encargo Finalizado (0817-178) en vez del mensaje genérico de permisos", () => {
+    const error = {
+      code: "42501",
+      message: "ENGAGEMENT_FINALIZED_LOCKED: el encargo está Finalizado y es de solo lectura",
+    };
+    const result = handleError(error, { showToast: false });
+    expect(result.code).toBe(ErrorCode.AUTH_FORBIDDEN);
+    expect(result.message).toBe("messages.engagementFinalizedRejected");
+  });
+
   it("traduce los rechazos por sociedad en vez del mensaje genérico de permisos", () => {
     // Alcance por sociedad (2026-10-28): 42501 con prefijo estable. El código sigue siendo FORBIDDEN;
     // lo que cambia es que la persona lee POR QUÉ (otra sociedad), no "no tiene permiso". El setup mockea

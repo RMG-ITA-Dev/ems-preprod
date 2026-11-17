@@ -111,6 +111,7 @@ const fundRequestSelect = `
         engagement_code,
         engagement_name,
         manager_id,
+        engagement_state_override,
         client:clients_directory(client_legal_name)
       )
     )

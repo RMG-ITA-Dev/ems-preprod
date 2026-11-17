@@ -30,6 +30,8 @@ interface EngagementPartnerApprovalCardProps {
   /** El formulario del encargo tiene cambios sin guardar: reenviar ahora mandaría al Socio la versión vieja, y aprobar o
    *  rechazar decidiría sobre la versión guardada (y aprobar activa el candado: ya no deja guardar lo que se ve). */
   hasUnsavedChanges?: boolean;
+  /** BUG 0817-178: el encargo está Finalizado y quien mira no es admin — se muestra el estado sin acciones. */
+  actionsLocked?: boolean;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -43,6 +45,7 @@ export function EngagementPartnerApprovalCard({
   myStaffId,
   roleKey,
   hasUnsavedChanges = false,
+  actionsLocked = false,
 }: EngagementPartnerApprovalCardProps) {
   const { t } = useTranslation();
   const decide = useDecideEngagementPartnerApproval();
@@ -51,7 +54,9 @@ export function EngagementPartnerApprovalCard({
   const [reason, setReason] = useState("");
 
   const status = engagement.partner_approval_status ?? "pending";
-  const { canDecide, canResubmit } = partnerApprovalActions({ engagement, myStaffId, roleKey });
+  const actions = partnerApprovalActions({ engagement, myStaffId, roleKey });
+  const canDecide = actions.canDecide && !actionsLocked;
+  const canResubmit = actions.canResubmit && !actionsLocked;
   const busy = decide.isPending || resubmit.isPending;
 
   return (
