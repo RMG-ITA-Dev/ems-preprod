@@ -17,6 +17,9 @@
 -- triggers no dependen de RLS); la identidad se simula con request.jwt.claims. Salida de éxito: una NOTICE por
 -- chequeo, terminando en "FINALIZED WRITE LOCK 0817-178: ALL CHECKS PASSED (rolled back)".
 --
+-- Fechas: siempre el día de La Paz, nunca CURRENT_DATE. Las RPC de cobranza comparan contra el día de La Paz y
+-- CI corre en UTC: entre las 20:00 y las 24:00 de La Paz, CURRENT_DATE ya es mañana y la fecha sale "futura".
+--
 -- Fixture: ids con prefijo 0817178. E7 Finalizado, E4 activo (control), E6 Cancelado, E0 override 4 (pasa a 7 por
 -- fecha con sesión), E9 derivado (pasa a 7 sin sesión), E8 Finalizado para el borrado en cascada del admin.
 
@@ -118,18 +121,18 @@ INSERT INTO public.wo_payment_installments
   (installment_id, plan_id, wo_id, installment_number, percentage, amount, status, installment_type,
    agreed_invoice_date, agreed_payment_date, invoice_exchange_rate, payment_exchange_rate) VALUES
   ('e1817178-0000-4000-8000-000000000001', 'e0817178-0000-4000-8000-000000000007', '80817178-0000-4000-8000-000000000007',
-   1, 50, 500, 'Pending', 'fee', CURRENT_DATE, CURRENT_DATE + 30, 6.96, 6.96),
+   1, 50, 500, 'Pending', 'fee', (now() AT TIME ZONE 'America/La_Paz')::date, (now() AT TIME ZONE 'America/La_Paz')::date + 30, 6.96, 6.96),
   ('e1817178-0000-4000-8000-000000000002', 'e0817178-0000-4000-8000-000000000007', '80817178-0000-4000-8000-000000000007',
-   2, 50, 500, 'Pending', 'fee', CURRENT_DATE + 30, CURRENT_DATE + 60, 6.96, 6.96),
+   2, 50, 500, 'Pending', 'fee', (now() AT TIME ZONE 'America/La_Paz')::date + 30, (now() AT TIME ZONE 'America/La_Paz')::date + 60, 6.96, 6.96),
   ('e1817178-0000-4000-8000-000000000003', 'e0817178-0000-4000-8000-000000000007', '80817178-0000-4000-8000-000000000007',
-   3, 0, 120, 'Pending', 'expense_reimbursement', CURRENT_DATE, CURRENT_DATE + 30, 6.96, 6.96);
+   3, 0, 120, 'Pending', 'expense_reimbursement', (now() AT TIME ZONE 'America/La_Paz')::date, (now() AT TIME ZONE 'America/La_Paz')::date + 30, 6.96, 6.96);
 
 -- E8 (el que borra el admin en 7k): plan de pagos con una cuota, para que la cascada recorra las tablas con candado.
 INSERT INTO public.wo_payment_plan (plan_id, wo_id, payment_days, exchange_rate, exchange_rate_mode) VALUES
   ('e0817178-0000-4000-8000-000000000008', '80817178-0000-4000-8000-000000000008', 30, 6.96, 'variable');
 INSERT INTO public.wo_payment_installments
   (plan_id, wo_id, installment_number, percentage, amount, status, installment_type, agreed_invoice_date, agreed_payment_date) VALUES
-  ('e0817178-0000-4000-8000-000000000008', '80817178-0000-4000-8000-000000000008', 1, 100, 1000, 'Pending', 'fee', CURRENT_DATE, CURRENT_DATE + 30);
+  ('e0817178-0000-4000-8000-000000000008', '80817178-0000-4000-8000-000000000008', 1, 100, 1000, 'Pending', 'fee', (now() AT TIME ZONE 'America/La_Paz')::date, (now() AT TIME ZONE 'America/La_Paz')::date + 30);
 
 -- Solicitudes de fondos sobre la OT del encargo 7, pendientes de decisión: 1..3 las decide el Gerente; la 4 un admin
 -- cargado como decisor (fr_wo_guard_approval_cols solo deja decidir al manager_staff_id de la fila).
@@ -255,23 +258,23 @@ BEGIN
   -- ── 3. Cobranza sigue: columnas de cobranza y filas de gastos ────────────────────────────────────────────────
   PERFORM pg_temp.as_user(c_coll);
   PERFORM pg_temp.expect_ok('3a cobranza: invoice_installment como collections_analyst',
-    $q$SELECT public.invoice_installment('e1817178-0000-4000-8000-000000000001', 'Pending', CURRENT_DATE + 30, CURRENT_DATE, 6.96)$q$);
+    $q$SELECT public.invoice_installment('e1817178-0000-4000-8000-000000000001', 'Pending', (now() AT TIME ZONE 'America/La_Paz')::date + 30, (now() AT TIME ZONE 'America/La_Paz')::date, 6.96)$q$);
   PERFORM pg_temp.expect_ok('3b cobranza: set_installment_overdue',
     $q$SELECT public.set_installment_overdue('e1817178-0000-4000-8000-000000000001', 'Invoiced', true)$q$);
   PERFORM pg_temp.expect_ok('3b2 cobranza: quitar la mora',
     $q$SELECT public.set_installment_overdue('e1817178-0000-4000-8000-000000000001', 'Overdue', false)$q$);
   PERFORM pg_temp.expect_ok('3c cobranza: collect_installment',
-    $q$SELECT public.collect_installment('e1817178-0000-4000-8000-000000000001', 'Invoiced', CURRENT_DATE, 6.97)$q$);
+    $q$SELECT public.collect_installment('e1817178-0000-4000-8000-000000000001', 'Invoiced', (now() AT TIME ZONE 'America/La_Paz')::date, 6.97)$q$);
   PERFORM pg_temp.expect_ok('3d gastos facturados: ajustar monto de la fila de gastos (directo)',
     $q$UPDATE public.wo_payment_installments SET amount = 130 WHERE installment_id = 'e1817178-0000-4000-8000-000000000003'$q$);
   PERFORM pg_temp.as_user(c_mgr);
   PERFORM pg_temp.expect_ok('3e cobranza: reschedule_installment como gerente',
-    $q$SELECT public.reschedule_installment('e1817178-0000-4000-8000-000000000002', CURRENT_DATE + 40, CURRENT_DATE + 70,
-         'el cliente pidió más plazo', CURRENT_DATE + 30)$q$);
+    $q$SELECT public.reschedule_installment('e1817178-0000-4000-8000-000000000002', (now() AT TIME ZONE 'America/La_Paz')::date + 40, (now() AT TIME ZONE 'America/La_Paz')::date + 70,
+         'el cliente pidió más plazo', (now() AT TIME ZONE 'America/La_Paz')::date + 30)$q$);
   PERFORM pg_temp.expect_ok('3f cobranza: record_installment_confirmation como gerente',
-    $q$SELECT public.record_installment_confirmation('e1817178-0000-4000-8000-000000000002', true, CURRENT_DATE + 40)$q$);
+    $q$SELECT public.record_installment_confirmation('e1817178-0000-4000-8000-000000000002', true, (now() AT TIME ZONE 'America/La_Paz')::date + 40)$q$);
   PERFORM pg_temp.expect_ok('3g cobranza: columna de cobranza directa (fecha vigente de pago)',
-    $q$UPDATE public.wo_payment_installments SET current_payment_date = CURRENT_DATE + 75
+    $q$UPDATE public.wo_payment_installments SET current_payment_date = (now() AT TIME ZONE 'America/La_Paz')::date + 75
         WHERE installment_id = 'e1817178-0000-4000-8000-000000000002'$q$);
 
   -- ── 4. Fondos: solo Aprobar la OT se bloquea ─────────────────────────────────────────────────────────────────
@@ -308,7 +311,7 @@ BEGIN
   -- ── 6. Entrar a 7 sigue siendo legal ─────────────────────────────────────────────────────────────────────────
   -- 6a. Con sesión de Gerente: acortar el fin de un encargo override 4 lo finaliza (recompute) y el candado no lo frena.
   PERFORM pg_temp.expect_ok('6a 4 -> 7 por fecha con sesión de Gerente',
-    $q$UPDATE public.engagements SET end_date = CURRENT_DATE - 1 WHERE engagement_id = '70817178-0000-4000-8000-000000000000'$q$);
+    $q$UPDATE public.engagements SET end_date = (now() AT TIME ZONE 'America/La_Paz')::date - 1 WHERE engagement_id = '70817178-0000-4000-8000-000000000000'$q$);
   SELECT engagement_state_override INTO v_override FROM public.engagements WHERE engagement_id = '70817178-0000-4000-8000-000000000000';
   IF v_override IS DISTINCT FROM 7 THEN
     RAISE EXCEPTION 'FAIL (6a): el encargo debía quedar en 7, quedó en %', v_override;
@@ -319,7 +322,7 @@ BEGIN
   -- 6c. Sin sesión (cron / service_role): NULL -> 7 por fecha, y luego puede seguir escribiendo.
   PERFORM pg_temp.as_user(NULL);
   PERFORM pg_temp.expect_ok('6c NULL -> 7 sin sesión',
-    $q$UPDATE public.engagements SET end_date = CURRENT_DATE - 1 WHERE engagement_id = '70817178-0000-4000-8000-000000000009'$q$);
+    $q$UPDATE public.engagements SET end_date = (now() AT TIME ZONE 'America/La_Paz')::date - 1 WHERE engagement_id = '70817178-0000-4000-8000-000000000009'$q$);
   SELECT engagement_state_override INTO v_override FROM public.engagements WHERE engagement_id = '70817178-0000-4000-8000-000000000009';
   IF v_override IS DISTINCT FROM 7 THEN
     RAISE EXCEPTION 'FAIL (6c): el encargo debía quedar en 7, quedó en %', v_override;
